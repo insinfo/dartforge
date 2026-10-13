@@ -53,7 +53,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// static type: the typed selector (`typed_entry.rs`).
     pub fn operate_dynamic(&mut self, op: BinaryOp, a: Operand, b: Operand, span: Span) -> Operand {
         let Some((name, _)) = operator(op) else {
-            return self.unsupported("operador sobre num/dynamic/objeto", span);
+            return self.unsupported("operator on num/dynamic/object", span);
         };
         let typed = self.all_checked(&[(None, a.clone())]);
         let r = self.call_by_name_with_typed_receiver(a, typed, super::sdk_source::AccessKind::Call, name, &[(None, b)]);

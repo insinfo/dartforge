@@ -113,13 +113,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let Some(setter) = setter.filter(|s| super::user_function(self.ctx, s.0 as usize)) else {
             let n = self.ctx.symbol_name(sym).to_string();
-            return self.unsupported(&format!("atribuição a `{n}` sem setter"), span);
+            return self.unsupported(&format!("assignment to `{n}` without a setter"), span);
         };
         let cur = match (matches!(op, ast::AssignOp::Compound(_)), getter) {
             (true, Some(g)) => Some(self.call_direct(g.0 as usize, None, Vec::new())),
             (true, None) => {
                 let n = self.ctx.symbol_name(sym).to_string();
-                return self.unsupported(&format!("leitura de `{n}` sem getter"), span);
+                return self.unsupported(&format!("read of `{n}` without a getter"), span);
             }
             _ => None,
         };
@@ -153,7 +153,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .accessor_of_same_owner(m, sym)
             .filter(|&g| self.ctx.program.functions[g.0 as usize].kind == FunctionKind::Getter);
         let Some(setter) = setter else {
-            return self.unsupported(&format!("atribuição a `{name}` sem setter"), span);
+            return self.unsupported(&format!("assignment to `{name}` without a setter"), span);
         };
         let (recv_op, receiver) = match recv {
             Some(r) => (self.lower_target(ast, r), self.ctx.get_type_raw(self.unit_id, r)),
@@ -164,7 +164,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let cur = if matches!(op, ast::AssignOp::Compound(_)) {
             let Some(g) = getter else {
-                return self.unsupported(&format!("leitura de `{name}` sem getter"), span);
+                return self.unsupported(&format!("read of `{name}` without a getter"), span);
             };
             Some(self.call_extension(recv_op.clone(), g.0 as usize, &[], receiver, None, span))
         } else {
@@ -268,7 +268,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         match self.store_local(sym, v) {
             Some(v) => v,
-            None => self.unsupported("atribuição a local desconhecido", span),
+            None => self.unsupported("assignment to an unknown local", span),
         }
     }
 
@@ -299,7 +299,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             Some(MemberRef::Function(f)) if !self.is_representation(MemberRef::Function(f)) => {
                                 self.assign_extension(ast, op, None, f, sym, value, span)
                             }
-                            _ => self.unsupported("atribuição à representação de tipo de extensão", span),
+                            _ => self.unsupported("assignment to the representation of an extension type", span),
                         }
                     }
                     Some(Resolved::Member { member, .. }) => {
@@ -351,12 +351,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         };
                         if composite && cur.is_none() {
                             return self
-                                .unsupported("atribuição composta a local desconhecido", span);
+                                .unsupported("compound assignment to an unknown local", span);
                         }
                         let v = self.combine(ast, op, cur, value);
                         match self.store_local(sym, v) {
                             Some(v) => v,
-                            None => self.unsupported("atribuição a local desconhecido", span),
+                            None => self.unsupported("assignment to an unknown local", span),
                         }
                     }
                 }
@@ -422,7 +422,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             let getter = self.ctx.program.extensions[e.0 as usize].static_members.get(&name.sym).copied();
                             let cur = match (composite, getter) {
                                 (true, Some(g)) => Some(self.call_direct(g.0 as usize, None, Vec::new())),
-                                (true, None) => return self.unsupported("leitura sem getter estático", span),
+                                (true, None) => return self.unsupported("read without a static getter", span),
                                 _ => None,
                             };
                             let v = self.combine(ast, op, cur, value);
@@ -431,7 +431,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                         _ => {
                             let n = self.ctx.symbol_name(name.sym).to_string();
-                            return self.unsupported(&format!("atribuição a `{n}` de extensão"), span);
+                            return self.unsupported(&format!("assignment to extension `{n}`"), span);
                         }
                     }
                 }
@@ -441,7 +441,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         MemberRef::Function(f) if !self.is_representation(m) => {
                             self.assign_extension(ast, op, Some(*recv), f, name.sym, value, span)
                         }
-                        _ => self.unsupported("atribuição à representação de tipo de extensão", span),
+                        _ => self.unsupported("assignment to the representation of an extension type", span),
                     };
                 }
                 // Extension setter (P4): a direct call with the receiver.
@@ -458,7 +458,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         self.ctx.get_resolved(self.unit_id, target).cloned()
                     else {
                         let n = self.ctx.symbol_name(name.sym).to_string();
-                        return self.unsupported(&format!("atribuição a `{n}`"), span);
+                        return self.unsupported(&format!("assignment to `{n}`"), span);
                     };
                     let member = if matches!(member, MemberRef::Function(f)
                         if self.ctx.program.functions[f.0 as usize].kind != FunctionKind::Setter
@@ -489,7 +489,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         );
                         return v;
                     }
-                    return self.unsupported(&format!("atribuição a `{n}`"), span);
+                    return self.unsupported(&format!("assignment to `{n}`"), span);
                 };
                 let recv_op = self.lower_expr(ast, *recv);
                 self.assign_member(Some(recv_op), member, ast, op, value, span)
@@ -509,7 +509,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if matches!(ast.expr(*t).kind, ast::ExprKind::Super) {
                     let i_op = self.lower_expr(ast, *index);
                     let (Some(get), Some(set)) = (self.ctx.interner.lookup("[]"), self.ctx.interner.lookup("[]=")) else {
-                        return self.unsupported("`super[]=` sem operador", span);
+                        return self.unsupported("`super[]=` without an operator", span);
                     };
                     let cur = composite.then(|| self.call_super_method(get, &[(None, i_op.clone())], span));
                     let v = self.combine(ast, op, cur, value);
@@ -524,7 +524,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(get) = self.extension_operator(target) {
                     let set = self.ctx.interner.lookup("[]=").and_then(|k| self.accessor_of_same_owner(get, k));
                     let Some(set) = set else {
-                        return self.unsupported("operador []= de extensão ausente", span);
+                        return self.unsupported("missing extension operator []=", span);
                     };
                     let receiver = self.ctx.get_type_raw(self.unit_id, *t);
                     let cur = composite.then(|| self.call_extension(t_op.clone(), get, &[(None, i_op.clone())], receiver, None, span));
@@ -581,7 +581,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(set) = self.program_operator(*t, "[]=") {
                     let cur = if composite {
                         let Some(get) = self.program_operator(*t, "[]") else {
-                            return self.unsupported("operador [] ausente", span);
+                            return self.unsupported("missing operator []", span);
                         };
                         Some(self.call_member(t_op.clone(), get, &[(None, i_op.clone())], span))
                     } else {
@@ -601,7 +601,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.call_by_name_typed(t_op, *t, AccessKind::Call, "[]=", &[(None, i_op), (None, v.clone())]);
                 v
             }
-            _ => self.unsupported("alvo de atribuição", span),
+            _ => self.unsupported("assignment target", span),
         }
     }
 
@@ -632,7 +632,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 return self.store_global(vid, v, span);
             }
             let Some(obj) = recv.or_else(|| self.this_param.clone()) else {
-                return self.unsupported("campo de instância fora de membro de instância", span);
+                return self.unsupported("instance field outside an instance member", span);
             };
             let cur = if composite {
                 Some(self.read_field_with_late(obj.clone(), vid, span))
@@ -651,7 +651,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let fid = f.0 as usize;
         let func = &self.ctx.program.functions[fid];
         if func.kind != FunctionKind::Setter || !super::user_function(self.ctx, fid) {
-            return self.unsupported("atribuição a membro que não é campo nem setter", span);
+            return self.unsupported("assignment to a member that is neither a field nor a setter", span);
         }
         let static_ty = func.static_;
         let name = self.ctx.symbol_name(func.name).to_string();
@@ -672,14 +672,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             });
             let Some(getter) = getter else {
-                return self.unsupported("getter ausente para atribuição composta", span);
+                return self.unsupported("missing getter for compound assignment", span);
             };
             let getter_member = MemberRef::Function(getter);
             if static_ty {
                 Some(self.read_static_member(getter_member, span))
             } else {
                 let Some(receiver) = obj.clone() else {
-                    return self.unsupported("setter fora de membro de instância", span);
+                    return self.unsupported("setter outside an instance member", span);
                 };
                 let getter_fid = getter.0 as usize;
                 if let Some(vid) = self.ctx.program.functions[getter_fid].variable {
@@ -696,7 +696,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return v;
         }
         let Some(obj) = obj else {
-            return self.unsupported("setter fora de membro de instância", span);
+            return self.unsupported("setter outside an instance member", span);
         };
         self.call_member(obj, fid, &[(None, v.clone())], span);
         v

@@ -47,7 +47,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut names: Vec<String> = named.iter().map(|(n, _)| self.ctx.symbol_name(n.sym).to_string()).collect();
         names.sort();
         let Some(id) = self.ctx.shape_id(positional.len(), &names) else {
-            return self.unsupported("record com forma desconhecida", span);
+            return self.unsupported("record with an unknown shape", span);
         };
         let mut values = Vec::with_capacity(items.len());
         let mut k_pos = 0usize;

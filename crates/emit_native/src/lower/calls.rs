@@ -101,7 +101,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // inference already resolved; the value is `x` itself.
             if let Some(Resolved::Element(dartforge_elements::model::Element::Extension(_))) = resolved {
                 let Some(a) = arguments.args.first() else {
-                    return self.unsupported("aplicação de extensão sem receptor", expr.span);
+                    return self.unsupported("extension application without a receiver", expr.span);
                 };
                 return self.lower_expr(ast, a.value);
             }
@@ -187,7 +187,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     let Some(this) = self.this_param.clone() else {
                         return self.unsupported(
-                            "método de instância fora de membro de instância",
+                            "instance method outside an instance member",
                             expr.span,
                         );
                     };
@@ -271,7 +271,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // with a prefix (§13.3), like `E(x)` above: the value is `x`.
                     Element::Extension(_) => {
                         let Some(a) = arguments.args.first() else {
-                            return self.unsupported("aplicação de extensão sem receptor", expr.span);
+                            return self.unsupported("extension application without a receiver", expr.span);
                         };
                         return self.lower_expr(ast, a.value);
                     }
@@ -311,7 +311,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let evaluated = self.evaluate_args(ast, &arguments.args);
                         return self.call_function_value(v, &evaluated);
                     }
-                    _ => return self.unsupported(&format!("membro estático de extensão `{m_name}`"), expr.span),
+                    _ => return self.unsupported(&format!("static extension member `{m_name}`"), expr.span),
                 }
             }
 
@@ -407,7 +407,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return op;
                     }
                 }
-                return self.unsupported(&format!("chamada estática `{m_name}`"), expr.span);
+                return self.unsupported(&format!("static call `{m_name}`"), expr.span);
             }
             // `C.name(…)` without resolution (closure body, operand of
             // `throw`): a named constructor or a static method by name.
@@ -557,9 +557,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Operand {
         let what = match &ast.expr(*target).kind {
             ExprKind::Property { name, .. } | ExprKind::Identifier(name) => {
-                format!("chamada `{}`", self.ctx.symbol_name(name.sym))
+                format!("call `{}`", self.ctx.symbol_name(name.sym))
             }
-            _ => "chamada de valor de função".to_string(),
+            _ => "call of a function value".to_string(),
         };
         self.unsupported(&what, expr.span)
     }

@@ -367,13 +367,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Symbol(names) => {
                 let name = self.symbol_literal_name(names);
                 let Some(class) = self.ctx.sdk_class("_internal", "Symbol") else {
-                    return self.unsupported("literal de símbolo sem dart:_internal", expr.span);
+                    return self.unsupported("symbol literal without dart:_internal", expr.span);
                 };
                 let Some(empty) = self.ctx.interner.lookup("") else {
-                    return self.unsupported("construtor de Symbol ausente", expr.span);
+                    return self.unsupported("missing Symbol constructor", expr.span);
                 };
                 let Some(&ctor) = self.ctx.program.classes[class.0 as usize].constructors.get(&empty) else {
-                    return self.unsupported("construtor de Symbol ausente", expr.span);
+                    return self.unsupported("missing Symbol constructor", expr.span);
                 };
                 let text = self.emit(Instruction::Const(Constant::String(name)), Type::Ref);
                 self.instantiate_evaluated(ctor, &[(None, text)], expr.span)
@@ -584,7 +584,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // name: the program is invalid (the VM's `Undefined name`). In
                 // the source SDK code, a missing construct.
                 if self.ctx.from_source.contains(&self.ctx.program.unit(self.unit_id).library) {
-                    return self.unsupported(&format!("identificador `{name_str}`"), span);
+                    return self.unsupported(&format!("identifier `{name_str}`"), span);
                 }
                 self.language_error(&format!("Undefined name '{name_str}'."), span)
             }
@@ -775,7 +775,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         self.emit(Instruction::LNot(b), Type::I1)
                     }
                     UnaryOp::BitNot => self.emit(Instruction::Not(sub_op), Type::I64),
-                    _ => self.unsupported("incremento/decremento de não-local", expr.span),
+                    _ => self.unsupported("increment/decrement of a non-local", expr.span),
                 }
             }
             ExprKind::Conditional {
@@ -867,7 +867,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Some(Resolved::ExtensionMember { member, .. }) => {
                             self.read_static_member(MemberRef::Function(member), span)
                         }
-                        _ => self.unsupported(&format!("membro estático de extensão `{prop_name}`"), span),
+                        _ => self.unsupported(&format!("static extension member `{prop_name}`"), span),
                     };
                 }
                 // `C<T…>.new` / `C<T…>.name`: a tear-off of an instantiated
@@ -880,7 +880,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let key = if prop_name == "new" { self.ctx.interner.lookup("") } else { Some(name.sym) };
                     let Some(f) = key.and_then(|k| self.ctx.program.classes[c.0 as usize].constructors.get(&k).copied())
                     else {
-                        return self.unsupported(&format!("construtor `{prop_name}`"), span);
+                        return self.unsupported(&format!("constructor `{prop_name}`"), span);
                     };
                     let args = self.type_argument_recipes(type_args);
                     let object = self.recipe_rti(&super::rti::Recipe {
@@ -1019,7 +1019,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Some(Resolved::Member { member, .. }) => {
                             self.read_static_member(member, span)
                         }
-                        _ => self.unsupported(&format!("membro estático `{prop_name}`"), span),
+                        _ => self.unsupported(&format!("static member `{prop_name}`"), span),
                     };
                 }
 
@@ -1125,7 +1125,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Index { target, index, .. } if matches!(ast.expr(*target).kind, ExprKind::Super) => {
                 let i = self.lower_expr(ast, *index);
                 let Some(name_str) = self.ctx.interner.lookup("[]") else {
-                    return self.unsupported("`super[]` sem operador", expr.span);
+                    return self.unsupported("`super[]` without an operator", expr.span);
                 };
                 let r = self.call_super_method(name_str, &[(None, i)], expr.span);
                 let repr = self.expression_repr(expr_id).unwrap_or(Type::Ref);
@@ -1268,10 +1268,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             };
                             match name_str {
                                 Some(n) => self.build_te(ast, expr_id, decl, n, &arguments.args, expr.span),
-                                None => self.unsupported("instanciação não resolvida", expr.span),
+                                None => self.unsupported("unresolved instantiation", expr.span),
                             }
                         }
-                        _ => self.unsupported("instanciação não resolvida", expr.span),
+                        _ => self.unsupported("unresolved instantiation", expr.span),
                     },
                 }
             }
@@ -1316,7 +1316,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             } => self.lower_cascade(ast, *target, sections, *null_aware),
             ExprKind::CascadeTarget => match self.current_cascade_target.clone() {
                 Some(t) => t,
-                None => self.unsupported("cascata", expr.span),
+                None => self.unsupported("cascade", expr.span),
             },
             ExprKind::PatternAssign { pattern, value } => {
                 let v = self.lower_expr(ast, *value);
@@ -1326,7 +1326,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Await(inner) => self.lower_await(ast, *inner, expr.span),
             ExprKind::This => match self.this_param.clone() {
                 Some(t) => t,
-                None => self.unsupported("`this` fora de membro de instância", expr.span),
+                None => self.unsupported("`this` outside an instance member", expr.span),
             },
             // `f<T…>`: an instantiated tear-off of a top-level or static generic
             // function (the type arguments go in the environment of the closure).
@@ -1363,14 +1363,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             other => {
                 let what = match other {
-                    ExprKind::Super => "`super` como valor",
+                    ExprKind::Super => "`super` as a value",
 
-                    ExprKind::TypeArguments { .. } => "instanciação de tipo genérico",
+                    ExprKind::TypeArguments { .. } => "generic type instantiation",
 
 
                     ExprKind::Await(_) => "await",
 
-                    _ => "expressão",
+                    _ => "expression",
                 };
                 self.unsupported(what, expr.span)
             }

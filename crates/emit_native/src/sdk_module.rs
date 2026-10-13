@@ -221,7 +221,7 @@ pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::Id
     if let Some(t) = memo.lock().unwrap_or_else(|e| e.into_inner()).get(lib_dir) {
         return Ok(t.clone());
     }
-    let key = sdk_key(lib_dir, "ids-de-classe", &[]);
+    let key = sdk_key(lib_dir, "class-ids", &[]);
     let dir = crate::cache::native_cache_dir().join("sdk_ids");
     let file = dir.join(format!("{key}.tsv"));
     let table = match std::fs::read_to_string(&file).ok().and_then(|t| IdTable::from_string(&t)) {

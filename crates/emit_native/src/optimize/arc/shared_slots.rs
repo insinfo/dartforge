@@ -381,8 +381,8 @@ pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
         for (v, name_str, ty) in &f.params {
             if ids.contains(v) {
                 let index = new()?;
-                parameters.push((*v, format!("{name_str}$quadro"), Type::I64));
-                parameters.push((index, format!("{name_str}$indice"), Type::I64));
+                parameters.push((*v, format!("{name_str}$frame"), Type::I64));
+                parameters.push((index, format!("{name_str}$index"), Type::I64));
                 pairs.insert(*v, (Operand::Val(*v), Operand::Val(index)));
                 r.borrowed_set
                     .entry(f.symbol.clone())

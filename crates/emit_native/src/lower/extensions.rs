@@ -48,7 +48,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn call_armed_extension(&mut self, recv: Operand, fid: usize, evaluated: &[Evaluated], is_call: bool, span: Span) -> Operand {
         let f = &self.ctx.program.functions[fid];
         if !super::user_function(self.ctx, fid) || !super::members::has_body(self.ctx, fid) {
-            return self.unsupported("membro de extensão do SDK", span);
+            return self.unsupported("SDK extension member", span);
         }
         if f.static_ {
             let args = self.match_args(fid, evaluated);
@@ -57,7 +57,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // The receiver in the representation of the `on` (extension) or of the
         // representation (extension type, `extension_types.rs`).
         let Some(r) = self.static_this_repr(fid) else {
-            return self.unsupported("membro de extensão sem extensão", span);
+            return self.unsupported("extension member without an extension", span);
         };
         let recv = self.coerce(recv, r);
         if f.kind == FunctionKind::Getter && (is_call || !evaluated.is_empty()) {

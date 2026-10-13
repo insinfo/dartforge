@@ -1558,7 +1558,7 @@ mod tests {
             let (mut fs, mut ps) = boxing(Operand::Val(ValueId(3)), Type::I64);
             fs[0].params = vec![
                 (ValueId(3), "numero".into(), Type::I64),
-                (ValueId(4), "$tipos".into(), Type::I64),
+                (ValueId(4), "$types".into(), Type::I64),
             ];
             let mut m = Module::new();
             m.arc_memory = true;

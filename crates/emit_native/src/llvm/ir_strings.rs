@@ -333,7 +333,7 @@ impl LlvmEmitter<'_> {
         if literals.is_empty() {
             return;
         }
-        self.out.push_str("; Literais de string estáticos (docs/NATIVO-ESPACO-UNIFICADO.md §2.11)\n");
+        self.out.push_str("; Static string literals (docs/NATIVO-ESPACO-UNIFICADO.md §2.11)\n");
         for def in literals.values() {
             self.out.push_str(def);
         }

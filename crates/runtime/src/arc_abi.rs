@@ -1144,7 +1144,7 @@ fn check_physical_layout(heap: &Heap, object: i64, ix: i64, layouts: &[i64]) -> 
     let fits = |fields: i64| usize::try_from(fields).ok() == Some(view.len());
     if layouts.len() % 2 != 0 || !(layout_fields(layouts, view.class_id).is_some_and(fits)
         || layouts.chunks_exact(2).any(|p| p[0] == view.class_id && fits(p[1]))) {
-        return Err("classe/tamanho fora dos layouts Ref");
+        return Err("class/size outside the Ref layouts");
     }
     Ok(())
 }
@@ -1203,7 +1203,7 @@ pub unsafe extern "C" fn dartforge_arc_write_field_scalar_checked_v1(
     let layouts = unsafe { std::slice::from_raw_parts(layouts, words) };
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        check_physical_layout(&heap, object, ix, layouts).expect("layout escalar ARC incompatível");
+        check_physical_layout(&heap, object, ix, layouts).expect("incompatible ARC scalar layout");
         write_audited_field(&mut heap, object, ix, bits, false)
             .expect("ARC checked scalar write contract violated");
     });
@@ -1248,7 +1248,7 @@ pub unsafe extern "C" fn dartforge_arc_read_field_scalar_checked_v1(
     let layouts = unsafe { std::slice::from_raw_parts(layouts, words) };
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        check_physical_layout(&heap, object, ix, layouts).expect("layout escalar ARC incompatível");
+        check_physical_layout(&heap, object, ix, layouts).expect("incompatible ARC scalar layout");
         read_audited_scalar_field(&heap, object, ix)
             .expect("ARC checked scalar read contract violated")
     })

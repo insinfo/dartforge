@@ -318,7 +318,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Some(i) => Operand::Constant(Constant::Int(i as i64)),
             None => match self.dynamic_index(obj.clone(), vid, span) {
                 Some(i) => i,
-                None => return self.unsupported("campo fora do layout do objeto", span),
+                None => return self.unsupported("field outside the object layout", span),
             },
         };
         let repr = self.field_repr(vid);
@@ -375,7 +375,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             None => match self.dynamic_index(obj.clone(), vid, span) {
                 Some(i) => i,
                 None => {
-                    self.unsupported("campo fora do layout do objeto", span);
+                    self.unsupported("field outside the object layout", span);
                     return;
                 }
             },
@@ -662,7 +662,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 return self.read_global(vid, span);
             }
             let Some(this) = self.this_param.clone() else {
-                return self.unsupported("campo de instância fora de membro de instância", span);
+                return self.unsupported("instance field outside an instance member", span);
             };
             return self.read_field_with_late(this, vid, span);
         }
@@ -673,24 +673,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let func = &self.ctx.program.functions[fid];
         if func.kind != FunctionKind::Getter {
             if !super::user_function(self.ctx, fid) {
-                return self.unsupported("tear-off de método do SDK", span);
+                return self.unsupported("SDK method tear-off", span);
             }
             if func.static_ {
                 return self.function_tearoff(fid);
             }
             let Some(this) = self.this_param.clone() else {
-                return self.unsupported("tear-off de método fora de membro de instância", span);
+                return self.unsupported("method tear-off outside an instance member", span);
             };
             return self.method_tearoff(this, fid, span);
         }
         if func.static_ {
             if !super::user_function(self.ctx, fid) {
-                return self.unsupported("getter estático do SDK", span);
+                return self.unsupported("SDK static getter", span);
             }
             return self.call_direct(fid, None, Vec::new());
         }
         let Some(this) = self.this_param.clone() else {
-            return self.unsupported("getter de instância fora de membro de instância", span);
+            return self.unsupported("instance getter outside an instance member", span);
         };
         self.call_member(this, fid, &[], span)
     }
@@ -705,7 +705,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if super::is_global(self.ctx, vid) {
                 return self.read_global(vid, span);
             }
-            return self.unsupported("constante de enum", span);
+            return self.unsupported("enum constant", span);
         }
         let MemberRef::Function(f) = member else {
             unreachable!()
@@ -719,7 +719,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if super::user_function(self.ctx, fid) && self.ctx.program.functions[fid].static_ {
             return self.function_tearoff(fid);
         }
-        self.unsupported("tear-off de membro estático", span)
+        self.unsupported("static member tear-off", span)
     }
 
     /// Identifier that resolves to a top-level element.
@@ -738,7 +738,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if super::user_function(self.ctx, fid) && func.kind != FunctionKind::Setter {
                     return self.function_tearoff(fid);
                 }
-                self.unsupported("tear-off de função", span)
+                self.unsupported("function tear-off", span)
             }
             // Type literal (`Fish`, `List`): the canonical `Type` object of the
             // raw type of the class (RTI).
@@ -760,7 +760,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::Ref,
                 )
             }
-            _ => self.unsupported("elemento de topo", span),
+            _ => self.unsupported("top-level element", span),
         }
     }
 
@@ -860,7 +860,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             None => match self.dynamic_index(obj.clone(), vid, span) {
                 Some(i) => i,
                 None => {
-                    self.unsupported("campo late fora do layout", span);
+                    self.unsupported("late field outside the layout", span);
                     return;
                 }
             },
@@ -902,7 +902,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             None => match self.dynamic_index(obj.clone(), vid, span) {
                 Some(i) => i,
                 None => {
-                    self.unsupported("campo late fora do layout", span);
+                    self.unsupported("late field outside the layout", span);
                     self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
                     return;
                 }
@@ -1511,7 +1511,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let fid = ctor_fid.0 as usize;
         let f = &self.ctx.program.functions[fid];
         let Some(cid) = f.class else {
-            return self.unsupported("construtor sem classe", span);
+            return self.unsupported("constructor without a class", span);
         };
         // The environment `const` factories are resolved by the CFE at
         // compile time. The native CLI does not accept `-D` yet, so no
@@ -1560,7 +1560,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .ctx
                 .symbol_name(self.ctx.program.classes[cid.0 as usize].name)
                 .to_string();
-            return self.unsupported(&format!("construtor de classe do SDK ({name_str})"), span);
+            return self.unsupported(&format!("SDK class constructor ({name_str})"), span);
         }
         // The concrete class (a mixin application) holds for this creation, not
         // for those that the evaluation of the arguments makes.
@@ -1621,7 +1621,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let fid = ctor_fid.0 as usize;
         let f = &self.ctx.program.functions[fid];
         let Some(cid_ctor) = f.class else {
-            return self.unsupported("construtor sem classe", span);
+            return self.unsupported("constructor without a class", span);
         };
         // The object is of the concrete class (a mixin application) when the
         // constructor is that of the superclass it forwards.
@@ -1645,7 +1645,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .ctx
                 .symbol_name(self.ctx.program.classes[cid.0 as usize].name)
                 .to_string();
-            return self.unsupported(&format!("construtor de classe do SDK ({name_str})"), span);
+            return self.unsupported(&format!("SDK class constructor ({name_str})"), span);
         }
         // The extension type constructor (`extension_types.rs`) is a
         // function that returns the representation, called like a factory.
@@ -1861,7 +1861,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         }
         let Some(&sf) = sup_class.constructors.get(&s) else {
-            self.unsupported("construtor da superclasse não encontrado", span);
+            self.unsupported("superclass constructor not found", span);
             return;
         };
         let sf = sf.0 as usize;
@@ -1895,7 +1895,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
             let s = target.map(|n| n.sym).unwrap_or(empty);
             let Some(&tf) = class_ref.constructors.get(&s) else {
-                self.unsupported("construtor redirecionado não encontrado", span);
+                self.unsupported("redirected constructor not found", span);
                 return;
             };
             let evaluated = self.evaluate_args(ast, &args.args);
@@ -1915,7 +1915,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             let Some(n) = p.name else { continue };
             let Some(vid) = self.own_field(cid, n.sym) else {
-                self.unsupported("parâmetro this.x sem campo", p.span);
+                self.unsupported("this.x parameter without a field", p.span);
                 continue;
             };
             let v = self.read_local_by_name(n.sym)
@@ -1932,7 +1932,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     name, value, span, ..
                 } => {
                     let Some(vid) = self.own_field(cid, name.sym) else {
-                        self.unsupported("inicializador de campo inexistente", *span);
+                        self.unsupported("initializer of a nonexistent field", *span);
                         continue;
                     };
                     let v = self.lower_expr(ast, *value);
@@ -2185,7 +2185,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .ctx
                 .symbol_name(self.ctx.program.variables[vid.0 as usize].name)
                 .to_string();
-            return self.unsupported(&format!("global do SDK ({name_str})"), span);
+            return self.unsupported(&format!("SDK global ({name_str})"), span);
         }
         let repr = self.repr(variable_type(self.ctx, vid));
         let v = self.emit_call_with_check(
@@ -2209,7 +2209,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         if !self.ctx.compiled_library(self.ctx.program.variables[vid.0 as usize].library)
         {
-            return self.unsupported("atribuição a global do SDK", span);
+            return self.unsupported("assignment to an SDK global", span);
         }
         let repr = self.repr(variable_type(self.ctx, vid));
         let val = self.coerce(val, repr);

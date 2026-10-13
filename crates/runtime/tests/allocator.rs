@@ -14,7 +14,7 @@ fn in_a_thread(f: impl FnOnce() + Send + 'static) {
         flush_allocation_cache();
     })
     .join()
-    .expect("thread do teste");
+    .expect("test thread");
 }
 
 #[test]

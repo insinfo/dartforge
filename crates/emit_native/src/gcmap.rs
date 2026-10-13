@@ -105,11 +105,11 @@ type Roots = Vec<(u8, i32)>;
 type Function = (u32, u64, Vec<(u32, Roots)>);
 
 pub(crate) fn u16_at(d: &[u8], p: usize) -> Result<u16, String> {
-    d.get(p..p + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).ok_or_else(|| "objeto COFF truncado".to_string())
+    d.get(p..p + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).ok_or_else(|| "truncated COFF object".to_string())
 }
 
 pub(crate) fn u32_at(d: &[u8], p: usize) -> Result<u32, String> {
-    d.get(p..p + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).ok_or_else(|| "objeto COFF truncado".to_string())
+    d.get(p..p + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).ok_or_else(|| "truncated COFF object".to_string())
 }
 
 pub(crate) fn u64_at(d: &[u8], p: usize) -> Result<u64, String> {
@@ -390,7 +390,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
     let strings = symbols + 18 * n_symbols;
     for s in 0..n_sections {
         let h = 20 + optional + 40 * s;
-        let name = object.get(h..h + 8).ok_or_else(|| "objeto COFF truncado".to_string())?;
+        let name = object.get(h..h + 8).ok_or_else(|| "truncated COFF object".to_string())?;
         // The name has more than 8 bytes: `/<offset in the string table>`.
         let is_the_map = match name.strip_prefix(b"/") {
             Some(rest) => {
@@ -411,7 +411,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         if features & SCN_NRELOC_OVFL != 0 {
             return Ok(false);
         }
-        let sec = object.get(data..data + size).ok_or_else(|| "objeto COFF truncado".to_string())?.to_vec();
+        let sec = object.get(data..data + size).ok_or_else(|| "truncated COFF object".to_string())?.to_vec();
         let mut symbol_in: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
         for k in 0..n_relocations {
             let e = relocations + 10 * k;

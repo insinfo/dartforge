@@ -25,7 +25,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    println!("=== DartForge Nativo (LLVM AOT) — Diferencial contra VM ===");
+    println!("=== DartForge Native (LLVM AOT) — Differential against the VM ===");
     println!("Total selected programs: {}", programs.len());
     println!();
 

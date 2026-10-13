@@ -384,7 +384,7 @@ impl StackTrace {
         if self.records.is_empty() {
             return;
         }
-        out.push_str("\n; O rastro no formato da VM (llvm/rastro.rs)\n");
+        out.push_str("\n; The stack trace in the VM's format (llvm/stack_trace.rs)\n");
         out.push_str(&self.definitions);
     }
 }

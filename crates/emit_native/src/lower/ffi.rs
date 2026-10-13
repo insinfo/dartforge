@@ -119,7 +119,7 @@ impl NativeTypes {
                         classes.insert(id, t);
                     }
                     None => {
-                        rejected.insert(id, "inteiro específico da ABI sem mapeamento para este alvo");
+                        rejected.insert(id, "ABI-specific integer without a mapping for this target");
                     }
                 }
             } else if c.supertype_class.is_some() && (c.supertype_class == struct_ || c.supertype_class == union_) {
@@ -1004,7 +1004,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::Ref,
                 );
                 let Some(f) = self.top_level_function("dart:ffi", "_dartforgeArray") else {
-                    return self.unsupported("dart:ffi sem `_dartforgeArray`", dartforge_diagnostics::Span { start: 0, end: 0 });
+                    return self.unsupported("dart:ffi without `_dartforgeArray`", dartforge_diagnostics::Span { start: 0, end: 0 });
                 };
                 let bytes = size_of(self.ctx, &elem) as i64;
                 let args = vec![
@@ -1278,7 +1278,7 @@ fn function_metadata<'p>(ctx: &'p Context, fid: usize) -> Option<(&'p str, &'p a
 
 /// Mark of [`NativeTypes::annotation_c_type`]: the name is of a
 /// struct/union (resolved by [`NativeTypes::annotation_native_type`]).
-const COMPOSITE_IN_ANNOTATION: &str = "struct por valor";
+const COMPOSITE_IN_ANNOTATION: &str = "struct by value";
 
 impl NativeTypes {
     /// The native type written in the annotation, with a struct/union by value (the
@@ -1354,7 +1354,7 @@ fn annotation_signature(
         let mut ps = Vec::with_capacity(params.len());
         let mut cs = Vec::with_capacity(params.len());
         for p in params {
-            let t = p.ty.ok_or_else(|| "parâmetro nativo sem tipo".to_string())?;
+            let t = p.ty.ok_or_else(|| "native parameter without a type".to_string())?;
             let (tn, c) = types.annotation_native_type(ctx, ast, t, lib)?;
             ps.push(tn);
             cs.push(c);
@@ -1391,11 +1391,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (source, ast, meta) = function_metadata(self.ctx, fid)?;
         let an = meta.iter().find(|an| an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native"))?;
         let Some(types) = NativeTypes::of_program(self.ctx) else {
-            return Some(self.unsupported("@Native sem dart:ffi", span));
+            return Some(self.unsupported("@Native without dart:ffi", span));
         };
         // The signature: `NF` of the annotation.
         let Some(&nf) = an.type_args.first() else {
-            return Some(self.unsupported("@Native sem o argumento de tipo da assinatura nativa", span));
+            return Some(self.unsupported("@Native without the type argument of the native signature", span));
         };
         let lib = self.ctx.program.functions[fid].library;
         let signature = annotation_signature(self.ctx, &types, ast, nf, lib, 0);
@@ -1409,7 +1409,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let _ = source;
         let target = self.symbol_address(&symbol);
         if args.len() != signature.params.len() {
-            return Some(self.unsupported("@Native com aridade diferente da assinatura nativa", span));
+            return Some(self.unsupported("@Native with an arity different from the native signature", span));
         }
         let dart_ret = self.return_repr(fid);
         let r = self.signature_native_call(target, args, &signature, None);

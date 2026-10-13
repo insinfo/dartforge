@@ -575,7 +575,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `UnsupportedError` with the symbol. It only runs if the analysis was wrong — the error
     /// is loud and says what was missing.
     pub fn pruned_body(&mut self) {
-        let msg = format!("dartforge: código podado como inalcançável foi chamado: {}", self.func.symbol);
+        let msg = format!("dartforge: code pruned as unreachable was called: {}", self.func.symbol);
         let m = self.emit(Instruction::Const(Constant::String(msg)), Type::Ref);
         let e = self.new_runtime_error("dartforge_unsupported_error_new", vec![(m, Type::Ref)]);
         self.emit_throw_op(e);
@@ -1246,14 +1246,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let t = self.recipe_rti(&r);
                     self.test_rti(op, t)
                 }
-                None => self.unsupported("teste de tipo com nome não resolvido", ast_ty.span),
+                None => self.unsupported("type test with an unresolved name", ast_ty.span),
             };
         }
         let ast::TypeKind::Named { name, .. } = &ast_ty.kind else {
-            return self.unsupported("teste de tipo estrutural", ast_ty.span);
+            return self.unsupported("structural type test", ast_ty.span);
         };
         let Some(last_one) = name.last() else {
-            return self.unsupported("teste de tipo", ast_ty.span);
+            return self.unsupported("type test", ast_ty.span);
         };
         let name_str = self.ctx.symbol_name(last_one.sym).to_string();
         let repr = self.operand_type(&op);
@@ -1311,7 +1311,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         _ => None,
                     });
                 let Some(id) = cid.and_then(|c| self.class_id_of(c)) else {
-                    return self.unsupported(&format!("teste de tipo `{name_str}`"), ast_ty.span);
+                    return self.unsupported(&format!("type test `{name_str}`"), ast_ty.span);
                 };
                 if id < 0 {
                     equal(self, id)
@@ -1353,7 +1353,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.cast_rti_in(op, t, context);
                 }
                 None => {
-                    self.unsupported("cast com nome não resolvido", ast_ty.span);
+                    self.unsupported("cast with an unresolved name", ast_ty.span);
                 }
             }
             return;

@@ -841,7 +841,7 @@ impl Function {
         let mut parts = base.split('$');
         let mut name = parts.next().unwrap_or_default().to_string();
         for p in parts {
-            if p.is_empty() || p == "async" || p == "ent" || p == "novo" || printing(p, 'e') || printing(p, 'q') || p.bytes().all(|b| b.is_ascii_digit()) {
+            if p.is_empty() || p == "async" || p == "ent" || p == "new" || printing(p, 'e') || printing(p, 'q') || p.bytes().all(|b| b.is_ascii_digit()) {
                 continue;
             }
             if let Some(k) = p.strip_prefix("clo")

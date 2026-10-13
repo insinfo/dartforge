@@ -10,7 +10,7 @@ impl LlvmEmitter<'_> {
         };
         certificate
             .check(self.module)
-            .expect("bug do compilador: portas ARC obsoletas");
+            .expect("compiler bug: stale ARC ports");
         assert!(
             !self.maps_in_jit,
             "AOT ARC ports require a fixed image; the JIT needs pins and retirement"

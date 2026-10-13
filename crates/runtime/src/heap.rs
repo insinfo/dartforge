@@ -3563,7 +3563,7 @@ impl Heap {
     pub fn set_flags(&mut self, h: Ref, mask: u8, value: u8) {
         assert!(
             mask & !(block_flags::FORMAT | block_flags::ELEMENT) == 0,
-            "runtime bug: set_flags only swaps FORMA and ELEMENTO"
+            "runtime bug: set_flags only swaps FORMAT and ELEMENT"
         );
         let b = self.live_block(h);
         Self::check_writable(b);

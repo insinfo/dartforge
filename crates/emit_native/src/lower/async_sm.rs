@@ -140,7 +140,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Calls the `dart:async` support `name` with the already evaluated arguments.
     pub(super) fn call_support(&mut self, name_str: &str, args: Vec<Operand>, span: Span) -> Operand {
         let Some(fid) = self.async_support(name_str) else {
-            return self.unsupported(&format!("apoio `{name_str}` do dart:async ausente"), span);
+            return self.unsupported(&format!("missing dart:async helper `{name_str}`"), span);
         };
         let evaluated: Vec<super::members::Evaluated> = args.into_iter().map(|a| (None, a)).collect();
         let args = self.match_args(fid, &evaluated);
@@ -574,7 +574,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             BodyType::SyncStar => {
                 // The frame of the stub is the template: each `iterator` starts the body
                 // in a new frame, with its parameters (`$new`).
-                let new_symbol = format!("{symbol_ent}$novo");
+                let new_symbol = format!("{symbol_ent}$new");
                 self.new_frame_function(&new_symbol, &symbol_ent, &parameters, size);
                 let env_s = self.emit(Instruction::AllocEnv { values: vec![frame_s] }, Type::Ref);
                 let new = self.emit(
@@ -683,7 +683,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn lower_yield(&mut self, ast: &ast::Ast, star: bool, e: ast::ExprId, span: Span) {
         let ty = self.async_state.as_ref().map(|e| e.ty);
         if !matches!(ty, Some(BodyType::SyncStar | BodyType::AsyncStar)) {
-            self.unsupported("yield fora de gerador", span);
+            self.unsupported("yield outside a generator", span);
             return;
         }
         let v = self.lower_expr(ast, e);
@@ -759,7 +759,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
     ) {
         if !self.async_state.as_ref().is_some_and(|e| e.ty != BodyType::SyncStar) {
-            self.unsupported("await for fora de função async", span);
+            self.unsupported("await for outside an async function", span);
             return;
         }
         let s = self.lower_expr(ast, iterable);
@@ -892,7 +892,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `await e` (specification §17.34): suspends until the `Future` completes.
     pub fn lower_await(&mut self, ast: &ast::Ast, e: ast::ExprId, span: Span) -> Operand {
         if !self.async_state.as_ref().is_some_and(|e| e.ty != BodyType::SyncStar) {
-            return self.unsupported("await fora de função async", span);
+            return self.unsupported("await outside an async function", span);
         }
         let v = self.lower_expr(ast, e);
         self.await_value(v, span)
@@ -902,7 +902,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `await for`).
     pub fn await_value(&mut self, v: Operand, span: Span) -> Operand {
         if !self.async_state.as_ref().is_some_and(|e| e.ty != BodyType::SyncStar) {
-            return self.unsupported("await fora de função async", span);
+            return self.unsupported("await outside an async function", span);
         }
         let v = if matches!(self.operand_type(&v), Type::Void) {
             Operand::Constant(Constant::Null)
@@ -950,7 +950,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn throw_async_error(&mut self, val_ref: Operand, span: Span) {
         let fields = self.async_error_fields();
         let Some((ve, vr)) = fields else {
-            self.unsupported("classe `_ErroAssincrono` do async_patch ausente", span);
+            self.unsupported("missing async_patch class `_ErroAssincrono`", span);
             return;
         };
         let error = self.read_field(val_ref.clone(), ve, span);

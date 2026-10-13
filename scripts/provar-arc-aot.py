@@ -167,7 +167,7 @@ def main():
                         diagnostico = stderr.read_bytes()
                         if code not in aborts or stdout.read_bytes() != b"" or not all(
                             trecho in diagnostico for trecho in (
-                                b"layout escalar ARC incompat", b"classe/tamanho fora dos layouts Ref")):
+                                b"incompatible ARC scalar layout", b"class/size outside the Ref layouts")):
                             raise RuntimeError(f"guarda de layout não recusou pelo motivo esperado: {stem} ({code})")
                         registro["rejeicao"] = "guarda de layout físico"
                     elif controle:

@@ -549,7 +549,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if b.cast_by_class_only {
                 Some(Operand::Constant(Constant::Bool(true)))
             } else if in_sdk {
-                Some(b.unsupported("teste de tipo sem classe no código do SDK (RTI pelo seletor)", ast_ty.span))
+                Some(b.unsupported("type test without a class in SDK code (RTI through the selector)", ast_ty.span))
             } else {
                 None
             }
@@ -717,22 +717,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Some(crate::natives::State::Runtime) => {}
                     Some(crate::natives::State::Builtin) => return Some(self.embedded_native(&n, fid, args)),
                     Some(crate::natives::State::Pending) => {
-                        return Some(self.unsupported(&format!("native pendente `{n}` ({member})"), span));
+                        return Some(self.unsupported(&format!("pending native `{n}` ({member})"), span));
                     }
-                    None => return Some(self.unsupported(&format!("native desconhecido `{n}` ({member})"), span)),
+                    None => return Some(self.unsupported(&format!("unknown native `{n}` ({member})"), span)),
                 }
                 n
             }
             None if recognized && let Some(op) = self.typed_factory(&member, args) => return Some(op),
             None if recognized => match crate::natives::intrinsic(&member) {
                 Some(n) => n.to_string(),
-                None => return Some(self.unsupported(&format!("intrínseco da VM `{member}`"), span)),
+                None => return Some(self.unsupported(&format!("VM intrinsic `{member}`"), span)),
             },
             None => {
                 if let Some(r) = self.call_annotated_native(fid, args, span) {
                     return Some(r);
                 }
-                return Some(self.unsupported(&format!("external sem implementação `{member}`"), span));
+                return Some(self.unsupported(&format!("external without an implementation `{member}`"), span));
             }
         };
         // The signature of the native is the representation of the declared types;
@@ -976,7 +976,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
                 if ret == Type::Void { c } else { self.coerce(c, ret) }
             }
-            _ => self.unsupported(&format!("native embutido `{name_str}`"), Span { start: 0, end: 0 }),
+            _ => self.unsupported(&format!("embedded native `{name_str}`"), Span { start: 0, end: 0 }),
         }
     }
 }
@@ -1576,7 +1576,7 @@ pub fn lower_function_or_reject(ctx: &Context, module: &mut Module, fid: usize) 
                 .to_string(),
         ),
         Err(p) => Some(format!(
-            "pânico do lowering: {}",
+            "lowering panic: {}",
             p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default()
         )),
     };
@@ -1650,7 +1650,7 @@ pub fn lower_sdk_patterns(ctx: &Context, module: &mut Module) {
                     module.rejected.push((symbol, reason));
                 }
                 Err(_) => {
-                    let reason = "pânico ao baixar o valor padrão".to_string();
+                    let reason = "panic while lowering the default value".to_string();
                     module.functions.push(rejected_pattern(ctx, unit, &symbol, &reason));
                     module.rejected.push((symbol, reason));
                 }
@@ -1873,7 +1873,7 @@ fn adapters_or_reject(ctx: &Context, module: &mut Module, generate: impl FnOnce(
         .errors
         .first()
         .map(|e| e.strip_prefix(crate::UNSUPPORTED_PREFIX).unwrap_or(e).to_string())
-        .unwrap_or_else(|| "pânico do lowering".to_string());
+        .unwrap_or_else(|| "lowering panic".to_string());
     let reason = reason.rsplit_once(" (").map_or(reason.as_str(), |(a, _)| a).to_string();
     // Each built uniform entry and the corresponding typed one
     // (`$tc`/`$ts`, `typed_entry.rs`), which the table may cite even without
@@ -1940,7 +1940,7 @@ pub fn lower_late_getter_or_reject(
             return;
         }
         Ok(m) => m.errors[0].strip_prefix(crate::UNSUPPORTED_PREFIX).unwrap_or(&m.errors[0]).to_string(),
-        Err(_) => "pânico do lowering".to_string(),
+        Err(_) => "lowering panic".to_string(),
     };
     let reason = reason.rsplit_once(" (").map_or(reason.as_str(), |(a, _)| a).to_string();
     let name_str = ctx.symbol_name(ctx.program.variables[vid.0 as usize].name).to_string();
@@ -2014,7 +2014,7 @@ pub fn lower_global_or_reject(
         r => {
             let reason = match r {
                 Ok(m) => m.errors[0].strip_prefix(crate::UNSUPPORTED_PREFIX).unwrap_or(&m.errors[0]).to_string(),
-                Err(_) => "pânico do lowering".to_string(),
+                Err(_) => "lowering panic".to_string(),
             };
             let reason = reason.rsplit_once(" (").map_or(reason.as_str(), |(a, _)| a).to_string();
             let mut b = FnBuilder::new(ctx, unit, getter.clone(), name_str.clone(), repr);
@@ -2047,11 +2047,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let name_str = if map { "_Map" } else { "_Set" };
         let span = Span { start: 0, end: 0 };
         let Some(cid) = self.ctx.sdk_class("_compact_hash", name_str) else {
-            return self.unsupported(&format!("literal de coleção sem `{name_str}`"), span);
+            return self.unsupported(&format!("collection literal without `{name_str}`"), span);
         };
         let empty = self.ctx.interner.lookup("");
         let Some(ctor) = empty.and_then(|v| self.ctx.program.classes[cid.0 as usize].constructors.get(&v).copied()) else {
-            return self.unsupported(&format!("`{name_str}()` ausente"), span);
+            return self.unsupported(&format!("missing `{name_str}()`"), span);
         };
         self.instantiate_evaluated(ctor, &[], span)
     }
@@ -2124,7 +2124,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let x = self.coerce(x, ty);
                     self.store_local(id.sym, x);
                 } else {
-                    self.unsupported("alvo de for-in", span);
+                    self.unsupported("for-in target", span);
                 }
             }
             ForInTarget::Pattern { pattern, .. } => {

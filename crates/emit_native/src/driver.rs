@@ -199,7 +199,7 @@ pub fn compile_and_link(
             }
         }
         if options.timings {
-            eprintln!("  Partes:    {} objetos", objects.len());
+            eprintln!("  Parts:     {} objects", objects.len());
         }
         if cache.is_none() {
             for o in &objects {

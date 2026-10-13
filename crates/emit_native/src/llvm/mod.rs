@@ -422,11 +422,11 @@ impl<'a> LlvmEmitter<'a> {
         if self.module.sdk_library {
             return self;
         }
-        self.out_of_line_allocation = names.iter().any(|n| n == "nova_instancia");
-        self.compact_selector = names.iter().any(|n| n == "seletor");
+        self.out_of_line_allocation = names.iter().any(|n| n == "new_instance");
+        self.compact_selector = names.iter().any(|n| n == "selector");
         // `@df.selector` stays `alwaysinline`: only `@df.selector_d`
         // (out of line) calls it.
-        self.outlined_helpers = names.into_iter().filter(|n| n != "seletor").collect();
+        self.outlined_helpers = names.into_iter().filter(|n| n != "selector").collect();
         self
     }
 
@@ -520,7 +520,7 @@ impl<'a> LlvmEmitter<'a> {
         if module.table_exceptions {
             assert!(
                 module.tables.len() == module.functions.len(),
-                "bug do compilador: as funções do módulo mudaram depois do passe das exceções por tabelas"
+                "compiler bug: the module's functions changed after the table exceptions pass"
             );
         }
         for (k, func) in module.functions.iter().enumerate() {
@@ -672,7 +672,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_runtime_decls(&mut self) {
-        self.out.push_str("; Declarações do runtime nativo Rust (tabela em llvm/externs.rs)\n");
+        self.out.push_str("; Declarations of the native Rust runtime (table in llvm/externs.rs)\n");
         for e in externs::EXTERNS {
             self.out.push_str(e.decl);
             // Roots by maps: the extern that does not collect is a leaf — the call
@@ -799,7 +799,7 @@ impl<'a> LlvmEmitter<'a> {
     fn emit_vtables(&mut self) {
         // Global vtables if there are classes
         for class in &self.module.classes {
-            writeln!(self.out, "; VTable da classe {} (id {})", class.name, class.id).unwrap();
+            writeln!(self.out, "; VTable of class {} (id {})", class.name, class.id).unwrap();
         }
     }
 
@@ -2145,7 +2145,7 @@ impl<'a> LlvmEmitter<'a> {
         };
         assert!(
             call.starts_with("  call ") || call.contains(" = call "),
-            "bug do compilador: a instrução com pouso não termina numa chamada: {call}"
+            "compiler bug: the instruction with a landing pad does not end in a call: {call}"
         );
         self.out.push_str(before);
         self.out.push_str(&call.replacen("call ", "invoke ", 1));
@@ -2244,7 +2244,7 @@ impl<'a> LlvmEmitter<'a> {
             // The descriptor without arguments of `dartforge_dispatch_toString`.
             self.register_vector(vec![0, 0]);
         }
-        self.out.push_str("; Closures: entrada inválida e vetores constantes\n");
+        self.out.push_str("; Closures: invalid entry and constant vectors\n");
         self.out.push_str("define internal i64 @df_clo_invalido(i64 %c, ptr %a, ptr %d) {\nb0:\n  ret i64 0\n}\n");
         for (k, v) in self.vectors.iter().enumerate() {
             let items: Vec<String> = v.iter().map(|x| format!("i64 {x}")).collect();
@@ -2601,7 +2601,7 @@ impl<'a> LlvmEmitter<'a> {
         let slot = *self
             .global_slots
             .get(sym_name)
-            .unwrap_or_else(|| panic!("bug do compilador: global @{sym_name} sem slot na área"));
+            .unwrap_or_else(|| panic!("compiler bug: global @{sym_name} without a slot in the area"));
         writeln!(self.out, "  %ga{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
     }
 
@@ -4191,7 +4191,7 @@ const N_PORTS: usize = 16;
 ///   its own code `0xE0444652` (the integer below), non-continuable, without
 ///   parameters — the Dart exception itself is the pending flag of the runtime. `internal`:
 ///   each module (and each part of a split module) has its own copy.
-const EXCEPTIONS_BY_TABLES: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)\n\
+const EXCEPTIONS_BY_TABLES: &str = "; Table exceptions (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)\n\
 declare i32 @dartforge_personality(...)\n\
 declare void @dartforge_register_ports(ptr, i64)\n\
 declare dllimport void @RaiseException(i32, i32, i32, ptr)\n\
@@ -4209,7 +4209,7 @@ define internal void @df.throw() noreturn noinline cold \"gc-leaf-function\" {\n
 /// and Rust's personality returned `_URC_FATAL_PHASE1_ERROR` (3) to the
 /// foreign exception. If the unwinder comes back, the code goes to the runtime,
 /// which terminates.
-const EXCEPTIONS_BY_TABLES_ITANIUM: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
+const EXCEPTIONS_BY_TABLES_ITANIUM: &str = "; Table exceptions (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
 declare i32 @dartforge_personality(...)
 declare i32 @dartforge_personality_cleanup_itanium(...)
 declare i32 @llvm.eh.typeid.for(ptr)
@@ -4415,7 +4415,7 @@ lento:\n\
 /// sequence that repeats in hundreds of thousands of places of the large
 /// program (docs/NATIVO-PRODUCAO-GRANDE.md §1.4).
 pub const OUTLINED_HELPERS_LARGE_PROGRAM: &[&str] =
-    &["subclasse", "alocar", "barreira", "barreira_elemento", "obter_area", "nova_instancia"];
+    &["subclass", "allocate", "barrier", "element_barrier", "get_area", "new_instance"];
 
 /// The list of out-of-line helpers: `DARTFORGE_AJUDANTES_FORA` (a list
 /// separated by commas; `1`, all; empty, none); otherwise all in the
@@ -4425,7 +4425,7 @@ pub const OUTLINED_HELPERS_LARGE_PROGRAM: &[&str] =
 /// in the others — the small program runs twice as long at `-O0` without the
 /// inline helpers (the corpus/native: 53 → 116 s).
 pub fn out_of_line_helpers(large_development: bool, large_program: bool) -> Vec<String> {
-    let all = || ["seletor", "classe"].iter().chain(OUTLINED_HELPERS_LARGE_PROGRAM).map(|s| (*s).to_string()).collect();
+    let all = || ["selector", "class"].iter().chain(OUTLINED_HELPERS_LARGE_PROGRAM).map(|s| (*s).to_string()).collect();
     match std::env::var("DARTFORGE_AJUDANTES_FORA") {
         Ok(v) if v == "1" => all(),
         Ok(v) => v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect(),

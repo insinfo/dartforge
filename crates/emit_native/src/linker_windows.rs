@@ -401,19 +401,19 @@ pub const CRT_COMMON_IR: &str = r#"
 @__xc_a = constant ptr null, section ".CRT$XCA", align 8
 @__xc_z = constant ptr null, section ".CRT$XCZ", align 8
 
-; IMAGE_TLS_DIRECTORY64: início e fim do modelo, o índice, as callbacks
-; (depois do marcador `__xl_a`), o preenchimento com zeros e as
-; características (o lld-link acerta o alinhamento).
+; IMAGE_TLS_DIRECTORY64: start and end of the template, the index, the callbacks
+; (after the `__xl_a` marker), the zero fill and the
+; characteristics (lld-link fixes the alignment).
 @_tls_used = constant { ptr, ptr, ptr, ptr, i32, i32 } { ptr @_tls_start, ptr @_tls_end, ptr @_tls_index, ptr getelementptr (i8, ptr @__xl_a, i64 8), i32 0, i32 0 }, section ".rdata$T", align 8
 
-; Referenciado por todo objeto que usa ponto flutuante.
+; Referenced by every object that uses floating point.
 @_fltused = global i32 39029, align 4
 
-; A vtable de `type_info`: o descritor de tipo do pânico do Rust aponta para
-; ela; o `__CxxFrameHandler3` casa os tipos pelo nome, nunca a chama.
+; The `type_info` vtable: the type descriptor of the Rust panic points to
+; it; `__CxxFrameHandler3` matches the types by name and never calls it.
 @"??_7type_info@@6B@" = constant [2 x ptr] zeroinitializer, align 8
 
-; O cookie do /GS (valor inicial o da Microsoft, sorteado na partida).
+; The /GS cookie (initial value Microsoft's, randomized at startup).
 @__security_cookie = global i64 47936899621426, align 8
 @__security_cookie_complement = global i64 -47936899621427, align 8
 
@@ -475,8 +475,8 @@ sair:
   ret void
 }
 
-; O cookie, os inicializadores C (`.CRT$XI*`) e C++ (`.CRT$XC*`, onde o Rust
-; põe os dele).
+; The cookie, the C (`.CRT$XI*`) and C++ (`.CRT$XC*`, where Rust
+; puts its own) initializers.
 define void @df_crt_init() {
   call void @__security_init_cookie()
   call void @df_initterm(ptr @__xi_a, ptr @__xi_z)
@@ -484,13 +484,13 @@ define void @df_crt_init() {
   ret void
 }
 
-; Folhas sem mexer no `rsp` (sem tabela de desenrolamento).
+; Leaves that do not touch `rsp` (no unwind table).
 ;
-; `__chkstk`: toca cada página de 4 KiB entre o `rsp` de quem chamou e
-; `rsp - rax`, de cima para baixo (a página de guarda cresce uma por vez).
-; Preserva todos os registradores menos as bandeiras, como o `chkstk.asm` da
-; Microsoft: o código do `cl.exe` (e o do LLVM em `alloca` dinâmico) pode
-; ter valores vivos em r10 e r11 através da chamada.
+; `__chkstk`: touches each 4 KiB page between the caller's `rsp` and
+; `rsp - rax`, top down (the guard page grows one at a time).
+; Preserves every register except the flags, like Microsoft's `chkstk.asm`:
+; the code of `cl.exe` (and LLVM's for a dynamic `alloca`) may
+; have live values in r10 and r11 across the call.
 module asm ".text"
 module asm ".globl __chkstk"
 module asm ".def __chkstk; .scl 2; .type 32; .endef"
@@ -513,8 +513,8 @@ module asm "  movq (%rsp), %r10"
 module asm "  movq 8(%rsp), %r11"
 module asm "  addq $16, %rsp"
 module asm "  retq"
-; `__security_check_cookie(rcx)`: preserva tudo menos rcx (o valor de
-; retorno de quem chama está em rax); cookie errado encerra o processo
+; `__security_check_cookie(rcx)`: preserves everything but rcx (the caller's
+; return value is in rax); a wrong cookie ends the process
 ; (`__fastfail(FAST_FAIL_STACK_COOKIE_CHECK_FAILURE)`).
 module asm ".globl __security_check_cookie"
 module asm ".def __security_check_cookie; .scl 2; .type 32; .endef"
@@ -531,14 +531,14 @@ module asm ".def __report_rangecheckfailure; .scl 2; .type 32; .endef"
 module asm "__report_rangecheckfailure:"
 module asm "  movl $8, %ecx"
 module asm "  int $0x29"
-; `__GSHandlerCheck`: o tratador de linguagem das funções com cookie no
-; desenrolamento; aqui só segue a busca (ExceptionContinueSearch).
+; `__GSHandlerCheck`: the language handler of the functions with a cookie during
+; unwinding; here it only continues the search (ExceptionContinueSearch).
 module asm ".globl __GSHandlerCheck"
 module asm ".def __GSHandlerCheck; .scl 2; .type 32; .endef"
 module asm "__GSHandlerCheck:"
 module asm "  movl $1, %eax"
 module asm "  retq"
-; `__GSHandlerCheck_SEH`: função com cookie e `__try`: o tratador do SEH.
+; `__GSHandlerCheck_SEH`: a function with a cookie and `__try`: the SEH handler.
 module asm ".globl __GSHandlerCheck_SEH"
 module asm ".def __GSHandlerCheck_SEH; .scl 2; .type 32; .endef"
 module asm "__GSHandlerCheck_SEH:"
@@ -555,8 +555,8 @@ declare dllimport void @_set_app_type(i32)
 declare dllimport void @exit(i32) noreturn
 declare dllimport i32 @_crt_atexit(ptr)
 
-; `atexit` do C no executável: a tabela global do ucrtbase, que o `exit`
-; percorre.
+; C `atexit` in the executable: ucrtbase's global table, which `exit`
+; walks.
 define i32 @atexit(ptr %f) {
   %r = call i32 @_crt_atexit(ptr %f)
   ret i32 %r
@@ -579,9 +579,9 @@ declare dllimport i32 @_initialize_onexit_table(ptr)
 declare dllimport i32 @_register_onexit_function(ptr, ptr)
 declare dllimport i32 @_execute_onexit_table(ptr)
 
-; A tabela de `atexit` desta DLL (`_onexit_table_t`: início, fim, limite),
-; percorrida quando ela sai do processo — como a CRT da Microsoft faz numa
-; DLL, e não no `exit` (a DLL pode ser descarregada antes).
+; This DLL's `atexit` table (`_onexit_table_t`: start, end, limit),
+; walked when it leaves the process — as Microsoft's CRT does in a
+; DLL, and not at `exit` (the DLL may be unloaded earlier).
 @df_exit_table = internal global [3 x ptr] zeroinitializer, align 8
 
 define i32 @atexit(ptr %f) {

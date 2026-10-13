@@ -223,7 +223,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         let value = u64::from(u32_at(object, s + 8)?);
         let section = u16_at(object, s + 12)? as i16;
         let ty = u16_at(object, s + 14)?;
-        let aux = *object.get(s + 17).ok_or_else(|| "objeto COFF truncado".to_string())? as usize;
+        let aux = *object.get(s + 17).ok_or_else(|| "truncated COFF object".to_string())? as usize;
         if section > 0 {
             value_of[i] = (section as u32, value);
             if ty == COFF_FUNCTION {
@@ -245,7 +245,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         if features & SCN_NRELOC_OVFL != 0 || n_rel == 0 {
             return Ok(false);
         }
-        let sec = object.get(data..data + size).ok_or_else(|| "objeto COFF truncado".to_string())?.to_vec();
+        let sec = object.get(data..data + size).ok_or_else(|| "truncated COFF object".to_string())?.to_vec();
         if sec.starts_with(b"DFPC") {
             return Ok(false);
         }

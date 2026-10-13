@@ -461,7 +461,7 @@ impl LlvmEmitter<'_> {
         if exit.is_empty() {
             return;
         }
-        self.out.push_str("; Definidos em outro módulo (SDK da fonte) ou no runtime\n");
+        self.out.push_str("; Defined in another module (source SDK) or in the runtime\n");
         for (_, d) in exit {
             self.out.push_str(&d);
             self.out.push('\n');

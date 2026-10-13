@@ -30,7 +30,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match crate::natives::native(&name) {
             Some(n) if n.state == crate::natives::State::Runtime => {}
             _ => {
-                self.unsupported(&format!("native `{name}` sem implementação no runtime"), span);
+                self.unsupported(&format!("native `{name}` without an implementation in the runtime"), span);
                 self.terminate(Terminator::Return(None));
                 return true;
             }

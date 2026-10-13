@@ -158,7 +158,7 @@ fn persistent_session_measurement() {
     let new_session = |ir: &str| JitSession::new_for_ir_with(ir, Some(&dll)).unwrap();
     let execute_fn = |s: &JitSession| if s.uses_source_sdk() { s.run_main().unwrap().total } else { s.run_entry().unwrap().total };
 
-    for (label_name, ir) in [("trivial", TRIVIAL), ("IR do emissor", emitted.as_str())] {
+    for (label_name, ir) in [("trivial", TRIVIAL), ("emitter IR", emitted.as_str())] {
         let (p50, p95) = measure(n, || {
             let mut session = new_session(ir);
             let t = Instant::now();

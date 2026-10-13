@@ -449,7 +449,7 @@ pub(crate) fn analyze_with_summaries(
             } if summaries.contains_key(symbol) => {
                 let (callee, summary) = &summaries[symbol];
                 if args.len() != callee.params.len() {
-                    return Err(format!("points-to: aridade de {symbol}"));
+                    return Err(format!("points-to: arity of {symbol}"));
                 }
                 let exact_abi = *ty == *ret_ty
                     && *ret_ty == callee.return_ty

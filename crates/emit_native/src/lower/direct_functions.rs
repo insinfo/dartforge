@@ -207,7 +207,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             b.bind_local_as(c.sym, local);
         }
         if with_tuple {
-            let t = b.add_param_rti("$tipos_de_fora".to_string());
+            let t = b.add_param_rti("$outer_types".to_string());
             b.type_tuple = Some(Operand::Val(t));
         }
         b.function_type_params = self.function_type_params.clone();
@@ -254,7 +254,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
             _ => {
-                b.unsupported("função local direta sem corpo", span);
+                b.unsupported("direct local function without a body", span);
             }
         }
         if self.ctx.arc_memory {

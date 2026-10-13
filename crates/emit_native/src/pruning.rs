@@ -942,7 +942,7 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
         exit.push_str(l);
     }
     // The tables of the summaries.
-    exit.push_str("\n; Tabelas de métodos do SDK montadas na ligação (docs/NATIVO-PODA-DE-TABELAS.md)\n");
+    exit.push_str("\n; SDK method tables assembled at link time (docs/NATIVO-PODA-DE-TABELAS.md)\n");
     let mut declare: Vec<String> = Vec::new();
     for r in summaries {
         let table_of: HashMap<u32, &SummarizedTable> = r.tables.iter().map(|t| (t.node, t)).collect();

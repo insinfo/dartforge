@@ -75,15 +75,15 @@ impl ExceptionPlan {
     /// of the function. The intermediate passes read the plan without enabling LLVM.
     pub(super) fn function_sites(&self, index: usize, f: &Function) -> &FunctionTables {
         let (symbol, sites) = self.functions.get(index)
-            .expect("bug do compilador: função ausente do plano excepcional");
-        assert_eq!(&f.symbol, symbol, "bug do compilador: ordem das funções mudou depois da preparação excepcional");
+            .expect("compiler bug: function missing from the exceptional plan");
+        assert_eq!(&f.symbol, symbol, "compiler bug: the order of the functions changed after the exceptional preparation");
         sites
     }
 }
 
 /// Exposes landing pads and continuations in the CFG without publishing tables to the emitter.
 pub(super) fn prepare(module: &mut Module) -> ExceptionPlan {
-    assert!(!module.table_exceptions, "bug do compilador: CFG excepcional já materializado");
+    assert!(!module.table_exceptions, "compiler bug: exceptional CFG already materialized");
     let nl = do_not_throw(module);
     // Without a proof of absence of owners, ARC needs a local exit
     // to insert cleanup even when there is no catch/finally in the source.
@@ -103,7 +103,7 @@ pub(super) fn prepare(module: &mut Module) -> ExceptionPlan {
 /// Rebuilds exit decisions over the final HIR and validates the sites before
 /// publishing the tables. Does not run generic simplification on the landing pads.
 pub(super) fn materialize(module: &mut Module, plan: ExceptionPlan) {
-    assert_eq!(plan.functions.len(), module.functions.len(), "bug do compilador: funções mudaram depois da preparação excepcional");
+    assert_eq!(plan.functions.len(), module.functions.len(), "compiler bug: the functions changed after the exceptional preparation");
     let nl = do_not_throw(module);
     let mut tables = Vec::with_capacity(module.functions.len());
     for (index, f) in module.functions.iter().enumerate() {
@@ -113,7 +113,7 @@ pub(super) fn materialize(module: &mut Module, plan: ExceptionPlan) {
         }
     }
     for (f, (symbol, mut t)) in module.functions.iter_mut().zip(plan.functions) {
-        assert_eq!(f.symbol, symbol, "bug do compilador: ordem das funções mudou depois da preparação excepcional");
+        assert_eq!(f.symbol, symbol, "compiler bug: the order of the functions changed after the exceptional preparation");
         if super::valid(f) {
             exits(f, &nl, &mut t);
         }
@@ -432,7 +432,7 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
 ///   `invoke`;
 /// * the landing pad has no instructions and branches unconditionally.
 fn check(f: &Function, t: &FunctionTables) {
-    super::arc::check_resumes(f, t).expect("bug do compilador: Retoma inválida");
+    super::arc::check_resumes(f, t).expect("compiler bug: invalid Resume");
     let mut arrivals: HashMap<BlockId, u32> = HashMap::new();
     for b in &f.blocks {
         let invoked: Vec<BlockId> = b.instructions.iter().filter_map(|(v, _, _)| t.invocations.get(v).copied()).collect();
@@ -451,14 +451,14 @@ fn check(f: &Function, t: &FunctionTables) {
         };
         assert!(
             coherent,
-            "bug do compilador (exceções por tabelas): em {}, o bloco b{} não casa o `invoke` com o pouso",
+            "compiler bug (table exceptions): in {}, block b{} does not match the `invoke` with the landing pad",
             f.symbol,
             b.id.0
         );
         if branch.is_some() {
             assert!(
                 b.instructions.last().is_some_and(|(v, _, _)| t.invocations.contains_key(v)),
-                "bug do compilador (exceções por tabelas): em {}, o bloco b{} tem instrução depois do `invoke`",
+                "compiler bug (table exceptions): in {}, block b{} has an instruction after the `invoke`",
                 f.symbol,
                 b.id.0
             );
@@ -469,7 +469,7 @@ fn check(f: &Function, t: &FunctionTables) {
             }
             assert!(
                 branch == Some(s),
-                "bug do compilador (exceções por tabelas): em {}, o bloco b{} desvia ao pouso b{} sem `invoke`",
+                "compiler bug (table exceptions): in {}, block b{} branches to landing pad b{} without an `invoke`",
                 f.symbol,
                 b.id.0,
                 s.0
@@ -482,7 +482,7 @@ fn check(f: &Function, t: &FunctionTables) {
                     || (t.exits.get(&b.id) == Some(&ExceptionExit::Resume)
                         && b.instructions.iter().all(|(_, i, _)| super::arc::resume_instruction(i))
                         && matches!(b.terminator, Terminator::Return(_))),
-                "bug do compilador (exceções por tabelas): em {}, o pouso b{} não é só um desvio",
+                "compiler bug (table exceptions): in {}, landing pad b{} is not just a branch",
                 f.symbol,
                 b.id.0
             );
@@ -491,7 +491,7 @@ fn check(f: &Function, t: &FunctionTables) {
     for p in &t.landing_pads {
         assert!(
             arrivals.get(p) == Some(&1),
-            "bug do compilador (exceções por tabelas): em {}, o pouso b{} não tem exatamente um `invoke`",
+            "compiler bug (table exceptions): in {}, landing pad b{} does not have exactly one `invoke`",
             f.symbol,
             p.0
         );
@@ -787,7 +787,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ordem das funções mudou")]
+    #[should_panic(expected = "order of the functions changed")]
     fn query_rejects_swapped_function_before_materialization() {
         let mut m = module();
         let plan = prepare(&mut m);
@@ -808,7 +808,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "tem instrução depois do `invoke`")]
+    #[should_panic(expected = "has an instruction after the `invoke`")]
     fn rejects_site_that_stopped_terminating_block() {
         let mut m = module();
         let plan = prepare(&mut m);

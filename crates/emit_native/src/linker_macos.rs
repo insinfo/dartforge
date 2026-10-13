@@ -1177,7 +1177,7 @@ mod tests {
             }
         }
         // The executable runs (only the empty `dartforge_entry`).
-        let exit = Command::new(&exe).output().expect("executar o programa");
-        assert!(exit.status.code().is_some(), "o programa terminou por sinal: {exit:?}");
+        let exit = Command::new(&exe).output().expect("run the program");
+        assert!(exit.status.code().is_some(), "the program ended by a signal: {exit:?}");
     }
 }

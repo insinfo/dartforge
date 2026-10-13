@@ -723,13 +723,13 @@ mod tests {
 
     #[test]
     fn constructs_described_in_order_with_count() {
-        assert_eq!(describe_constructs(&cs(&["closure", "cascata", "closure"])), "closure ×2, cascata");
+        assert_eq!(describe_constructs(&cs(&["closure", "cascade", "closure"])), "closure ×2, cascade");
     }
 
     #[test]
     fn constructs_section_counts_all_and_those_blocked_by_one() {
         let progs = vec![
-            ("a", cs(&["closure", "cascata", "closure"])),
+            ("a", cs(&["closure", "cascade", "closure"])),
             ("b", cs(&["closure"])),
             ("c", cs(&["closure", "closure"])),
             ("d", cs(&["await"])),
@@ -744,7 +744,7 @@ mod tests {
         assert_eq!(lines[4], "             only it: b, c");
         assert_eq!(lines[5], "          1            1        1  await");
         assert_eq!(lines[6], "             only it: d");
-        assert_eq!(lines[7], "          1            1        0  cascata");
+        assert_eq!(lines[7], "          1            1        0  cascade");
         assert!(constructs_section(&[]).is_empty());
     }
 
@@ -752,11 +752,11 @@ mod tests {
     fn native_report_lists_the_failure_constructs() {
         let p = Program::test("a");
         // The stderr of the native emitter (other crate): its text is what
-        // `error_constructs` parses, so it stays in Portuguese.
-        let error = "[compile-native] erro de compilação: não suportado no backend nativo: closure\n\
-                    erro de compilação: não suportado no backend nativo: closure\n  \
-                    não suportado no backend nativo: closure (a.dart:1:1)\n  \
-                    não suportado no backend nativo: cascata (a.dart:2:1)\n";
+        // `error_constructs` parses.
+        let error = "[compile-native] compile error: not supported by the native backend: closure\n\
+                    compile error: not supported by the native backend: closure\n  \
+                    not supported by the native backend: closure (a.dart:1:1)\n  \
+                    not supported by the native backend: cascade (a.dart:2:1)\n";
         let r = vec![ProgramResult {
             program: p,
             dart: s("1\n", 0),
@@ -767,8 +767,8 @@ mod tests {
             jit: None,
         }];
         let t = format_report(&r);
-        assert!(t.contains("       constructs: closure, cascata"), "{t}");
-        assert!(t.contains("          1            1        0  cascata"), "{t}");
+        assert!(t.contains("       constructs: closure, cascade"), "{t}");
+        assert!(t.contains("          1            1        0  cascade"), "{t}");
     }
 
     #[test]

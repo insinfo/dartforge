@@ -372,7 +372,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // The joined tuple (the outer one and the call's) reaches the body of the
         // generic closure as the last parameter.
         if generic {
-            let t = b.add_param_rti("$tipos".to_string());
+            let t = b.add_param_rti("$types".to_string());
             b.type_tuple = Some(Operand::Val(t));
         }
         if f.modifier != AsyncModifier::None {

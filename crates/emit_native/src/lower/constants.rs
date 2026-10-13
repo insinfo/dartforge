@@ -428,7 +428,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn source_constant_collection(&mut self, source: Operand, ty: Option<TypeId>, set: bool, span: dartforge_diagnostics::Span) -> Operand {
         let name_str = if set { "_ConstSet" } else { "_ConstMap" };
         let Some(cid) = self.ctx.sdk_class("_compact_hash", name_str) else {
-            return self.unsupported(&format!("constante sem `{name_str}`"), span);
+            return self.unsupported(&format!("constant without `{name_str}`"), span);
         };
         let ctor = self
             .ctx
@@ -436,7 +436,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .lookup("_deFonte")
             .and_then(|k| self.ctx.program.classes[cid.0 as usize].constructors.get(&k).copied());
         let Some(ctor) = ctor else {
-            return self.unsupported(&format!("`{name_str}._deFonte` ausente"), span);
+            return self.unsupported(&format!("missing `{name_str}._deFonte`"), span);
         };
         let n = if set { 1 } else { 2 };
         let args: Vec<TypeId> = match ty.map(|t| self.ctx.table.get(t)) {

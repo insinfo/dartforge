@@ -408,7 +408,7 @@ mod tests {
         let f = std::fs::File::options().write(true).open(c.path(1)).unwrap();
         f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1000)).unwrap();
         c.prune();
-        assert!(c.path(1).is_file(), "o objeto deste processo foi podado");
+        assert!(c.path(1).is_file(), "this process's object was pruned");
         // Another process (a new cache over the same directory): the old one
         // goes, the recent one stays.
         let other = ObjectCache::new(dir.path().to_path_buf(), 5);

@@ -442,7 +442,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             CollectionElement::Expression(e) => {
                 let v = self.lower_expr(ast, *e);
                 if typ == Collection::Map {
-                    self.unsupported("expressão num literal de mapa", span);
+                    self.unsupported("expression in a map literal", span);
                     return;
                 }
                 self.append(target, typ, v);
@@ -458,7 +458,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 null_aware_value,
             } => {
                 if *null_aware_key || *null_aware_value {
-                    self.unsupported("entrada de mapa null-aware", span);
+                    self.unsupported("null-aware map entry", span);
                     return;
                 }
                 let k = self.lower_expr(ast, *key);

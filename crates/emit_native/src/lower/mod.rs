@@ -548,7 +548,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                         let is_instance = func_elem.class.is_some() && !func_elem.static_;
                         builder.declare_parameters(f_idx, is_instance);
                         if !builder.lower_external(f_idx, ast_func.span) {
-                            builder.unsupported(&format!("external `{name}` sem native"), ast_func.span);
+                            builder.unsupported(&format!("external `{name}` without a native"), ast_func.span);
                             builder.terminate(Terminator::Return(None));
                         }
                         builder.finish(module);
@@ -650,7 +650,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 // RTI: a generic function receives the tuple of the type
                 // arguments in the last parameter (`M<i>` of the recipes).
                 if builder.generic_function(f_idx) {
-                    let t = builder.add_param_rti("$tipos".to_string());
+                    let t = builder.add_param_rti("$types".to_string());
                     builder.type_tuple = Some(Operand::Val(t));
                     builder.function_type_params =
                         builder.type_params_of(f_idx).iter().map(|&p| ctx.table.param(p).name).collect();
@@ -734,7 +734,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                     // of the class in the tuple (there is no `this`).
                     builder.enclosing_class = Some(cid);
                     if builder.generic_class(cid) {
-                        let t = builder.add_param_rti("$tipos".to_string());
+                        let t = builder.add_param_rti("$types".to_string());
                         builder.type_tuple = Some(Operand::Val(t));
                         builder.class_by_tuple = true;
                     }
@@ -796,7 +796,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                                 builder.terminate(Terminator::Return(Some(v)));
                             }
                             None => {
-                                builder.unsupported("factory redirecionadora", span);
+                                builder.unsupported("redirecting factory", span);
                                 builder.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
                             }
                         }

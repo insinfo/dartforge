@@ -171,7 +171,41 @@ fn diagnose(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World,
         let fid = dartforge_elements::model::FunctionElementId(i as u32);
         let owner = f.class.map(|c| format!("{} [{:?}] selector={}", a.interner.resolve(p.class(c).name), world.class_level(c), world.selector_live_for(p, target, c))).unwrap_or_default();
         eprintln!("[jsprod] {}::{target} live={} {owner} cause={:?}", p.library(f.library).uri, world.is_live_function(fid), world.function_cause(fid));
+        eprintln!("[jsprod]   chain: {}", cause_chain(a, world, world.function_cause(fid)));
     }
+    for (i, c) in p.classes.iter().enumerate() {
+        if a.interner.resolve(c.name) == target {
+            let cid = dartforge_elements::model::ClassId(i as u32);
+            eprintln!("[jsprod] class {}::{target} [{:?}] chain: {}", p.library(c.library).uri, world.class_level(cid), cause_chain(a, world, world.class_cause(cid)));
+        }
+    }
+}
+
+/// The chain of liveness causes, from an element up to a root (diagnostics).
+fn cause_chain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World, mut cause: Option<dartforge_world::Cause>) -> String {
+    use dartforge_world::Cause;
+    let p = a.program;
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    while let Some(c) = cause {
+        if !seen.insert(format!("{c:?}")) || out.len() > 40 {
+            out.push("…".to_string());
+            break;
+        }
+        let (label, next) = match c {
+            Cause::Root => ("root".to_string(), None),
+            Cause::Function(f) => {
+                let e = p.function(f);
+                let owner = e.class.map(|c| format!("{}.", a.interner.resolve(p.class(c).name))).unwrap_or_default();
+                (format!("{owner}{}", a.interner.resolve(e.name)), world.function_cause(f))
+            }
+            Cause::Variable(v) => (format!("var {}", a.interner.resolve(p.variable(v).name)), world.variable_cause(v)),
+            Cause::Class(k) => (format!("class {}", a.interner.resolve(p.class(k).name)), world.class_cause(k)),
+        };
+        out.push(label);
+        cause = next;
+    }
+    out.join(" <- ")
 }
 
 /// One phase of the fixed point: world → filtered emission → text

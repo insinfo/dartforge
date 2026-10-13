@@ -103,7 +103,7 @@ impl EmittedIr {
 
 /// Start of every diagnostic of a construct that the lowering cannot lower
 /// (`FnBuilder::unsupported`, N1). [`error_constructs`] is what reads it.
-pub const UNSUPPORTED_PREFIX: &str = "não suportado no backend nativo: ";
+pub const UNSUPPORTED_PREFIX: &str = "not supported by the native backend: ";
 
 /// [`pruning::prune_hir`] with the summaries of the SDK libraries of the profile (the
 /// SDK comes out of the cache, or is compiled now, as the link would do right
@@ -134,7 +134,7 @@ fn prune_program_hir(module: &mut hir::Module, production: bool) -> Result<Optio
 /// `version` file (`sqlite3` prints `Platform.version`).
 fn sdk_version(root: &Path) -> Option<String> {
     let number = std::fs::read_to_string(root.join("version")).ok()?.trim().to_string();
-    let saved = cache::native_cache_dir().join(format!("versao_do_sdk_{number}.txt"));
+    let saved = cache::native_cache_dir().join(format!("sdk_version_{number}.txt"));
     if let Ok(v) = std::fs::read_to_string(&saved)
         && v.starts_with(&number)
     {
@@ -178,7 +178,7 @@ pub const LARGE_PROGRAM_FUNCTIONS: usize = 50_000;
 fn compile_error(errors: &[String]) -> String {
     let first_one = &errors[0];
     let summary = first_one.rsplit_once(" (").map_or(first_one.as_str(), |(a, _)| a);
-    let mut text = format!("erro de compilação: {summary}");
+    let mut text = format!("compile error: {summary}");
     for e in errors {
         text.push_str("\n  ");
         text.push_str(e);
@@ -403,7 +403,7 @@ fn emit_ir_internal(
             && interner.resolve(f.name) == "main"
     });
     if !has_main {
-        return Err("erro de compilação: o programa não define a função `main` \
+        return Err("compile error: the program does not define a `main` function \
                     (Invoked Dart programs must have a 'main' function defined)"
             .to_string());
     }
@@ -736,10 +736,10 @@ mod tests {
             .unwrap()
             .expect_err("null-aware map entry is rejected in native");
         let lines: Vec<&str> = error.lines().collect();
-        assert_eq!(lines[0], "erro de compilação: não suportado no backend nativo: entrada de mapa null-aware", "{error}");
-        assert_eq!(lines[1], "  não suportado no backend nativo: entrada de mapa null-aware (main.dart:3:11)", "{error}");
-        assert_eq!(lines[2], "  não suportado no backend nativo: entrada de mapa null-aware (main.dart:4:11)", "{error}");
-        assert_eq!(error_constructs(&error), ["entrada de mapa null-aware", "entrada de mapa null-aware"]);
+        assert_eq!(lines[0], "compile error: not supported by the native backend: null-aware map entry", "{error}");
+        assert_eq!(lines[1], "  not supported by the native backend: null-aware map entry (main.dart:3:11)", "{error}");
+        assert_eq!(lines[2], "  not supported by the native backend: null-aware map entry (main.dart:4:11)", "{error}");
+        assert_eq!(error_constructs(&error), ["null-aware map entry", "null-aware map entry"]);
     }
 
     /// The defined symbols (`define … @<symbol>(`) of an IR.
@@ -837,12 +837,12 @@ mod tests {
 
     #[test]
     fn error_constructs_ignores_non_constructs() {
-        let text = "[compile-native] erro de compilação: não suportado no backend nativo: membro `hash`\n\
-                     erro de compilação: não suportado no backend nativo: membro `hash`\n  \
-                     não suportado no backend nativo: membro `hash` (a.dart:1:2)\n  \
+        let text = "[compile-native] compile error: not supported by the native backend: member `hash`\n\
+                     compile error: not supported by the native backend: member `hash`\n  \
+                     not supported by the native backend: member `hash` (a.dart:1:2)\n  \
                      verificador da HIR (main): tag 3 para um valor I64\n  \
-                     não suportado no backend nativo: chamada `sort` (a.dart:3:4)";
-        assert_eq!(error_constructs(text), ["membro `hash`", "chamada `sort`"]);
+                     not supported by the native backend: call `sort` (a.dart:3:4)";
+        assert_eq!(error_constructs(text), ["member `hash`", "call `sort`"]);
         assert!(error_constructs("error loading the program: x").is_empty());
     }
 }

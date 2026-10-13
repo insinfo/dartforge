@@ -788,13 +788,13 @@ void main() {}
                 let mut tracing = FnBuilder::new(&ctx, unit, "tracing".into(), "tracing".into(), Type::I64);
                 tracing.declare_parameters(fid, false);
                 assert!(tracing.dart_scalar_parameters.is_empty());
-                tracing.add_param_rti("$tipos".into());
+                tracing.add_param_rti("$types".into());
                 assert!(tracing.dart_rti_parameters.is_empty());
                 drop(tracing);
                 ctx.arc_memory = true;
                 let mut b = FnBuilder::new(&ctx, unit, "escalares".into(), "escalares".into(), Type::I64);
                 b.declare_parameters(fid, false);
-                let native = b.add_param_rti("$tipos".into());
+                let native = b.add_param_rti("$types".into());
                 assert!(b.dart_rti_parameters["escalares"].contains(&native));
                 let scalars = &b.dart_scalar_parameters["escalares"];
                 for (v, _, ty) in &b.func.params {

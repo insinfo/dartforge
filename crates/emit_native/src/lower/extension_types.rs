@@ -129,7 +129,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         match m {
             MemberRef::Function(f) => self.read_extension(recv, f.0 as usize, receiver, span),
-            MemberRef::Variable(_) => self.unsupported("campo de instância de tipo de extensão", span),
+            MemberRef::Variable(_) => self.unsupported("instance field of an extension type", span),
         }
     }
 
@@ -180,7 +180,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Operand {
         if primary_name(self.ctx, c) == Some(name_str) {
             let Some(a) = args.first() else {
-                return self.unsupported("construtor primário sem argumento", span);
+                return self.unsupported("primary constructor without an argument", span);
             };
             let v = self.lower_expr(ast, a.value);
             return match self.ctx.get_type(self.unit_id, expr) {
@@ -192,7 +192,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
         }
         let Some(&f) = self.ctx.program.classes[c.0 as usize].constructors.get(&name_str) else {
-            return self.unsupported("construtor de tipo de extensão não encontrado", span);
+            return self.unsupported("extension type constructor not found", span);
         };
         self.creation_type = self.ctx.get_type_raw(self.unit_id, expr);
         self.instantiate(ast, f, args, span)
@@ -203,13 +203,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn constructor_tearoff_te(&mut self, expr: ExprId, c: ClassId, name_str: SymbolId, span: Span) -> Operand {
         if primary_name(self.ctx, c) != Some(name_str) {
             let Some(&f) = self.ctx.program.classes[c.0 as usize].constructors.get(&name_str) else {
-                return self.unsupported("construtor de tipo de extensão não encontrado", span);
+                return self.unsupported("extension type constructor not found", span);
             };
             return self.constructor_tearoff(f.0 as usize, span);
         }
         let class = &self.ctx.program.classes[c.0 as usize];
         let symbol_ent = format!(
-            "df.{}.{}.$primario$tear",
+            "df.{}.{}.$primary$tear",
             crate::context::escape_str(&self.ctx.library_name(class.library)),
             crate::context::escape_str(self.ctx.symbol_name(class.name))
         );
@@ -251,7 +251,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.enclosing_class = Some(c);
         self.member_class = Some(c);
         if self.generic_class(c) {
-            let t = self.add_param_rti("$tipos".to_string());
+            let t = self.add_param_rti("$types".to_string());
             self.type_tuple = Some(Operand::Val(t));
             self.class_by_tuple = true;
         }
@@ -273,7 +273,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     val_ref = Some(self.lower_expr(ast, *value));
                 }
                 ast::Initializer::Field { span, .. } => {
-                    self.unsupported("campo de instância de tipo de extensão", *span);
+                    self.unsupported("instance field of an extension type", *span);
                 }
                 ast::Initializer::Assert { condition, message, .. } => self.lower_assert(ast, *condition, *message),
                 ast::Initializer::Redirect { constructor, arguments, span } => {
@@ -284,7 +284,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     val_ref = Some(match name_str {
                         Some(n) if primary_name(self.ctx, c) == Some(n) => match arguments.args.first() {
                             Some(a) => self.lower_expr(ast, a.value),
-                            None => self.unsupported("construtor primário sem argumento", *span),
+                            None => self.unsupported("primary constructor without an argument", *span),
                         },
                         Some(n) => match self.ctx.program.classes[c.0 as usize].constructors.get(&n).copied() {
                             Some(f) => {
@@ -292,13 +292,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 self.creation_type = this_t;
                                 self.instantiate_evaluated(f, &evaluated, *span)
                             }
-                            None => self.unsupported("construtor redirecionado não encontrado", *span),
+                            None => self.unsupported("redirected constructor not found", *span),
                         },
-                        None => self.unsupported("construtor redirecionado não encontrado", *span),
+                        None => self.unsupported("redirected constructor not found", *span),
                     });
                 }
                 ast::Initializer::Super { span, .. } => {
-                    self.unsupported("`super` em construtor de tipo de extensão", *span);
+                    self.unsupported("`super` in an extension type constructor", *span);
                 }
             }
             if self.is_terminated() {
@@ -308,7 +308,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let ret = self.func.return_ty;
         let v = match val_ref {
             Some(v) => self.coerce(v, ret),
-            None => self.unsupported("construtor de tipo de extensão sem a representação", span),
+            None => self.unsupported("extension type constructor without the representation", span),
         };
         self.this_param = Some(v.clone());
         self.finalizable_this = self.ctx.classify_finalizable_class(c);

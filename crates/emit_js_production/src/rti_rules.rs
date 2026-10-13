@@ -15,8 +15,14 @@
 //! listed supertypes), plus those cited in the **values** of the rules
 //! (supertype arguments and substitutions, which become targets when
 //! evaluated). A supertype entry whose name is not in that set is never
-//! looked up and goes. The substitutions (`"T.E"`) and the forwarding rules
-//! all stay.
+//! looked up and goes. The forwarding rules all stay.
+//!
+//! The substitutions of type variables (`"Iterable.E": "1"`) are looked up
+//! only by `_Universe.evalTypeVariable`, with the name the recipe *parser*
+//! read from a recipe of the text (`Iterable.E` inside `|j<Iterable.E>`): an
+//! entry whose name no recipe of the file writes is never read and goes too.
+//! The rule values never cite a type variable by name (they use the indexes
+//! `"1"`, `"2"`… of `module.rs::rule_recipe`).
 
 use std::collections::HashSet;
 
@@ -81,6 +87,33 @@ fn class_names(t: &str, out: &mut HashSet<String>) {
     }
 }
 
+/// The `Name.Var` words of a text (dotted pairs of identifiers): a superset of
+/// the type variable recipes it writes (`JSArray.E`). Plain JS member access
+/// (`core.Object`) also lands here, which only keeps more.
+fn dotted_names(t: &str, out: &mut HashSet<String>) {
+    let b = t.as_bytes();
+    let id = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+    for (p, _) in t.match_indices('.') {
+        let mut i = p;
+        while i > 0 && id(b[i - 1]) {
+            i -= 1;
+        }
+        let mut f = p + 1;
+        while f < b.len() && id(b[f]) {
+            f += 1;
+        }
+        if i < p && f > p + 1 {
+            out.insert(t[i..f].to_string());
+        }
+    }
+}
+
+/// Whether a rule key is the substitution of a type variable (`List.E`), not
+/// a supertype (`|j`, `lib|C`).
+fn is_type_variable_key(k: &str) -> bool {
+    !k.contains('|') && k.contains('.')
+}
+
 /// `addRtiResources(C, ["a|C", "b|I", …])` puts on `C`'s prototype the mark
 /// `$is_<recipe>` of each interface in the list, which the fast `is` test
 /// (`_isTestViaProperty`) reads. Like the rules, it only matters for a cited
@@ -92,7 +125,8 @@ const RESOURCES: &str = "addRtiResources(";
 /// something does not have the expected shape.
 pub fn prune(js: &str) -> String {
     let Some((cited, found, lists)) = citations(js) else { return js.to_string() };
-    rewrite(js, &cited, found, lists)
+    let variables = if std::env::var("DARTFORGE_JSPROD_TYPE_VARIABLES").is_ok_and(|v| v == "0") { None } else { Some(cited_type_variables(js, &found)) };
+    rewrite(js, &cited, variables.as_ref(), found, lists)
 }
 
 /// The classes (`lib|C`, `|id`) whose name a message can show: those cited
@@ -116,6 +150,21 @@ pub fn displayable(js: &str) -> HashSet<String> {
 }
 
 type Found = Vec<(usize, usize, serde_json::Value)>;
+
+/// The type variable names that the text writes outside the rules JSON (see
+/// [`dotted_names`]).
+fn cited_type_variables(js: &str, found: &Found) -> HashSet<String> {
+    let mut out = HashSet::new();
+    let mut pos = 0;
+    for (start, end, _) in found {
+        if *start >= pos {
+            dotted_names(&js[pos..*start], &mut out);
+            pos = *end;
+        }
+    }
+    dotted_names(&js[pos..], &mut out);
+    out
+}
 
 /// The cited names (see [`prune`]), the JSON of the rules and the
 /// `addRtiResources` lists; `None` if something does not have the expected
@@ -181,15 +230,19 @@ fn citations(js: &str) -> Option<(HashSet<String>, Found, Vec<(usize, usize)>)> 
     Some((cited, found, lists))
 }
 
-/// Rewrites each JSON without the uncited supertype entries and each mark
+/// Rewrites each JSON without the uncited supertype entries (and, with
+/// `variables`, the unwritten type variable substitutions) and each mark
 /// list without the uncited interfaces.
-fn rewrite(js: &str, cited: &HashSet<String>, found: Found, lists: Vec<(usize, usize)>) -> String {
+fn rewrite(js: &str, cited: &HashSet<String>, variables: Option<&HashSet<String>>, found: Found, lists: Vec<(usize, usize)>) -> String {
     let mut edits: Vec<(usize, usize, String)> = Vec::new();
     for (start, end, mut v) in found {
         if let Some(o) = v.as_object_mut() {
             for rule in o.values_mut() {
                 let Some(r) = rule.as_object_mut() else { continue };
-                r.retain(|k, _| !k.contains('|') || cited.contains(k));
+                r.retain(|k, _| match variables {
+                    Some(v) if is_type_variable_key(k) => v.contains(k),
+                    _ => !k.contains('|') || cited.contains(k),
+                });
             }
             // Empty rule: without it `_isSubtype` gives the same `false`
             // (missing rule), and no type variable is evaluated through the

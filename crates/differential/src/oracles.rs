@@ -766,7 +766,7 @@ pub fn jit_executor() -> PathBuf {
 /// The matched texts are the native emitter's messages.
 fn compile_error_output(e: &str) -> Output {
     let first = e.lines().next().unwrap_or("");
-    let from_program = !e.contains("não suportado no backend nativo") && !e.contains("bug do compilador");
+    let from_program = !e.contains("not supported by the native backend") && !e.contains("compiler bug");
     Output { stdout: String::new(), stderr: format!("[compile-native] {first}\n{e}"), code: if from_program { 254 } else { 1 } }
 }
 

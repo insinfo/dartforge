@@ -120,7 +120,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn this_for_super(&mut self, span: Span) -> Option<Operand> {
         let t = self.this_param.clone();
         if t.is_none() {
-            self.unsupported("`super` fora de membro de instância", span);
+            self.unsupported("`super` outside an instance member", span);
         }
         t
     }
@@ -142,7 +142,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let targets = self.mixin_super_targets(name, setter);
         if targets.is_empty() {
-            return self.unsupported("`super` dentro de mixin sem classe que o aplique", span);
+            return self.unsupported("`super` inside a mixin without a class applying it", span);
         }
         let this = self.coerce(this, Type::Ref);
         let cls = self.emit(
@@ -206,7 +206,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let x = s.read_field_with_late_direct(this, v, span);
                 s.call_function_value(x, evaluated)
             }
-            SuperMember::OfMixin => s.unsupported("`super` dentro de mixin", span),
+            SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
             SuperMember::Sdk => match s.ctx.symbol_name(name) {
                 "toString" => s.emit(
                     Instruction::CallRuntime {
@@ -219,7 +219,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 "noSuchMethod" => s.throw_nsm("noSuchMethod"),
                 other => {
                     let n = other.to_string();
-                    s.unsupported(&format!("`super.{n}` do SDK"), span)
+                    s.unsupported(&format!("SDK `super.{n}`"), span)
                 }
             },
         })
@@ -240,10 +240,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
             SuperMember::Field(v) => s.read_field_with_late_direct(this, v, span),
-            SuperMember::OfMixin => s.unsupported("`super` dentro de mixin", span),
+            SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
             SuperMember::Sdk => {
                 let n = s.ctx.symbol_name(name).to_string();
-                s.unsupported(&format!("`super.{n}` do SDK"), span)
+                s.unsupported(&format!("SDK `super.{n}`"), span)
             }
         })
     }
@@ -264,10 +264,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 s.store_field(this, v, v2.clone(), span);
                 v2.clone()
             }
-            SuperMember::OfMixin => s.unsupported("`super` dentro de mixin", span),
+            SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
             SuperMember::Sdk => {
                 let n = s.ctx.symbol_name(name).to_string();
-                s.unsupported(&format!("`super.{n} =` do SDK"), span)
+                s.unsupported(&format!("SDK `super.{n} =`"), span)
             }
         });
         value

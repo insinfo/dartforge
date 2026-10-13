@@ -75,7 +75,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     _ => {
                         let n = self.ctx.symbol_name(name_str.sym).to_string();
-                        self.unsupported(&format!("atribuição por padrão a `{n}`"), span);
+                        self.unsupported(&format!("pattern assignment to `{n}`"), span);
                     }
                 }
             }
@@ -212,7 +212,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 r.text.push('>');
             }
             if !ok {
-                self.unsupported("padrão de coleção com argumento de tipo não resolvido", span);
+                self.unsupported("collection pattern with an unresolved type argument", span);
                 return;
             }
             let t = self.recipe_rti(&r);
@@ -243,7 +243,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Some(v) => v,
                         None => {
                             let n = self.ctx.symbol_name(name.sym).to_string();
-                            self.unsupported(&format!("padrão constante `{n}`"), span)
+                            self.unsupported(&format!("constant pattern `{n}`"), span)
                         }
                     },
                 };
@@ -370,7 +370,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let mut sorted = names.clone();
                 sorted.sort();
                 let Some(id) = self.ctx.shape_id(npos, &sorted) else {
-                    self.unsupported("padrão de record com forma desconhecida", span);
+                    self.unsupported("record pattern with an unknown shape", span);
                     return;
                 };
                 let v = self.coerce(val_ref, Type::Ref);
@@ -468,7 +468,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         None => self.implicit_name(ast, f),
                     };
                     let Some(name_str) = name_str else {
-                        self.unsupported("campo de padrão de objeto sem nome", f.span);
+                        self.unsupported("object pattern field without a name", f.span);
                         continue;
                     };
                     let x = self.read_pattern_member(v.clone(), class, name_str, origin, f.span);
@@ -739,7 +739,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let follows = self.current_block;
         self.set_block(failure);
         let msg = self.emit(
-            Instruction::Const(Constant::String("padrão irrefutável não casou".to_string())),
+            Instruction::Const(Constant::String("irrefutable pattern did not match".to_string())),
             Type::Ref,
         );
         let e = self.new_runtime_error("dartforge_state_error_new", vec![(msg, Type::Ref)]);

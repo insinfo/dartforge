@@ -21,9 +21,9 @@ fn inventory_externs(modules: &[dartforge_emit_native::hir::Module]) {
             *e.1.entry(signature).or_default() += 1;
         }
     }
-    println!("Inventário antes dos produtores ARC: {} símbolos sem contrato direto no catálogo; não certifica ABI, alcance ou ownership", inventory.len());
+    println!("Inventory before the ARC producers: {} symbols without a direct contract in the catalog; does not certify ABI, reach or ownership", inventory.len());
     for (name_str, (n, signatures, example)) in inventory {
-        println!("Extern sem contrato direto: {name_str}: {n} chamadas; exemplo {example}");
+        println!("Extern without a direct contract: {name_str}: {n} calls; example {example}");
         for (signature, n) in signatures { println!("  {n} x {signature}"); }
     }
 }
@@ -51,7 +51,7 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
     );
     for d in diags.iter().chain(&body_diags) {
         if dartforge_types::codes::is_compile_error(&d.message) {
-            return Err(format!("tipagem: {d:?}"));
+            return Err(format!("typing: {d:?}"));
         }
     }
     let te = dartforge_emit_native::erasure::compute(&program, &outline, &mut types);
@@ -106,43 +106,43 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
             .filter(|f| f.symbol == "df.dart$3acore.Stopwatch.new")
             .count();
         println!(
-            "{}: {} módulos, {quantity} funções, {stopwatch} corpo(s) de Stopwatch.new",
+            "{}: {} modules, {quantity} functions, {stopwatch} Stopwatch.new body(ies)",
             entry.display(),
             modules.len()
         );
         for (index, module) in modules.iter().enumerate() {
             match audit_shared_ref_slots(module) {
                 Ok(slots) => println!(
-                    "Slots Ref compartilhados no módulo {index}: {} funções, {} endereços",
+                    "Shared Ref slots in module {index}: {} functions, {} addresses",
                     slots.len(), slots.values().map(|s| s.len()).sum::<usize>()
                 ),
                 Err(error) => println!(
-                    "Slots Ref compartilhados no módulo {index}: {error}"
+                    "Shared Ref slots in module {index}: {error}"
                 ),
             }
             match lower_shared_ref_slots(module) {
                 Ok(draft) => {
                     println!(
-                        "Baixamento intermediário dos slots no módulo {index}: {} quadros locais, {} assinaturas novas",
+                        "Intermediate lowering of the slots in module {index}: {} local frames, {} new signatures",
                         draft.locals.len(), draft.symbols.len()
                     );
                     let mut slot_plans = draft.functions.iter().map(|f|
                         (f.symbol.clone(), DartFunctionPlan::default())).collect();
                     let roles = produce_cfg_ref_slot_plans(module, &draft, &mut slot_plans);
-                    println!("Papéis nativos dos slots no módulo {index}: {roles:?}");
+                    println!("Native roles of the slots in module {index}: {roles:?}");
                 }
-                Err(error) => println!("Baixamento intermediário dos slots no módulo {index}: {error}"),
+                Err(error) => println!("Intermediate lowering of the slots in module {index}: {error}"),
             }
         }
         let before = format!("{modules:?}/{plans:?}");
         let result = prepare_arc_dart_modules(&mut modules, &mut plans);
-        println!("Preparação conjunta com SDK da fonte: {result:?}");
+        println!("Joint preparation with the source SDK: {result:?}");
         if let Err(error) = &result {
             let size = modules.iter().flat_map(|m| &m.functions)
                 .filter(|f| error.contains(&f.symbol)).map(|f| f.symbol.len()).max();
             for (index, m) in modules.iter().enumerate() {
                 for f in m.functions.iter().filter(|f| Some(f.symbol.len()) == size && error.contains(&f.symbol)) {
-                    println!("Corpo associado no módulo {index}: {f:#?}");
+                    println!("Associated body in module {index}: {f:#?}");
                     let mut calls = 0;
                     for caller in modules.iter().flat_map(|m| &m.functions) {
                         for (v, i, _) in caller.blocks.iter().flat_map(|b| &b.instructions) {
@@ -150,18 +150,18 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
                                 && symbol == &f.symbol
                             {
                                 calls += 1;
-                                println!("Chamador de captura {} v{}: {args:?}", caller.symbol, v.0);
+                                println!("Capture caller {} v{}: {args:?}", caller.symbol, v.0);
                                 for arg in args {
                                     if let dartforge_emit_native::hir::Operand::Val(id) = arg {
                                         let definition = caller.blocks.iter().flat_map(|b| &b.instructions)
                                             .find(|(v, _, _)| v == id);
-                                        println!("Origem do argumento v{}: {definition:?}", id.0);
+                                        println!("Origin of argument v{}: {definition:?}", id.0);
                                     }
                                 }
                             }
                         }
                     }
-                    println!("Total de chamadores diretos de {}: {calls}", f.symbol);
+                    println!("Total direct callers of {}: {calls}", f.symbol);
                 }
             }
         }
@@ -178,7 +178,7 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
         .map(|f| (f.symbol.clone(), DartFunctionPlan::default()))
         .collect();
     println!(
-        "{}: {} funções, {} layouts, {} sítios",
+        "{}: {} functions, {} layouts, {} sites",
         entry.display(),
         m.functions.len(),
         m.arc_field_layouts.len(),
@@ -190,7 +190,7 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
     } else {
         prepare_arc_dart_module(&mut m, &mut plans)
     };
-    println!("Preparação do módulo inteiro: {result:?}");
+    println!("Whole-module preparation: {result:?}");
     if let Err(error) = result {
         if format!("{m:?}/{plans:?}") != before {
             return Err("rejected preparation changed the module or the plans".into());
@@ -210,7 +210,7 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
                         _ => false,
                     })
             {
-                println!("Corpo associado ao diagnóstico: {f:#?}");
+                println!("Body associated with the diagnostic: {f:#?}");
             }
         }
     }
@@ -254,7 +254,7 @@ fn lower_sdk_for_audit(
         })
         .collect();
     if libs.len() != sdk_module::SOURCE_LIBRARIES.len() {
-        return Err("bibliotecas SDK incompletas".into());
+        return Err("incomplete SDK libraries".into());
     }
     let (bodies, _) = dartforge_types::infer_library_bodies(
         &program,
@@ -284,7 +284,7 @@ fn lower_sdk_for_audit(
         optimize::optimize(&mut m);
         if by_tables { optimize::table_exceptions(&mut m); }
         println!(
-            "SDK {}: {} funções",
+            "SDK {}: {} functions",
             program.library(lib).uri,
             m.functions.len()
         );

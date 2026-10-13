@@ -338,7 +338,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 BinaryOp::LtEq => cmp(self, FCmpOp::Le, a, b),
                 BinaryOp::Gt => cmp(self, FCmpOp::Gt, a, b),
                 BinaryOp::GtEq => cmp(self, FCmpOp::Ge, a, b),
-                _ => self.unsupported("operador de bits ou resto sobre double", span),
+                _ => self.unsupported("bitwise or remainder operator on double", span),
             };
         }
         let icmp = |b_: &mut Self, c: ICmpOp, x: Operand, y: Operand| {

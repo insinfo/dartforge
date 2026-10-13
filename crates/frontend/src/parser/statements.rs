@@ -596,7 +596,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_variables_rest(&mut self, start: Span, mut list: VariableList) -> PResult<StmtId> {
         let mut variables = Vec::new();
         loop {
-            let name = self.expect_identifier()?;
+            let name = self.local_variable_name()?;
             self.check_await_yield_as_name(name.span);
             let initializer = self.parse_initializer_opt()?;
             variables.push(Variable { name, initializer });
@@ -612,6 +612,21 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         self.expect_semicolon()?;
         Ok(self.push_stmt(start, StmtKind::Variables(list)))
+    }
+
+    /// `LocalVariableDeclarationIdentifierContext.ensureIdentifier`
+    /// (`identifier_context_impl.dart:868`): a reserved word that does not
+    /// start a statement becomes the variable's name, with
+    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` at it (`var enum;` declares
+    /// `enum`); anything else that is not an identifier is the usual error.
+    fn local_variable_name(&mut self) -> PResult<crate::ast::Name> {
+        if !self.at_identifier() && matches!(self.kind(), Kind::Keyword(_)) && !self.looks_like_statement_start(self.pos) {
+            let text = self.text().to_string();
+            let token = self.advance();
+            self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&text]);
+            return Ok(self.name_from(&text, token.span));
+        }
+        self.expect_identifier()
     }
 
     /// The `AstBuilder`'s `endVariablesDeclaration` (`ast_builder.dart:3601`,

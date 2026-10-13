@@ -129,7 +129,7 @@ impl DebugInfo {
             crate::target::Os::Linux => "!{i32 7, !\"Dwarf Version\", i32 5}".to_string(),
         });
         let format = self.new("!{i32 2, !\"Debug Info Version\", i32 3}".to_string());
-        out.push_str("\n; Informação de depuração (J05)\n");
+        out.push_str("\n; Debug information (J05)\n");
         writeln!(out, "!llvm.dbg.cu = !{{!{UNIT}}}").unwrap();
         writeln!(out, "!llvm.module.flags = !{{!{version}, !{format}}}").unwrap();
         for (n, m) in self.metadata.iter().enumerate() {
