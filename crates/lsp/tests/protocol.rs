@@ -176,10 +176,13 @@ impl Session {
 }
 
 /// Minimal handshake of every session.
+/// `initialize` without a workspace folder: the tests here exercise the
+/// protocol, and a real folder (`/tmp` was used) makes the typed worker walk
+/// and analyze whatever happens to be in it.
 fn start(session: &mut Session) {
     session.send(&json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"processId": null, "rootUri": "file:///tmp", "capabilities": {}},
+        "params": {"processId": null, "rootUri": null, "capabilities": {}},
     }));
     let response = session.response(1);
     assert_eq!(

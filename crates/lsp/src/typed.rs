@@ -81,6 +81,10 @@ struct State {
     excluded: Vec<PathBuf>,
     /// The workspace folders (the included roots, §3.3).
     folders: Vec<PathBuf>,
+    /// The packages of `folders` must be enumerated (and analyzed with every
+    /// file published): the worker walks the folders, never the main loop, so
+    /// a large workspace does not block the requests.
+    scan: bool,
     /// Per package, the files changed since its last analysis.
     changed: HashMap<PathBuf, BTreeSet<PathBuf>>,
     /// Packages whose next analysis publishes every file (the first one, or
@@ -193,9 +197,10 @@ impl Typed {
         e.all = all;
         e.all_types = all_types;
         e.excluded = excluded;
-        let roots: Vec<PathBuf> = e.documents.values().map(|d| d.root.clone()).chain(folder_packages(&e.folders)).collect();
+        let roots: Vec<PathBuf> = e.documents.values().map(|d| d.root.clone()).collect();
         e.publish_all.extend(roots.iter().cloned());
         e.dirty.extend(roots);
+        e.scan = true;
         self.shared.1.notify_all();
     }
 
@@ -205,9 +210,7 @@ impl Typed {
     pub(crate) fn folders(&self, folders: Vec<PathBuf>) {
         let mut e = self.state();
         e.folders = folders;
-        let packages = folder_packages(&e.folders);
-        e.publish_all.extend(packages.iter().cloned());
-        e.dirty.extend(packages);
+        e.scan = true;
         self.shared.1.notify_all();
     }
 
@@ -268,7 +271,7 @@ impl Typed {
     /// waiting.
     pub(crate) fn idle(&self) -> bool {
         let e = self.state();
-        (e.dirty.is_empty() || e.paused) && e.running.is_none()
+        ((e.dirty.is_empty() && !e.scan) || e.paused) && e.running.is_none()
     }
 
     /// Waits for the worker to become idle (nothing requested, nothing
@@ -277,7 +280,7 @@ impl Typed {
         let end = Instant::now() + limit;
         let mut e = self.state();
         loop {
-            if (e.dirty.is_empty() || e.paused) && e.running.is_none() {
+            if ((e.dirty.is_empty() && !e.scan) || e.paused) && e.running.is_none() {
                 return true;
             }
             let now = Instant::now();
@@ -325,13 +328,27 @@ fn work(
     loop {
         let (root, open, texts, config, changed) = {
             let mut e = block();
-            while !e.shutdown && (e.dirty.is_empty() || e.paused) {
+            while !e.shutdown && ((e.dirty.is_empty() && !e.scan) || e.paused) {
                 e = sinal
                     .wait(e)
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
             }
             if e.shutdown {
                 return;
+            }
+            if e.scan {
+                // The walk runs without the lock: the server keeps answering.
+                e.scan = false;
+                let folders = e.folders.clone();
+                drop(e);
+                let packages = folder_packages(&folders);
+                let mut e = block();
+                if e.folders == folders {
+                    e.publish_all.extend(packages.iter().cloned());
+                    e.dirty.extend(packages);
+                }
+                sinal.notify_all();
+                continue;
             }
             let root = e.dirty.pop_first().expect("non-empty");
             let open: Vec<(String, i32, PathBuf, String)> = e
@@ -363,6 +380,7 @@ fn work(
                     let mut e = block();
                     e.running = None;
                     e.dirty.clear();
+                    e.scan = false;
                     e.paused = true;
                     sinal.notify_all();
                     continue;
