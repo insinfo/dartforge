@@ -1071,10 +1071,12 @@ dos inicializadores +36 (temporária) e o índice de faixas do motor ~100 MiB.
 2. **Índice de faixas compacto no motor** (`crates/parity/src/analysis.rs`,
    `Index`): as unidades fora das bibliotecas do lote (as dependências) iam
    num `HashMap` com um `Vec` por nó; agora num vetor ordenado de
-   `(início, fim, unidade)`, 12 bytes por nó. Os textos analisados também não
-   ficam mais em três cópias. Pico vivo do `frontend` 590,6 → 515,2 MiB;
-   diagnósticos publicados idênticos em nove projetos (`limitless_ui`,
-   `especificacao`, `new_sali/core`, `args`…).
+   `(início, fim, unidade)`, 12 bytes por nó, construído só quando um
+   diagnóstico sem unidade fora dos inicializadores pede (a maioria das
+   análises não tem nenhum). Os textos analisados também não ficam mais em três
+   cópias. Pico vivo do `frontend` 590,6 → 515,2 → 492,1 MiB (*footprint* do
+   processo 786 → 634 → 612 MiB); diagnósticos publicados idênticos em nove
+   projetos (`limitless_ui`, `especificacao`, `new_sali/core`, `args`…).
 3. Textos abertos compartilhados com as tarefas (sem duas cópias por
    análise); arquivo fechado sem diagnóstico volta sem o texto; o trabalhador
    não parece ocioso enquanto percorre as pastas (o `wait_idle` voltava antes
@@ -1084,11 +1086,11 @@ dos inicializadores +36 (temporária) e o índice de faixas do motor ~100 MiB.
 
 | | antes (análise na thread) | depois | Dart 3.6.2 |
 |---|---|---|---|
-| servidor: pico de *footprint* | 602–640 MiB | 30,1–30,6 MiB | — |
-| servidor: platô de *footprint* | 240–477 MiB | 30,1–30,6 MiB (igual nas duas rodadas) | — |
-| filho da análise (só durante ela) | — | 658 MiB (`frontend`), 327 MiB (`core`) | — |
-| pico total (servidor + filho) | 602–640 MiB | 686 MiB | 737–1.402 MiB |
-| em repouso | 240–477 MiB | 30 MiB | 736–1.286 MiB |
+| servidor: pico de *footprint* | 602–640 MiB | 27,1–30,6 MiB | — |
+| servidor: platô de *footprint* | 240–477 MiB | 27,1–30,6 MiB (estável entre rodadas) | — |
+| filho da análise (só durante ela) | — | 639 MiB (`frontend`, com os 858 textos abertos), 310 MiB (`core`) | — |
+| pico total (servidor + filho) | 602–640 MiB | 664 MiB | 737–1.402 MiB |
+| em repouso | 240–477 MiB | 27 MiB | 736–1.286 MiB |
 
 O Dart, aqui com `package_config.json` válido, analisa de fato (na medição
 D.2 no Windows ele não tinha `package_config` e ficou em 640 MiB sem
