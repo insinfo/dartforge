@@ -68,8 +68,11 @@ pub trait GeradorNativo: Send + Sync {
     /// against the official one; the engine only uses it to measure
     /// (`--comparar`) and publishes the fallback instead.
     fn verificado(&self) -> bool;
-    fn gerar(&self, ctx: &mut CtxGerador<'_>, request: &PedidoNativo)
-    -> Result<SaidaNativa, String>;
+    fn gerar(
+        &self,
+        ctx: &mut CtxGerador<'_>,
+        request: &PedidoNativo,
+    ) -> Result<SaidaNativa, String>;
 }
 
 /// The only read channel of a native generator: every read becomes a query
@@ -690,8 +693,7 @@ mod service_tests {
         assert!(!s.can_read(&new));
         assert!(
             s.queries.iter().any(
-                |(c, d)| matches!(c, Consulta::Existe(p) if p.ends_with("new.dart"))
-                    && d.is_none()
+                |(c, d)| matches!(c, Consulta::Existe(p) if p.ends_with("new.dart")) && d.is_none()
             ),
             "a negative canRead must invalidate when the source appears"
         );

@@ -85,7 +85,10 @@ impl Travado {
     pub fn is_from_pub_dev(&self) -> bool {
         self.tipo == TipoDependencia::Hosted
             && self.server.as_deref().is_some_and(|u| {
-                matches!(u.trim_end_matches('/'), "https://pub.dev" | "https://pub.dartlang.org")
+                matches!(
+                    u.trim_end_matches('/'),
+                    "https://pub.dev" | "https://pub.dartlang.org"
+                )
             })
     }
 }
@@ -106,7 +109,14 @@ pub fn ler_lock(text: &str, origin: &str) -> Result<Vec<(String, Travado)>, Stri
         };
         let versao = p["version"].as_str().unwrap_or_default().to_string();
         let server = p["description"]["url"].as_str().map(str::to_string);
-        v.push((name.to_string(), Travado { tipo, versao, server }));
+        v.push((
+            name.to_string(),
+            Travado {
+                tipo,
+                versao,
+                server,
+            },
+        ));
     }
     Ok(v)
 }
@@ -265,10 +275,7 @@ pub struct Alvo {
 
 impl Alvo {
     pub fn cfg(&self, key: &str) -> Option<&TargetBuilderConfig> {
-        self.builders
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, c)| c)
+        self.builders.iter().find(|(k, _)| k == key).map(|(_, c)| c)
     }
 }
 
@@ -361,7 +368,9 @@ impl BuildConfig {
             // `exists`); a `build.yaml` that exists and cannot be read
             // (permissions, bytes that are not UTF-8, a directory with that
             // name) is an error, not an empty configuration (DF-BUILD-017).
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::padrao(package, dependencies)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Ok(Self::padrao(package, dependencies))
+            }
             Err(e) => Err(format!("could not read {}: {e}", path.display())),
         }
     }
@@ -779,9 +788,7 @@ impl Ctx<'_> {
         Ok(Alvo {
             chave: target_key,
             pacote: self.package.to_string(),
-            auto_apply_builders: self
-                .boolean(&y["auto_apply_builders"], at)?
-                .unwrap_or(true),
+            auto_apply_builders: self.boolean(&y["auto_apply_builders"], at)?.unwrap_or(true),
             builders,
             dependencias: dependencies
                 .iter()
@@ -945,8 +952,14 @@ mod tests {
         std::fs::write(dir.join("build.yaml"), [0xff, 0xfe, 0x00]).unwrap();
         let r = BuildConfig::from_dir("p", &[], &dir);
         std::fs::remove_dir_all(&dir).unwrap();
-        assert!(r.is_err(), "unreadable build.yaml became the default configuration");
-        let empty = std::env::temp_dir().join(format!("dartforge-build-yaml-missing-{}", std::process::id()));
+        assert!(
+            r.is_err(),
+            "unreadable build.yaml became the default configuration"
+        );
+        let empty = std::env::temp_dir().join(format!(
+            "dartforge-build-yaml-missing-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&empty).unwrap();
         let r = BuildConfig::from_dir("p", &[], &empty);
         std::fs::remove_dir_all(&empty).unwrap();
@@ -1003,7 +1016,9 @@ post_process_builders:
         assert!(BuildConfig::de_texto_no_perfil("p", &[], trig, "t", old).is_err());
         assert!(BuildConfig::de_texto_no_perfil("p", &[], trig, "t", p12).is_ok());
         // `e as Object`: a null value is an error.
-        assert!(BuildConfig::de_texto_no_perfil("p", &[], "triggers:\n  p:b:\n", "t", p12).is_err());
+        assert!(
+            BuildConfig::de_texto_no_perfil("p", &[], "triggers:\n  p:b:\n", "t", p12).is_err()
+        );
         let post = "post_process_builders:\n  x:\n    import: a.dart\n    builder_factory: f\n    build_to: source\n";
         assert!(BuildConfig::de_texto_no_perfil("p", &[], post, "t", p12).is_err());
         let c = BuildConfig::de_texto_no_perfil("p", &[], post, "t", p13).unwrap();
@@ -1017,8 +1032,7 @@ post_process_builders:
     #[test]
     fn unknown_key_is_an_error() {
         assert!(
-            BuildConfig::de_texto("p", &[], "targets:\n  $default:\n    srcs: []\n", "t")
-                .is_err()
+            BuildConfig::de_texto("p", &[], "targets:\n  $default:\n    srcs: []\n", "t").is_err()
         );
         assert!(BuildConfig::de_texto("p", &[], "targets:\n  other: {}\n", "t").is_err());
         assert!(BuildConfig::de_texto("p", &[], "", "t").is_ok());

@@ -426,8 +426,7 @@ impl Motor {
         let package_graph = GrafoPacotes::montar(root, cfg, None)?;
         let script_configs = Configs::ler(&package_graph, false)?;
         let plan = Plano::do_script(&package_graph, &script_configs)?;
-        let configs =
-            Configs::read_with_config(&package_graph, true, options.config.as_deref())?;
+        let configs = Configs::read_with_config(&package_graph, true, options.config.as_deref())?;
         let (phases, targets) = fases(
             &package_graph,
             &configs,
@@ -857,9 +856,7 @@ impl Motor {
             changed.insert(k);
         }
         for d in &dirs {
-            self.marks
-                .entry(d.clone())
-                .or_insert_with(|| Marca::ler(d));
+            self.marks.entry(d.clone()).or_insert_with(|| Marca::ler(d));
         }
         self.grafo = graph;
         self.per_phase = per_phase;
@@ -950,7 +947,12 @@ impl Motor {
         crate::grafo::VISIVEIS_FORA_DA_RAIZ
             .iter()
             .map(|s| s.to_string())
-            .chain(self.configs.por_pacote[p].publicos_adicionais.iter().cloned())
+            .chain(
+                self.configs.por_pacote[p]
+                    .publicos_adicionais
+                    .iter()
+                    .cloned(),
+            )
             .any(|g| crate::glob::Glob::novo(&g).is_ok_and(|g| g.casa(&id.caminho)))
     }
 
@@ -1222,7 +1224,8 @@ impl Motor {
                         if fired {
                             from_trigger.insert(a, queries);
                         } else {
-                            preset.insert(a, self.without_outputs(a, queries, Origem::NotTriggered));
+                            preset
+                                .insert(a, self.without_outputs(a, queries, Origem::NotTriggered));
                         }
                     }
                 }
@@ -1236,7 +1239,7 @@ impl Motor {
                 _ if run.is_empty() => Vec::new(),
                 Some(g) if self.natives[g].por_pacote() => run
                     .iter()
-                    .map(|&a| self.from_package_round(g, a, dart_reason.as_deref()))
+                    .map(|&a| self.package_round_record(g, a, dart_reason.as_deref()))
                     .collect(),
                 Some(g) => {
                     let mut v = Vec::with_capacity(run.len());
@@ -1428,9 +1431,7 @@ impl Motor {
             .dart
             .lock()
             .is_ok_and(|d| d.disponibilidade() == Disponibilidade::Disponivel);
-        if (candidates.is_empty() && post.is_empty())
-            || !available
-            || self.prepare_dart().is_some()
+        if (candidates.is_empty() && post.is_empty()) || !available || self.prepare_dart().is_some()
         {
             return Ok(());
         }
@@ -1838,17 +1839,19 @@ impl Motor {
                 .filter(|(_, d)| **d != a)
                 .map(|(s, _)| s.clone())
                 .collect();
-            let r = self.post_process_action(a, occupied).unwrap_or_else(|e| Registro {
-                fingerprint: [0; 32],
-                consultas: Vec::new(),
-                saidas: Vec::new(),
-                origem: Origem::Pendente,
-                motivo: Some(e),
-                measured: Vec::new(),
-                from_fallback: Vec::new(),
-                apagados: Vec::new(),
-                restored: false,
-            });
+            let r = self
+                .post_process_action(a, occupied)
+                .unwrap_or_else(|e| Registro {
+                    fingerprint: [0; 32],
+                    consultas: Vec::new(),
+                    saidas: Vec::new(),
+                    origem: Origem::Pendente,
+                    motivo: Some(e),
+                    measured: Vec::new(),
+                    from_fallback: Vec::new(),
+                    apagados: Vec::new(),
+                    restored: false,
+                });
             owners.retain(|_, d| *d != a);
             for (s, _) in &r.saidas {
                 owners.insert(s.clone(), a);
@@ -1912,7 +1915,9 @@ impl Motor {
             saidas_permitidas: Vec::new(),
         };
         let mut dart = self.dart.lock().map_err(|_| "Dart executor poisoned")?;
-        let result = dart.pos_processar(&request, &mut service).map_err(|e| e.0)?;
+        let result = dart
+            .pos_processar(&request, &mut service)
+            .map_err(|e| e.0)?;
         if result.falhou {
             // "severo" and "erro" are log levels of the dfexec/1 protocol.
             let details = result
@@ -2404,7 +2409,7 @@ impl Motor {
     /// Record of an action covered by a per-package generator: the generated
     /// outputs come from the round; whatever it refused goes to the
     /// fallback.
-    fn from_package_round(&self, g: usize, a: usize, dart_reason: Option<&str>) -> Registro {
+    fn package_round_record(&self, g: usize, a: usize, dart_reason: Option<&str>) -> Registro {
         let action = &self.grafo.acoes[a];
         let package: Arc<str> = self.grafo_pacotes.nos[self.fases[action.fase].pacote]
             .nome
@@ -2628,7 +2633,10 @@ impl Motor {
     fn fallback_in_parallel(&self, actions: &[usize], dart_reason: Option<&str>) -> Vec<Registro> {
         let n = self.opcoes.trabalhadores.max(1).min(actions.len());
         if n <= 1 || actions.len() < 8 {
-            return actions.iter().map(|&a| self.fallback(a, dart_reason)).collect();
+            return actions
+                .iter()
+                .map(|&a| self.fallback(a, dart_reason))
+                .collect();
         }
         let next = AtomicUsize::new(0);
         let mut all: Vec<(usize, Registro)> = std::thread::scope(|s| {
@@ -2755,8 +2763,7 @@ impl Motor {
                 ));
             }
         }
-        let labels: Vec<&'static str> =
-            labels.into_iter().map(|(_, k)| self.label(&k)).collect();
+        let labels: Vec<&'static str> = labels.into_iter().map(|(_, k)| self.label(&k)).collect();
         for (i, (n, content, _, input)) in items.into_iter().enumerate() {
             let Ok(text) = std::str::from_utf8(&content) else {
                 continue;

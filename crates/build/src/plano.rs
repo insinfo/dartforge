@@ -161,7 +161,11 @@ fn overrides(
         let path = root.raiz.join(format!("build.{k}.yaml"));
         let text = std::fs::read_to_string(&path)
             .map_err(|_| format!("Cannot find build.{k}.yaml for specified config."))?;
-        let deps: Vec<String> = root.deps.iter().map(|&d| graph.nos[d].nome.clone()).collect();
+        let deps: Vec<String> = root
+            .deps
+            .iter()
+            .map(|&d| graph.nos[d].nome.clone())
+            .collect();
         // The file's builder definitions are ignored (the official tool
         // warns): the plan comes from `build.yaml`; only targets, global
         // options and triggers count here.
@@ -194,7 +198,11 @@ fn overrides(
         let Some(node) = graph.no(&package) else {
             continue;
         };
-        let deps: Vec<String> = node.deps.iter().map(|&d| graph.nos[d].nome.clone()).collect();
+        let deps: Vec<String> = node
+            .deps
+            .iter()
+            .map(|&d| graph.nos[d].nome.clone())
+            .collect();
         // `--config` wins over `<root>.build.yaml` (it is inserted later).
         if config_key.is_some() && package == root.nome {
             continue;
@@ -242,7 +250,11 @@ impl Configs {
         let mut per_package = Vec::with_capacity(graph.nos.len());
         let mut warnings = Vec::new();
         for node in &graph.nos {
-            let deps: Vec<String> = node.deps.iter().map(|&d| graph.nos[d].nome.clone()).collect();
+            let deps: Vec<String> = node
+                .deps
+                .iter()
+                .map(|&d| graph.nos[d].nome.clone())
+                .collect();
             if let Some(c) = ov.get(&node.nome) {
                 per_package.push(c.clone());
                 continue;
@@ -254,7 +266,10 @@ impl Configs {
             match BuildConfig::from_dir_with_profile(&node.nome, &deps, &node.raiz, profile) {
                 Ok(c) => per_package.push(c),
                 Err(e) if strict => {
-                    return Err(format!("Failed to parse `build.yaml` for {}: {e}", node.nome));
+                    return Err(format!(
+                        "Failed to parse `build.yaml` for {}: {e}",
+                        node.nome
+                    ));
                 }
                 Err(e) => {
                     warnings.push(e);
