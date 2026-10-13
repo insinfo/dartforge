@@ -1,33 +1,34 @@
-//! `textDocument/completion`: membros pelo tipo estático do receptor, nomes
-//! do escopo, palavras-chave e argumentos nomeados.
+//! `textDocument/completion`: members by the receiver's static type, scope
+//! names, keywords and named arguments.
 //!
-//! O ponto de digitação quase nunca analisa: `a.` sem nome, `a.ca` sem `;`.
-//! O parser recupera por comando (pula até o `;` ou a `}` do bloco), então o
-//! comando incompleto some da árvore. Antes de analisar, o nome sob o cursor
-//! é trocado por um identificador sentinela e, se preciso, um fecho curto
-//! (`;`, `);` …) é acrescentado depois dele; vale a variante que põe o
-//! sentinela numa expressão com o menor número de diagnósticos. O programa é
-//! então carregado com esse texto e os corpos da biblioteca são inferidos
-//! pela inferência comum (`crates/types`): o tipo do receptor é o
-//! `get_type` do alvo, e o escopo léxico é capturado pela sonda da inferência
-//! no identificador sentinela.
+//! The typing point almost never parses: `a.` without a name, `a.ca`
+//! without `;`. The parser recovers per statement (skips to the `;` or the
+//! block's `}`), so the incomplete statement disappears from the tree.
+//! Before parsing, the name under the cursor is replaced by a sentinel
+//! identifier and, if needed, a short closing (`;`, `);` …) is appended
+//! after it; the variant that puts the sentinel in an expression with the
+//! fewest diagnostics wins. The program is then loaded with that text and
+//! the library's bodies are inferred by the common inference
+//! (`crates/types`): the receiver's type is the target's `get_type`, and
+//! the lexical scope is captured by the inference's probe on the sentinel
+//! identifier.
 //!
-//! Em posição de tipo (`Str▮ x`, `List<▮>`, `void f(p.▮ a)`), só tipos:
-//! classes, mixins, enums, extension types, typedefs, parâmetros de tipo em
-//! escopo, prefixos e `dynamic`/`void` — nunca valores.
+//! In a type position (`Str▮ x`, `List<▮>`, `void f(p.▮ a)`), only types:
+//! classes, mixins, enums, extension types, typedefs, type parameters in
+//! scope, prefixes and `dynamic`/`void` — never values.
 //!
-//! Nomes públicos de bibliotecas ainda não importadas (SDK e projeto,
-//! pelos índices de [`crate::index`]) entram com a edição que acrescenta o
-//! `import` (`additionalTextEdits`), como a importação automática do Dart;
-//! não em partes (o `import` iria para outro arquivo).
+//! Public names of libraries not imported yet (SDK and project, through the
+//! indexes of [`crate::index`]) come with the edit that adds the `import`
+//! (`additionalTextEdits`), like Dart's auto-import; not in parts (the
+//! `import` would go to another file).
 //!
-//! O filtro é o `FuzzyMatcher` do Dart ([`crate::fuzzy_matcher`]): prefixo, contém,
-//! iniciais de palavras e subsequência que abre como o nome. A ordem é por
-//! relevância e estável: o que começa com o digitado vem antes do que só
-//! casa por aproximação; depois o grupo (argumentos nomeados, locais,
-//! membros da classe — os herdados de `Object` por último —, declarações da
-//! biblioteca, importados, prefixos, não importados, palavras-chave) e o
-//! nome.
+//! The filter is Dart's `FuzzyMatcher` ([`crate::fuzzy_matcher`]): prefix,
+//! contains, word initials and a subsequence that starts like the name. The
+//! order is by relevance and stable: what starts with the typed text comes
+//! before what only matches fuzzily; then the group (named arguments,
+//! locals, class members — those inherited from `Object` last —, library
+//! declarations, imported ones, prefixes, not imported ones, keywords) and
+//! the name.
 
 use crate::DocumentStore;
 use crate::query::Query;
@@ -53,13 +54,13 @@ mod isp_helpers;
 mod isp_keywords;
 mod isp_visits;
 
-/// Identificador que ocupa o lugar do nome sob o cursor na análise.
+/// Identifier that takes the place of the name under the cursor in the analysis.
 const SENTINEL: &str = "dartforge__completar";
 
-/// Fechos tentados depois do sentinela, na ordem de preferência.
+/// Closings tried after the sentinel, in order of preference.
 const CLOSURES: &[&str] = &["", ";", ")", ");", "))", "));", ")));", "]", "];", "});"];
 
-/// `CompletionItemKind` do LSP.
+/// The LSP `CompletionItemKind`.
 pub(crate) mod kind {
     pub const METHOD: u32 = 2;
     pub const FUNCTION: u32 = 3;
@@ -75,115 +76,115 @@ pub(crate) mod kind {
     pub const TYPE_PARAMETER: u32 = 25;
 }
 
-/// Como completar uma chamada, quando o cliente aceita snippets.
+/// How to complete a call, when the client accepts snippets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Call {
-    /// Os parâmetros obrigatórios, na ordem (`x`, e `name: ` para nomeados):
-    /// viram os marcadores `${1:x}` do snippet.
+    /// The required parameters, in order (`x`, and `name: ` for named ones):
+    /// they become the snippet's `${1:x}` placeholders.
     Parameters(Vec<String>),
-    /// Função com parâmetros de nomes desconhecidos (índice de nomes): o
-    /// cursor fica entre os parênteses.
+    /// Function with parameters of unknown names (name index): the cursor stays
+    /// between the parentheses.
     Unknown,
 }
 
-/// Um `import` a acrescentar junto com o item (importação automática).
+/// An `import` to add together with the item (auto-import).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AutoImport {
-    /// A URI importada (`dart:math`, `util.dart`).
+    /// The imported URI (`dart:math`, `util.dart`).
     pub uri: String,
-    /// Onde a diretiva entra no documento (bytes) e o texto dela.
+    /// Where the directive goes in the document (bytes) and its text.
     pub span: Span,
     pub text: String,
 }
 
-/// Um item oferecido ao editor.
+/// An item offered to the editor.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompletionItem {
-    /// O que a lista mostra (`met(…)`, `name: `).
+    /// What the list shows (`met(…)`, `name: `).
     pub label: String,
     /// `CompletionItemKind`.
     pub kind: u32,
-    /// Tipo ou assinatura.
+    /// Type or signature.
     pub detail: Option<String>,
-    /// Texto que substitui o prefixo digitado.
+    /// Text that replaces the typed prefix.
     pub insert: String,
-    /// Forma de chamada, para funções, métodos e construtores.
+    /// Call shape, for functions, methods and constructors.
     pub call: Option<Call>,
-    /// Arquivo e início da declaração, para a documentação do
+    /// File and start of the declaration, for the documentation of
     /// `completionItem/resolve`.
     pub origin: Option<(PathBuf, usize)>,
-    /// A diretiva que o item acrescenta (nome ainda não importado).
+    /// The directive the item adds (a name not imported yet).
     pub import: Option<AutoImport>,
-    /// Grupo de ordenação (menor vem antes).
+    /// Sorting group (smaller comes first).
     group: u8,
-    /// Qualidade do casamento com o digitado (0: prefixo; 1: aproximado).
+    /// Quality of the match with the typed text (0: prefix; 1: fuzzy).
     quality: u8,
-    /// O que entra no cálculo da relevância (`crate::relevance`).
+    /// What goes into the relevance computation (`crate::relevance`).
     rel: crate::relevance::Rel,
-    /// Classe do item (elemento de topo), para o tipo de contexto.
+    /// Class of the item (top-level element), for the context type.
     class: Option<ClassId>,
-    /// A relevância calculada (`0..1000`).
+    /// The computed relevance (`0..1000`).
     relevance: i32,
-    /// `sortText` = `9999 − relevância` (`MAP:59`, `:735-736`).
+    /// `sortText` = `9999 − relevance` (`MAP:59`, `:735-736`).
     pub sort_text: String,
-    /// O score do `FuzzyMatcher` do handler (`fuzzy.suggestionScore`), para
-    /// o truncamento.
+    /// The score of the handler's `FuzzyMatcher` (`fuzzy.suggestionScore`), for
+    /// truncation.
     pub score: f64,
-    /// `selectionOffset`/`selectionLength` (unidades UTF-16 do texto
-    /// inserido), quando a sugestão põe o cursor antes do fim.
+    /// `selectionOffset`/`selectionLength` (UTF-16 units of the inserted text),
+    /// when the suggestion puts the cursor before the end.
     pub selection: Option<(usize, usize)>,
-    /// `displayText` (o rótulo, quando difere do texto inserido).
+    /// `displayText` (the label, when it differs from the inserted text).
     pub display: Option<String>,
-    /// O item veio do `InScopeCompletionPass` (a ordem e o `matcherScore`
-    /// são os dele).
+    /// The item came from the `InScopeCompletionPass` (the order and the
+    /// `matcherScore` are its own).
     pub(crate) of_pass: bool,
-    /// `CompletionSuggestionKind.IDENTIFIER` num executável (tear-off,
-    /// redirecionamento): o rótulo mostra os parâmetros, a inserção não põe
-    /// parênteses.
+    /// `CompletionSuggestionKind.IDENTIFIER` on an executable (tear-off,
+    /// redirection): the label shows the parameters, the insertion adds no
+    /// parentheses.
     pub(crate) identifier: bool,
-    /// O texto que o filtro do handler casa (`textToMatchOverride`:
-    /// `override_x`, `setState`), quando difere do texto inserido.
+    /// The text the handler's filter matches (`textToMatchOverride`:
+    /// `override_x`, `setState`), when it differs from the inserted text.
     pub(crate) match_: Option<String>,
-    /// `replacementLength: 0`: a inserção não substitui o prefixo.
+    /// `replacementLength: 0`: the insertion does not replace the prefix.
     pub(crate) replace_empty: bool,
 }
 
-/// Resultado do completar: o intervalo do prefixo (bytes) e os itens em ordem.
+/// Completion result: the prefix range (bytes) and the items in order.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Completion {
-    /// O `replacementOffset` (bytes).
+    /// The `replacementOffset` (bytes).
     pub start: usize,
-    /// O fim do `insert` (`replacementOffset + min(offset -
+    /// The end of `insert` (`replacementOffset + min(offset -
     /// replacementOffset, replacementLength)`).
     pub end: usize,
-    /// O fim do `replacementRange`, quando o passe o calculou (senão o
-    /// handler estende a palavra).
+    /// The end of `replacementRange`, when the pass computed it (otherwise the
+    /// handler extends the word).
     pub replacement_end: Option<usize>,
     pub items: Vec<CompletionItem>,
-    /// A lista foi cortada (nomes não importados acima do teto).
+    /// The list was cut (not-imported names above the ceiling).
     pub incomplete: bool,
 }
 
-/// Onde o sentinela caiu na análise.
+/// Where the sentinel landed in the analysis.
 #[derive(Clone, Copy)]
 enum Sentinel {
-    /// Numa expressão; com o alvo quando é `target.▮`.
+    /// In an expression; with the target when it is `target.▮`.
     Expr(ExprId, Option<ExprId>),
-    /// Num nome de tipo; com o prefixo quando é `p.▮`, e se o tipo abre a
-    /// declaração (de topo, membro ou comando), onde palavras-chave também
-    /// cabem.
+    /// In a type name; with the prefix when it is `p.▮`, and whether the type
+    /// opens the declaration (top-level, member or statement), where keywords
+    /// also fit.
     Type {
         prefix: Option<SymbolId>,
         leader: Option<&'static [&'static str]>,
     },
 }
 
-/// O que o completar consulta além do programa.
+/// What completion queries besides the program.
 pub(crate) struct Indices<'a> {
     pub sdk: &'a SdkIndex,
     pub project: &'a mut ProjectIndex,
-    /// Os resumos das bibliotecas conhecidas (`FileStateFilter` e
-    /// `exportNamespace`) dos não importados.
+    /// The summaries of the known libraries (`FileStateFilter` and
+    /// `exportNamespace`) for the not-imported items.
     pub known: &'a mut crate::known_libraries::LibraryIndex,
 }
 
@@ -191,7 +192,7 @@ mod group {
     pub const NAMED: u8 = 0;
     pub const LOCAL: u8 = 1;
     pub const MEMBER: u8 = 2;
-    /// Membros herdados de `Object` (`toString`, `hashCode`…).
+    /// Members inherited from `Object` (`toString`, `hashCode`…).
     pub const OBJECT_MEMBER: u8 = 3;
     pub const LIBRARY: u8 = 4;
     pub const IMPORTED: u8 = 5;
@@ -200,8 +201,9 @@ mod group {
     pub const WORD: u8 = 8;
 }
 
-/// Teto de itens de bibliotecas não importadas numa resposta; acima dele a
-/// lista sai com `isIncomplete` e o editor pede de novo a cada tecla.
+/// Ceiling of items from not-imported libraries in one response; above it
+/// the list comes out with `isIncomplete` and the editor asks again at each
+/// keystroke.
 
 const EXPRESSION_WORDS: &[&str] = &["const", "false", "new", "null", "true"];
 const COMMAND_WORDS: &[&str] = &[
@@ -249,17 +251,17 @@ fn is_ident(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }
 
-/// Completa na posição `offset` (bytes) de `text`, o conteúdo vigente de `uri`.
+/// Completes at position `offset` (bytes) of `text`, the current content of
+/// `uri`.
 ///
-/// `None` quando o arquivo não pode ser carregado (URI que não é de
-/// arquivo). Dentro de comentário, de texto de string ou de número, a lista
-/// é vazia.
-/// O `maxSuggestions` (`dart.maxCompletionItems`, padrão
+/// `None` when the file cannot be loaded (a URI that is not a file). Inside
+/// a comment, string text or a number, the list is empty.
+/// The `maxSuggestions` (`dart.maxCompletionItems`, default
 /// `defaultMaxCompletions = 2000`).
 pub(crate) const MAX_PATTERN: usize = 2000;
 
-/// `SuggestionCollector.addSuggestion` (`SC:45-81`): inserção estável por
-/// `matcherScore` decrescente e a poda acima de `max`.
+/// `SuggestionCollector.addSuggestion` (`SC:45-81`): stable insertion by
+/// descending `matcherScore` and pruning above `max`.
 fn collect(list: &mut Vec<(f64, CompletionItem)>, score: f64, item: CompletionItem, max: usize) {
     let mut position = 0;
     for k in (0..list.len()).rev() {
@@ -277,8 +279,8 @@ fn collect(list: &mut Vec<(f64, CompletionItem)>, score: f64, item: CompletionIt
     }
 }
 
-/// O texto pontuado (`displayName`): o rótulo de inserção sem o `: ` de um
-/// argumento nomeado.
+/// The scored text (`displayName`): the insertion label without the `: ` of
+/// a named argument.
 fn scored_text(i: &CompletionItem) -> &str {
     match &i.match_ {
         Some(c) => c,
@@ -315,18 +317,19 @@ pub(crate) fn completion(
         items: Vec::new(),
         incomplete: false,
     };
-    // O texto analisado troca a palavra sob o cursor pelo sentinela (só para
-    // a semântica: o contexto é o do texto real, `completion/isp.rs`).
+    // The analyzed text replaces the word under the cursor with the sentinel
+    // (only for semantics: the context is that of the real text,
+    // `completion/isp.rs`).
     let typed = &text[start..offset];
     let prepared = prepare(text, start, end, features);
     let analyzed_text = prepared.as_deref().unwrap_or(text);
     let delta = analyzed_text.len() as isize - text.len() as isize;
     let request = Request { sdk, indices, documents, text, start, end, offset, typed, speculative: prepared.is_some(), max, not_imported, delta };
-    // O caminho incremental (docs/LSP-ESPECIFICACAO.md §16.7): o estado
-    // retido é o do texto do documento; o texto com o sentinela troca a
-    // unidade no lugar, só o corpo do sentinela é inferido (com a sonda), e a
-    // troca é desfeita depois da resposta. Fora de um corpo, ou com a
-    // assinatura, as diretivas ou a forma mudadas, a carga completa.
+    // The incremental path (docs/LSP-ESPECIFICACAO.md §16.7): the retained
+    // state is that of the document's text; the text with the sentinel swaps
+    // the unit in place, only the sentinel's body is inferred (with the
+    // probe), and the swap is undone after the response. Outside a body, or
+    // with the signature, the directives or the shape changed, the full load.
     if let Some(project) = retained
         && let Some(unit) = project.uri_unit(uri)
         && project.program().unit(unit).source == text
@@ -352,7 +355,7 @@ pub(crate) fn completion(
     respond(&mut query, unit, request, empty)
 }
 
-/// O pedido de completar, já com o intervalo da palavra.
+/// The completion request, already with the word's range.
 struct Request<'a, 'i> {
     sdk: &'a SdkLayout,
     indices: Indices<'i>,
@@ -362,31 +365,32 @@ struct Request<'a, 'i> {
     end: usize,
     offset: usize,
     typed: &'a str,
-    /// O texto analisado tem o sentinela.
+    /// The analyzed text has the sentinel.
     speculative: bool,
     max: usize,
-    /// Sugerir os não importados (`suggestFromUnimportedLibraries` com
+    /// Suggest not-imported items (`suggestFromUnimportedLibraries` with
     /// `workspace/applyEdit`).
     not_imported: bool,
-    /// O deslocamento dos offsets depois da palavra no texto analisado.
+    /// The shift of the offsets after the word in the analyzed text.
     delta: isize,
 }
 
-/// As sugestões sobre a consulta pronta (a retida, com a unidade trocada
-/// pelo texto especulativo, ou a de uma carga): o `InScopeCompletionPass`
-/// sobre o texto real (`completion/isp.rs`), o `NotImportedCompletionPass`,
-/// a relevância de cada candidato, o coletor (`matcherScore`, poda), o
-/// mapa de sugestões e o filtro e o truncamento do handler.
+/// The suggestions over the prepared query (the retained one, with the unit
+/// swapped for the speculative text, or a loaded one): the
+/// `InScopeCompletionPass` over the real text (`completion/isp.rs`), the
+/// `NotImportedCompletionPass`, the relevance of each candidate, the
+/// collector (`matcherScore`, pruning), the suggestion map and the handler's
+/// filter and truncation.
 fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: Request<'_, '_>, empty: Completion) -> Option<Completion> {
     let Request { sdk, indices, documents, text, start, end, offset, typed: _, speculative, max, not_imported, delta } = request;
     let features = query.program.unit(unit).features;
     let before_3 = features.versao() < dartforge_frontend::LanguageVersion::new(3, 0);
     let swap = speculative.then_some((start, end, SENTINEL.len(), delta));
-    // Numa parte, o `import` iria para a biblioteca dona (outro arquivo).
+    // In a part, the `import` would go to the owning library (another file).
     let part = query.program.unit(unit).unit.directives.iter().any(|d| matches!(d.kind, ast::DirectiveKind::PartOf { .. }));
-    // As bibliotecas candidatas dos não importados (`FileStateFilter`, menos
-    // a do pedido e as importadas sem combinadores pela unidade definidora,
-    // `_ImportSummary`), com a URI do `import`.
+    // The candidate libraries for the not-imported items (`FileStateFilter`,
+    // minus the request's own and those imported without combinators by the
+    // defining unit, `_ImportSummary`), with the `import` URI.
     let filter = candidates_filter(query, unit);
     let Indices { sdk: _, project: _, known } = indices;
     let candidates = |c: &mut crate::known_libraries::LibraryIndex| -> Vec<(PathBuf, String)> {
@@ -421,10 +425,10 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
         return Some(empty);
     }
     let library = query.program.unit(unit).library;
-    // O sentinela é do texto analisado, não do usuário.
+    // The sentinel belongs to the analyzed text, not to the user.
     let mut arrival: Vec<(f64, CompletionItem)> = r.items.into_iter().filter(|(_, i)| !i.insert.contains(SENTINEL)).collect();
-    // `StaticMembersOperation` sobre as bibliotecas que a consulta não
-    // carregou: os nomes do resumo do `exportNamespace`.
+    // `StaticMembersOperation` over the libraries the query did not load: the
+    // names of the `exportNamespace` summary.
     if r.operations.iter().any(|o| matches!(o, isp::Operation::StaticMembers)) && !r.summarized.is_empty() {
         let only_types = r.flags.as_ref().is_some_and(|f| f.ty);
         let mut collector = Collector { items: Vec::new(), library, receiver: None };
@@ -444,8 +448,8 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
             }
         }
     }
-    // A relevância (`relevanceComputer.computeRelevance`): o local gravado
-    // pelo passe, o tipo de contexto do pedido e o `preferConstants`.
+    // The relevance (`relevanceComputer.computeRelevance`): the location
+    // recorded by the pass, the request's context type and `preferConstants`.
     let local = r.local.clone();
     let expected = r.context_type;
     let prefer_constants = r.prefers_constants || r.in_constant_context;
@@ -471,15 +475,15 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
         i.relevance = crate::relevance::relevance(&i.rel, local.as_deref(), context, prefer_constants);
         i.sort_text = (9999 - i.relevance).to_string();
     }
-    // O coletor: inserção estável por `matcherScore` e a poda.
+    // The collector: stable insertion by `matcherScore`, and pruning.
     let mut list: Vec<(f64, CompletionItem)> = Vec::new();
     for (s, i) in arrival {
         collect(&mut list, s, i, max);
     }
-    // O `_suggestionMap` (`SB:989-1026`): a chave é o texto (o construtor
-    // com `()`, o não importado com `::uri`); o último vence, na posição do
-    // primeiro; o construtor cujo nome de classe já está no mapa por um
-    // elemento que não é classe fica de fora.
+    // The `_suggestionMap` (`SB:989-1026`): the key is the text (a constructor
+    // with `()`, a not-imported item with `::uri`); the last one wins, at the
+    // position of the first; a constructor whose class name is already in the
+    // map through an element that is not a class is left out.
     let mut order: Vec<CompletionItem> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
     for (_, i) in list {
@@ -516,15 +520,15 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
             }
         }
     }
-    // O handler: `fuzzy.suggestionScore(item) > 0` pelo prefixo do pedido
-    // (vazio → 1.0).
+    // The handler: `fuzzy.suggestionScore(item) > 0` by the request's prefix
+    // (empty → 1.0).
     let mut fuzzy = crate::fuzzy_matcher::Matcher::new(&r.request_prefix, crate::fuzzy_matcher::Style::Text);
     for i in &mut order {
         i.score = fuzzy.score(scored_text(i));
     }
     order.retain(|i| i.score > 0.0);
     let mut incomplete = r.incomplete;
-    // `_truncateResults` acima do máximo.
+    // `_truncateResults` above the maximum.
     if order.len() > max {
         let prefix = r.request_prefix.to_lowercase();
         order.sort_by(|a, b| {
@@ -544,16 +548,16 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
         });
         incomplete = true;
     }
-    // `replacementRange` e o `insert` do handler (`min(offset -
+    // The handler's `replacementRange` and `insert` (`min(offset -
     // replacementOffset, replacementLength)`).
     let (ri, rl) = r.range;
     let insertion = ri + offset.saturating_sub(ri).min(rl);
     Some(Completion { start: ri, end: insertion, replacement_end: Some(ri + rl), items: order, incomplete })
 }
 
-/// O que o filtro das candidatas dos não importados precisa: o arquivo do
-/// pedido, as unidades da própria biblioteca e as bibliotecas importadas
-/// sem combinadores pela unidade definidora (`_ImportSummary`).
+/// What the filter of the not-imported candidates needs: the request's file,
+/// the units of its own library and the libraries imported without
+/// combinators by the defining unit (`_ImportSummary`).
 #[allow(clippy::type_complexity)]
 fn candidates_filter(query: &Query, unit: dartforge_elements::model::UnitId) -> Option<(PathBuf, HashSet<PathBuf>, HashSet<PathBuf>)> {
     let program = &query.program;
@@ -572,10 +576,10 @@ fn candidates_filter(query: &Query, unit: dartforge_elements::model::UnitId) -> 
     Some((file, own, imported))
 }
 
-/// Texto com o nome sob o cursor trocado pelo sentinela (e o fecho que o
-/// faz analisar); `None` quando nenhuma variante põe o sentinela numa
-/// expressão ou num nome de tipo. Vale a variante com menos diagnósticos
-/// (a primeira, entre iguais).
+/// Text with the name under the cursor replaced by the sentinel (and the
+/// closing that makes it parse); `None` when no variant puts the sentinel in
+/// an expression or a type name. The variant with the fewest diagnostics
+/// wins (the first one, among equals).
 fn prepare(text: &str, start: usize, end: usize, features: LibraryFeatures) -> Option<String> {
     let mut best: Option<(usize, String)> = None;
     for closure in CLOSURES {
@@ -585,9 +589,9 @@ fn prepare(text: &str, start: usize, end: usize, features: LibraryFeatures) -> O
         if find_sentinel(&analyzed.ast, start).is_none() {
             continue;
         }
-        // Sem fecho, o texto tem a árvore do real (o parser insere os
-        // fechos sintéticos como o fasta): é a escolha sempre que o
-        // sentinela cai numa expressão ou num tipo.
+        // Without a closing, the text has the real text's tree (the parser inserts
+        // the synthetic closings like fasta): it is the choice whenever the
+        // sentinel lands in an expression or a type.
         if closure.is_empty() {
             return Some(candidate);
         }
@@ -603,8 +607,8 @@ fn prepare(text: &str, start: usize, end: usize, features: LibraryFeatures) -> O
     best.map(|(_, t)| t)
 }
 
-/// Onde está o sentinela em `start`: numa expressão (com o alvo, se é
-/// acesso a membro) ou num nome de tipo.
+/// Where the sentinel at `start` is: in an expression (with the target, if
+/// it is a member access) or in a type name.
 fn find_sentinel(ast: &ast::Ast, start: usize) -> Option<Sentinel> {
     let eh = |n: &ast::Name| n.span.start == start && n.span.end == start + SENTINEL.len();
     let expr = ast
@@ -626,8 +630,8 @@ fn find_sentinel(ast: &ast::Ast, start: usize) -> Option<Sentinel> {
         _ => None,
     })?;
     let prefix = (name_.len() == 2).then(|| name_[0].sym);
-    // O tipo abre uma declaração de topo, de membro ou um comando: ali as
-    // palavras-chave de declaração também cabem.
+    // The type opens a top-level declaration, a member or a statement: there
+    // the declaration keywords also fit.
     let opens = |s: dartforge_diagnostics::Span| s.start == ty.span.start;
     let leader: Option<&'static [&'static str]> = if prefix.is_some() {
         None
@@ -646,8 +650,8 @@ fn find_sentinel(ast: &ast::Ast, start: usize) -> Option<Sentinel> {
 struct Collector {
     items: Vec<CompletionItem>,
     library: LibraryId,
-    /// Classe do receptor enquanto se coletam membros de instância (a
-    /// distância de herança de cada membro).
+    /// Class of the receiver while instance members are collected (the
+    /// inheritance distance of each member).
     receiver: Option<ClassId>,
 }
 
@@ -685,8 +689,8 @@ impl Collector {
         self.items.last_mut().expect("item recém-empurrado")
     }
 
-    /// Preenche a relevância do último item a partir da função `f` (com o
-    /// tipo `ty` visto pelo receptor).
+    /// Fills the relevance of the last item from function `f` (with type `ty`
+    /// as seen through the receiver).
     fn function_rel(&mut self, query: &Query, f: FunctionElementId, ty: TypeId) {
         use crate::relevance::Kind;
         let fe = query.program.function(f);
@@ -710,8 +714,8 @@ impl Collector {
             (Some(r), Some(c)) if member => inheritance_distance(query, r, c).map(|d| d as u32),
             _ => None,
         };
-        // `isConstantFeature`: construtor `const`; acessor sintético de
-        // variável estática (ou de topo) `const`.
+        // `isConstantFeature`: a `const` constructor; a synthetic accessor of a
+        // `const` static (or top-level) variable.
         let constant = match fe.kind {
             FunctionKind::Constructor | FunctionKind::SyntheticConstructor => fe.const_,
             FunctionKind::ImplicitAccessor => fe.variable.is_some_and(|v| {
@@ -732,14 +736,14 @@ impl Collector {
         }
     }
 
-    /// Nome privado de outra biblioteca: invisível aqui.
+    /// A private name from another library: invisible here.
     fn invisible(&self, query: &Query, name: &str, owning: LibraryId) -> bool {
         let _ = query;
         name.starts_with('_') && owning != self.library
     }
 
-    /// Item de uma função (método, getter, acessor) com o tipo `ty` já
-    /// visto pelo receptor.
+    /// Item of a function (method, getter, accessor) with type `ty` already seen
+    /// through the receiver.
     fn function(&mut self, query: &Query, group: u8, f: FunctionElementId, ty: TypeId) {
         let fe = query.program.function(f);
         let name = query.name(fe.name).trim_end_matches('=').to_string();
@@ -810,8 +814,8 @@ impl Collector {
                 } else {
                     format!("{name}(…)")
                 };
-                // Os obrigatórios viram marcadores do snippet: posicionais
-                // pelo nome e nomeados como `name: `.
+                // The required ones become snippet placeholders: positionals by name and
+                // named ones as `name: `.
                 let parameters: Vec<String> = query.outline.functions[f.0 as usize]
                     .parameters
                     .iter()
@@ -840,7 +844,7 @@ impl Collector {
         }
     }
 
-    /// Item de um elemento de topo (da biblioteca ou importado).
+    /// Item of a top-level element (of the library or imported).
     fn element(&mut self, query: &Query, group: u8, element: Element) {
         let program = &query.program;
         match element {
@@ -941,13 +945,13 @@ impl Collector {
         }
     }
 
-    /// A `StaticMembersOperation` do `NotImportedCompletionPass`
-    /// (docs/LSP-ESPECIFICACAO.md §14.9) sobre as bibliotecas que a
-    /// consulta não carregou: as declarações do `exportNamespace` pelo resumo
-    /// de nomes (`_addExternalTopLevelDeclarations`: só tipos com
-    /// `mustBeType`), cada uma com o `import` que a torna visível; o
-    /// `VisibilityTracker` do passe esconde as de nome já visto. O resumo não
-    /// tem os construtores nem os campos estáticos das classes.
+    /// The `StaticMembersOperation` of the `NotImportedCompletionPass`
+    /// (docs/LSP-ESPECIFICACAO.md §14.9) over the libraries the query did not
+    /// load: the `exportNamespace` declarations from the name summary
+    /// (`_addExternalTopLevelDeclarations`: only types with `mustBeType`), each
+    /// with the `import` that makes it visible; the pass's `VisibilityTracker`
+    /// hides those whose name was already seen. The summary has neither the
+    /// constructors nor the static fields of the classes.
     #[allow(clippy::too_many_arguments)]
     fn not_imported_summary(
         &mut self,
@@ -988,8 +992,8 @@ impl Collector {
                     _ => name.clone(),
                 };
                 let (span, new) = crate::actions::insert_import(text, unit, uri);
-                // A assinatura escrita do resumo é o `detail` (o `Auto
-                // import from` vem no `completionItem/resolve`).
+                // The summary's written signature is the `detail` (the `Auto import from`
+                // comes in `completionItem/resolve`).
                 let item = self.push(group::NOT_IMPORTED, lsp_kind, label, name.clone(), d.signature.as_deref().map(str::to_string));
                 item.import = Some(AutoImport { uri: uri.clone(), span, text: new });
                 item.origin = Some((origin, d.start));
@@ -1005,17 +1009,17 @@ impl Collector {
 
 }
 
-/// Os nomes das anotações (o último segmento) de uma lista de metadados.
+/// The names of the annotations (the last segment) of a metadata list.
 fn annotation_names(query: &Query, ms: &[ast::Annotation]) -> Vec<String> {
     ms.iter().filter_map(|m| m.name.last().map(|n| query.name(n.sym).to_string())).collect()
 }
 
-/// `@deprecated`/`@Deprecated(...)` entre os metadados.
+/// `@deprecated`/`@Deprecated(...)` among the metadata.
 fn has_deprecated(query: &Query, ms: &[ast::Annotation]) -> bool {
     annotation_names(query, ms).iter().any(|n| n == "deprecated" || n == "Deprecated")
 }
 
-/// `hasDeprecated` de um elemento de topo.
+/// `hasDeprecated` of a top-level element.
 fn element_deprecated(query: &Query, el: Element) -> bool {
     let p = &query.program;
     let decl = match el {
@@ -1032,8 +1036,9 @@ fn element_deprecated(query: &Query, el: Element) -> bool {
     decl.is_some_and(|d| has_deprecated(query, &p.unit(d.unit).ast.decl(d.decl).metadata))
 }
 
-/// `hasOrInheritsDeprecated` de uma função, método, acessor ou construtor:
-/// a anotação dela, ou a do membro de mesmo nome que ela sobrescreve.
+/// `hasOrInheritsDeprecated` of a function, method, accessor or constructor:
+/// its own annotation, or that of the member with the same name that it
+/// overrides.
 fn function_deprecated(query: &Query, f: FunctionElementId) -> bool {
     let p = &query.program;
     let own = |f: FunctionElementId| -> bool {
@@ -1062,8 +1067,8 @@ fn function_deprecated(query: &Query, f: FunctionElementId) -> bool {
     if own(f) {
         return true;
     }
-    // O membro sobrescrito (`inheritsDeprecated`): o de mesmo nome nos
-    // supertipos.
+    // The overridden member (`inheritsDeprecated`): the one with the same name
+    // in the supertypes.
     let fe = p.function(f);
     let Some(c) = fe.class else { return false };
     if fe.static_ || matches!(fe.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
@@ -1094,7 +1099,7 @@ fn function_deprecated(query: &Query, f: FunctionElementId) -> bool {
     false
 }
 
-/// Tipo declarado de um membro, sem receptor (estáticos e extensões).
+/// Declared type of a member, without a receiver (statics and extensions).
 fn declared_type(query: &Query, f: FunctionElementId) -> TypeId {
     let fe = query.program.function(f);
     let data = &query.outline.functions[f.0 as usize];
@@ -1112,7 +1117,7 @@ fn declared_type(query: &Query, f: FunctionElementId) -> TypeId {
     }
 }
 
-/// Biblioteca que declara um elemento de topo.
+/// Library that declares a top-level element.
 fn element_library(query: &Query, element: Element) -> LibraryId {
     let p = &query.program;
     match element {
@@ -1125,7 +1130,7 @@ fn element_library(query: &Query, element: Element) -> LibraryId {
     }
 }
 
-/// O retorno de um tipo de função.
+/// The return of a function type.
 fn return_(query: &Query, ty: TypeId) -> Option<TypeId> {
     match query.table.get(ty) {
         Type::Function { ret, .. } => Some(*ret),
@@ -1133,8 +1138,8 @@ fn return_(query: &Query, ty: TypeId) -> Option<TypeId> {
     }
 }
 
-/// Arestas de `sub` até `sup` na hierarquia (superclasse, mixins,
-/// interfaces, `on`), como o `_inheritanceDistance` do Dart.
+/// Edges from `sub` to `sup` in the hierarchy (superclass, mixins,
+/// interfaces, `on`), like Dart's `_inheritanceDistance`.
 fn inheritance_distance(query: &Query, sub: ClassId, sup: ClassId) -> Option<usize> {
     let mut queue = std::collections::VecDeque::from([(sub, 0usize)]);
     let mut seen = HashSet::new();
@@ -1153,8 +1158,8 @@ fn inheritance_distance(query: &Query, sub: ClassId, sup: ClassId) -> Option<usi
     None
 }
 
-/// O tipo de interface de `c` com os argumentos `Never`, como o Dart
-/// instancia uma classe sugerida (`instantiateInstanceElement`).
+/// The interface type of `c` with `Never` arguments, as Dart instantiates a
+/// suggested class (`instantiateInstanceElement`).
 fn class_type(query: &mut Query, c: ClassId) -> Option<TypeId> {
     let n = query.outline.classes.get(c.0 as usize)?.type_params.len();
     let never = query.core.never;
@@ -1162,8 +1167,8 @@ fn class_type(query: &mut Query, c: ClassId) -> Option<TypeId> {
     Some(query.table.intern(Type::Interface { class: c, args, nullable: false }))
 }
 
-/// `contextTypeFeature`: igual 1,0; subtipo 0,40; supertipo 0,02; sem
-/// relação 0,13.
+/// `contextTypeFeature`: equal 1.0; subtype 0.40; supertype 0.02; unrelated
+/// 0.13.
 fn context_feature(query: &mut Query, expected: TypeId, ty: TypeId) -> f64 {
     if expected == ty {
         return 1.0;

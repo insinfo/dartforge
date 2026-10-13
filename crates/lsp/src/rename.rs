@@ -1,12 +1,12 @@
-//! `textDocument/prepareRename` e `textDocument/rename` como o servidor do
-//! Dart 3.6.2 (docs/LSP-ESPECIFICACAO.md §12.1 a §12.10): o elemento sob o
-//! cursor pelo `getElementToRename`, a classe de refatoração do
-//! `RenameRefactoring.create`, o `RefactoringStatus` com as mensagens exatas
-//! (`checkInitialConditions`, `checkNewName`, `checkFinalConditions`) e as
-//! edições de cada classe (`fillChange`). O projeto inteiro é carregado e as
-//! referências vêm do modelo comum de [`crate::project`] (as mesmas de
-//! `references`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! `textDocument/prepareRename` and `textDocument/rename` like the Dart
+//! 3.6.2 server (docs/LSP-ESPECIFICACAO.md §12.1 to §12.10): the element
+//! under the cursor through `getElementToRename`, the refactoring class of
+//! `RenameRefactoring.create`, the `RefactoringStatus` with the exact
+//! messages (`checkInitialConditions`, `checkNewName`,
+//! `checkFinalConditions`) and the edits of each class (`fillChange`). The
+//! whole project is loaded and the references come from the common model of
+//! [`crate::project`] (the same as `references`).
+//! Written without compiling or running (2026-10-05).
 
 use crate::project::{Target, Concrete, Owner, Project, base_name, word};
 use crate::refactorings::Context;
@@ -18,7 +18,7 @@ use dartforge_intern::SymbolId;
 use std::collections::BTreeSet;
 use url::Url;
 
-/// Uma edição de texto: substituir `span` (bytes) de `uri` por `text`.
+/// A text edit: replace `span` (bytes) of `uri` with `text`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Edit {
     pub uri: String,
@@ -26,42 +26,44 @@ pub struct Edit {
     pub text: String,
 }
 
-/// O arquivo que acompanha a classe renomeada (o `RenameFile` no fim dos
-/// `documentChanges`, §12.1 passo 17).
+/// The file that goes with the renamed class (the `RenameFile` at the end of
+/// `documentChanges`, §12.1 step 17).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenameFile {
-    /// URI atual do arquivo.
+    /// Current URI of the file.
     pub de: String,
-    /// URI nova (mesmo diretório, `toFileName` do nome novo).
+    /// New URI (same directory, `toFileName` of the new name).
     pub para: String,
-    /// O Dart não edita as diretivas aqui (vêm do `willRenameFiles`): vazio.
+    /// Dart does not edit the directives here (they come from
+    /// `willRenameFiles`): empty.
     pub directives: Vec<Edit>,
 }
 
-/// O resultado do `rename`.
+/// The result of `rename`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Rename {
     pub edits: Vec<Edit>,
     pub file: Option<RenameFile>,
-    /// `checkFinalConditions` com erro ou aviso (sem fatal): a mensagem do
-    /// prompt `Rename Anyway`/`Cancel`, ou do `-32010` sem prompt.
+    /// `checkFinalConditions` with an error or a warning (not fatal): the message
+    /// of the `Rename Anyway`/`Cancel` prompt, or of the `-32010` without a
+    /// prompt.
     pub warning: Option<String>,
-    /// Nada a renomear: a resposta é `null`.
+    /// Nothing to rename: the response is `null`.
     pub null: bool,
 }
 
-/// A classe de refatoração (`RenameRefactoring.create`, §12.2).
+/// The refactoring class (`RenameRefactoring.create`, §12.2).
 #[derive(Debug, Clone)]
 enum Class {
-    /// `RenameUnitMemberRefactoringImpl`: o elemento de topo (o acessor de
-    /// topo já trocado pela variável) ou o prefixo de um tipo.
+    /// `RenameUnitMemberRefactoringImpl`: the top-level element (the top-level
+    /// accessor already replaced by the variable) or the prefix of a type.
     UnitMember(Target),
     Constructor(FunctionElementId),
-    /// `RenameImportRefactoringImpl`: o import (pela posição em `imports`).
+    /// `RenameImportRefactoringImpl`: the import (by position in `imports`).
     Import { library: LibraryId, index: usize },
     Label { unit: UnitId, declaration: usize },
     Library(LibraryId),
-    /// `RenameParameterRefactoringImpl`; `field`: o `this.x` com campo.
+    /// `RenameParameterRefactoringImpl`; `field`: the `this.x` with a field.
     Parameter { unit: UnitId, declaration: usize, field: Option<VariableId> },
     Local { unit: UnitId, declaration: usize },
     TypeParameter { unit: UnitId, declaration: usize },
@@ -69,9 +71,9 @@ enum Class {
     ExtensionMember { target: Target, concrete: Option<Concrete> },
 }
 
-/// O que o cursor renomeia: a classe, o intervalo do `prepareRename`, o
-/// nome antigo, a espécie e o nome qualificado (mensagens), e onde o
-/// elemento está (SDK, workspace).
+/// What the cursor renames: the class, the `prepareRename` range, the old
+/// name, the kind and the qualified name (messages), and where the element
+/// is (SDK, workspace).
 #[derive(Debug, Clone)]
 struct Request {
     class: Class,
@@ -83,13 +85,13 @@ struct Request {
     unit: Option<UnitId>,
 }
 
-/// As palavras reservadas (`KeywordStyle.reserved`).
+/// The reserved words (`KeywordStyle.reserved`).
 const RESERVED: &[&str] = &[
     "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else", "enum", "extends", "false", "final", "finally", "for", "if",
     "in", "is", "new", "null", "rethrow", "return", "super", "switch", "this", "throw", "true", "try", "var", "void", "while", "with",
 ];
 
-/// As embutidas e as pseudo (`isBuiltInOrPseudo`).
+/// The built-in and the pseudo ones (`isBuiltInOrPseudo`).
 const INLINE: &[&str] = &[
     "Function", "abstract", "as", "augment", "covariant", "deferred", "dynamic", "export", "extension", "external", "factory", "get", "implements",
     "import", "interface", "late", "library", "mixin", "operator", "part", "required", "set", "static", "typedef", "async", "await", "base", "hide",
@@ -179,7 +181,7 @@ pub(crate) fn file_name(name: &str) -> String {
     crate::refactorings::file_name(name)
 }
 
-/// O parâmetro (de função ou construtor) cujo intervalo está em `[a, b]`.
+/// The parameter (of a function or constructor) whose range is in `[a, b]`.
 fn parameter_in_range(ast: &ast::Ast, a: usize, b: usize) -> Option<&ast::Parameter> {
     let inside = |q: &&ast::Parameter| q.span.start >= a && q.span.end <= b;
     for f in &ast.functions {
@@ -198,7 +200,7 @@ fn parameter_in_range(ast: &ast::Ast, a: usize, b: usize) -> Option<&ast::Parame
 }
 
 impl Project {
-    // -- O elemento sob o cursor ------------------------------------------------
+    // -- The element under the cursor --------------------------------------------
 
     /// `getElementOfNode` + `getElementToRename` + `RenameRefactoring.create`.
     fn rename_request(&self, unit: UnitId, offset: usize) -> Option<Request> {
@@ -211,17 +213,17 @@ impl Project {
         let no = &cx.tree.nos[n];
         let node_range = Span { start: no.inicio, end: no.fim };
         match node_kind {
-            // Fora da tabela do `getElementToRename`.
+            // Outside the `getElementToRename` table.
             "SuperFormalParameter" | "FunctionTypedFormalParameter" => return None,
-            // A URI de uma diretiva não é renomeável.
+            // A directive's URI cannot be renamed.
             "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings"
                 if cx.parent(n).is_some_and(|x| matches!(cx.kind(x), "ImportDirective" | "ExportDirective" | "PartDirective" | "PartOfDirective")) =>
             {
                 return None;
             }
             "ImportDirective" => {
-                // O import da diretiva: com prefixo, o identificador dele; sem,
-                // o intervalo vazio no cursor.
+                // The directive's import: with a prefix, its identifier; without one, the
+                // empty range at the cursor.
                 let lib = u.library;
                 let index = p.library(lib).imports.iter().position(|i| {
                     i.unit == unit
@@ -268,7 +270,7 @@ impl Project {
                 });
             }
             "InstanceCreationExpression" => {
-                // `new`/`const`: a classe, no nome do tipo.
+                // `new`/`const`: the class, on the type name.
                 let cn = cx.children(n).iter().copied().find(|&k| cx.kind(k) == "ConstructorName")?;
                 let ty = *cx.children(cn).first()?;
                 let start = cx.children(ty).iter().copied().find(|&k| cx.kind(k) == "ImportPrefixReference").map_or(cx.tree.nos[ty].inicio, |k| cx.tree.nos[k].fim);
@@ -308,7 +310,7 @@ impl Project {
             }
             _ => {}
         }
-        // Rótulo de comando, e o de um `break`/`continue`.
+        // Statement label, and that of a `break`/`continue`.
         if node_kind == "SimpleIdentifier"
             && let Some(parent) = cx.parent(n)
         {
@@ -348,12 +350,12 @@ impl Project {
             }
         }
         let d = self.identify(unit, offset).ok()??;
-        // O prefixo usado numa expressão: o `PrefixElement`, membro da
-        // unidade (`RenameUnitMemberRefactoringImpl`); o `as p` da diretiva
-        // fica com o `LibraryImportElement` (o ramo `ImportDirective`).
+        // The prefix used in an expression: the `PrefixElement`, a member of the
+        // unit (`RenameUnitMemberRefactoringImpl`); the directive's `as p` keeps
+        // the `LibraryImportElement` (the `ImportDirective` branch).
         if let Target::Prefix { library, name } = d.target {
             let old = self.name(name).to_string();
-            // No `as p` da própria diretiva: o `LibraryImportElement`.
+            // On the directive's own `as p`: the `LibraryImportElement`.
             let in_directive = p.library(library).imports.iter().position(|i| {
                 i.unit == unit
                     && matches!(
@@ -361,9 +363,9 @@ impl Project {
                         Some(ast::DirectiveKind::Import { prefix: Some(pr), .. }) if pr.span.start <= offset && offset <= pr.span.end
                     )
             });
-            // Usado numa expressão (um `SimpleIdentifier` com o
-            // `PrefixElement`): `getElementOfNode` troca pelo import
-            // (`getImportElement`), e o rename é o do import.
+            // Used in an expression (a `SimpleIdentifier` with the `PrefixElement`):
+            // `getElementOfNode` swaps it for the import (`getImportElement`), and the
+            // rename is the import's.
             let in_directive = in_directive.or_else(|| self.prefix_import(unit, offset, library, name));
             if let Some(index) = in_directive {
                 return Some(Request {
@@ -389,8 +391,8 @@ impl Project {
         self.target_request(d.target, d.concrete, d.name, unit)
     }
 
-    /// O pedido para um alvo do `identify` (a regra 1 do `create` já
-    /// aplicada: acessor → variável).
+    /// The request for an `identify` target (rule 1 of `create` already
+    /// applied: accessor → variable).
     fn target_request(&self, target: Target, concrete: Option<Concrete>, range: Span, unit: UnitId) -> Option<Request> {
         let p = self.program();
         let request = match &target {
@@ -492,8 +494,8 @@ impl Project {
         Some(request)
     }
 
-    /// A espécie (`kind.displayName`) e o nome de um elemento de topo (o
-    /// acessor de topo vira a variável).
+    /// The kind (`kind.displayName`) and the name of a top-level element (a
+    /// top-level accessor becomes the variable).
     fn top_kind(&self, el: Element) -> Option<(String, String)> {
         let p = self.program();
         Some(match el {
@@ -518,13 +520,13 @@ impl Project {
         })
     }
 
-    /// `workspace.containsElement`: o arquivo do elemento está sob a raiz.
+    /// `workspace.containsElement`: the element's file is under the root.
     fn in_workspace(&self, unit: Option<UnitId>) -> bool {
         let Some(u) = unit else { return false };
         self.program().unit(u).path.as_deref().is_some_and(|c| crate::project::inside(c, &self.root))
     }
 
-    // -- As condições -----------------------------------------------------------
+    // -- The conditions -----------------------------------------------------------
 
     /// `checkInitialConditions`.
     fn initial_conditions(&self, request: &Request) -> State {
@@ -610,7 +612,7 @@ impl Project {
         e
     }
 
-    /// A espécie (`kind.displayName`) de uma classe.
+    /// The kind (`kind.displayName`) of a class.
     fn class_kind(&self, c: ClassId) -> String {
         match self.program().class(c).kind {
             ClassKind::Mixin => "mixin",
@@ -621,9 +623,9 @@ impl Project {
         .to_string()
     }
 
-    /// Os filhos diretos de `c` com nome-base `name` (`getChildren`):
-    /// acessores, campos, construtores, métodos, parâmetros de tipo; a
-    /// espécie e o nome qualificado.
+    /// The direct children of `c` with base name `name` (`getChildren`):
+    /// accessors, fields, constructors, methods, type parameters; the kind and
+    /// the qualified name.
     fn children_with_name(&self, c: ClassId, name: &str) -> Vec<(String, String)> {
         let p = self.program();
         let cl = p.class(c);
@@ -661,13 +663,13 @@ impl Project {
         v
     }
 
-    /// As referências (sem as declarações) de um alvo, em (unidade, faixa).
+    /// The references (without the declarations) of a target, as (unit, range).
     fn target_references(&self, target: &Target) -> Vec<(UnitId, Span)> {
         let declarations = self.declarations(target);
         let Ok(oc) = self.occurrences(target, false) else { return Vec::new() };
-        // `searchReferences` passa pelo `Search._addResults`: só os arquivos
-        // candidatos (os que citam o nome e os da biblioteca), com os
-        // buracos do Dart (o redirecionamento de fábrica não cita o nome).
+        // `searchReferences` goes through `Search._addResults`: only the candidate
+        // files (those that cite the name and those of the library), with Dart's
+        // gaps (a factory redirection does not cite the name).
         let candidates = self.search_name(target).map(|name| {
             let mut units: Vec<UnitId> = declarations.iter().map(|(u, _, _)| *u).collect();
             units.dedup();
@@ -680,13 +682,13 @@ impl Project {
             .collect()
     }
 
-    /// O caminho da biblioteca relativo à raiz (`getElementQualifiedName`
-    /// de uma biblioteca).
+    /// The library path relative to the root (`getElementQualifiedName` of a
+    /// library).
     fn library_path(&self, l: LibraryId) -> String {
         let p = self.program();
         let Some(&u) = p.library(l).units.first() else { return String::new() };
         match p.unit(u).path.as_deref() {
-            // `pathContext.relative`: com o separador da plataforma.
+            // `pathContext.relative`: with the platform separator.
             Some(c) => c.strip_prefix(&self.root).map(|r| r.to_string_lossy().into_owned()).unwrap_or_else(|_| c.to_string_lossy().into_owned()),
             None => p.library(l).uri.clone(),
         }
@@ -698,7 +700,7 @@ impl Project {
         let mut e = State::default();
         match &request.class {
             Class::UnitMember(target) => {
-                // O prefixo (`PrefixElement`) também é membro da unidade.
+                // The prefix (`PrefixElement`) is also a member of the unit.
                 if !matches!(target, Target::Top(_) | Target::Prefix { .. }) {
                     return e;
                 }
@@ -761,7 +763,7 @@ impl Project {
                 let family = self.family(*owner, name, *is_static, false).ok();
                 let references = self.target_references(target);
                 let subclasses: Vec<ClassId> = self.subtypes(class, false);
-                // A classe dona de um elemento se chama como o nome novo.
+                // The owning class of an element is named like the new name.
                 if let Some(fam) = &family {
                     let mut owning_: BTreeSet<u32> = BTreeSet::new();
                     for f in &fam.functions {
@@ -779,7 +781,7 @@ impl Project {
                         }
                     }
                 }
-                // `_getShadowingLocalElement`: a primeira sombra por local.
+                // `_getShadowingLocalElement`: the first shadowing by a local.
                 if let Some((local_kind, local_name)) = self.shadow_by_local(&references, new) {
                     e.add(Severity::Error, format!("Usage of renamed {} will be shadowed by {local_kind} '{local_name}'.", request.kind));
                 }
@@ -852,7 +854,7 @@ impl Project {
         e
     }
 
-    /// A classe, mixin, enum ou tipo de extensão que contém o offset.
+    /// The class, mixin, enum or extension type that contains the offset.
     fn containing_class(&self, u: UnitId, offset: usize) -> Option<ClassId> {
         let p = self.program();
         p.classes
@@ -867,10 +869,10 @@ impl Project {
             .map(|(_, c)| c)
     }
 
-    /// `searchMemberDeclarations(name)`: campos (não sintéticos), acessores
-    /// declarados e métodos com o nome, de toda classe do programa: a
-    /// espécie, o nome qualificado, a dona e as funções cujas referências
-    /// contam.
+    /// `searchMemberDeclarations(name)`: fields (non-synthetic), declared
+    /// accessors and methods with the name, of every class of the program: the
+    /// kind, the qualified name, the owner and the functions whose references
+    /// count.
     fn member_declarations(&self, name: &str) -> Vec<(String, String, ClassId, Vec<FunctionElementId>)> {
         let p = self.program();
         let mut v = Vec::new();
@@ -903,8 +905,8 @@ impl Project {
         v
     }
 
-    /// Os usos sem qualificação (identificador solto) resolvidos para uma
-    /// das funções, nas bibliotecas do projeto.
+    /// The unqualified uses (bare identifier) resolved to one of the functions,
+    /// in the project's libraries.
     fn uses_not_qualified(&self, functions: &[FunctionElementId]) -> Vec<(UnitId, Span)> {
         let p = self.program();
         let mut v = Vec::new();
@@ -923,8 +925,8 @@ impl Project {
         v
     }
 
-    /// `_isVisibleAt`: algum import sem prefixo da biblioteca da referência
-    /// traz o elemento.
+    /// `_isVisibleAt`: some unprefixed import of the reference's library brings
+    /// the element.
     fn visible_by_import_without_prefix(&self, u: UnitId, target: &Target) -> bool {
         let p = self.program();
         let Target::Top(el) = target else { return false };
@@ -936,9 +938,9 @@ impl Project {
             .any(|i| p.library(i.library).exported.values().any(|b| b.getter == Some(*el) || b.setter == Some(*el)))
     }
 
-    /// A primeira sombra por local (`_getShadowingLocalElement`): para cada
-    /// referência não qualificada, um local chamado `new` (função de topo
-    /// ou local, parâmetro simples, variável local) visível nela.
+    /// The first shadowing by a local (`_getShadowingLocalElement`): for each
+    /// unqualified reference, a local named `new` (top-level or local function,
+    /// simple parameter, local variable) visible at it.
     fn shadow_by_local(&self, references: &[(UnitId, Span)], new: &str) -> Option<(String, String)> {
         let p = self.program();
         for (u, s) in references {
@@ -956,8 +958,8 @@ impl Project {
                     return Some((kind.to_string(), name));
                 }
             }
-            // As funções de topo também são `FunctionDeclaration` com
-            // `FunctionElement`, visíveis na unidade inteira.
+            // Top-level functions are also `FunctionDeclaration`s with a
+            // `FunctionElement`, visible in the whole unit.
             for d in ast.decls.iter() {
                 if let DeclKind::Function(f) = &d.kind
                     && let Some(n) = ast.function(*f).name
@@ -971,9 +973,9 @@ impl Project {
         None
     }
 
-    /// O `ConflictValidatorVisitor` (§12.9): duplicata de função ou variável
-    /// local visível junto do alvo, e uso de outro elemento chamado `new`
-    /// dentro do intervalo do alvo.
+    /// The `ConflictValidatorVisitor` (§12.9): a duplicate local function or
+    /// variable visible together with the target, and a use of another element
+    /// named `new` inside the target's range.
     fn local_conflicts(&self, u: UnitId, declaration: usize, new: &str, kind_target: &str) -> State {
         let p = self.program();
         let un = p.unit(u);
@@ -984,8 +986,8 @@ impl Project {
         let mut e = State::default();
         let Some((ai, af)) = target_range else { return e };
         let mut conflicting: Vec<(usize, usize)> = Vec::new();
-        // As declarações duplicadas (funções locais e variáveis locais; os
-        // parâmetros não são visitados).
+        // The duplicate declarations (local functions and local variables; the
+        // parameters are not visited).
         for (name, (a, b)) in &visible {
             if name != new || *b <= ai || *a >= af {
                 continue;
@@ -1001,7 +1003,7 @@ impl Project {
             e.add(Severity::Error, format!("Duplicate {} '{new}'.", if function { "function" } else { "local variable" }));
             conflicting.push((*a, *b));
         }
-        // Os usos de outro elemento chamado `new` no intervalo do alvo.
+        // The uses of another element named `new` in the target's range.
         let bodies = &self.query.bodies.units[u.0 as usize];
         let file_of = |x: Option<UnitId>| {
             x.and_then(|x| p.unit(x).path.as_deref().and_then(|c| c.file_name()).map(|n| n.to_string_lossy().into_owned())).unwrap_or_default()
@@ -1045,8 +1047,8 @@ impl Project {
                 }
                 Some(dartforge_types::Resolved::Parameter { .. }) => ("parameter", new.to_string(), file_of(Some(u))),
                 Some(dartforge_types::Resolved::Local(_)) => {
-                    // `ElementKind.displayName`: o local declarado numa lista de
-                    // parâmetros é `parameter`.
+                    // `ElementKind.displayName`: a local declared in a parameter list is
+                    // `parameter`.
                     let parameter = bodies.declaracao_local(id).is_some_and(|d| {
                         un.ast.functions.iter().any(|f| f.parameters.iter().flatten().any(|q| q.name.is_some_and(|x| x.span.start == d)))
                     });
@@ -1059,9 +1061,9 @@ impl Project {
         e
     }
 
-    // -- As edições -------------------------------------------------------------
+    // -- The edits -------------------------------------------------------------
 
-    /// `fillChange` de cada classe.
+    /// `fillChange` of each class.
     fn rename_edits(&self, request: &Request, new: &str) -> Result<Vec<Edit>, String> {
         let p = self.program();
         let mut edits: Vec<Edit> = Vec::new();
@@ -1091,18 +1093,17 @@ impl Project {
                     por(u, Span { start: a, end: b }, new, &mut edits);
                 }
                 for (u, s) in self.target_references(target) {
-                    // O `this.x` nomeado que vira privado: `{T x}` e o
-                    // inicializador `_new = x`.
+                    // The named `this.x` that becomes private: `{T x}` and the initializer
+                    // `_new = x`.
                     if new.starts_with('_')
                         && let Some(e) = self.private_parameter(u, s, new)
                     {
                         edits.extend(e);
                         continue;
                     }
-                    // As referências dos `this.x` (o início de um argumento
-                    // posicional opcional, de comprimento 0, que vira
-                    // inserção, e os `super.x`) só entram com nome novo
-                    // público (`fillChange`).
+                    // The references of the `this.x`s (the start of an optional positional
+                    // argument, of length 0, which becomes an insertion, and the `super.x`s)
+                    // only count with a public new name (`fillChange`).
                     if new.starts_with('_') && (s.start == s.end || self.is_super_formal(u, s)) {
                         continue;
                     }
@@ -1111,7 +1112,7 @@ impl Project {
             }
             Class::Parameter { unit, declaration, field } => {
                 if let Some(v) = field {
-                    // O campo: a declaração e todas as referências dele.
+                    // The field: the declaration and all its references.
                     let target = self.variable_member(*v);
                     if let Some((u, s)) = self.variable_name(*v) {
                         por(u, s, new, &mut edits);
@@ -1125,9 +1126,9 @@ impl Project {
                     let named = crate::project::parameter_in(&un.ast, *declaration).is_some_and(|(q, _)| q.kind == ast::ParameterKind::Named);
                     let end = word(&un.source, *declaration).map_or(*declaration, |s| s.end);
                     por(*unit, Span { start: *declaration, end: end }, new, &mut edits);
-                    // `RenameParameterRefactoringImpl._getElements`: o nomeado
-                    // das sobrescritas é renomeado com a declaração (o modo de
-                    // renomear das ocorrências, que inclui os homônimos).
+                    // `RenameParameterRefactoringImpl._getElements`: the named one of the
+                    // overrides is renamed with the declaration (the occurrence rename mode,
+                    // which includes the homonyms).
                     let references: Vec<(UnitId, Span)> = match self.occurrences(&target, true) {
                         Ok(oc) => oc
                             .into_iter()
@@ -1137,8 +1138,8 @@ impl Project {
                         Err(_) => self.target_references(&target),
                     };
                     for (u, s) in references {
-                        // Sem as implícitas de comprimento 0; num posicional,
-                        // sem os `super.x`.
+                        // Without the implicit zero-length ones; for a positional, without the
+                        // `super.x`s.
                         if s.start == s.end {
                             continue;
                         }
@@ -1147,7 +1148,7 @@ impl Project {
                         }
                         por(u, s, new, &mut edits);
                     }
-                    // O `[x]` do doc do membro.
+                    // The `[x]` of the member's doc.
                     for (u, s) in self.parameter_docs(*unit, *declaration) {
                         por(u, s, new, &mut edits);
                     }
@@ -1195,7 +1196,7 @@ impl Project {
         Ok(edits)
     }
 
-    /// O `super.x` em `s`.
+    /// The `super.x` in `s`.
     fn is_super_formal(&self, u: UnitId, s: Span) -> bool {
         let ast = &self.program().unit(u).ast;
         ast.members.iter().any(|m| match &m.kind {
@@ -1204,8 +1205,8 @@ impl Project {
         })
     }
 
-    /// Os `[x]` do comentário de documentação do membro que declara o
-    /// parâmetro.
+    /// The `[x]`s of the documentation comment of the member that declares the
+    /// parameter.
     fn parameter_docs(&self, unit: UnitId, declaration: usize) -> Vec<(UnitId, Span)> {
         let u = self.program().unit(unit);
         let name = word(&u.source, declaration).map(|s| u.source[s.start..s.end].to_string()).unwrap_or_default();
@@ -1215,9 +1216,8 @@ impl Project {
                 if r.len() != 1 || r[0].1 != name {
                     continue;
                 }
-                // O comentário documenta a declaração logo depois dele
-                // (membro, declaração de topo ou função local), que declara
-                // o parâmetro.
+                // The comment documents the declaration right after it (member, top-level
+                // declaration or local function), which declares the parameter.
                 let declares = |ps: &[ast::Parameter]| ps.iter().any(|q| q.name.is_some_and(|n| n.span.start == declaration));
                 let member = u.ast.members.iter().filter(|m| m.span.start >= c.span.end).min_by_key(|m| m.span.start);
                 let top = u.ast.decls.iter().filter(|d| d.span.start >= c.span.end).min_by_key(|d| d.span.start);
@@ -1244,8 +1244,8 @@ impl Project {
         v
     }
 
-    /// `_addPrivateNamedFormalParameterEdit` para a referência `s` (o `x` de
-    /// um `{this.x}`): `{T x}` e o inicializador `_new = x`.
+    /// `_addPrivateNamedFormalParameterEdit` for reference `s` (the `x` of a
+    /// `{this.x}`): `{T x}` and the initializer `_new = x`.
     fn private_parameter(&self, u: UnitId, s: Span, new: &str) -> Option<Vec<Edit>> {
         let p = self.program();
         let un = p.unit(u);
@@ -1290,7 +1290,7 @@ impl Project {
             (Some(pr), false) => v.push(Edit { uri: uri.clone(), span: pr.span, text: new.to_string() }),
             (None, true) => {}
         }
-        // Os usos dos elementos do namespace do import.
+        // The uses of the elements of the import's namespace.
         let namespace = &p.library(imp.library).exported;
         let visible = |s: SymbolId| {
             namespace.contains_key(&s)
@@ -1307,8 +1307,8 @@ impl Project {
             let fx = ux.source.as_str();
             match prefix {
                 Some(pr) => {
-                    // `RenameImportRefactoringImpl`: o `p.` de cada uso (com o
-                    // ponto) vira `new.` (ou some).
+                    // `RenameImportRefactoringImpl`: the `p.` of each use (with the dot)
+                    // becomes `new.` (or disappears).
                     let until_next = |s: Span| {
                         let dot = fx[s.end..].find('.').map_or(s.end, |k| s.end + k + 1);
                         let spaces = fx[dot..].len() - fx[dot..].trim_start().len();
@@ -1343,7 +1343,7 @@ impl Project {
                             use_(pn, &mut v);
                         }
                     }
-                    // `[p.x]` na documentação: o índice também cita o import.
+                    // `[p.x]` in the documentation: the index also cites the import.
                     let prefix_name = &un.source[pr.span.start..pr.span.end];
                     if fx.contains('[') {
                         for c in crate::dartdoc::comments(fx) {
@@ -1359,8 +1359,8 @@ impl Project {
                     }
                 }
                 None => {
-                    // Sem prefixo: `new.` antes de cada uso não prefixado de
-                    // elemento do import (`"$x"` → `"${new.x}"`).
+                    // Without a prefix: `new.` before each unprefixed use of an element of the
+                    // import (`"$x"` → `"${new.x}"`).
                     let bodies = &self.query.bodies.units[x.0 as usize];
                     for (i, e) in ux.ast.exprs.iter().enumerate() {
                         let ExprKind::Identifier(n) = &e.kind else { continue };
@@ -1387,14 +1387,13 @@ impl Project {
                 }
             }
         }
-        // Os usos na ordem da busca: por unidade e pela posição.
+        // The uses in search order: by unit and by position.
         v[of_directive..].sort_by_key(|e| e.span.start);
         v
     }
 
-    /// O arquivo da classe renomeada (§12.1 passo 17): só classe, mixin,
-    /// enum ou tipo de extensão cujo arquivo se chama `toFileName` do nome
-    /// antigo.
+    /// The file of the renamed class (§12.1 step 17): only a class, mixin, enum
+    /// or extension type whose file is named `toFileName` of the old name.
     fn class_file(&self, request: &Request, new: &str) -> Option<RenameFile> {
         let Class::UnitMember(Target::Top(Element::Class(c))) = &request.class else { return None };
         let d = self.program().class(*c).decl?;
@@ -1406,12 +1405,12 @@ impl Project {
         Some(RenameFile { de: Url::from_file_path(&path).ok()?.to_string(), para: Url::from_file_path(&target).ok()?.to_string(), directives: Vec::new() })
     }
 
-    /// As edições de `RenameConstructorRefactoringImpl.fillChange` (§12.7):
-    /// cada referência (`.name` ou comprimento 0) vira `.new` (sem nome:
-    /// `.new` num tear-off, nada nos outros; a constante de enum sem
-    /// argumentos ganha `()`); a chamada implícita do super-construtor ganha
-    /// `super.new()`; a declaração troca `.name` (ou o vazio no fim do nome
-    /// da classe) por `.new`.
+    /// The edits of `RenameConstructorRefactoringImpl.fillChange` (§12.7): each
+    /// reference (`.name` or zero-length) becomes `.new` (unnamed: `.new` on a
+    /// tear-off, nothing on the others; an enum constant without arguments gets
+    /// `()`); an implicit call to the super constructor gets `super.new()`; the
+    /// declaration replaces `.name` (or the empty span at the end of the class
+    /// name) with `.new`.
     pub(crate) fn constructor_edits(&self, f: FunctionElementId, new: &str) -> Result<Vec<Edit>, String> {
         let p = self.program();
         let mut edits = Vec::new();
@@ -1425,7 +1424,7 @@ impl Project {
             let unit = p.unit(u);
             let source = unit.source.as_str();
             let ast = &unit.ast;
-            // A declaração.
+            // The declaration.
             if declaration == Some((u, Span { start: start, end: end })) {
                 let unnamed = self.name(p.function(f).name).is_empty();
                 let span = if unnamed {
@@ -1437,7 +1436,7 @@ impl Project {
                 edits.push(Edit { uri, span, text: new_dot.clone() });
                 continue;
             }
-            // A subclasse sem construtor declarado: o nome da classe.
+            // A subclass without a declared constructor: the class name.
             let class_without_constructor = ast.decls.iter().find_map(|d| match &d.kind {
                 DeclKind::Class(c) if c.name.span.start == start && c.name.span.end == end => Some(d),
                 _ => None,
@@ -1452,7 +1451,7 @@ impl Project {
                 }
                 continue;
             }
-            // O construtor da subclasse sem `super(...)` explícito.
+            // The subclass constructor without an explicit `super(...)`.
             let implicit = ast.members.iter().find_map(|m| match &m.kind {
                 ast::MemberKind::Constructor(k) if k.class_name.span.start == start => Some(k),
                 _ => None,
@@ -1478,7 +1477,7 @@ impl Project {
                 edits.push(Edit { uri, span: Span { start: o, end: o }, text });
                 continue;
             }
-            // As demais referências.
+            // The other references.
             let tear_off = source[start..end] == *".new" && !source[end..].trim_start().starts_with('(');
             let mut text = if new.is_empty() {
                 if tear_off { ".new".to_string() } else { String::new() }
@@ -1499,8 +1498,8 @@ impl Project {
     }
 }
 
-/// O nome simples `n` da unidade `u` resolve para o elemento que a
-/// biblioteca `target` exporta (o import sem prefixo o traz).
+/// The simple name `n` of unit `u` resolves to the element that library
+/// `target` exports (the unprefixed import brings it).
 fn import_type(p: &dartforge_elements::model::Program, u: UnitId, n: SymbolId, target: LibraryId) -> bool {
     match (p.lookup_na_unidade(u, n).and_then(|b| b.getter), p.library(target).exported.get(&n).and_then(|b| b.getter)) {
         (Some(a), Some(b)) => a == b,
@@ -1517,7 +1516,7 @@ fn capitalize(s: &str) -> String {
     }
 }
 
-/// As listas de parâmetros de tipo da unidade.
+/// The type parameter lists of the unit.
 fn type_parameter_lists(ast: &ast::Ast) -> Vec<Vec<&ast::TypeParameter>> {
     let mut v: Vec<Vec<&ast::TypeParameter>> = Vec::new();
     for d in &ast.decls {
@@ -1543,12 +1542,12 @@ fn type_parameter_lists(ast: &ast::Ast) -> Vec<Vec<&ast::TypeParameter>> {
     v
 }
 
-/// `prepareRename`: o intervalo do `getElementToRename` e o `oldName`;
-/// `Ok(None)` sem nada renomeável.
+/// `prepareRename`: the range from `getElementToRename` and the `oldName`;
+/// `Ok(None)` with nothing renameable.
 ///
-/// # Erros
+/// # Errors
 ///
-/// `checkInitialConditions` fatal: a mensagem (`-32010`).
+/// `checkInitialConditions` fatal: the message (`-32010`).
 pub(crate) fn prepare(project: &Project, uri: &str, offset: usize) -> Result<Option<(Span, String)>, String> {
     let Some(unit) = project.uri_unit(uri) else { return Ok(None) };
     let Some(request) = project.rename_request(unit, offset) else { return Ok(None) };
@@ -1559,12 +1558,12 @@ pub(crate) fn prepare(project: &Project, uri: &str, offset: usize) -> Result<Opt
     Ok(Some((request.range, request.old)))
 }
 
-/// `rename`: as edições, ou a mensagem do `-32010`.
+/// `rename`: the edits, or the `-32010` message.
 ///
-/// # Erros
+/// # Errors
 ///
-/// `checkInitialConditions` fatal, `checkNewName` com erro, ou
-/// `checkFinalConditions` fatal: a mensagem.
+/// `checkInitialConditions` fatal, `checkNewName` with an error, or
+/// `checkFinalConditions` fatal: the message.
 pub(crate) fn rename(project: &Project, uri: &str, offset: usize, new: &str) -> Result<Rename, String> {
     let Some(unit) = project.uri_unit(uri) else {
         return Ok(Rename { null: true, ..Default::default() });

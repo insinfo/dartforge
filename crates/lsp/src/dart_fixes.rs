@@ -1,9 +1,9 @@
-//! Produtores de correção portados do servidor do Dart 3.6.2 sobre a árvore
-//! do analyzer ([`crate::analyzer_tree`]): `RemoveUnusedLocalVariable`,
-//! `RemoveUnusedElement` e `RemoveUnusedField` (`COR:remove_unused*.dart`),
-//! com os utilitários de intervalo do `RangeFactory`
-//! (docs/LSP-ESPECIFICACAO.md §13.7.4.0 e §13.7.4.5).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Fix producers ported from the Dart 3.6.2 server over the analyzer tree
+//! ([`crate::arvore_analyzer`]): `RemoveUnusedLocalVariable`,
+//! `RemoveUnusedElement` and `RemoveUnusedField` (`COR:remove_unused*.dart`),
+//! with the range utilities of `RangeFactory` (docs/LSP-ESPECIFICACAO.md
+//! §13.7.4.0 and §13.7.4.5).
+//! Written without compiling or running (2026-10-05).
 
 use crate::arvore_analyzer::Marca;
 use crate::project::{Target, Concrete, word};
@@ -15,32 +15,32 @@ use dartforge_frontend::ast::{self, ExprKind, MemberKind};
 use dartforge_frontend::token::Kind;
 use dartforge_types::{MemberRef, Resolved};
 
-/// Um `Add required argument`: o nome do parâmetro, a inserção e o cursor
-/// (`Ok`: seleção no byte do texto; `Err`: o grupo `VALUE`, início e
-/// comprimento).
+/// An `Add required argument`: the parameter name, the insertion and the
+/// cursor (`Ok`: selection at the text byte; `Err`: the `VALUE` group, start
+/// and length).
 pub(crate) type RequiredArgument = (String, Span, String, Result<usize, (usize, usize)>);
 
-/// O elemento declarado por um nó (o `declaredElement`).
+/// The element declared by a node (its `declaredElement`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Declared {
     Class(ClassId),
     Typedef(TypedefId),
     Function(FunctionElementId),
-    /// Função local, pelo offset do nome.
+    /// Local function, by the name offset.
     LocalFunction(usize),
     Variable(VariableId),
 }
 
 impl Context<'_> {
-    // -- Tokens e intervalos ----------------------------------------------------
+    // -- Tokens and ranges ----------------------------------------------------
 
-    /// O primeiro token que começa em `pos` ou depois (sem o fim de arquivo).
+    /// The first token that starts at `pos` or after (without the end of file).
     pub(crate) fn next_token(&self, pos: usize) -> Option<Span> {
         let i = self.tokens.partition_point(|t| t.span.start < pos);
         self.tokens.get(i).filter(|t| t.kind != Kind::Eof).map(|t| t.span)
     }
 
-    /// O último token que termina em `pos` ou antes.
+    /// The last token that ends at `pos` or before.
     pub(crate) fn previous_token(&self, pos: usize) -> Option<Span> {
         let i = self.tokens.partition_point(|t| t.span.end <= pos);
         i.checked_sub(1).map(|k| self.tokens[k].span)
@@ -50,7 +50,7 @@ impl Context<'_> {
         &self.source[s.start..s.end]
     }
 
-    /// Os filhos de `n` de uma espécie.
+    /// The children of `n` of one kind.
     pub(crate) fn kind_children(&self, n: usize, kind: &str) -> Vec<usize> {
         self.children(n).iter().copied().filter(|&f| self.kind(f) == kind).collect()
     }
@@ -67,7 +67,7 @@ impl Context<'_> {
         None
     }
 
-    /// `thisOrAncestorOfType` pela espécie.
+    /// `thisOrAncestorOfType` by kind.
     pub(crate) fn this_or_ancestor_pub(&self, n: usize, kind: &str) -> Option<usize> {
         self.this_or_ancestor(n, |e| e == kind)
     }
@@ -81,8 +81,8 @@ impl Context<'_> {
             {
                 return Span { start: s.start, end: t.end };
             }
-            // O dono é a `ConstructorDeclaration` (os inicializadores):
-            // do token antes do `:` ao corpo.
+            // The owner is the `ConstructorDeclaration` (the initializers): from the
+            // token before the `:` to the body.
             if let Some(owner) = self.parent(item)
                 && self.kind(owner) == "ConstructorDeclaration"
                 && let Some(sep) = self.previous_token(self.tree.nos[list[0]].inicio)
@@ -108,13 +108,13 @@ impl Context<'_> {
         Text::new(self.source).line_range(s.start, s.end)
     }
 
-    /// O nome (o último identificador) de um `DeclaredVariablePattern`.
+    /// The name (the last identifier) of a `DeclaredVariablePattern`.
     fn pattern_name(&self, n: usize) -> Option<Span> {
         let end = self.tree.nos[n].fim;
         word(self.source, end.checked_sub(1)?).filter(|s| s.end == end)
     }
 
-    /// O `DartPattern.patternContext`.
+    /// The `DartPattern.patternContext`.
     fn pattern_context(&self, pattern: usize) -> Option<usize> {
         let mut current = pattern;
         loop {
@@ -130,7 +130,7 @@ impl Context<'_> {
         }
     }
 
-    /// `AssignedVariablePattern`: o `x` solto de um padrão de atribuição.
+    /// `AssignedVariablePattern`: the bare `x` of an assignment pattern.
     fn assigned_pattern(&self, n: usize) -> bool {
         self.kind(n) == "DeclaredVariablePattern"
             && self.children(n).is_empty()
@@ -138,9 +138,9 @@ impl Context<'_> {
             && !self.node_text(n).contains(char::is_whitespace)
     }
 
-    /// O local visível em `pos` com o nome `name` é o declarado em `decl`
-    /// (a faixa mais interna do `VisibleRangesComputer` que cobre `pos`
-    /// cobre a declaração).
+    /// The local visible at `pos` with name `name` is the one declared at `decl`
+    /// (the innermost range of the `VisibleRangesComputer` covering `pos` covers
+    /// the declaration).
     fn local_in(&self, body: usize, pos: usize, name: &str, decl: usize) -> bool {
         crate::refactorings_inline::visible_ranges(self, body)
             .into_iter()
@@ -152,7 +152,7 @@ impl Context<'_> {
     // -- RemoveUnusedLocalVariable ---------------------------------------------
 
     /// `RemoveUnusedLocalVariable.compute` (`remove_unused_local_variable.dart`):
-    /// as edições (intervalo, texto), ou `None` quando o Dart não oferece.
+    /// the edits (range, text), or `None` when Dart does not offer it.
     pub(crate) fn remove_local_variable(&self, error: Span) -> Option<Vec<(Span, String)>> {
         let node = self.tree.localizar(error.start, error.end)?;
         let mut commands: Vec<(Span, String)> = Vec::new();
@@ -181,8 +181,8 @@ impl Context<'_> {
         if !declared {
             return None;
         }
-        // `_deleteReferences`: o elemento (na `VariableDeclaration`, só com o
-        // erro no nome).
+        // `_deleteReferences`: the element (on the `VariableDeclaration`, only with
+        // the error on the name).
         let (decl, name) = match self.kind(node) {
             "VariableDeclaration" => {
                 let s = word(self.source, self.tree.nos[node].inicio)?;
@@ -218,8 +218,8 @@ impl Context<'_> {
         Some(commands)
     }
 
-    /// A declaração de um `DeclaredVariablePattern` pelo pai (a lista,
-    /// o `&&`, o campo de objeto ou de record).
+    /// The declaration of a `DeclaredVariablePattern` through its parent (the
+    /// list, the `&&`, the object or record field).
     fn exclude_declared_pattern(&self, node: usize, commands: &mut Vec<(Span, String)>) -> bool {
         let Some(parent) = self.parent(node) else { return false };
         let ty = self.children(node).first().copied();
@@ -250,7 +250,7 @@ impl Context<'_> {
                 let Some(owner) = self.parent(field) else { return false };
                 let field_name = self.kind_children(field, "PatternFieldName").first().copied();
                 let Some(name) = self.pattern_name(node) else { return false };
-                // `:x` → `x: ` antes do padrão.
+                // `:x` → `x: ` before the pattern.
                 let explicit = |commands: &mut Vec<(Span, String)>, n: usize| {
                     let colon = self.tree.nos[n].fim - 1;
                     commands.push((Span { start: colon, end: s.start }, format!("{}: ", self.lexeme(name))));
@@ -293,10 +293,11 @@ impl Context<'_> {
         }
     }
 
-    /// `findLocalElementReferences3(body, element)`: os `SimpleIdentifier`
-    /// do local e os `AssignedVariablePattern` dele que são elementos diretos
-    /// de uma `ListPattern` ou o padrão (sem parênteses) de um campo de
-    /// `RecordPattern` (o visitante não desce nesses dois padrões).
+    /// `findLocalElementReferences3(body, element)`: the local's
+    /// `SimpleIdentifier`s and its `AssignedVariablePattern`s that are direct
+    /// elements of a `ListPattern` or the pattern (without parentheses) of a
+    /// `RecordPattern` field (the visitor does not descend into those two
+    /// patterns).
     fn local_reference_offsets(&self, body: usize, decl: usize, name: &str) -> Vec<usize> {
         let mut v = Vec::new();
         let mut stack = vec![body];
@@ -343,7 +344,7 @@ impl Context<'_> {
         v
     }
 
-    /// `_referenceRangeToDelete`: só o lado esquerdo de uma atribuição.
+    /// `_referenceRangeToDelete`: only the left side of an assignment.
     fn reference_range(&self, reference: usize) -> Option<Span> {
         let parent = self.parent(reference)?;
         if self.kind(parent) != "AssignmentExpression" || self.children(parent).first() != Some(&reference) {
@@ -360,7 +361,7 @@ impl Context<'_> {
 
     // -- RemoveUnusedElement / RemoveUnusedField --------------------------------
 
-    /// O `declaredElement` dos nós que o `RemoveUnusedElement` aceita.
+    /// The `declaredElement` of the nodes that `RemoveUnusedElement` accepts.
     fn declared(&self, n: usize) -> Option<Declared> {
         let p = self.p.program();
         match (self.kind(n), self.tree.nos[n].marca) {
@@ -385,8 +386,8 @@ impl Context<'_> {
         }
     }
 
-    /// A resolução casa com o elemento (o `writeOrReadElement`, o acessor
-    /// da variável).
+    /// The resolution matches the element (the `writeOrReadElement`, the
+    /// variable's accessor).
     fn resolve_to(&self, r: &Resolved, target: Declared) -> bool {
         let p = self.p.program();
         let function = |f: FunctionElementId| match target {
@@ -404,11 +405,11 @@ impl Context<'_> {
         }
     }
 
-    /// `_ElementReferenceCollector` sobre a unidade: os intervalos dos
-    /// `SimpleIdentifier` que referem o elemento (expressões, nomes de
-    /// campo em inicializadores, o `returnType` dos construtores da
-    /// classe, anotações, referências de documentação), dos `NamedType` e
-    /// dos `this.x` do campo.
+    /// `_ElementReferenceCollector` over the unit: the ranges of the
+    /// `SimpleIdentifier`s that refer to the element (expressions, field names
+    /// in initializers, the `returnType` of the class's constructors,
+    /// annotations, documentation references), of the `NamedType`s and of the
+    /// field's `this.x`s.
     fn declared_references(&self, target_: Declared) -> Vec<Span> {
         let p = self.p.program();
         let u = p.unit(self.unit);
@@ -423,7 +424,7 @@ impl Context<'_> {
             };
             let by_local = matches!(target_, Declared::LocalFunction(d) if self.bodies.declaracao_local(id) == Some(d));
             let resolved = self.bodies.get_resolved(id).is_some_and(|r| self.resolve_to(r, target_));
-            // A chamada `o.m()`/`m()` guarda a resolução na chamada.
+            // The call `o.m()`/`m()` keeps the resolution on the call.
             let by_call = ast.exprs.iter().enumerate().any(|(j, c)| match &c.kind {
                 ExprKind::Call { target, .. } if *target == id => self.bodies.get_resolved(ast::ExprId(j as u32)).is_some_and(|r| match r {
                     Resolved::Constructor(f) => matches!(target_, Declared::Class(c) if p.function(*f).class == Some(c)) && matches!(e.kind, ExprKind::Identifier(_)),
@@ -485,7 +486,7 @@ impl Context<'_> {
                 }
             }
         }
-        // Anotações: o nome resolve para a classe ou para o acessor.
+        // Annotations: the name resolves to the class or to the accessor.
         for a in crate::project::metadata(ast, &u.unit) {
             let b = match &a.name[..] {
                 [n, ..] if p.lookup(u.library, n.sym).is_some() => p.lookup(u.library, n.sym).map(|b| (b, n.span)),
@@ -499,7 +500,7 @@ impl Context<'_> {
                 v.push(s);
             }
         }
-        // `[x]` em documentação.
+        // `[x]` in documentation.
         for c in crate::dartdoc::comments(self.source) {
             for r in &c.references {
                 for i in 0..r.len() {
@@ -522,7 +523,7 @@ impl Context<'_> {
         v
     }
 
-    /// `RemoveUnusedElement.compute`: as deleções, ou `None` sem fix.
+    /// `RemoveUnusedElement.compute`: the deletions, or `None` without a fix.
     pub(crate) fn remove_element(&self, error: Span) -> Option<Vec<Span>> {
         let node = self.tree.localizar(error.start, error.end)?;
         let kind = self.kind(node);
@@ -558,7 +559,7 @@ impl Context<'_> {
         Some(vec![range])
     }
 
-    /// `RemoveUnusedField.compute`: as deleções, ou `None` sem fix.
+    /// `RemoveUnusedField.compute`: the deletions, or `None` without a fix.
     pub(crate) fn remove_field(&self, error: Span) -> Option<Vec<Span>> {
         let node = self.tree.localizar(error.start, error.end)?;
         if self.kind(node) != "VariableDeclaration" {
@@ -602,15 +603,15 @@ impl Context<'_> {
             };
             ranges.push(range);
         }
-        // `_uniqueSourceRanges`: sai a faixa coberta por outra (outra
-        // entrada da lista, mesmo que igual).
+        // `_uniqueSourceRanges`: a range covered by another one (another entry of
+        // the list, even if equal) goes away.
         let unique: Vec<Span> = ranges
             .iter()
             .enumerate()
             .filter(|(i, c)| !ranges.iter().enumerate().any(|(j, o)| j != *i && o.start <= c.start && c.end <= o.end))
             .map(|(_, c)| *c)
             .collect();
-        // Sobreposição parcial: `ConflictingEditException`.
+        // Partial overlap: `ConflictingEditException`.
         for (i, a) in unique.iter().enumerate() {
             for b in &unique[i + 1..] {
                 if a.start < b.end && b.start < a.end {
@@ -623,13 +624,13 @@ impl Context<'_> {
 
     // -- AddAsync ------------------------------------------------------------------
 
-    /// `AddAsync` (`add_async.dart`, fora do `missingReturn`) com o
-    /// `convertFunctionFromSyncToAsync` do `DartFileEditBuilder`: o
-    /// `FunctionBody` ancestral sem palavra-chave ganha `async ` (com um
-    /// espaço antes se está colado no token anterior; o corpo vazio não); o
-    /// retorno escrito da função ou método envolvente (a closure não tem)
-    /// vira `Future<flatten(T)>`, salvo `dynamic` e `Future`. As edições e as
-    /// bibliotecas a importar.
+    /// `AddAsync` (`add_async.dart`, outside `missingReturn`) with the
+    /// `DartFileEditBuilder`'s `convertFunctionFromSyncToAsync`: the enclosing
+    /// `FunctionBody` without a keyword gets `async ` (with a space before it
+    /// if it is attached to the previous token; not an empty body); the written
+    /// return of the enclosing function or method (a closure has none) becomes
+    /// `Future<flatten(T)>`, except `dynamic` and `Future`. The edits and the
+    /// libraries to import.
     pub(crate) fn add_async(&self, error: Span) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
         use dartforge_types::Type;
         let node = self.tree.localizar(error.start, error.end)?;
@@ -689,12 +690,12 @@ impl Context<'_> {
 
     // -- ReplaceWithNotNullAware, ChangeToStaticAccess, RemoveAssertion ----------
 
-    /// `ReplaceWithNotNullAware.compute` no `coveringNode`: o intervalo, o
-    /// texto novo e o `{0}` do título.
+    /// `ReplaceWithNotNullAware.compute` on the `coveringNode`: the range, the
+    /// new text and the title's `{0}`.
     pub(crate) fn swap_null_aware_operator(&self, n: usize) -> Option<(Span, String, &'static str)> {
         let s = self.tree.span(n);
-        // O operador: o primeiro token da seção de cascata, ou o token
-        // depois do alvo.
+        // The operator: the first token of the cascade section, or the token after
+        // the target.
         let operator_after_target = |n: usize| -> Option<Span> {
             let first = self.next_token(s.start)?;
             if matches!(self.lexeme(first), "?.." | ".." | "?." | ".") && first.start == s.start {
@@ -732,9 +733,8 @@ impl Context<'_> {
         }
     }
 
-    /// `ChangeToStaticAccess.compute`: o nome da classe ou extensão (`{0}`),
-    /// o intervalo do alvo, o `writeReference` dela e as bibliotecas a
-    /// importar.
+    /// `ChangeToStaticAccess.compute`: the class or extension name (`{0}`), the
+    /// target's range, its `writeReference` and the libraries to import.
     pub(crate) fn static_access(&self, error: Span) -> Option<(String, Span, String, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
         use dartforge_elements::model::Element;
         let node = self.tree.localizar(error.start, error.end)?;
@@ -778,8 +778,8 @@ impl Context<'_> {
         Some((name, self.tree.span(target), reference, writer.import))
     }
 
-    /// `RemoveAssertion`: o `AssertInitializer` filho de construtor sai
-    /// por `nodeInList`.
+    /// `RemoveAssertion`: the `AssertInitializer` child of a constructor goes
+    /// away through `nodeInList`.
     pub(crate) fn remove_assertion(&self, error: Span) -> Option<Span> {
         let node = self.tree.localizar(error.start, error.end)?;
         let parent = self.parent(node)?;
@@ -798,10 +798,10 @@ impl Context<'_> {
         Some(self.node_in_list(&initializers, node))
     }
 
-    /// `MakeFinal` (`make_final.dart:84-97`) na lista do `node`
-    /// (`_getVariableDeclarationList`) com uma variável: `var` → `final`;
-    /// `late` → ` final` depois dele; sem palavra-chave → `final ` no começo
-    /// da lista.
+    /// `MakeFinal` (`make_final.dart:84-97`) on the `node`'s list
+    /// (`_getVariableDeclarationList`) with one variable: `var` → `final`;
+    /// `late` → ` final` after it; without a keyword → `final ` at the start of
+    /// the list.
     pub(crate) fn make_final(&self, error: Span) -> Option<(Span, String)> {
         let node = self.tree.localizar(error.start, error.end)?;
         let parent = self.parent(node);
@@ -821,7 +821,7 @@ impl Context<'_> {
             return None;
         }
         let s = self.tree.span(list);
-        // As palavras-chave do começo da lista (`late`, `var`/`final`/`const`).
+        // The keywords at the start of the list (`late`, `var`/`final`/`const`).
         let mut late = None;
         let mut word = None;
         let mut pos = s.start;
@@ -844,9 +844,9 @@ impl Context<'_> {
         }
     }
 
-    // -- Comentários e intervalos com comentários ------------------------------
+    // -- Comments and ranges with comments ------------------------------------
 
-    /// A linha (0-based) do offset.
+    /// The line (0-based) of the offset.
     fn line(&self, o: usize) -> usize {
         let b = self.source.as_bytes();
         let end = o.min(b.len());
@@ -867,14 +867,14 @@ impl Context<'_> {
         n
     }
 
-    /// Os comentários entre o token anterior e o token `t`
-    /// (`precedingComments`, em ordem).
+    /// The comments between the previous token and token `t`
+    /// (`precedingComments`, in order).
     pub(crate) fn comments_before(&self, t: Span) -> Vec<Span> {
         let a = self.previous_token(t.start).map_or(0, |p| p.end);
         self.comments.iter().copied().filter(|c| c.start >= a && c.end <= t.start).collect()
     }
 
-    /// O primeiro e o último token do nó.
+    /// The first and the last token of the node.
     fn node_tokens(&self, n: usize) -> Option<(Span, Span)> {
         let s = self.tree.span(n);
         Some((self.next_token(s.start)?, self.previous_token(s.end)?))
@@ -947,8 +947,8 @@ impl Context<'_> {
         self.line(comma.start) != self.line(after.start)
     }
 
-    /// `trailingComment(token, returnComma)`: o token (ou comentário) e se
-    /// inclui a vírgula.
+    /// `trailingComment(token, returnComma)`: the token (or comment) and whether
+    /// it includes the comma.
     fn trailing_comment(&self, t: Span, return_comma: bool) -> (Span, bool) {
         let mut last = t;
         let mut next = self.next_token(last.end);
@@ -1018,9 +1018,9 @@ impl Context<'_> {
         Some(Span { start: initial.start, end: final_.end })
     }
 
-    // -- Produtores dos códigos publicados sem fix ---------------------------------
+    // -- Producers of the published codes without a fix ---------------------------------
 
-    /// `RemoveNameFromDeclarationClause`: o título e a deleção.
+    /// `RemoveNameFromDeclarationClause`: the title and the deletion.
     pub(crate) fn remove_clause_name(&self, error: Span) -> Option<(String, Span)> {
         let ty = self.tree.localizar(error.start, error.end)?;
         let clause = self.parent(ty)?;
@@ -1041,7 +1041,7 @@ impl Context<'_> {
         Some((format!("Remove name from '{name}' clause"), self.node_in_list(&names, ty)))
     }
 
-    /// `AddClassModifier`: o ponto de inserção do modificador.
+    /// `AddClassModifier`: the modifier's insertion point.
     pub(crate) fn modifier_dot(&self, error: Span) -> Option<usize> {
         let node = self.tree.localizar(error.start, error.end)?;
         if !matches!(
@@ -1079,8 +1079,8 @@ impl Context<'_> {
         }
     }
 
-    /// `ExtendClassForMixin`: o nome (o último trecho entre aspas da
-    /// mensagem) e o ponto depois dos parâmetros de tipo ou do nome.
+    /// `ExtendClassForMixin`: the name (the last quoted part of the message) and
+    /// the point after the type parameters or the name.
     pub(crate) fn extend_to_mixin(&self, error: Span, message: &str) -> Option<(String, usize)> {
         let node = self.tree.localizar(error.start, error.end)?;
         let class = self.this_or_ancestor(node, |e| e == "ClassDeclaration")?;
@@ -1103,7 +1103,7 @@ impl Context<'_> {
         Some((name, dot))
     }
 
-    /// `ReplaceWithExtensionName`: o nome (com o prefixo) e o alvo.
+    /// `ReplaceWithExtensionName`: the name (with the prefix) and the target.
     pub(crate) fn extension_name(&self, error: Span) -> Option<(String, Span)> {
         let node = self.tree.localizar(error.start, error.end)?;
         if self.kind(node) != "SimpleIdentifier" {
@@ -1118,8 +1118,8 @@ impl Context<'_> {
         if target == node {
             return None;
         }
-        // O `ExtensionOverride`: `E(x)`, `E<T>(x)` ou `p.E(x)`, com o nome
-        // resolvido para a extensão.
+        // The `ExtensionOverride`: `E(x)`, `E<T>(x)` or `p.E(x)`, with the name
+        // resolved to the extension.
         let ids: Vec<usize> = self.children(target).iter().copied().filter(|&f| self.kind(f) == "SimpleIdentifier").collect();
         let extension = ids.iter().copied().find(|&i| match self.tree.nos[i].marca {
             Marca::Expr(x) => matches!(self.bodies.get_resolved(x), Some(Resolved::Element(dartforge_elements::model::Element::Extension(_)))),
@@ -1133,8 +1133,8 @@ impl Context<'_> {
         Some((name, self.tree.span(target)))
     }
 
-    /// `RemoveParenthesesInGetterInvocation`: a lista de argumentos da
-    /// `FunctionExpressionInvocation` pai do `coveringNode`.
+    /// `RemoveParenthesesInGetterInvocation`: the argument list of the
+    /// `FunctionExpressionInvocation` parent of the `coveringNode`.
     pub(crate) fn getter_parens(&self, error: Span) -> Option<Span> {
         let n = self.tree.localizar2(error.start, error.end.saturating_sub(1))?;
         let parent = self.parent(n)?;
@@ -1145,7 +1145,7 @@ impl Context<'_> {
         Some(self.tree.span(args))
     }
 
-    /// `MakeSuperInvocationLast`: a deleção e a inserção `, <text>`.
+    /// `MakeSuperInvocationLast`: the deletion and the insertion `, <text>`.
     pub(crate) fn super_last(&self, error: Span) -> Option<Vec<(Span, String)>> {
         let node = self.tree.localizar(error.start, error.end)?;
         if !matches!(self.kind(node), "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "ConstructorFieldInitializer" | "AssertInitializer") {
@@ -1166,9 +1166,9 @@ impl Context<'_> {
         Some(vec![(exclusion, String::new()), (Span { start: t.end, end: t.end }, format!(", {text}"))])
     }
 
-    /// `RemoveDeadCode` num `SwitchMember` (o `coveringNode` dos
-    /// `unreachable_switch_*`): `deletionRange(member)`, até o `:` quando o
-    /// membro anterior não tem comandos.
+    /// `RemoveDeadCode` on a `SwitchMember` (the `coveringNode` of the
+    /// `unreachable_switch_*` codes): `deletionRange(member)`, up to the `:`
+    /// when the previous member has no statements.
     pub(crate) fn remove_dead_member(&self, error: Span) -> Option<Span> {
         let n = self.tree.localizar2(error.start, error.end.saturating_sub(1))?;
         if !matches!(self.kind(n), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase") {
@@ -1183,7 +1183,7 @@ impl Context<'_> {
         let without_commands = |m: usize| !self.children(m).iter().any(|&f| self.is_command(f));
         let mut forced_end = None;
         if i > 0 && without_commands(members[i - 1]) {
-            // O `:` do membro: depois do padrão, da guarda ou do `default`.
+            // The member's `:`: after the pattern, the guard or the `default`.
             let after = self
                 .children(n)
                 .iter()
@@ -1205,8 +1205,8 @@ impl Context<'_> {
         self.exclusion_range(n, forced_end)
     }
 
-    /// `RemoveComparison` (`remove_comparison.dart`): `is_true` para os
-    /// `…_TRUE`, falsa para os `…_FALSE`.
+    /// `RemoveComparison` (`remove_comparison.dart`): `is_true` for the
+    /// `…_TRUE` codes, false for the `…_FALSE` ones.
     pub(crate) fn remove_comparison(&self, error: Span, is_true: bool) -> Option<Vec<(Span, String)>> {
         let node = self.tree.localizar(error.start, error.end)?;
         let parent = self.parent(node)?;
@@ -1284,9 +1284,9 @@ impl Context<'_> {
                 let replace = |r: usize| -> Option<Vec<(Span, String)>> {
                     if self.kind(r) == "Block" {
                         let s = self.tree.span(r);
-                        // As linhas dos comandos do bloco (o servidor do Dart
-                        // 3.6.2 conferido no oráculo não leva a quebra que
-                        // segue o `{`); bloco vazio: o que há entre as chaves.
+                        // The lines of the block's statements (the Dart 3.6.2 server, checked
+                        // against the oracle, does not take the line break that follows the `{`);
+                        // an empty block: what lies between the braces.
                         let commands = self.children(r);
                         let lines = match (commands.first(), commands.last()) {
                             (Some(&a), Some(&b)) => tx.line_range(self.tree.nos[a].inicio, self.tree.nos[b].fim),
@@ -1314,8 +1314,8 @@ impl Context<'_> {
         }
     }
 
-    /// `MakeReturnTypeNullable`: o fim da anotação de retorno (ou do
-    /// argumento de tipo, num corpo assíncrono ou gerador).
+    /// `MakeReturnTypeNullable`: the end of the return annotation (or of the
+    /// type argument, in an async or generator body).
     pub(crate) fn nullable_return(&self, error: Span, strict_conversions: bool) -> Option<usize> {
         use dartforge_types::Type;
         let node = self.tree.localizar(error.start, error.end)?;
@@ -1380,10 +1380,10 @@ impl Context<'_> {
         Some(self.tree.nos[target].fim)
     }
 
-    // -- RemoveUnusedParameter e AddConst ------------------------------------------
+    // -- RemoveUnusedParameter and AddConst ------------------------------------------
 
-    /// O tipo (`isRequiredPositional`) de um nó de parâmetro, pelo
-    /// parâmetro do parser no intervalo dele.
+    /// The kind (`isRequiredPositional`) of a parameter node, through the parser
+    /// parameter in its range.
     fn positional_required(&self, n: usize) -> bool {
         let s = self.tree.span(n);
         let inside = |q: &&ast::Parameter| q.span.start >= s.start && q.span.end <= s.end;
@@ -1402,7 +1402,7 @@ impl Context<'_> {
         q.is_some_and(|q| q.kind == ast::ParameterKind::Required)
     }
 
-    /// `RemoveUnusedParameter.compute`: a deleção.
+    /// `RemoveUnusedParameter.compute`: the deletion.
     pub(crate) fn remove_parameter(&self, error: Span) -> Option<Span> {
         let mut maybe = self.tree.localizar(error.start, error.end)?;
         if self.kind(maybe) == "SimpleIdentifier"
@@ -1430,7 +1430,7 @@ impl Context<'_> {
             }
             let next = parameters[1];
             if self.positional_required(parameter) && !self.positional_required(next) {
-                // O delimitador `[`/`{`: o token antes do primeiro opcional.
+                // The `[`/`{` delimiter: the token before the first optional one.
                 let delimiter = self.previous_token(s(next).start).filter(|t| matches!(&self.source[t.start..t.end], "[" | "{"));
                 return Some(match delimiter {
                     Some(d) => Span { start: s(parameter).start, end: d.start },
@@ -1442,7 +1442,7 @@ impl Context<'_> {
         let previous = parameters[i - 1];
         if self.positional_required(previous) && !self.positional_required(parameter) {
             if i == parameters.len() - 1 {
-                // `)` ou a vírgula final antes dele.
+                // `)` or the trailing comma before it.
                 let closes = Span { start: ls.end - 1, end: ls.end };
                 let before = self.previous_token(closes.start);
                 let target = match before {
@@ -1457,10 +1457,10 @@ impl Context<'_> {
         Some(Span { start: s(previous).end, end: s(parameter).end })
     }
 
-    /// `AddConst.compute` nos caminhos que o `non_constant_map_pattern_key`
-    /// alcança (a chave do `MapPatternEntry`): binário ou prefixo →
-    /// `const (…)` na entrada; lista, conjunto/mapa ou criação sem palavra
-    /// → `const ` e os `const` internos apagados.
+    /// `AddConst.compute` on the paths that `non_constant_map_pattern_key`
+    /// reaches (the key of the `MapPatternEntry`): binary or prefix →
+    /// `const (…)` on the entry; list, set/map or creation without a keyword →
+    /// `const ` and the inner `const`s deleted.
     pub(crate) fn add_const(&self, error: Span) -> Option<Vec<(Span, String)>> {
         let mut target = self.tree.localizar(error.start, error.end)?;
         if self.kind(target) == "SimpleIdentifier" {
@@ -1478,7 +1478,7 @@ impl Context<'_> {
             target = self.this_or_ancestor(target, |e| e == "ConstantPattern")?;
         }
         if self.kind(target) == "ConstantPattern" {
-            // `canBeConst`/literal de tipo: fora dos códigos publicados.
+            // `canBeConst`/type literal: outside the published codes.
             return None;
         }
         if matches!(self.kind(target), "BinaryExpression" | "PrefixExpression") {
@@ -1494,8 +1494,8 @@ impl Context<'_> {
         let insert = |n: usize| -> Vec<(Span, String)> {
             let o = self.tree.nos[n].inicio;
             let mut v = vec![(Span { start: o, end: o }, "const ".to_string())];
-            // `_ConstRangeFinder`: os `const` de criações e literais
-            // internos (sem entrar em closures).
+            // `_ConstRangeFinder`: the `const`s of inner creations and literals
+            // (without entering closures).
             let mut stack = vec![n];
             while let Some(k) = stack.pop() {
                 if self.kind(k) == "FunctionExpression" {
@@ -1534,10 +1534,9 @@ impl Context<'_> {
 
     // -- AddMissingSwitchCases --------------------------------------------------------
 
-    /// `AddMissingSwitchCases.compute` com `insertCaseClauseAtEnd`: o
-    /// `node` é o `switch`; as testemunhas com partes vêm do verificador de
-    /// constantes (o `diagnostic.data`). A edição e as bibliotecas a
-    /// importar.
+    /// `AddMissingSwitchCases.compute` with `insertCaseClauseAtEnd`: the `node`
+    /// is the `switch`; the witnesses with parts come from the constant checker
+    /// (the `diagnostic.data`). The edit and the libraries to import.
     pub(crate) fn missing_cases(&self, error: Span) -> Option<(Span, String, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
         use dartforge_types::constantes::ParteDeTestemunha as P;
         let node = self.tree.localizar(error.start, error.end)?;
@@ -1568,7 +1567,7 @@ impl Context<'_> {
         let eol = tx.eol();
         let line_indent = tx.line_prefix(self.tree.nos[node].inicio).to_string();
         let one = crate::refactorings_exec::ONE_INDENT;
-        // Os tokens `)`, `{` e `}` do `switch`.
+        // The `)`, `{` and `}` tokens of the `switch`.
         let s = self.tree.span(node);
         let closes = Span { start: s.end - 1, end: s.end };
         let scrutinee = *self.children(node).first()?;
@@ -1580,8 +1579,8 @@ impl Context<'_> {
         let one_line = self.line(opens.start) == self.line(closes.start);
         let offset = if one_line { opens.end } else { tx.line_start(closes.start) };
         let mut writer = crate::write_type::Writer::new(self, offset);
-        // Valor de enum privado de outra biblioteca: a testemunha sai e
-        // entra o `default`.
+        // A private enum value from another library: the witness goes away and the
+        // `default` comes in.
         let inaccessible = |parts: &[P]| {
             parts.iter().any(|q| match q {
                 P::ValorDeEnum { enumeracao, valor: value } => {
@@ -1640,7 +1639,7 @@ impl Context<'_> {
 
     // -- AddMissingRequiredArgument -------------------------------------------------
 
-    /// O tipo é `Widget` do Flutter ou subtipo (`isWidgetType`).
+    /// The type is Flutter's `Widget` or a subtype (`isWidgetType`).
     fn is_widget(&self, t: dartforge_types::TypeId) -> bool {
         let prog = self.p.program();
         let dartforge_types::Type::Interface { class, .. } = self.p.query.table.get(t) else { return false };
@@ -1651,8 +1650,8 @@ impl Context<'_> {
         widget(*class) || self.p.supertypes(*class).into_iter().any(widget)
     }
 
-    /// `getDefaultStringParameterValue2(parameter, quote)`: o texto e a
-    /// posição do cursor.
+    /// `getDefaultStringParameterValue2(parameter, quote)`: the text and the
+    /// cursor position.
     fn argument_default_value(&self, ty: dartforge_types::TypeId, quotes: &str, annotation: Option<(&ast::Ast, ast::TypeId)>) -> Option<String> {
         use dartforge_types::Type;
         let core = &self.p.query.core;
@@ -1662,7 +1661,7 @@ impl Context<'_> {
             Type::Interface { class, .. } if Some(*class) == core.map_class => Some("{}".to_string()),
             Type::Interface { class, .. } if Some(*class) == core.string_class => Some(format!("{quotes}{quotes}")),
             Type::Function { positional, optional, named, .. } => {
-                // Os nomes dos parâmetros vêm da anotação de tipo de função.
+                // The parameter names come from the function type annotation.
                 let names: Vec<String> = match annotation.map(|(a, t)| &a.ty(t).kind) {
                     Some(ast::TypeKind::Function { parameters, .. }) => parameters.iter().map(|q| q.name.map(|n| self.p.name(n.sym).to_string()).unwrap_or_default()).collect(),
                     _ => Vec::new(),
@@ -1684,13 +1683,13 @@ impl Context<'_> {
         }
     }
 
-    /// `AddMissingRequiredArgument` para cada parâmetro nomeado obrigatório
-    /// sem argumento nas chamadas cujo nome está nas linhas `start..end` (o
-    /// `missing_required_argument` não é publicado: as chamadas são
-    /// examinadas no pedido). O nome do parâmetro, a inserção e onde fica o
-    /// cursor: `Ok(k)`, a seleção no byte `k` do valor padrão com
-    /// `cursorPosition`; `Err((k, n))`, o grupo ligado `VALUE` do valor sem
-    /// cursor (`add_missing_required_argument.dart:105-121`).
+    /// `AddMissingRequiredArgument` for each required named parameter without an
+    /// argument in the calls whose name is on lines `start..end` (the
+    /// `missing_required_argument` code is not published: the calls are
+    /// examined on request). The parameter name, the insertion and where the
+    /// cursor goes: `Ok(k)`, the selection at byte `k` of the default value with
+    /// `cursorPosition`; `Err((k, n))`, the linked group `VALUE` of the value
+    /// without a cursor (`add_missing_required_argument.dart:105-121`).
     pub(crate) fn required_arguments(&self, start: usize, end: usize) -> Vec<RequiredArgument> {
         use dartforge_types::Resolved;
         let prog = self.p.program();
@@ -1730,8 +1729,8 @@ impl Context<'_> {
                 .filter(|&&a| self.kind(a) == "NamedExpression")
                 .filter_map(|&a| self.children(a).first().and_then(|&r| self.children(r).first()).map(|&id| self.node_text(id).to_string()))
                 .collect();
-            // As anotações dos parâmetros declarados (para os nomes de um
-            // tipo de função).
+            // The annotations of the declared parameters (for the names of a function
+            // type).
             let (ast_decl, declared): (Option<&ast::Ast>, Vec<&ast::Parameter>) = match prog.function(function_).node {
                 dartforge_elements::model::FunctionRef::Function { unit, function } => {
                     (Some(&prog.unit(unit).ast), prog.unit(unit).ast.function(function).parameters.iter().flatten().collect())
@@ -1772,8 +1771,8 @@ impl Context<'_> {
                     text.push_str(", ");
                 }
                 text.push_str(&format!("{name}: "));
-                // `DefaultArgument.cursorPosition`: 1 em `[]`, `{}` e `''`;
-                // entre as chaves de `(…) {  }`.
+                // `DefaultArgument.cursorPosition`: 1 in `[]`, `{}` and `''`; between the
+                // braces of `(…) {  }`.
                 let cursor = match &pattern {
                     Some(v) if v.starts_with('(') => Ok(text.len() + v.len() - 2),
                     Some(_) => Ok(text.len() + 1),
@@ -1798,13 +1797,13 @@ impl Context<'_> {
 
     // -- ConvertIntoBlockBody.missingBody -----------------------------------------
 
-    /// `ConvertIntoBlockBody._computeMissingBody` com `node` no erro: o
-    /// corpo envolvente (`getEnclosingFunctionBody`) vazio ou de expressão
-    /// vira bloco (`// TODO: implement x` e `throw UnimplementedError();`, ou
-    /// `[return ]e;`).
+    /// `ConvertIntoBlockBody._computeMissingBody` with `node` on the error: the
+    /// enclosing body (`getEnclosingFunctionBody`), empty or an expression,
+    /// becomes a block (`// TODO: implement x` and `throw
+    /// UnimplementedError();`, or `[return ]e;`).
     pub(crate) fn convert_to_block_body(&self, error: Span) -> Option<(Span, String)> {
         let node = self.tree.localizar(error.start, error.end)?;
-        // A closure, a função, o construtor ou o método envolvente.
+        // The enclosing closure, function, constructor or method.
         let owner = ["FunctionExpression", "FunctionDeclaration", "ConstructorDeclaration", "MethodDeclaration"]
             .iter()
             .find_map(|e| self.this_or_ancestor(node, |x| x == *e))?;
@@ -1820,8 +1819,8 @@ impl Context<'_> {
         if body_text.starts_with("sync*") || body_text.starts_with("async*") {
             return None;
         }
-        // `_getFunctionElement(body.parent)`: método, construtor ou
-        // expressão de função.
+        // `_getFunctionElement(body.parent)`: method, constructor or function
+        // expression.
         let parent = self.parent(body)?;
         let element = match self.kind(parent) {
             "MethodDeclaration" | "FunctionExpression" | "ConstructorDeclaration" => self.body_element(parent)?,
@@ -1868,7 +1867,7 @@ impl Context<'_> {
         Some((Span { start: previous.end, end: self.tree.nos[body].fim }, s))
     }
 
-    /// O elemento executável de um método, construtor ou expressão de função.
+    /// The executable element of a method, constructor or function expression.
     fn body_element(&self, n: usize) -> Option<crate::refactorings::Elem> {
         use crate::refactorings::Elem;
         match (self.kind(n), self.tree.nos[n].marca) {
@@ -1878,7 +1877,7 @@ impl Context<'_> {
                 None => Elem::LocalFunction(fid),
             }),
             ("FunctionExpression", _) => {
-                // A expressão de uma `FunctionDeclaration`: a marca está no pai.
+                // The expression of a `FunctionDeclaration`: the mark is on the parent.
                 let parent = self.parent(n)?;
                 Some(self.declared_element(parent)).filter(|e| *e != Elem::None)
             }
@@ -1891,16 +1890,16 @@ impl Context<'_> {
         }
     }
 
-    /// O `displayName` do executável (o nome sem `=`; o construtor é o da
-    /// classe com `.name`).
+    /// The executable's `displayName` (the name without `=`; a constructor is
+    /// the class's with `.name`).
     fn displayed_name(&self, n: usize) -> Option<String> {
         use crate::refactorings::Elem;
         match self.body_element(n)? {
             Elem::Function(f) => {
                 let fe = self.p.program().function(f);
-                // O `displayName` do elemento novo (`ElementImpl2`): o nome
-                // do fragmento, sem a classe num construtor (vazio no sem
-                // nome; conferido no servidor do Dart 3.6.2).
+                // The `displayName` of the new element (`ElementImpl2`): the fragment's
+                // name, without the class for a constructor (empty for an unnamed one;
+                // checked against the Dart 3.6.2 server).
                 Some(crate::project::base_name(self.p.name(fe.name)).to_string())
             }
             Elem::LocalFunction(fid) => Some(self.ast.function(fid).name.map(|x| self.lexeme(x.span).to_string()).unwrap_or_default()),
