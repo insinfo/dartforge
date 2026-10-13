@@ -233,9 +233,8 @@ fn citations(js: &str) -> Option<(HashSet<String>, Found, Vec<(usize, usize)>)> 
 /// Rewrites each JSON without the uncited supertype entries (and, with
 /// `variables`, the unwritten type variable substitutions) and each mark
 /// list without the uncited interfaces.
-fn rewrite(js: &str, cited: &HashSet<String>, variables: Option<&HashSet<String>>, found: Found, lists: Vec<(usize, usize)>) -> String {
-    let mut edits: Vec<(usize, usize, String)> = Vec::new();
-    for (start, end, mut v) in found {
+fn rewrite(js: &str, cited: &HashSet<String>, variables: Option<&HashSet<String>>, mut found: Found, lists: Vec<(usize, usize)>) -> String {
+    for (_, _, v) in found.iter_mut() {
         if let Some(o) = v.as_object_mut() {
             for rule in o.values_mut() {
                 let Some(r) = rule.as_object_mut() else { continue };
@@ -249,6 +248,12 @@ fn rewrite(js: &str, cited: &HashSet<String>, variables: Option<&HashSet<String>
             // class.
             o.retain(|_, rule| rule.as_object().is_none_or(|r| !r.is_empty()));
         }
+    }
+    if std::env::var("DARTFORGE_JSPROD_RULE_FORWARDING").map_or(true, |v| v != "0") {
+        forward_identical(js, &mut found);
+    }
+    let mut edits: Vec<(usize, usize, String)> = Vec::new();
+    for (start, end, v) in found {
         let json = serde_json::to_string(&v).unwrap_or_default();
         edits.push((start, end, dartforge_emit_js::js::string_literal(&json)));
     }
@@ -275,4 +280,79 @@ fn rewrite(js: &str, cited: &HashSet<String>, variables: Option<&HashSet<String>
     }
     out.push_str(&js[pos..]);
     out
+}
+
+/// A rule identical to one registered before it becomes the forwarding
+/// string `"|B": "|A"`: `_Universe.findRule` and `_isSubtype` follow a string
+/// rule to the named class's rule (`rti.dart`), so `B` keeps the same
+/// supertypes and substitutions. In ngdart projects most view classes share
+/// one rule body. The target is the first class with the body, in text order
+/// (its `addRules` already ran when `B` is looked up), and it must be a key
+/// registered only once. `addOrUpdateRules` does not accept the forwarding
+/// form, so the keys it touches neither forward nor are forwarded to.
+fn forward_identical(js: &str, found: &mut Found) {
+    // A short body (`{"|ir":[]}`) costs gzip almost nothing when repeated;
+    // the forward only pays off in raw bytes above this many (measured on
+    // the corpus and limitless_ui: 12 keeps ~90% of the raw gain and halves
+    // the small gzip loss).
+    const MIN_FORWARD_GAIN: usize = 12;
+    let is_update = |start: usize| js[..start].ends_with(CALLS[1]);
+    let mut count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut updated: HashSet<String> = HashSet::new();
+    for (start, _, v) in found.iter() {
+        let Some(o) = v.as_object() else { continue };
+        for k in o.keys() {
+            *count.entry(k.clone()).or_default() += 1;
+            if is_update(*start) {
+                updated.insert(k.clone());
+            }
+        }
+    }
+    let mut first: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (start, _, v) in found.iter_mut() {
+        if is_update(*start) {
+            continue;
+        }
+        let Some(o) = v.as_object_mut() else { continue };
+        for (k, rule) in o.iter_mut() {
+            if updated.contains(k) || !rule.is_object() {
+                continue;
+            }
+            let body = serde_json::to_string(rule).unwrap_or_default();
+            match first.get(&body) {
+                Some(target) if target != k && body.len() > target.len() + MIN_FORWARD_GAIN => *rule = serde_json::Value::String(target.clone()),
+                Some(_) => {}
+                None if count.get(k) == Some(&1) => {
+                    first.insert(body, k.clone());
+                }
+                None => {}
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rules(json: &str) -> String {
+        format!("dart_rti._Universe.addRules(dart.typeUniverse, JSON.parse({}));\n", dartforge_emit_js::js::string_literal(json))
+    }
+
+    #[test]
+    fn identical_rules_forward_to_the_first() {
+        let body = r#"{"|Up":["|vJ"],"|Wp":[],"|Xn":[],"EmbeddedView.T":"|vJ"}"#;
+        let js = format!(
+            "{}{}dart_rti._Universe.addOrUpdateRules(dart.typeUniverse, JSON.parse({}));\nf(\"|Up\", \"|Wp\", \"|Xn\", \"|vJ\", \"EmbeddedView.T\");\n",
+            rules(&format!(r#"{{"|A":{body},"|U":{body}}}"#)),
+            rules(&format!(r#"{{"|B":{body},"|C":{{"|Xn":[]}}}}"#)),
+            dartforge_emit_js::js::string_literal(&format!(r#"{{"|U":{body}}}"#)),
+        );
+        let out = prune(&js);
+        // `|B` forwards to `|A` (the first, registered once); `|U` is touched by
+        // `addOrUpdateRules`, so it keeps its body; the short body stays.
+        assert!(out.contains(r#"\"|B\":\"|A\""#), "{out}");
+        assert!(!out.contains(r#"\"|U\":\"|A\""#), "{out}");
+        assert!(out.contains(r#"\"|C\":{\"|Xn\":[]}"#), "{out}");
+    }
 }
