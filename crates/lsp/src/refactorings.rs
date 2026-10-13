@@ -1,23 +1,23 @@
-//! As refatorações do servidor do Dart 3.6.2 na listagem de
-//! `textDocument/codeAction` (docs/LSP-ESPECIFICACAO.md §13.11.1 e a parte A
-//! de §13.11.11): o `isAvailable()` de cada uma, sobre a árvore na forma do
-//! analyzer (a resolvida: as chamadas de construtor sem `new` são
-//! `InstanceCreationExpression`) e os elementos resolvidos dos
-//! identificadores.
+//! The Dart 3.6.2 server's refactorings in the `textDocument/codeAction`
+//! listing (docs/LSP-ESPECIFICACAO.md §13.11.1 and part A of §13.11.11):
+//! the `isAvailable()` of each one, over the analyzer-shaped tree (the
+//! resolved one: constructor calls without `new` are
+//! `InstanceCreationExpression`s) and the resolved elements of the
+//! identifiers.
 //!
-//! | Refatoração | Regra |
+//! | Refactoring | Rule |
 //! | --- | --- |
-//! | `Move '…' to file` | `nodeCovering`, `_selectedNodes` e `_membersToMove`, com as subclasses de `sealed` (§13.11.9 b) |
-//! | `Extract Method` | `_checkSelection` com o `_ExtractMethodAnalyzer` inteiro (§13.11.3 b) |
-//! | `Extract Local Variable` | `_checkSelection` do `ExtractLocalRefactoringImpl` (§13.11.4 b) |
-//! | `Inline Local Variable` | `NodeLocator(offset)` com `LocalVariableElement` (§13.11.5 b) |
-//! | `Inline Method` | `NodeLocator(offset)` com executável não sintético, não operador, não gerador (§13.11.6 b) |
-//! | `Convert Getter to Method` | `getElementOfNode`: getter explícito do workspace (§13.11.7 b) |
-//! | `Convert Method to Getter` | `getElementOfNode`: função de topo ou método do workspace, não `void`, sem parâmetros (§13.11.8 b) |
+//! | `Move '…' to file` | `nodeCovering`, `_selectedNodes` and `_membersToMove`, with the subclasses of `sealed` (§13.11.9 b) |
+//! | `Extract Method` | `_checkSelection` with the whole `_ExtractMethodAnalyzer` (§13.11.3 b) |
+//! | `Extract Local Variable` | `_checkSelection` of `ExtractLocalRefactoringImpl` (§13.11.4 b) |
+//! | `Inline Local Variable` | `NodeLocator(offset)` with a `LocalVariableElement` (§13.11.5 b) |
+//! | `Inline Method` | `NodeLocator(offset)` with a non-synthetic executable, not an operator, not a generator (§13.11.6 b) |
+//! | `Convert Getter to Method` | `getElementOfNode`: an explicit getter of the workspace (§13.11.7 b) |
+//! | `Convert Method to Getter` | `getElementOfNode`: a top-level function or method of the workspace, not `void`, without parameters (§13.11.8 b) |
 //!
-//! O `Extract Widget` exige o Flutter e as três experimentais exigem a
-//! configuração `dart.experimentalRefactors` (§13.11.10): nenhuma é listada.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! `Extract Widget` requires Flutter and the three experimental ones require
+//! the `dart.experimentalRefactors` setting (§13.11.10): none is listed.
+//! Written without compiling or running (2026-10-05).
 
 use crate::arvore_analyzer::{self, Arvore, Marca};
 use crate::project::Project;
@@ -29,7 +29,7 @@ use dartforge_types::{MemberRef, Resolved, Type, UnitBodyTypes};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-/// Uma refatoração listada.
+/// A listed refactoring.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refactoring {
     pub title: String,
@@ -38,59 +38,59 @@ pub struct Refactoring {
     pub command: RefactoringCommand,
 }
 
-/// O comando da ação.
+/// The action's command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RefactoringCommand {
-    /// `refactor.perform` com o `RefactoringKind` (`EXTRACT_METHOD`…).
+    /// `refactor.perform` with the `RefactoringKind` (`EXTRACT_METHOD`…).
     Legacy(&'static str),
-    /// `dart.refactor.move_top_level_to_file`, com o arquivo padrão.
+    /// `dart.refactor.move_top_level_to_file`, with the default file.
     Move { path_pattern: PathBuf },
 }
 
-/// Um `refactor.perform`/`refactor.validate` (§13.11.2), com os offsets já
-/// em bytes.
+/// A `refactor.perform`/`refactor.validate` (§13.11.2), with the offsets
+/// already in bytes.
 #[derive(Debug, Clone)]
 pub struct RefactoringRequest {
-    /// O `RefactoringKind` (`EXTRACT_METHOD`…).
+    /// The `RefactoringKind` (`EXTRACT_METHOD`…).
     pub kind: String,
     pub offset: usize,
     pub length: usize,
     pub options: Option<serde_json::Map<String, serde_json::Value>>,
-    /// `refactor.validate`: só as condições iniciais.
+    /// `refactor.validate`: only the initial conditions.
     pub only_validate: bool,
 }
 
-/// O resultado de uma refatoração executada.
+/// The result of an executed refactoring.
 #[derive(Debug, Clone)]
 pub enum RefactoringResult {
-    /// O arquivo não é analisado (`FileNotAnalyzed`).
+    /// The file is not analyzed (`FileNotAnalyzed`).
     NotAnalyzed,
-    /// O `RefactoringStatus` tem erro (`hasError`): a mensagem dele.
+    /// The `RefactoringStatus` has an error (`hasError`): its message.
     Error(String),
-    /// `ComputeStatusFailure` do framework novo, com o motivo.
+    /// `ComputeStatusFailure` of the new framework, with the reason.
     Failure(Option<String>),
     /// `InvalidCommandArguments`.
     InvalidArguments(String),
-    /// `UnhandledError` (uma exceção no servidor do Dart).
+    /// `UnhandledError` (an exception in the Dart server).
     InternalError(String),
-    /// A validação passou.
+    /// The validation passed.
     Valid,
-    /// A mudança: as edições e o arquivo criado (URI e conteúdo).
+    /// The change: the edits and the created file (URI and content).
     Change { edits: Vec<crate::Edit>, create: Option<(String, String)> },
 }
 
-/// O elemento de um nó, nas espécies que as regras distinguem.
+/// The element of a node, in the kinds the rules distinguish.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Elem {
     None,
-    /// `LocalVariableElement` (local, de `for-in`, de `catch`, de padrão).
+    /// `LocalVariableElement` (local, `for-in`, `catch`, pattern).
     LocalVariable,
     Parameter,
-    /// `FunctionElement` de uma função local.
+    /// `FunctionElement` of a local function.
     LocalFunction(ast::FunctionId),
-    /// Função de topo, método, acessor, operador ou construtor.
+    /// Top-level function, method, accessor, operator or constructor.
     Function(FunctionElementId),
-    /// Campo ou variável de topo (o acessor sintético).
+    /// Field or top-level variable (the synthetic accessor).
     Variable,
     /// `PrefixElement`.
     Prefix,
@@ -110,13 +110,13 @@ const FOR_PARTS: &[&str] = &["ForPartsWithDeclarations", "ForPartsWithExpression
 
 use dartforge_analysis::arvore_analyzer::{COMANDOS, EXPRESSOES};
 
-/// As subclasses de `FunctionBody`.
+/// The subclasses of `FunctionBody`.
 const BODIES: &[&str] = &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyFunctionBody", "NativeFunctionBody"];
 
-/// As subclasses de `StringLiteral`.
+/// The subclasses of `StringLiteral`.
 const STRINGS: &[&str] = &["SimpleStringLiteral", "StringInterpolation", "AdjacentStrings"];
 
-/// As subclasses de `CompilationUnitMember`.
+/// The subclasses of `CompilationUnitMember`.
 const UNIT_MEMBERS: &[&str] = &[
     "ClassDeclaration",
     "MixinDeclaration",
@@ -130,23 +130,23 @@ const UNIT_MEMBERS: &[&str] = &[
     "GenericTypeAlias",
 ];
 
-/// A espécie é uma subclasse de `Statement`.
+/// The kind is a subclass of `Statement`.
 pub(crate) fn is_command_kind(e: &str) -> bool {
     COMANDOS.contains(&e)
 }
 
-/// A espécie é uma subclasse de `Expression`.
+/// The kind is a subclass of `Expression`.
 pub(crate) fn is_expression_kind(e: &str) -> bool {
     EXPRESSOES.contains(&e)
 }
 
-/// `Character.isWhitespace` do `countLeadingWhitespaces`.
+/// `Character.isWhitespace` of `countLeadingWhitespaces`.
 fn is_blank(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\r' | b'\n')
 }
 
-/// O `RefactoringStatus` da análise de seleção: o primeiro fatal (nenhum
-/// passo depois dele o desfaz nem o troca).
+/// The `RefactoringStatus` of the selection analysis: the first fatal one
+/// (no later step undoes or replaces it).
 pub(crate) struct Analysis {
     pub(crate) start: usize,
     pub(crate) end: usize,
@@ -155,7 +155,7 @@ pub(crate) struct Analysis {
     pub(crate) coverage: Option<usize>,
 }
 
-/// O que o `_checkSelection` do Extract Method escolheu.
+/// What the Extract Method `_checkSelection` chose.
 #[derive(Debug, Clone)]
 pub(crate) struct MethodSelection {
     /// `_selectionRange`.
@@ -168,20 +168,20 @@ pub(crate) struct MethodSelection {
     pub(crate) commands: Vec<usize>,
 }
 
-/// O que o `_checkSelection` do Extract Local escolheu.
+/// What the Extract Local `_checkSelection` chose.
 #[derive(Debug, Clone)]
 pub(crate) struct LocalSelection {
-    /// `selectionRange` (o da expressão única, ou o aparado).
+    /// `selectionRange` (that of the single expression, or the trimmed one).
     pub(crate) range: (usize, usize),
     /// `singleExpression`.
     pub(crate) expression: Option<usize>,
-    /// `stringLiteralPart` (o texto da seleção original).
+    /// `stringLiteralPart` (the text of the original selection).
     pub(crate) string_part: Option<String>,
     /// `coveringFunctionBody`.
     pub(crate) body: usize,
 }
 
-/// A unidade preparada para as regras.
+/// The unit prepared for the rules.
 pub(crate) struct Context<'p> {
     pub(crate) p: &'p Project,
     pub(crate) unit: UnitId,
@@ -191,11 +191,11 @@ pub(crate) struct Context<'p> {
     pub(crate) tree: Arvore,
     pub(crate) comments: Vec<Span>,
     pub(crate) tokens: Vec<Token>,
-    /// Alvos de atribuição e operandos de `++`/`--` (o `writeOrReadElement`
-    /// deles é o de escrita).
+    /// Assignment targets and `++`/`--` operands (their `writeOrReadElement` is
+    /// the write one).
     pub(crate) writes: HashSet<ExprId>,
-    /// O alvo de cada chamada sem `new` que invoca construtor, com o
-    /// construtor.
+    /// The target of each call without `new` that invokes a constructor, with
+    /// the constructor.
     pub(crate) constructors_by_target: HashMap<ExprId, FunctionElementId>,
     pub(crate) prefixes: HashSet<ExprId>,
 }
@@ -226,8 +226,8 @@ impl<'p> Context<'p> {
                     }
                 }
                 ExprKind::InstanceCreation { keyword: None, constructor: None, .. } => {
-                    // `A<T>()`: o parser já a dá como criação; é chamada de
-                    // função genérica só quando resolve para outra coisa.
+                    // `A<T>()`: the parser already gives it as a creation; it is a generic
+                    // function call only when it resolves to something else.
                     if !matches!(bodies.get_resolved(id), Some(r) if !matches!(r, Resolved::Constructor(_))) {
                         constructors.insert(id);
                     }
@@ -268,7 +268,7 @@ impl<'p> Context<'p> {
         }
     }
 
-    // -- A árvore ---------------------------------------------------------------
+    // -- The tree ---------------------------------------------------------------
 
     pub(crate) fn kind(&self, n: usize) -> &'static str {
         self.tree.nos[n].especie
@@ -290,27 +290,26 @@ impl<'p> Context<'p> {
         COMANDOS.contains(&self.kind(n))
     }
 
-    /// `n` e os ancestrais (`withParents`).
+    /// `n` and its ancestors (`withParents`).
     pub(crate) fn with_parents(&self, n: usize) -> impl Iterator<Item = usize> + '_ {
         std::iter::successors(Some(n), move |&k| self.parent(k))
     }
 
-    /// O `methodName` de uma `MethodInvocation`: o último `SimpleIdentifier`
-    /// filho.
+    /// The `methodName` of a `MethodInvocation`: the last `SimpleIdentifier` child.
     pub(crate) fn method_name(&self, n: usize) -> Option<usize> {
         self.children(n).iter().rev().copied().find(|&f| self.kind(f) == "SimpleIdentifier")
     }
 
-    // -- Os elementos -------------------------------------------------------------
+    // -- The elements -------------------------------------------------------------
 
-    /// O elemento do identificador de `x` (a expressão da [`Mark::Expr`]):
-    /// `is_static` dá o `staticElement` (nulo numa escrita de propriedade ou
-    /// de variável de topo); senão o `writeOrReadElement` (o setter numa
-    /// escrita).
+    /// The element of the identifier of `x` (the expression of the
+    /// [`Marca::Expr`]): `is_static` gives the `staticElement` (null on a write
+    /// to a property or a top-level variable); otherwise the
+    /// `writeOrReadElement` (the setter on a write).
     pub(crate) fn element(&self, x: ExprId, is_static: bool) -> Elem {
         let prog = self.p.program();
         if let Some(&f) = self.constructors_by_target.get(&x) {
-            // `A.n(…)`: o nome do construtor; `A(…)`, `p.A(…)`: o tipo.
+            // `A.n(…)`: the constructor name; `A(…)`, `p.A(…)`: the type.
             return match &self.ast.expr(x).kind {
                 ExprKind::Property { target, name, .. } if !self.prefixes.contains(target) && prog.function(f).name == name.sym => Elem::Function(f),
                 _ => Elem::Other,
@@ -361,8 +360,8 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// O elemento local declarado em `d` (o offset do nome): parâmetro,
-    /// função local ou variável local.
+    /// The local element declared at `d` (the name offset): parameter, local
+    /// function or local variable.
     pub(crate) fn local_element(&self, d: usize) -> Elem {
         if crate::project::parameter_in(self.ast, d).is_some() {
             return Elem::Parameter;
@@ -373,7 +372,7 @@ impl<'p> Context<'p> {
         Elem::LocalVariable
     }
 
-    /// O setter que faz par com o acessor `f` (o próprio, se já é setter).
+    /// The setter that pairs with accessor `f` (itself, if it is already a setter).
     pub(crate) fn setter_of(&self, f: FunctionElementId) -> Option<FunctionElementId> {
         let prog = self.p.program();
         let fe = prog.function(f);
@@ -401,7 +400,7 @@ impl<'p> Context<'p> {
         })
     }
 
-    /// O elemento de um `SimpleIdentifier` da árvore.
+    /// The element of a `SimpleIdentifier` of the tree.
     pub(crate) fn identifier_element(&self, n: usize, is_static: bool) -> Elem {
         match self.tree.nos[n].marca {
             Marca::Expr(x) => self.element(x, is_static),
@@ -409,16 +408,16 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// O elemento de um nome de `show`/`hide` (o `element` que o analyzer
-    /// dá ao identificador do combinador): o nome no namespace exportado da
-    /// biblioteca que a diretiva importa ou exporta.
+    /// The element of a `show`/`hide` name (the `element` the analyzer gives to
+    /// the combinator's identifier): the name in the exported namespace of the
+    /// library the directive imports or exports.
     fn combinator_element(&self, n: usize) -> Option<Elem> {
         let c = self.parent(n).filter(|&p| matches!(self.kind(p), "ShowCombinator" | "HideCombinator"))?;
         self.parent(c)?;
         let prog = self.p.program();
         let u = prog.unit(self.unit);
         let (start, end) = (self.tree.nos[n].inicio, self.tree.nos[n].fim);
-        // A diretiva que contém o nome.
+        // The directive that contains the name.
         let d = u.unit.directives.iter().position(|x| x.span.start <= start && end <= x.span.end)?;
         let lib = prog.library(u.library);
         let target = lib
@@ -438,7 +437,7 @@ impl<'p> Context<'p> {
         })
     }
 
-    /// O `declaredElement` de uma `FunctionDeclaration`/`MethodDeclaration`.
+    /// The `declaredElement` of a `FunctionDeclaration`/`MethodDeclaration`.
     pub(crate) fn declared_element(&self, n: usize) -> Elem {
         let Marca::Funcao(fid) = self.tree.nos[n].marca else { return Elem::None };
         if self.kind(n) == "FunctionDeclaration" && self.parent(n).is_some_and(|p| self.kind(p) == "FunctionDeclarationStatement") {
@@ -450,9 +449,9 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// `server.getElementOfNode(node)` com o `ElementLocator`
-    /// (`AN:src/dart/ast/element_locator.dart`), nas espécies de nó que
-    /// podem dar um executável.
+    /// `server.getElementOfNode(node)` with the `ElementLocator`
+    /// (`AN:src/dart/ast/element_locator.dart`), in the node kinds that can give
+    /// an executable.
     pub(crate) fn node_element(&self, n: usize) -> Elem {
         match self.kind(n) {
             "SimpleIdentifier" => {
@@ -509,7 +508,7 @@ impl<'p> Context<'p> {
         matches!(modifier, Some(AsyncModifier::SyncStar | AsyncModifier::AsyncStar))
     }
 
-    /// `FunctionElement` (função de topo ou local).
+    /// `FunctionElement` (top-level or local function).
     pub(crate) fn is_function(&self, e: Elem) -> bool {
         match e {
             Elem::LocalFunction(_) => true,
@@ -521,8 +520,7 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// `MethodElement` (método ou operador de classe, mixin, enum ou
-    /// extensão).
+    /// `MethodElement` (method or operator of a class, mixin, enum or extension).
     pub(crate) fn is_method(&self, e: Elem) -> bool {
         match e {
             Elem::Function(f) => {
@@ -533,8 +531,7 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// O arquivo do elemento está sob uma raiz analisada
-    /// (`workspace.containsElement`).
+    /// The element's file is under an analyzed root (`workspace.containsElement`).
     pub(crate) fn in_workspace(&self, e: Elem) -> bool {
         match e {
             Elem::Function(f) => self.p.of_project(self.p.program().function(f).library),
@@ -543,7 +540,7 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// O tipo de retorno é `void`.
+    /// The return type is `void`.
     pub(crate) fn returns_void(&self, e: Elem) -> bool {
         let table = &self.p.query.table;
         let t = match e {
@@ -571,10 +568,10 @@ impl<'p> Context<'p> {
         }
     }
 
-    // -- Texto ------------------------------------------------------------------
+    // -- Text ------------------------------------------------------------------
 
-    /// `TokenUtils.getTokens(text).isNotEmpty`: há algum token (comentários
-    /// não são tokens).
+    /// `TokenUtils.getTokens(text).isNotEmpty`: there is some token (comments
+    /// are not tokens).
     pub(crate) fn has_tokens(&self, start: usize, end: usize) -> bool {
         if end <= start {
             return false;
@@ -601,7 +598,7 @@ impl<'p> Context<'p> {
         }
     }
 
-    // -- O analisador de seleção do Extract Method -------------------------------
+    // -- The Extract Method selection analyzer -------------------------------
 
     /// `_ExtractMethodAnalyzer(unit, [start, end)).analyze()`.
     pub(crate) fn analyze(&self, start: usize, end: usize) -> Analysis {
@@ -610,7 +607,7 @@ impl<'p> Context<'p> {
         st
     }
 
-    /// `invalidSelection`: grava o primeiro fatal e zera os selecionados.
+    /// `invalidSelection`: records the first fatal one and clears the selected nodes.
     pub(crate) fn invalidate(&self, st: &mut Analysis, message: &'static str) {
         if st.fatal.is_none() {
             st.fatal = Some(message);
@@ -618,8 +615,8 @@ impl<'p> Context<'p> {
         st.selected.clear();
     }
 
-    /// O despacho do `GeneralizingAstVisitor` com os `visitX` do
-    /// `StatementAnalyzer` e do `_ExtractMethodAnalyzer`.
+    /// The dispatch of the `GeneralizingAstVisitor` with the `visitX` of
+    /// `StatementAnalyzer` and of `_ExtractMethodAnalyzer`.
     pub(crate) fn visit(&self, n: usize, st: &mut Analysis) {
         if st.fatal.is_some() {
             return;
@@ -627,18 +624,18 @@ impl<'p> Context<'p> {
         let no = &self.tree.nos[n];
         let kind = no.especie;
         if DIRECTIVES.contains(&kind) {
-            // `visitDirective`: a seleção não pode tocar a diretiva (com
-            // comprimento), e não desce.
+            // `visitDirective`: the selection cannot touch the directive (with a
+            // length), and does not descend.
             if !(st.end <= no.inicio) && !(st.start >= no.fim) {
                 self.invalidate(st, "Cannot extract a directive.");
                 return;
             }
         } else if kind == "ImportPrefixReference" {
-            // `visitImportPrefixReference`: sempre que visitado.
+            // `visitImportPrefixReference`: whenever visited.
             self.invalidate(st, "Cannot extract an import prefix.");
             return;
         } else if FOR_PARTS.contains(&kind) {
-            // `visitForParts`: só os filhos, sem o `visitNode`.
+            // `visitForParts`: only the children, without `visitNode`.
             for &f in &no.filhos {
                 self.visit(f, st);
             }
@@ -659,7 +656,7 @@ impl<'p> Context<'p> {
         let (ri, rf) = (no.inicio, no.fim);
         let (si, sf) = (st.start, st.end);
         if si <= ri && rf <= sf {
-            // A seleção cobre o nó inteiro.
+            // The selection covers the whole node.
             if st.selected.is_empty() {
                 st.selected.push(n);
             } else {
@@ -677,7 +674,7 @@ impl<'p> Context<'p> {
         if ri <= si && sf <= rf {
             st.coverage = Some(n);
         } else if ri <= si && si <= rf {
-            // `handleSelectionStartsIn`: nada.
+            // `handleSelectionStartsIn`: nothing.
         } else if ri <= sf && sf <= rf {
             // `handleSelectionEndsIn`.
             self.invalidate(
@@ -696,8 +693,7 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// As verificações que cada `visitX` faz depois do `super`, com a
-    /// mensagem do fatal.
+    /// The checks each `visitX` makes after `super`, with the fatal message.
     pub(crate) fn after_children(&self, n: usize, st: &Analysis) -> Option<&'static str> {
         let first = st.selected.first().copied();
         let is_first = |x: usize| first == Some(x);
@@ -707,7 +703,7 @@ impl<'p> Context<'p> {
                 if st.selected.is_empty() {
                     return None;
                 }
-                // A seleção não começa nem termina num comentário.
+                // The selection neither starts nor ends in a comment.
                 for c in &self.comments {
                     if c.start <= st.start && st.start <= c.end {
                         return Some("Selection begins inside a comment.");
@@ -774,8 +770,8 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// `visitSimpleIdentifier` do `_ExtractMethodAnalyzer`, com o nó como
-    /// primeiro selecionado: a primeira das mensagens que se aplica.
+    /// `visitSimpleIdentifier` of `_ExtractMethodAnalyzer`, with the node as the
+    /// first selected one: the first of the messages that applies.
     pub(crate) fn identifier_not_extractable(&self, n: usize) -> Option<&'static str> {
         if self.tree.nos[n].marca == Marca::ContextoDeDeclaracao {
             return Some("Cannot extract the name part of a declaration.");
@@ -798,8 +794,8 @@ impl<'p> Context<'p> {
         None
     }
 
-    /// As regras de `ForStatement`: as do `StatementAnalyzer` (no `super`)
-    /// e depois as do `_ExtractMethodAnalyzer`.
+    /// The `ForStatement` rules: those of `StatementAnalyzer` (in `super`) and
+    /// then those of `_ExtractMethodAnalyzer`.
     pub(crate) fn invalid_for(&self, n: usize, st: &Analysis) -> Option<&'static str> {
         let children = self.children(n);
         let &parts = children.first()?;
@@ -828,7 +824,7 @@ impl<'p> Context<'p> {
         sel.last().is_some_and(|l| p.atualizacoes.contains(l)).then_some("Cannot extract increment part of a 'for' statement.")
     }
 
-    // -- As regras ----------------------------------------------------------------
+    // -- The rules ----------------------------------------------------------------
 
     /// `ExtractMethodRefactoringImpl._checkSelection()`.
     pub(crate) fn method_selection(&self, o: usize, l: usize) -> Result<MethodSelection, &'static str> {
@@ -885,8 +881,8 @@ impl<'p> Context<'p> {
         self.method_selection(o, l).is_ok()
     }
 
-    /// `_isExtractable(range.node(n))`: a análise da faixa exata sem
-    /// nenhum problema.
+    /// `_isExtractable(range.node(n))`: the analysis of the exact range without
+    /// any problem.
     pub(crate) fn extractable(&self, n: usize) -> bool {
         let no = &self.tree.nos[n];
         self.analyze(no.inicio, no.fim).fatal.is_none()
@@ -901,8 +897,8 @@ impl<'p> Context<'p> {
         !self.only_blank_or_comment(si, no.inicio) || !self.only_blank_or_comment(no.fim, sf)
     }
 
-    /// `_findFunctionExpression`: a closure cujos parênteses contêm o cursor,
-    /// ou a do argumento nomeado cujo rótulo tem o cursor.
+    /// `_findFunctionExpression`: the closure whose parentheses contain the
+    /// cursor, or that of the named argument whose label has the cursor.
     pub(crate) fn implicit_closure(&self, o: usize) -> Option<usize> {
         let n = self.tree.localizar_exclusivo(o)?;
         if let Some(f) = self.with_parents(n).find(|&k| self.kind(k) == "FunctionExpression")
@@ -1029,8 +1025,8 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// O elemento do `InlineMethodRefactoringImpl._checkOffset`, e se veio
-    /// da declaração.
+    /// The element of `InlineMethodRefactoringImpl._checkOffset`, and whether it
+    /// came from the declaration.
     pub(crate) fn inline_method_element(&self, o: usize) -> Option<(Elem, usize, bool)> {
         let n = self.tree.localizar(o, o)?;
         let (e, declaration) = match self.kind(n) {
@@ -1047,7 +1043,7 @@ impl<'p> Context<'p> {
         self.executable(e) && !self.synthetic(e) && !self.operator(e) && !self.generator(e)
     }
 
-    /// O elemento de `getElementOfNode(NodeLocator(offset))`.
+    /// The element of `getElementOfNode(NodeLocator(offset))`.
     pub(crate) fn element_at_cursor(&self, o: usize) -> Elem {
         match self.tree.localizar(o, o) {
             Some(n) => self.node_element(n),
@@ -1055,14 +1051,14 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// `Convert Getter to Method`: getter explícito do workspace.
+    /// `Convert Getter to Method`: an explicit getter of the workspace.
     pub(crate) fn convert_getter(&self, o: usize) -> bool {
         let e = self.element_at_cursor(o);
         matches!(e, Elem::Function(f) if self.p.program().function(f).kind == FunctionKind::Getter) && self.in_workspace(e)
     }
 
-    /// `ConvertMethodToGetterRefactoringImpl._checkElement`: a mensagem do
-    /// fatal, ou nada.
+    /// `ConvertMethodToGetterRefactoringImpl._checkElement`: the fatal message,
+    /// or nothing.
     pub(crate) fn convert_method_error(&self, e: Elem) -> Option<String> {
         if !self.in_workspace(e) {
             return Some("Only methods in your workspace can be converted.".to_string());
@@ -1091,20 +1087,19 @@ impl<'p> Context<'p> {
 
     // -- Move top-level to file ---------------------------------------------------
 
-    /// O token que termina exatamente em `pos` é identificador.
+    /// The token that ends exactly at `pos` is an identifier.
     pub(crate) fn identifier_ends_in(&self, pos: usize) -> bool {
         let i = self.tokens.partition_point(|t| t.span.end < pos);
         self.tokens.get(i).is_some_and(|t| t.span.end == pos && t.kind == Kind::Ident)
     }
 
-    /// O token que começa exatamente em `pos` é identificador.
+    /// The token that starts exactly at `pos` is an identifier.
     pub(crate) fn identifier_starts_in(&self, pos: usize) -> bool {
         let i = self.tokens.partition_point(|t| t.span.start < pos);
         self.tokens.get(i).is_some_and(|t| t.span.start == pos && t.kind == Kind::Ident && t.span.end > t.span.start)
     }
 
-    /// `nodeCovering(offset, length)`
-    /// (`AN:src/utilities/extensions/ast.dart:86-141`).
+    /// `nodeCovering(offset, length)` (`AN:src/utilities/extensions/ast.dart:86-141`).
     pub(crate) fn coverage(&self, o: usize, l: usize) -> Option<usize> {
         let end = o + l;
         if end > self.source.len() {
@@ -1129,7 +1124,7 @@ impl<'p> Context<'p> {
         Some(current)
     }
 
-    /// A declaração de topo (`DeclId`) do nó membro da unidade.
+    /// The top-level declaration (`DeclId`) of the unit member node.
     pub(crate) fn node_declaration(&self, n: usize) -> Option<ast::DeclId> {
         match self.tree.nos[n].marca {
             Marca::Decl(d) => Some(d),
@@ -1141,7 +1136,7 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// O nome declarado (o token) do membro.
+    /// The declared name (the token) of the member.
     pub(crate) fn declaration_name(&self, d: ast::DeclId) -> Option<ast::Name> {
         match &self.ast.decl(d).kind {
             DeclKind::Class(c) => Some(c.name),
@@ -1155,7 +1150,7 @@ impl<'p> Context<'p> {
         }
     }
 
-    /// A classe declarada por `d` desta unidade.
+    /// The class declared by `d` of this unit.
     pub(crate) fn declaration_class(&self, unit: UnitId, d: ast::DeclId) -> Option<ClassId> {
         self.p
             .program()
@@ -1172,9 +1167,9 @@ impl<'p> Context<'p> {
         matches!(&prog.unit(r.unit).ast.decl(r.decl).kind, DeclKind::Class(cd) if cd.modifiers.sealed)
     }
 
-    /// `sealedSuperclassElements` da declaração `d` da unidade `unit`:
-    /// as classes `sealed` de `extends`/`implements`/`with` (classe, não
-    /// alias) ou de `implements`/`on` (mixin).
+    /// `sealedSuperclassElements` of declaration `d` of unit `unit`: the
+    /// `sealed` classes of `extends`/`implements`/`with` (a class, not an alias)
+    /// or of `implements`/`on` (a mixin).
     pub(crate) fn sealed_superclasses(&self, unit: UnitId, d: ast::DeclId) -> Vec<ClassId> {
         let ast = &self.p.program().unit(unit).ast;
         let types: Vec<ast::TypeId> = match &ast.decl(d).kind {
@@ -1185,14 +1180,14 @@ impl<'p> Context<'p> {
         types.into_iter().filter_map(|t| self.p.type_class(unit, t)).filter(|&c| self.sealed(c)).collect()
     }
 
-    /// `MoveTopLevelToFile.isAvailable()`: o título e o arquivo padrão.
+    /// `MoveTopLevelToFile.isAvailable()`: the title and the default file.
     pub(crate) fn move_(&self, o: usize, l: usize, create_files: bool) -> Option<(String, PathBuf)> {
         if !create_files {
             return None;
         }
         let candidates = self.members_a_move(o, l)?;
         let prog = self.p.program();
-        // O título e o arquivo padrão.
+        // The title and the default file.
         let count: usize = candidates
             .iter()
             .map(|(d, _)| match &self.ast.decl(*d).kind {
@@ -1215,8 +1210,8 @@ impl<'p> Context<'p> {
         Some((title, folder.join(file)))
     }
 
-    /// `_membersToMove()`: as declarações (com o nome) do único grupo, na
-    /// ordem de inserção.
+    /// `_membersToMove()`: the declarations (with the name) of the single group,
+    /// in insertion order.
     pub(crate) fn members_a_move(&self, o: usize, l: usize) -> Option<Vec<(ast::DeclId, Option<String>)>> {
         let end = o + l;
         let coverage = self.coverage(o, l)?;
@@ -1224,8 +1219,8 @@ impl<'p> Context<'p> {
         let in_token = |s: Span| s.start <= o && end <= s.end;
         let selected: Vec<usize> = match self.kind(coverage) {
             "CompilationUnit" => {
-                // `nodesInRange`: as diretivas, ou, sem elas, as
-                // declarações que a seleção toca com comprimento.
+                // `nodesInRange`: the directives, or, without them, the declarations the
+                // selection touches with a length.
                 let children = self.children(0);
                 let in_range = |directives: bool| -> Vec<usize> {
                     let list: Vec<usize> = children
@@ -1303,9 +1298,9 @@ impl<'p> Context<'p> {
                 }
             }
         }
-        // `findSubclassesOfSealedRecursively`: os membros e, depois, as
-        // subclasses diretas de cada um (o mesmo, recursivamente), na ordem
-        // do conjunto do Dart; as novas entram no fim.
+        // `findSubclassesOfSealedRecursively`: the members and then the direct
+        // subclasses of each one (the same, recursively), in the order of Dart's
+        // set; new ones go at the end.
         fn find(cx: &Context<'_>, members: &[ast::DeclId], subclasses: &HashMap<ClassId, Vec<ast::DeclId>>, stack: &mut Vec<ast::DeclId>) -> Vec<ast::DeclId> {
             let mut v: Vec<ast::DeclId> = Vec::new();
             for &m in members {
@@ -1336,8 +1331,7 @@ impl<'p> Context<'p> {
                 candidates.push((d, name));
             }
         }
-        // Nenhuma outra parte da biblioteca estende uma `sealed` deste
-        // arquivo.
+        // No other part of the library extends a `sealed` class of this file.
         let prog = self.p.program();
         let library = prog.unit(self.unit).library;
         for &u2 in prog.library(library).units.iter() {
@@ -1356,8 +1350,8 @@ impl<'p> Context<'p> {
     }
 }
 
-/// `String.toFileName`: cada maiúscula que não é a primeira letra vira `_` e
-/// a letra; tudo em minúsculas; mais `.dart`.
+/// `String.toFileName`: each uppercase letter that is not the first one
+/// becomes `_` and the letter; everything in lowercase; plus `.dart`.
 pub(crate) fn file_name(name: &str) -> String {
     let mut s = String::with_capacity(name.len() + 8);
     for (i, c) in name.char_indices() {
@@ -1370,11 +1364,10 @@ pub(crate) fn file_name(name: &str) -> String {
 }
 
 impl Project {
-    /// As refatorações listadas em `[offset, offset + length)` da
-    /// unidade, na ordem do Dart: Move, Extract Method, Extract Local
-    /// Variable, Inline Local Variable, Inline Method, Convert Getter to
-    /// Method, Convert Method to Getter. `create_files` é o
-    /// `supportsFileCreation` do cliente.
+    /// The refactorings listed in `[offset, offset + length)` of the unit, in
+    /// Dart's order: Move, Extract Method, Extract Local Variable, Inline Local
+    /// Variable, Inline Method, Convert Getter to Method, Convert Method to
+    /// Getter. `create_files` is the client's `supportsFileCreation`.
     pub(crate) fn refactorings(&self, unit: UnitId, offset: usize, length: usize, create_files: bool) -> Vec<Refactoring> {
         let cx = Context::new(self, unit);
         let mut v = Vec::new();

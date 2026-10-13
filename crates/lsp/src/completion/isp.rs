@@ -1,36 +1,38 @@
-//! O `InScopeCompletionPass` do analysis server 3.6.2
-//! (`AS:src/services/completion/dart/in_scope_completion_pass.dart`, lido
-//! inteiro; docs/LSP-ESPECIFICACAO.md §14.13 e §14.14).
+//! The analysis server 3.6.2 `InScopeCompletionPass`
+//! (`AS:src/services/completion/dart/in_scope_completion_pass.dart`, read in
+//! full; docs/LSP-ESPECIFICACAO.md §14.13 and §14.14).
 //!
-//! O contexto é decidido sobre a árvore do **texto real** no formato do
-//! analyzer ([`crate::analyzer_tree`]): o `coveringNode` do `unit.select`
-//! (§14.13.4, com as duas exceções de fronteira), o `_completionNode` (a
-//! subida enquanto o pai começa no mesmo token e o filho não está numa
-//! lista) e um `visit*` por espécie de nó (`isp_visitas`), que grava o
-//! `completionLocation` e chama os ajudantes (palavras-chave, declarações,
-//! identificadores, rótulos, sobrescritas, URIs) na ordem do Dart: a ordem
-//! em que os candidatos chegam ao coletor é a ordem da resposta entre
-//! iguais.
+//! The context is decided over the tree of the **real text** in the
+//! analyzer's shape ([`crate::arvore_analyzer`]): the `coveringNode` of
+//! `unit.select` (§14.13.4, with the two boundary exceptions), the
+//! `_completionNode` (walking up while the parent starts at the same token
+//! and the child is not in a list) and one `visit*` per node kind
+//! (`isp_visits`), which records the `completionLocation` and calls the
+//! helpers (keywords, declarations, identifiers, labels, overrides, URIs) in
+//! Dart's order: the order in which the candidates reach the collector is
+//! the order of the response among equals.
 //!
-//! A semântica (o tipo estático de um alvo, o elemento de um identificador,
-//! os elementos declarados) vem da [`Query`], que pode ter analisado o
-//! texto com o sentinela no lugar da palavra sob o cursor: os offsets do
-//! texto real são levados para os dela pelo deslocamento do sentinela
-//! ([`Isp::map`]); o que vem antes do cursor tem o mesmo offset.
+//! The semantics (the static type of a target, the element of an
+//! identifier, the declared elements) come from the [`Query`], which may
+//! have analyzed the text with the sentinel in place of the word under the
+//! cursor: the offsets of the real text are carried to its own through the
+//! sentinel's shift ([`Isp::map`]); what comes before the cursor has the
+//! same offset.
 //!
-//! O que a recuperação do parser do DartForge não reproduz do fasta (tokens
-//! sintéticos de comprimento 0, o `droppedToken`) é lido como "ausente": um
-//! token que o fasta criaria sintético é procurado no texto e, se não está
-//! lá, vale a posição do próximo token real (onde o fasta o poria).
+//! What the DartForge parser's recovery does not reproduce from fasta
+//! (zero-length synthetic tokens, the `droppedToken`) is read as "absent": a
+//! token fasta would create as synthetic is looked for in the text and, if
+//! it is not there, the position of the next real token counts (where fasta
+//! would put it).
 
 use super::*;
 use crate::arvore_analyzer::{Arvore, Ligacao};
 use dartforge_elements::model::UnitId;
 use dartforge_frontend::token::{Kind, Op, Token};
 
-/// Os lexemas que o scanner do fasta lê como palavra-chave (`KeywordToken`:
-/// reservadas, embutidas e pseudo-palavras): para eles `type == IDENTIFIER`
-/// é falso e `isKeyword` é verdadeiro.
+/// The lexemes the fasta scanner reads as keywords (`KeywordToken`:
+/// reserved, built-in and pseudo-keywords): for them `type == IDENTIFIER` is
+/// false and `isKeyword` is true.
 pub(super) const ANALYZER_WORDS: &[&str] = &[
     "abstract", "as", "assert", "async", "augment", "await", "base", "break", "case", "catch", "class", "const", "continue", "covariant", "default",
     "deferred", "do", "dynamic", "else", "enum", "export", "extends", "extension", "external", "factory", "false", "final", "finally", "for",
@@ -39,7 +41,7 @@ pub(super) const ANALYZER_WORDS: &[&str] = &[
     "sync", "this", "throw", "true", "try", "typedef", "var", "void", "when", "while", "with", "yield",
 ];
 
-/// As espécies de nó que são `Expression` no analyzer.
+/// The node kinds that are an `Expression` in the analyzer.
 pub(super) const EXPRESSION_KINDS: &[&str] = &[
     "AdjacentStrings", "AsExpression", "AssignmentExpression", "AwaitExpression", "BinaryExpression", "BooleanLiteral", "CascadeExpression",
     "ConditionalExpression", "ConstructorReference", "DotShorthand", "DoubleLiteral", "ExtensionOverride", "FunctionExpression", "FunctionExpressionInvocation",
@@ -50,7 +52,7 @@ pub(super) const EXPRESSION_KINDS: &[&str] = &[
     "ThrowExpression", "TypeLiteral",
 ];
 
-/// A espécie é um `DartPattern`.
+/// The kind is a `DartPattern`.
 pub(super) fn is_pattern(e: &str) -> bool {
     matches!(
         e,
@@ -60,13 +62,13 @@ pub(super) fn is_pattern(e: &str) -> bool {
     )
 }
 
-/// A espécie é uma declaração com corpo de membros (`Declaration` onde uma
-/// anotação de `@override` se aplica).
+/// The kind is a declaration with a member body (a `Declaration` where an
+/// `@override` annotation applies).
 pub(super) fn is_declaration(e: &str) -> bool {
     matches!(e, "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration")
 }
 
-/// A espécie é um `Statement`.
+/// The kind is a `Statement`.
 pub(super) fn is_command(e: &str) -> bool {
     matches!(
         e,
@@ -76,13 +78,13 @@ pub(super) fn is_command(e: &str) -> bool {
     )
 }
 
-/// A espécie é um `FormalParameter`.
+/// The kind is a `FormalParameter`.
 pub(super) fn is_parameter(e: &str) -> bool {
     matches!(e, "SimpleFormalParameter" | "FieldFormalParameter" | "SuperFormalParameter" | "FunctionTypedFormalParameter" | "DefaultFormalParameter")
 }
 
-/// Um recurso da linguagem que o completar consulta (`featureSet`), pela
-/// versão em que entrou.
+/// A language feature that completion consults (`featureSet`), by the
+/// version it came in.
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Feature {
     ExtensionMethods,
@@ -94,8 +96,8 @@ pub(super) enum Feature {
     InlineClass,
 }
 
-/// As opções do `DeclarationHelper` (a primeira chamada de
-/// `declarationHelper` as fixa; as seguintes as ignoram).
+/// The options of the `DeclarationHelper` (the first call to
+/// `declarationHelper` fixes them; the following ones ignore them).
 #[derive(Debug, Clone, Default)]
 pub(super) struct Flags {
     pub assignable: bool,
@@ -110,12 +112,12 @@ pub(super) struct Flags {
     pub object_pattern: bool,
     pub prefer_without_invocation: bool,
     pub unnamed_as_new: bool,
-    /// Os nós excluídos (`excludedNodes`): listas de parâmetros de tipo
-    /// fantasmas da recuperação.
+    /// The excluded nodes (`excludedNodes`): phantom type parameter lists from
+    /// recovery.
     pub excluded: Vec<usize>,
 }
 
-/// Uma operação do `NotImportedCompletionPass` registrada pelo
+/// A `NotImportedCompletionPass` operation registered by the
 /// `DeclarationHelper`.
 #[derive(Debug, Clone)]
 pub(super) enum Operation {
@@ -127,38 +129,37 @@ pub(super) enum Operation {
     ExtensionMembers { ty: TypeId, excluded: Vec<String>, methods: bool, setters: bool },
 }
 
-/// O resultado do passe.
+/// The result of the pass.
 pub(super) struct ResultIsp {
-    /// Os candidatos na ordem do coletor e o `matcherScore` de cada um.
+    /// The candidates in collector order and each one's `matcherScore`.
     pub items: Vec<(f64, CompletionItem)>,
     pub local: Option<String>,
     pub incomplete: bool,
     pub prefers_constants: bool,
     pub operations: Vec<Operation>,
-    /// As opções do `DeclarationHelper` usadas (as do segundo passe).
+    /// The options of the `DeclarationHelper` used (those of the second pass).
     pub flags: Option<Flags>,
-    /// Os nomes vistos pelo `VisibilityTracker` (com o prefixo de import).
+    /// The names seen by the `VisibilityTracker` (with the import prefix).
     pub visible: HashSet<String>,
-    /// `isCommentText`: o cursor está num comentário comum (lista vazia).
+    /// `isCommentText`: the cursor is in an ordinary comment (empty list).
     pub comment: bool,
-    /// `replacementRange`: `(início, length)`.
+    /// `replacementRange`: `(start, length)`.
     pub range: (usize, usize),
-    /// O `targetPrefix` (o filtro e o truncamento do handler).
+    /// The `targetPrefix` (the handler's filter and truncation).
     pub request_prefix: String,
-    /// O prefixo do casador (`TokenData.fromSelection`).
+    /// The matcher's prefix (`TokenData.fromSelection`).
     pub matcher_prefix: String,
     /// `request.contextType`.
     pub context_type: Option<TypeId>,
     /// `request.inConstantContext`.
     pub in_constant_context: bool,
-    /// As bibliotecas não importadas que a consulta não carregou (o
-    /// `NotImportedCompletionPass` delas vai pelo resumo de nomes):
-    /// `(path, URI do import)`.
+    /// The not-imported libraries the query did not load (their
+    /// `NotImportedCompletionPass` goes through the name summary):
+    /// `(path, import URI)`.
     pub summarized: Vec<(PathBuf, String)>,
 }
 
-/// O `beginToken` de um nó: um comentário de documentação, um token do
-/// texto, ou nenhum.
+/// The `beginToken` of a node: a documentation comment, a text token, or none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Initial {
     Comment,
@@ -167,7 +168,7 @@ pub(super) enum Initial {
 }
 
 pub(super) struct Isp<'a, 'c> {
-    /// O texto real, a árvore do parser dele (com os nomes) e a do analyzer.
+    /// The real text, its parser tree (with the names) and the analyzer tree.
     pub source: &'a str,
     pub a: &'a ast::Ast,
     pub cu: &'a ast::CompilationUnit,
@@ -176,16 +177,15 @@ pub(super) struct Isp<'a, 'c> {
     pub toks: Vec<Token>,
     pub offset: usize,
     pub features: LibraryFeatures,
-    /// A semântica.
+    /// The semantics.
     pub query: &'c mut Query,
     pub unit: UnitId,
-    /// O trecho trocado pelo sentinela no texto da consulta: `(início, fim
-    /// no texto real, comprimento do sentinela, deslocamento depois do
-    /// trecho)`.
+    /// The span replaced by the sentinel in the query's text: `(start, end in
+    /// the real text, sentinel length, shift after the span)`.
     pub swap: Option<(usize, usize, usize, isize)>,
-    /// As expressões da consulta pelo intervalo.
+    /// The query's expressions by range.
     pub exprs: HashMap<(usize, usize), ExprId>,
-    /// O coletor de itens (os construtores de item do completar).
+    /// The item collector (the completion item builders).
     pub collector: Collector,
     pub scores: Vec<f64>,
     pub local: Option<String>,
@@ -196,21 +196,21 @@ pub(super) struct Isp<'a, 'c> {
     pub visible: HashSet<String>,
     /// `_variableDistance`.
     pub distance: u32,
-    /// `IdentifierHelper.includePrivateIdentifiers` (a primeira chamada).
+    /// `IdentifierHelper.includePrivateIdentifiers` (the first call).
     pub private: Option<bool>,
     pub matcher: Option<crate::fuzzy_matcher::Matcher>,
     pub operations: Vec<Operation>,
-    /// O caminho do arquivo (o nome sugerido para a declaração de topo).
+    /// The file path (the suggested name for the top-level declaration).
     pub path: Option<PathBuf>,
-    /// `state.contextType`, quando o pedido o calculou.
+    /// `state.contextType`, when the request computed it.
     pub context_type: Option<TypeId>,
-    /// `_containingMemberName`: o nome do método que contém um `super.▮`.
+    /// `_containingMemberName`: the name of the method containing a `super.▮`.
     pub super_method: Option<String>,
 }
 
-/// Executa o passe: monta a árvore do texto real, acha o alvo (o
-/// `CompletionTarget`), o intervalo, os prefixos e o tipo de contexto, e
-/// visita o nó de completar.
+/// Runs the pass: builds the tree of the real text, finds the target (the
+/// `CompletionTarget`), the range, the prefixes and the context type, and
+/// visits the completion node.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run(
     query: &mut Query,
@@ -289,9 +289,9 @@ pub(super) fn run(
     if let Some(no) = isp.completion_node() {
         isp.visit(no);
     }
-    // O `NotImportedCompletionPass`: as operações registradas, sobre cada
-    // biblioteca candidata (as carregadas pelos elementos; as outras pelo
-    // resumo, fora daqui).
+    // The `NotImportedCompletionPass`: the registered operations, over each
+    // candidate library (the loaded ones through the elements; the others
+    // through the summary, outside of here).
     let mut summarized = Vec::new();
     if !isp.operations.is_empty()
         && !request_prefix.is_empty()
@@ -338,7 +338,7 @@ pub(super) fn run(
 }
 
 impl<'a, 'c> Isp<'a, 'c> {
-    // -- O coletor -------------------------------------------------------------
+    // -- The collector -------------------------------------------------------------
 
     /// `featureSet.isEnabled(feature)`.
     pub(super) fn has_feature(&self, r: Feature) -> bool {
@@ -352,8 +352,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         (current.major, current.minor) >= v
     }
 
-    /// `state.matcher.score(text)`: 0 sem prefixo (`NoPrefixMatcher`), −1
-    /// quando não casa.
+    /// `state.matcher.score(text)`: 0 without a prefix (`NoPrefixMatcher`), −1
+    /// when it does not match.
     pub(super) fn score(&mut self, text: &str) -> f64 {
         match self.matcher.as_mut() {
             Some(c) => c.score(text),
@@ -361,7 +361,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// Registra os itens que o coletor ganhou desde `before` com o score.
+    /// Records the items the collector gained since `before` with the score.
     pub(super) fn register(&mut self, before: usize, score: f64) {
         while self.scores.len() < self.collector.items.len() {
             self.scores.push(score);
@@ -369,7 +369,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let _ = before;
     }
 
-    /// O `completionLocation` (atribuição simples).
+    /// The `completionLocation` (plain assignment).
     pub(super) fn local(&mut self, l: &str) {
         self.local = Some(l.to_string());
     }
@@ -381,7 +381,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    // -- Nós ---------------------------------------------------------------------
+    // -- Nodes ---------------------------------------------------------------------
 
     pub(super) fn kind(&self, n: usize) -> &'static str {
         self.tree.nos[n].especie
@@ -407,17 +407,17 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.tree.nos[n].ligacao
     }
 
-    /// O primeiro filho da espécie.
+    /// The first child of the kind.
     pub(super) fn child(&self, n: usize, kind: &str) -> Option<usize> {
         self.children(n).iter().copied().find(|&f| self.kind(f) == kind)
     }
 
-    /// Os filhos de uma das espécies.
+    /// The children of one of the kinds.
     pub(super) fn children_of(&self, n: usize, kinds: &[&str]) -> Vec<usize> {
         self.children(n).iter().copied().filter(|&f| kinds.contains(&self.kind(f))).collect()
     }
 
-    /// O ancestral mais próximo (o próprio incluso) de uma das espécies.
+    /// The closest ancestor (itself included) of one of the kinds.
     pub(super) fn ancestor(&self, n: usize, kinds: &[&str]) -> Option<usize> {
         let mut current = Some(n);
         while let Some(k) = current {
@@ -438,30 +438,30 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.covers(self.start(n), self.end(n))
     }
 
-    /// `elementBefore(offset)`: o último com `end <= offset`.
+    /// `elementBefore(offset)`: the last one with `end <= offset`.
     pub(super) fn element_before(&self, nos: &[usize]) -> Option<usize> {
         nos.iter().copied().filter(|&k| self.end(k) <= self.offset).last()
     }
 
     // -- Tokens ------------------------------------------------------------------
 
-    /// O índice do primeiro token que começa em `off` ou depois.
+    /// The index of the first token that starts at `off` or after.
     pub(super) fn tok_since(&self, off: usize) -> usize {
         self.toks.partition_point(|t| t.span.start < off)
     }
 
-    /// O token que começa exatamente em `off`.
+    /// The token that starts exactly at `off`.
     pub(super) fn tok_at(&self, off: usize) -> Option<usize> {
         let i = self.tok_since(off);
         self.toks.get(i).filter(|t| t.span.start == off && t.kind != Kind::Eof).map(|_| i)
     }
 
-    /// O último token que termina até `off`.
+    /// The last token that ends at or before `off`.
     pub(super) fn tok_before(&self, off: usize) -> Option<usize> {
         self.toks.partition_point(|t| t.span.end <= off).checked_sub(1)
     }
 
-    /// O primeiro token que começa em `off` ou depois (fora o EOF).
+    /// The first token that starts at `off` or after (excluding EOF).
     pub(super) fn tok_after(&self, off: usize) -> Option<usize> {
         let i = self.tok_since(off);
         self.toks.get(i).filter(|t| t.kind != Kind::Eof).map(|_| i)
@@ -480,7 +480,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         matches!(self.toks.get(i).map(|t| t.kind), Some(Kind::Ident | Kind::Keyword(_)))
     }
 
-    /// `type.isKeyword` (o `KeywordToken` do fasta).
+    /// `type.isKeyword` (fasta's `KeywordToken`).
     pub(super) fn is_keyword(&self, i: usize) -> bool {
         self.word(i) && ANALYZER_WORDS.contains(&self.text_tok(i))
     }
@@ -494,8 +494,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.toks.get(i).is_some_and(|t| t.kind == Kind::Op(op))
     }
 
-    /// O primeiro token `op` em `[de, until)`, fora de parênteses e colchetes
-    /// abertos depois de `de`.
+    /// The first `op` token in `[de, until)`, outside parentheses and brackets
+    /// opened after `de`.
     pub(super) fn op_in(&self, op: Op, de: usize, until: usize) -> Option<usize> {
         let mut i = self.tok_since(de);
         let mut bottom = 0i32;
@@ -516,7 +516,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// O primeiro token com o texto em `[de, until)` (no nível de fora).
+    /// The first token with the text in `[de, until)` (at the outer level).
     pub(super) fn word_in(&self, text: &str, de: usize, until: usize) -> Option<usize> {
         let mut i = self.tok_since(de);
         let mut bottom = 0i32;
@@ -537,7 +537,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// O par de um `(`/`[`/`{` (ou o contrário).
+    /// The pair of a `(`/`[`/`{` (or the reverse).
     pub(super) fn pair(&self, i: usize) -> Option<usize> {
         let (opens, closes, to_front) = match self.toks.get(i)?.kind {
             Kind::Op(Op::LParen) => (Op::LParen, Op::RParen, true),
@@ -581,14 +581,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O `offset` de um token que o fasta criaria sintético quando não está
-    /// no texto: o do próximo token real depois de `after`.
+    /// The `offset` of a token fasta would create as synthetic when it is not in
+    /// the text: that of the next real token after `after`.
     pub(super) fn synthetic(&self, after: usize) -> Span {
         let p = self.tok_after(after).map_or(self.source.len(), |i| self.span_tok(i).start);
         Span { start: p, end: p }
     }
 
-    /// O `beginToken` do nó.
+    /// The node's `beginToken`.
     pub(super) fn initial(&self, n: usize) -> Initial {
         let start = self.start(n);
         if n == 0 {
@@ -604,8 +604,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O primeiro token do nó (depois de comentários e anotações, quando
-    /// `depois_de_anotacoes`): o `firstTokenAfterCommentAndMetadata`.
+    /// The node's first token (after comments and annotations, when
+    /// `after_annotations`): `firstTokenAfterCommentAndMetadata`.
     pub(super) fn first_after_annotations(&self, n: usize) -> Option<usize> {
         let mut after = self.start(n);
         for &f in self.children(n) {
@@ -616,14 +616,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.tok_after(after).filter(|&i| self.span_tok(i).start < self.end(n).max(after + 1))
     }
 
-    /// `isFullySynthetic` aqui: o nó não tem nenhum token no texto.
+    /// `isFullySynthetic` here: the node has no token in the text.
     pub(super) fn all_synthetic(&self, n: usize) -> bool {
         self.start(n) >= self.end(n)
     }
 
-    // -- O nó de completar (§14.13.4) -------------------------------------------
+    // -- The completion node (§14.13.4) -------------------------------------------
 
-    /// `contém(nó)` do `nodeCovering`, com as duas exceções de fronteira.
+    /// `contains(node)` of `nodeCovering`, with the two boundary exceptions.
     fn contains(&self, n: usize) -> bool {
         let (start, end) = (self.start(n), self.end(n));
         if self.offset == start
@@ -692,8 +692,8 @@ impl<'a, 'c> Isp<'a, 'c> {
             "SwitchExpression" => f == "SwitchExpressionCase",
             "SwitchDefault" => true,
             "SwitchPatternCase" => f != "GuardedPattern",
-            // `case e:` antigo: os rótulos e os comandos; a expressão (o
-            // primeiro filho que não é rótulo) não.
+            // Old `case e:`: the labels and the statements; the expression (the first
+            // child that is not a label) is not.
             "SwitchCase" => self.children(parent).iter().copied().find(|&k| self.kind(k) != "Label") != Some(child),
             "SwitchStatement" => matches!(f, "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"),
             "TryStatement" => f == "CatchClause",
@@ -735,7 +735,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         Some(child)
     }
 
-    // -- Ligação com o AST real ---------------------------------------------------
+    // -- Binding to the real AST ---------------------------------------------------
 
     pub(super) fn real_expr(&self, n: usize) -> Option<ExprId> {
         match self.link(n) {
@@ -765,7 +765,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// A função de um `MethodDeclaration`, `FunctionDeclaration` ou
+    /// The function of a `MethodDeclaration`, `FunctionDeclaration` or
     /// `FunctionExpression`.
     pub(super) fn real_function(&self, n: usize) -> Option<&'a ast::Function> {
         match self.link(n) {
@@ -790,7 +790,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O construtor de um `ConstructorDeclaration`.
+    /// The constructor of a `ConstructorDeclaration`.
     pub(super) fn real_constructor(&self, n: usize) -> Option<&'a ast::Constructor> {
         match &self.real_member(n)?.kind {
             ast::MemberKind::Constructor(k) => Some(k),
@@ -798,7 +798,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// A lista de variáveis de um `VariableDeclarationList` (pelo pai).
+    /// The variable list of a `VariableDeclarationList` (through the parent).
     pub(super) fn real_list(&self, n: usize) -> Option<&'a ast::VariableList> {
         let p = if self.kind(n) == "VariableDeclarationList" { self.parent(n)? } else { n };
         match self.link(p) {
@@ -816,7 +816,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 _ => None,
             },
             _ => {
-                // `ForPartsWithDeclarations` (de comando ou de elemento).
+                // `ForPartsWithDeclarations` (of a statement or an element).
                 let grandparent = self.parent(p)?;
                 match self.link(grandparent) {
                     Ligacao::Stmt(s) => match &self.a.stmt(s).kind {
@@ -833,13 +833,13 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// A variável de um `VariableDeclaration` (pelo nome).
+    /// The variable of a `VariableDeclaration` (by name).
     pub(super) fn real_variable(&self, n: usize) -> Option<&'a ast::Variable> {
         let list = self.real_list(self.parent(n)?)?;
         list.variables.iter().find(|v| v.name.span.start == self.start(n))
     }
 
-    /// O `ast::Parameter` de um nó de parâmetro.
+    /// The `ast::Parameter` of a parameter node.
     pub(super) fn real_parameter(&self, n: usize) -> Option<&'a ast::Parameter> {
         let Ligacao::Parametro(end) = self.link(n) else { return None };
         let find = |ps: &'a [ast::Parameter]| ps.iter().find(|p| crate::arvore_analyzer::endereco(*p) == end);
@@ -882,7 +882,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// O `ast::Initializer` de um nó de inicializador.
+    /// The `ast::Initializer` of an initializer node.
     pub(super) fn real_initializer(&self, n: usize) -> Option<&'a ast::Initializer> {
         let Ligacao::Inicializador(end) = self.link(n) else { return None };
         for m in self.a.members.iter() {
@@ -895,7 +895,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// O `ast::SwitchCase` de um membro de `switch`.
+    /// The `ast::SwitchCase` of a `switch` member.
     pub(super) fn real_case(&self, n: usize) -> Option<&'a ast::SwitchCase> {
         let Ligacao::Caso(end) = self.link(n) else { return None };
         for s in self.a.stmts.iter() {
@@ -908,13 +908,13 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// O `ast::Directive`.
+    /// The `ast::Directive`.
     pub(super) fn real_directive(&self, n: usize) -> Option<&'a ast::Directive> {
         let Ligacao::Diretiva(end) = self.link(n) else { return None };
         self.cu.directives.iter().find(|d| crate::arvore_analyzer::endereco(*d) == end)
     }
 
-    /// O `ast::CatchClause`.
+    /// The `ast::CatchClause`.
     pub(super) fn real_catch(&self, n: usize) -> Option<&'a ast::CatchClause> {
         let Ligacao::Catch(end) = self.link(n) else { return None };
         for s in self.a.stmts.iter() {
@@ -927,7 +927,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// O `ast::CollectionElement`.
+    /// The `ast::CollectionElement`.
     pub(super) fn real_element(&self, n: usize) -> Option<&'a ast::CollectionElement> {
         let Ligacao::Elemento(end) = self.link(n) else { return None };
         fn em<'x>(els: &'x [ast::CollectionElement], end: usize) -> Option<&'x ast::CollectionElement> {
@@ -958,7 +958,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// O `ast::Arguments` de uma `ArgumentList`.
+    /// The `ast::Arguments` of an `ArgumentList`.
     pub(super) fn real_arguments(&self, n: usize) -> Option<&'a ast::Arguments> {
         let Ligacao::Argumentos(end) = self.link(n) else { return None };
         let e = |a: &'a ast::Arguments| (crate::arvore_analyzer::endereco(a) == end).then_some(a);
@@ -1006,17 +1006,17 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// O nome de um `ast::Name` do texto real.
+    /// The name of an `ast::Name` of the real text.
     pub(super) fn real_name(&self, n: ast::Name) -> &'a str {
         self.nr.resolve(n.sym)
     }
 
-    // -- Semântica (a consulta) --------------------------------------------------
+    // -- Semantics (the query) --------------------------------------------------
 
-    /// O offset de um **início** de trecho do texto real no texto da
-    /// consulta: antes da palavra trocada, igual; dentro dela, o início do
-    /// sentinela; do fim dela em diante, deslocado (com a palavra vazia, o
-    /// que começa no cursor é o token real seguinte).
+    /// The offset of a span **start** of the real text in the query's text:
+    /// before the replaced word, the same; inside it, the start of the
+    /// sentinel; from its end on, shifted (with an empty word, what starts at
+    /// the cursor is the next real token).
     pub(super) fn map(&self, off: usize) -> usize {
         match self.swap {
             None => off,
@@ -1032,8 +1032,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O offset de um **fim** de trecho: o que termina dentro ou no fim da
-    /// palavra trocada termina no fim do sentinela.
+    /// The offset of a span **end**: what ends inside or at the end of the
+    /// replaced word ends at the end of the sentinel.
     pub(super) fn map_end(&self, off: usize) -> usize {
         match self.swap {
             None => off,
@@ -1049,31 +1049,31 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// A expressão da consulta para a expressão real `e`.
+    /// The query's expression for the real expression `e`.
     pub(super) fn query_expr(&self, e: ExprId) -> Option<ExprId> {
         let s = self.a.expr(e).span;
         self.exprs.get(&(self.map(s.start), self.map_end(s.end))).copied()
     }
 
-    /// `staticType` da expressão real `e`.
+    /// `staticType` of the real expression `e`.
     pub(super) fn static_type(&self, e: ExprId) -> Option<TypeId> {
         let c = self.query_expr(e)?;
         self.query.bodies.units[self.unit.0 as usize].get_type(c)
     }
 
-    /// `staticElement` da expressão real `e`.
+    /// `staticElement` of the real expression `e`.
     pub(super) fn resolved(&self, e: ExprId) -> Option<Resolved> {
         let c = self.query_expr(e)?;
         self.query.bodies.units[self.unit.0 as usize].get_resolved(c).cloned()
     }
 
-    /// O tipo de um local ou parâmetro de função local pelo offset do nome.
+    /// The type of a local or a local function parameter by the name offset.
     pub(super) fn local_type(&self, name: usize) -> Option<TypeId> {
         self.query.bodies.units[self.unit.0 as usize].tipos_de_locais.get(&self.map(name)).copied()
     }
 
-    /// A classe (ou mixin, enum, tipo de extensão) declarada com o nome em
-    /// `name` (offset real).
+    /// The class (or mixin, enum, extension type) declared with the name at
+    /// `name` (real offset).
     pub(super) fn class_in(&self, name: usize) -> Option<ClassId> {
         let target = self.map(name);
         let p = &self.query.program;
@@ -1091,8 +1091,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         })
     }
 
-    /// A extensão declarada com o nome em `name` (ou, sem nome, que começa
-    /// em `start`).
+    /// The extension declared with the name at `name` (or, unnamed, starting at
+    /// `start`).
     pub(super) fn extension_in(&self, start: usize, name: Option<usize>) -> Option<dartforge_elements::model::ExtensionId> {
         let p = &self.query.program;
         (0..p.extensions.len()).map(|i| dartforge_elements::model::ExtensionId(i as u32)).find(|&x| {
@@ -1106,8 +1106,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         })
     }
 
-    /// A classe cuja declaração contém o nó (o `enclosingInterfaceElement`
-    /// com o elemento declarado).
+    /// The class whose declaration contains the node (the
+    /// `enclosingInterfaceElement` with the declared element).
     pub(super) fn node_class(&self, n: usize) -> Option<ClassId> {
         let d = self.real_decl(n)?;
         let name = match &d.kind {
@@ -1120,7 +1120,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.class_in(name.span.start)
     }
 
-    /// O elemento do construtor declarado no membro `n`.
+    /// The element of the constructor declared in member `n`.
     pub(super) fn declared_constructor(&self, n: usize) -> Option<FunctionElementId> {
         let k = self.real_constructor(n)?;
         let target = self.map(k.name.unwrap_or(k.class_name).span.start);
@@ -1137,8 +1137,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         })
     }
 
-    /// O elemento da função (topo, método, local) declarada com o nome em
-    /// `name`.
+    /// The element of the function (top-level, method, local) declared with the
+    /// name at `name`.
     pub(super) fn declared_function(&self, name: usize) -> Option<FunctionElementId> {
         let target = self.map(name);
         let p = &self.query.program;
@@ -1150,16 +1150,16 @@ impl<'a, 'c> Isp<'a, 'c> {
         })
     }
 
-    /// A biblioteca do pedido.
+    /// The request's library.
     pub(super) fn library(&self) -> LibraryId {
         self.query.program.unit(self.unit).library
     }
 
-    // -- Propriedades de contexto ------------------------------------------------
+    // -- Context properties ------------------------------------------------
 
-    /// `inStaticContext` (`:3935-3947`): sobe pelos pais; o primeiro método
-    /// diz se é estático; o corpo de um construtor é de instância; a raiz é
-    /// estática.
+    /// `inStaticContext` (`:3935-3947`): walks up the parents; the first method
+    /// says whether it is static; a constructor's body is instance; the root is
+    /// static.
     pub(super) fn static_context(&self, n: usize) -> bool {
         let mut current = self.parent(n);
         while let Some(k) = current {
@@ -1179,18 +1179,18 @@ impl<'a, 'c> Isp<'a, 'c> {
         true
     }
 
-    /// O nó começa com a palavra `const`.
+    /// The node starts with the `const` keyword.
     pub(super) fn starts_with_const(&self, n: usize) -> bool {
         matches!(self.initial(n), Initial::Tok(i) if self.text_tok(i) == "const")
     }
 
     /// `inConstantContext` (`constantContext(includeSelf: false)`,
-    /// `AN:src/dart/ast/ast.dart:6208-6262`): sobe pelos pais; anotação,
-    /// argumentos de constante de enum e `case` antigo são contexto
-    /// constante; criação, record e literal tipado com `const` também; o
-    /// padrão constante só com `const`, e a lista de variáveis decide (com
-    /// `const` ou não); argumento, expressão, elemento de coleção e
-    /// declaração de variável passam adiante; qualquer outro nó encerra.
+    /// `AN:src/dart/ast/ast.dart:6208-6262`): walks up the parents; an
+    /// annotation, enum constant arguments and an old `case` are a constant
+    /// context; a creation, a record and a typed literal with `const` too; a
+    /// constant pattern only with `const`, and the variable list decides (with
+    /// `const` or not); an argument, an expression, a collection element and a
+    /// variable declaration pass it on; any other node stops.
     pub(super) fn constant_context(&self, n: usize) -> bool {
         let mut current = self.parent(n);
         while let Some(k) = current {
@@ -1213,13 +1213,13 @@ impl<'a, 'c> Isp<'a, 'c> {
         false
     }
 
-    /// O `FunctionBody` que contém o nó (o próprio incluso:
+    /// The `FunctionBody` that contains the node (itself included:
     /// `thisOrAncestorOfType<FunctionBody>`).
     pub(super) fn containing_body(&self, n: usize) -> Option<usize> {
         self.ancestor(n, &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyFunctionBody", "NativeFunctionBody"])
     }
 
-    /// O modificador do corpo que contém o nó (`body.keyword`, `body.star`).
+    /// The modifier of the body containing the node (`body.keyword`, `body.star`).
     fn modifier(&self, n: usize) -> Option<ast::AsyncModifier> {
         let body = self.containing_body(n)?;
         let owner = self.parent(body)?;
@@ -1229,7 +1229,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `inAsyncMethodOrFunction`: o corpo é `async` sem `*`.
+    /// `inAsyncMethodOrFunction`: the body is `async` without `*`.
     pub(super) fn in_async(&self, n: usize) -> bool {
         self.modifier(n) == Some(ast::AsyncModifier::Async)
     }
@@ -1239,13 +1239,13 @@ impl<'a, 'c> Isp<'a, 'c> {
         matches!(self.modifier(n), Some(ast::AsyncModifier::AsyncStar | ast::AsyncModifier::SyncStar))
     }
 
-    /// `inLoop` (`inDoLoop || inForLoop || inWhileLoop`): algum ancestral
-    /// (o próprio incluso) é um laço; não para em funções.
+    /// `inLoop` (`inDoLoop || inForLoop || inWhileLoop`): some ancestor (itself
+    /// included) is a loop; does not stop at functions.
     pub(super) fn in_loop(&self, n: usize) -> bool {
         self.ancestor(n, &["ForStatement", "WhileStatement", "DoStatement"]).is_some()
     }
 
-    /// `inSwitch`: algum ancestral é um `switch` de comando.
+    /// `inSwitch`: some ancestor is a `switch` statement.
     pub(super) fn in_switch(&self, n: usize) -> bool {
         self.ancestor(n, &["SwitchStatement"]).is_some()
     }
@@ -1255,7 +1255,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.ancestor(n, &["CatchClause"]).is_some()
     }
 
-    /// O comando anterior no mesmo `Block` (`precedingStatement`).
+    /// The previous statement in the same `Block` (`precedingStatement`).
     pub(super) fn previous_command(&self, n: usize) -> Option<usize> {
         let p = self.parent(n)?;
         if self.kind(p) != "Block" {
@@ -1266,7 +1266,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         i.checked_sub(1).map(|j| fs[j])
     }
 
-    /// O membro anterior no corpo da classe (`precedingMember`).
+    /// The previous member in the class body (`precedingMember`).
     pub(super) fn previous_member(&self, n: usize) -> Option<usize> {
         let p = self.parent(n)?;
         if !matches!(self.kind(p), "ClassDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration") {
@@ -1277,7 +1277,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         i.checked_sub(1).map(|j| members[j])
     }
 
-    /// `sortedDirectivesAndDeclarations` da unidade.
+    /// `sortedDirectivesAndDeclarations` of the unit.
     pub(super) fn unit_members(&self) -> Vec<usize> {
         self.children(0).iter().copied().filter(|&k| self.kind(k) != "ScriptTag").collect()
     }
