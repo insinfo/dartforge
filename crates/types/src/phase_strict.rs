@@ -119,7 +119,7 @@ pub fn inference_failures(
                 // The node of the `SimpleFormalParameter`, without the default value: the
                 // name is its last token.
                 let end = if p.default_value.is_some() { n.span.end } else { p.span.end };
-                out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_UNTYPED_PARAMETER, Span { start: p.span.start, end: end }, [name(n.sym)]));
+                out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_UNTYPED_PARAMETER, Span { start: p.span.start, end }, [name(n.sym)]));
             }
         }
     };
@@ -255,7 +255,7 @@ pub fn inference_failures(
         {
             if q.ty.is_none() {
                 let end = if q.default_value.is_some() { function_parameter_end(source, n.span.end) } else { q.span.end };
-                out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, Span { start: q.span.start, end: end }, [name(n.sym)]));
+                out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, Span { start: q.span.start, end }, [name(n.sym)]));
             }
             params_list(fs, None, &mut out);
         }

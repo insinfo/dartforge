@@ -343,7 +343,7 @@ pub fn verify(
                 let Some((mu, span)) = program.non_synthetic_function_name(m.function) else { continue };
                 let file = (mu != u).then(|| program.unit_path(mu).into());
                 let message = format!("Inherited from '{}'", interner.resolve(program.class(m.class).name));
-                d.context.push(dartforge_diagnostics::ContextMessage { file: file, span, message: message.into() });
+                d.context.push(dartforge_diagnostics::ContextMessage { file, span, message: message.into() });
             }
             output.push((u, d));
         }

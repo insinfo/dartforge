@@ -425,7 +425,7 @@ impl Verifier<'_, '_> {
         let mut d = Diagnostic::with_code(i.code, i.span, i.args.clone());
         for (u, span, text) in &i.context {
             let file = (*u != self.unit).then(|| self.m.program.unit_path(*u).into());
-            d.context.push(dartforge_diagnostics::ContextMessage { file: file, span: *span, message: text.as_str().into() });
+            d.context.push(dartforge_diagnostics::ContextMessage { file, span: *span, message: text.as_str().into() });
         }
         self.output.push((self.unit, d));
     }

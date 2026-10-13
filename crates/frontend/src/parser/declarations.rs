@@ -1409,7 +1409,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     var_: p.var_ && ty.is_none(),
                     ty,
                     variables: vec![Variable {
-                        name: name,
+                        name,
                         initializer: None,
                     }]
                     .into_boxed_slice(),
@@ -2463,7 +2463,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 const_: mods.const_,
                 var_: mods.var_,
                 ty,
-                variables: vec![crate::ast::Variable { name: name, initializer: None }].into_boxed_slice(),
+                variables: vec![crate::ast::Variable { name, initializer: None }].into_boxed_slice(),
             }));
         }
         // `recoverFromInvalidMember`: in a member, `(` or `{` in place of the name

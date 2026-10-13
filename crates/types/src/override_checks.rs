@@ -338,7 +338,7 @@ impl Ctx<'_> {
                     let error_unit = self.program.non_synthetic_function_name(m.function).map(|(x, _)| x);
                     let file = (Some(u) != error_unit).then(|| self.program.unit_path(u).into());
                     let text = if the_kind == Kind::Setter { "The setter being overridden." } else { "The member being overridden." };
-                    d.context.push(dartforge_diagnostics::ContextMessage { file: file, span, message: text.into() });
+                    d.context.push(dartforge_diagnostics::ContextMessage { file, span, message: text.into() });
                 }
                 output.push(d);
             }
@@ -1651,7 +1651,7 @@ pub fn conflicting_members(
                     let Some((u, span)) = p.non_synthetic_function_name(f) else { continue };
                     let file = (u != decl.unit).then(|| p.unit_path(u).into());
                     let text = format!("{template} {owner_kind} '{}'.", interner.resolve(p.class(owner).name));
-                    d.context.push(dartforge_diagnostics::ContextMessage { file: file, span, message: text.into() });
+                    d.context.push(dartforge_diagnostics::ContextMessage { file, span, message: text.into() });
                 }
                 output.push((decl.unit, d));
             }

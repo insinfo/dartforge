@@ -288,7 +288,7 @@ fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &Unit
                     // `_checkReturnWithoutValue` with `T_v = X`.
                     StmtKind::Return(None) if !x_empty_dynamic_or_null => {
                         let end = if source.get(s.span.start..).is_some_and(|t| t.starts_with("return")) { s.span.start + 6 } else { s.span.end };
-                        v.output.push(Diagnostic::with_code(compile_time_error::RETURN_WITHOUT_VALUE, Span { start: s.span.start, end: end }, std::iter::empty::<&str>()));
+                        v.output.push(Diagnostic::with_code(compile_time_error::RETURN_WITHOUT_VALUE, Span { start: s.span.start, end }, std::iter::empty::<&str>()));
                     }
                     _ => {}
                 }

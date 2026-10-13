@@ -4509,7 +4509,7 @@ opções principais (`-o write|show|json|none`, `--show`, `--summary`, `--set-ex
 responde `textDocument/formatting`, `rangeFormatting` e `onTypeFormatting` com as edições mínimas do
 `generateMinimalEdits` do analysis server.
 
-Oráculo (`cargo run --release -p dartforge-formatter --example oraculo`, referências do `dart format`
+Oráculo (`cargo run --release -p dartforge-formatter --example oracle`, referências do `dart format`
 em cache em `target/oraculo-formatar/`), saída byte a byte:
 
 | conjunto | idênticos |

@@ -4,9 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-# Este crate não adota a lint workspace `unsafe_code = "forbid"` porque um
-# alocador global exige `unsafe impl GlobalAlloc`. Todo o restante do workspace
-# continua proibindo unsafe; a exceção fica contida aqui e é auditável.
+# This crate does not adopt the workspace lint `unsafe_code = "forbid"` because a
+# global allocator requires `unsafe impl GlobalAlloc`. The rest of the workspace
+# keeps forbidding unsafe; the exception is contained here and auditable.
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 [dependencies]
