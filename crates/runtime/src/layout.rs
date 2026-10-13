@@ -1,32 +1,34 @@
-//! O contrato de layout do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §2 e §3.1).
+//! The layout contract of the unified space (docs/NATIVO-ESPACO-UNIFICADO.md §2 and §3.1).
 //!
-//! Toda constante numérica que o código gerado usa para ler ou gravar um bloco do
-//! heap sai daqui: o runtime a usa como `crate::layout` e o emissor como
-//! `dartforge_runtime::layout`. O módulo não depende de nenhum outro (é compilado
-//! também dentro do `RUNTIME_MAIN`, o texto que o AOT passa ao `rustc` avulso).
+//! Every numeric constant that generated code uses to read or write a heap block
+//! comes from here: the runtime uses it as `crate::layout` and the emitter as
+//! `dartforge_runtime::layout`. The module depends on no other (it is also compiled
+//! inside `RUNTIME_MAIN`, the text that the AOT passes to the standalone `rustc`).
 //!
-//! Um bloco é um cabeçalho de 16 bytes ([`crate::layout::Header`]) seguido do corpo, em palavras
-//! de 8 bytes. O handle de um bloco é `block + 2` ([`crate::layout::DESLOCAMENTO_DO_HANDLE`]); o
-//! `Smi` é ímpar e o null é `0` ([`crate::layout::smi`]). O coletor percorre o corpo pelo formato
-//! que está em `flags` ([`crate::layout::flags::FORMA`]), sem olhar a classe.
+//! A block is a 16-byte header ([`crate::layout::Header`]) followed by the body, in
+//! 8-byte words. The handle of a block is `block + 2`
+//! ([`crate::layout::DESLOCAMENTO_DO_HANDLE`]); a `Smi` is odd and null is `0`
+//! ([`crate::layout::smi`]). The collector walks the body by the format in `flags`
+//! ([`crate::layout::flags::FORMA`]), without looking at the class.
 
-/// Um valor em posição de referência: `0` (null), `Smi` (ímpar) ou handle de bloco
+/// A value in a reference position: `0` (null), a `Smi` (odd) or a block handle
 /// (`block + 2`).
 pub type Ref = i64;
 
-/// O cabeçalho de todo bloco do espaço de objetos (16 bytes, layout C fixo: contrato
-/// com o emissor).
+/// The header of every block of the object space (16 bytes, fixed C layout: a
+/// contract with the emitter).
 ///
 /// * `estado`: [`estado::LIVRE`], [`estado::JOVEM`], [`estado::VELHO`],
-///   [`estado::REMEMBERED`] ou [`estado::PERMANENTE`];
-/// * `flags`: os bits de [`flags`] (corpo de fora, formato do corpo, cartões, anexo,
-///   forma compacta, memória externa);
-/// * `n`: em `INSTANCIA`, o número de campos; em `BRUTO`/`REFS`, as palavras do corpo
-///   (saturado em `u16::MAX` no objeto grande: a região sabe o real);
-/// * `class_id`: o cid;
-/// * `map`: em `INSTANCIA`, os bits de referência dos 32 primeiros campos; nas
-///   strings, o hash (30 bits, 0 = ainda não calculado); nos demais, 0;
-/// * `metadata`: a RTI, `id + 1` (0 = nenhuma).
+///   [`estado::REMEMBERED`] or [`estado::PERMANENTE`];
+/// * `flags`: the bits of [`flags`] (out-of-line body, body format, cards,
+///   attachment, compact shape, external memory);
+/// * `n`: for `INSTANCIA`, the number of fields; for `BRUTO`/`REFS`, the words of
+///   the body (saturated at `u16::MAX` for a large object: the region knows the
+///   real value);
+/// * `class_id`: the cid;
+/// * `map`: for `INSTANCIA`, the reference bits of the first 32 fields; for
+///   strings, the hash (30 bits, 0 = not computed yet); for the others, 0;
+/// * `metadata`: the RTI, `id + 1` (0 = none).
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Header {
@@ -49,37 +51,37 @@ const _: () = {
     assert!(std::mem::offset_of!(Header, metadata) == desl::METADATA);
 };
 
-/// Bytes do cabeçalho.
+/// Header bytes.
 pub const TAMANHO_DO_CABECALHO: usize = 16;
-/// O handle de um bloco é `block + DESLOCAMENTO_DO_HANDLE`.
+/// The handle of a block is `block + DESLOCAMENTO_DO_HANDLE`.
 pub const DESLOCAMENTO_DO_HANDLE: i64 = 2;
-/// Tamanho (e alinhamento) de uma página do espaço de objetos.
+/// Size (and alignment) of a page of the object space.
 pub const PAGINA: usize = 64 * 1024;
-/// O começo de cada página com o mapa de marcas (um bit por palavra da página).
+/// The beginning of each page holds the mark bitmap (one bit per word of the page).
 pub const PAGE_HEAD: usize = PAGINA / 64;
-/// Maior classe de tamanho exata, em palavras do corpo.
+/// Largest exact size class, in body words.
 pub const LARGEST_CLASS: usize = 64;
-/// As classes de tamanho médias, em palavras do corpo: cada uma enche a página
-/// (`k` blocos de `16 + 8w` bytes nos `PAGINA - PAGE_HEAD` úteis; ver §2.6).
+/// The medium size classes, in body words: each one fills the page (`k` blocks of
+/// `16 + 8w` bytes in the `PAGINA - PAGE_HEAD` usable bytes; see §2.6).
 pub const CLASSES_MEDIAS: [usize; 24] = [
     70, 82, 98, 110, 124, 142, 166, 199, 222, 250, 286, 334, 401, 446, 502, 574, 670, 804, 894, 1006, 1150, 1342,
     1610, 2014,
 ];
-/// Maior corpo (em palavras) fora de uma região grande.
+/// Largest body (in words) outside a large region.
 pub const LARGEST_MEDIUM: usize = 2014;
-/// Quantas classes de tamanho: as exatas `1..=64` e as médias; o índice 0 não é usado.
+/// How many size classes: the exact `1..=64` ones and the medium ones; index 0 is not used.
 pub const N_CLASSES: usize = 1 + LARGEST_CLASS + CLASSES_MEDIAS.len();
-/// Maior corpo (em palavras) com alocação em linha pela TLAB (`tlab[w]`, `w` em
+/// Largest body (in words) with inline allocation through the TLAB (`tlab[w]`, `w` in
 /// `1..=TLAB_N`).
 pub const TLAB_N: usize = 16;
-/// Maior índice de campo que o emissor lê em linha (acima dele, a chamada
+/// Largest field index that the emitter reads inline (above it, the call
 /// `dartforge_object_get`/`_set`).
 pub const CAMPOS_EM_LINHA: usize = 4096;
-/// Elementos por cartão de uma lista grande (o `kSlotsPerCardLog2 = 5` da VM).
+/// Elements per card of a large list (the VM's `kSlotsPerCardLog2 = 5`).
 pub const ELEMENTOS_POR_CARTAO: usize = 32;
-/// Elementos cobertos por uma palavra de cartões (64 cartões).
+/// Elements covered by one word of cards (64 cards).
 pub const ELEMENTOS_POR_PALAVRA_DE_CARTAO: usize = 2048;
-/// O primeiro cid das classes que não estão em [`cid::DO_SDK`].
+/// The first cid of the classes that are not in [`cid::DO_SDK`].
 pub const PRIMEIRO_CID_LIVRE: i64 = 128;
 
 const _: () = {
@@ -89,52 +91,52 @@ const _: () = {
     assert!(TLAB_N <= LARGEST_CLASS);
 };
 
-/// Estados de um bloco ([`Header::estado`]). O 2 é reservado (o `MARKED` que o
-/// coletor de hoje ainda usa na coleta em curso).
+/// States of a block ([`Header::estado`]). 2 is reserved (the `MARKED` that today's
+/// collector still uses during a collection in progress).
 pub mod estado {
-    /// Bloco livre (na lista livre ou nunca usado).
+    /// Free block (on the free list or never used).
     pub const LIVRE: u8 = 0;
-    /// Alocado desde a última coleta.
+    /// Allocated since the last collection.
     pub const JOVEM: u8 = 1;
-    /// Sobreviveu a uma coleta.
+    /// Survived a collection.
     pub const VELHO: u8 = 3;
-    /// Velho que recebeu referência para um jovem depois da última coleta (a
-    /// barreira o pôs na lista dos lembrados).
+    /// An old block that received a reference to a young one after the last
+    /// collection (the barrier put it on the remembered list).
     pub const REMEMBERED: u8 = 4;
-    /// Objeto estático, fora do heap (seção da imagem): nunca marcado, varrido,
-    /// lembrado nem gravado.
+    /// Static object, outside the heap (image section): never marked, swept,
+    /// remembered or written.
     pub const PERMANENTE: u8 = 5;
 }
 
-/// Bits de [`Header::flags`].
+/// Bits of [`Header::flags`].
 pub mod flags {
-    /// Os campos (`INSTANCIA`) moram num corpo de fora.
+    /// The fields (`INSTANCIA`) live in an out-of-line body.
     pub const FORA: u8 = 0x01;
-    /// A máscara do formato do corpo.
+    /// The mask of the body format.
     pub const FORMA: u8 = 0x06;
-    /// Campos com o mapa de referências (o coletor segue os bits acesos).
+    /// Fields with the reference map (the collector follows the set bits).
     pub const INSTANCIA: u8 = 0x00;
-    /// Bytes sem referência (o coletor não segue nada).
+    /// Bytes without references (the collector follows nothing).
     pub const BRUTO: u8 = 0x02;
-    /// Palavra 0 bruta; palavras 1.. são `Ref` (o coletor segue as pares não nulas).
+    /// Word 0 raw; words 1.. are `Ref`s (the collector follows the non-null even ones).
     pub const REFS: u8 = 0x04;
-    /// A lista grande tem cartões depois do último elemento.
+    /// The large list has cards after the last element.
     pub const CARTOES: u8 = 0x08;
-    /// O corpo guarda um ponteiro nativo (`b+16`) solto quando o dono morre.
+    /// The body holds a native pointer (`b+16`) released when the owner dies.
     pub const ATTACHMENT: u8 = 0x10;
-    /// A máscara da forma compacta de uma `_List`/`_ImmutableList` `BRUTO`.
+    /// The mask of the compact shape of a `BRUTO` `_List`/`_ImmutableList`.
     pub const ELEMENTO: u8 = 0x60;
-    /// Elementos `i64`.
+    /// `i64` elements.
     pub const ELEMENTO_INT: u8 = 0x20;
-    /// Elementos com os bits de `f64`.
+    /// Elements with the bits of an `f64`.
     pub const ELEMENTO_DOUBLE: u8 = 0x40;
-    /// Elementos 0/1.
+    /// 0/1 elements.
     pub const ELEMENTO_BOOL: u8 = 0x60;
-    /// Lista tipada sobre memória de fora (`asTypedList`).
+    /// A typed list over outside memory (`asTypedList`).
     pub const EXTERNAL: u8 = 0x80;
 }
 
-/// Os cids fixos (§2.4): iguais no runtime, no emissor, no JIT e em toda geração.
+/// The fixed cids (§2.4): the same in the runtime, the emitter, the JIT and every generation.
 pub mod cid {
     pub const NULL: i32 = 1;
     pub const SMI: i32 = 2;
@@ -157,7 +159,7 @@ pub mod cid {
     pub const FLOAT32X4: i32 = 19;
     pub const INT32X4: i32 = 20;
     pub const FLOAT64X2: i32 = 21;
-    /// `_Int8List` + t, para t = `TIPO_*` 0–13 de `typed_data.rs`.
+    /// `_Int8List` + t, for t = `TIPO_*` 0–13 of `typed_data.rs`.
     pub const PRIMEIRA_TIPADA: i32 = 22;
     /// `_Int8ArrayView` + t.
     pub const PRIMEIRA_VISAO: i32 = 36;
@@ -165,17 +167,17 @@ pub mod cid {
     pub const FIRST_UNMODIFIABLE_VIEW: i32 = 50;
     pub const BYTE_DATA_VIEW: i32 = 64;
     pub const UNMODIFIABLE_BYTE_DATA_VIEW: i32 = 65;
-    /// Quantos tipos de elemento de lista tipada (`TYPE_INT8` … `TYPE_FLOAT64X2`).
+    /// How many typed list element types (`TYPE_INT8` … `TYPE_FLOAT64X2`).
     pub const ELEMENT_TYPES: i32 = 14;
 
-    /// A biblioteca das classes internas do runtime (sem declaração em Dart): o
-    /// cid fica reservado e a numeração do emissor não acha a classe no SDK.
+    /// The library of the runtime's internal classes (with no Dart declaration): the
+    /// cid stays reserved and the emitter's numbering does not find the class in the SDK.
     pub const INTERNAL: &str = "";
 
-    /// `(cid, library, class)` de toda classe com cid fixo, em ordem de cid: a
-    /// fonte da numeração do emissor (`context.rs`) e da conferência de ABI
-    /// (`dartforge_registrar_cids`). A biblioteca é a URI (`dart:core`), a chave da
-    /// numeração estável; as internas do runtime têm [`INTERNAL`].
+    /// `(cid, library, class)` of every class with a fixed cid, in cid order: the
+    /// source of the emitter's numbering (`context.rs`) and of the ABI check
+    /// (`dartforge_registrar_cids`). The library is the URI (`dart:core`), the key of
+    /// the stable numbering; the runtime's internal ones have [`INTERNAL`].
     pub const DO_SDK: &[(i32, &str, &str)] = &[
         (NULL, "dart:core", "Null"),
         (SMI, "dart:core", "_Smi"),
@@ -244,80 +246,80 @@ pub mod cid {
         (UNMODIFIABLE_BYTE_DATA_VIEW, "dart:typed_data", "_UnmodifiableByteDataView"),
     ];
 
-    /// O cid da lista tipada interna do tipo `tipo` (`TIPO_*`).
+    /// The cid of the internal typed list of type `tipo` (`TIPO_*`).
     pub const fn tipada(tipo: u8) -> i32 {
         PRIMEIRA_TIPADA + tipo as i32
     }
 
-    /// O cid da visão do tipo `tipo`, modificável ou não.
+    /// The cid of the view of type `tipo`, modifiable or not.
     pub const fn visao(tipo: u8, unmodifiable: bool) -> i32 {
         (if unmodifiable { FIRST_UNMODIFIABLE_VIEW } else { PRIMEIRA_VISAO }) + tipo as i32
     }
 
-    /// `_OneByteString` ou `_TwoByteString`.
+    /// `_OneByteString` or `_TwoByteString`.
     pub const fn is_string(c: i32) -> bool {
         (c.wrapping_sub(ONE_BYTE_STRING) as u32) < 2
     }
 
-    /// `_List` ou `_ImmutableList`.
+    /// `_List` or `_ImmutableList`.
     pub const fn is_fixed_list(c: i32) -> bool {
         (c.wrapping_sub(LIST) as u32) < 2
     }
 
-    /// Lista do núcleo: `_List`, `_ImmutableList` ou `_GrowableList`.
+    /// Core list: `_List`, `_ImmutableList` or `_GrowableList`.
     pub const fn e_lista(c: i32) -> bool {
         (c.wrapping_sub(LIST) as u32) < 3
     }
 
-    /// Lista tipada interna (`_Int8List` … `_Float64x2List`).
+    /// Internal typed list (`_Int8List` … `_Float64x2List`).
     pub const fn is_internal_typed(c: i32) -> bool {
         (c.wrapping_sub(PRIMEIRA_TIPADA) as u32) < ELEMENT_TYPES as u32
     }
 
-    /// Qualquer lista tipada ou visão (22..=65).
+    /// Any typed list or view (22..=65).
     pub const fn is_typed(c: i32) -> bool {
         (c.wrapping_sub(PRIMEIRA_TIPADA) as u32) < 44
     }
 
-    /// Visão não modificável (`_UnmodifiableXArrayView`, `_UnmodifiableByteDataView`).
+    /// Unmodifiable view (`_UnmodifiableXArrayView`, `_UnmodifiableByteDataView`).
     pub const fn is_unmodifiable_view(c: i32) -> bool {
         (c.wrapping_sub(FIRST_UNMODIFIABLE_VIEW) as u32) < ELEMENT_TYPES as u32 || c == UNMODIFIABLE_BYTE_DATA_VIEW
     }
 
-    /// Valor SIMD (`_Float32x4`, `_Int32x4`, `_Float64x2`).
+    /// SIMD value (`_Float32x4`, `_Int32x4`, `_Float64x2`).
     pub const fn is_simd(c: i32) -> bool {
         (c.wrapping_sub(FLOAT32X4) as u32) < 3
     }
 }
 
-/// Deslocamentos a partir do bloco (o handle é bloco + 2: a palavra em `b + k` está
-/// em `h + k - 2`).
+/// Offsets from the block (the handle is block + 2: the word at `b + k` is at
+/// `h + k - 2`).
 pub mod desl {
     pub const ESTADO: usize = 0;
     pub const FLAGS: usize = 1;
     pub const N: usize = 2;
     pub const CLASSE: usize = 4;
     pub const MAPA: usize = 8;
-    /// O hash das strings mora no lugar do mapa.
+    /// The hash of strings lives in the place of the map.
     pub const HASH_DO_TEXTO: usize = 8;
     pub const METADATA: usize = 12;
-    /// A primeira palavra do corpo.
+    /// The first word of the body.
     pub const CORPO: usize = 16;
-    /// Strings, `_List`, `_ImmutableList`, `_GrowableList`, listas tipadas e visões.
+    /// Strings, `_List`, `_ImmutableList`, `_GrowableList`, typed lists and views.
     pub const COMPRIMENTO: usize = 16;
-    /// As unidades de uma string.
+    /// The code units of a string.
     pub const UNIDADES: usize = 24;
-    /// O primeiro elemento de uma `_List`/`_ImmutableList`.
+    /// The first element of a `_List`/`_ImmutableList`.
     pub const ELEMENTOS: usize = 24;
-    /// O valor de `_Mint`, `_Double`, `bool`, e as pistas SIMD.
+    /// The value of `_Mint`, `_Double`, `bool`, and the SIMD lanes.
     pub const VALOR: usize = 16;
-    /// O endereço dos bytes de uma lista tipada (interna, externa ou visão).
+    /// The address of the bytes of a typed list (internal, external or view).
     pub const DADOS: usize = 24;
-    /// Os bytes de uma lista tipada interna.
+    /// The bytes of an internal typed list.
     pub const INTERNAL_BYTES: usize = 32;
     pub const BASE_DA_VISAO: usize = 32;
     pub const DESLOCAMENTO_DA_VISAO: usize = 40;
-    /// O armazenamento (`_List`) de uma `_GrowableList`.
+    /// The storage (`_List`) of a `_GrowableList`.
     pub const EXPANSIVEL_DADOS: usize = 24;
     pub const CLOSURE_CODIGO: usize = 16;
     pub const CLOSURE_CONTEXTO: usize = 24;
@@ -325,11 +327,11 @@ pub mod desl {
     pub const CLOSURE_ABI: usize = 40;
     pub const RECORD_FORMA: usize = 16;
     pub const RECORD_CAMPOS: usize = 24;
-    /// O ponteiro nativo de um bloco com `ATTACHMENT`.
+    /// The native pointer of a block with `ATTACHMENT`.
     pub const ATTACHMENT: usize = 16;
 }
 
-/// Deslocamentos do `Context` da thread (§3.4).
+/// Offsets of the thread's `Context` (§3.4).
 pub mod contexto {
     pub const PENDING: usize = 0;
     pub const TOPO: usize = 8;
@@ -339,26 +341,26 @@ pub mod contexto {
     pub const EMPTIES: usize = 40;
     pub const REGISTERED: usize = 48;
     pub const N_REGISTERED: usize = 56;
-    /// O cursor da TLAB de `w` palavras em `TLAB + 16·w`, o fim em `TLAB + 16·w + 8`,
-    /// `w` em `1..=TLAB_N`.
+    /// The cursor of the TLAB of `w` words at `TLAB + 16·w`, the end at
+    /// `TLAB + 16·w + 8`, `w` in `1..=TLAB_N`.
     pub const TLAB: usize = 64;
     pub const SUBTIPOS: usize = 336;
     pub const N_SUBTIPOS: usize = 344;
     pub const LARGURA_SUBTIPOS: usize = 352;
-    /// Os handles das caixas estáticas de `true` e `false` do runtime da thread
-    /// (o código gerado os lê daqui, e não dos símbolos de dados: entre o
-    /// executável e a DLL do SDK só o runtime ativo vale, §4.10 item 9).
+    /// The handles of the static `true` and `false` boxes of the thread's runtime
+    /// (generated code reads them from here, not from the data symbols: between the
+    /// executable and the SDK DLL only the active runtime counts, §4.10 item 9).
     pub const TRUE: usize = 360;
     pub const FALSE: usize = 368;
-    /// O limite da pilha nativa da thread (`Context::stack_limit`).
+    /// The thread's native stack limit (`Context::stack_limit`).
     pub const LIMITE_DA_PILHA: usize = 376;
 
-    /// O cursor da TLAB de `w` palavras.
+    /// The cursor of the TLAB of `w` words.
     pub const fn tlab_cursor(w: usize) -> usize {
         TLAB + 16 * w
     }
 
-    /// O fim da TLAB de `w` palavras.
+    /// The end of the TLAB of `w` words.
     pub const fn tlab_fim(w: usize) -> usize {
         TLAB + 16 * w + 8
     }
@@ -366,112 +368,111 @@ pub mod contexto {
     const _: () = assert!(tlab_fim(super::TLAB_N) + 8 == SUBTIPOS);
 }
 
-/// `Ref` com `Smi` etiquetado (R10, docs/NATIVO-PLANO.md §6.2 e §7.1).
+/// A `Ref` with a tagged `Smi` (R10, docs/NATIVO-PLANO.md §6.2 and §7.1).
 ///
-/// Um `Ref` do código gerado é um `i64` com a etiqueta no bit baixo, como o `Smi`
-/// da VM (`runtime/vm/object.h`; lá `kSmiTag = 0` e o ponteiro do heap tem o bit 1 —
-/// aqui o bit está invertido para o `0` continuar sendo null):
+/// A `Ref` in generated code is an `i64` with the tag in the low bit, like the VM's
+/// `Smi` (`runtime/vm/object.h`; there `kSmiTag = 0` and a heap pointer has bit 1 —
+/// here the bit is inverted so that `0` remains null):
 ///
 /// * `0` — null;
-/// * **par** e positivo — um handle do heap (`block + 2`, [`is_object`]);
-/// * **ímpar** — um `int` pequeno, `(v << 1) | 1`, para `v` em `[-2^62, 2^62)`: o
-///   `Smi`. Não aloca, não é raiz, e o coletor nunca o segue.
+/// * **even** and positive — a heap handle (`block + 2`, [`is_object`]);
+/// * **odd** — a small `int`, `(v << 1) | 1`, for `v` in `[-2^62, 2^62)`: the
+///   `Smi`. It does not allocate, is not a root, and the collector never follows it.
 ///
-/// Um `int` fora dessa faixa numa posição `Ref` vai para o heap como `_Mint`. A
-/// forma é canônica: um valor que cabe no `Smi` nunca é encaixotado.
+/// An `int` outside that range in a `Ref` position goes to the heap as a `_Mint`.
+/// The form is canonical: a value that fits in a `Smi` is never boxed.
 pub mod smi {
-    /// Menor e maior `int` que cabem num `Smi` (63 bits com sinal).
+    /// Smallest and largest `int` that fit in a `Smi` (63 signed bits).
     pub const MIN: i64 = -(1 << 62);
     pub const MAX: i64 = (1 << 62) - 1;
 
-    /// O `Ref` de um `int` que cabe num `Smi`.
+    /// The `Ref` of an `int` that fits in a `Smi`.
     #[inline]
     pub fn de(v: i64) -> Option<i64> {
         (MIN..=MAX).contains(&v).then_some((v << 1) | 1)
     }
 
-    /// O `Ref` é um `Smi`?
+    /// Is the `Ref` a `Smi`?
     #[inline]
     pub fn is_smi(r: i64) -> bool {
         r & 1 == 1
     }
 
-    /// O valor de um `Smi` (deslocamento aritmético).
+    /// The value of a `Smi` (arithmetic shift).
     #[inline]
     pub fn value(r: i64) -> i64 {
         r >> 1
     }
 
-    /// O `Ref` aponta para o heap (não é null nem `Smi`)?
+    /// Does the `Ref` point into the heap (it is neither null nor a `Smi`)?
     #[inline]
     pub fn e_handle(r: i64) -> bool {
         r != 0 && r & 1 == 0
     }
 }
 
-/// O `Ref` é o handle de um bloco (`block + 2`, blocos alinhados a 8)? Negativo
-/// nunca é objeto.
+/// Is the `Ref` the handle of a block (`block + 2`, blocks aligned to 8)? A negative
+/// value is never an object.
 #[inline]
 pub fn is_object(h: Ref) -> bool {
     h & (7 | i64::MIN) == 2
 }
 
-/// Palavras de extensão do mapa de referências para `n` campos (os 32 primeiros
-/// bits estão no cabeçalho).
+/// Extension words of the reference map for `n` fields (the first 32 bits are in the
+/// header).
 #[inline]
 pub const fn palavras_do_mapa(n: usize) -> usize {
     if n > 32 { (n - 32).div_ceil(64) } else { 0 }
 }
 
-/// Campos que o bloco guarda: pelo menos um (o lugar do encadeamento da lista livre
-/// e do endereço do corpo de fora).
+/// Fields the block keeps: at least one (the place for the free-list link and for
+/// the address of the out-of-line body).
 #[inline]
 pub const fn capacidade(n: usize) -> usize {
     if n == 0 { 1 } else { n }
 }
 
-/// Palavras do corpo de uma `INSTANCIA` de `n` campos.
+/// Body words of an `INSTANCIA` with `n` fields.
 #[inline]
 pub const fn palavras_de_instancia(n: usize) -> usize {
     capacidade(n) + palavras_do_mapa(n)
 }
 
-/// Palavras do corpo de uma string de `len` unidades: o comprimento e as unidades
-/// (1 ou 2 bytes cada), completadas com zeros até a palavra.
+/// Body words of a string of `len` units: the length and the units (1 or 2 bytes
+/// each), padded with zeros up to the word.
 #[inline]
 pub const fn palavras_de_texto(len: usize, dois: bool) -> usize {
     1 + (len * if dois { 2 } else { 1 }).div_ceil(8)
 }
 
-/// A lista de `len` elementos tem cartões (é objeto grande)?
+/// Does a list of `len` elements have cards (is it a large object)?
 #[inline]
 pub const fn has_cards(len: usize) -> bool {
     1 + len > LARGEST_MEDIUM
 }
 
-/// Palavras de cartões depois do último elemento de uma lista grande.
+/// Card words after the last element of a large list.
 #[inline]
 pub const fn card_words(len: usize) -> usize {
     if has_cards(len) { len.div_ceil(ELEMENTOS_POR_PALAVRA_DE_CARTAO) } else { 0 }
 }
 
-/// Palavras do corpo de uma `_List`/`_ImmutableList` de `len` elementos: o
-/// comprimento, os elementos e, se grande, os cartões.
+/// Body words of a `_List`/`_ImmutableList` of `len` elements: the length, the
+/// elements and, if large, the cards.
 #[inline]
 pub const fn list_words(len: usize) -> usize {
     1 + len + card_words(len)
 }
 
-/// Palavras do corpo de uma lista tipada interna de `len` elementos de
-/// `tamanho_do_elemento` bytes: o comprimento, o endereço dos dados e os bytes.
+/// Body words of an internal typed list of `len` elements of `tamanho_do_elemento`
+/// bytes: the length, the data address and the bytes.
 #[inline]
 pub const fn typed_words(len: usize, tamanho_do_elemento: usize) -> usize {
     2 + (len * tamanho_do_elemento).div_ceil(8)
 }
 
-/// A classe de tamanho de um corpo de `words` palavras: `1..=64` exatas (0
-/// palavras usa a 1), `65..=88` médias; `None` acima de [`LARGEST_MEDIUM`] (região
-/// grande).
+/// The size class of a body of `words` words: `1..=64` exact (0 words uses class 1),
+/// `65..=88` medium; `None` above [`LARGEST_MEDIUM`] (large region).
 #[inline]
 pub const fn size_class(words: usize) -> Option<usize> {
     if words <= LARGEST_CLASS {
@@ -487,30 +488,31 @@ pub const fn size_class(words: usize) -> Option<usize> {
     None
 }
 
-/// As palavras do corpo de um bloco da classe `class` (`1..N_CLASSES`).
+/// The body words of a block of class `class` (`1..N_CLASSES`).
 #[inline]
 pub const fn class_words(class: usize) -> usize {
     if class <= LARGEST_CLASS { class } else { CLASSES_MEDIAS[class - LARGEST_CLASS - 1] }
 }
 
-/// Bytes de um bloco com corpo de `words` palavras.
+/// Bytes of a block with a body of `words` words.
 #[inline]
 pub const fn bytes_do_bloco(words: usize) -> usize {
     TAMANHO_DO_CABECALHO + 8 * words
 }
 
-/// A palavra 0 do cabeçalho, como a alocação em linha a grava:
-/// `estado | flags << 8 | n << 16 | cid << 32`, com `n` saturado em `u16::MAX`
-/// (em `INSTANCIA`, `n` é o número de campos; nos demais, as palavras do corpo).
+/// Word 0 of the header, as the inline allocation writes it:
+/// `estado | flags << 8 | n << 16 | cid << 32`, with `n` saturated at `u16::MAX`
+/// (for `INSTANCIA`, `n` is the number of fields; for the others, the body words).
 #[inline]
 pub const fn palavra_do_cabecalho(estado: u8, flags: u8, n: usize, cid: i32) -> u64 {
     let n = if n > u16::MAX as usize { u16::MAX as u64 } else { n as u64 };
     estado as u64 | (flags as u64) << 8 | n << 16 | (cid as u32 as u64) << 32
 }
 
-/// O `hashCode` de uma string: o `StringHasher` da VM (`runtime/vm/hash.h`,
-/// `CombineHashes` por unidade e `FinalizeHash` em 30 bits), 0 trocado por 1. É o
-/// que o runtime grava em `map` e o que o emissor grava nos literais estáticos.
+/// The `hashCode` of a string: the VM's `StringHasher` (`runtime/vm/hash.h`,
+/// `CombineHashes` per unit and `FinalizeHash` in 30 bits), with 0 replaced by 1. It
+/// is what the runtime writes into `map` and what the emitter writes into static
+/// literals.
 pub fn hash_de_texto(unidades: impl IntoIterator<Item = u16>) -> u32 {
     let mut h: u32 = 0;
     for u in unidades {
@@ -533,13 +535,13 @@ mod testes_layout {
     fn layout_size_class_is_monotonic_and_covers() {
         let mut previous = 0;
         for w in 0..=LARGEST_MEDIUM {
-            let c = size_class(w).expect("classe de corpo até a maior média");
-            assert!(c >= 1 && c < N_CLASSES, "classe {c} de {w} palavras fora da faixa");
-            assert!(c >= previous, "classe_de_tamanho não é monótona em {w}");
-            assert!(class_words(c) >= w, "a classe {c} não cabe {w} palavras");
-            // A menor classe que cabe: a anterior não cabe.
+            let c = size_class(w).expect("body class up to the largest medium one");
+            assert!(c >= 1 && c < N_CLASSES, "class {c} of {w} words out of range");
+            assert!(c >= previous, "size_class is not monotonic at {w}");
+            assert!(class_words(c) >= w, "class {c} does not fit {w} words");
+            // The smallest class that fits: the previous one does not fit.
             if c > 1 {
-                assert!(class_words(c - 1) < w.max(1), "classe {c} não é a menor para {w}");
+                assert!(class_words(c - 1) < w.max(1), "class {c} is not the smallest for {w}");
             }
             previous = c;
         }
@@ -556,14 +558,14 @@ mod testes_layout {
         let blocks = [112, 96, 80, 72, 64, 56, 48, 40, 36, 32, 28, 24, 20, 18, 16, 14, 12, 10, 9, 8, 7, 6, 5, 4];
         for (i, &w) in CLASSES_MEDIAS.iter().enumerate() {
             let k = useful / bytes_do_bloco(w);
-            assert_eq!(k, blocks[i], "classe média de {w} palavras");
-            // A maior que cabe o mesmo número de blocos: uma palavra a mais perde um.
-            assert!(useful / bytes_do_bloco(w + 1) < k, "a classe de {w} palavras não enche a página");
+            assert_eq!(k, blocks[i], "medium class of {w} words");
+            // The largest that fits the same number of blocks: one more word loses one.
+            assert!(useful / bytes_do_bloco(w + 1) < k, "the class of {w} words does not fill the page");
         }
-        // Perda interna máxima de 25% (entre 1610 e 2014).
+        // Maximum internal waste of 25% (between 1610 and 2014).
         let mut previous = LARGEST_CLASS;
         for &w in &CLASSES_MEDIAS {
-            assert!((w - previous - 1) * 4 <= w, "perda interna acima de 25% antes de {w}");
+            assert!((w - previous - 1) * 4 <= w, "internal waste above 25% before {w}");
             previous = w;
         }
     }
@@ -575,7 +577,7 @@ mod testes_layout {
             let u: Vec<u16> = s.encode_utf16().collect();
             assert_eq!(i64::from(hash_de_texto(u.iter().copied())), t.hash_vm(), "hash de {s:?}");
         }
-        // Surrogate solto e unidade acima de 0xFF.
+        // Lone surrogate and a unit above 0xFF.
         let u = vec![0xD800, 0x61, 0x1234, 0xFF];
         let t = crate::heap::Texto::from_units(u.clone());
         assert_eq!(i64::from(hash_de_texto(u)), t.hash_vm());
@@ -622,7 +624,7 @@ mod testes_layout {
     #[test]
     fn layout_sdk_cids_in_order_and_predicates() {
         for (i, &(c, _, _)) in cid::DO_SDK.iter().enumerate() {
-            assert_eq!(c, i as i32 + 1, "DO_SDK fora de ordem na posição {i}");
+            assert_eq!(c, i as i32 + 1, "DO_SDK out of order at position {i}");
             assert!(i64::from(c) < PRIMEIRO_CID_LIVRE);
         }
         assert_eq!(cid::DO_SDK.len(), cid::UNMODIFIABLE_BYTE_DATA_VIEW as usize);

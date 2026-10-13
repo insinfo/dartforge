@@ -1,23 +1,22 @@
-// Runtime nativo: o manipulador de eventos do `dart:io` da VM
-// (`runtime/bin/eventhandler*.cc`) e o objeto de soquete (`bin/socket.h`).
+// Native runtime: the VM's `dart:io` event handler (`runtime/bin/eventhandler*.cc`)
+// and the socket object (`bin/socket.h`).
 //
-// Um `_NativeSocket` do Dart (soquete TCP, pipe de processo, entrada padrão)
-// guarda no campo nativo um [`NativeSocket`]: o descritor e a porta Dart
-// que recebe os eventos dele, com contagem de referências. O Dart pede ao
-// manipulador, por `EventHandler_SendData`, para vigiar o descritor (uma
-// máscara de leitura/escrita), devolver fichas ou fechar; o manipulador é
-// uma thread com epoll (Linux), kqueue (macOS) ou uma porta de conclusão de
-// E/S (Windows, em `io_windows_eventos.rs`) que posta na porta do
-// soquete a máscara dos eventos prontos (`kInEvent`, `kOutEvent`,
-// `kCloseEvent`, `kErrorEvent`, `kDestroyedEvent`) — como a VM, inclusive
-// o controle de fluxo por fichas (`TokenCounter`) e os soquetes de escuta
-// compartilhados entre portas (`DescriptorInfoMultiple`).
+// A Dart `_NativeSocket` (TCP socket, process pipe, standard input) keeps in its
+// native field a [`NativeSocket`]: the descriptor and the Dart port that receives
+// its events, with reference counting. Dart asks the handler, through
+// `EventHandler_SendData`, to watch the descriptor (a read/write mask), return
+// tokens or close; the handler is a thread with epoll (Linux), kqueue (macOS) or an
+// I/O completion port (Windows, in `io_windows_eventos.rs`) that posts to the
+// socket's port the mask of the ready events (`kInEvent`, `kOutEvent`,
+// `kCloseEvent`, `kErrorEvent`, `kDestroyedEvent`) — like the VM, including the
+// token-based flow control (`TokenCounter`) and the listening sockets shared
+// between ports (`DescriptorInfoMultiple`).
 //
-// Os timers do Dart não passam por aqui: o laço de eventos do isolado os
-// atende (`eventos.rs`), e a sobreposição de `dart:async` não usa o
-// `_EventHandler` para eles.
+// Dart timers do not go through here: the isolate's event loop serves them
+// (`events.rs`), and the `dart:async` overlay does not use `_EventHandler` for
+// them.
 
-/// `MessageFlags` de `eventhandler.h`.
+/// `MessageFlags` of `eventhandler.h`.
 const EVENT_IN: i64 = 0;
 const EVENT_OUT: i64 = 1;
 const EVENT_ERROR: i64 = 2;
@@ -47,17 +46,17 @@ fn is_command(data: i64, bit: i64) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// O soquete nativo.
+// The native socket.
 
-/// Um descritor que o Dart usa como `_NativeSocket` (o `Socket` da VM).
+/// A descriptor that Dart uses as a `_NativeSocket` (the VM's `Socket`).
 struct NativeSocket {
     descriptor: std::sync::atomic::AtomicI64,
-    /// A porta Dart dos eventos (a `eventPort` do `_NativeSocket`).
+    /// The Dart port of the events (the `_NativeSocket`'s `eventPort`).
     port: std::sync::atomic::AtomicI64,
 }
 
 impl NativeSocket {
-    /// Cria o soquete com uma referência e devolve o ponteiro dela.
+    /// Creates the socket with one reference and returns its pointer.
     fn new(descriptor: i64) -> i64 {
         std::sync::Arc::into_raw(std::sync::Arc::new(NativeSocket {
             descriptor: std::sync::atomic::AtomicI64::new(descriptor),
@@ -66,19 +65,19 @@ impl NativeSocket {
     }
 
     /// # Safety
-    /// `p` veio de [`NativeSocket::new`] e a referência ainda existe.
+    /// `p` came from [`NativeSocket::new`] and the reference still exists.
     unsafe fn de<'a>(p: i64) -> &'a NativeSocket {
-        // SAFETY: garantido por quem chama.
+        // SAFETY: guaranteed by the caller.
         unsafe { &*(p as *const NativeSocket) }
     }
 
     fn retain_ref(p: i64) {
-        // SAFETY: `p` é um ponteiro vivo de `new`.
+        // SAFETY: `p` is a live pointer from `new`.
         unsafe { std::sync::Arc::increment_strong_count(p as *const NativeSocket) };
     }
 
     fn free(p: i64) {
-        // SAFETY: `p` é um ponteiro vivo de `new`, com esta referência.
+        // SAFETY: `p` is a live pointer from `new`, with this reference.
         unsafe { std::sync::Arc::decrement_strong_count(p as *const NativeSocket) };
     }
 
@@ -86,8 +85,8 @@ impl NativeSocket {
         self.descriptor.load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// Fecha o recurso do sistema (o descritor, no Unix; a referência do
-    /// `Handle`, no Windows, cujo fechamento o manipulador já fez).
+    /// Closes the system resource (the descriptor, on Unix; the `Handle`'s
+    /// reference, on Windows, whose closing the handler has already done).
     fn close_descriptor(&self) {
         let d = self.descriptor.swap(-1, std::sync::atomic::Ordering::AcqRel);
         if d >= 0 {
@@ -95,9 +94,9 @@ impl NativeSocket {
         }
     }
 
-    /// `Socket::CloseFd`: o objeto deixa o descritor sem fechá-lo no Unix
-    /// (quem fecha é o manipulador, ou ninguém: a entrada padrão); no
-    /// Windows solta a referência do `Handle`.
+    /// `Socket::CloseFd`: the object leaves the descriptor without closing it on
+    /// Unix (the handler closes it, or nobody does: standard input); on Windows it
+    /// releases the `Handle`'s reference.
     fn release_descriptor(&self) {
         #[cfg(unix)]
         self.descriptor.store(-1, std::sync::atomic::Ordering::Release);
@@ -106,8 +105,8 @@ impl NativeSocket {
     }
 }
 
-/// No Windows cada objeto é dono de uma referência do `Handle` (o
-/// `descriptor`); ela é solta com o objeto, se ainda não foi.
+/// On Windows each object owns one reference of the `Handle` (the `descriptor`);
+/// it is released with the object, if it was not already.
 #[cfg(windows)]
 impl Drop for NativeSocket {
     fn drop(&mut self) {
@@ -123,26 +122,26 @@ fn close_socket_descriptor(d: i64) {
     unsafe extern "C" {
         fn close(fd: i32) -> i32;
     }
-    // SAFETY: `d` é um descritor deste soquete, fechado uma vez.
+    // SAFETY: `d` is a descriptor of this socket, closed once.
     unsafe { close(d as i32) };
 }
 
-/// Outra referência ao descritor de um soquete de escuta compartilhado
-/// (no Unix o descritor é o mesmo, sem contagem).
+/// Another reference to the descriptor of a shared listening socket (on Unix the
+/// descriptor is the same, without counting).
 #[cfg(unix)]
 fn retain_descriptor(d: i64) -> i64 {
     d
 }
 
-/// O soquete da entrada padrão (`SocketBase::GetStdioHandle`): o próprio
-/// descritor no Unix.
+/// The standard input socket (`SocketBase::GetStdioHandle`): the descriptor itself
+/// on Unix.
 #[cfg(unix)]
 fn default_handle(num: i64) -> i64 {
     default_descriptor(num)
 }
 
-/// Os finalizadores do `_NativeSocket` coletado sem `close` (os
-/// `*SocketFinalizer` de `socket.cc`).
+/// The finalizers of a `_NativeSocket` collected without `close` (the
+/// `*SocketFinalizer`s of `socket.cc`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SocketFinalizer {
     Normal,
@@ -164,21 +163,21 @@ fn finalize_signal_socket(pair: usize) {
 }
 
 fn finalize_stdio_socket(pair: usize) {
-    // SAFETY: a referência do objeto ainda existe; é solta aqui.
+    // SAFETY: the object's reference still exists; it is released here.
     unsafe { NativeSocket::de(pair as i64) }.release_descriptor();
     NativeSocket::free(pair as i64);
 }
 
-/// Envia o comando de fechar de um soquete coletado ao manipulador: a
-/// referência do objeto passa ao comando, que a solta.
+/// Sends the close command of a collected socket to the handler: the object's
+/// reference passes to the command, which releases it.
 fn close_collected_socket(p: i64, data: i64) {
-    // SAFETY: a referência do objeto coletado ainda existe.
+    // SAFETY: the collected object's reference still exists.
     let port = unsafe { NativeSocket::de(p) }.port.load(std::sync::atomic::Ordering::Acquire);
     event_handler().enviar(EventCommand { sock: p, port, data });
 }
 
-/// `Socket::SetSocketIdNativeField`: cria o soquete de `descriptor` no campo
-/// nativo de `object`, com o finalizador.
+/// `Socket::SetSocketIdNativeField`: creates the socket of `descriptor` in the
+/// native field of `object`, with the finalizer.
 fn set_socket_on_object(object: i64, descriptor: i64, finalizer: SocketFinalizer) {
     reuse_socket_on_object(object, NativeSocket::new(descriptor), finalizer);
 }
@@ -195,27 +194,27 @@ fn reuse_socket_on_object(object: i64, p: i64, finalizer: SocketFinalizer) {
     attach_finalizer(object, f, p as usize);
 }
 
-/// `Socket::GetSocketIdNativeField`: o soquete do objeto, ou lança o erro
-/// interno ("No native peer").
+/// `Socket::GetSocketIdNativeField`: the object's socket, or throws the internal
+/// error ("No native peer").
 fn object_socket<'a>(object: i64) -> Option<&'a NativeSocket> {
     let p = native_field(object);
     if p == 0 {
         throw_internal_error("No native peer");
         return None;
     }
-    // SAFETY: a referência do objeto vive até a coleta dele.
+    // SAFETY: the object's reference lives until it is collected.
     Some(unsafe { NativeSocket::de(p) })
 }
 
 // ---------------------------------------------------------------------------
-// As fichas e os interessados de um descritor (`DescriptorInfo*Mixin`).
+// The tokens and the interested parties of a descriptor (`DescriptorInfo*Mixin`).
 
-/// O que o manipulador sabe de um descritor.
+/// What the handler knows about a descriptor.
 enum DescriptorInfo {
-    /// Um soquete comum: uma porta, uma máscara e 16 fichas.
+    /// An ordinary socket: one port, one mask and 16 tokens.
     Single { port: i64, mask: i64, tokens: i64 },
-    /// Um soquete de escuta compartilhado: cada porta com 4 fichas e se
-    /// quer ler; as prontas se revezam (`active_readers_`).
+    /// A shared listening socket: each port with 4 tokens and whether it wants to
+    /// read; the ready ones take turns (`active_readers_`).
     Multiple { ports: Vec<PortEntry>, active: std::collections::VecDeque<i64> },
 }
 
@@ -291,7 +290,7 @@ impl DescriptorInfo {
         }
     }
 
-    /// A porta a avisar de um evento de E/S (e uma ficha a menos).
+    /// The port to notify of an I/O event (and one token less).
     fn next_port(&mut self) -> i64 {
         match self {
             DescriptorInfo::Single { port, tokens, .. } => {
@@ -311,7 +310,7 @@ impl DescriptorInfo {
         }
     }
 
-    /// Avisa todas as portas (fechamento, erro, destruição).
+    /// Notifies every port (close, error, destruction).
     fn notify_all_waiters(&mut self, events: i64) {
         match self {
             DescriptorInfo::Single { port, tokens, .. } => {
@@ -349,7 +348,7 @@ impl DescriptorInfo {
         }
     }
 
-    /// A máscara a vigiar agora (vazia sem fichas).
+    /// The mask to watch now (empty without tokens).
     /// `RemoveAllPorts`.
     fn remove_all(&mut self) {
         match self {
@@ -376,16 +375,16 @@ impl DescriptorInfo {
     }
 }
 
-/// `DARTFORGE_IO_RASTRO=1`: uma linha no stderr por evento da sondagem, por
-/// pedido ao manipulador e por mudança do que a sondagem vigia (o
-/// diagnóstico dos defeitos de `dart:io` que só aparecem num sistema).
+/// `DARTFORGE_IO_RASTRO=1`: one line on stderr per poll event, per request to the
+/// handler and per change of what the poll watches (the diagnosis of `dart:io`
+/// defects that only show up on one system).
 #[cfg(unix)]
 fn io_trace() -> bool {
     static R: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *R.get_or_init(|| std::env::var("DARTFORGE_IO_RASTRO").is_ok_and(|v| v == "1"))
 }
 
-/// `DartUtils::PostInt32`: a máscara de eventos na porta.
+/// `DartUtils::PostInt32`: the event mask on the port.
 fn post_event(port: i64, events: i64) {
     if port != 0 {
         post(port, Graph::from_int(events));
@@ -393,18 +392,18 @@ fn post_event(port: i64, events: i64) {
 }
 
 // ---------------------------------------------------------------------------
-// O manipulador.
+// The handler.
 
-/// Um pedido ao manipulador (o `InterruptMessage` da VM): o soquete (com a
-/// referência que o pedido carrega), a porta e os dados.
+/// A request to the handler (the VM's `InterruptMessage`): the socket (with the
+/// reference the request carries), the port and the data.
 struct EventCommand {
     sock: i64,
     port: i64,
     data: i64,
 }
 
-/// A thread do manipulador e a fila de pedidos dela; um byte no pipe de
-/// interrupção a acorda. No Windows o pedido vai pela porta de conclusão
+/// The handler thread and its request queue; one byte in the interrupt pipe wakes
+/// it. On Windows the request goes through the completion port
 /// (`io_windows_eventos.rs`).
 struct EventHandler {
     #[cfg(unix)]
@@ -432,8 +431,8 @@ impl EventHandler {
             fn write(fd: i32, b: *const std::ffi::c_void, n: usize) -> isize;
         }
         let b = [1u8];
-        // SAFETY: o pipe vive o processo inteiro; um byte basta para acordar
-        // (o pipe cheio já acorda o manipulador, então a falha é inócua).
+        // SAFETY: the pipe lives for the whole process; one byte is enough to wake
+        // it (a full pipe already wakes the handler, so the failure is harmless).
         unsafe { write(self.interrupt, b.as_ptr().cast(), 1) };
     }
 }
@@ -462,7 +461,7 @@ const O_NONBLOCK: i32 = 0x4;
 /// `FDUtils::SetNonBlocking`.
 #[cfg(unix)]
 fn set_nonblocking(fd: i32) -> bool {
-    // SAFETY: consulta e muda as bandeiras de um descritor aberto.
+    // SAFETY: queries and changes the flags of an open descriptor.
     unsafe {
         let f = fcntl(fd, F_GETFL);
         f >= 0 && fcntl(fd, F_SETFL, f | O_NONBLOCK) >= 0
@@ -472,16 +471,16 @@ fn set_nonblocking(fd: i32) -> bool {
 /// `FDUtils::SetCloseOnExec`.
 #[cfg(unix)]
 fn close_on_exec(fd: i32) -> bool {
-    // SAFETY: muda as bandeiras de um descritor aberto.
+    // SAFETY: changes the flags of an open descriptor.
     unsafe { fcntl(fd, F_SETFD, FD_CLOEXEC) >= 0 }
 }
 
 #[cfg(unix)]
 fn start_handler() -> EventHandler {
     let mut fds = [0i32; 2];
-    // SAFETY: `fds` tem dois inteiros.
+    // SAFETY: `fds` has two integers.
     if unsafe { pipe(fds.as_mut_ptr()) } != 0 {
-        panic!("dart:io: falha ao criar o pipe do manipulador de eventos");
+        panic!("dart:io: failed to create the event handler pipe");
     }
     set_nonblocking(fds[0]);
     set_nonblocking(fds[1]);
@@ -491,11 +490,11 @@ fn start_handler() -> EventHandler {
     std::thread::Builder::new()
         .name("dart:io EventHandler".to_string())
         .spawn(move || EventLoop::new(read_side).run())
-        .expect("dart:io: falha ao criar a thread do manipulador de eventos");
+        .expect("dart:io: failed to create the event handler thread");
     EventHandler { requests: std::sync::Mutex::new(Vec::new()), interrupt: fds[1] }
 }
 
-/// O estado da thread do manipulador.
+/// The state of the handler thread.
 #[cfg(unix)]
 struct EventLoop {
     poll: Poll,
@@ -523,21 +522,21 @@ impl EventLoop {
                 }
                 let Some(di) = self.descriptors.get_mut(&fd) else {
                     if io_trace() {
-                        eprintln!("[io] evento fd={fd} eventos={events:#b} sem descritor");
+                        eprintln!("[io] event fd={fd} events={events:#b} without descriptor");
                     }
                     continue;
                 };
                 let old_value = di.mask();
                 if events & (1 << EVENT_ERROR) != 0 {
                     if io_trace() {
-                        eprintln!("[io] evento fd={fd} eventos={events:#b} erro: todas as portas");
+                        eprintln!("[io] event fd={fd} events={events:#b} error: all ports");
                     }
                     di.notify_all_waiters(events);
                     self.update(fd, old_value);
                 } else if events != 0 {
                     let port = di.next_port();
                     if io_trace() {
-                        eprintln!("[io] evento fd={fd} eventos={events:#b} porta={port} máscara {old_value:#b} -> {:#b}", di.mask());
+                        eprintln!("[io] event fd={fd} events={events:#b} port={port} mask {old_value:#b} -> {:#b}", di.mask());
                     }
                     self.update(fd, old_value);
                     post_event(port, events);
@@ -549,14 +548,13 @@ impl EventLoop {
         }
     }
 
-    /// Reconcilia a sondagem com a máscara nova do descritor
-    /// (`UpdateEpollInstance`).
+    /// Reconciles the poll with the descriptor's new mask (`UpdateEpollInstance`).
     fn update(&mut self, fd: i64, old_value: i64) {
         let Some(di) = self.descriptors.get_mut(&fd) else { return };
         let new_area = di.mask();
         let listening = di.listening();
         if io_trace() && old_value != new_area {
-            eprintln!("[io] sondagem fd={fd} de_escuta={listening} {old_value:#b} -> {new_area:#b}");
+            eprintln!("[io] poll fd={fd} listening={listening} {old_value:#b} -> {new_area:#b}");
         }
         if old_value != 0 && new_area == 0 {
             self.poll.remove_it(fd);
@@ -572,10 +570,10 @@ impl EventLoop {
         }
     }
 
-    /// `HandleInterruptFd`: esvazia o pipe e atende os pedidos.
+    /// `HandleInterruptFd`: drains the pipe and serves the requests.
     fn handle_interrupt(&mut self) {
         let mut garbage = [0u8; 256];
-        // SAFETY: o pipe é não bloqueante; lê até esvaziar.
+        // SAFETY: the pipe is non-blocking; reads until it is empty.
         while unsafe { read(self.interrupt, garbage.as_mut_ptr().cast(), garbage.len()) } > 0 {}
         let requests = std::mem::take(&mut *event_handler().requests.lock().unwrap_or_else(|e| e.into_inner()));
         for c in requests {
@@ -584,9 +582,9 @@ impl EventLoop {
     }
 
     fn handle_command(&mut self, c: EventCommand) {
-        // O pedido carrega uma referência do soquete (solta ao fim).
-        // SAFETY: `c.sock` veio de `NativeSocket::new`, retido para o
-        // pedido.
+        // The request carries a reference to the socket (released at the end).
+        // SAFETY: `c.sock` came from `NativeSocket::new`, retained for the
+        // request.
         let sock = unsafe { std::sync::Arc::from_raw(c.sock as *const NativeSocket) };
         let fd = sock.descriptor();
         if fd < 0 {
@@ -595,7 +593,7 @@ impl EventLoop {
         let listening = c.data & (1 << LISTENING_SOCKET) != 0;
         if io_trace() {
             eprintln!(
-                "[io] pedido fd={fd} porta={} dados={:#x} de_escuta={listening} conhecido={}",
+                "[io] request fd={fd} port={} data={:#x} listening={listening} known={}",
                 c.port,
                 c.data,
                 self.descriptors.contains_key(&fd)
@@ -603,10 +601,10 @@ impl EventLoop {
         }
         let di = self.descriptors.entry(fd).or_insert_with(|| DescriptorInfo::new(listening));
         if is_command(c.data, COMMAND_SHUTDOWN_READ) {
-            // SAFETY: descritor aberto deste soquete (SHUT_RD = 0).
+            // SAFETY: an open descriptor of this socket (SHUT_RD = 0).
             unsafe { shutdown(fd as i32, 0) };
         } else if is_command(c.data, COMMAND_SHUTDOWN_WRITE) {
-            // SAFETY: descritor aberto deste soquete (SHUT_WR = 1).
+            // SAFETY: an open descriptor of this socket (SHUT_WR = 1).
             unsafe { shutdown(fd as i32, 1) };
         } else if is_command(c.data, COMMAND_CLOSE) {
             if c.data & (1 << SIGNAL_SOCKET) != 0 {
@@ -618,8 +616,8 @@ impl EventLoop {
             }
             self.update(fd, old_value);
             if listening {
-                // Outros objetos podem dividir o descritor: só o último
-                // fecha (`CloseSafe`).
+                // Other objects may share the descriptor: only the last one
+                // closes it (`CloseSafe`).
                 if listen_record().do_close(c.sock) {
                     self.descriptors.remove(&fd);
                     sock.close_descriptor();
@@ -679,18 +677,18 @@ impl Poll {
         // SAFETY: EPOLL_CLOEXEC = O_CLOEXEC.
         let epoll = unsafe { epoll_create1(0o2000000) };
         if epoll < 0 {
-            panic!("dart:io: falha ao criar o epoll");
+            panic!("dart:io: failed to create the epoll");
         }
-        // O pipe de interrupção entra com o dado 0.
+        // The interrupt pipe goes in with data 0.
         let mut ev = EpollEvent { events: Self::EPOLLIN, data: 0 };
-        // SAFETY: `ev` é válido durante a chamada.
+        // SAFETY: `ev` is valid during the call.
         if unsafe { epoll_ctl(epoll, 1, interrupt, &mut ev) } != 0 {
-            panic!("dart:io: falha ao vigiar o pipe de interrupção");
+            panic!("dart:io: failed to watch the interrupt pipe");
         }
         Poll { epoll }
     }
 
-    /// `AddToEpollInstance`: `false` se o descritor não pôde entrar.
+    /// `AddToEpollInstance`: `false` if the descriptor could not be added.
     fn add(&self, fd: i64, mask: i64, listening: bool) -> bool {
         let mut events = Self::EPOLLRDHUP;
         if mask & (1 << EVENT_IN) != 0 {
@@ -703,20 +701,20 @@ impl Poll {
             events |= Self::EPOLLET;
         }
         let mut ev = EpollEvent { events, data: fd as u64 + 1 };
-        // SAFETY: `ev` é válido durante a chamada (EPOLL_CTL_ADD = 1).
+        // SAFETY: `ev` is valid during the call (EPOLL_CTL_ADD = 1).
         unsafe { epoll_ctl(self.epoll, 1, fd as i32, &mut ev) == 0 }
     }
 
     fn remove_it(&self, fd: i64) {
-        // SAFETY: EPOLL_CTL_DEL = 2; o evento é ignorado.
+        // SAFETY: EPOLL_CTL_DEL = 2; the event is ignored.
         unsafe { epoll_ctl(self.epoll, 2, fd as i32, std::ptr::null_mut()) };
     }
 
-    /// Espera eventos: (descritor, máscara Dart); o descritor -1 é o pipe
-    /// de interrupção.
+    /// Waits for events: (descriptor, Dart mask); descriptor -1 is the interrupt
+    /// pipe.
     fn wait_for(&self, out: &mut Vec<(i64, i64)>) {
         let mut evs = [EpollEvent { events: 0, data: 0 }; 16];
-        // SAFETY: o buffer tem 16 eventos.
+        // SAFETY: the buffer has 16 events.
         let n = unsafe { epoll_wait(self.epoll, evs.as_mut_ptr(), 16, -1) };
         for ev in evs.iter().take(n.max(0) as usize) {
             let (events, data) = (ev.events, ev.data);
@@ -747,7 +745,7 @@ impl Poll {
     }
 }
 
-// --- kqueue (macOS e BSDs) -------------------------------------------------
+// --- kqueue (macOS and the BSDs) -------------------------------------------
 
 #[cfg(all(unix, not(target_os = "linux")))]
 #[repr(C)]
@@ -770,7 +768,7 @@ unsafe extern "C" {
 #[cfg(all(unix, not(target_os = "linux")))]
 struct Poll {
     kq: i32,
-    /// Os descritores que estão no kqueue e se são de escuta.
+    /// The descriptors that are in the kqueue and whether they are listening.
     watched: std::cell::RefCell<crate::hash::HashMap<i64, bool>>,
 }
 
@@ -789,16 +787,16 @@ impl Poll {
     }
 
     fn new_area(interrupt: i32) -> Poll {
-        // SAFETY: cria o kqueue; o evento vive durante a chamada.
+        // SAFETY: creates the kqueue; the event lives during the call.
         let kq = unsafe { kqueue() };
         if kq < 0 {
-            panic!("dart:io: falha ao criar o kqueue");
+            panic!("dart:io: failed to create the kqueue");
         }
         close_on_exec(kq);
         let mut ev = Self::event(i64::from(interrupt), Self::EVFILT_READ, Self::EV_ADD);
         ev.udata = std::ptr::null_mut();
         if unsafe { kevent(kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) } == -1 {
-            panic!("dart:io: falha ao vigiar o pipe de interrupção");
+            panic!("dart:io: failed to watch the interrupt pipe");
         }
         Poll { kq, watched: std::cell::RefCell::new(crate::hash::HashMap::default()) }
     }
@@ -816,11 +814,11 @@ impl Poll {
         if mask & (1 << EVENT_OUT) != 0 {
             changes.push(Self::event(fd, Self::EVFILT_WRITE, flag_bits));
         }
-        // SAFETY: as mudanças vivem durante a chamada.
+        // SAFETY: the changes live during the call.
         let ok = unsafe { kevent(self.kq, changes.as_ptr(), changes.len() as i32, std::ptr::null_mut(), 0, std::ptr::null()) } != -1;
         if io_trace() {
             eprintln!(
-                "[io] kqueue adicionar fd={fd} máscara={mask:#b} de_escuta={listening} ok={ok} {}",
+                "[io] kqueue add fd={fd} mask={mask:#b} listening={listening} ok={ok} {}",
                 if ok { String::new() } else { std::io::Error::last_os_error().to_string() }
             );
         }
@@ -834,15 +832,15 @@ impl Poll {
     fn remove_it(&self, fd: i64) {
         let was_ready = self.watched.borrow_mut().remove(&fd).is_some();
         if io_trace() {
-            eprintln!("[io] kqueue remover fd={fd} estava={was_ready}");
+            eprintln!("[io] kqueue remove fd={fd} was_ready={was_ready}");
         }
         if !was_ready {
             return;
         }
         for filter_obj in [Self::EVFILT_READ, Self::EVFILT_WRITE] {
             let ev = Self::event(fd, filter_obj, Self::EV_DELETE);
-            // SAFETY: a mudança vive durante a chamada; a ausência do filtro
-            // é inócua.
+            // SAFETY: the change lives during the call; the absence of the filter
+            // is harmless.
             unsafe { kevent(self.kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
         }
     }
@@ -850,7 +848,7 @@ impl Poll {
     fn wait_for(&self, out: &mut Vec<(i64, i64)>) {
         let empty = Self::event(0, 0, 0);
         let mut evs = [empty; 16];
-        // SAFETY: o buffer tem 16 eventos; espera sem prazo.
+        // SAFETY: the buffer has 16 events; waits without a deadline.
         let n = unsafe { kevent(self.kq, std::ptr::null(), 0, evs.as_mut_ptr(), 16, std::ptr::null()) };
         for ev in evs.iter().take(n.max(0) as usize) {
             if ev.flag_bits & Self::EV_ERROR != 0 {
@@ -866,7 +864,7 @@ impl Poll {
         }
     }
 
-    /// `GetEvents` de `eventhandler_macos.cc`.
+    /// `GetEvents` of `eventhandler_macos.cc`.
     fn dart_mask(ev: &EventoKqueue, listening: bool) -> i64 {
         let eof = ev.flag_bits & Self::EV_EOF != 0;
         if listening {
@@ -900,11 +898,11 @@ impl Poll {
 }
 
 // ---------------------------------------------------------------------------
-// O registro dos soquetes de escuta (`ListeningSocketRegistry`): o mesmo
-// (endereço, porta) aberto por várias `ServerSocket` com `shared: true`
-// divide um descritor.
+// The registry of listening sockets (`ListeningSocketRegistry`): the same
+// (address, port) opened by several `ServerSocket`s with `shared: true` shares a
+// descriptor.
 
-/// Um soquete de escuta do sistema e quantos objetos Dart o usam.
+/// A system listening socket and how many Dart objects use it.
 struct ListeningSocket {
     address: Vec<u8>,
     port: i64,
@@ -912,15 +910,15 @@ struct ListeningSocket {
     shared: bool,
     uses_list: usize,
     descriptor: i64,
-    /// O caminho de um soquete de domínio Unix (apagado no último uso).
+    /// The path of a Unix domain socket (deleted on the last use).
     unix_path: Option<Vec<u8>>,
 }
 
 #[derive(Default)]
 struct ListenRecord {
-    /// Os soquetes do sistema.
+    /// The system sockets.
     sockets: Vec<ListeningSocket>,
-    /// Soquete nativo (ponteiro) → descritor do sistema.
+    /// Native socket (pointer) → system descriptor.
     per_socket: crate::hash::HashMap<i64, i64>,
 }
 
@@ -930,8 +928,8 @@ fn listen_record() -> std::sync::MutexGuard<'static, ListenRecord> {
 }
 
 impl ListenRecord {
-    /// `CloseSafe`: solta um uso; `true` se o descritor do sistema deve ser
-    /// fechado (era o último).
+    /// `CloseSafe`: releases one use; `true` if the system descriptor must be
+    /// closed (it was the last one).
     fn do_close(&mut self, sock: i64) -> bool {
         let Some(fd) = self.per_socket.remove(&sock) else {
             return true;
@@ -955,16 +953,15 @@ impl ListenRecord {
 }
 
 // ---------------------------------------------------------------------------
-// Os natives do `_EventHandler`.
+// The `_EventHandler` natives.
 
-/// `EventHandler_SendData(sender, sendPort, data)`: o comando `data` para o
-/// soquete de `sender` (que passa a avisar em `sendPort`).
+/// `EventHandler_SendData(sender, sendPort, data)`: command `data` for the socket
+/// of `sender` (which starts notifying on `sendPort`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_EventHandler_SendData(sender: i64, port: i64, data: i64) {
     let port = native_field(port);
     if sender == 0 {
-        // Os timers da VM passam por aqui; os do nativo, não
-        // (`eventos.rs`).
+        // The VM's timers go through here; the native ones do not (`events.rs`).
         return;
     }
     let p = native_field(sender);
@@ -972,7 +969,7 @@ pub extern "C" fn dartforge_nativo_EventHandler_SendData(sender: i64, port: i64,
         throw_internal_error("No native peer");
         return;
     }
-    // SAFETY: a referência do objeto está viva.
+    // SAFETY: the object's reference is alive.
     unsafe { NativeSocket::de(p) }.port.store(port, std::sync::atomic::Ordering::Release);
     NativeSocket::retain_ref(p);
     event_handler().enviar(EventCommand { sock: p, port, data });

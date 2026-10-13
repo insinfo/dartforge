@@ -1,105 +1,103 @@
-// Runtime nativo: callbacks do `dart:ffi` — `Pointer.fromFunction`,
-// `NativeCallable.isolateLocal` e `NativeCallable.listener` (o
-// `runtime/vm/ffi_callback_metadata.cc` e o `ffi_callback_trampolines` da
-// VM).
+// Native runtime: `dart:ffi` callbacks — `Pointer.fromFunction`,
+// `NativeCallable.isolateLocal` and `NativeCallable.listener` (the VM's
+// `runtime/vm/ffi_callback_metadata.cc` and `ffi_callback_trampolines`).
 //
-// * O compilador gera, por assinatura nativa do programa (a mesma chave dos
-//   trampolins de chamada, `lower/ffi.rs`), uma ENTRADA C: uma função com a
-//   ABI C da assinatura e um parâmetro `nest` — o contexto do callback. A
-//   entrada pergunta ao runtime o modo (`dartforge_ffi_callback_entrar`),
-//   converte os argumentos C para Dart, chama a closure pela convenção
-//   uniforme (por um corpo HIR comum), converte o retorno e, se a closure
-//   lançou, devolve o retorno excepcional (`dartforge_ffi_callback_sair`).
-// * Cada callback é um ponteiro de função C distinto: um trampolim de poucas
-//   instruções que carrega o contexto no registrador `nest` da entrada (r10
-//   no x86-64, x15 no AArch64 — o mesmo código que `llvm.init.trampoline`
-//   escreveria) e salta para ela, escrito por este arquivo numa fatia de
-//   memória executável. Escrever aqui, e não pelo intrínseco no módulo
-//   gerado, mantém a pilha não executável em todo objeto (com o intrínseco
-//   o LLVM omite a nota `.note.GNU-stack`, e as partições do LTO não a
-//   recuperam).
-// * Modos: `isolateLocal` e `fromFunction` chamam a closure na hora, e só
-//   na thread do isolado dono (outra thread é erro fatal, como na VM);
-//   `fromFunction` é persistente e único por (função, assinatura, retorno
-//   excepcional). `listener` pode ser chamado de qualquer thread: a entrada
-//   copia os argumentos para uma mensagem à porta do `NativeCallable`, e o
-//   isolado dono chama a closure no laço de eventos.
-// * A closure de um callback local é raiz do coletor (um global de raiz do
-//   heap do isolado, pelo endereço do contexto) até o `close()`. Fechar
-//   dentro do próprio callback é permitido: o contexto só é solto quando a
-//   última chamada em curso sai.
+// * The compiler generates, per native signature of the program (the same key as
+//   the call trampolines, `lower/ffi.rs`), a C ENTRY: a function with the
+//   signature's C ABI and a `nest` parameter — the callback's context. The entry
+//   asks the runtime for the mode (`dartforge_ffi_callback_entrar`), converts the C
+//   arguments to Dart, calls the closure through the uniform convention (through a
+//   common HIR body), converts the return value and, if the closure threw, returns
+//   the exceptional return value (`dartforge_ffi_callback_sair`).
+// * Each callback is a distinct C function pointer: a trampoline of a few
+//   instructions that loads the context into the entry's `nest` register (r10 on
+//   x86-64, x15 on AArch64 — the same code `llvm.init.trampoline` would write) and
+//   jumps to it, written by this file into a slice of executable memory. Writing it
+//   here, and not through the intrinsic in the generated module, keeps the stack
+//   non-executable in every object (with the intrinsic LLVM omits the
+//   `.note.GNU-stack` note, and the LTO partitions do not recover it).
+// * Modes: `isolateLocal` and `fromFunction` call the closure right away, and only
+//   on the owning isolate's thread (another thread is a fatal error, as in the VM);
+//   `fromFunction` is persistent and unique per (function, signature, exceptional
+//   return). `listener` may be called from any thread: the entry copies the
+//   arguments into a message to the `NativeCallable`'s port, and the owning
+//   isolate calls the closure in the event loop.
+// * The closure of a local callback is a collector root (a root global of the
+//   isolate's heap, through the context's address) until `close()`. Closing from
+//   inside the callback itself is allowed: the context is only released when the
+//   last call in progress leaves.
 
-/// Modos de um callback (o `mode` de `DartForge_ffi_callback_novo`).
+/// Modes of a callback (the `mode` of `DartForge_ffi_callback_novo`).
 const MODE_PERSISTENT: i64 = 0;
 const MODE_LOCAL: i64 = 1;
 const MODE_LISTENER: i64 = 2;
 
-/// O estado de um callback; o endereço é o valor `nest` do trampolim.
+/// The state of a callback; its address is the trampoline's `nest` value.
 pub struct CallbackContext {
     mode: i64,
-    /// O isolado dono (id da fila).
+    /// The owning isolate (queue id).
     isolate: u64,
-    /// A closure (modos local e persistente), raiz do heap do dono.
+    /// The closure (local and persistent modes), a root of the owner's heap.
     closure: i64,
-    /// A porta do `NativeCallable.listener`.
+    /// The port of the `NativeCallable.listener`.
     port: i64,
-    /// A assinatura nativa (RTI), para os `Pointer<X>` dos argumentos.
+    /// The native signature (RTI), for the arguments' `Pointer<X>`s.
     fn_signature: i64,
-    /// A chave da assinatura (`i_pp`): letras do retorno e dos parâmetros.
+    /// The signature key (`i_pp`): letters of the return and of the parameters.
     key: String,
-    /// O retorno excepcional, nos bits do tipo C do retorno.
+    /// The exceptional return value, in the bits of the return's C type.
     exceptional: i64,
-    /// Chamadas em curso (a closure pode fechar o callback de dentro).
+    /// Calls in progress (the closure may close the callback from inside).
     active_list: u32,
     closed_flag: bool,
-    /// O ponteiro de função C (o trampolim).
+    /// The C function pointer (the trampoline).
     trampoline: usize,
 }
 
-/// Chave da assinatura → a entrada C do callback.
+/// Signature key → the callback's C entry.
 fn callback_entries() -> &'static std::sync::RwLock<crate::hash::HashMap<String, usize>> {
     static T: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<String, usize>>> = std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
 
-/// Ponteiro de função → contexto, dos callbacks vivos.
+/// Function pointer → context, of the live callbacks.
 fn live_callbacks() -> &'static std::sync::Mutex<crate::hash::HashMap<usize, usize>> {
     static T: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<usize, usize>>> = std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
 
-/// Reconhece trampolins síncronos que exigem a thread do isolado dono.
-/// Ouvintes só postam mensagens e não entram em Dart nesta thread.
+/// Recognizes synchronous trampolines that require the owning isolate's thread.
+/// Listeners only post messages and do not enter Dart on this thread.
 fn callback_requires_isolate_thread(address: usize) -> bool {
     let live_set = live_callbacks().lock().unwrap_or_else(|e| e.into_inner());
     let Some(&ctx) = live_set.get(&address) else { return false };
-    // SAFETY: o registro mantém o contexto vivo; close precisa deste mutex
-    // para removê-lo antes de liberar. O modo é imutável após a instalação.
+    // SAFETY: the registry keeps the context alive; close needs this mutex to
+    // remove it before freeing. The mode is immutable after installation.
     let mode = unsafe { (*(ctx as *const CallbackContext)).mode };
     matches!(mode, MODE_PERSISTENT | MODE_LOCAL)
 }
 
 thread_local! {
-    /// Os `fromFunction` deste isolado: (chave, sítio, código da função,
-    /// excepcional) → ponteiro de função.
+    /// This isolate's `fromFunction`s: (key, site, function code, exceptional) →
+    /// function pointer.
     static PERSISTENTES: RefCell<crate::hash::HashMap<(String, i64, i64, i64), usize>> = RefCell::new(crate::hash::HashMap::default());
 }
 
 /// # Safety
-/// `key` aponta para `n` bytes ASCII; `input` é a entrada C gerada da
-/// assinatura (o contexto no parâmetro `nest`).
+/// `key` points to `n` ASCII bytes; `input` is the C entry generated for the
+/// signature (the context in the `nest` parameter).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_registrar_callback(key: *const u8, n: i64, input: usize) {
-    // SAFETY: garantido por quem chama (constante do módulo).
+    // SAFETY: guaranteed by the caller (a module constant).
     let b = unsafe { std::slice::from_raw_parts(key, n as usize) };
     let key = String::from_utf8_lossy(b).into_owned();
     callback_entries().write().unwrap_or_else(|e| e.into_inner()).insert(key, input);
 }
 
-/// A memória executável dos trampolins: regiões mapeadas uma vez e nunca
-/// devolvidas, divididas em fatias de [`SLICE_SIZE`] bytes com lista livre.
+/// The executable memory of the trampolines: regions mapped once and never
+/// returned, divided into slices of [`SLICE_SIZE`] bytes with a free list.
 mod executable_memory {
-    /// Cabe o maior trampolim do LLVM (x86-64: 23 bytes; AArch64: 32).
+    /// The largest LLVM trampoline fits (x86-64: 23 bytes; AArch64: 32).
     pub const SLICE_SIZE: usize = 64;
     const REGION_SIZE: usize = 64 * 1024;
 
@@ -130,13 +128,13 @@ mod executable_memory {
         const MAP_ANON: i32 = 0x20;
         #[cfg(not(target_os = "linux"))]
         const MAP_ANON: i32 = 0x1000;
-        // No macOS a memória que vira código precisa de `MAP_JIT` (e a
-        // escrita, no Apple Silicon, de `pthread_jit_write_protect_np`).
+        // On macOS memory that becomes code needs `MAP_JIT` (and writing to it, on
+        // Apple Silicon, `pthread_jit_write_protect_np`).
         #[cfg(target_os = "macos")]
         const MAP_JIT: i32 = 0x800;
         #[cfg(not(target_os = "macos"))]
         const MAP_JIT: i32 = 0;
-        // SAFETY: mapeamento anônimo novo, sem arquivo.
+        // SAFETY: a new anonymous mapping, without a file.
         let p = unsafe { mmap(std::ptr::null_mut(), REGION_SIZE, PROT_RWX, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0) };
         if p.is_null() || p as isize == -1 { None } else { Some(p as usize) }
     }
@@ -145,7 +143,7 @@ mod executable_memory {
     fn map_pages() -> Option<usize> {
         const MEM_COMMIT_RESERVE: u32 = 0x1000 | 0x2000;
         const PAGE_EXECUTE_READWRITE: u32 = 0x40;
-        // SAFETY: reserva e compromete páginas novas.
+        // SAFETY: reserves and commits new pages.
         let p = unsafe { VirtualAlloc(std::ptr::null_mut(), REGION_SIZE, MEM_COMMIT_RESERVE, PAGE_EXECUTE_READWRITE) };
         if p.is_null() { None } else { Some(p as usize) }
     }
@@ -163,19 +161,19 @@ mod executable_memory {
         LIVRES.lock().unwrap_or_else(|e| e.into_inner()).push(p);
     }
 
-    /// Escreve em `p` o trampolim que carrega `ctx` no registrador `nest` e
-    /// salta para `input`; devolve o ponteiro de função (o próprio `p`).
+    /// Writes at `p` the trampoline that loads `ctx` into the `nest` register and
+    /// jumps to `input`; returns the function pointer (`p` itself).
     pub fn write_trampoline(p: usize, input: usize, ctx: usize) -> usize {
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        // SAFETY: alterna a proteção MAP_JIT só nesta thread.
+        // SAFETY: toggles the MAP_JIT protection only on this thread.
         unsafe {
             pthread_jit_write_protect_np(0)
         };
-        // SAFETY: `p` é uma fatia de `SLICE_SIZE` bytes graváveis desta
-        // região, de uso exclusivo deste callback.
+        // SAFETY: `p` is a slice of `SLICE_SIZE` writable bytes of this region,
+        // used exclusively by this callback.
         unsafe { write_code(p as *mut u8, input, ctx) };
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        // SAFETY: idem.
+        // SAFETY: likewise.
         unsafe {
             pthread_jit_write_protect_np(1)
         };
@@ -192,12 +190,12 @@ mod executable_memory {
         c.extend_from_slice(&[0x49, 0xBA]);
         c.extend_from_slice(&(ctx as u64).to_le_bytes());
         c.extend_from_slice(&[0x41, 0xFF, 0xE3]);
-        // SAFETY: garantido por quem chama (23 bytes de 64).
+        // SAFETY: guaranteed by the caller (23 bytes out of 64).
         unsafe { std::ptr::copy_nonoverlapping(c.as_ptr(), p, c.len()) };
     }
 
-    /// AArch64: `ldr x15, [pc+16]; ldr x17, [pc+20]; br x17; nop`, com o
-    /// contexto em +16 e a entrada em +24.
+    /// AArch64: `ldr x15, [pc+16]; ldr x17, [pc+20]; br x17; nop`, with the context
+    /// at +16 and the entry at +24.
     #[cfg(target_arch = "aarch64")]
     unsafe fn write_code(p: *mut u8, input: usize, ctx: usize) {
         let instructions: [u32; 4] = [0x5800_008F, 0x5800_00B1, 0xD61F_0220, 0xD503_201F];
@@ -207,25 +205,25 @@ mod executable_memory {
         }
         c.extend_from_slice(&(ctx as u64).to_le_bytes());
         c.extend_from_slice(&(input as u64).to_le_bytes());
-        // SAFETY: garantido por quem chama (32 bytes de 64).
+        // SAFETY: guaranteed by the caller (32 bytes out of 64).
         unsafe { std::ptr::copy_nonoverlapping(c.as_ptr(), p, c.len()) };
     }
 
-    /// O cache de instruções vê o código recém escrito.
+    /// The instruction cache sees the freshly written code.
     fn sync_instructions(p: usize) {
         #[cfg(windows)]
-        // SAFETY: a fatia acabou de ser escrita neste processo.
+        // SAFETY: the slice has just been written in this process.
         unsafe {
             FlushInstructionCache(GetCurrentProcess(), p as *const u8, SLICE_SIZE)
         };
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        // SAFETY: invalida o cache de instruções da fatia escrita.
+        // SAFETY: invalidates the instruction cache of the written slice.
         unsafe {
             sys_icache_invalidate(p as *mut u8, SLICE_SIZE)
         };
         #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-        // SAFETY: manutenção de cache de EL0 (`dc cvau`/`ic ivau`), como o
-        // `__clear_cache` do compiler-rt, linha a linha da fatia.
+        // SAFETY: EL0 cache maintenance (`dc cvau`/`ic ivau`), like compiler-rt's
+        // `__clear_cache`, line by line over the slice.
         unsafe {
             const LINHA: usize = 64;
             let begin = p & !(LINHA - 1);
@@ -246,15 +244,15 @@ mod executable_memory {
     }
 }
 
-/// Uma posição da chave de uma assinatura (`lower/ffi.rs`): a letra de um
-/// tipo C ou `S<rti>.`, uma struct/union por valor.
+/// One position of a signature key (`lower/ffi.rs`): the letter of a C type or
+/// `S<rti>.`, a struct/union by value.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum KeyPart {
     Letter(char),
     Compound(i64),
 }
 
-/// As partes da chave: o retorno e os parâmetros.
+/// The parts of the key: the return and the parameters.
 fn key_parts(key: &str) -> (KeyPart, Vec<KeyPart>) {
     let mut part_list = Vec::new();
     let mut rest = key;
@@ -277,8 +275,8 @@ fn key_parts(key: &str) -> (KeyPart, Vec<KeyPart>) {
     (ret.unwrap_or(KeyPart::Letter('v')), part_list)
 }
 
-/// O valor C de `v` (um objeto Dart) no tipo da letra `l`, para o retorno
-/// excepcional.
+/// The C value of `v` (a Dart object) in the type of letter `l`, for the
+/// exceptional return.
 fn exceptional_bits(v: i64, l: char) -> Result<i64, String> {
     if v == 0 {
         return Ok(0);
@@ -301,13 +299,13 @@ fn exceptional_bits(v: i64, l: char) -> Result<i64, String> {
     })
 }
 
-/// O código de uma closure (a identidade de uma função de topo ou
-/// estática, para o cache de `fromFunction`).
+/// The code of a closure (the identity of a top-level or static function, for the
+/// `fromFunction` cache).
 fn closure_code(clo: i64) -> i64 {
     HEAP.with(|h| h.borrow().closure(clo).map_or(0, |c| c.code))
 }
 
-/// Cria o trampolim de `ctx` e o registra.
+/// Creates the trampoline of `ctx` and registers it.
 fn install_callback(ctx: Box<CallbackContext>) -> Result<usize, String> {
     let rec = callback_entries().read().unwrap_or_else(|e| e.into_inner()).get(&ctx.key).copied();
     let Some(input) = rec else {
@@ -319,15 +317,15 @@ fn install_callback(ctx: Box<CallbackContext>) -> Result<usize, String> {
     };
     let ctx = Box::into_raw(ctx);
     let f = executable_memory::write_trampoline(memory, input, ctx as usize);
-    // SAFETY: o contexto acabou de ser criado e só esta thread o conhece.
+    // SAFETY: the context has just been created and only this thread knows it.
     unsafe { (*ctx).trampoline = memory };
     live_callbacks().lock().unwrap_or_else(|e| e.into_inner()).insert(f, ctx as usize);
     Ok(f)
 }
 
-/// `DartForge_ffi_callback_novo(assinatura, funcao, excepcional, modo,
-/// porta)`: o pointer de função C de one callback new (`porta` é a do
-/// ouvinte, ou o sítio de um `fromFunction`).
+/// `DartForge_ffi_callback_novo(signature, function, exceptional, mode, port)`: the
+/// C function pointer of a new callback (`port` is the listener's, or the site of a
+/// `fromFunction`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_novo(fn_signature: i64, function: i64, exceptional: i64, mode: i64, port: i64) -> i64 {
     let Some(ns) = object_type_type(fn_signature) else {
@@ -351,8 +349,8 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_novo(fn_signature: i64
         return 0;
     }
     let exceptional = match ret {
-        // Struct devolvida: sem retorno excepcional (a VM o recusa); com
-        // exceção, a struct volta zerada.
+        // A returned struct: no exceptional return (the VM rejects it); with an
+        // exception, the struct comes back zeroed.
         KeyPart::Compound(_) if exceptional != 0 => {
             throw_argument_error("exceptionalReturn must not be given for a struct or union return");
             return 0;
@@ -366,7 +364,7 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_novo(fn_signature: i64
             }
         },
     };
-    // `fromFunction`: `port` é o sítio da chamada (um trampolim por sítio).
+    // `fromFunction`: `port` is the call site (one trampoline per site).
     let persistent = (mode == MODE_PERSISTENT).then(|| (key.clone(), port, closure_code(function), exceptional));
     if let Some(k) = &persistent
         && let Some(f) = PERSISTENTES.with(|p| p.borrow().get(k).copied())
@@ -403,15 +401,14 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_novo(fn_signature: i64
     }
 }
 
-/// Solta o contexto e o trampolim (sem chamada em curso).
+/// Releases the context and the trampoline (with no call in progress).
 fn release_callback(ctx: *mut CallbackContext) {
-    // SAFETY: o contexto saiu do registro; ninguém mais o alcança.
+    // SAFETY: the context left the registry; nobody else reaches it.
     let ctx = unsafe { Box::from_raw(ctx) };
     executable_memory::free(ctx.trampoline);
 }
 
-/// `DartForge_ffi_callback_apagar(address)`: o `close()` de um
-/// `NativeCallable`.
+/// `DartForge_ffi_callback_apagar(address)`: the `close()` of a `NativeCallable`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_apagar(address: i64) {
     let Some(ctx) = live_callbacks().lock().unwrap_or_else(|e| e.into_inner()).remove(&(address as usize)) else {
@@ -419,7 +416,7 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_apagar(address: i64) {
     };
     let ctx = ctx as *mut CallbackContext;
     HEAP.with(|h| h.borrow_mut().release_global_root(ctx as i64));
-    // SAFETY: o contexto é deste isolado (o `close()` roda nele).
+    // SAFETY: the context belongs to this isolate (`close()` runs on it).
     let in_use_flag = unsafe {
         (*ctx).closed_flag = true;
         (*ctx).closure = 0;
@@ -430,21 +427,21 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_apagar(address: i64) {
     }
 }
 
-/// `DartForge_ffi_callback_manter(delta)`: o contador de `NativeCallable`s
-/// locais que mantêm o isolado vivo (`keepIsolateAlive`).
+/// `DartForge_ffi_callback_manter(delta)`: the counter of local `NativeCallable`s
+/// that keep the isolate alive (`keepIsolateAlive`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_manter(delta: i64) {
     adjust_callbacks_keeping_alive(delta);
 }
 
-/// A entrada C começou: 0 = chamar a closure aqui; 1 = postar ao ouvinte.
-/// Um callback local chamado fora da thread do isolado dono é fatal.
+/// The C entry started: 0 = call the closure here; 1 = post to the listener. A
+/// local callback called outside the owning isolate's thread is fatal.
 ///
 /// # Safety
-/// `ctx` é o contexto do trampolim (vivo enquanto o callback não fecha).
+/// `ctx` is the trampoline's context (alive while the callback is not closed).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_callback_entrar(ctx: *mut CallbackContext) -> i64 {
-    // SAFETY: garantido por quem chama.
+    // SAFETY: guaranteed by the caller.
     let c = unsafe { &mut *ctx };
     if c.mode == MODE_LISTENER {
         return 1;
@@ -457,23 +454,23 @@ pub unsafe extern "C" fn dartforge_ffi_callback_entrar(ctx: *mut CallbackContext
     0
 }
 
-/// A closure do callback (a entrada chama por ela).
+/// The callback's closure (the entry calls through it).
 ///
 /// # Safety
-/// Como [`dartforge_ffi_callback_entrar`].
+/// As [`dartforge_ffi_callback_entrar`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_callback_closure(ctx: i64) -> i64 {
-    // SAFETY: garantido por quem chama.
+    // SAFETY: guaranteed by the caller.
     unsafe { (*(ctx as *const CallbackContext)).closure }
 }
 
-/// O `Pointer<X>` Dart do argumento `i` (endereço `address`).
+/// The Dart `Pointer<X>` of argument `i` (address `address`).
 ///
 /// # Safety
-/// Como [`dartforge_ffi_callback_entrar`].
+/// As [`dartforge_ffi_callback_entrar`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_callback_ponteiro(ctx: i64, i: i64, address: i64) -> i64 {
-    // SAFETY: garantido por quem chama.
+    // SAFETY: guaranteed by the caller.
     let ns = unsafe { (*(ctx as *const CallbackContext)).fn_signature };
     let tipo = RTI.with(|u| match u.borrow().tipo(ns) {
         Type::Function { pos, .. } => pos.get(i as usize).copied(),
@@ -482,56 +479,56 @@ pub unsafe extern "C" fn dartforge_ffi_callback_ponteiro(ctx: i64, i: i64, addre
     new_pointer(address, tipo)
 }
 
-/// A closure do callback sob ARC, com um owner do código.
+/// The callback's closure under ARC, with a code owner.
 ///
-/// A closure continua raiz do contexto até o `close()`; o owner é do código
-/// gerado, que o transfere ou chama release exatamente uma vez. Não aloca no
-/// heap, não executa Dart nem deixa exceção pendente.
+/// The closure stays a root of the context until `close()`; the owner belongs to
+/// generated code, which transfers it or calls release exactly once. Neither
+/// allocates on the heap, runs Dart nor leaves a pending exception.
 ///
 /// # Safety
-/// Como [`dartforge_ffi_callback_entrar`].
+/// As [`dartforge_ffi_callback_entrar`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arc_ffi_callback_closure_owned_v1(ctx: i64) -> i64 {
-    // SAFETY: o contrato acima.
+    // SAFETY: the contract above.
     let closure = unsafe { dartforge_ffi_callback_closure(ctx) };
     dartforge_arc_retain(closure);
     closure
 }
 
-/// O `Pointer<X>` do argumento `i` sob ARC, com um owner do código.
+/// The `Pointer<X>` of argument `i` under ARC, with a code owner.
 ///
-/// O ajudante Dart `_dartforgePonteiro` roda dentro de um escopo nativo: o
-/// token do retorno da porta Owned fica nele e é copiado para o owner do
-/// chamador antes de fechar. Uma exceção do ajudante fica pendente e o
-/// resultado é null, sem owner. Pode alocar, coletar e executar Dart.
+/// The Dart helper `_dartforgePonteiro` runs inside a native scope: the token of
+/// the Owned port's return stays in it and is copied into the caller's owner
+/// before closing. An exception from the helper stays pending and the result is
+/// null, without an owner. May allocate, collect and run Dart.
 ///
 /// # Safety
-/// Como [`dartforge_ffi_callback_entrar`].
+/// As [`dartforge_ffi_callback_entrar`].
 ///
 /// # Panics
-/// Ajudante ausente, registro Owned incompatível ou escopo reentrante não
-/// fechado; aborta no limite C.
+/// Missing helper, an incompatible Owned registration or an unclosed reentrant
+/// scope; aborts at the C boundary.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arc_ffi_callback_ponteiro_owned_v1(ctx: i64, i: i64, address: i64) -> i64 {
-    // SAFETY: o contrato acima.
+    // SAFETY: the contract above.
     owner_in_native_scope(|| unsafe { dartforge_ffi_callback_ponteiro(ctx, i, address) })
 }
 
-/// A entrada C terminou a chamada: devolve 1 (e o retorno excepcional em
-/// `out`) se a closure lançou — a exceção é descartada, como na VM.
-/// Solta o contexto se ele foi fechado durante a chamada.
+/// The C entry finished the call: returns 1 (and the exceptional return in `out`)
+/// if the closure threw — the exception is discarded, as in the VM. Releases the
+/// context if it was closed during the call.
 ///
 /// # Safety
-/// Como [`dartforge_ffi_callback_entrar`]; `out` é gravável.
+/// As [`dartforge_ffi_callback_entrar`]; `out` is writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_callback_sair(ctx: *mut CallbackContext, out: *mut i64) -> u8 {
-    // SAFETY: garantido por quem chama.
+    // SAFETY: guaranteed by the caller.
     let c = unsafe { &mut *ctx };
     c.active_list -= 1;
     let threw = dartforge_exception_pending() != 0;
     if threw {
         dartforge_exception_clear();
-        // SAFETY: garantido por quem chama.
+        // SAFETY: guaranteed by the caller.
         unsafe { *out = c.exceptional };
     }
     if c.closed_flag && c.active_list == 0 {
@@ -540,16 +537,16 @@ pub unsafe extern "C" fn dartforge_ffi_callback_sair(ctx: *mut CallbackContext, 
     u8::from(threw)
 }
 
-/// A entrada C de um `listener`: os `n` argumentos (bits de cada tipo C)
-/// viram a mensagem `[contexto, a0, a1, …]` à porta do `NativeCallable`.
+/// The C entry of a `listener`: the `n` arguments (bits of each C type) become the
+/// message `[context, a0, a1, …]` to the `NativeCallable`'s port.
 ///
 /// # Safety
-/// Como [`dartforge_ffi_callback_entrar`]; `args` tem `n` valores.
+/// As [`dartforge_ffi_callback_entrar`]; `args` has `n` values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_callback_postar(ctx: *const CallbackContext, args: *const i64, n: i64) {
-    // SAFETY: garantido por quem chama.
+    // SAFETY: guaranteed by the caller.
     let c = unsafe { &*ctx };
-    // SAFETY: idem.
+    // SAFETY: likewise.
     let bits = unsafe { std::slice::from_raw_parts(args, n.max(0) as usize) };
     let mut items = Vec::with_capacity(bits.len() + 1);
     items.push(Portable::Int(ctx as i64));
@@ -558,11 +555,11 @@ pub unsafe extern "C" fn dartforge_ffi_callback_postar(ctx: *const CallbackConte
         items.push(match p {
             KeyPart::Letter('f' | 'd') => Portable::Double(f64::from_bits(*b as u64)),
             KeyPart::Letter('b') => Portable::Bool(*b != 0),
-            // Uma struct: os bytes (o endereço só vale durante a chamada).
+            // A struct: the bytes (the address is only valid during the call).
             KeyPart::Compound(rti) => {
                 let n = compound_from_rti(rti).map_or(0, |c| c.size as usize);
-                // SAFETY: a entrada C passa o endereço dos `n` bytes do
-                // argumento, vivos durante a chamada.
+                // SAFETY: the C entry passes the address of the argument's `n`
+                // bytes, alive during the call.
                 Portable::Bytes(unsafe { std::slice::from_raw_parts(*b as usize as *const u8, n) }.to_vec())
             }
             KeyPart::Letter(_) => Portable::Int(*b),
@@ -571,11 +568,11 @@ pub unsafe extern "C" fn dartforge_ffi_callback_postar(ctx: *const CallbackConte
     post(c.port, Portable::List(items).to_graph());
 }
 
-/// `DartForge_ffi_callback_args(message)`: os argumentos Dart de uma
-/// mensagem de `listener` (os ponteiros viram `Pointer<X>` da assinatura).
+/// `DartForge_ffi_callback_args(message)`: the Dart arguments of a `listener`
+/// message (the pointers become `Pointer<X>`s of the signature).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_args(message: i64) -> i64 {
-    // Os elementos da mensagem (uma lista do núcleo), na posição `Ref`.
+    // The elements of the message (a core list), in the `Ref` position.
     let items: Vec<crate::heap::Value> = HEAP.with(|h| {
         let h = h.borrow();
         if !h.e_lista(message) {
@@ -589,7 +586,7 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_args(message: i64) -> 
     if !alive {
         return dart_fixed_list(&[]);
     }
-    // SAFETY: o contexto está registrado (vivo).
+    // SAFETY: the context is registered (alive).
     let (key, ns) = unsafe {
         let c = &*(ctx as *const CallbackContext);
         (c.key.clone(), c.fn_signature)
@@ -598,8 +595,8 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_args(message: i64) -> 
         Type::Function { pos, .. } => pos.to_vec(),
         _ => Vec::new(),
     });
-    // Cada argumento vira um `Ref` enraizado no quadro (a caixa de um
-    // inteiro, o `Pointer`, a struct copiada), e a lista é montada no fim.
+    // Each argument becomes a `Ref` rooted in the frame (an integer's box, the
+    // `Pointer`, the copied struct), and the list is built at the end.
     let n = items.len().saturating_sub(1);
     let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(n.max(1)));
     let (_, params) = key_parts(&key);
@@ -607,7 +604,7 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_args(message: i64) -> 
     for (i, (v, p)) in items.iter().skip(1).zip(params).enumerate() {
         let x = match p {
             KeyPart::Letter('p') => new_pointer(integer(v), types.get(i).copied()),
-            // Os bytes da struct viram uma struct sobre memória Dart.
+            // The struct's bytes become a struct over Dart memory.
             KeyPart::Compound(rti) => {
                 let bytes = match v {
                     crate::heap::Value::Ref(r) => HEAP.with(|h| h.borrow().typed_bytes(*r).map(<[u8]>::to_vec)).unwrap_or_default(),
@@ -625,8 +622,7 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_args(message: i64) -> 
     list
 }
 
-/// O `int` de um elemento de lista (escalar da forma compacta, `Smi` ou
-/// `_Mint`).
+/// The `int` of a list element (a scalar of the compact form, `Smi` or `_Mint`).
 fn argument_int(v: crate::heap::Value) -> Option<i64> {
     match v {
         crate::heap::Value::Int(i) => Some(i),
@@ -649,7 +645,7 @@ mod tests_owned_callback {
             closed_flag: false, trampoline: 0,
         });
         let address = (&*ctx as *const CallbackContext) as i64;
-        // SAFETY: o contexto acima vive até o fim do teste.
+        // SAFETY: the context above lives until the end of the test.
         let owner = unsafe { dartforge_arc_ffi_callback_closure_owned_v1(address) };
         assert_eq!(owner, closure);
         assert_eq!(dartforge_exception_pending(), 0);
@@ -674,14 +670,14 @@ mod finalizador_callback_tests {
                 key: String::new(), exceptional: 0, active_list: 0,
                 closed_flag: false, trampoline: 0,
             });
-            // Identidade exclusiva para este registro de teste; nunca é chamada.
+            // An exclusive identity for this test registration; it is never called.
             let address = (&*ctx as *const CallbackContext) as usize;
             live_callbacks().lock().unwrap().insert(address, address);
             let synchronous = mode != MODE_LISTENER;
             assert_eq!(callback_requires_isolate_thread(address), synchronous);
             if synchronous {
                 dartforge_exception_clear();
-                // Handles nulos denunciariam uma criação indevida de anexo.
+                // Null handles would reveal an improper creation of an attachment.
                 dartforge_nativo_DartForge_finalizador_anexar_nativo(0, 0, address as i64, 0, 0, 17);
                 assert_eq!(dartforge_exception_pending(), 1);
                 dartforge_exception_clear();
