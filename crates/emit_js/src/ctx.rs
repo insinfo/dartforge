@@ -1528,8 +1528,18 @@ impl<'a> Ctx<'a> {
     }
 
     /// The class (or a superclass) is generic: the constructor receives `_ti`.
+    ///
+    /// In the production profile only a class with type parameters of its own
+    /// receives it: the rti of a class without them is closed (`C`, even
+    /// under `extends S<int>`), and `instanceType` finds it through the
+    /// constructor; the generic superclass's constructor gets `null` and
+    /// stores it in `$ti` (`docs/JS-PRODUCAO-TAMANHO.md` §13.7).
+    /// `DARTFORGE_JSPROD_CLOSED_TI=0` goes back to passing it.
     pub fn requires_rti(&self, c: ClassId) -> bool {
         if self.js_classes.contains_key(&c) {
+            return false;
+        }
+        if self.production() && self.class_params[c.0 as usize].is_empty() && std::env::var("DARTFORGE_JSPROD_CLOSED_TI").map_or(true, |v| v != "0") {
             return false;
         }
         let mut cur = Some(c);
