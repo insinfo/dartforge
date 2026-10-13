@@ -11,7 +11,10 @@
 //! message whole under a `Mutex`. The server never sends requests, so there
 //! is no response to handle nor id correlation on the way back. The typed
 //! analysis (`docs/LSP.md`, "Diagnósticos tipados") runs in a third thread
-//! and wakes the dispatcher with [`Entry::Wake`] when it finishes.
+//! and wakes the dispatcher with [`Entry::Wake`] when it finishes; each
+//! analysis runs in a child process of this same binary (started with the
+//! hidden [`dartforge_lsp::TYPED_ANALYSIS_ARGUMENT`]), so that its program
+//! never stays in the server's memory.
 
 use dartforge_lsp::{SemanticAnalyzer, Server};
 use dartforge_lsp::transport::{write_message, read_message};
@@ -36,6 +39,11 @@ fn main() {
 
 /// Testable entry point: returns the exit code instead of exiting.
 fn run(arguments: Vec<String>) -> i32 {
+    // A child analysis process started by the server itself (`docs/LSP.md`,
+    // "Memória"): not a user-facing option.
+    if arguments.first().map(String::as_str) == Some(dartforge_lsp::TYPED_ANALYSIS_ARGUMENT) {
+        return dartforge_lsp::typed_analysis_child();
+    }
     if arguments.iter().any(|a| a == "--version" || a == "-V") {
         println!("dartforge-lsp {}", env!("CARGO_PKG_VERSION"));
         return 0;
@@ -61,6 +69,14 @@ fn serve_stdio() -> i32 {
 
     let output = Arc::new(Mutex::new(io::stdout()));
     let mut server = Server::with_analyzer(SemanticAnalyzer::discover());
+    // Each typed analysis in a child process of this same binary, so that its
+    // program never stays in the server's memory;
+    // `DARTFORGE_LSP_TYPED_IN_PROCESS=1` keeps it in a thread.
+    if !std::env::var("DARTFORGE_LSP_TYPED_IN_PROCESS").is_ok_and(|v| v == "1")
+        && let Ok(exe) = std::env::current_exe()
+    {
+        server.analyze_in_child_processes(exe);
+    }
     // The typed analysis runs in another thread and wakes the loop when it finishes.
     server.on_diagnostics(move || {
         let _ = wake.send(Entry::Wake);

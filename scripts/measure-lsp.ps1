@@ -91,6 +91,25 @@ public static class DrenoLsp {
 }
 "@
 
+# RSS of the server plus its child processes (each typed analysis runs in a
+# child process of `dartforge-lsp`; measuring only the parent would hide it).
+function Get-TreeRss([int]$id) {
+    $total = 0
+    $main = Get-Process -Id $id -ErrorAction SilentlyContinue
+    if ($main) { $total += $main.WorkingSet64 }
+    if ($IsWindows -or $PSVersionTable.PSEdition -eq "Desktop") {
+        $children = Get-CimInstance Win32_Process -Filter "ParentProcessId=$id" -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.ProcessId }
+    } else {
+        $children = (& pgrep -P $id) -split "\s+" | Where-Object { $_ -ne "" }
+    }
+    foreach ($child in $children) {
+        $p = Get-Process -Id ([int]$child) -ErrorAction SilentlyContinue
+        if ($p) { $total += $p.WorkingSet64 }
+    }
+    $total
+}
+
 function Get-ArquivosDart([string]$raiz) {
     Get-ChildItem -LiteralPath $raiz -Recurse -Filter *.dart -File |
         Where-Object { $_.FullName -notmatch '[\\/]\.(dart_tool|build)[\\/]' } |
@@ -186,7 +205,7 @@ try {
             $escritor.Flush()
             Start-Sleep -Milliseconds 50
             if (-not $proc.HasExited) {
-                $rss = (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue).WorkingSet64
+                $rss = Get-TreeRss $proc.Id
                 if ($rss) { $amostras.Add($rss / 1MB) }
             }
         }
@@ -200,7 +219,7 @@ try {
         if ($proc.HasExited) { break }
         Start-Sleep -Seconds 1
         if (-not $proc.HasExited) {
-            $rss = (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue).WorkingSet64
+            $rss = Get-TreeRss $proc.Id
             if ($rss) { $amostras.Add($rss / 1MB) }
         }
     }

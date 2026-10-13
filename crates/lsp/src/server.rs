@@ -201,6 +201,10 @@ pub struct Server<A = SyntacticAnalyzer> {
     typed: Option<crate::typed::Typed>,
     /// The worker has already been tried (started or refused).
     typed_tried: bool,
+    /// The executable that runs each typed analysis in a child process
+    /// ([`Server::analyze_in_child_processes`]); without it, the worker thread
+    /// analyzes.
+    typed_process: Option<std::path::PathBuf>,
     /// Called by the worker when there is a result (wakes up the `main` loop).
     wake: Option<crate::typed::Wake>,
     /// Typed results discarded for an old version or a closed document.
@@ -368,6 +372,7 @@ impl<A: Analyzer> Server<A> {
             hierarchy_origin: None,
             typed: None,
             typed_tried: false,
+            typed_process: None,
             wake: None,
             typed_discarded: 0,
             typed_published: HashMap::new(),
@@ -549,6 +554,24 @@ impl<A: Analyzer> Server<A> {
         self.wake = Some(crate::typed::Wake(std::sync::Arc::new(hook)));
     }
 
+    /// Runs each typed analysis in a child process: `exe` (the `dartforge-lsp`
+    /// binary) started with [`crate::TYPED_ANALYSIS_ARGUMENT`]. The program of an
+    /// analysis (hundreds of MiB for a workspace package with its dependencies)
+    /// then lives and dies with the child, and the server keeps only the
+    /// documents and the published diagnostics. It applies from the next
+    /// analysis on; without it, the analysis runs in a thread of this process.
+    ///
+    /// ```no_run
+    /// let mut server = dartforge_lsp::Server::with_analyzer(dartforge_lsp::SemanticAnalyzer::discover());
+    /// server.analyze_in_child_processes(std::env::current_exe().unwrap());
+    /// ```
+    pub fn analyze_in_child_processes(&mut self, exe: std::path::PathBuf) {
+        if let Some(t) = &self.typed {
+            t.set_process(Some(exe.clone()));
+        }
+        self.typed_process = Some(exe);
+    }
+
     /// Waits for the typed analysis to go idle (up to `limit`) and returns the
     /// publications it produced, already filtered by the current version. For
     /// tests and measurements; the editor gets the same ones through
@@ -590,7 +613,7 @@ impl<A: Analyzer> Server<A> {
         }
         self.typed_tried = true;
         if let Some(sdk) = crate::typed::analyzer_sdk(&self.analyzer) {
-            self.typed = crate::typed::Typed::start(sdk, self.wake.clone());
+            self.typed = crate::typed::Typed::start(sdk, self.wake.clone(), self.typed_process.clone());
         }
         // The current analysis configuration (the TODOs, the excluded folders).
         let excluded = self.excluded_folders();
@@ -662,10 +685,12 @@ impl<A: Analyzer> Server<A> {
                     self.typed_discarded += 1;
                     continue;
                 }
+                // Without diagnostics a `.dart` result comes without its text.
+                let yaml = r.uri.ends_with(".yaml");
                 if !self.pulled_diagnostics
-                    && let Some(text) = &r.text
+                    && let Some(text) = r.text.as_deref().or((!yaml).then_some(""))
                 {
-                    let p = if r.uri.ends_with(".yaml") {
+                    let p = if yaml {
                         self.yaml_publication(&r.uri, text, &r.yaml)
                     } else {
                         self.text_publication(&r.uri, text, &r.diagnostics)

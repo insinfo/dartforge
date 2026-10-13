@@ -82,10 +82,10 @@ fn published_typed_code_reaches_editor() {
 #[test]
 fn only_published_codes_and_ignore_respected() {
     let mut p = Project::new("tipado-publicados");
-    // `unchecked_use_of_nullable_value` is not in `verified.txt`: it does not
-    // appear. `// ignore:` works as in `dartforge analyze` (for warnings; an
-    // error cannot be ignored), in both flows.
-    let text = "void f() {\n  <int?>[].first.isEven;\n  // ignore: unused_local_variable\n  var y = 1;\n  var z = 2;\n  if (1) {}\n}\n";
+    // `invalid_assignment` is not in `verified.txt`: it does not appear.
+    // `// ignore:` works as in `dartforge analyze` (for warnings; an error
+    // cannot be ignored), in both flows.
+    let text = "void f() {\n  int a = ''; print(a);\n  // ignore: unused_local_variable\n  var y = 1;\n  var z = 2;\n  if (1) {}\n}\n";
     p.server.pause_typed_analysis(true);
     let immediate = p.open("lib/a.dart", text);
     assert_eq!(
@@ -203,6 +203,45 @@ fn editing_imported_updates_importer() {
     let outputs = change_and_wait(&mut p, "lib/b.dart", 3, "int x = 0;\n");
     let a = last(&outputs, &uri_a).expect("a.dart republished");
     assert_eq!(codes(a), vec!["non_bool_condition"], "{a}");
+}
+
+/// The publications of `outputs` with the project root taken out of the URIs:
+/// method, file, version and the diagnostics as published.
+fn normalized(p: &Project, outputs: &[Value]) -> Vec<String> {
+    let root = url::Url::from_file_path(&p.root).unwrap().to_string();
+    outputs
+        .iter()
+        .filter(|m| m["method"] == "textDocument/publishDiagnostics")
+        .map(|m| m.to_string().replace(&root, "<root>"))
+        .collect()
+}
+
+/// A scenario with the typed flow: a file of the workspace that is not open
+/// with an error, an open importer and an edit of the imported file.
+fn typed_scenario(p: &mut Project) -> Vec<String> {
+    p.write("lib/c.dart", "void g() {\n  if (2) {}\n}\n");
+    // `initialized`: the workspace folder is analyzed and its files published.
+    p.server.receive(json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
+    let mut outputs = p.server.pump();
+    outputs.extend(p.server.await_diagnostics(LIMIT));
+    outputs.extend(open_and_wait(p, "lib/b.dart", "int x = 0;\n"));
+    outputs.extend(open_and_wait(p, "lib/a.dart", "import 'b.dart';\nvoid f() {\n  if (x) {}\n}\n"));
+    outputs.extend(change_and_wait(p, "lib/b.dart", 2, "bool x = true;\n"));
+    outputs.extend(change_and_wait(p, "lib/b.dart", 3, "int x = 0;\n"));
+    normalized(p, &outputs)
+}
+
+/// Each analysis in a child process of the `dartforge-lsp` binary (what the
+/// binary does, so that the program of an analysis never stays in the server's
+/// memory) publishes exactly what the analysis in the worker thread does.
+#[test]
+fn child_process_publishes_like_the_thread() {
+    let mut in_thread = Project::new("typed-thread");
+    let expected = typed_scenario(&mut in_thread);
+    assert!(expected.iter().any(|m| m.contains("c.dart") && m.contains("non_bool_condition")), "{expected:?}");
+    let mut in_child = Project::new("typed-child");
+    in_child.server.analyze_in_child_processes(std::path::PathBuf::from(env!("CARGO_BIN_EXE_dartforge-lsp")));
+    assert_eq!(typed_scenario(&mut in_child), expected);
 }
 
 #[test]

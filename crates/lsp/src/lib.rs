@@ -62,6 +62,7 @@ mod dartdoc;
 mod document_highlight;
 mod description;
 mod index;
+mod memory;
 mod links;
 mod colors;
 mod augmentations;
@@ -94,6 +95,7 @@ use std::collections::HashMap;
 use utf16::LineTable;
 
 pub use server::Server;
+pub use typed::{CHILD_ARGUMENT as TYPED_ANALYSIS_ARGUMENT, typed_analysis_child};
 pub use semantic::SemanticAnalyzer;
 pub use completion::{Call, Completion, AutoImport, CompletionItem};
 pub use rename::{Edit, RenameFile, Rename};

@@ -25,8 +25,13 @@
 //!   package was marked again; if so, it stops and restarts with the new
 //!   text.
 //! * **Memory.** The worker retains only the [`Engine`] (SDK layout and
-//!   library names) and a copy of the current text of each open document.
-//!   Program, trees and type table live for one analysis and drop with it.
+//!   library names) and the current text of each open document (shared with
+//!   the jobs, not copied). Program, trees and type table live for one
+//!   analysis — in a child process when the server was given its executable
+//!   ([`run_in_child`], what the binary does): the allocator of a long-lived
+//!   process keeps the pages of an analysis that dropped, so the server would
+//!   otherwise stay at the peak of the largest package analyzed (`docs/LSP.md`,
+//!   "Memória").
 //!
 //! [`Engine`]: dartforge_parity::analysis::Engine
 
@@ -41,12 +46,13 @@ use std::time::{Duration, Instant};
 /// Result of an analysis for one file: an open document (with the version
 /// of the analyzed text) or a file of the roots that is not open (without a
 /// version, with the disk text for the ranges).
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Result {
     pub uri: String,
     /// Version of the analyzed text; `None` for a file that is not open.
     pub version: Option<i32>,
-    /// The analyzed text of a file that is not open.
+    /// The analyzed text of a file that is not open, to place its diagnostics
+    /// (`None` when it has none, and for an open document).
     pub text: Option<String>,
     /// Full list to publish: syntax (parser) + published semantics.
     pub diagnostics: Vec<Diagnostic>,
@@ -59,7 +65,8 @@ pub(crate) struct Result {
 /// Open document as the worker sees it.
 struct Document {
     version: i32,
-    text: String,
+    /// Shared with the analysis jobs, which take it without a copy.
+    text: Arc<str>,
     path: PathBuf,
     root: PathBuf,
 }
@@ -85,6 +92,11 @@ struct State {
     /// file published): the worker walks the folders, never the main loop, so
     /// a large workspace does not block the requests.
     scan: bool,
+    /// The worker is walking the folders (without the lock): not idle yet.
+    scanning: bool,
+    /// The executable that runs each analysis in a child process
+    /// ([`run_in_child`]); without it, the worker thread analyzes.
+    process: Option<PathBuf>,
     /// Per package, the files changed since its last analysis.
     changed: HashMap<PathBuf, BTreeSet<PathBuf>>,
     /// Packages whose next analysis publishes every file (the first one, or
@@ -136,9 +148,11 @@ fn package_root(file: &Path, folders: &[PathBuf]) -> PathBuf {
 }
 
 impl Typed {
-    /// Starts the worker with the SDK at `sdk_lib` (the SDK's `lib/`).
-    pub(crate) fn start(sdk_lib: PathBuf, wake: Option<Wake>) -> Option<Self> {
-        let shared: Shared = Arc::new((Mutex::new(State::default()), Condvar::new()));
+    /// Starts the worker with the SDK at `sdk_lib` (the SDK's `lib/`). With
+    /// `process` (the server's own executable), each analysis runs in a child
+    /// process (see [`run_in_child`]); without it, in the worker thread.
+    pub(crate) fn start(sdk_lib: PathBuf, wake: Option<Wake>, process: Option<PathBuf>) -> Option<Self> {
+        let shared: Shared = Arc::new((Mutex::new(State { process, ..State::default() }), Condvar::new()));
         let (tx, rx) = mpsc::channel();
         let p = Arc::clone(&shared);
         // Deep bodies recurse deeply: a dedicated stack, as in `analyze`.
@@ -182,7 +196,7 @@ impl Typed {
             uri.to_string(),
             Document {
                 version,
-                text: text.to_string(),
+                text: Arc::from(text),
                 path,
                 root,
             },
@@ -271,7 +285,7 @@ impl Typed {
     /// waiting.
     pub(crate) fn idle(&self) -> bool {
         let e = self.state();
-        ((e.dirty.is_empty() && !e.scan) || e.paused) && e.running.is_none()
+        ((e.dirty.is_empty() && !e.scan) || e.paused) && e.running.is_none() && !e.scanning
     }
 
     /// Waits for the worker to become idle (nothing requested, nothing
@@ -280,7 +294,7 @@ impl Typed {
         let end = Instant::now() + limit;
         let mut e = self.state();
         loop {
-            if ((e.dirty.is_empty() && !e.scan) || e.paused) && e.running.is_none() {
+            if ((e.dirty.is_empty() && !e.scan) || e.paused) && e.running.is_none() && !e.scanning {
                 return true;
             }
             let now = Instant::now();
@@ -294,6 +308,12 @@ impl Typed {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .0;
         }
+    }
+
+    /// Runs the next analyses in child processes of `exe` (or, with `None`, in
+    /// the worker thread).
+    pub(crate) fn set_process(&self, exe: Option<PathBuf>) {
+        self.state().process = exe;
     }
 
     pub(crate) fn pause(&self, pause: bool) {
@@ -326,7 +346,7 @@ fn work(
     };
     let mut engine: Option<Engine> = None;
     loop {
-        let (root, open, texts, config, changed) = {
+        let (root, open, texts, config, changed, process) = {
             let mut e = block();
             while !e.shutdown && ((e.dirty.is_empty() && !e.scan) || e.paused) {
                 e = sinal
@@ -339,10 +359,12 @@ fn work(
             if e.scan {
                 // The walk runs without the lock: the server keeps answering.
                 e.scan = false;
+                e.scanning = true;
                 let folders = e.folders.clone();
                 drop(e);
                 let packages = folder_packages(&folders);
                 let mut e = block();
+                e.scanning = false;
                 if e.folders == folders {
                     e.publish_all.extend(packages.iter().cloned());
                     e.dirty.extend(packages);
@@ -351,14 +373,14 @@ fn work(
                 continue;
             }
             let root = e.dirty.pop_first().expect("non-empty");
-            let open: Vec<(String, i32, PathBuf, String)> = e
+            let open: Vec<(String, i32, PathBuf, Arc<str>)> = e
                 .documents
                 .iter()
                 .filter(|(_, d)| d.root == root)
                 .map(|(u, d)| (u.clone(), d.version, d.path.clone(), d.text.clone()))
                 .collect();
             // All open documents (of any package) win over the disk.
-            let texts: HashMap<PathBuf, String> = e
+            let texts: HashMap<PathBuf, Arc<str>> = e
                 .documents
                 .values()
                 .map(|d| (key(&d.path), d.text.clone()))
@@ -370,7 +392,7 @@ fn work(
             let in_workspace = e.folders.iter().any(|p| root.starts_with(p) || p.starts_with(&root));
             let all = in_workspace && e.publish_all.remove(&root);
             let changed_ = e.changed.remove(&root).unwrap_or_default();
-            (root, open, texts, config, (in_workspace, all, changed_))
+            (root, open, texts, config, (in_workspace, all, changed_), e.process.clone())
         };
         if engine.is_none() {
             match Engine::new(sdk_lib) {
@@ -388,23 +410,18 @@ fn work(
             }
         }
         let engine_ref = engine.as_ref().expect("engine ready");
+        crate::memory::log(&format!("before the analysis of {}", root.display()));
         let cancelled = || {
             let e = block();
             e.shutdown || e.dirty.contains(&root)
         };
-        let results = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            analyze_package(engine_ref, &root, &open, &texts, &cancelled, &config, &changed)
-        }));
-        let results = match results {
-            Ok(r) => r,
-            Err(_) => {
-                eprintln!(
-                    "[dartforge-lsp] the typed analysis of {} panicked; the syntactic diagnostics remain",
-                    root.display()
-                );
-                Vec::new()
-            }
+        let (in_workspace, all, changed) = changed;
+        let job = Arc::new(Job { sdk_lib: sdk_lib.to_path_buf(), root: root.clone(), open, texts, config, in_workspace, all, changed });
+        let results = match process.as_deref().and_then(|exe| run_in_child(exe, &job, &cancelled)) {
+            Some(results) => results,
+            None => run_in_process(engine_ref, &job, &cancelled),
         };
+        let changed = (job.in_workspace, job.all, &job.changed);
         if results.is_empty() && changed.0 {
             let mut e = block();
             if e.dirty.contains(&root) {
@@ -418,6 +435,7 @@ fn work(
         for r in results {
             let _ = tx.send(r);
         }
+        crate::memory::log("after the analysis");
         {
             let mut e = block();
             e.running = None;
@@ -430,10 +448,181 @@ fn work(
 }
 
 /// What in the client configuration changes the analysis.
+#[derive(serde::Serialize, serde::Deserialize)]
 struct AnalysisConfiguration {
     all: bool,
     all_types: Vec<String>,
     excluded: Vec<PathBuf>,
+}
+
+/// One analysis: the package, the texts that win over the disk and what to
+/// publish. It is also the request a child process receives (JSON on its
+/// `stdin`).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Job {
+    /// The SDK's `lib/`.
+    sdk_lib: PathBuf,
+    /// The package root.
+    root: PathBuf,
+    /// The open documents of the package: URI, version, path and text.
+    open: Vec<(String, i32, PathBuf, Arc<str>)>,
+    /// The texts of every open document (of any package), by [`key`].
+    texts: HashMap<PathBuf, Arc<str>>,
+    config: AnalysisConfiguration,
+    /// The package is in a workspace folder: its files that are not open are
+    /// analyzed and published too.
+    in_workspace: bool,
+    /// Every file of the package is published (the first analysis, or after the
+    /// configuration changes).
+    all: bool,
+    /// The files changed since the package's last analysis.
+    changed: BTreeSet<PathBuf>,
+}
+
+/// The hidden argument that makes the `dartforge-lsp` binary a child analysis
+/// process ([`typed_analysis_child`]).
+pub const CHILD_ARGUMENT: &str = "--typed-analysis";
+
+/// Runs `job` in the worker thread. Empty when cancelled or when the analysis
+/// panicked (the syntactic diagnostics remain).
+fn run_in_process(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> Vec<Result> {
+    // With the memory log on, the cancellation points (between the engine's
+    // phases and before each library's bodies) sample the live heap.
+    let calls = std::cell::Cell::new(0usize);
+    let sampling = || {
+        if crate::memory::logging() {
+            calls.set(calls.get() + 1);
+            if calls.get() <= 3 || calls.get().is_multiple_of(100) {
+                crate::memory::log(&format!("cancellation point {}", calls.get()));
+            }
+        }
+        cancelled()
+    };
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| analyze_package(engine, job, &sampling))) {
+        Ok(r) => r,
+        Err(_) => {
+            eprintln!(
+                "[dartforge-lsp] the typed analysis of {} panicked; the syntactic diagnostics remain",
+                job.root.display()
+            );
+            Vec::new()
+        }
+    }
+}
+
+/// Runs `job` in a child process: `exe` (the server's own binary) with
+/// [`CHILD_ARGUMENT`] reads the job from its `stdin`, analyzes and writes the
+/// results to its `stdout`, and exits.
+///
+/// The whole program of an analysis (on `new_sali`'s frontend, 3,316 libraries
+/// and ~590 MiB live at the peak) lives and dies with the child: the server
+/// process keeps only the documents and the published diagnostics, and its
+/// resident memory does not stay at the analysis peak (the system allocator
+/// keeps the freed pages of an in-process analysis; `docs/LSP.md`,
+/// "Memória"). Cancelling kills the child, and a crash in the analysis (a panic,
+/// a stack overflow) ends only the child.
+///
+/// `None` when the child cannot be used (it does not start, or the job does not
+/// serialize): the caller analyzes in the thread. Otherwise the results, empty
+/// when cancelled or when the child failed.
+fn run_in_child(exe: &Path, job: &Arc<Job>, cancelled: &dyn Fn() -> bool) -> Option<Vec<Result>> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    // A path that is not UTF-8 does not go into JSON: such a job stays in the
+    // thread.
+    if job.root.to_str().is_none() || job.texts.keys().chain(job.open.iter().map(|o| &o.2)).any(|p| p.to_str().is_none()) {
+        return None;
+    }
+    let mut child = Command::new(exe)
+        .arg(CHILD_ARGUMENT)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .ok()?;
+    let stdin = child.stdin.take()?;
+    let stdout = child.stdout.take()?;
+    // Writing and reading in their own threads, streamed (no copy of the job
+    // or of the results as one buffer): neither side blocks on a full pipe, and
+    // this thread stays free to notice a cancellation.
+    let request = Arc::clone(job);
+    let writer = std::thread::spawn(move || {
+        let mut stdin = std::io::BufWriter::new(stdin);
+        let _ = serde_json::to_writer(&mut stdin, &*request);
+        let _ = stdin.flush();
+    });
+    let (sent, output) = mpsc::channel();
+    std::thread::spawn(move || {
+        let results: Option<Vec<Result>> = serde_json::from_reader(std::io::BufReader::new(stdout)).ok();
+        let _ = sent.send(results);
+    });
+    let results = loop {
+        match output.recv_timeout(Duration::from_millis(10)) {
+            Ok(results) => break Some(results),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if cancelled() {
+                    let _ = child.kill();
+                    break None;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break None,
+        }
+    };
+    let status = child.wait();
+    let _ = writer.join();
+    let Some(results) = results else { return Some(Vec::new()) };
+    if !status.is_ok_and(|s| s.success()) {
+        eprintln!(
+            "[dartforge-lsp] the typed analysis of {} failed in its process; the syntactic diagnostics remain",
+            job.root.display()
+        );
+        return Some(Vec::new());
+    }
+    Some(results.unwrap_or_default())
+}
+
+/// The child analysis process: reads a job (JSON) from `stdin`, runs it and
+/// writes the results (JSON) to `stdout`. Returns the exit code (0 when the
+/// results were written, 2 for an unreadable job or a missing SDK).
+///
+/// The `dartforge-lsp` binary calls it when started with
+/// [`CHILD_ARGUMENT`]; the server starts such children itself after
+/// [`crate::Server::analyze_in_child_processes`].
+///
+/// ```no_run
+/// if std::env::args().nth(1).as_deref() == Some(dartforge_lsp::TYPED_ANALYSIS_ARGUMENT) {
+///     std::process::exit(dartforge_lsp::typed_analysis_child());
+/// }
+/// ```
+pub fn typed_analysis_child() -> i32 {
+    use std::io::{Read, Write};
+    let mut input = Vec::new();
+    if std::io::stdin().lock().read_to_end(&mut input).is_err() {
+        return 2;
+    }
+    let Ok(job) = serde_json::from_slice::<Job>(&input) else { return 2 };
+    drop(input);
+    // Deep bodies recurse deeply: a dedicated stack, as in the worker thread.
+    let run = std::thread::Builder::new().name("dartforge-lsp-typed".into()).stack_size(1 << 30).spawn(move || {
+        let engine = match Engine::new(&job.sdk_lib) {
+            Ok(engine) => engine,
+            Err(error) => {
+                eprintln!("[dartforge-lsp] typed diagnostics disabled: {error}");
+                return 2;
+            }
+        };
+        let results = analyze_package(&engine, &job, &|| false);
+        crate::memory::log("after the analysis, in the child");
+        let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+        if serde_json::to_writer(&mut out, &results).is_err() || out.flush().is_err() {
+            return 1;
+        }
+        0
+    });
+    match run.map(std::thread::JoinHandle::join) {
+        Ok(Ok(code)) => code,
+        _ => 101,
+    }
 }
 
 /// The packages of the workspace folders: that of each `.dart` in them.
@@ -494,17 +683,9 @@ fn affected(files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analys
 /// all of them on the package's first analysis (or after the configuration
 /// changes), and afterwards those affected by the changed files. Empty when
 /// cancelled.
-#[allow(clippy::type_complexity)]
-fn analyze_package(
-    engine: &Engine,
-    root: &Path,
-    open: &[(String, i32, PathBuf, String)],
-    texts: &HashMap<PathBuf, String>,
-    cancelled: &dyn Fn() -> bool,
-    config: &AnalysisConfiguration,
-    changed: &(bool, bool, BTreeSet<PathBuf>),
-) -> Vec<Result> {
-    let (in_workspace, all, changed) = (changed.0, changed.1, &changed.2);
+fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> Vec<Result> {
+    let Job { root, open, texts, config, in_workspace, all, changed, .. } = job;
+    let (root, in_workspace, all) = (root.as_path(), *in_workspace, *all);
     // Documents in excluded folders are not analyzed: their publication is empty.
     let excluded = |c: &Path| config.excluded.iter().any(|e| c.starts_with(e));
     let mut excluded_output: Vec<Result> = open
@@ -512,7 +693,7 @@ fn analyze_package(
         .filter(|(_, _, c, _)| excluded(c))
         .map(|(u, v, _, _)| Result { uri: u.clone(), version: Some(*v), text: None, diagnostics: Vec::new(), yaml: Vec::new() })
         .collect();
-    let open: Vec<(String, i32, PathBuf, String)> = open.iter().filter(|(_, _, c, _)| !excluded(c)).cloned().collect();
+    let open: Vec<(String, i32, PathBuf, Arc<str>)> = open.iter().filter(|(_, _, c, _)| !excluded(c)).cloned().collect();
     let open = &open[..];
     let options = dartforge_parity::filters::AnalysisOptions::read(root);
     // The package's `.dart` files that `dart analyze` would see (outside the
@@ -540,10 +721,12 @@ fn analyze_package(
     let package_config = root.join(".dart_tool").join("package_config.json");
     let package_config = package_config.is_file().then_some(package_config);
     let packages = package_config.as_deref().and_then(|c| dartforge_elements::PackageConfig::load(c).ok());
-    let Some(analysis) = engine.analyze_with(root, &files, package_config.as_deref(), texts, cancelled)
+    let texts: HashMap<PathBuf, String> = texts.iter().map(|(k, t)| (k.clone(), t.to_string())).collect();
+    let Some(analysis) = engine.analyze_with(root, &files, package_config.as_deref(), &texts, cancelled)
     else {
         return Vec::new();
     };
+    crate::memory::log(&format!("after the engine ({} files kept)", analysis.files.len()));
     let mut syntactic = SyntacticAnalyzer::new();
     let mut output = Vec::new();
     // The files not open to publish.
@@ -553,7 +736,7 @@ fn analyze_package(
     } else {
         affected(&analysis.files, changed, packages.as_ref())
     };
-    let mut targets: Vec<(String, Option<i32>, PathBuf, String)> = open.iter().map(|(u, v, c, t)| (u.clone(), Some(*v), c.clone(), t.clone())).collect();
+    let mut targets: Vec<(String, Option<i32>, PathBuf, &str)> = open.iter().map(|(u, v, c, t)| (u.clone(), Some(*v), c.clone(), &**t)).collect();
     for a in &of_package {
         let k = key(a);
         if open_keys.contains(&k) || !publish.contains(&k) {
@@ -561,7 +744,7 @@ fn analyze_package(
         }
         let Some(file_) = analysis.files.get(&k) else { continue };
         let Ok(u) = url::Url::from_file_path(a) else { continue };
-        targets.push((u.to_string(), None, a.clone(), file_.text.clone()));
+        targets.push((u.to_string(), None, a.clone(), file_.text.as_str()));
     }
     for (uri, version, path, text) in &targets {
         let Some(file) = analysis.files.get(&key(path)) else {
@@ -614,7 +797,9 @@ fn analyze_package(
         output.push(Result {
             uri: uri.clone(),
             version: *version,
-            text: version.is_none().then(|| text.clone()),
+            // A file that is not open needs its text only to place its
+            // diagnostics: an empty list goes without it.
+            text: (version.is_none() && !diagnostics.is_empty()).then(|| text.to_string()),
             diagnostics,
             yaml: Vec::new(),
         });
