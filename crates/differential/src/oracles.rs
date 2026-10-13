@@ -335,10 +335,10 @@ pub fn cfe_error_line(s: &Output) -> Option<usize> {
 /// The line of DartForge's first error: the diagnostics end in
 /// `at bytes S..E` (offset in the source); the line is counted in the entry.
 pub fn forge_error_line(text: &str, source: &str) -> Option<usize> {
-    // Only the error lines: the type warnings (`aviso: … at bytes …`) also
-    // carry an offset, and may belong to another unit. The `erro` prefix is
+    // Only the error lines: the type warnings (`warning: … at bytes …`) also
+    // carry an offset, and may belong to another unit. The `error` prefix is
     // the dartforge CLI's diagnostic text.
-    let start: Option<usize> = text.lines().filter(|l| l.trim_start().starts_with("erro")).find_map(|l| {
+    let start: Option<usize> = text.lines().filter(|l| l.trim_start().starts_with("error")).find_map(|l| {
         let (_, rest) = l.rsplit_once(" at bytes ")?;
         rest.split("..").next()?.trim().parse().ok()
     });
@@ -730,8 +730,8 @@ mod tests {
         assert_eq!(cfe_error_line(&ddc), Some(12));
         assert_eq!(cfe_error_line(&Output { stdout: "nothing".into(), stderr: String::new(), code: 1 }), None);
         let source = "a\nbb\nccc\n";
-        assert_eq!(forge_error_line("erro: C:\\x.dart:5: z at bytes 5..6\n", source), Some(3));
-        assert_eq!(forge_error_line("erro: z at bytes 0..1", source), Some(1));
+        assert_eq!(forge_error_line("error: C:\\x.dart:5: z at bytes 5..6\n", source), Some(3));
+        assert_eq!(forge_error_line("error: z at bytes 0..1", source), Some(1));
         assert_eq!(rejection(Some(3)).stdout, "erro de compilação na linha 3\n");
     }
 }
