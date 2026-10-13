@@ -728,3 +728,145 @@ nomes para a reserva (a chave é lida por *string*). As chaves curtas dos
 nomeados (§8.2) passaram de base 36 por ordem alfabética para a numeração dos
 ids de receita (uma letra entre 54, depois 64), os nomes mais declarados
 primeiro.
+
+## 10. Rodada de 2026-10-13 (macOS): o piso do runtime
+
+Medido antes de mexer, no corpus inteiro (237 programas que compilam;
+`dart compile js -O4` do SDK 3.6.2 de macOS), num `01_print` de 128.592 bytes
+(35.923 com gzip) contra 34.926 do `dart2js`. Num programa pequeno quase tudo
+é runtime, então esta rodada atacou o que o runtime carrega sem precisar. Cada
+passo foi medido sozinho, e o corpus `--producao` deu 238/238 depois de cada um.
+
+### 10.1 Substituições de variável de tipo só as citadas
+
+A regra de cada classe trazia `"Classe.T": "1"` para os parâmetros de **todos**
+os supertipos (`"EfficientLengthIterable.T"`, `"HideEfficientLengthIterable.T"`,
+`"Iterable.E"`…): 7,5 KB dos 12,5 KB do JSON das regras no `01_print`. O
+`_Universe.evalTypeVariable` só procura o nome que o *parser* de receitas leu
+de uma receita do arquivo (`|j<Iterable.E>`), e os valores das regras nunca
+citam variável pelo nome (usam os índices `"1"`, `"2"`). `rti_rules::prune`
+passou a tirar a entrada cujo nome nenhum texto fora do JSON escreve.
+`DARTFORGE_JSPROD_TYPE_VARIABLES=0` desliga. `01_print`: 128.592 → 121.993.
+
+### 10.2 Nativos fora dos *built-ins* esperam código estrangeiro
+
+Uma classe nativa viva como tipo (ou por uma interface que ela implementa,
+como `JavaScriptIndexingBehavior`) era instanciada: todo programa levava as
+visões de `dart:typed_data` com os `registerExtension`, as regras e as marcas.
+Um `Uint8Array` só existe no programa se alguma função de `dart:typed_data`,
+`dart:_native_typed_data`, da família `dart:html` ou das bibliotecas de
+interop estiver viva, ou uma função `external` fora do SDK
+(`dartforge_world::FOREIGN_LIBRARIES`): é o `NativeBehavior.typesInstantiated`
+do `dart2js`, grosso ao nível da biblioteca. Até lá os nativos ficam retidos e
+são instanciados quando a porta abre. Os *built-ins* (`dart:_interceptors`)
+não mudam. `DARTFORGE_JSPROD_NATIVE_GATE=0` desliga. `01_print`: → 111.018.
+
+### 10.3 Funções triviais *inline*
+
+`inline.rs`, depois do achatamento: um método estático de classe
+(`C = class …`) ou uma função atribuída uma vez cujo corpo é um só `return E`
+vira `E` na chamada, com os argumentos no lugar dos parâmetros. `E` não pode ter
+função, `this`, atribuição nem usar um parâmetro duas vezes. A ordem de
+avaliação do JavaScript é mantida: se `E` avalia algo além de parâmetros antes
+do último parâmetro, usa-os fora de ordem, sob condição ou deixa algum sem uso,
+a troca só acontece onde os argumentos são simples (nomes, literais, `this`,
+leituras de propriedade). Os nomes livres de `E` precisam ter o mesmo
+significado na chamada: nome declarado como local em qualquer função é
+recusado, e nome do topo de uma IIFE só vale dentro dela. A decisão segue uma
+estimativa do tamanho minificado (corpo contra *callee*, mais a definição, que
+sai quando ninguém mais a cita). Some quase todo o acessor do `dart:_rti`
+(`Rti._getKind`, `_Utils.asRti`…). `DARTFORGE_JSPROD_INLINE=0` desliga.
+
+Sem a estimativa o `limitless_ui` crescia 107 KB: corpos de 100 bytes
+copiados em muitas chamadas. Com ela, o `01_print` perde ~5% e os projetos,
+alguns KB.
+
+### 10.4 Nomes privados do SDK sem uso
+
+O prelúdio do SDK declara `var x = dart.privateName(lib, "_n")` para todo nome
+privado da biblioteca, inclusive os dos estáticos, que são nomes JS comuns.
+Sem uso, a linha ainda custava os bytes, e a *string* dela reservava o nome do
+estático (toda *string* do runtime reserva), então `_getCanonicalRecipe` e
+companhia ficavam por extenso. `own_sdk::drop_unused_private_names` tira as
+linhas cuja variável ninguém mais cita. `DARTFORGE_JSPROD_PRIVATE_NAMES=0`
+desliga. `01_print`: ~104.200 → 98.263.
+
+### 10.5 Constantes que apelidam constantes
+
+`static const String separatorString = _commaString;` agora dobra para `","`
+como um inicializador literal, no emissor (`own_sdk::inline_constant`) e no
+mundo (`is_inlinable_constant`), e os *getters* do `dart:_recipe_syntax` saem
+do arquivo. −1 KB no `01_print`.
+
+### 10.6 Classe que o runtime só compara não é instanciada
+
+`JS_CLASS_REF(C)` entrega a classe a um *template* `JS()`, que pode estendê-la
+ou construí-la, e o mundo instanciava `C`. Quando o *template* só compara o
+buraco (logo depois de `instanceof`, ou junto de `===`/`!==`), `C` fica viva
+só como tipo. O `# instanceof #` do `_isJsObject` com `RecordImpl` mantinha o
+runtime dos *records* em todo programa, e com ele o `Object.hash` e a família
+`SystemHash`. `01_print`: 98.263 → 91.772.
+
+### 10.7 O enum de `JS_GET_NAME`/`JS_BUILTIN`
+
+O emissor dobra `JS_GET_NAME(JsGetName.RTI_NAME)` num nome, mas o mundo
+visitava o argumento e o tipo do *helper* (`String Function(JsGetName)`), e
+enum referenciado é instanciado com todas as constantes: `JsGetName` e
+`JsBuiltin`, com as listas `values`, iam em todo arquivo. Para os membros que o
+emissor conhece, nenhum dos dois é visitado. `01_print`: → 88.445.
+
+### 10.8 Resultado
+
+Corpus (237 programas, soma):
+
+| | bruto | gzip -9 |
+| --- | ---: | ---: |
+| antes | 33.147.610 | 9.301.768 |
+| depois | **23.860.132** (−28%) | **7.577.459** (−18,5%) |
+| `dart2js -O4` | 9.606.538 | 3.120.104 |
+
+A mediana da razão nosso/`dart2js` caiu para 2,44× (bruto) e 2,37× (gzip). A
+compilação mediana de um programa do corpus ficou em ~0,35 s.
+
+| programa | antes | depois | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| `01_print` | 128.592 | **88.445** | 34.926 |
+| `120_convert_json` | 207.761 | **173.620** | 58.550 |
+| `135_convert_json_classes` | 274.708 | **240.905** | 101.193 |
+| `limitless_ui/example` | 4.096.297 (gz 1.158.021) | **4.030.541** (gz 1.148.341) | 3.708.482 (gz 983.819) |
+| `new_sali/frontend` | 8.415.525 (gz 2.276.131) | **8.342.998** (gz 2.265.897) | 7.616.042 (gz 2.018.951) |
+
+Os projetos foram compilados no macOS com o `package_config.json` reescrito
+para a cache do pub local e os `*.template.dart` de `.dart_tool/build/generated`
+copiados para uma árvore à parte; o `dart2js -O4` foi rodado sobre as mesmas
+fontes (por isso o `limitless_ui` dá 3,71 MB, e não os 4,51 MB do
+`build_web_compilers --release` da §1.1). Tempo: `new_sali` 27 → 30 s (o
+*inline* faz algumas leituras a mais do arquivo), `dart2js` 68 s; `limitless_ui`
+9 → 12 s, `dart2js` 21 s.
+
+Validação: corpus `--producao` 238/238 (desenvolvimento 238/238), testes de
+`world`, `emit_js` e `emit_js_production`, e o `limitless_ui` percorrido no
+Chrome *headless* (47 rotas) com o mesmo comportamento do binário anterior.
+Essa varredura mostrou dois erros que **já existiam** antes desta rodada (o
+mesmo resultado com o binário do começo da sessão): `NoSuchMethodError` em
+`SafeElement|get#innerHtml` (`sanitize_dom`) em 45 das 47 rotas, e
+`UnimplementedError` de um `isA` não rebaixado na rota `typeahead`. O e2e
+26/26 da §6 precisa ser refeito.
+
+### 10.9 O que falta, por ganho esperado
+
+1. Os erros da §10.8 no `limitless_ui` (correção antes de tamanho).
+2. Nos projetos, a diferença é código do programa no contrato do DDC
+   (`new_sali` 1,10× bruto, 1,12× gzip): assinaturas (`set*Signature`), o
+   `dart.fn` das *closures* sem necessidade de assinatura, checagens
+   implícitas e *inlining* de *getters* triviais de instância.
+3. No corpus, o piso: `_Universe`/`_Parser` do `dart:_rti` inteiros, o
+   `JSNoSuchMethodError.toString` (sempre vivo, pela marca `TypeError`) que
+   puxa `RegExp` e `FormatException`, o `Object.toString` universal que puxa o
+   `_rtiToString` com `split`/`allMatches`. Cada corte é uma regra de precisão
+   no mundo, como §10.6 e §10.7.
+4. Enum com constante por constante viva (o mundo hoje vivifica todas junto
+   com a classe).
+5. Nomes de variável de tipo curtos nas receitas e regras (`|j.E` em vez de
+   `Iterable.E`, ~1,3 KB no `01_print`) e as regras compactadas da sessão
+   anterior (`"#": "|T|U"` para supertipos sem argumento, pequeno).
