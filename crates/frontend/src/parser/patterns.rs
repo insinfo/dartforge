@@ -405,8 +405,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(expr);
         };
         if ctx == ConstContext::Explicit {
-            let ultimo = self.tokens[self.pos - 1].span;
-            self.single_error(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, ultimo, &[]);
+            let last = self.tokens[self.pos - 1].span;
+            self.single_error(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, last, &[]);
         } else {
             self.error_at(
                 codigos::parser::INVALID_CONSTANT_PATTERN_BINARY,

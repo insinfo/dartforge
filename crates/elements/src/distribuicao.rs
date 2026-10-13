@@ -51,8 +51,8 @@ pub fn sobreposicao_nativa() -> Option<PathBuf> {
 
 /// An LLVM executable of the distribution (`clang`, `ld.lld`…), with the
 /// system's extension.
-pub fn ferramenta_llvm(nome: &str) -> Option<PathBuf> {
-    let file = if cfg!(windows) { format!("{nome}.exe") } else { nome.to_string() };
+pub fn ferramenta_llvm(name_: &str) -> Option<PathBuf> {
+    let file = if cfg!(windows) { format!("{name_}.exe") } else { name_.to_string() };
     em_lib(&format!("llvm/bin/{file}")).filter(|p| p.is_file())
 }
 

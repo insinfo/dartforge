@@ -207,7 +207,7 @@ fn load_lenient_(
     let mut cache = cache.filter(|c| c.prepare_interner(interner));
     // Libraries whose parts already came from the cache (the `part` directive
     // must not reload them).
-    let mut libs_do_cache: std::collections::HashSet<LibraryId> = std::collections::HashSet::new();
+    let mut cached_libs: std::collections::HashSet<LibraryId> = std::collections::HashSet::new();
 
     // 1. Loads package_config.json
     let mut package_config = if let Some(p) = package_config_path {
@@ -263,9 +263,9 @@ fn load_lenient_(
     // SDK units already decoded from the cache by the wave, waiting for their
     // library's turn in the queue.
     let mut decoded_sdk: HashMap<String, Vec<crate::sdk_cache::UnitCache>> = HashMap::new();
-    for (i, entrada) in entries.iter().enumerate() {
+    for (i, entry_path) in entries.iter().enumerate() {
         let canonical_entry = crate::config::sem_verbatim(
-            std::fs::canonicalize(entrada).unwrap_or_else(|_| entrada.to_path_buf()),
+            std::fs::canonicalize(entry_path).unwrap_or_else(|_| entry_path.to_path_buf()),
         );
         let entry_uri = canonical_file_uri(&canonical_entry, &package_config);
         let entry_lib_id = if let Some(&existing) = uri_to_library.get(&entry_uri) {
@@ -372,7 +372,7 @@ fn load_lenient_(
                     });
                     program.libraries[lib_id.0 as usize].units.push(unit_id);
                 }
-                libs_do_cache.insert(lib_id);
+                cached_libs.insert(lib_id);
             } else if let Some(sdk_lib) = sdk.library(lib_name) {
                 // Main unit
                 let main_unit = load_unit(
@@ -429,7 +429,7 @@ fn load_lenient_(
                     &lib_uri,
                     lib_id,
                     UnitRole::Library,
-                    Version::Library { config: &package_config, corrente: sdk.versao_corrente, experimentos: &sdk.experimentos },
+                    Version::Library { config: &package_config, current_version: sdk.versao_corrente, experimentos: &sdk.experimentos },
                     interner,
                     &mut program,
                     &mut diagnostics,
@@ -449,19 +449,19 @@ fn load_lenient_(
 
         // 5. Analyzes the directives in every loaded unit of this library
         let t_dir = std::time::Instant::now();
-        let (read_before, parse_antes) = (program.tempos.leitura, program.tempos.parse);
+        let (read_before, parse_before) = (program.tempos.leitura, program.tempos.parse);
         let mut unit_idx = 0;
         // The augmentation the macro host built for this library (in memory,
         // `<name>.macro.dart` next to it) comes in last, after every part — like
         // the augmentation libraries the CFE creates for macro output. It is only
         // consulted when there are generated sources (zero cost without macros).
-        let mut macro_anexada = false;
+        let mut attached_macro = false;
         loop {
             if unit_idx >= program.libraries[lib_id.0 as usize].units.len() {
-                if macro_anexada {
+                if attached_macro {
                     break;
                 }
-                macro_anexada = true;
+                attached_macro = true;
                 match attach_macro_augmentation(&mut program, lib_id, &package_config, sdk.versao_corrente, interner, &mut diagnostics, &mut prefetch) {
                     Some(uid) => {
                         program.libraries[lib_id.0 as usize].units.push(uid);
@@ -552,7 +552,7 @@ fn load_lenient_(
                         }
                     }
                     DirectiveAction::Part { uri, augmentation } => {
-                        if libs_do_cache.contains(&lib_id) {
+                        if cached_libs.contains(&lib_id) {
                             // Parts already came from the cache, checked when building it.
                             continue;
                         }
@@ -588,7 +588,7 @@ fn load_lenient_(
                         let part_version = if program.libraries[lib_id.0 as usize].is_sdk {
                             Version::Sdk
                         } else {
-                            Version::Part { of_library, config: &package_config, corrente: sdk.versao_corrente }
+                            Version::Part { of_library, config: &package_config, current_version: sdk.versao_corrente }
                         };
 
                         let role_ = if augmentation { UnitRole::Augmentation } else { part_roles };
@@ -700,7 +700,7 @@ fn load_lenient_(
         program.tempos.diretivas += t_dir
             .elapsed()
             .saturating_sub(program.tempos.leitura - read_before)
-            .saturating_sub(program.tempos.parse - parse_antes);
+            .saturating_sub(program.tempos.parse - parse_before);
     }
 
     // 6. Builds the outline and namespaces and resolves supertypes
@@ -733,12 +733,12 @@ pub fn load(
 // ---------------------------------------------------------------------------
 
 /// Source and tokens of a file read and lexed off the main thread.
-type Lido = std::io::Result<(String, Result<Vec<dartforge_frontend::token::Token>, Diagnostic>)>;
+type ReadFile = std::io::Result<(String, Result<Vec<dartforge_frontend::token::Token>, Diagnostic>)>;
 
 /// Files of one queue wave, read and lexed in parallel.
 #[derive(Default)]
 struct Prefetch {
-    ready: HashMap<PathBuf, Lido>,
+    ready: HashMap<PathBuf, ReadFile>,
     /// Current generation: sources from here never come from the disk.
     gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
     /// What the load does not see ([`PackageConfig::ocultos`]): read as a
@@ -751,7 +751,7 @@ impl Prefetch {
         self.ready.is_empty()
     }
 
-    fn take(&mut self, path: &Path) -> Option<Lido> {
+    fn take(&mut self, path: &Path) -> Option<ReadFile> {
         if let Some(f) = self.gerados.as_ref().and_then(|g| g.obter(path)) {
             let source = f.conteudo.to_string();
             let tokens = dartforge_frontend::lexer::lex(&source);
@@ -775,7 +775,7 @@ impl Prefetch {
         for p in ocultos {
             self.ready.insert(p, Err(std::io::ErrorKind::NotFound.into()));
         }
-        let ler = |p: &Path| -> Lido {
+        let ler = |p: &Path| -> ReadFile {
             let s = std::fs::read_to_string(p)?;
             let t = dartforge_frontend::lexer::lex(&s);
             Ok((s, t))
@@ -788,14 +788,14 @@ impl Prefetch {
             }
             return;
         }
-        let proximo = std::sync::atomic::AtomicUsize::new(0);
-        let results: Vec<Vec<(PathBuf, Lido)>> = std::thread::scope(|s| {
+        let next_index = std::sync::atomic::AtomicUsize::new(0);
+        let results: Vec<Vec<(PathBuf, ReadFile)>> = std::thread::scope(|s| {
             let handles: Vec<_> = (0..threads)
                 .map(|_| {
                     s.spawn(|| {
                         let mut mine = Vec::new();
                         loop {
-                            let i = proximo.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let i = next_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(p) = caminhos.get(i) else { break };
                             let l = ler(p);
                             mine.push((p.clone(), l));
@@ -819,9 +819,9 @@ impl Prefetch {
 /// original's logical path — that is what makes a `part` of it resolve next
 /// to the original. `None` when there is no swap (reading follows the normal
 /// path).
-fn read_substitute(sdk: &SdkLayout, path: &Path) -> Option<Lido> {
-    let novo = sdk.substituto(path)?;
-    Some(std::fs::read_to_string(novo).map(|s| {
+fn read_substitute(sdk: &SdkLayout, path: &Path) -> Option<ReadFile> {
+    let new_ = sdk.substituto(path)?;
+    Some(std::fs::read_to_string(new_).map(|s| {
         let t = dartforge_frontend::lexer::lex(&s);
         (s, t)
     }))
@@ -876,11 +876,11 @@ enum Version<'c> {
     /// SDK library, patch or part: always the floor (D1).
     Sdk,
     /// Main unit of a user or package library.
-    Library { config: &'c PackageConfig, corrente: LanguageVersion, experimentos: &'c [Feature] },
+    Library { config: &'c PackageConfig, current_version: LanguageVersion, experimentos: &'c [Feature] },
     /// Part: parsed with the library's features; the part's own version (marker
     /// or package) must be the same, otherwise it is an error
     /// (`LanguageVersionMismatchInPart`).
-    Part { of_library: LibraryFeatures, config: &'c PackageConfig, corrente: LanguageVersion },
+    Part { of_library: LibraryFeatures, config: &'c PackageConfig, current_version: LanguageVersion },
 }
 
 /// The features of a unit and the diagnostics of the version choice.
@@ -893,13 +893,13 @@ fn unit_features(
 ) -> LibraryFeatures {
     match version {
         Version::Sdk => LibraryFeatures::piso(),
-        Version::Library { config, corrente, experimentos } => {
-            let (padrao, marker) = own_version(source, uri, path, config, corrente, diagnostics);
-            LibraryFeatures::for_library(marker.map(|m| m.0), padrao, corrente, experimentos)
+        Version::Library { config, current_version, experimentos } => {
+            let (default_version, marker) = own_version(source, uri, path, config, current_version, diagnostics);
+            LibraryFeatures::for_library(marker.map(|m| m.0), default_version, current_version, experimentos)
         }
-        Version::Part { of_library, config, corrente } => {
-            let (padrao, marker) = own_version(source, uri, path, config, corrente, diagnostics);
-            let own = marker.map_or(padrao, |m| m.0);
+        Version::Part { of_library, config, current_version } => {
+            let (default_version, marker) = own_version(source, uri, path, config, current_version, diagnostics);
+            let own = marker.map_or(default_version, |m| m.0);
             if own != of_library.versao() {
                 let span = marker.map_or(Span { start: 0, end: 0 }, |m| m.1);
                 diagnostics.push(Diagnostic::new(
@@ -926,7 +926,7 @@ fn own_version(
     uri: &str,
     path: &Path,
     config: &PackageConfig,
-    corrente: LanguageVersion,
+    current_version: LanguageVersion,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> (LanguageVersion, Option<(LanguageVersion, Span)>) {
     // The path and offset in front of the message, like the parser's
@@ -938,26 +938,26 @@ fn own_version(
         diagnostics.push(d);
     };
     let zero = Span { start: 0, end: 0 };
-    let padrao = match config.pacote_da_biblioteca(uri, Some(path)) {
+    let default_version = match config.pacote_da_biblioteca(uri, Some(path)) {
         Some(p) => {
             if let Some(t) = &p.invalid_language_version {
                 error_code(Diagnostic::new(format!("The languageVersion '{t}' of package '{}' in package_config.json isn't a valid x.y version.", p.name), zero));
             }
             match p.language_version {
-                Some(v) if v > corrente => {
-                    error_code(Diagnostic::new(format!("The package '{}' has language version {v}, greater than the latest known language version: {corrente}.", p.name), zero));
-                    corrente
+                Some(v) if v > current_version => {
+                    error_code(Diagnostic::new(format!("The package '{}' has language version {v}, greater than the latest known language version: {current_version}.", p.name), zero));
+                    current_version
                 }
                 Some(v) => v,
-                None => corrente,
+                None => current_version,
             }
         }
-        None => corrente,
+        None => current_version,
     };
     let marker = dartforge_frontend::features::marcador_versao(source).and_then(|(v, span)| {
-        if v > corrente {
+        if v > current_version {
             // WarningCode.INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER.
-            let (greater, lesser) = (corrente.major.to_string(), corrente.minor.to_string());
+            let (greater, lesser) = (current_version.major.to_string(), current_version.minor.to_string());
             error_code(Diagnostic::com_codigo(
                 codigos::warning::INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER,
                 span,
@@ -973,7 +973,7 @@ fn own_version(
             Some((v, span))
         }
     });
-    (padrao, marker)
+    (default_version, marker)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -986,7 +986,7 @@ fn load_unit(
     interner: &mut Interner,
     program: &mut Program,
     diagnostics: &mut Vec<Diagnostic>,
-    lido: Option<Lido>,
+    read_file: Option<ReadFile>,
     unidades: Option<&mut crate::unidades::CacheUnidades>,
 ) -> Option<UnitId> {
     // Resident session: an already analyzed unit comes straight in (what
@@ -1015,14 +1015,14 @@ fn load_unit(
         }
     }
     let t = std::time::Instant::now();
-    let lido = match lido {
+    let read_file = match read_file {
         Some(l) => l,
         None => std::fs::read_to_string(path).map(|s| {
             let t = dartforge_frontend::lexer::lex(&s);
             (s, t)
         }),
     };
-    let (source, tokens) = match lido {
+    let (source, tokens) = match read_file {
         Ok(x) => x,
         Err(e) => {
             diagnostics.push(Diagnostic::new(
@@ -1197,8 +1197,8 @@ fn resolve_directive_target(
     } else if uri_str.starts_with("package:") {
         // Only validates the package; the path is computed once, when the library
         // leaves the queue (`library_path`), not per directive.
-        let nome = uri_str["package:".len()..].split('/').next().unwrap_or("");
-        if package_config.packages.contains_key(nome) {
+        let name_ = uri_str["package:".len()..].split('/').next().unwrap_or("");
+        if package_config.packages.contains_key(name_) {
             Ok((uri_str.to_string(), None))
         } else {
             let file_path = package_config.resolve_package_uri(uri_str)?;
@@ -1305,7 +1305,7 @@ fn attach_macro_augmentation(
     program: &mut Program,
     lib_id: LibraryId,
     package_config: &PackageConfig,
-    corrente: LanguageVersion,
+    current_version: LanguageVersion,
     interner: &mut Interner,
     diagnostics: &mut Vec<Diagnostic>,
     prefetch: &mut Prefetch,
@@ -1325,9 +1325,9 @@ fn attach_macro_augmentation(
         return None;
     }
     let uri = canonical_file_uri(&caminho, package_config);
-    let version = Version::Part { of_library: lib.features, config: package_config, corrente };
-    let lido = prefetch.take(&caminho);
-    let uid = load_unit(&caminho, &uri, lib_id, UnitRole::Augmentation, version, interner, program, diagnostics, lido, None)?;
+    let version = Version::Part { of_library: lib.features, config: package_config, current_version };
+    let read_file = prefetch.take(&caminho);
+    let uid = load_unit(&caminho, &uri, lib_id, UnitRole::Augmentation, version, interner, program, diagnostics, read_file, None)?;
     Some(uid)
 }
 

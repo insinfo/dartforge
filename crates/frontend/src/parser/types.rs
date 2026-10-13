@@ -215,8 +215,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `(,)`: `EMPTY_RECORD_TYPE_WITH_COMMA` at the comma
         // (`parser_impl.dart:1673-1676`).
         if self.at_op(Op::Comma) && self.at_op_at(1, Op::RParen) {
-            let virgula = self.advance().span;
-            self.error_at(codigos::parser::EMPTY_RECORD_TYPE_WITH_COMMA, virgula, &[]);
+            let comma = self.advance().span;
+            self.error_at(codigos::parser::EMPTY_RECORD_TYPE_WITH_COMMA, comma, &[]);
             saw_comma = true;
         }
         loop {
@@ -576,7 +576,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         abre: usize,
         synthetic: bool,
     ) -> PResult<()> {
-        let ultimo = self.tokens[self.pos.saturating_sub(1)].span;
+        let last = self.tokens[self.pos.saturating_sub(1)].span;
         let mut reported = synthetic;
         let report = |p: &mut Self, reported: &mut bool, where_: Span| {
             if !*reported {
@@ -586,7 +586,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         let mut after_extends = false;
         if self.at_kw(Keyword::Extends) {
-            report(self, &mut reported, ultimo);
+            report(self, &mut reported, last);
             self.advance();
             after_extends = self.is_valid_type_reference(self.pos);
             if self.eat_op(Op::Gt) {
@@ -1836,9 +1836,9 @@ mod tests {
         out.diagnostics
             .iter()
             .map(|d| {
-                let antes = &src[..d.span.start];
-                let line = antes.matches('\n').count() + 1;
-                let column = d.span.start - antes.rfind('\n').map_or(0, |i| i + 1) + 1;
+                let before = &src[..d.span.start];
+                let line = before.matches('\n').count() + 1;
+                let column = d.span.start - before.rfind('\n').map_or(0, |i| i + 1) + 1;
                 (
                     d.code
                         .map(|c| c.info().nome.to_string())

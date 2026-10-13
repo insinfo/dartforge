@@ -61,7 +61,7 @@ fn main() {
         // Source and tree stay alive, as in an editor with the project open.
         retained.push((fonte, output));
     }
-    let tempo = start_offset.elapsed();
+    let elapsed_time = start_offset.elapsed();
     // Where the bytes are: each arena, count × node size (reserved capacity
     // separately, because `Vec` grows in powers of two).
     {
@@ -246,8 +246,8 @@ fn main() {
     );
     println!(
         "allocations: {allocations_}; time: {:.0} ms ({:.1} MiB/s)",
-        tempo.as_secs_f64() * 1e3,
-        mib(bytes_fonte) / tempo.as_secs_f64()
+        elapsed_time.as_secs_f64() * 1e3,
+        mib(bytes_fonte) / elapsed_time.as_secs_f64()
     );
     drop(retained);
     println!(

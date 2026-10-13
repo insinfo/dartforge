@@ -240,20 +240,20 @@ impl LibraryFeatures {
     }
 
     /// The whole rule for a library: `marker` is the version of the
-    /// `// @dart = x.y`, if any; `padrao` the package's (or the current one,
-    /// outside a package); `corrente` the tool's; `experimentos`, those
+    /// `// @dart = x.y`, if any; `default_version` the package's (or the current one,
+    /// outside a package); `current_` the tool's; `experimentos`, those
     /// requested with `--enable-experiment`, which only apply without a marker
     /// and with the default equal to the current version.
     pub fn for_library(
         marker: Option<LanguageVersion>,
-        padrao: LanguageVersion,
-        corrente: LanguageVersion,
+        default_version: LanguageVersion,
+        current_: LanguageVersion,
         experimentos: &[Feature],
     ) -> Self {
         match marker {
             Some(v) => LibraryFeatures::new(v, &[]),
-            None if padrao == corrente => LibraryFeatures::new(padrao, experimentos),
-            None => LibraryFeatures::new(padrao, &[]),
+            None if default_version == current_ => LibraryFeatures::new(default_version, experimentos),
+            None => LibraryFeatures::new(default_version, &[]),
         }
     }
 

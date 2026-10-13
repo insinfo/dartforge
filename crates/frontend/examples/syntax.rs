@@ -77,9 +77,9 @@ fn main() {
         }
     }
     println!("\n== {accepted}/{total} files accepted by the parser ==");
-    let mut ordenado: Vec<_> = count.into_iter().collect();
-    ordenado.sort_by_key(|a| std::cmp::Reverse(a.1));
-    for (message, n) in ordenado.iter().take(40) {
+    let mut sorted: Vec<_> = count.into_iter().collect();
+    sorted.sort_by_key(|a| std::cmp::Reverse(a.1));
+    for (message, n) in sorted.iter().take(40) {
         println!("{n:5}  {message}");
     }
 }

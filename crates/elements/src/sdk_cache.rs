@@ -79,12 +79,12 @@ impl SdkCache {
             let blobs = cab
                 .bibliotecas
                 .iter()
-                .map(|(nome, b, _)| (nome.to_string(), range(b.as_ptr(), b.len())))
+                .map(|(name_, b, _)| (name_.to_string(), range(b.as_ptr(), b.len())))
                 .collect();
             let dependencies = cab
                 .bibliotecas
                 .iter()
-                .map(|(nome, _, deps)| (nome.to_string(), deps.iter().map(|d| d.to_string()).collect()))
+                .map(|(name_, _, deps)| (name_.to_string(), deps.iter().map(|d| d.to_string()).collect()))
                 .collect();
             (simbolos, blobs, dependencies)
         };
@@ -114,9 +114,9 @@ impl SdkCache {
         // content, in a stable order.
         let mut swaps: Vec<(&PathBuf, &PathBuf)> = sdk.substituicoes.iter().collect();
         swaps.sort();
-        for (original, novo) in swaps {
+        for (original, new_) in swaps {
             mix(original.to_string_lossy().as_bytes());
-            mix(&std::fs::read(novo).unwrap_or_default());
+            mix(&std::fs::read(new_).unwrap_or_default());
         }
         mix(include_str!("../../frontend/src/ast.rs").as_bytes());
         mix(include_str!("../../frontend/src/text.rs").as_bytes());
@@ -165,9 +165,9 @@ impl SdkCache {
         let mut names_: Vec<&String> = sdk.libraries.keys().collect();
         names_.sort();
         let mut bibliotecas = Vec::with_capacity(names_.len());
-        for nome in names_ {
-            let lib = &sdk.libraries[nome];
-            let uri = format!("dart:{nome}");
+        for name_ in names_ {
+            let lib = &sdk.libraries[name_];
+            let uri = format!("dart:{name_}");
             let mut unidades = Vec::new();
             let Some(principal) = parse(sdk, &lib.path, &uri, UnitRole::Library, &mut interner)? else {
                 // A library without a source file: it does not go into the cache; the
@@ -193,7 +193,7 @@ impl SdkCache {
                 unidades.extend(new_ones);
                 i += 1;
             }
-            let blob = postcard::to_allocvec(&unidades).map_err(|e| format!("serializing dart:{nome}: {e}"))?;
+            let blob = postcard::to_allocvec(&unidades).map_err(|e| format!("serializing dart:{name_}: {e}"))?;
             let mut deps: Vec<String> = Vec::new();
             for u in &unidades {
                 for d in &u.unit.directives {
@@ -208,7 +208,7 @@ impl SdkCache {
                     }
                 }
             }
-            bibliotecas.push((nome.clone(), blob, deps));
+            bibliotecas.push((name_.clone(), blob, deps));
         }
         let bytes = {
             let cab = Header {
@@ -257,10 +257,10 @@ impl SdkCache {
         true
     }
 
-    /// Takes out and decodes the units of `dart:<nome>`; `None` if it is not in
+    /// Takes out and decodes the units of `dart:<name_>`; `None` if it is not in
     /// the cache or was already taken.
-    pub fn retirar(&mut self, nome: &str) -> Option<Vec<UnitCache>> {
-        let (a, b) = self.blobs.remove(nome)?;
+    pub fn retirar(&mut self, name_: &str) -> Option<Vec<UnitCache>> {
+        let (a, b) = self.blobs.remove(name_)?;
         let unidades: Vec<UnitCache> = postcard::from_bytes(&self.bytes[a..b]).ok()?;
         self.decoded_units += unidades.len();
         Some(unidades)
@@ -281,12 +281,12 @@ impl SdkCache {
     pub fn remove_several(&mut self, names_: &[&str]) -> HashMap<String, Vec<UnitCache>> {
         let mut requests: Vec<(String, (usize, usize))> = Vec::new();
         let mut pending: Vec<String> = names_.iter().map(|n| n.to_string()).collect();
-        while let Some(nome) = pending.pop() {
-            let Some(r) = self.blobs.remove(&nome) else { continue };
-            if let Some(deps) = self.dependencies.get(&nome) {
+        while let Some(name_) = pending.pop() {
+            let Some(r) = self.blobs.remove(&name_) else { continue };
+            if let Some(deps) = self.dependencies.get(&name_) {
                 pending.extend(deps.iter().filter(|d| self.blobs.contains_key(*d)).cloned());
             }
-            requests.push((nome, r));
+            requests.push((name_, r));
         }
         // Largest first: the largest blob (`dart:core`) is not left for last.
         requests.sort_by_key(|(_, (a, b))| std::cmp::Reverse(b - a));
@@ -295,23 +295,23 @@ impl SdkCache {
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8).min(requests.len());
         let mut output = HashMap::new();
         if threads < 2 {
-            for (nome, r) in requests {
+            for (name_, r) in requests {
                 if let Some(u) = decode(r) {
-                    output.insert(nome, u);
+                    output.insert(name_, u);
                 }
             }
         } else {
-            let proximo = std::sync::atomic::AtomicUsize::new(0);
+            let next_index = std::sync::atomic::AtomicUsize::new(0);
             let batches: Vec<Vec<(String, Vec<UnitCache>)>> = std::thread::scope(|s| {
                 let handles: Vec<_> = (0..threads)
                     .map(|_| {
                         s.spawn(|| {
                             let mut mine = Vec::new();
                             loop {
-                                let i = proximo.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                let Some((nome, r)) = requests.get(i) else { break };
+                                let i = next_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let Some((name_, r)) = requests.get(i) else { break };
                                 if let Some(u) = decode(*r) {
-                                    mine.push((nome.clone(), u));
+                                    mine.push((name_.clone(), u));
                                 }
                             }
                             mine
@@ -326,8 +326,8 @@ impl SdkCache {
         output
     }
 
-    pub fn tem(&self, nome: &str) -> bool {
-        self.blobs.contains_key(nome)
+    pub fn tem(&self, name_: &str) -> bool {
+        self.blobs.contains_key(name_)
     }
 
     pub fn bibliotecas(&self) -> usize {

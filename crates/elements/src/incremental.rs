@@ -44,7 +44,7 @@ pub enum Recusa {
     /// comparable.
     Lexico,
     /// The declarations' API signature changed.
-    Assinatura,
+    Signature,
     /// The directives changed.
     Diretivas,
 }
@@ -113,25 +113,25 @@ pub fn substituir_unidade(
     initializers_as_body: bool,
 ) -> Result<Anterior, Recusa> {
     let features = program.unit(u).features;
-    let novo = dartforge_frontend::parser::parse_com(text, names_, features);
+    let new_ = dartforge_frontend::parser::parse_com(text, names_, features);
     let (map, alterados) = {
         let old_ = program.unit(u);
-        verify_shape(&old_.ast, &old_.unit, &novo.ast, &novo.unit)?;
+        verify_shape(&old_.ast, &old_.unit, &new_.ast, &new_.unit)?;
         let (Ok(tv), Ok(tn)) = (dartforge_frontend::lexer::lex(&old_.source), dartforge_frontend::lexer::lex(text)) else {
             return Err(Recusa::Lexico);
         };
         let rv = regions(&old_.ast, initializers_as_body);
-        let rn = regions(&novo.ast, initializers_as_body);
+        let rn = regions(&new_.ast, initializers_as_body);
         if rv.len() != rn.len() || rv.iter().zip(rn.iter()).any(|(a, b)| a.owner != b.owner) {
-            return Err(Recusa::Assinatura);
+            return Err(Recusa::Signature);
         }
         let (dir_v, sig_v) = split(&old_.source, &tv, &directive_spans(&old_.unit), &rv);
-        let (dir_n, sig_n) = split(text, &tn, &directive_spans(&novo.unit), &rn);
+        let (dir_n, sig_n) = split(text, &tn, &directive_spans(&new_.unit), &rn);
         if dir_v != dir_n {
             return Err(Recusa::Diretivas);
         }
         if sig_v != sig_n {
-            return Err(Recusa::Assinatura);
+            return Err(Recusa::Signature);
         }
         let alterados: Vec<UnitBody> = rv
             .iter()
@@ -139,12 +139,12 @@ pub fn substituir_unidade(
             .filter(|(a, b)| old_.source.get(a.span.start..a.span.end) != text.get(b.span.start..b.span.end))
             .map(|(a, _)| a.owner)
             .collect();
-        let (lv, ln) = (signature_types(&old_.ast), signature_types(&novo.ast));
+        let (lv, ln) = (signature_types(&old_.ast), signature_types(&new_.ast));
         if lv.len() != ln.len() {
             return Err(Recusa::ShapeChanged("signature types"));
         }
         for (a, b) in lv.iter().zip(ln.iter()) {
-            let (ta, tb) = (old_.ast.ty(*a), novo.ast.ty(*b));
+            let (ta, tb) = (old_.ast.ty(*a), new_.ast.ty(*b));
             if ta.nullable != tb.nullable || std::mem::discriminant(&ta.kind) != std::mem::discriminant(&tb.kind) {
                 return Err(Recusa::ShapeChanged("signature types"));
             }
@@ -167,10 +167,10 @@ pub fn substituir_unidade(
     Ok(Anterior {
         unidade: u,
         source: std::mem::replace(&mut un.source, text.to_string()),
-        ast: std::mem::replace(&mut un.ast, novo.ast),
-        unit: std::mem::replace(&mut un.unit, novo.unit),
-        pulados: std::mem::replace(&mut un.pulados, novo.pulados),
-        referencia: std::mem::replace(&mut un.referencia, novo.referencia),
+        ast: std::mem::replace(&mut un.ast, new_.ast),
+        unit: std::mem::replace(&mut un.unit, new_.unit),
+        pulados: std::mem::replace(&mut un.pulados, new_.pulados),
+        referencia: std::mem::replace(&mut un.referencia, new_.referencia),
         map,
         alterados,
     })
@@ -178,9 +178,9 @@ pub fn substituir_unidade(
 
 /// Undoes a [`substituir_unidade`] (the elements' pairs go back to the old
 /// tree's ids).
-pub fn restaurar_unidade(program: &mut Program, anterior: Anterior) {
-    let u = anterior.unidade;
-    let inverse = anterior.mapa_inverso();
+pub fn restaurar_unidade(program: &mut Program, previous: Anterior) {
+    let u = previous.unidade;
+    let inverse = previous.mapa_inverso();
     for p in pairs(program) {
         if p.0 == u
             && let Some(&t) = inverse.get(&p.1)
@@ -189,11 +189,11 @@ pub fn restaurar_unidade(program: &mut Program, anterior: Anterior) {
         }
     }
     let un = &mut program.units[u.0 as usize];
-    un.source = anterior.source;
-    un.ast = anterior.ast;
-    un.unit = anterior.unit;
-    un.pulados = anterior.pulados;
-    un.referencia = anterior.referencia;
+    un.source = previous.source;
+    un.ast = previous.ast;
+    un.unit = previous.unit;
+    un.pulados = previous.pulados;
+    un.referencia = previous.referencia;
 }
 
 /// The one-to-one correspondence of the arenas the elements cite.

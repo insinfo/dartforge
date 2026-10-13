@@ -43,7 +43,7 @@ pub(crate) struct ElementPools<'a> {
 enum Species {
     Getter,
     Setter,
-    Variavel,
+    Variable,
     Funcao,
     Enum,
     Extension,
@@ -61,7 +61,7 @@ impl Species {
     /// is `??=`: whoever comes first keeps the name.
     fn order(self) -> u8 {
         match self {
-            Species::Getter | Species::Setter | Species::Variavel => 0,
+            Species::Getter | Species::Setter | Species::Variable => 0,
             Species::Funcao => 1,
             Species::Enum => 2,
             Species::Extension => 3,
@@ -82,10 +82,10 @@ impl Species {
 /// name, nothing changes.
 fn resolve_homonyms(lib: &mut Library, candidates: &[(SymbolId, bool, Species, Element, u32)]) {
     let mut per_slot: HashMap<(SymbolId, bool), Vec<usize>> = HashMap::new();
-    for (k, (nome, setter, _, _, _)) in candidates.iter().enumerate() {
-        per_slot.entry((*nome, *setter)).or_default().push(k);
+    for (k, (name_, setter, _, _, _)) in candidates.iter().enumerate() {
+        per_slot.entry((*name_, *setter)).or_default().push(k);
     }
-    for ((nome, setter), group) in &per_slot {
+    for ((name_, setter), group) in &per_slot {
         if group.len() < 2 {
             continue;
         }
@@ -97,11 +97,11 @@ fn resolve_homonyms(lib: &mut Library, candidates: &[(SymbolId, bool, Species, E
             .copied()
             .min_by_key(|&k| (candidates[k].4, candidates[k].2.order(), k))
             .expect("non-empty group");
-        let entrada = lib.declared.entry(*nome).or_default();
+        let entry_path = lib.declared.entry(*name_).or_default();
         if *setter {
-            entrada.setter = Some(candidates[winner].3);
+            entry_path.setter = Some(candidates[winner].3);
         } else {
-            entrada.getter = Some(candidates[winner].3);
+            entry_path.getter = Some(candidates[winner].3);
         }
         // The representatives: the first of each kind in the group.
         let mut first: HashMap<Species, Element> = HashMap::new();
@@ -467,10 +467,10 @@ pub fn build_outline(
                                 .entry(var_sym)
                                 .or_default();
                             entry.getter = Some(Element::Variable(var_id));
-                            candidates.push((var_sym, false, Species::Variavel, Element::Variable(var_id), unit_order));
+                            candidates.push((var_sym, false, Species::Variable, Element::Variable(var_id), unit_order));
                             if setter_id.is_some() {
                                 entry.setter = Some(Element::Variable(var_id));
-                                candidates.push((var_sym, true, Species::Variavel, Element::Variable(var_id), unit_order));
+                                candidates.push((var_sym, true, Species::Variable, Element::Variable(var_id), unit_order));
                             }
                         }
                     }
@@ -721,8 +721,8 @@ fn compute_homonym_owners(program: &mut Program) {
         }
         let mut owners: HashMap<ClassId, ClassId> = HashMap::new();
         for (rep, members_) in groups {
-            let nome = program.classes[rep.0 as usize].name;
-            let designated = match program.libraries[li].declared.get(&nome).and_then(|d| d.getter) {
+            let name_ = program.classes[rep.0 as usize].name;
+            let designated = match program.libraries[li].declared.get(&name_).and_then(|d| d.getter) {
                 Some(Element::Class(c)) if members_.contains(&c) => Some(c),
                 _ => None,
             };
@@ -752,9 +752,9 @@ fn compute_homonym_owners(program: &mut Program) {
                             let quote_char = a
                                 .exprs
                                 .iter()
-                                .any(|e| matches!(&e.kind, ast::ExprKind::Identifier(n) if n.sym == nome) && inside(e.span, span))
+                                .any(|e| matches!(&e.kind, ast::ExprKind::Identifier(n) if n.sym == name_) && inside(e.span, span))
                                 || a.types.iter().any(|t| {
-                                    matches!(&t.kind, ast::TypeKind::Named { name, .. } if name.len() == 1 && name[0].sym == nome)
+                                    matches!(&t.kind, ast::TypeKind::Named { name, .. } if name.len() == 1 && name[0].sym == name_)
                                         && inside(t.span, span)
                                 });
                             if quote_char {
@@ -827,13 +827,13 @@ fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, U
         }
         // The chain from the file up to the library's, from outside in.
         let mut chain = vec![unidade];
-        let mut atual = unidade;
-        while let Some(&parent) = lib.pais.get(&atual) {
+        let mut current = unidade;
+        while let Some(&parent) = lib.pais.get(&current) {
             if chain.contains(&parent) {
                 break;
             }
             chain.push(parent);
-            atual = parent;
+            current = parent;
         }
         chain.reverse();
         let mut scope_ = UnitScope { scope: lib.declared.clone(), prefixes: HashMap::new() };
@@ -1848,19 +1848,19 @@ fn sdk_element(program: &Program, el: Element) -> bool {
 /// "Imports"): if one comes from a system library (`dart:`) and the other
 /// does not, the system one is hidden — there is no ambiguity.
 fn merge_binding_with(entry: &mut Binding, incoming: Binding, from_sdk: &dyn Fn(Element) -> bool) {
-    let join = |atual: &mut Option<Element>, novo: Option<Element>, amb: &mut bool| match (*atual, novo) {
-        (None, n) => *atual = n,
+    let join = |current: &mut Option<Element>, new_: Option<Element>, ambiguous: &mut bool| match (*current, new_) {
+        (None, n) => *current = n,
         (Some(a), Some(n)) if a != n => match (from_sdk(a), from_sdk(n)) {
-            (true, false) => *atual = Some(n),
+            (true, false) => *current = Some(n),
             (false, true) => {}
-            _ => *amb = true,
+            _ => *ambiguous = true,
         },
         _ => {}
     };
-    let mut amb = entry.ambiguous;
-    join(&mut entry.getter, incoming.getter, &mut amb);
-    join(&mut entry.setter, incoming.setter, &mut amb);
-    entry.ambiguous = amb;
+    let mut ambiguous = entry.ambiguous;
+    join(&mut entry.getter, incoming.getter, &mut ambiguous);
+    join(&mut entry.setter, incoming.setter, &mut ambiguous);
+    entry.ambiguous = ambiguous;
 
     if incoming.ambiguous {
         entry.ambiguous = true;

@@ -132,13 +132,13 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
                 }
             }
             Kind::StrMid(..) | Kind::StrEnd(_) => {
-                let anterior = excerpts.pop();
-                let nova = match t.kind {
+                let previous = excerpts.pop();
+                let new_ = match t.kind {
                     Kind::StrMid(_, interp) => Some(interp),
                     _ => None,
                 };
-                let abre = if nova == Some(Interp::Brace) { GroupEffect::Opens(Group::Interpolation) } else { GroupEffect::Nothing };
-                if anterior == Some(Interp::Brace) {
+                let abre = if new_ == Some(Interp::Brace) { GroupEffect::Opens(Group::Interpolation) } else { GroupEffect::Nothing };
+                if previous == Some(Interp::Brace) {
                     // The `}` and the continuation of the string: two calls.
                     p.first = GroupEffect::Closes(Group::Interpolation);
                     p.calls = 2;
@@ -148,7 +148,7 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
                     p.calls = 0;
                     p.first = abre;
                 }
-                if let Some(interp) = nova {
+                if let Some(interp) = new_ {
                     excerpts.push(interp);
                 }
             }
@@ -192,16 +192,16 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
                     while n < 3 && tokens[i + n - 1].glued && tokens.get(i + n).is_some_and(|x| x.kind == Kind::Op(Op::Gt)) {
                         n += 1;
                     }
-                    let ultimo = i + n - 1;
-                    let following = tokens.get(ultimo + 1).filter(|_| tokens[ultimo].glued);
+                    let last = i + n - 1;
+                    let following = tokens.get(last + 1).filter(|_| tokens[last].glued);
                     let equals_ = following.filter(|x| source[x.span.start..x.span.end].starts_with('='));
                     p.first = if equals_.is_some() { GroupEffect::Nothing } else { GroupEffect::Greater(n as u8) };
                     output.push(p);
-                    for k in i + 1..=ultimo {
+                    for k in i + 1..=last {
                         output.push(Passo { trivia: 0, calls: 0, first: GroupEffect::Nothing, second: GroupEffect::Nothing });
                         previous_end = tokens[k].span.end;
                     }
-                    i = ultimo + 1;
+                    i = last + 1;
                     if let Some(x) = equals_ {
                         // The rest of the token after the `=` the `>` took.
                         let rest = &source[x.span.start + 1..x.span.end];
@@ -261,8 +261,8 @@ fn search(stack: &mut Vec<(Group, usize)>, closer: Group) -> GroupSearch {
     let mut first = true;
     loop {
         discard_less(stack);
-        let Some(&(topo, _)) = stack.last() else { break };
-        if matches_here(closer, topo) {
+        let Some(&(top_level, _)) = stack.last() else { break };
+        if matches_here(closer, top_level) {
             if first {
                 return GroupSearch::Direct;
             }
@@ -371,9 +371,9 @@ pub fn group_tokens(source: &str, tokens: Vec<Token>) -> (Vec<Token>, Vec<Diagno
     let mut errors = Vec::new();
     let mut closers: Vec<SyntheticCloser> = Vec::new();
     let synthetic = |op: Op, em: usize| Token { kind: Kind::Op(op), span: Span { start: em, end: em }, glued: false };
-    let unmatched = |g: Group, opener: usize, em: usize, antes: usize, insertions: &mut Vec<(usize, Token)>, errors: &mut Vec<Diagnostic>, closers: &mut Vec<SyntheticCloser>| {
+    let unmatched = |g: Group, opener: usize, em: usize, before: usize, insertions: &mut Vec<(usize, Token)>, errors: &mut Vec<Diagnostic>, closers: &mut Vec<SyntheticCloser>| {
         let (op, texto) = g.closer();
-        insertions.push((antes, synthetic(op, em)));
+        insertions.push((before, synthetic(op, em)));
         closers.push(SyntheticCloser { abre: tokens[opener].span.start, em, erro: errors.len() });
         errors.push(Diagnostic::com_codigo(codigos::scanner::EXPECTED_TOKEN, Span { start: em, end: em + 1 }, [texto]));
     };
@@ -442,7 +442,7 @@ pub fn group_tokens(source: &str, tokens: Vec<Token>) -> (Vec<Token>, Vec<Diagno
     let mut output = Vec::with_capacity(tokens.len() + insertions.len());
     let mut next = insertions.into_iter().peekable();
     for (i, t) in tokens.into_iter().enumerate() {
-        while let Some((_, s)) = next.next_if(|(antes, _)| *antes == i) {
+        while let Some((_, s)) = next.next_if(|(before, _)| *before == i) {
             output.push(s);
         }
         output.push(t);

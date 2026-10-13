@@ -97,20 +97,20 @@ impl CacheUnidades {
         if caminhos.len() < 32 || threads < 2 {
             return caminhos
                 .into_iter()
-                .filter(|(p, m)| Marca::ler(p).is_none_or(|atual| atual != *m))
+                .filter(|(p, m)| Marca::ler(p).is_none_or(|current| current != *m))
                 .map(|(p, _)| p.clone())
                 .collect();
         }
-        let proximo = std::sync::atomic::AtomicUsize::new(0);
+        let next_index = std::sync::atomic::AtomicUsize::new(0);
         let batches: Vec<Vec<PathBuf>> = std::thread::scope(|s| {
             let handles: Vec<_> = (0..threads)
                 .map(|_| {
                     s.spawn(|| {
                         let mut mine = Vec::new();
                         loop {
-                            let i = proximo.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let i = next_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some((p, m)) = caminhos.get(i) else { break };
-                            if Marca::ler(p).is_none_or(|atual| atual != *m) {
+                            if Marca::ler(p).is_none_or(|current| current != *m) {
                                 mine.push((*p).clone());
                             }
                         }

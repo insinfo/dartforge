@@ -33,7 +33,7 @@ pub struct SdkLayout {
     /// The tool's **current** language version: that of a library without a
     /// marker and outside a package, and the ceiling of the markers
     /// (`docs/VERSOES-LINGUAGEM.md`, D2). Default 3.13; the CLI changes it with
-    /// `--versao-linguagem`. The `dart:*` libraries always stay at the floor
+    /// `--version-linguagem`. The `dart:*` libraries always stay at the floor
     /// ([`LanguageVersion::PISO`]), because they are those of SDK 3.6.2 (D1).
     pub versao_corrente: LanguageVersion,
     /// `--enable-experiment=…`: they only apply to libraries without a marker
@@ -44,7 +44,7 @@ pub struct SdkLayout {
     pub substituicoes: HashMap<PathBuf, PathBuf>,
 }
 
-/// Command-line language options: `--versao-linguagem x.y` (the current
+/// Command-line language options: `--version-linguagem x.y` (the current
 /// version, D2) and `--enable-experiment=a,b`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Linguagem {
@@ -81,8 +81,8 @@ impl Linguagem {
                 Some((_, v)) => v.to_string(),
                 None => rest.next().ok_or("--enable-experiment requires names")?.to_string(),
             };
-            for nome in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
-                let f = Feature::do_nome(nome).ok_or_else(|| format!("--enable-experiment: unknown experiment '{nome}'"))?;
+            for name_ in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+                let f = Feature::do_nome(name_).ok_or_else(|| format!("--enable-experiment: unknown experiment '{name_}'"))?;
                 if !self.experimentos.contains(&f) {
                     self.experimentos.push(f);
                 }
@@ -155,13 +155,13 @@ impl SdkLayout {
             let pos = i + rel;
             i = pos + "const LibraryInfo(".len();
             // The name: the last string before the `:` that precedes the `const`.
-            let antes = text[..pos].trim_end();
-            let Some(antes) = antes.strip_suffix(':') else { continue };
-            let antes = antes.trim_end();
-            let Some(quote) = antes.chars().last().filter(|c| *c == '\'' || *c == '"') else { continue };
-            let body_node = &antes[..antes.len() - 1];
+            let before = text[..pos].trim_end();
+            let Some(before) = before.strip_suffix(':') else { continue };
+            let before = before.trim_end();
+            let Some(quote) = before.chars().last().filter(|c| *c == '\'' || *c == '"') else { continue };
+            let body_node = &before[..before.len() - 1];
             let Some(ini) = body_node.rfind(quote) else { continue };
-            let nome = body_node[ini + 1..].to_string();
+            let name_ = body_node[ini + 1..].to_string();
             // The path: the first string after the `(`.
             let mut j = i;
             while j < bytes.len() && (bytes[j] as char).is_whitespace() {
@@ -188,8 +188,8 @@ impl SdkLayout {
                 }
             }
             libraries.insert(
-                nome.clone(),
-                SdkLibrary { name: nome, path: lib_dir.join(caminho), patches: Vec::new(), supported: true },
+                name_.clone(),
+                SdkLibrary { name: name_, path: lib_dir.join(caminho), patches: Vec::new(), supported: true },
             );
         }
         if libraries.is_empty() {
@@ -235,19 +235,19 @@ impl SdkLayout {
             .ok_or_else(|| format!("{target}.base missing in {}", path.display()))?;
         let mut sdk = Self::load(lib_dir, base)?;
         if let Some(swaps) = section_.get("substitui").and_then(|s| s.as_object()) {
-            for (original, novo) in swaps {
-                let novo = novo
+            for (original, new_) in swaps {
+                let new_ = new_
                     .as_str()
                     .ok_or_else(|| format!("{target}.substitui[{original}] is not a string in {}", path.display()))?;
                 let original = crate::load::normalize(&lib_dir.join(original));
-                let novo = crate::load::normalize(&overlay_dir.join(novo));
+                let new_ = crate::load::normalize(&overlay_dir.join(new_));
                 if !original.is_file() {
                     return Err(format!("the overlay replaces {}, which does not exist in the SDK", original.display()));
                 }
-                if !novo.is_file() {
-                    return Err(format!("the overlay points to {}, which does not exist", novo.display()));
+                if !new_.is_file() {
+                    return Err(format!("the overlay points to {}, which does not exist", new_.display()));
                 }
-                sdk.substituicoes.insert(original, novo);
+                sdk.substituicoes.insert(original, new_);
             }
         }
         Ok(sdk)
@@ -409,15 +409,15 @@ mod tests {
         assert_eq!(sdk.substituicoes.len(), expected_ones);
         assert!(expected_ones >= 20);
         let async_patch = &sdk.library("async").unwrap().patches[0];
-        let novo = sdk.substituto(async_patch).expect("async_patch swapped");
-        assert!(novo.ends_with("async_patch.dart") && novo.starts_with(crate::load::normalize(&dir)));
+        let new_ = sdk.substituto(async_patch).expect("async_patch swapped");
+        assert!(new_.ends_with("async_patch.dart") && new_.starts_with(crate::load::normalize(&dir)));
         assert!(sdk.substituto(&sdk.library("core").unwrap().path).is_none());
 
         let tmp = tempfile::tempdir().unwrap();
-        let entrada = tmp.path().join("main.dart");
-        std::fs::write(&entrada, "import 'dart:async';\nvoid main() { Timer(Duration.zero, () {}); }\n").unwrap();
+        let entry_path = tmp.path().join("main.dart");
+        std::fs::write(&entry_path, "import 'dart:async';\nvoid main() { Timer(Duration.zero, () {}); }\n").unwrap();
         let mut interner = dartforge_intern::Interner::new();
-        let (program, diags) = crate::load::load_lenient(&entrada, &sdk, None, &mut interner);
+        let (program, diags) = crate::load::load_lenient(&entry_path, &sdk, None, &mut interner);
         assert!(diags.is_empty(), "{diags:?}");
         let async_sources: Vec<&str> = program
             .libraries

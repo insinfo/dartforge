@@ -1174,7 +1174,7 @@ pub enum PatternKind {
     Record {
         fields: Box<[PatternField]>,
     },
-    /// `Nome<T>(campo: p, :x)`
+    /// `Nome<T>(field_: p, :x)`
     Object {
         ty: TypeId,
         fields: Box<[PatternField]>,

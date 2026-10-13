@@ -436,9 +436,9 @@ fn build_runner_output_outside_lib() {
         "import 'x_test.dart' as orig;\nconst valor = orig.base + 1;\n",
     )
     .unwrap();
-    let entrada = proj.join("test/x_test.dart");
+    let entry_path = proj.join("test/x_test.dart");
     let config = proj.join(".dart_tool/package_config.json");
-    let prog = load(&entrada, &sdk, Some(&config), &mut interner).expect("loading failed");
+    let prog = load(&entry_path, &sdk, Some(&config), &mut interner).expect("loading failed");
     let gerado = prog.libraries.iter().find(|l| l.uri.ends_with("test/x_test.template.dart")).expect("generated library");
     assert!(gerado.uri.starts_with("file://"), "{}", gerado.uri);
     let unidade = &prog.units[gerado.units[0].0 as usize];
@@ -477,9 +477,9 @@ fn import_scope_per_unit() {
     let unidade = |suffix: &str| {
         *prog.library(lib).units.iter().find(|u| prog.unit(**u).uri.ends_with(suffix)).expect(suffix)
     };
-    let de = |u: UnitId, nome: &str| -> String {
-        let b = prog.lookup_na_unidade(u, interner.lookup(nome).unwrap()).expect(nome);
-        assert!(!b.ambiguous, "{nome}");
+    let from = |u: UnitId, name_: &str| -> String {
+        let b = prog.lookup_na_unidade(u, interner.lookup(name_).unwrap()).expect(name_);
+        assert!(!b.ambiguous, "{name_}");
         match b.getter {
             Some(Element::Function(f)) => prog.library(prog.function(f).library).uri.rsplit('/').next().unwrap().to_string(),
             other => format!("{other:?}"),
@@ -494,10 +494,10 @@ fn import_scope_per_unit() {
         }
     };
     let (m, pa, ne, either) = (unidade("/main.dart"), unidade("/parte.dart"), unidade("/neta.dart"), unidade("/outra.dart"));
-    assert_eq!((de(m, "nome"), de(pa, "nome"), de(ne, "nome"), de(either, "nome")), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "c.dart".into()));
+    assert_eq!((from(m, "nome"), from(pa, "nome"), from(ne, "nome"), from(either, "nome")), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "c.dart".into()));
     assert_eq!((prefixed(m), prefixed(pa), prefixed(ne), prefixed(either)), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "b.dart".into()));
     // The library's declaration wins over the part's import.
-    assert_eq!(de(pa, "local"), "main.dart");
+    assert_eq!(from(pa, "local"), "main.dart");
     // Without imports in parts, nothing changes: the library scope applies to
     // all of them.
     let proj2 = tmp.path().join("proj2");

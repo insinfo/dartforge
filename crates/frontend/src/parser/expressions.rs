@@ -217,9 +217,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             if b != b'_' {
                 continue;
             }
-            let antes = texto[start_offset..i].iter().rev().find(|&&c| c != b'_');
+            let before = texto[start_offset..i].iter().rev().find(|&&c| c != b'_');
             let after = texto[i + 1..].iter().find(|&&c| c != b'_');
-            if !antes.is_some_and(|&c| digit(c)) || !after.is_some_and(|&c| digit(c)) {
+            if !before.is_some_and(|&c| digit(c)) || !after.is_some_and(|&c| digit(c)) {
                 fora = true;
                 break;
             }
@@ -882,8 +882,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         if matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec) && !self.is_assignable(operand) {
             // `handleUnaryPrefixAssignmentExpression` (`ast_builder.dart:5704`): at the
             // operand's last token.
-            let ultimo = self.tokens[self.pos - 1].span;
-            self.error_at(codigos::parser::MISSING_ASSIGNABLE_SELECTOR, ultimo, &[]);
+            let last = self.tokens[self.pos - 1].span;
+            self.error_at(codigos::parser::MISSING_ASSIGNABLE_SELECTOR, last, &[]);
         }
         Ok(self.push(start, ExprKind::Unary { op, operand }))
     }
@@ -1512,9 +1512,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         type_args: Vec<TypeId>,
     ) -> PResult<ExprId> {
         self.expect_op(Op::LBracket)?;
-        let antes = std::mem::replace(&mut self.in_list, true);
+        let before = std::mem::replace(&mut self.in_list, true);
         let elements = self.parse_collection_elements(Op::RBracket);
-        self.in_list = antes;
+        self.in_list = before;
         let elements = elements?;
         Ok(self.push(
             start,
@@ -1534,9 +1534,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         type_args: Vec<TypeId>,
     ) -> PResult<ExprId> {
         self.expect_op(Op::LBrace)?;
-        let antes = std::mem::replace(&mut self.in_list, false);
+        let before = std::mem::replace(&mut self.in_list, false);
         let elements = self.parse_collection_elements(Op::RBrace);
-        self.in_list = antes;
+        self.in_list = before;
         let elements = elements?;
         Ok(self.push(
             start,
@@ -1733,8 +1733,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `(,)`: `EMPTY_RECORD_LITERAL_WITH_COMMA` at the comma
         // (`parseParenthesizedExpressionOrRecordLiteral`).
         if self.at_op(Op::Comma) && self.at_op_at(1, Op::RParen) {
-            let virgula = self.advance().span;
-            self.error_at(codigos::parser::EMPTY_RECORD_LITERAL_WITH_COMMA, virgula, &[]);
+            let comma = self.advance().span;
+            self.error_at(codigos::parser::EMPTY_RECORD_LITERAL_WITH_COMMA, comma, &[]);
             is_record = true;
             saw_comma = true;
         }
@@ -1905,15 +1905,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         // at it. Without `(` after that, the argument list is synthetic and empty,
         // and the expression goes on.
         if !self.at_op(Op::LParen) && self.pos > 0 {
-            let ultimo = self.tokens[self.pos - 1].span;
+            let last = self.tokens[self.pos - 1].span;
             if self.at_op(Op::Lt) && self.skip_type_arguments(self.pos).is_some() {
-                self.error_at(codigos::parser::CONSTRUCTOR_WITH_TYPE_ARGUMENTS, ultimo, &[]);
+                self.error_at(codigos::parser::CONSTRUCTOR_WITH_TYPE_ARGUMENTS, last, &[]);
                 self.parse_type_arguments_opt()?;
             } else {
-                self.error_at(codigos::parser::EXPECTED_TOKEN, ultimo, &["("]);
+                self.error_at(codigos::parser::EXPECTED_TOKEN, last, &["("]);
             }
             if !self.at_op(Op::LParen) {
-                let empty = Span { start: ultimo.end, end: ultimo.end };
+                let empty = Span { start: last.end, end: last.end };
                 let arguments = Box::new(Arguments { span: empty, type_args: Box::default(), args: Box::default() });
                 return Ok(self.push(start, ExprKind::InstanceCreation { keyword, ty, constructor, arguments }));
             }
@@ -1964,9 +1964,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // The pattern and guard of a `switch` expression case do not read a named
                 // function literal (the `=>` is the case's).
                 let salvo = std::mem::replace(&mut self.without_named_function, true);
-                let padrao = self.parse_pattern();
+                let case_pattern = self.parse_pattern();
                 self.without_named_function = salvo;
-                padrao?
+                case_pattern?
             };
             let guard = if self.eat_ident("when") {
                 let salvo = std::mem::replace(&mut self.without_named_function, true);
@@ -1989,13 +1989,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                 guard,
                 body,
             });
-            let mut virgula = self.eat_op(Op::Comma);
-            if !virgula && self.at_op(Op::Semicolon) {
+            let mut comma = self.eat_op(Op::Comma);
+            if !comma && self.at_op(Op::Semicolon) {
                 self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
                 self.advance();
-                virgula = true;
+                comma = true;
             }
-            if self.at_op(Op::RBrace) || virgula {
+            if self.at_op(Op::RBrace) || comma {
                 continue;
             }
             // Without a comma: what looks like another pattern is the next case (the

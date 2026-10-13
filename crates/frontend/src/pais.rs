@@ -197,7 +197,7 @@ struct Constructor<'a> {
 }
 
 impl Constructor<'_> {
-    fn por(&mut self, child: ExprId, pai: Pai) {
+    fn set_parent(&mut self, child: ExprId, pai: Pai) {
         if let Some(x) = self.pais.get_mut(child.0 as usize) {
             *x = pai;
         }
@@ -205,7 +205,7 @@ impl Constructor<'_> {
 
     fn arguments_(&mut self, args: &Arguments, pai: Pai) {
         for x in args.args.iter() {
-            self.por(x.value, pai);
+            self.set_parent(x.value, pai);
         }
     }
 
@@ -236,7 +236,7 @@ impl Constructor<'_> {
     fn list(&mut self, l: &VariableList) {
         for v in l.variables.iter() {
             if let Some(i) = v.initializer {
-                self.por(i, Pai::Variavel { constant: l.const_ });
+                self.set_parent(i, Pai::Variavel { constant: l.const_ });
             }
         }
     }
@@ -251,18 +251,18 @@ impl Constructor<'_> {
     fn element(&mut self, owner: ExprId, e: &CollectionElement) {
         let pai = Pai::Expr(owner);
         match e {
-            CollectionElement::Expression(x) => self.por(*x, pai),
+            CollectionElement::Expression(x) => self.set_parent(*x, pai),
             // `NullAwareElement` is not traversed.
             CollectionElement::NullAwareExpression(_) => {}
             CollectionElement::MapEntry { key, value, .. } => {
-                self.por(*key, pai);
-                self.por(*value, pai);
+                self.set_parent(*key, pai);
+                self.set_parent(*value, pai);
             }
-            CollectionElement::Spread { value, .. } => self.por(*value, pai),
+            CollectionElement::Spread { value, .. } => self.set_parent(*value, pai),
             CollectionElement::If { condition, then, else_, .. } => {
                 // The condition is a child of the `IfElement`; the pattern and the guard
                 // are not.
-                self.por(*condition, pai);
+                self.set_parent(*condition, pai);
                 self.element(owner, then);
                 if let Some(x) = else_ {
                     self.element(owner, x);
@@ -289,7 +289,7 @@ impl Constructor<'_> {
         let pt = self.a.pattern(p);
         if let PatternKind::Constant(e) = &pt.kind {
             let written = crate::fonte::palavra_em(self.fonte, pt.span.start, "const");
-            self.por(*e, Pai::PadraoConstante { constant: written || old_case });
+            self.set_parent(*e, Pai::PadraoConstante { constant: written || old_case });
         }
     }
 
@@ -303,51 +303,51 @@ impl Constructor<'_> {
             let id = ExprId(k as u32);
             let pai = Pai::Expr(id);
             match &e.kind {
-                ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.por(*x, pai),
+                ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.set_parent(*x, pai),
                 ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => self.elements_(id, elements),
                 ExprKind::Record { positional, named, .. } => {
                     for &x in positional.iter() {
-                        self.por(x, pai);
+                        self.set_parent(x, pai);
                     }
                     for (_, x) in named.iter() {
-                        self.por(*x, pai);
+                        self.set_parent(*x, pai);
                     }
                 }
                 ExprKind::InstanceCreation { arguments, .. } => self.arguments_(arguments, pai),
-                ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => self.por(*target, pai),
+                ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => self.set_parent(*target, pai),
                 ExprKind::Index { target, index, .. } => {
-                    self.por(*target, pai);
-                    self.por(*index, pai);
+                    self.set_parent(*target, pai);
+                    self.set_parent(*index, pai);
                 }
                 ExprKind::Call { target, arguments } => {
-                    self.por(*target, pai);
+                    self.set_parent(*target, pai);
                     self.arguments_(arguments, pai);
                 }
-                ExprKind::Unary { operand, .. } => self.por(*operand, pai),
+                ExprKind::Unary { operand, .. } => self.set_parent(*operand, pai),
                 ExprKind::Binary { left, right, .. } => {
-                    self.por(*left, pai);
-                    self.por(*right, pai);
+                    self.set_parent(*left, pai);
+                    self.set_parent(*right, pai);
                 }
                 ExprKind::Conditional { condition, then, else_ } => {
-                    self.por(*condition, pai);
-                    self.por(*then, pai);
-                    self.por(*else_, pai);
+                    self.set_parent(*condition, pai);
+                    self.set_parent(*then, pai);
+                    self.set_parent(*else_, pai);
                 }
-                ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.por(*value, pai),
+                ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.set_parent(*value, pai),
                 ExprKind::Assign { target, value, .. } => {
-                    self.por(*target, pai);
-                    self.por(*value, pai);
+                    self.set_parent(*target, pai);
+                    self.set_parent(*value, pai);
                 }
-                ExprKind::PatternAssign { value, .. } => self.por(*value, pai),
+                ExprKind::PatternAssign { value, .. } => self.set_parent(*value, pai),
                 ExprKind::Cascade { target, sections, .. } => {
-                    self.por(*target, pai);
+                    self.set_parent(*target, pai);
                     for &s in sections.iter() {
-                        self.por(s, pai);
+                        self.set_parent(s, pai);
                     }
                 }
                 // The `switch` value is a child of the expression; the guard and the body
                 // of each case are not.
-                ExprKind::Switch { value, .. } => self.por(*value, pai),
+                ExprKind::Switch { value, .. } => self.set_parent(*value, pai),
                 // Interpolations (`InterpolationExpression`) and the body of a function
                 // expression: a boundary.
                 _ => {}

@@ -126,7 +126,7 @@ pub fn from_stmt(a: &Ast, fonte: &str, interner: &Interner, s: StmtId) -> String
 /// The text of pattern `p`.
 pub fn de_padrao(a: &Ast, fonte: &str, interner: &Interner, p: PatternId) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
-    f.padrao(p);
+    f.pattern(p);
     f.output
 }
 
@@ -445,7 +445,7 @@ impl<'a> Impressor<'a> {
     fn annotation(&mut self, m: &Annotation) {
         self.w("@");
         // The type arguments come after the parts written before them.
-        let antes = match m.type_args.first() {
+        let before = match m.type_args.first() {
             Some(&t) => {
                 let start_ = self.a.ty(t).span.start;
                 m.name.iter().filter(|n| n.span.end <= start_).count()
@@ -453,7 +453,7 @@ impl<'a> Impressor<'a> {
             None => m.name.len(),
         };
         for (k, n) in m.name.iter().enumerate() {
-            if k == antes {
+            if k == before {
                 self.type_arguments_(&m.type_args);
             }
             if k > 0 {
@@ -461,7 +461,7 @@ impl<'a> Impressor<'a> {
             }
             self.nome(*n);
         }
-        if antes >= m.name.len() {
+        if before >= m.name.len() {
             self.type_arguments_(&m.type_args);
         }
         if let Some(args) = &m.arguments {
@@ -659,18 +659,18 @@ impl<'a> Impressor<'a> {
                 self.expr(*value);
             }
             ExprKind::PatternAssign { pattern, value } => {
-                self.padrao(*pattern);
+                self.pattern(*pattern);
                 self.w(" = ");
                 self.expr(*value);
             }
             ExprKind::Cascade { target, sections, null_aware } => {
                 self.expr(*target);
-                let antes = self.cascade;
+                let before = self.cascade;
                 for (k, &s) in sections.iter().enumerate() {
                     self.cascade = if k == 0 && *null_aware { "?.." } else { ".." };
                     self.expr(s);
                 }
-                self.cascade = antes;
+                self.cascade = before;
             }
             ExprKind::CascadeTarget => self.w(self.cascade),
             ExprKind::Await(i) => {
@@ -690,7 +690,7 @@ impl<'a> Impressor<'a> {
                     if k > 0 {
                         self.w(", ");
                     }
-                    self.padrao(c.pattern);
+                    self.pattern(c.pattern);
                     if let Some(g) = c.guard {
                         self.w(" when ");
                         self.expr(g);
@@ -823,7 +823,7 @@ impl<'a> Impressor<'a> {
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
                     self.w(" case ");
-                    self.padrao(*p);
+                    self.pattern(*p);
                     if let Some(g) = guard {
                         self.w(" when ");
                         self.expr(*g);
@@ -861,7 +861,7 @@ impl<'a> Impressor<'a> {
         if let Some(ForInit::Pattern { final_, pattern, value }) = init {
             // `visitForPartsWithPattern`.
             self.w(if *final_ { "final " } else { "var " });
-            self.padrao(*pattern);
+            self.pattern(*pattern);
             self.w(" = ");
             self.expr(*value);
             self.w("; ");
@@ -913,7 +913,7 @@ impl<'a> Impressor<'a> {
             }
             ForInTarget::Pattern { final_, pattern } => {
                 self.w(if *final_ { "final " } else { "var " });
-                self.padrao(*pattern);
+                self.pattern(*pattern);
             }
             ForInTarget::Expression(e) => self.expr(*e),
         }
@@ -1019,7 +1019,7 @@ impl<'a> Impressor<'a> {
             StmtKind::PatternVariables { final_, pattern, value } => {
                 self.metadata_local(s);
                 self.w(if *final_ { "final " } else { "var " });
-                self.padrao(*pattern);
+                self.pattern(*pattern);
                 self.w(" = ");
                 self.expr(*value);
                 self.w(";");
@@ -1049,7 +1049,7 @@ impl<'a> Impressor<'a> {
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
                     self.w(" case ");
-                    self.padrao(*p);
+                    self.pattern(*p);
                     if let Some(g) = guard {
                         self.w(" when ");
                         self.expr(*g);
@@ -1108,7 +1108,7 @@ impl<'a> Impressor<'a> {
                     match c.pattern {
                         Some(p) => {
                             self.w("case ");
-                            self.padrao(p);
+                            self.pattern(p);
                             if let Some(g) = c.guard {
                                 self.w(" when ");
                                 self.expr(g);
@@ -1207,7 +1207,7 @@ impl<'a> Impressor<'a> {
     // Patterns
     // -----------------------------------------------------------------
 
-    fn padrao(&mut self, p: PatternId) {
+    fn pattern(&mut self, p: PatternId) {
         let a = self.a;
         let pt = a.pattern(p);
         match &pt.kind {
@@ -1239,11 +1239,11 @@ impl<'a> Impressor<'a> {
             PatternKind::Constant(e) => {
                 // `visitConstantPattern`: the pattern's `const`, when the expression does
                 // not print it itself.
-                let antes = self.output.len();
+                let before = self.output.len();
                 let written = palavra_em(self.fonte, pt.span.start, "const");
                 self.expr(*e);
-                if written && !self.output[antes..].starts_with("const ") {
-                    self.output.insert_str(antes, "const ");
+                if written && !self.output[before..].starts_with("const ") {
+                    self.output.insert_str(before, "const ");
                 }
             }
             PatternKind::Relational { op, value } => {
@@ -1252,31 +1252,31 @@ impl<'a> Impressor<'a> {
                 self.expr(*value);
             }
             PatternKind::Or(l, r) => {
-                self.padrao(*l);
+                self.pattern(*l);
                 self.w(" || ");
-                self.padrao(*r);
+                self.pattern(*r);
             }
             PatternKind::And(l, r) => {
-                self.padrao(*l);
+                self.pattern(*l);
                 self.w(" && ");
-                self.padrao(*r);
+                self.pattern(*r);
             }
             PatternKind::NullCheck(i) => {
-                self.padrao(*i);
+                self.pattern(*i);
                 self.w("?");
             }
             PatternKind::NullAssert(i) => {
-                self.padrao(*i);
+                self.pattern(*i);
                 self.w("!");
             }
             PatternKind::Cast { pattern, ty } => {
-                self.padrao(*pattern);
+                self.pattern(*pattern);
                 self.w(" as ");
                 self.kind(*ty);
             }
             PatternKind::Parenthesized(i) => {
                 self.w("(");
-                self.padrao(*i);
+                self.pattern(*i);
                 self.w(")");
             }
             PatternKind::List { type_args, elements } => {
@@ -1287,11 +1287,11 @@ impl<'a> Impressor<'a> {
                         self.w(", ");
                     }
                     match e {
-                        ListPatternElement::Pattern(x) => self.padrao(*x),
+                        ListPatternElement::Pattern(x) => self.pattern(*x),
                         ListPatternElement::Rest(x) => {
                             self.w("...");
                             if let Some(x) = x {
-                                self.padrao(*x);
+                                self.pattern(*x);
                             }
                         }
                     }
@@ -1307,7 +1307,7 @@ impl<'a> Impressor<'a> {
                     }
                     self.expr(e.key);
                     self.w(": ");
-                    self.padrao(e.value);
+                    self.pattern(e.value);
                 }
                 if *rest {
                     if !entries.is_empty() {
@@ -1350,7 +1350,7 @@ impl<'a> Impressor<'a> {
                 }
                 self.w(": ");
             }
-            self.padrao(f.pattern);
+            self.pattern(f.pattern);
         }
     }
 }

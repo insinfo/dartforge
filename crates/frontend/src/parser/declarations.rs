@@ -14,7 +14,7 @@
 //!   superset with `experiment_not_enabled`, and **not** fasta 3.6.2's
 //!   cascade: the tool is 3.13 (D2), and the 3.13.4 analyzer reports the
 //!   same in the same library and keeps analyzing (probed on 2026-09-25; the
-//!   oracle for those files is 3.13.4, `corpus/diags/sintaxe-nova.json`).
+//!   oracle for those files is 3.13.4, `corpus/diags/sintaxe-new_.json`).
 //!   The exception is `augment` without the experiment: fasta's scanner
 //!   makes it a plain identifier, and the cascade applies in both SDKs. The
 //!   declaration lookahead still rejects `]`/`}` as a continuation
@@ -93,7 +93,7 @@ struct Modifiers {
 
 impl Modifiers {
     /// Was any modifier read?
-    fn algum(self) -> bool {
+    fn any_(self) -> bool {
         self.external
             || self.static_
             || self.abstract_
@@ -198,11 +198,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `macros` brings `enhanced-parts` (the experiment depends on it): the
         // materialized `*.macro.dart` is a `part of` with `import`s.
         let partes = self.features.tem(Feature::EnhancedParts) || self.features.tem(Feature::Macros);
-        let estado = self.directive_state;
+        let state = self.directive_state;
         let erro = match kind {
             DirectiveKind::Import { .. } | DirectiveKind::Export { .. } => {
                 let import = matches!(kind, DirectiveKind::Import { .. });
-                match estado {
+                match state {
                     E::NoneFound | E::Script | E::Library | E::ImportExport => {
                         self.directive_state = E::ImportExport;
                         None
@@ -216,7 +216,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     E::Declarations => Some(c::DIRECTIVE_AFTER_DECLARATION),
                 }
             }
-            DirectiveKind::Part { .. } => match estado {
+            DirectiveKind::Part { .. } => match state {
                 E::NoneFound | E::Script | E::Library | E::ImportExport | E::Part => {
                     self.directive_state = E::Part;
                     None
@@ -229,22 +229,22 @@ impl<'s, 'i> Parser<'s, 'i> {
                 E::Declarations => Some(c::DIRECTIVE_AFTER_DECLARATION),
             },
             DirectiveKind::Library { .. } => {
-                if estado < E::Library {
+                if state < E::Library {
                     self.directive_state = E::Library;
                     None
-                } else if estado == E::Library {
+                } else if state == E::Library {
                     Some(c::MULTIPLE_LIBRARY_DIRECTIVES)
-                } else if estado == E::PartOf {
+                } else if state == E::PartOf {
                     Some(c::NON_PART_OF_DIRECTIVE_IN_PART)
                 } else {
                     Some(c::LIBRARY_DIRECTIVE_NOT_FIRST)
                 }
             }
             DirectiveKind::PartOf { .. } => {
-                if estado == E::NoneFound {
+                if state == E::NoneFound {
                     self.directive_state = E::PartOf;
                     None
-                } else if estado == E::PartOf {
+                } else if state == E::PartOf {
                     Some(c::MULTIPLE_PART_OF_DIRECTIVES)
                 } else {
                     Some(c::NON_PART_OF_DIRECTIVE_IN_PART)
@@ -738,8 +738,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             // follows must be `(`; the error goes at the last token read of the
             // annotation (the `>` or the `.name`).
             if with_types && !self.at_op(Op::LParen) {
-                let ultimo = self.tokens[self.pos - 1].span;
-                self.error_at(codigos::parser::ANNOTATION_WITH_TYPE_ARGUMENTS_UNINSTANTIATED, ultimo, &[]);
+                let last = self.tokens[self.pos - 1].span;
+                self.error_at(codigos::parser::ANNOTATION_WITH_TYPE_ARGUMENTS_UNINSTANTIATED, last, &[]);
             }
             // `parseArgumentsOptMetadata` (`:7718-7752`): a glued `(` is the
             // arguments; a separate one, only with type arguments or when what follows
@@ -1395,7 +1395,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 p.ty.or_else(|| self.untyped_declarant_type(p.default_value, has_supertypes, p.span))
             };
-            let campo = Member {
+            let field_ = Member {
                 span: p.span,
                 metadata: Vec::new().into_boxed_slice(),
                 kind: MemberKind::Field(VariableList {
@@ -1416,7 +1416,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }),
                 augment: false,
             };
-            fields_.push(self.ast.push_member(campo));
+            fields_.push(self.ast.push_member(field_));
             // `var T p` → `T this.p` (with the type, if written).
             p.this_ = true;
             p.declarante = true;
@@ -1509,7 +1509,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// (without a type, the field is left to `types` inference).
     fn untyped_declarant_type(
         &mut self,
-        padrao: Option<ExprId>,
+        default_value: Option<ExprId>,
         has_supertypes: bool,
         span: Span,
     ) -> Option<TypeId> {
@@ -1517,7 +1517,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if has_supertypes {
             return None;
         }
-        let (nome, is_nullable) = match padrao.map(|e| &self.ast.expr(e).kind) {
+        let (nome, is_nullable) = match default_value.map(|e| &self.ast.expr(e).kind) {
             None | Some(ExprKind::Null) => ("Object", true),
             Some(ExprKind::Int(_)) => ("int", false),
             Some(ExprKind::Double(_)) => ("double", false),
@@ -1773,8 +1773,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.erro(codigos::parser::EXPECTED_INSTEAD, &["on"]);
                 self.advance();
             } else {
-                let ultimo = self.tokens[self.pos - 1].span;
-                self.error_at(codigos::parser::EXPECTED_TOKEN, ultimo, &["on"]);
+                let last = self.tokens[self.pos - 1].span;
+                self.error_at(codigos::parser::EXPECTED_TOKEN, last, &["on"]);
             }
         }
         let on = if matches!(self.kind(), Kind::Op(Op::LBrace | Op::Semicolon | Op::RBrace) | Kind::Eof) {
@@ -1828,9 +1828,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 codigos::parser::MISSING_PRIMARY_CONSTRUCTOR
             };
-            let ultimo = self.tokens[self.pos - 1].span;
-            self.error_at(code, ultimo, &[]);
-            let s = Span { start: ultimo.end, end: ultimo.end };
+            let last = self.tokens[self.pos - 1].span;
+            self.error_at(code, last, &[]);
+            let s = Span { start: last.end, end: last.end };
             let nome = self.name_from("", s);
             let ty = self.ast.push_type(TypeAnnotation {
                 span: s,
@@ -1943,19 +1943,19 @@ impl<'s, 'i> Parser<'s, 'i> {
             && matches!(&self.source[nome.span.start..nome.span.end], "hashCode" | "noSuchMethod" | "runtimeType" | "toString" | "==")
         {
             self.error_at(codigos::compile_time_error::EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT, nome.span, &[]);
-            self.so_3_13.push((codigos::compile_time_error::EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT, nome.span));
+            self.only_3_13.push((codigos::compile_time_error::EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT, nome.span));
         }
         if n > 1 && !simple {
             let end_offset = params[0].span.end;
-            if let Some(virgula) =
+            if let Some(comma) =
                 self.tokens[abre..self.pos].iter().find(|t| t.span.start >= end_offset && t.kind == Kind::Op(Op::Comma))
             {
-                let span = virgula.span;
+                let span = comma.span;
                 self.error_at(codigos::parser::MULTIPLE_REPRESENTATION_FIELDS, span, &[]);
-                self.so_3_13.push((codigos::parser::MULTIPLE_REPRESENTATION_FIELDS, span));
+                self.only_3_13.push((codigos::parser::MULTIPLE_REPRESENTATION_FIELDS, span));
             }
             self.error_at(codigos::parser::EXPECTED_REPRESENTATION_FIELD, after_open, &[]);
-            self.so_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_FIELD, after_open));
+            self.only_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_FIELD, after_open));
             let (ty, nome) = synthetic(self);
             return Ok((Vec::new(), ty, nome));
         }
@@ -1990,9 +1990,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             match in_3_13 {
                 Some(sp) if sp != after_open => {
                     self.error_at(codigos::parser::EXPECTED_REPRESENTATION_FIELD, after_open, &[]);
-                    self.so_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_FIELD, after_open));
+                    self.only_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_FIELD, after_open));
                     self.error_at(codigos::parser::EXPECTED_REPRESENTATION_FIELD, sp, &[]);
-                    self.so_3_13.push((codigos::parser::EXPECTED_REPRESENTATION_FIELD, sp));
+                    self.only_3_13.push((codigos::parser::EXPECTED_REPRESENTATION_FIELD, sp));
                 }
                 _ => {
                     self.error_at(codigos::parser::EXPECTED_REPRESENTATION_FIELD, after_open, &[]);
@@ -2012,7 +2012,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             None if p.final_ || p.var_ => {
                 if !self.features.tem(Feature::PrimaryConstructors) {
                     self.error_at(codigos::parser::EXPECTED_REPRESENTATION_TYPE, after_open, &[]);
-                    self.so_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, after_open));
+                    self.only_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, after_open));
                     // With more than one parameter, 3.13.4 only reports
                     // `MULTIPLE_REPRESENTATION_FIELDS` (`extension type
                     // ET3(final i, final x)`).
@@ -2020,7 +2020,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                         && n == 1
                     {
                         self.error_at(codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span, &[]);
-                        self.so_3_13.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span));
+                        self.only_3_13.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span));
                     }
                 }
                 synthetic(self).0
@@ -2030,9 +2030,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 match p.name {
                     Some(nome) if nome.span != after_open => {
                         self.error_at(codigos::parser::EXPECTED_REPRESENTATION_TYPE, after_open, &[]);
-                        self.so_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, after_open));
+                        self.only_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, after_open));
                         self.error_at(codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span, &[]);
-                        self.so_3_13.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span));
+                        self.only_3_13.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span));
                     }
                     _ => {
                         self.error_at(codigos::parser::EXPECTED_REPRESENTATION_TYPE, after_open, &[]);
@@ -2059,12 +2059,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 self.error_at(codigos::parser::REPRESENTATION_FIELD_MODIFIER, span, &["var"]);
                 if n > 1 {
-                    self.so_3_6.push((codigos::parser::REPRESENTATION_FIELD_MODIFIER, span));
+                    self.only_3_6.push((codigos::parser::REPRESENTATION_FIELD_MODIFIER, span));
                 }
             }
         }
-        if let Some(virgula) = self.tokens[abre..self.pos].iter().find(|t| t.span.start >= p.span.end).filter(|t| t.kind == Kind::Op(Op::Comma)) {
-            let span = virgula.span;
+        if let Some(comma) = self.tokens[abre..self.pos].iter().find(|t| t.span.start >= p.span.end).filter(|t| t.kind == Kind::Op(Op::Comma)) {
+            let span = comma.span;
             let code = if n == 1 {
                 codigos::parser::REPRESENTATION_FIELD_TRAILING_COMMA
             } else {
@@ -2193,8 +2193,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Modifiers in any order (superset), read as in fasta
     /// (`read_top_level_modifiers`/`read_member_modifiers`, which report wrong
     /// order, repetition and what does not fit in the context).
-    fn parse_modifiers(&mut self, topo: bool) -> Modifiers {
-        let f = if topo { self.read_top_level_modifiers() } else { self.read_member_modifiers() };
+    fn parse_modifiers(&mut self, top_level: bool) -> Modifiers {
+        let f = if top_level { self.read_top_level_modifiers() } else { self.read_member_modifiers() };
         let span = |p: Option<usize>| p.map(|p| self.tokens[p].span);
         Modifiers {
             external: f.external.is_some(),
@@ -2217,8 +2217,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// With `!top_level` (a member), also `get`/`set` followed by a reserved
     /// word that indicates a method or field (`parseClassOrMixin…MemberImpl`:
     /// "Getter or setter followed by a reserved word (name)").
-    fn accessor_follows_at(&self, topo: bool) -> Option<FunctionKind> {
-        let name_after = |p: &Self| p.at_identifier_at(1) || (!topo && matches!(p.kind_at(1), Kind::Keyword(_)) && p.indicates_method_or_field(p.pos + 2));
+    fn accessor_follows_at(&self, top_level: bool) -> Option<FunctionKind> {
+        let name_after = |p: &Self| p.at_identifier_at(1) || (!top_level && matches!(p.kind_at(1), Kind::Keyword(_)) && p.indicates_method_or_field(p.pos + 2));
         if self.at_ident("get") && name_after(self) {
             Some(FunctionKind::Getter)
         } else if self.at_ident("set") && name_after(self) {
@@ -2312,11 +2312,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         &mut self,
         mods: Modifiers,
         start: Span,
-        external_topo: Option<Span>,
-        topo: bool,
+        external_top_level: Option<Span>,
+        top_level: bool,
     ) -> PResult<FunctionOrVariables> {
-        if let Some(kind) = self.accessor_follows_at(topo) {
-            let id = self.parse_accessor(mods, start, None, kind, external_topo, topo)?;
+        if let Some(kind) = self.accessor_follows_at(top_level) {
+            let id = self.parse_accessor(mods, start, None, kind, external_top_level, top_level)?;
             return Ok(FunctionOrVariables::Function(id));
         }
         // A reserved word followed by what indicates a method or field is the name,
@@ -2352,12 +2352,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                     &[],
                 );
             }
-            self.report_field_modifiers(mods, topo, nome.span);
+            self.report_field_modifiers(mods, top_level, nome.span);
             let variables = self.parse_declared_variables_tail(nome)?;
             return Ok(FunctionOrVariables::Variables(VariableList {
                 external: mods.external,
                 static_: mods.static_,
-                abstract_: mods.abstract_ && !topo,
+                abstract_: mods.abstract_ && !top_level,
                 covariant: mods.covariant,
                 late: mods.late,
                 final_: mods.final_,
@@ -2384,7 +2384,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(FunctionOrVariables::Variables(VariableList {
                 external: mods.external,
                 static_: mods.static_,
-                abstract_: mods.abstract_ && !topo,
+                abstract_: mods.abstract_ && !top_level,
                 covariant: mods.covariant,
                 late: mods.late,
                 final_: mods.final_,
@@ -2408,15 +2408,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             None
         };
-        if let Some(kind) = self.accessor_follows_at(topo) {
-            let id = self.parse_accessor(mods, start, ty, kind, external_topo, topo)?;
+        if let Some(kind) = self.accessor_follows_at(top_level) {
+            let id = self.parse_accessor(mods, start, ty, kind, external_top_level, top_level)?;
             return Ok(FunctionOrVariables::Function(id));
         }
         // `(` without a type or modifiers does not open a declaration: a record
         // type would ask for a name after the `)`. It is garbage at top level, and
         // fasta reports `expected_executable` and continues at the next token (see
         // `recover_top_level`), instead of the generic `missing_identifier`.
-        if topo && ty.is_none() && !mods.algum() && self.at_op(Op::LParen) {
+        if top_level && ty.is_none() && !mods.any_() && self.at_op(Op::LParen) {
             return Err(self.erro(codigos::parser::EXPECTED_EXECUTABLE, &[]));
         }
         // fasta `TopLevelDeclarationIdentifierContext`: at top level, a word that
@@ -2435,8 +2435,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         let texto = self.text_of(self.pos);
         let next_declaration = matches!(self.kind(), Kind::Ident | Kind::Keyword(_))
             && (super::fasta::is_top_level_word(texto) || matches!(texto, "const" | "get" | "final" | "set" | "var" | "void"));
-        if topo
-            && (ty.is_some() || mods.algum())
+        if top_level
+            && (ty.is_some() || mods.any_())
             && next_declaration
             // Followed by parameters it is a function's name (`String
             // extension(String path)` from `package:path`), as in fasta. The context's
@@ -2452,11 +2452,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.error_at(codigos::parser::MISSING_IDENTIFIER, word, &[]);
             let _ = self.expected_error(";");
             let nome = self.name_from("", Span { start: word.start, end: word.start });
-            self.report_field_modifiers(mods, topo, nome.span);
+            self.report_field_modifiers(mods, top_level, nome.span);
             return Ok(FunctionOrVariables::Variables(VariableList {
                 external: mods.external,
                 static_: mods.static_,
-                abstract_: mods.abstract_ && !topo,
+                abstract_: mods.abstract_ && !top_level,
                 covariant: mods.covariant,
                 late: mods.late,
                 final_: mods.final_,
@@ -2468,7 +2468,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         // `recoverFromInvalidMember`: in a member, `(` or `{` in place of the name
         // is a method with a synthetic name (`MISSING_IDENTIFIER` at the token).
-        let name = if !topo && matches!(self.kind(), Kind::Op(Op::LParen | Op::LBrace)) {
+        let name = if !top_level && matches!(self.kind(), Kind::Op(Op::LParen | Op::LBrace)) {
             let s = self.span();
             self.error_at(codigos::parser::MISSING_IDENTIFIER, s, &[]);
             self.name_from("", Span { start: s.start, end: s.start })
@@ -2483,11 +2483,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         // experiment: `augment` is the type and `core`, the function).
         let without_parameters = self.at_op(Op::LBrace) || self.at_op(Op::Arrow) || self.at_op(Op::Dot);
         if self.at_op(Op::LParen) || self.at_op(Op::Lt) || without_parameters {
-            self.report_method_modifiers(mods, topo, FunctionKind::Function);
+            self.report_method_modifiers(mods, top_level, FunctionKind::Function);
             let type_params = self.parse_type_parameters_opt()?;
-            self.params_owner = self.parameter_owner(mods, topo);
+            self.params_owner = self.parameter_owner(mods, top_level);
             let parameters = if without_parameters {
-                let code = if !topo && !matches!(self.owner, super::MemberOwner::Extension | super::MemberOwner::ExtensionType) {
+                let code = if !top_level && !matches!(self.owner, super::MemberOwner::Extension | super::MemberOwner::ExtensionType) {
                     codigos::parser::MISSING_METHOD_PARAMETERS
                 } else {
                     codigos::parser::MISSING_FUNCTION_PARAMETERS
@@ -2501,9 +2501,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             };
             let body_start = self.pos;
             let (modifier, body) = self.parse_function_body()?;
-            self.check_external_body(mods.external, false, body_start, &body, external_topo);
-            self.check_empty_body(&body, Self::allows_abstract(mods, modifier, topo));
-            self.check_abstract_in_extension(mods, topo, name.span, &body);
+            self.check_external_body(mods.external, false, body_start, &body, external_top_level);
+            self.check_empty_body(&body, Self::allows_abstract(mods, modifier, top_level));
+            self.check_abstract_in_extension(mods, top_level, name.span, &body);
             let id = self.ast.push_function(Function {
                 span: self.span_from(start),
                 external: mods.external,
@@ -2518,7 +2518,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             });
             return Ok(FunctionOrVariables::Function(id));
         }
-        self.report_field_modifiers(mods, topo, name.span);
+        self.report_field_modifiers(mods, top_level, name.span);
         // `parseFields`: without a type and without `var`/`final`/`const`,
         // `MISSING_CONST_FINAL_VAR_OR_TYPE` at the name (`interface interface
         // class C {}`: the built-in identifier is not a type).
@@ -2529,7 +2529,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(FunctionOrVariables::Variables(VariableList {
             external: mods.external,
             static_: mods.static_,
-            abstract_: mods.abstract_ && !topo,
+            abstract_: mods.abstract_ && !top_level,
             covariant: mods.covariant,
             late: mods.late,
             final_: mods.final_,
@@ -2570,10 +2570,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         start: Span,
         return_type: Option<TypeId>,
         kind: FunctionKind,
-        external_topo: Option<Span>,
-        topo: bool,
+        external_top_level: Option<Span>,
+        top_level: bool,
     ) -> PResult<FunctionId> {
-        self.report_method_modifiers(mods, topo, kind);
+        self.report_method_modifiers(mods, top_level, kind);
         self.advance();
         let mut type_params = Vec::new();
         let (name, parameters) = match kind {
@@ -2584,7 +2584,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // at the `(`, and the list is read.
                 if self.at_op(Op::LParen) {
                     self.erro(codigos::parser::GETTER_WITH_PARAMETERS, &[]);
-                    self.params_owner = self.parameter_owner(mods, topo);
+                    self.params_owner = self.parameter_owner(mods, top_level);
                     self.parse_formal_parameters()?;
                 }
                 (name, None)
@@ -2596,7 +2596,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // error at the name (`missingParameterMessage`: method's in a class, mixin
                 // and enum; function's elsewhere) and a synthetic empty list.
                 if !self.at_op(Op::LParen) {
-                    let code = if !topo && !matches!(self.owner, super::MemberOwner::Extension | super::MemberOwner::ExtensionType) {
+                    let code = if !top_level && !matches!(self.owner, super::MemberOwner::Extension | super::MemberOwner::ExtensionType) {
                         codigos::parser::MISSING_METHOD_PARAMETERS
                     } else {
                         codigos::parser::MISSING_FUNCTION_PARAMETERS
@@ -2604,7 +2604,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.error_at(code, name.span, &[]);
                     (name, Some(Vec::new()))
                 } else {
-                    self.params_owner = self.parameter_owner(mods, topo);
+                    self.params_owner = self.parameter_owner(mods, top_level);
                     (name, Some(self.parse_formal_parameters()?))
                 }
             }
@@ -2619,15 +2619,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                     let list = self.span_from(abre);
                     self.error_at(codigos::parser::TYPE_PARAMETER_ON_OPERATOR, list, &[]);
                 }
-                self.params_owner = self.parameter_owner(mods, topo);
+                self.params_owner = self.parameter_owner(mods, top_level);
                 (name, Some(self.parse_formal_parameters()?))
             }
         };
         let body_start = self.pos;
         let (modifier, body) = self.parse_function_body()?;
-        self.check_external_body(mods.external, false, body_start, &body, external_topo);
-        self.check_empty_body(&body, Self::allows_abstract(mods, modifier, topo));
-        self.check_abstract_in_extension(mods, topo, name.span, &body);
+        self.check_external_body(mods.external, false, body_start, &body, external_top_level);
+        self.check_empty_body(&body, Self::allows_abstract(mods, modifier, top_level));
+        self.check_abstract_in_extension(mods, top_level, name.span, &body);
         Ok(self.ast.push_function(Function {
             span: self.span_from(start),
             external: mods.external,
@@ -2650,10 +2650,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// member (`parseMethod`): `covariant` does not fit in a top-level function
     /// or a static method, and has its own code in extensions and extension
     /// types.
-    fn parameter_owner(&self, mods: Modifiers, topo: bool) -> ParameterOwner {
+    fn parameter_owner(&self, mods: Modifiers, top_level: bool) -> ParameterOwner {
         use super::MemberOwner as D;
         match self.owner {
-            _ if topo => ParameterOwner::TopLevelOrStatic,
+            _ if top_level => ParameterOwner::TopLevelOrStatic,
             D::Extension => ParameterOwner::Extension,
             D::ExtensionType => ParameterOwner::ExtensionType,
             _ if mods.static_ => ParameterOwner::TopLevelOrStatic,
@@ -2662,9 +2662,9 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// Called as soon as the declaration turns out to be a method.
-    fn report_method_modifiers(&mut self, mods: Modifiers, topo: bool, kind: FunctionKind) {
+    fn report_method_modifiers(&mut self, mods: Modifiers, top_level: bool, kind: FunctionKind) {
         let f = mods.modifier_tokens;
-        if topo {
+        if top_level {
             if let Some(v) = f.var_final_or_const() {
                 if f.var_.is_some() {
                     self.error_at_token(v, codigos::parser::VAR_RETURN_TYPE);
@@ -2706,8 +2706,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// In an extension, a method with a `;` body and no `external` is
     /// `EXTENSION_DECLARES_ABSTRACT_MEMBER` at the name (at the operator, for
     /// `operator`; `parser_impl.dart:5084`).
-    fn check_abstract_in_extension(&mut self, mods: Modifiers, topo: bool, nome: Span, body: &FunctionBody) {
-        if !topo
+    fn check_abstract_in_extension(&mut self, mods: Modifiers, top_level: bool, nome: Span, body: &FunctionBody) {
+        if !top_level
             && self.owner == super::MemberOwner::Extension
             && matches!(body, FunctionBody::Empty)
             && !mods.external
@@ -2724,7 +2724,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `external`, `EXTENSION_DECLARES_INSTANCE_FIELD` at the first name
     /// (`parser_impl.dart:3809`).
     /// Called with the cursor right after the first name.
-    fn report_field_modifiers(&mut self, mods: Modifiers, topo: bool, nome: Span) {
+    fn report_field_modifiers(&mut self, mods: Modifiers, top_level: bool, nome: Span) {
         let f = mods.modifier_tokens;
         if let (Some(c), Some(_)) = (f.covariant, f.final_) {
             if f.late.is_none() {
@@ -2736,7 +2736,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if let (Some(a), Some(_)) = (f.abstract_, f.external) {
             self.error_at_token(a, codigos::parser::ABSTRACT_EXTERNAL_FIELD);
         }
-        if !topo
+        if !top_level
             && self.owner == super::MemberOwner::Extension
             && f.static_.is_none()
             && f.external.is_none()
@@ -3258,19 +3258,19 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
             }
         }
-        let antes = self.pos;
+        let before = self.pos;
         let (modifier, body) = self.parse_function_body()?;
         // `async`, `async*`, `sync*` before the body: the analyzer reports at the
         // `async`/`sync`, with the whole modifier in the text. The body (`=>`/`{`)
         // is judged during elaboration, which knows whether it is `const`.
-        let mut body_node = antes;
+        let mut body_node = before;
         if modifier != AsyncModifier::None {
             let texto = match modifier {
                 AsyncModifier::Async => "async",
                 AsyncModifier::AsyncStar => "async*",
                 _ => "sync*",
             };
-            let span = self.tokens[antes].span;
+            let span = self.tokens[before].span;
             self.error_at(codigos::parser::PRIMARY_CONSTRUCTOR_BODY_WITH_MODIFIER, span, &[texto]);
             body_node += if texto.ends_with('*') { 2 } else { 1 };
         }
@@ -3442,9 +3442,9 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_initializer(&mut self) -> PResult<Initializer> {
         // `parseInitializers` do fasta desliga `mayParseFunctionExpressions`.
         let salvo = std::mem::replace(&mut self.without_named_function, true);
-        let lido = self.parse_initializer_inner();
+        let read_ = self.parse_initializer_inner();
         self.without_named_function = salvo;
-        lido
+        read_
     }
 
     fn parse_initializer_inner(&mut self) -> PResult<Initializer> {
@@ -3655,7 +3655,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// The range from `start_offset` starts before the `async` modifier and
     /// only includes this function's tokens, so the first delimiter is the
     /// body.
-    fn check_external_body(&mut self, external: bool, factory: bool, start_offset: usize, body: &FunctionBody, external_topo: Option<Span>) {
+    fn check_external_body(&mut self, external: bool, factory: bool, start_offset: usize, body: &FunctionBody, external_top_level: Option<Span>) {
         if !external {
             return;
         }
@@ -3668,7 +3668,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             .iter()
             .find(|t| t.kind == Kind::Op(delimiter))
             .map(|t| t.span);
-        if let Some(span) = external_topo.or(span) {
+        if let Some(span) = external_top_level.or(span) {
             let code = if factory {
                 codigos::parser::EXTERNAL_FACTORY_WITH_BODY
             } else {
@@ -3722,8 +3722,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// (`parseTopLevelMethod`), only `external` makes the body optional; in a
     /// member (`parseMethod`), whatever is not `static` (or is `external`) and
     /// has no `async`/`sync*` modifier (`inPlainSync`).
-    fn allows_abstract(mods: Modifiers, modifier: AsyncModifier, topo: bool) -> bool {
-        if topo {
+    fn allows_abstract(mods: Modifiers, modifier: AsyncModifier, top_level: bool) -> bool {
+        if top_level {
             mods.external
         } else {
             (!mods.static_ || mods.external) && modifier == AsyncModifier::None
@@ -4352,11 +4352,11 @@ mod tests {
             assert_eq!(single.code, Some(c::EXPECTED_CLASS_MEMBER), "{fonte}");
             assert_eq!((single.span.start, single.span.end), (start_offset, end_offset), "{fonte}");
             assert_eq!(out.unit.declarations.len(), 1, "{fonte}");
-            let campo = match member(&out, class(&out, 0), 0) {
+            let field_ = match member(&out, class(&out, 0), 0) {
                 MemberKind::Field(list) => list,
                 other => panic!("{fonte}: {other:?}"),
             };
-            assert_eq!(text(&names, campo.variables[0].name), "x", "{fonte}");
+            assert_eq!(text(&names, field_.variables[0].name), "x", "{fonte}");
         }
     }
 
@@ -4754,8 +4754,8 @@ mod tests {
             "{fonte}: {:?}",
             out.diagnostics
         );
-        let ultimo = out.unit.declarations.len() - 1;
-        assert!(matches!(decl(&out, ultimo), DeclKind::Variables(_)));
+        let last = out.unit.declarations.len() - 1;
+        assert!(matches!(decl(&out, last), DeclKind::Variables(_)));
     }
 
     #[test]

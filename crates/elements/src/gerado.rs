@@ -128,11 +128,11 @@ pub fn do_build_runner(
         return c.concluir(0).unwrap_or_default_arc();
     };
     let raiz = origin.join("build").join("generated");
-    for (nome, pkg) in &cfg.packages {
-        if packages_.is_some_and(|p| !p.contains(nome)) {
+    for (name_, pkg) in &cfg.packages {
+        if packages_.is_some_and(|p| !p.contains(name_)) {
             continue;
         }
-        let dir = raiz.join(nome).join("lib");
+        let dir = raiz.join(name_).join("lib");
         if !dir.is_dir() {
             continue;
         }
@@ -145,8 +145,8 @@ pub fn do_build_runner(
                     stack.push(p);
                     continue;
                 }
-                let nome = p.to_string_lossy();
-                if !suffixes.iter().any(|s| nome.ends_with(s)) {
+                let name_ = p.to_string_lossy();
+                if !suffixes.iter().any(|s| name_.ends_with(s)) {
                     continue;
                 }
                 let Ok(rel) = p.strip_prefix(&dir) else { continue };

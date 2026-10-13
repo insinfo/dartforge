@@ -865,7 +865,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // (`ast_builder.dart:3210-3247`) then appends to the end of each `case`
         // group a `SwitchDefault` with that same word, which carries the group's
         // statements.
-        let mut ultimo_default: Option<usize> = None;
+        let mut last_default: Option<usize> = None;
         while !self.at_op(Op::RBrace) && !self.at_eof() {
             let case_start = self.span();
             let mut labels = Vec::new();
@@ -883,7 +883,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             saw_default |= self.at_kw(Keyword::Default);
             if self.at_kw(Keyword::Default) {
-                ultimo_default = Some(self.span().start);
+                last_default = Some(self.span().start);
             }
             let (pattern, guard) = if self.eat_kw(Keyword::Case) {
                 // Before 3.0 (`allowPatterns` false), `case` takes an expression
@@ -910,14 +910,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             };
             // End of a `case` group after a `default`: the next member (after the
             // labels) is neither `case` nor `default`.
-            let group_end_after_default = pattern.is_some() && ultimo_default.is_some() && {
+            let group_end_after_default = pattern.is_some() && last_default.is_some() && {
                 let mut k = 0;
                 while self.at_identifier_at(k) && self.at_op_at(k + 1, Op::Colon) {
                     k += 2;
                 }
                 !matches!(self.kind_at(k), Kind::Keyword(Keyword::Case | Keyword::Default))
             };
-            if let (true, Some(d)) = (group_end_after_default, ultimo_default) {
+            if let (true, Some(d)) = (group_end_after_default, last_default) {
                 cases.push(SwitchCase {
                     span: self.span_from(case_start),
                     labels: labels.into_boxed_slice(),
@@ -956,8 +956,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.at_op(Op::LBrace) {
             return self.parse_block();
         }
-        let anterior = self.tokens[self.pos.saturating_sub(1)].span;
-        self.error_at(code, anterior, &[]);
+        let previous = self.tokens[self.pos.saturating_sub(1)].span;
+        self.error_at(code, previous, &[]);
         let here = self.span().start;
         Ok(self.ast.push_stmt(crate::ast::Stmt { span: Span { start: here, end: here }, kind: StmtKind::Block(Vec::new().into_boxed_slice()) }))
     }
@@ -1920,7 +1920,7 @@ mod tests {
         }
 
         #[test]
-        fn funcoes_locais() {
+        fn local_functions() {
             let out = ok("int f() => 1;");
             let StmtKind::Function(f) = out.kind() else {
                 panic!()

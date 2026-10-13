@@ -67,7 +67,7 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
             let class_elem = &mut pools.classes[cid.0 as usize];
             if let Some(t) = c.extends {
                 if class_elem.supertype.is_some() {
-                    f.erro(unit_id, format!("class '{}' already has an 'extends' clause", nome(f, c.name.sym)), span);
+                    f.erro(unit_id, format!("class '{}' already has an 'extends' clause", name_(f, c.name.sym)), span);
                 } else {
                     class_elem.supertype = Some((unit_id, t));
                 }
@@ -89,20 +89,20 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
             let func = ast.function(*fid);
             let Some(n) = func.name else { return };
             let kind = function_type(func.kind);
-            let entrada = f.library.declared.get(&n.sym).copied().unwrap_or_default();
-            let anterior = match kind {
-                FunctionKind::Setter => entrada.setter,
-                _ => entrada.getter,
+            let entry_path = f.library.declared.get(&n.sym).copied().unwrap_or_default();
+            let previous = match kind {
+                FunctionKind::Setter => entry_path.setter,
+                _ => entry_path.getter,
             };
-            let Some(Element::Function(old)) = anterior else {
+            let Some(Element::Function(old)) = previous else {
                 f.erro(
                     unit_id,
-                    format!("'augment' of '{}' without an introductory declaration before it", nome(f, n.sym)),
+                    format!("'augment' of '{}' without an introductory declaration before it", name_(f, n.sym)),
                     n.span,
                 );
                 return;
             };
-            let novo = FunctionElementId(pools.functions.len() as u32);
+            let new_ = FunctionElementId(pools.functions.len() as u32);
             pools.functions.push(FunctionElement {
                 name: n.sym,
                 library: f.lib_id,
@@ -119,11 +119,11 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
                 patched_by: None,
                 declaracao_publica: None,
             });
-            if link(f, pools, unit_id, old, novo, full_function(func), n.span) {
+            if link(f, pools, unit_id, old, new_, full_function(func), n.span) {
                 let e = f.library.declared.entry(n.sym).or_default();
                 match kind {
-                    FunctionKind::Setter => e.setter = Some(Element::Function(novo)),
-                    _ => e.getter = Some(Element::Function(novo)),
+                    FunctionKind::Setter => e.setter = Some(Element::Function(new_)),
+                    _ => e.getter = Some(Element::Function(new_)),
                 }
             }
         }
@@ -144,7 +144,7 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
                     || c.instance_members.contains_key(&k.name.sym)
                     || c.static_members.contains_key(&k.name.sym);
                 if repeated {
-                    let n = nome(f, k.name.sym);
+                    let n = name_(f, k.name.sym);
                     f.erro(unit_id, format!("'{n}' is already declared; to augment it, use 'augment'"), k.name.span);
                     continue;
                 }
@@ -192,11 +192,11 @@ fn introductory_class(
     match found_one {
         Some(Element::Class(cid)) if pools.classes[cid.0 as usize].kind == kind => Some(cid),
         Some(_) => {
-            f.erro(unit_id, format!("'augment' of '{}' with a different kind of declaration", nome(f, n.sym)), n.span);
+            f.erro(unit_id, format!("'augment' of '{}' with a different kind of declaration", name_(f, n.sym)), n.span);
             None
         }
         None => {
-            f.erro(unit_id, format!("'augment' of '{}' without an introductory declaration before it", nome(f, n.sym)), n.span);
+            f.erro(unit_id, format!("'augment' of '{}' without an introductory declaration before it", name_(f, n.sym)), n.span);
             None
         }
     }
@@ -224,7 +224,7 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                     _ => c.instance_members.contains_key(&sym) || c.static_members.contains_key(&sym),
                 };
                 if exists_ {
-                    let n = nome(f, sym);
+                    let n = name_(f, sym);
                     f.erro(unit_id, format!("'{n}' is already declared; to augment it, use 'augment'"), span);
                     continue;
                 }
@@ -253,11 +253,11 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                 let c = &pools.classes[cid.0 as usize];
                 let map = if func.static_ { &c.static_members } else { &c.instance_members };
                 let Some(&old) = map.get(&chave) else {
-                    let t = nome(f, n.sym);
+                    let t = name_(f, n.sym);
                     f.erro(unit_id, format!("'augment' of '{t}' without an introductory member before it"), n.span);
                     continue;
                 };
-                let novo = FunctionElementId(pools.functions.len() as u32);
+                let new_ = FunctionElementId(pools.functions.len() as u32);
                 pools.functions.push(FunctionElement {
                     name: sym,
                     library: f.lib_id,
@@ -274,10 +274,10 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                     patched_by: None,
                     declaracao_publica: None,
                 });
-                if link(f, pools, unit_id, old, novo, full_function(func), n.span) {
+                if link(f, pools, unit_id, old, new_, full_function(func), n.span) {
                     let c = &mut pools.classes[cid.0 as usize];
                     let map = if func.static_ { &mut c.static_members } else { &mut c.instance_members };
-                    map.insert(chave, novo);
+                    map.insert(chave, new_);
                 }
             }
             MemberKind::Constructor(k) => {
@@ -287,7 +287,7 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                     f.erro(unit_id, "constructor 'augment' without an introductory constructor before it", span);
                     continue;
                 };
-                let novo = FunctionElementId(pools.functions.len() as u32);
+                let new_ = FunctionElementId(pools.functions.len() as u32);
                 pools.functions.push(FunctionElement {
                     name: sym,
                     library: f.lib_id,
@@ -304,8 +304,8 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                     patched_by: None,
                     declaracao_publica: None,
                 });
-                if link(f, pools, unit_id, old, novo, full_constructor(k), span) {
-                    pools.classes[cid.0 as usize].constructors.insert(sym, novo);
+                if link(f, pools, unit_id, old, new_, full_constructor(k), span) {
+                    pools.classes[cid.0 as usize].constructors.insert(sym, new_);
                 }
             }
             MemberKind::Field(_) => {
@@ -330,34 +330,34 @@ fn append_member(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
     pools.classes[cid.0 as usize] = class_elem;
 }
 
-/// Attaches `novo` to the chain whose effective element is `old`. Returns
-/// `true` if `novo` became the effective one (the caller swaps the map
+/// Attaches `new_` to the chain whose effective element is `old`. Returns
+/// `true` if `new_` became the effective one (the caller swaps the map
 /// entry).
 fn link(
     f: &mut Merge<'_>,
     pools: &mut ElementPools,
     unit_id: UnitId,
     old: FunctionElementId,
-    novo: FunctionElementId,
+    new_: FunctionElementId,
     new_full: bool,
     span: Span,
 ) -> bool {
     if !new_full {
         // Only metadata (or nothing): the body stays the effective one's.
-        pools.functions[novo.0 as usize].patched_by = Some(old);
+        pools.functions[new_.0 as usize].patched_by = Some(old);
         return false;
     }
     if has_body(f.units, &pools.functions[old.0 as usize]) && !augmentation_with_macros(f.units, unit_id) {
         f.erro(unit_id, "the augmented declaration already has a body; an augmentation cannot replace it", span);
-        pools.functions[novo.0 as usize].patched_by = Some(old);
+        pools.functions[new_.0 as usize].patched_by = Some(old);
         return false;
     }
     for e in pools.functions.iter_mut() {
         if e.patched_by == Some(old) {
-            e.patched_by = Some(novo);
+            e.patched_by = Some(new_);
         }
     }
-    pools.functions[old.0 as usize].patched_by = Some(novo);
+    pools.functions[old.0 as usize].patched_by = Some(new_);
     true
 }
 
@@ -415,7 +415,7 @@ fn member_name(ast: &ast::Ast, m: &ast::Member) -> Option<(SymbolId, Span)> {
     }
 }
 
-fn nome(f: &Merge<'_>, s: SymbolId) -> String {
+fn name_(f: &Merge<'_>, s: SymbolId) -> String {
     f.interner.resolve(s).to_string()
 }
 

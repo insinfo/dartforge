@@ -291,7 +291,7 @@ fn primary_constructor_errors() {
 }
 
 #[test]
-fn null_aware_so_na_38() {
+fn null_aware_only_in_38() {
     let (p, _) = na((3, 7), "var l = [?a, 'k': ?b];");
     assert_eq!(p.diagnostics.len(), 2, "{:?}", messages(&p));
     let (p, _) = na((3, 8), "var l = {?a: 1, 'k': ?b, ?c: ?d};");

@@ -690,7 +690,7 @@ impl Program {
         }
     }
 
-    /// Resolve `prefix.nome`.
+    /// Resolve `prefix.name_`.
     pub fn lookup_prefixed(
         &self,
         library: LibraryId,

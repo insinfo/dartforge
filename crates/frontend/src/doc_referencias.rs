@@ -368,9 +368,9 @@ fn scan(texto: &str, shift: usize) -> Option<Vec<Tk>> {
             i += 1;
             continue;
         }
-        let sinal = SIGNS.iter().find(|s| b[i..].starts_with(s.as_bytes()))?;
-        v.push(Tk::Operator(Span { start: shift + i, end: shift + i + sinal.len() }, sinal.to_string()));
-        i += sinal.len();
+        let sign = SIGNS.iter().find(|s| b[i..].starts_with(s.as_bytes()))?;
+        v.push(Tk::Operator(Span { start: shift + i, end: shift + i + sign.len() }, sign.to_string()));
+        i += sign.len();
     }
     Some(v)
 }

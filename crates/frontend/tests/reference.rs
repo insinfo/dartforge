@@ -11,9 +11,9 @@ use dartforge_intern::Interner;
 /// diagnostic: code, excerpt, message and fix.
 fn ler(fonte: &str) -> (Referencia, Vec<(&'static str, String, String, String)>) {
     let mut names = Interner::new();
-    let lido = parse_com(fonte, &mut names, LibraryFeatures::piso());
-    let referencia = lido.referencia;
-    let mut v: Vec<_> = lido
+    let read_ = parse_com(fonte, &mut names, LibraryFeatures::piso());
+    let referencia = read_.referencia;
+    let mut v: Vec<_> = read_
         .diagnostics
         .into_iter()
         .filter_map(|d| d.na_referencia(referencia))
@@ -79,7 +79,7 @@ fn representation_with_var_in_3_13() {
     let fonte = "extension type E(var int i) {}\n\nextension type F(final i) {}\n\nextension type G(final int i, final int j) {}\n";
     let (referencia, v) = ler(fonte);
     assert_eq!(referencia, Referencia::V3_13);
-    let nova = "Representation fields can't have the modifier 'var'.";
+    let new_ = "Representation fields can't have the modifier 'var'.";
     let summary: Vec<(&str, &str, &str)> = v.iter().map(|d| (d.0, d.1.as_str(), d.2.as_str())).collect();
     assert_eq!(
         summary,
@@ -87,8 +87,8 @@ fn representation_with_var_in_3_13() {
             ("expected_representation_type", "i", "Expected a representation type."),
             ("experiment_not_enabled", "var", "This requires the 'primary-constructors' language feature to be enabled."),
             ("multiple_representation_fields", ",", "Each extension type should have exactly one representation field."),
-            ("representation_field_modifier", "final", nova),
-            ("representation_field_modifier", "var", nova),
+            ("representation_field_modifier", "final", new_),
+            ("representation_field_modifier", "var", new_),
         ]
     );
     let feature = v.iter().find(|d| d.0 == "experiment_not_enabled").unwrap();
@@ -99,10 +99,10 @@ fn representation_with_var_in_3_13() {
 #[test]
 fn new_library_is_from_3_13() {
     let mut names = Interner::new();
-    let lido = parse_com("void main() {}\n", &mut names, LibraryFeatures::atual());
-    assert_eq!(lido.referencia, Referencia::V3_13);
-    let lido = parse_com("void main() {}\n", &mut names, LibraryFeatures::piso());
-    assert_eq!(lido.referencia, Referencia::V3_6);
+    let read_ = parse_com("void main() {}\n", &mut names, LibraryFeatures::atual());
+    assert_eq!(read_.referencia, Referencia::V3_13);
+    let read_ = parse_com("void main() {}\n", &mut names, LibraryFeatures::piso());
+    assert_eq!(read_.referencia, Referencia::V3_6);
 }
 
 /// `named_function_expression` (docs/ANALYZER-ESPECIFICACAO.md, family E):

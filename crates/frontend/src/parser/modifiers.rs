@@ -130,18 +130,18 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `reportModifierOutOfOrder`: `pos` should come before `before`.
-    fn out_of_order_modifier(&mut self, pos: usize, antes: &str) {
+    fn out_of_order_modifier(&mut self, pos: usize, before: &str) {
         let texto = self.text_of(pos).to_string();
         let span = self.span_of(pos);
-        self.error_at(codigos::parser::MODIFIER_OUT_OF_ORDER, span, &[&texto, antes]);
+        self.error_at(codigos::parser::MODIFIER_OUT_OF_ORDER, span, &[&texto, before]);
     }
 
     /// `reportConflictingModifiers`.
-    fn conflicting_modifiers(&mut self, pos: usize, anterior: usize) {
+    fn conflicting_modifiers(&mut self, pos: usize, previous: usize) {
         let texto = self.text_of(pos).to_string();
-        let antes = self.text_of(anterior).to_string();
+        let before = self.text_of(previous).to_string();
         let span = self.span_of(pos);
-        self.error_at(codigos::parser::CONFLICTING_MODIFIERS, span, &[&texto, &antes]);
+        self.error_at(codigos::parser::CONFLICTING_MODIFIERS, span, &[&texto, &before]);
     }
 
     /// `ModifierContext._parseModifiers`: consumes every modifier from the
@@ -237,7 +237,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn mod_external(&mut self, f: &mut ModifierTokens, pos: usize, after_factory: bool) {
         if f.external.is_none() {
             f.external = Some(pos);
-            let antes = if after_factory {
+            let before = if after_factory {
                 Some("factory".to_string())
             } else {
                 [f.const_, f.static_, f.late, f.var_final_or_const(), f.covariant]
@@ -246,8 +246,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                     .next()
                     .map(|p| self.text_of(p).to_string())
             };
-            if let Some(antes) = antes {
-                self.out_of_order_modifier(pos, &antes);
+            if let Some(before) = before {
+                self.out_of_order_modifier(pos, &before);
             }
             return;
         }

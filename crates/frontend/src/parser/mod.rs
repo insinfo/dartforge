@@ -171,11 +171,11 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
             // `translateErrorToken` (`errors.dart:36`): at the character before the
             // `endOffset`, which is the line break or the end of the file.
             Kind::Str(f) | Kind::StrEnd(f) if f.aberta => {
-                let mut ultimo = t.span.end.saturating_sub(1);
-                while ultimo > 0 && !source.is_char_boundary(ultimo) {
-                    ultimo -= 1;
+                let mut last = t.span.end.saturating_sub(1);
+                while last > 0 && !source.is_char_boundary(last) {
+                    last -= 1;
                 }
-                output.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::UNTERMINATED_STRING_LITERAL, one(ultimo), Vec::<&str>::new()));
+                output.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::UNTERMINATED_STRING_LITERAL, one(last), Vec::<&str>::new()));
             }
             // `NonAsciiIdentifierToken`: each character outside the ASCII identifier,
             // with its code point.
@@ -314,13 +314,13 @@ pub fn parse_lexed_with(
         parser.diagnostics.extend(from_scanner.iter().cloned());
         let unit = parser.parse_compilation_unit();
         let redo = !mode_313 && parser.diverged_313 && parser.new_syntax;
-        (unit, parser.ast, parser.diagnostics, parser.pulados, parser.new_syntax, parser.so_3_6, parser.so_3_13, redo)
+        (unit, parser.ast, parser.diagnostics, parser.pulados, parser.new_syntax, parser.only_3_6, parser.only_3_13, redo)
     };
     let mut reading = ler(interner, features.versao() > LanguageVersion::PISO);
     if reading.7 {
         reading = ler(interner, true);
     }
-    let (unit, mut ast, diags, pulados, new_syntax, so_3_6, so_3_13, _) = reading;
+    let (unit, mut ast, diags, pulados, new_syntax, only_3_6, only_3_13, _) = reading;
     // The returned tree lives long (an editor keeps it per open file) and the
     // arenas grew in powers of two: in `new_sali` the slack was 29 MiB out of
     // 132 MiB. One reallocation per arena here is cheaper than keeping the
@@ -331,7 +331,7 @@ pub fn parse_lexed_with(
     // The diagnostics only the other reference reports come out now, when this
     // unit's reference is known.
     let mut diagnostics = diags;
-    let fora = if referencia == Referencia::V3_13 { &so_3_6 } else { &so_3_13 };
+    let fora = if referencia == Referencia::V3_13 { &only_3_6 } else { &only_3_13 };
     if !fora.is_empty() {
         diagnostics.retain(|d| !d.code.is_some_and(|c| fora.contains(&(c, d.span))));
     }
@@ -444,9 +444,9 @@ pub struct Parser<'s, 'i> {
     /// leave the list if the unit's reference ends up being 3.13.4. Stored by
     /// code and place, not by index: speculative attempts truncate the
     /// diagnostic list.
-    pub(crate) so_3_6: Vec<(Codigo, Span)>,
+    pub(crate) only_3_6: Vec<(Codigo, Span)>,
     /// The inverse: those only 3.13.4 reports.
-    pub(crate) so_3_13: Vec<(Codigo, Span)>,
+    pub(crate) only_3_13: Vec<(Codigo, Span)>,
     /// fasta's `!mayParseFunctionExpressions`: reading a constructor
     /// initializer or the pattern and guard of a `switch` expression case,
     /// where `name(…) {` and `name(…) =>` are not a named function literal (the
@@ -514,8 +514,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             mode_313: false,
             diverged_313: false,
             in_list: false,
-            so_3_6: Vec::new(),
-            so_3_13: Vec::new(),
+            only_3_6: Vec::new(),
+            only_3_13: Vec::new(),
             without_named_function: false,
         }
     }
@@ -798,8 +798,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     pub(crate) fn expected_error(&mut self, texto: &str) -> ParseError {
         if texto == ";" && self.pos > 0 {
             // `findPreviousNonZeroLengthToken`: synthetic tokens do not count.
-            let anterior = (0..self.pos).rev().find(|&i| self.tokens[i].span.start < self.tokens[i].span.end).unwrap_or(self.pos - 1);
-            let span = self.tokens[anterior].span;
+            let previous = (0..self.pos).rev().find(|&i| self.tokens[i].span.start < self.tokens[i].span.end).unwrap_or(self.pos - 1);
+            let span = self.tokens[previous].span;
             return self.error_at(codigos::parser::EXPECTED_TOKEN, span, &[";"]);
         }
         if matches!(texto, ")" | "]" | "}") && self.kind() == Kind::Eof {
@@ -861,10 +861,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         if end_offset <= start_offset {
             return;
         }
-        if let Some(ultimo) = self.pulados.last_mut() {
-            if start_offset <= ultimo.end && ultimo.start <= end_offset {
-                ultimo.start = ultimo.start.min(start_offset);
-                ultimo.end = ultimo.end.max(end_offset);
+        if let Some(last) = self.pulados.last_mut() {
+            if start_offset <= last.end && last.start <= end_offset {
+                last.start = last.start.min(start_offset);
+                last.end = last.end.max(end_offset);
                 return;
             }
         }
@@ -937,9 +937,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             // version).
             match f.enabled_in() {
                 Some(v) => {
-                    let nova = format!("{v}.0");
-                    let old = f.version_reported_in_3_6().map_or_else(|| nova.clone(), |a| format!("{a}.0"));
-                    self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &nova]);
+                    let new_ = format!("{v}.0");
+                    let old = f.version_reported_in_3_6().map_or_else(|| new_.clone(), |a| format!("{a}.0"));
+                    self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &new_]);
                 }
                 None => {
                     self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT, span, &[f.nome()]);
@@ -962,9 +962,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 if Feature::DESCONHECIDOS_NO_3_6.contains(&f) {
                     self.new_syntax = true;
                 }
-                let nova = v.to_string();
-                let old = f.version_reported_in_3_6().map_or_else(|| nova.clone(), |a| a.to_string());
-                self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &nova]);
+                let new_ = v.to_string();
+                let old = f.version_reported_in_3_6().map_or_else(|| new_.clone(), |a| a.to_string());
+                self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &new_]);
             }
             None => self.require(f, span),
         }
