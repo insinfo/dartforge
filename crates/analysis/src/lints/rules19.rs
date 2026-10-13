@@ -1,30 +1,30 @@
-//! O décimo nono lote de regras de lint (docs/ANALYZER-ESPECIFICACAO-INFRA.md
-//! §8), escritas direto dos emissores da 3.6.2
-//! (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`), pela semântica
-//! da unidade:
+//! The nineteenth batch of lint rules (docs/ANALYZER-ESPECIFICACAO-INFRA.md
+//! §8), written directly from the 3.6.2 emitters
+//! (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`), through the
+//! unit's semantics:
 //!
-//! * `prefer_const_constructors`: a criação que pode ser `const`
-//!   (`Semantics::can_be_const`), fora o tipo de prefixo adiado, o
-//!   construtor `@literal`, o de `Object` e a classe genérica sem argumentos
-//!   de tipo cujo contexto aproximado tem parâmetro de tipo.
-//! * `prefer_const_literals_to_create_immutables`: o literal que pode ser
-//!   `const`, argumento (através de parênteses, literais, entradas e
-//!   nomeados) de uma criação de classe `@immutable` (nela ou na cadeia de
-//!   superclasses).
-//! * `prefer_const_constructors_in_immutables`: o construtor de corpo vazio
-//!   de classe `@immutable` sem mixins que pode ser `const`, ou a fábrica
-//!   que redireciona a um `const`; e o tipo de extensão `@immutable` sem
-//!   `const`.
-//! * `use_to_and_as_if_applicable`: o método sem parâmetros que devolve
+//! * `prefer_const_constructors`: the creation that can be `const`
+//!   (`Semantics::can_be_const`), except a deferred prefix type, an
+//!   `@literal` constructor, `Object`'s and a generic class without type
+//!   arguments whose approximate context has a type parameter.
+//! * `prefer_const_literals_to_create_immutables`: the literal that can be
+//!   `const`, an argument (through parentheses, literals, entries and named
+//!   ones) of a creation of an `@immutable` class (on it or along the
+//!   superclass chain).
+//! * `prefer_const_constructors_in_immutables`: the empty-bodied constructor
+//!   of an `@immutable` class without mixins that can be `const`, or a
+//!   factory that redirects to a `const` one; and an `@immutable` extension
+//!   type without `const`.
+//! * `use_to_and_as_if_applicable`: the parameterless method that returns
 //!   `C(this)`.
-//! * `use_decorated_box`, `use_colored_box` e `sized_box_for_whitespace`:
-//!   os argumentos de um `Container`.
-//! * `no_logic_in_create_state`: o `createState` de um `StatefulWidget` que
-//!   não devolve só uma criação sem argumentos.
-//! * `use_setters_to_change_properties`: o método `void` de um parâmetro que
-//!   só atribui o parâmetro a um campo.
+//! * `use_decorated_box`, `use_colored_box` and `sized_box_for_whitespace`:
+//!   the arguments of a `Container`.
+//! * `no_logic_in_create_state`: the `createState` of a `StatefulWidget` that
+//!   does not return just a creation without arguments.
+//! * `use_setters_to_change_properties`: a `void` method with one parameter
+//!   that only assigns the parameter to a field.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::walk::Node;
 use super::codigos_g as c;
@@ -39,52 +39,52 @@ use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::Type;
 use std::collections::HashSet;
 
-fn sem_parenteses(a: &Ast, mut e: ExprId) -> ExprId {
+fn unparenthesized(a: &Ast, mut e: ExprId) -> ExprId {
     while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
         e = *x;
     }
     e
 }
 
-fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
+fn class_of_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
     (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
 }
 
-/// A classe tem `@immutable` (`hasImmutable` do elemento).
-fn imutavel(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
+/// The class has `@immutable` (the element's `hasImmutable`).
+fn is_immutable(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
     let Some(r) = s.program.class(c).decl else { return false };
     s.program.unit(r.unit).ast.decl(r.decl).metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(s.program, interner, r.unit, m, "meta", "immutable"))
 }
 
-/// A classe ou a cadeia de superclasses tem `@immutable`.
-fn imutavel_na_cadeia(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
-    let mut vistos = HashSet::new();
-    let mut atual = Some(c);
-    while let Some(x) = atual {
-        if !vistos.insert(x) {
+/// The class or its superclass chain has `@immutable`.
+fn is_immutable_in_chain(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
+    let mut seen = HashSet::new();
+    let mut current = Some(c);
+    while let Some(x) = current {
+        if !seen.insert(x) {
             break;
         }
-        if imutavel(s, interner, x) {
+        if is_immutable(s, interner, x) {
             return true;
         }
-        atual = s.program.class(x).supertype_class;
+        current = s.program.class(x).supertype_class;
     }
     false
 }
 
-fn token_em(fonte: &str, pos: usize) -> Span {
-    let b = fonte.as_bytes();
-    let mut fim = pos;
-    while fim < b.len() && (b[fim].is_ascii_alphanumeric() || b[fim] == b'_' || b[fim] == b'$') {
-        fim += 1;
+fn token_at(source: &str, pos: usize) -> Span {
+    let b = source.as_bytes();
+    let mut end = pos;
+    while end < b.len() && (b[end].is_ascii_alphanumeric() || b[end] == b'_' || b[end] == b'$') {
+        end += 1;
     }
-    if fim == pos {
-        fim = (pos + 1).min(b.len());
+    if end == pos {
+        end = (pos + 1).min(b.len());
     }
-    Span { start: pos, end: fim }
+    Span { start: pos, end: end }
 }
 
-fn nome_do_construtor(a: &Ast, e: ExprId) -> Span {
+fn constructor_name_span(a: &Ast, e: ExprId) -> Span {
     match &a.expr(e).kind {
         ExprKind::InstanceCreation { ty, constructor, .. } => {
             let t = a.ty(*ty).span;
@@ -95,61 +95,61 @@ fn nome_do_construtor(a: &Ast, e: ExprId) -> Span {
     }
 }
 
-/// `lookUpInheritedMethod`: um método (não estático, acessível) na cadeia
-/// de superclasses com os mixins, sem a própria classe.
-fn metodo_herdado(s: &super::Semantics<'_>, interner: &Interner, classe: ClassId, nome: dartforge_intern::SymbolId) -> bool {
+/// `lookUpInheritedMethod`: a (non-static, accessible) method along the
+/// superclass chain with the mixins, without the class itself.
+fn has_inherited_method(s: &super::Semantics<'_>, interner: &Interner, class_id: ClassId, name: dartforge_intern::SymbolId) -> bool {
     let program = s.program;
     let lib = program.unit(s.unit).library;
-    let privado = interner.resolve(nome).starts_with('_');
-    let mut vistos: HashSet<ClassId> = HashSet::new();
-    let mut atual = Some(classe);
-    while let Some(cl) = atual {
-        if !vistos.insert(cl) {
+    let is_private = interner.resolve(name).starts_with('_');
+    let mut seen: HashSet<ClassId> = HashSet::new();
+    let mut current = Some(class_id);
+    while let Some(cl) = current {
+        if !seen.insert(cl) {
             break;
         }
         let e = program.class(cl);
         for cc in std::iter::once(cl).chain(e.mixin_classes.iter().rev().copied()) {
-            if cc == classe {
+            if cc == class_id {
                 continue;
             }
             let k = program.class(cc);
-            if let Some(&g) = k.instance_members.get(&nome) {
+            if let Some(&g) = k.instance_members.get(&name) {
                 let ge = program.function(g);
-                if matches!(ge.kind, FunctionKind::Function | FunctionKind::Operator) && !ge.static_ && (!privado || k.library == lib) {
+                if matches!(ge.kind, FunctionKind::Function | FunctionKind::Operator) && !ge.static_ && (!is_private || k.library == lib) {
                     return true;
                 }
             }
         }
-        atual = e.supertype_class;
+        current = e.supertype_class;
     }
     false
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
-    let fonte = u.fonte;
+    let source = u.fonte;
     let program = s.program;
     let table = s.table;
     let lib = program.unit(s.unit).library;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
-    let vazio = dartforge_types::lints_tipados6::PodemSerConst::default();
-    let pode = s.can_be_const.unwrap_or(&vazio);
+    let empty = dartforge_types::lints_tipados6::PodemSerConst::default();
+    let can = s.can_be_const.unwrap_or(&empty);
 
     // `prefer_const_constructors`.
-    if ligada("prefer_const_constructors") {
-        let pais = super::rules16::unit_parents(u, &|e| pode.criacoes.contains(&e));
-        let mut criacoes: Vec<ExprId> = pode.criacoes.iter().copied().collect();
-        criacoes.sort_by_key(|e| a.expr(*e).span.start);
-        for e in criacoes {
+    if enabled("prefer_const_constructors") {
+        let parents = super::rules16::unit_parents(u, &|e| can.criacoes.contains(&e));
+        let mut creations: Vec<ExprId> = can.criacoes.iter().copied().collect();
+        creations.sort_by_key(|e| a.expr(*e).span.start);
+        for e in creations {
             let Some(Resolved::Constructor(f)) = s.body.get_resolved(e) else { continue };
             let g = program.function(*f);
-            // O tipo com prefixo adiado.
-            let prefixo = match &a.expr(e).kind {
+            // The type with a deferred prefix.
+            let prefix = match &a.expr(e).kind {
                 ExprKind::InstanceCreation { ty, .. } => match &a.ty(*ty).kind {
                     TypeKind::Named { name, .. } if name.len() == 2 => Some(name[0].sym),
                     _ => None,
@@ -159,7 +159,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     if let ExprKind::TypeArguments { target: t2, .. } = &a.expr(t).kind {
                         t = *t2;
                     }
-                    // `p.C()` ou `p.C.nome()`.
+                    // `p.C()` or `p.C.name()`.
                     match &a.expr(t).kind {
                         ExprKind::Property { target: t3, .. } => match &a.expr(*t3).kind {
                             ExprKind::Identifier(p) if matches!(program.lookup_na_unidade(s.unit, p.sym).and_then(|b| b.getter), Some(Element::Prefix(..))) => Some(p.sym),
@@ -174,12 +174,12 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 }
                 _ => None,
             };
-            let adiado = prefixo.is_some_and(|p| program.library(lib).imports.iter().any(|i| i.unit == s.unit && i.prefix == Some(p) && i.deferred));
-            if adiado {
+            let deferred = prefix.is_some_and(|p| program.library(lib).imports.iter().any(|i| i.unit == s.unit && i.prefix == Some(p) && i.deferred));
+            if deferred {
                 continue;
             }
-            // `@literal` no construtor.
-            let literal = match g.node {
+            // `@literal` on the constructor.
+            let is_literal = match g.node {
                 FunctionRef::Constructor { unit, member } => program
                     .unit(unit)
                     .ast
@@ -189,32 +189,32 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     .any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, unit, m, "meta", "literal")),
                 _ => false,
             };
-            if literal {
+            if is_literal {
                 continue;
             }
-            let Some(classe) = g.class else { continue };
-            if Some(classe) == s.core.object_class {
+            let Some(class_id) = g.class else { continue };
+            if Some(class_id) == s.core.object_class {
                 continue;
             }
-            // A classe genérica sem argumentos de tipo escritos: o contexto.
-            let tem_argumentos = match &a.expr(e).kind {
+            // A generic class without written type arguments: the context.
+            let has_type_arguments = match &a.expr(e).kind {
                 ExprKind::InstanceCreation { ty, .. } => matches!(&a.ty(*ty).kind, TypeKind::Named { args, .. } if !args.is_empty()),
                 ExprKind::Call { target, .. } => matches!(a.expr(*target).kind, ExprKind::TypeArguments { .. }),
                 _ => false,
             };
-            let params = s.outline.classes.get(classe.0 as usize).map(|x| x.type_params.len()).unwrap_or(0);
-            if params > 0 && !tem_argumentos {
-                let ctx = super::rules16::approximate_context(s, interner, a, &pais, e);
+            let params = s.outline.classes.get(class_id.0 as usize).map(|x| x.type_params.len()).unwrap_or(0);
+            if params > 0 && !has_type_arguments {
+                let ctx = super::rules16::approximate_context(s, interner, a, &parents, e);
                 if let super::rules16::ApproxContext::Typed(t) = ctx
                     && let Type::Interface { class: cc, args: cargs, .. } = table.get(t)
                 {
-                    // `asInstanceOf(classe)`: os argumentos vistos na classe.
-                    let argumentos: Option<Vec<dartforge_types::table::TypeId>> = if *cc == classe {
+                    // `asInstanceOf(class)`: the arguments seen in the class.
+                    let type_args: Option<Vec<dartforge_types::table::TypeId>> = if *cc == class_id {
                         Some(cargs.to_vec())
                     } else {
                         s.outline.hierarchy.get(*cc).and_then(|d| {
-                            let molde = *d.supertypes.get(&classe)?;
-                            let Type::Interface { args: margs, .. } = table.get(molde) else { return None };
+                            let template = *d.supertypes.get(&class_id)?;
+                            let Type::Interface { args: margs, .. } = table.get(template) else { return None };
                             Some(
                                 margs
                                     .iter()
@@ -226,145 +226,145 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                             )
                         })
                     };
-                    if argumentos.is_some_and(|v| v.iter().any(|x| matches!(table.get(*x), Type::TypeParameter { .. } | Type::Intersection { .. }))) {
+                    if type_args.is_some_and(|v| v.iter().any(|x| matches!(table.get(*x), Type::TypeParameter { .. } | Type::Intersection { .. }))) {
                         continue;
                     }
                 }
             }
-            relatar(&c::PREFER_CONST_CONSTRUCTORS, a.expr(e).span, &[]);
+            report(&c::PREFER_CONST_CONSTRUCTORS, a.expr(e).span, &[]);
         }
     }
 
     // `prefer_const_literals_to_create_immutables`.
-    if ligada("prefer_const_literals_to_create_immutables") {
-        let pais = super::rules16::unit_parents(u, &|_| false);
-        let mut literais: Vec<ExprId> = pode.literais.iter().copied().collect();
-        literais.sort_by_key(|e| a.expr(*e).span.start);
-        for lit in literais {
-            // Sobe por parênteses, argumentos, literais, entradas e
-            // nomeados até uma criação.
-            let mut no = lit;
-            let criacao = loop {
-                let Some(Node::Expr(p)) = pais.expr.get(&no).copied() else { break None };
+    if enabled("prefer_const_literals_to_create_immutables") {
+        let parents = super::rules16::unit_parents(u, &|_| false);
+        let mut literals: Vec<ExprId> = can.literais.iter().copied().collect();
+        literals.sort_by_key(|e| a.expr(*e).span.start);
+        for lit in literals {
+            // Goes up through parentheses, arguments, literals, entries and
+            // named ones to a creation.
+            let mut node = lit;
+            let creation = loop {
+                let Some(Node::Expr(p)) = parents.expr.get(&node).copied() else { break None };
                 if matches!(s.body.get_resolved(p), Some(Resolved::Constructor(_))) {
-                    // Argumento da criação (a `ArgumentList` dela).
-                    let e_argumento = match &a.expr(p).kind {
-                        ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => arguments.args.iter().any(|x| x.value == no),
+                    // Argument of the creation (its `ArgumentList`).
+                    let is_argument = match &a.expr(p).kind {
+                        ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => arguments.args.iter().any(|x| x.value == node),
                         _ => false,
                     };
-                    break if e_argumento { Some(p) } else { None };
+                    break if is_argument { Some(p) } else { None };
                 }
-                let passa = match &a.expr(p).kind {
+                let passes = match &a.expr(p).kind {
                     ExprKind::Parenthesized(_) => true,
                     ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => elements.iter().any(|el| match el {
-                        CollectionElement::Expression(x) => *x == no,
-                        CollectionElement::MapEntry { key, value, .. } => *key == no || *value == no,
+                        CollectionElement::Expression(x) => *x == node,
+                        CollectionElement::MapEntry { key, value, .. } => *key == node || *value == node,
                         _ => false,
                     }),
                     _ => false,
                 };
-                if !passa {
+                if !passes {
                     break None;
                 }
-                no = p;
+                node = p;
             };
-            let Some(cr) = criacao else { continue };
+            let Some(cr) = creation else { continue };
             let Some(t) = s.body.get_type(cr) else { continue };
             let Type::Interface { class, .. } = table.get(t) else { continue };
-            if imutavel_na_cadeia(s, interner, *class) {
-                relatar(&c::PREFER_CONST_LITERALS_TO_CREATE_IMMUTABLES, a.expr(lit).span, &[]);
+            if is_immutable_in_chain(s, interner, *class) {
+                report(&c::PREFER_CONST_LITERALS_TO_CREATE_IMMUTABLES, a.expr(lit).span, &[]);
             }
         }
     }
 
     // `prefer_const_constructors_in_immutables`.
-    if ligada("prefer_const_constructors_in_immutables") {
+    if enabled("prefer_const_constructors_in_immutables") {
         for (k, d) in a.decls.iter().enumerate() {
-            let (membros, com_mixins) = match &d.kind {
+            let (members, with_mixins) = match &d.kind {
                 DeclKind::Class(x) => (&x.members, !x.with.is_empty() || x.modifiers.macro_),
                 DeclKind::Enum(x) => (&x.members, !x.with.is_empty()),
                 DeclKind::ExtensionType(x) => {
-                    // O tipo de extensão `@immutable` sem `const`.
+                    // An `@immutable` extension type without `const`.
                     if !x.const_
-                        && let Some(cl) = classe_da_decl(s, DeclId(k as u32))
-                        && imutavel(s, interner, cl)
+                        && let Some(cl) = class_of_decl(s, DeclId(k as u32))
+                        && is_immutable(s, interner, cl)
                     {
-                        relatar(&c::PREFER_CONST_CONSTRUCTORS_IN_IMMUTABLES, x.name.span, &[]);
+                        report(&c::PREFER_CONST_CONSTRUCTORS_IN_IMMUTABLES, x.name.span, &[]);
                     }
                     (&x.members, false)
                 }
                 _ => continue,
             };
-            if com_mixins {
+            if with_mixins {
                 continue;
             }
-            let Some(classe) = classe_da_decl(s, DeclId(k as u32)) else { continue };
-            if !imutavel_na_cadeia(s, interner, classe) {
+            let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else { continue };
+            if !is_immutable_in_chain(s, interner, class_id) {
                 continue;
             }
-            let construtor_const = |cl: ClassId, nome: Option<dartforge_intern::SymbolId>| -> bool {
-                let chave = nome.or_else(|| interner.lookup(""));
-                chave.and_then(|ch| program.class(cl).constructors.get(&ch)).is_some_and(|f| program.function(*f).const_)
+            let const_constructor = |cl: ClassId, name: Option<dartforge_intern::SymbolId>| -> bool {
+                let key = name.or_else(|| interner.lookup(""));
+                key.and_then(|ch| program.class(cl).constructors.get(&ch)).is_some_and(|f| program.function(*f).const_)
             };
-            for &mid in membros {
+            for &mid in members {
                 let m = a.member(mid);
                 let MemberKind::Constructor(kc) = &m.kind else { continue };
                 if kc.const_ || !matches!(kc.body, FunctionBody::Empty) {
                     continue;
                 }
-                let primeiro = match m.metadata.last() {
-                    Some(x) => dartforge_frontend::fonte::pular_brancos(fonte.as_bytes(), x.span.end),
+                let first = match m.metadata.last() {
+                    Some(x) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), x.span.end),
                     None => m.span.start,
                 };
-                // A fábrica que redireciona.
+                // The redirecting factory.
                 if kc.factory
                     && let Some(r) = &kc.redirect
                 {
-                    let alvo_const = s.outline.tipos_escritos.get(&(s.unit, r.ty)).and_then(|t| match table.get(*t) {
+                    let target_class = s.outline.tipos_escritos.get(&(s.unit, r.ty)).and_then(|t| match table.get(*t) {
                         Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => Some(*class),
                         _ => None,
                     });
-                    if alvo_const.is_some_and(|cl| construtor_const(cl, r.constructor.map(|n| n.sym))) {
-                        relatar(&c::PREFER_CONST_CONSTRUCTORS_IN_IMMUTABLES, token_em(fonte, primeiro), &[]);
+                    if target_class.is_some_and(|cl| const_constructor(cl, r.constructor.map(|n| n.sym))) {
+                        report(&c::PREFER_CONST_CONSTRUCTORS_IN_IMMUTABLES, token_at(source, first), &[]);
                     }
                     continue;
                 }
                 // `_hasConstConstructorInvocation`.
-                let mut invoca_const = None;
+                let mut invokes_const = None;
                 for i in kc.initializers.iter() {
                     match i {
-                        Initializer::Super { constructor, .. } if invoca_const.is_none() => {
-                            invoca_const = Some(program.class(classe).supertype_class.is_some_and(|sc| construtor_const(sc, constructor.map(|n| n.sym))));
+                        Initializer::Super { constructor, .. } if invokes_const.is_none() => {
+                            invokes_const = Some(program.class(class_id).supertype_class.is_some_and(|sc| const_constructor(sc, constructor.map(|n| n.sym))));
                         }
                         _ => {}
                     }
                 }
-                if invoca_const.is_none() {
+                if invokes_const.is_none() {
                     for i in kc.initializers.iter() {
                         if let Initializer::Redirect { constructor, .. } = i {
-                            invoca_const = Some(construtor_const(classe, constructor.map(|n| n.sym)));
+                            invokes_const = Some(const_constructor(class_id, constructor.map(|n| n.sym)));
                             break;
                         }
                     }
                 }
-                let invoca_const = invoca_const.unwrap_or_else(|| match &d.kind {
+                let invokes_const = invokes_const.unwrap_or_else(|| match &d.kind {
                     DeclKind::ExtensionType(x) => x.const_,
-                    _ => program.class(classe).supertype_class.is_some_and(|sc| construtor_const(sc, None)),
+                    _ => program.class(class_id).supertype_class.is_some_and(|sc| const_constructor(sc, None)),
                 });
-                if invoca_const && pode.construtores.contains(&mid) {
-                    relatar(&c::PREFER_CONST_CONSTRUCTORS_IN_IMMUTABLES, token_em(fonte, primeiro), &[]);
+                if invokes_const && can.construtores.contains(&mid) {
+                    report(&c::PREFER_CONST_CONSTRUCTORS_IN_IMMUTABLES, token_at(source, first), &[]);
                 }
             }
         }
     }
 
     // `use_to_and_as_if_applicable`.
-    if ligada("use_to_and_as_if_applicable") {
-        let prefixo_ok = |n: &str| {
+    if enabled("use_to_and_as_if_applicable") {
+        let prefix_ok = |n: &str| {
             ["to", "as", "_to", "_as"].iter().any(|p| n.strip_prefix(p).and_then(|r| r.chars().next()).is_some_and(|c| c.is_ascii_uppercase()))
         };
         for (k, d) in a.decls.iter().enumerate() {
-            let membros = match &d.kind {
+            let members = match &d.kind {
                 DeclKind::Class(x) => &x.members,
                 DeclKind::Mixin(x) => &x.members,
                 DeclKind::Enum(x) => &x.members,
@@ -372,8 +372,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 DeclKind::ExtensionType(x) => &x.members,
                 _ => continue,
             };
-            let classe = if matches!(d.kind, DeclKind::Extension(_)) { None } else { classe_da_decl(s, DeclId(k as u32)) };
-            for &mid in membros {
+            let class_id = if matches!(d.kind, DeclKind::Extension(_)) { None } else { class_of_decl(s, DeclId(k as u32)) };
+            for &mid in members {
                 let MemberKind::Method(fid) = &a.member(mid).kind else { continue };
                 let f = a.function(*fid);
                 if f.kind == ast::FunctionKind::Getter {
@@ -386,14 +386,14 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 if f.return_type.is_some_and(|t| matches!(a.ty(t).kind, TypeKind::Void)) {
                     continue;
                 }
-                let texto = interner.resolve(n.sym);
-                if prefixo_ok(texto) {
+                let text = interner.resolve(n.sym);
+                if prefix_ok(text) {
                     continue;
                 }
-                if classe.is_some_and(|cl| metodo_herdado(s, interner, cl, n.sym)) {
+                if class_id.is_some_and(|cl| has_inherited_method(s, interner, cl, n.sym)) {
                     continue;
                 }
-                let expressao = match &f.body {
+                let expr = match &f.body {
                     FunctionBody::Expression(e) => Some(*e),
                     FunctionBody::Block(b) => match &a.stmt(*b).kind {
                         StmtKind::Block(cmds) if cmds.len() == 1 => match &a.stmt(cmds[0]).kind {
@@ -404,7 +404,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     },
                     _ => None,
                 };
-                let Some(e) = expressao.map(|e| sem_parenteses(a, e)) else { continue };
+                let Some(e) = expr.map(|e| unparenthesized(a, e)) else { continue };
                 if !matches!(s.body.get_resolved(e), Some(Resolved::Constructor(_))) {
                     continue;
                 }
@@ -416,15 +416,15 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     && x.name.is_none()
                     && matches!(a.expr(x.value).kind, ExprKind::This)
                 {
-                    relatar(&c::USE_TO_AND_AS_IF_APPLICABLE, n.span, &[]);
+                    report(&c::USE_TO_AND_AS_IF_APPLICABLE, n.span, &[]);
                 }
             }
         }
     }
 
-    // `use_decorated_box`, `use_colored_box` e `sized_box_for_whitespace`.
-    let caixas = ligada("use_decorated_box") || ligada("use_colored_box") || ligada("sized_box_for_whitespace");
-    if caixas {
+    // `use_decorated_box`, `use_colored_box` and `sized_box_for_whitespace`.
+    let boxes = enabled("use_decorated_box") || enabled("use_colored_box") || enabled("sized_box_for_whitespace");
+    if boxes {
         for (k, _) in a.exprs.iter().enumerate() {
             let e = ExprId(k as u32);
             if !matches!(s.body.get_resolved(e), Some(Resolved::Constructor(_))) {
@@ -441,18 +441,18 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if args.args.iter().any(|x| x.name.is_none()) {
                 continue;
             }
-            let nomes: Vec<(&str, ExprId)> = args.args.iter().map(|x| (interner.resolve(x.name.expect("nomeado").sym), x.value)).collect();
-            let so = |permitidos: &[&str]| nomes.iter().all(|(n, _)| permitidos.contains(n));
-            let tem = |n: &str| nomes.iter().any(|(x, _)| *x == n);
-            if ligada("use_decorated_box") && so(&["child", "decoration", "key"]) && tem("child") && tem("decoration") {
-                relatar(&c::USE_DECORATED_BOX, nome_do_construtor(a, e), &[]);
+            let names: Vec<(&str, ExprId)> = args.args.iter().map(|x| (interner.resolve(x.name.expect("named").sym), x.value)).collect();
+            let only = |permitidos: &[&str]| names.iter().all(|(n, _)| permitidos.contains(n));
+            let has = |n: &str| names.iter().any(|(x, _)| *x == n);
+            if enabled("use_decorated_box") && only(&["child", "decoration", "key"]) && has("child") && has("decoration") {
+                report(&c::USE_DECORATED_BOX, constructor_name_span(a, e), &[]);
             }
-            if ligada("use_colored_box") {
-                // `color` só conta com tipo não anulável; com tipo anulável,
-                // o argumento cai no `case _` e cala a regra.
+            if enabled("use_colored_box") {
+                // `color` only counts with a non-nullable type; with a nullable
+                // type, the argument falls into `case _` and silences the rule.
                 let mut ok = true;
-                let mut tem_cor = false;
-                for (n, v) in &nomes {
+                let mut has_color = false;
+                for (n, v) in &names {
                     match *n {
                         "child" | "key" => {}
                         "color" => {
@@ -465,31 +465,31 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                             if is_nullable {
                                 ok = false;
                             } else {
-                                tem_cor = true;
+                                has_color = true;
                             }
                         }
                         _ => ok = false,
                     }
                 }
-                if ok && tem_cor && tem("child") {
-                    relatar(&c::USE_COLORED_BOX, nome_do_construtor(a, e), &[]);
+                if ok && has_color && has("child") {
+                    report(&c::USE_COLORED_BOX, constructor_name_span(a, e), &[]);
                 }
             }
-            if ligada("sized_box_for_whitespace") && so(&["child", "height", "width", "key"]) {
-                let (filho, altura, largura) = (tem("child"), tem("height"), tem("width"));
-                if (filho && (largura || altura)) || (largura && altura) {
-                    relatar(&c::SIZED_BOX_FOR_WHITESPACE, nome_do_construtor(a, e), &[]);
+            if enabled("sized_box_for_whitespace") && only(&["child", "height", "width", "key"]) {
+                let (child, height, width) = (has("child"), has("height"), has("width"));
+                if (child && (width || height)) || (width && height) {
+                    report(&c::SIZED_BOX_FOR_WHITESPACE, constructor_name_span(a, e), &[]);
                 }
             }
         }
     }
 
     // `no_logic_in_create_state`.
-    if ligada("no_logic_in_create_state") {
+    if enabled("no_logic_in_create_state") {
         for (k, d) in a.decls.iter().enumerate() {
             let DeclKind::Class(x) = &d.kind else { continue };
-            let Some(classe) = classe_da_decl(s, DeclId(k as u32)) else { continue };
-            if !super::flutter::is_stateful_widget(s, interner, classe) {
+            let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else { continue };
+            if !super::flutter::is_stateful_widget(s, interner, class_id) {
                 continue;
             }
             for &mid in &x.members {
@@ -498,7 +498,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 if f.name.is_none_or(|n| interner.resolve(n.sym) != "createState") {
                     continue;
                 }
-                let (expressao, corpo_span) = match &f.body {
+                let (expr, body_span) = match &f.body {
                     FunctionBody::Block(b) => {
                         let e = match &a.stmt(*b).kind {
                             StmtKind::Block(cmds) if cmds.len() == 1 => match &a.stmt(cmds[0]).kind {
@@ -513,26 +513,26 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     FunctionBody::Empty => continue,
                     _ => (None, None),
                 };
-                if let Some(e) = expressao
+                if let Some(e) = expr
                     && matches!(s.body.get_resolved(e), Some(Resolved::Constructor(_)))
                     && matches!(&a.expr(e).kind, ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } if arguments.args.is_empty())
                 {
                     continue;
                 }
-                let alvo = match (expressao, corpo_span) {
+                let report_span = match (expr, body_span) {
                     (Some(e), _) => a.expr(e).span,
                     (None, Some(sp)) => sp,
                     _ => continue,
                 };
-                relatar(&c::NO_LOGIC_IN_CREATE_STATE, alvo, &[]);
+                report(&c::NO_LOGIC_IN_CREATE_STATE, report_span, &[]);
             }
         }
     }
 
     // `use_setters_to_change_properties`.
-    if ligada("use_setters_to_change_properties") {
+    if enabled("use_setters_to_change_properties") {
         for (k, d) in a.decls.iter().enumerate() {
-            let membros = match &d.kind {
+            let members = match &d.kind {
                 DeclKind::Class(x) => &x.members,
                 DeclKind::Mixin(x) => &x.members,
                 DeclKind::Enum(x) => &x.members,
@@ -540,8 +540,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 DeclKind::ExtensionType(x) => &x.members,
                 _ => continue,
             };
-            let classe = if matches!(d.kind, DeclKind::Extension(_)) { None } else { classe_da_decl(s, DeclId(k as u32)) };
-            for &mid in membros {
+            let class_id = if matches!(d.kind, DeclKind::Extension(_)) { None } else { class_of_decl(s, DeclId(k as u32)) };
+            for &mid in members {
                 let MemberKind::Method(fid) = &a.member(mid).kind else { continue };
                 let f = a.function(*fid);
                 if matches!(f.kind, ast::FunctionKind::Getter | ast::FunctionKind::Setter) {
@@ -552,18 +552,18 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 if !f.return_type.is_some_and(|t| matches!(a.ty(t).kind, TypeKind::Void)) {
                     continue;
                 }
-                // `isOverride`: um supertipo tem um método de mesmo nome.
-                let sobrescreve = classe.is_some_and(|cl| {
+                // `isOverride`: a supertype has a method with the same name.
+                let overrides = class_id.is_some_and(|cl| {
                     s.outline.hierarchy.get(cl).is_some_and(|h| {
                         h.supertypes.keys().any(|sc| {
                             program.class(*sc).instance_members.get(&n.sym).is_some_and(|g| matches!(program.function(*g).kind, FunctionKind::Function | FunctionKind::Operator))
                         })
                     })
                 });
-                if sobrescreve {
+                if overrides {
                     continue;
                 }
-                let expressao = match &f.body {
+                let expr = match &f.body {
                     FunctionBody::Expression(e) => Some(*e),
                     FunctionBody::Block(b) => match &a.stmt(*b).kind {
                         StmtKind::Block(cmds) if cmds.len() == 1 => match &a.stmt(cmds[0]).kind {
@@ -574,17 +574,17 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     },
                     _ => None,
                 };
-                let Some(e) = expressao else { continue };
+                let Some(e) = expr else { continue };
                 let ExprKind::Assign { op: AssignOp::Assign, target, value } = &a.expr(e).kind else { continue };
-                // O lado direito é o parâmetro.
-                let v = sem_parenteses(a, *value);
-                let e_param = matches!(&a.expr(v).kind, ExprKind::Identifier(m) if Some(m.sym) == p.name.map(|q| q.sym))
+                // The right side is the parameter.
+                let v = unparenthesized(a, *value);
+                let is_param = matches!(&a.expr(v).kind, ExprKind::Identifier(m) if Some(m.sym) == p.name.map(|q| q.sym))
                     && matches!(s.body.get_resolved(v), Some(Resolved::Parameter { .. }));
-                if !e_param {
+                if !is_param {
                     continue;
                 }
-                // O lado esquerdo escreve um campo.
-                let campo = match s.body.get_resolved(*target) {
+                // The left side writes a field.
+                let field = match s.body.get_resolved(*target) {
                     Some(Resolved::Member { member: MemberRef::Variable(_), .. }) => true,
                     Some(Resolved::Member { member: MemberRef::Function(g), .. }) => {
                         let ge = program.function(*g);
@@ -592,8 +592,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     }
                     _ => false,
                 };
-                if campo {
-                    relatar(&c::USE_SETTERS_TO_CHANGE_PROPERTIES, n.span, &[]);
+                if field {
+                    report(&c::USE_SETTERS_TO_CHANGE_PROPERTIES, n.span, &[]);
                 }
             }
         }
