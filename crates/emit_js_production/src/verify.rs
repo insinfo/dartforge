@@ -382,6 +382,16 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
         let Some(end) = rest.find('"') else { continue };
         privates.insert(var, (lib, &rest[..end]));
     }
+    // Extension symbols of operators (`var $plus = dartx["+"];`): `x[$plus]`
+    // uses the member `+`.
+    let mut operators: HashMap<&str, &str> = HashMap::new();
+    for line in text.lines() {
+        let Some(r) = line.strip_prefix("var ") else { continue };
+        let Some((var, rest)) = r.split_once(" = dartx[\"") else { continue };
+        if let Some((op, _)) = rest.split_once("\"];") {
+            operators.insert(var, op);
+        }
+    }
     while i < b.len() {
         match b[i] {
             // String content is not a member access (`dart.privateName(L,
@@ -439,6 +449,20 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                 }
                 i = f + 1;
             }
+            // An operator of a program class: `a["+"](b)`.
+            b'[' if i + 2 < b.len() && b[i + 1] == b'"' && b"+-*/%<>&|^~".contains(&b[i + 2]) => {
+                let start = i + 2;
+                let mut f = start;
+                while f < b.len() && b"+-*/%<>&|^~=".contains(&b[f]) {
+                    f += 1;
+                }
+                if b.get(f) == Some(&b'"') && b.get(f + 1) == Some(&b']') {
+                    record(&text[start..f], access_after(b, f + 2), reads, writes);
+                    i = f + 2;
+                } else {
+                    i += 1;
+                }
+            }
             b'[' if i + 2 < b.len() && (b[i + 1] == b'$' || b[i + 1] == b'_' || b[i + 1].is_ascii_alphabetic()) => {
                 let f = ident_end(b, i + 1);
                 if b.get(f) == Some(&b']') {
@@ -448,6 +472,9 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                         record(n, e, reads, writes);
                         record(n, e, sym_reads, sym_writes);
                         private.insert((lib.to_string(), n.to_string()));
+                    } else if let Some(&n) = operators.get(var) {
+                        record(n, e, reads, writes);
+                        record(n, e, sym_reads, sym_writes);
                     } else if let Some(n) = var.strip_prefix('$') {
                         record(n, e, reads, writes);
                         record(n, e, sym_reads, sym_writes);
@@ -733,5 +760,14 @@ mod tests {
         assert!(!r.contains("qux") && w.contains("qux"), "{r:?} {w:?}");
         assert!(r.contains("cor") && w.contains("cor"), "{r:?} {w:?}");
         assert!(r.contains("ok") && !w.contains("ok"), "{r:?} {w:?}");
+    }
+
+    #[test]
+    fn operator_selectors_from_text() {
+        let mut r = HashSet::new();
+        let mut w = HashSet::new();
+        text_selectors("var $modulo = dartx[\"%\"];\nd[$modulo](3); a[\"+\"](b); c[\"[]\"]; e[\"~/\"](2);", &mut r, &mut w, &mut HashSet::new(), (&mut HashSet::new(), &mut HashSet::new()));
+        assert!(r.contains("%") && r.contains("+") && r.contains("~/"), "{r:?}");
+        assert!(!r.contains("modulo"), "{r:?}");
     }
 }

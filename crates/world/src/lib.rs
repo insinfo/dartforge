@@ -779,6 +779,10 @@ pub(crate) struct Engine<'a> {
     template_sel: HashSet<String>,
     /// [`World::dartx_classes`].
     dartx_classes: HashSet<ClassId>,
+    /// With the SDK in the world, operators live by selector like any other
+    /// member (`DARTFORGE_JSPROD_OPERATOR_SELECTORS=0` goes back to "an
+    /// operator is live in every instantiated class").
+    operator_selectors: bool,
 }
 
 /// Libraries whose code creates or receives objects of the native classes
@@ -876,7 +880,17 @@ impl<'a> Engine<'a> {
             held_natives: Vec::new(),
             template_sel: HashSet::new(),
             dartx_classes: HashSet::new(),
+            operator_selectors: std::env::var("DARTFORGE_JSPROD_OPERATOR_SELECTORS").map_or(true, |v| v != "0"),
         }
+    }
+
+    /// Whether operators are selectors ([`Engine::operator_selectors`]): only
+    /// with the SDK in the world, where every operator use of the runtime is
+    /// Dart code the impact sees (or text the verifier reads). The DDC
+    /// `dart_sdk.js` calls operators of the program without the world seeing
+    /// it.
+    pub(crate) fn operators_by_selector(&self) -> bool {
+        self.include_sdk && self.operator_selectors
     }
 
     fn is_user_lib(&self, l: LibraryId) -> bool {
@@ -1550,7 +1564,7 @@ impl<'a> Engine<'a> {
             let func = p.function(f);
             let name = self.name(key).to_string();
             let live = all
-                || func.kind == FunctionKind::Operator
+                || (func.kind == FunctionKind::Operator && !self.operators_by_selector())
                 || self.universal_names.contains(name.as_str())
                 || self.selector_for(name.as_str(), k);
             if live && !only_pending {

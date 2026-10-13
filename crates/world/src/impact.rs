@@ -555,8 +555,77 @@ fn write_to_target(m: &mut Engine<'_>, ctx: &Context, lhs: ExprId) {
                 NameTarget::Skip => {}
             }
         }
+        // `a[i] += v`, `a[i]++`: the read (`[]`) comes from the expression
+        // itself.
+        ExprKind::Index { target, .. } if m.operators_by_selector() => {
+            let receiver = receiver_class(m, ctx, *target);
+            m.new_selector_with_receiver("[]=", receiver);
+        }
         _ => {}
     }
+}
+
+/// The Dart name (the `instance_members` key) of a user-definable binary
+/// operator.
+fn binary_operator_name(op: ast::BinaryOp) -> Option<&'static str> {
+    use ast::BinaryOp as B;
+    Some(match op {
+        B::Add => "+",
+        B::Sub => "-",
+        B::Mul => "*",
+        B::Div => "/",
+        B::TruncDiv => "~/",
+        B::Rem => "%",
+        B::Shl => "<<",
+        B::Shr => ">>",
+        B::UShr => ">>>",
+        B::BitAnd => "&",
+        B::BitOr => "|",
+        B::BitXor => "^",
+        B::Lt => "<",
+        B::Gt => ">",
+        B::LtEq => "<=",
+        B::GtEq => ">=",
+        // `==` is an `Object` member (universal); the rest are not operators
+        // of a class.
+        B::Eq | B::NotEq | B::And | B::Or | B::IfNull | B::NotBinary => return None,
+    })
+}
+
+/// Whether `c` is `int`, `double` or `num` of `dart:core`.
+fn num_like(m: &Engine<'_>, c: Option<ClassId>) -> bool {
+    let p = m.e.program;
+    c.is_some_and(|c| Some(p.class(c).library) == p.core && matches!(m.e.interner.resolve(p.class(c).name), "int" | "double" | "num"))
+}
+
+/// The selector of a binary operator applied to `left` (the receiver), with
+/// [`Engine::operators_by_selector`]. The operators the emitter writes as
+/// JavaScript operators on numbers (`emit_binop_values`: `+ - * / & | ^ < >
+/// <= >=` with a number on the left and a number or `dynamic` on the right)
+/// call no member and register nothing; `right` is `None` for `x++`/`x--`
+/// (the `1` is an `int`). A use the analysis misses is still caught by the
+/// text verifier.
+fn operator_selector(m: &mut Engine<'_>, ctx: &Context, op: ast::BinaryOp, left: ExprId, right: Option<ExprId>) {
+    if !m.operators_by_selector() {
+        return;
+    }
+    let Some(name) = binary_operator_name(op) else { return };
+    use ast::BinaryOp as B;
+    let receiver = receiver_class(m, ctx, left);
+    let inlined = matches!(op, B::Add | B::Sub | B::Mul | B::Div | B::BitAnd | B::BitOr | B::BitXor | B::Lt | B::Gt | B::LtEq | B::GtEq);
+    if inlined && num_like(m, receiver) {
+        let right_ok = match right {
+            None => true,
+            Some(r) => {
+                let ty = m.e.bodies.units.get(ctx.unit.0 as usize).and_then(|u| u.get_type(r));
+                ty.is_some_and(|t| matches!(m.e.table.get(t), dartforge_types::table::Type::Dynamic)) || num_like(m, receiver_class(m, ctx, r))
+            }
+        };
+        if right_ok {
+            return;
+        }
+    }
+    m.new_selector_with_receiver(name, receiver);
 }
 
 fn for_init(m: &mut Engine<'_>, ctx: &Context, i: &ForInit) {
@@ -718,7 +787,15 @@ fn walk_pattern(m: &mut Engine<'_>, ctx: &Context, id: PatternId) {
             expr(m, ctx, *x);
             m.new_selector("==");
         }
-        PatternKind::Relational { value, .. } => expr(m, ctx, *value),
+        PatternKind::Relational { op, value } => {
+            // The matched value's type is not at hand: unrestricted.
+            if m.operators_by_selector()
+                && let Some(n) = binary_operator_name(*op)
+            {
+                m.new_selector(n);
+            }
+            expr(m, ctx, *value)
+        }
         PatternKind::Or(a, b) | PatternKind::And(a, b) => {
             walk_pattern(m, ctx, *a);
             walk_pattern(m, ctx, *b);
@@ -729,6 +806,9 @@ fn walk_pattern(m: &mut Engine<'_>, ctx: &Context, id: PatternId) {
             walk_pattern(m, ctx, *pattern);
         }
         PatternKind::List { type_args, elements } => {
+            if m.operators_by_selector() {
+                m.new_selector("[]");
+            }
             for t in type_args.iter() {
                 ast_type(m, ctx, *t);
             }
@@ -744,6 +824,9 @@ fn walk_pattern(m: &mut Engine<'_>, ctx: &Context, id: PatternId) {
             }
         }
         PatternKind::Map { type_args, entries, .. } => {
+            if m.operators_by_selector() {
+                m.new_selector("[]");
+            }
             for t in type_args.iter() {
                 ast_type(m, ctx, *t);
             }
@@ -1041,6 +1124,15 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             expr(m, ctx, *target);
         }
         ExprKind::Index { target, index, .. } => {
+            if m.operators_by_selector() {
+                let receiver = receiver_class(m, ctx, *target);
+                if m.write_target == Some(id) {
+                    m.write_target = None;
+                    m.new_selector_with_receiver("[]=", receiver);
+                } else {
+                    m.new_selector_with_receiver("[]", receiver);
+                }
+            }
             expr(m, ctx, *target);
             expr(m, ctx, *index);
         }
@@ -1191,10 +1283,20 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             // `++`/`--` reads and writes (`x++` calls the getter and the setter).
             if matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec) {
                 write_to_target(m, ctx, *operand);
+                let bop = if matches!(op, UnaryOp::PrefixInc | UnaryOp::PostfixInc) { ast::BinaryOp::Add } else { ast::BinaryOp::Sub };
+                operator_selector(m, ctx, bop, *operand, None);
+            }
+            if m.operators_by_selector() && matches!(op, UnaryOp::Neg | UnaryOp::BitNot) {
+                let receiver = receiver_class(m, ctx, *operand);
+                // The emitter writes `-x` and `~x >>> 0` for numbers.
+                if !num_like(m, receiver) {
+                    m.new_selector_with_receiver(if *op == UnaryOp::Neg { "unary-" } else { "~" }, receiver);
+                }
             }
             expr(m, ctx, *operand);
         }
-        ExprKind::Binary { left, right, .. } => {
+        ExprKind::Binary { op, left, right } => {
+            operator_selector(m, ctx, *op, *left, Some(*right));
             expr(m, ctx, *left);
             expr(m, ctx, *right);
         }
@@ -1232,8 +1334,9 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                     expr(m, ctx, *value);
                 }
                 // Compound (`+=`, `??=`): reads and writes.
-                AssignOp::Compound(_) => {
+                AssignOp::Compound(bop) => {
                     write_to_target(m, ctx, *target);
+                    operator_selector(m, ctx, *bop, *target, Some(*value));
                     expr(m, ctx, *target);
                     expr(m, ctx, *value);
                 }
