@@ -419,6 +419,48 @@ fn name_table(js: &str, rti: &HashMap<String, String>) -> String {
     out
 }
 
+/// Removes the `var x = dart.privateName(lib, "_n");` lines whose variable
+/// nothing else cites. The SDK prelude declares one per private name of the
+/// library, also for the statics that are plain JS names; besides the bytes,
+/// the *string* of an unused one kept a renamable static name
+/// (`_getCanonicalRecipe`) reserved, since every *string* of the runtime
+/// reserves (`minify::IdentifierStrings`). `DARTFORGE_JSPROD_PRIVATE_NAMES=0`
+/// keeps them.
+fn drop_unused_private_names(js: &str) -> String {
+    if std::env::var("DARTFORGE_JSPROD_PRIVATE_NAMES").is_ok_and(|v| v == "0") {
+        return js.to_string();
+    }
+    let mut count: HashMap<&str, usize> = HashMap::new();
+    let b = js.as_bytes();
+    let id = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+    let mut i = 0;
+    while i < b.len() {
+        if id(b[i]) {
+            let s = i;
+            while i < b.len() && id(b[i]) {
+                i += 1;
+            }
+            *count.entry(&js[s..i]).or_default() += 1;
+        } else {
+            i += 1;
+        }
+    }
+    let mut out = String::with_capacity(js.len());
+    for line in js.split_inclusive('\n') {
+        let unused = line.strip_prefix("var ").and_then(|r| r.split_once(" = dart.privateName(")).is_some_and(|(name, rest)| {
+            // `lib, "_n");` and nothing else on the line.
+            let simple = rest.trim_end().strip_suffix(");").and_then(|a| a.split_once(", \"")).is_some_and(|(lib, n)| {
+                lib.bytes().all(id) && n.strip_suffix('"').is_some_and(|n| n.bytes().all(id))
+            });
+            simple && count.get(name) == Some(&1)
+        });
+        if !unused {
+            out.push_str(line);
+        }
+    }
+    out
+}
+
 /// Assembles the single file.
 pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::properties::Names>, rti: Option<&HashMap<String, String>>) -> Production {
     let modules: Vec<bundle::Module> = e
@@ -452,6 +494,7 @@ pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::propertie
         _ => js,
     };
     let js = alias_recipes(&js);
+    let js = drop_unused_private_names(&js);
     let before_compaction = js.len();
     // Identifiers by scope and whitespace (oxc); `DARTFORGE_JSPROD_NOMES=0`
     // stays with whitespace compaction only, and `DARTFORGE_JSPROD_PROPS=0`
