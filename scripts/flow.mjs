@@ -10,7 +10,7 @@
 //
 // Uso:
 //   node scripts/flow.mjs --dir work/fe/out --web C:/.../frontend/web [--port 8771]
-//                          [--json relatorio.json] [--visivel] [--ddc]
+//                          [--json relatorio.json] [--visible] [--label NAME] [--ddc]
 //
 // Sem dependências: o Node 22+ tem `WebSocket` global.
 
@@ -27,13 +27,13 @@ mkdirSync(DIR_TEMPORARIO, { recursive: true });
 // --------------------------------------------------------------- argumentos
 
 function args(argv) {
-  const o = { dir: 'work/fe/out', web: '', porta: 8771, json: '', visivel: false, rotulo: 'DartForge' };
+  const o = { dir: 'work/fe/out', web: '', port: 8771, json: '', visible: false, label: 'DartForge' };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--visivel' || a === '--ddc') o[a.slice(2)] = true;
+    if (a === '--visible' || a === '--ddc') o[a.slice(2)] = true;
     else if (a.startsWith('--')) o[a.slice(2)] = argv[++i];
   }
-  o.porta = Number(o.porta);
+  o.port = Number(o.port);
   return o;
 }
 const op = args(process.argv);
@@ -292,8 +292,8 @@ async function passo(cdp, nome, corpo) {
 async function main() {
   prepararIndex();
   const srv = servidor();
-  await new Promise((r) => srv.listen(op.porta, '127.0.0.1', r));
-  const base = `http://127.0.0.1:${op.porta}`;
+  await new Promise((r) => srv.listen(op.port, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${op.port}`;
 
   // `BROWSER` escolhe o executável; senão o Edge do Windows ou o Chrome/Edge
   // do macOS e do Linux.
@@ -308,9 +308,9 @@ async function main() {
   ].filter(Boolean).find(existsSync);
   if (!edge) throw new Error('navegador não encontrado (defina BROWSER)');
   const perfil = mkdtempSync(join(DIR_TEMPORARIO, 'tmp-edge-'));
-  const portaCdp = op.porta + 1;
+  const portaCdp = op.port + 1;
   const navegador = spawn(edge, [
-    ...(op.visivel ? [] : ['--headless=new']),
+    ...(op.visible ? [] : ['--headless=new']),
     '--disable-gpu',
     '--no-first-run',
     '--no-default-browser-check',
@@ -320,7 +320,7 @@ async function main() {
     'about:blank',
   ], { stdio: 'ignore' });
 
-  const relatorio = { rotulo: op.rotulo, passos: [], naoEncontrados: [] };
+  const relatorio = { rotulo: op.label, passos: [], naoEncontrados: [] };
   try {
     // Espera o endpoint do CDP.
     let alvo = null;

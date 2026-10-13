@@ -230,10 +230,10 @@ jobs:
           path: ${{ github.workspace }}
       - name: Prepare the ngdart generated sources
         shell: pwsh
-        run: pwsh scripts/limitless-ui.ps1 -Preparar -Producao
+        run: pwsh scripts/limitless-ui.ps1 -Prepare -Production
       - name: Assemble the production bundle
         shell: pwsh
-        run: pwsh scripts/limitless-ui.ps1 -Montar -Producao
+        run: pwsh scripts/limitless-ui.ps1 -Assemble -Production
       - name: E2E in the browser
         shell: pwsh
         run: |
@@ -253,7 +253,7 @@ jobs:
             if (-not $ready) { throw 'the gallery server did not start' }
             node scripts/probe-limitless-ui.mjs 'http://127.0.0.1:8081/'
             if ($LASTEXITCODE -ne 0) { throw 'the gallery startup failed; see the CDP diagnostics above' }
-            pwsh scripts/limitless-ui.ps1 -E2e -Producao
+            pwsh scripts/limitless-ui.ps1 -E2e -Production
             if ($LASTEXITCODE -ne 0) { throw "E2E failed (code $LASTEXITCODE)" }
             } finally {
               Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue

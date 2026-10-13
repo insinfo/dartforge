@@ -1,6 +1,6 @@
 # Serve um diretório de saída do `dartforge compile-js` por HTTP e, conforme o
 # modo, abre-o no Edge headless para despejar o DOM (`-Headless`) ou conduzir um
-# fluxo real de interações pelo CDP (`-Fluxo`).
+# fluxo real de interações pelo CDP (`-Flow`).
 #
 # Uso:
 #   pwsh scripts/serve.ps1 -Dir work/fe/out [-Porta 8765] [-Web C:/…/frontend/web]
@@ -9,7 +9,7 @@
 # `-Web` copia `index.html` (com `<script type="module" src="main.mjs">` no lugar
 # do `main.dart.js`) e os assets do projeto para `-Dir`. Com `-Headless`, roda
 # `msedge --headless=new --dump-dom` e mostra o DOM final e o coletor de erros
-# que o index injeta (`window.__erros`). Com `-Fluxo`, delega ao
+# que o index injeta (`window.__erros`). Com `-Flow`, delega ao
 # `scripts/flow.mjs` (Node, sem dependências): ele serve o diretório com
 # fallback de SPA — necessário porque o ngdart usa `routerProviders` com
 # `<base href="/">` —, abre o Edge com `--remote-debugging-port` e executa a
@@ -19,25 +19,25 @@
 # (`import { main } from './main.js'`) em vez do `main.mjs`.
 param(
   [string]$Dir = "work/fe/out",
-  [int]$Porta = 8765,
+  [int]$Port = 8765,
   [string]$Web = "",
   [switch]$Headless,
-  [switch]$Fluxo,
+  [switch]$Flow,
   [switch]$Ddc,
-  [switch]$Visivel,
+  [switch]$Visible,
   [string]$Json = "",
-  [string]$Rotulo = "DartForge",
-  [int]$Espera = 8
+  [string]$Label = "DartForge",
+  [int]$Wait = 8
 )
 $ErrorActionPreference = "Stop"
 $Dir = (Resolve-Path $Dir).Path
-if ($Fluxo) {
+if ($Flow) {
   $fluxoJs = Join-Path $PSScriptRoot "flow.mjs"
-  $argumentos = @($fluxoJs, "--dir", $Dir, "--port", "$Porta", "--rotulo", $Rotulo)
+  $argumentos = @($fluxoJs, "--dir", $Dir, "--port", "$Port", "--label", $Label)
   if ($Web -ne "") { $argumentos += @("--web", $Web) }
   if ($Json -ne "") { $argumentos += @("--json", $Json) }
   if ($Ddc) { $argumentos += "--ddc" }
-  if ($Visivel) { $argumentos += "--visivel" }
+  if ($Visible) { $argumentos += "--visible" }
   & node @argumentos
   exit $LASTEXITCODE
 }
@@ -65,10 +65,10 @@ var __log = console.error; console.error = function () { __reg("console.error: "
     if (Test-Path $src) { Copy-Item $src (Join-Path $Dir $a) -Recurse -Force }
   }
 }
-$servidor = Start-Process -FilePath "python" -ArgumentList @("-m", "http.server", "$Porta", "--bind", "127.0.0.1") -WorkingDirectory $Dir -PassThru -WindowStyle Hidden
+$servidor = Start-Process -FilePath "python" -ArgumentList @("-m", "http.server", "$Port", "--bind", "127.0.0.1") -WorkingDirectory $Dir -PassThru -WindowStyle Hidden
 try {
   Start-Sleep -Seconds 1
-  $url = "http://127.0.0.1:$Porta/"
+  $url = "http://127.0.0.1:$Port/"
   if ($Headless) {
     $edge = "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
     if (-not (Test-Path $edge)) { $edge = "C:/Program Files/Microsoft/Edge/Application/msedge.exe" }
@@ -77,7 +77,7 @@ try {
     # `& msedge` perde o stdout no PowerShell; usa-se o Process diretamente.
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $edge
-    $psi.Arguments = "--headless=new --disable-gpu --no-first-run --user-data-dir=`"$perfil`" --virtual-time-budget=$($Espera * 1000) --dump-dom $url"
+    $psi.Arguments = "--headless=new --disable-gpu --no-first-run --user-data-dir=`"$perfil`" --virtual-time-budget=$($Wait * 1000) --dump-dom $url"
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.UseShellExecute = $false

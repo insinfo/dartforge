@@ -16,7 +16,7 @@
 .EXAMPLE
     .\scripts\measure-lsp.ps1
     .\scripts\measure-lsp.ps1 -Dart
-    .\scripts\measure-lsp.ps1 -Corpus C:\outro\projeto -Edicoes 100
+    .\scripts\measure-lsp.ps1 -Corpus C:\outro\projeto -Edits 100
 #>
 [CmdletBinding()]
 param(
@@ -24,10 +24,10 @@ param(
     [string]$Corpus = "C:/MyDartProjects/new_sali",
     [switch]$Dart,
     [string]$DartExe = "dart",
-    [int]$Edicoes = 200,
-    [int]$AmostraACada = 50,
+    [int]$Edits = 200,
+    [int]$SampleEvery = 50,
     [int]$TimeoutSeg = 1200,
-    [int]$EsperaFinalSeg = 0
+    [int]$FinalWaitSec = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -131,7 +131,7 @@ foreach ($arq in $arquivos) {
         ConvertTo-Json -Depth 10 -Compress))
 }
 $alternar = @{}
-for ($j = 0; $j -lt $Edicoes; $j++) {
+for ($j = 0; $j -lt $Edits; $j++) {
     $uri = $uris[$j % $uris.Count]
     $versoes[$uri]++
     if (-not $alternar.ContainsKey($uri)) { $alternar[$uri] = $true }
@@ -147,7 +147,7 @@ for ($j = 0; $j -lt $Edicoes; $j++) {
 }
 $mensagens.Add((@{ jsonrpc = "2.0"; id = 2; method = "shutdown" } | ConvertTo-Json -Compress))
 $mensagens.Add((@{ jsonrpc = "2.0"; method = "exit" } | ConvertTo-Json -Compress))
-Write-Host ("mensagens: {0} (didOpen: {1}, edições: {2})" -f $mensagens.Count, $arquivos.Count, $Edicoes)
+Write-Host ("mensagens: {0} (didOpen: {1}, edições: {2})" -f $mensagens.Count, $arquivos.Count, $Edits)
 
 # --- processo ---
 if ($Dart) {
@@ -182,7 +182,7 @@ try {
         $escritor.Write($quadro.Cabeca)
         $escritor.Write($quadro.Corpo)
         $enviadas++
-        if ($enviadas % $AmostraACada -eq 0) {
+        if ($enviadas % $SampleEvery -eq 0) {
             $escritor.Flush()
             Start-Sleep -Milliseconds 50
             if (-not $proc.HasExited) {
@@ -195,7 +195,7 @@ try {
     # Espera final (antes do shutdown): dá ao servidor assíncrono a chance de
     # analisar o que foi aberto, amostrando o RSS a cada segundo. A sequência
     # de mensagens não muda — só o tempo antes de encerrar.
-    $fimEspera = [DateTime]::UtcNow.AddSeconds($EsperaFinalSeg)
+    $fimEspera = [DateTime]::UtcNow.AddSeconds($FinalWaitSec)
     while ([DateTime]::UtcNow -lt $fimEspera) {
         if ($proc.HasExited) { break }
         Start-Sleep -Seconds 1
@@ -231,10 +231,10 @@ $final = ($amostras | Select-Object -Last 1)
 Write-Host ""
 Write-Host ("modo: {0} | projeto: {1}" -f $modo, $Corpus)
 Write-Host ("mensagens enviadas: {0} | quadros recebidos: {1} | saída: {2} | tempo: {3}" -f $enviadas, $quadrosRecebidos, $codigoSaida, $tempoTotal)
-Write-Host ("amostras RSS: {0} (1 a cada {1} mensagens)" -f $amostras.Count, $AmostraACada)
+Write-Host ("amostras RSS: {0} (1 a cada {1} mensagens)" -f $amostras.Count, $SampleEvery)
 Write-Host ("pico RSS: {0:N1} MiB | platô RSS (média das últimas 10): {1:N1} MiB | última: {2:N1} MiB" -f $pico, $plato, $final)
 [PSCustomObject]@{
-    modo = $modo; projeto = $Corpus; arquivos = $arquivos.Count; edicoes = $Edicoes
+    modo = $modo; projeto = $Corpus; arquivos = $arquivos.Count; edicoes = $Edits
     enviadas = $enviadas; quadrosRecebidos = $quadrosRecebidos
     picoMiB = [math]::Round($pico, 1); platoMiB = [math]::Round($plato, 1)
     ultimaMiB = [math]::Round($final, 1); segundos = [math]::Round($tempoTotal.TotalSeconds, 1)

@@ -322,11 +322,9 @@ Esta seção substitui as notas "fica" das seções anteriores sobre
 linha `média … ms/edição`. Ficam para a fase 4: as APIs públicas dos pacotes
 Dart (`packages/`, `native_sdk/`) e o esquema do modelo, do resultado e da
 codificação de argumentos das macros (`macro.*` só traduziu o envelope), os
-nomes de programas e pastas do corpus, o conteúdo dos fixtures, os
-parâmetros dos scripts PowerShell que o CI não chama com nome novo
-(`limitless-ui.ps1 -Preparar -Montar -Producao`, `generate-dart-sdk.ps1
--Saida`, os `testar-macros-*`), os nomes internos (variáveis, comentários) dos
-scripts e a pasta `tools/`.
+nomes de programas e pastas do corpus, o conteúdo dos fixtures, os scripts
+que não têm opções em português e os nomes internos (variáveis, comentários)
+dos scripts, e a pasta `tools/` (inclusive as opções de `tools/tamanho/*.py`).
 
 ### Features do Cargo
 
@@ -356,6 +354,9 @@ scripts e a pasta `tools/`.
 | `scripts/no-ai-trailer.sh --historico` | `--history` |
 | `scripts/pub-scoreboard.py --projeto --trabalho --limite-testes --tempo-compilacao --tempo-execucao --memoria-compilacao --memoria-execucao --filtro` | `--project --work --test-limit --compile-time --run-time --compile-memory --run-memory --filter` |
 | `scripts/prove-typed-fields-aot.py --saida` | `--output` |
+| `bench-http.py`, `compare-http.py`, `compare-performance.py`, `measure-performance-modes.py`: `--repeticoes --duracao --aquecer --conexoes --df-antes --so --saida --prazo --sem-jit --sem-dart --afinidade --modos` | `--repetitions --duration --warmup --connections --df-before --only --output --timeout --no-jit --no-dart --affinity --modes` |
+| `flow.mjs --porta --visivel --rotulo` | `--port --visible --label` |
+| parâmetros PowerShell: `limitless-ui.ps1 -Preparar -Montar -Producao -Servir -Testes -Porta -Raiz`; `serve.ps1 -Porta -Fluxo -Visivel -Rotulo -Espera`; `clean.ps1 -Limpar -Tudo -AlertaGB`; `corpus-builders.ps1 -Caso -Atualizar -Limpar`; `measure-generation.ps1 -Projeto -Repeticoes -SemMotor`; `measure-js-production.ps1`/`generate-dart-sdk.ps1 -Saida`; `measure-zero-cost.ps1 -Entrada -Rodadas -Tolerancia -ReusarBase`; `measure-lsp.ps1 -Edicoes -AmostraACada -EsperaFinalSeg`; `verify-js-pruning.ps1 -Todos -Entrada -Pacotes` | `-Prepare -Assemble -Production -Serve -Tests -Port -Root`; `-Port -Flow -Visible -Label -Wait`; `-Clean -All -AlertGB`; `-Case -Update -Clean`; `-Project -Repetitions -NoEngine`; `-Output`; `-Entry -Rounds -Tolerance -ReuseBase`; `-Edits -SampleEvery -FinalWaitSec`; `-All -Entry -Packages` |
 | controles dos exemplos ARC (`sem-liberar`, `sem-retencao`, `sem-owner`, `sem-drop-*`, `layout-obsoleto`, `copia-no-erro`…; caminho `erro`; `automatico`, `simples`, `misto`, `quadros`, `retoma`, `forcado`, `retorno-mortal-*`) | `no-release`, `no-retain`, `no-owner`, `no-*-drop`, `stale-layout`, `copy-on-error`…; `error`; `automatic`, `simple`, `mixed`, `frames`, `resume`, `forced`, `mortal-return-*` |
 | sabotagens (`folha:`, `pouso_sem_topo`, `quadro_sujo`, `bruto_no_mapa`, `sem_uso_ficticio`, `callback_sem_pouso`, `sem_porta`, `folga`, `sem_nop`, `tipo_sem_raiz`) | `leaf:`, `pad_without_top`, `dirty_frame`, `raw_in_map`, `no_fake_use`, `callback_without_pad`, `no_ports`, `slack`, `no_nop`, `unrooted_type` |
 | valores `DARTFORGE_GC_STATS=exigir`, `DARTFORGE_JSPROD_STRINGS=todas`, `DARTFORGE_JSPROD_SIGNATURES=todas`, `DARTFORGE_GENERATED=nenhum` | `require`, `all`, `all`, `none` |

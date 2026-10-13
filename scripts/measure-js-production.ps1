@@ -9,7 +9,7 @@
 param(
   [string[]]$Programas = @(),
   [string]$Sdk = "E:/DartSDKs/3.6.2",
-  [string]$Saida = ""
+  [string]$Output = ""
 )
 $ErrorActionPreference = "Stop"
 $raiz = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -51,4 +51,4 @@ foreach ($p in $Programas) {
   }
 }
 $linhas | Format-Table -AutoSize
-if ($Saida) { $linhas | ConvertTo-Json | Set-Content $Saida }
+if ($Output) { $linhas | ConvertTo-Json | Set-Content $Output }

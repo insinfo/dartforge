@@ -2,36 +2,36 @@
 # a saída oficial (`build_web_compilers`, release/dart2js) e a do
 # `dartforge compile-js`. O critério de aceite é a suíte `ui_test/e2e`.
 #
-#   pwsh scripts/limitless-ui.ps1 -Preparar          # pub get + build_runner (+ release)
-#   pwsh scripts/limitless-ui.ps1 -Montar            # compile-js + monta work/lui/out
-#   pwsh scripts/limitless-ui.ps1 -Preparar -Producao # gerados, sem build oficial
-#   pwsh scripts/limitless-ui.ps1 -Montar -Producao   # jsprod + work/lui/out-producao
-#   pwsh scripts/limitless-ui.ps1 -Servir oficial    # serve example/build na 8081
-#   pwsh scripts/limitless-ui.ps1 -Servir dartforge  # serve work/lui/out na 8081
+#   pwsh scripts/limitless-ui.ps1 -Prepare          # pub get + build_runner (+ release)
+#   pwsh scripts/limitless-ui.ps1 -Assemble            # compile-js + monta work/lui/out
+#   pwsh scripts/limitless-ui.ps1 -Prepare -Production # gerados, sem build oficial
+#   pwsh scripts/limitless-ui.ps1 -Assemble -Production   # jsprod + work/lui/out-producao
+#   pwsh scripts/limitless-ui.ps1 -Serve oficial    # serve example/build na 8081
+#   pwsh scripts/limitless-ui.ps1 -Serve dartforge  # serve work/lui/out na 8081
 #   pwsh scripts/limitless-ui.ps1 -E2e               # roda ui_test/e2e contra a 8081
 #
 # O servidor é o `tool/serve_example.dart` do próprio projeto nos dois casos,
 # para que a única diferença entre as medições seja o JavaScript servido.
 param(
-  [switch]$Preparar,
-  [switch]$Montar,
-  [switch]$Producao,
-  [string]$Servir = "",
+  [switch]$Prepare,
+  [switch]$Assemble,
+  [switch]$Production,
+  [string]$Serve = "",
   [switch]$E2e,
-  [string]$Testes = "ui_test/e2e",
-  [int]$Porta = 8081,
-  [string]$Raiz = ""
+  [string]$Tests = "ui_test/e2e",
+  [int]$Port = 8081,
+  [string]$Root = ""
 )
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-if (-not $Raiz) { $Raiz = Join-Path $repo "references/limitless_ui" }
-$Raiz = (Resolve-Path $Raiz).Path
-$exemplo = Join-Path $Raiz "example"
-$saida = Join-Path $repo $(if ($Producao) { "work/lui/out-producao" } else { "work/lui/out" })
+if (-not $Root) { $Root = Join-Path $repo "references/limitless_ui" }
+$Root = (Resolve-Path $Root).Path
+$exemplo = Join-Path $Root "example"
+$saida = Join-Path $repo $(if ($Production) { "work/lui/out-producao" } else { "work/lui/out" })
 $env:DARTFORGE_CACHE_DIR = Join-Path $repo "work/lui/cache"
 
-if ($Preparar) {
-  Push-Location $Raiz
+if ($Prepare) {
+  Push-Location $Root
   try { dart pub get; if ($LASTEXITCODE -ne 0) { throw "pub get falhou no pacote" } } finally { Pop-Location }
   Push-Location $exemplo
   try {
@@ -39,16 +39,16 @@ if ($Preparar) {
     if ($LASTEXITCODE -ne 0) { throw "pub get falhou no exemplo" }
     dart run build_runner build --delete-conflicting-outputs
     if ($LASTEXITCODE -ne 0) { throw "geração falhou" }
-    if (-not $Producao) {
+    if (-not $Production) {
       dart run build_runner build --release --output web:build --delete-conflicting-outputs
       if ($LASTEXITCODE -ne 0) { throw "build oficial falhou" }
     }
   } finally { Pop-Location }
 }
 
-if ($Montar) {
+if ($Assemble) {
   New-Item -ItemType Directory -Force $saida | Out-Null
-  if ($Producao) {
+  if ($Production) {
     & (Join-Path $repo "target/release/dartforge-jsprod.exe") `
       (Join-Path $exemplo "web/main.dart") -o (Join-Path $saida "main.dart.js") `
       --packages (Join-Path $exemplo ".dart_tool/package_config.json") `
@@ -72,7 +72,7 @@ window.addEventListener("unhandledrejection", function (ev) { var r = ev.reason;
 var __log = console.error; console.error = function () { window.__erros.push("console.error: " + Array.from(arguments).map(String).join(" ")); __log.apply(console, arguments); };
 </script>
 '@
-  if ($Producao) {
+  if ($Production) {
     # O bundle é um script clássico autoexecutável: mantém o mesmo carregamento
     # `defer` do build oficial e instala o coletor antes dele.
     $html = $html -replace '<script[^>]*src="main\.dart\.js"[^>]*>\s*</script>', ($coletor + "`n<script defer src=`"main.dart.js`"></script>")
@@ -94,24 +94,24 @@ var __log = console.error; console.error = function () { window.__erros.push("co
   }
 }
 
-if ($Servir -ne "") {
-  $dir = if ($Servir -eq "oficial") { Join-Path $exemplo "build" } else { $saida }
-  Push-Location $Raiz
-  try { dart run tool/serve_example.dart --dir $dir --port $Porta --quiet } finally { Pop-Location }
+if ($Serve -ne "") {
+  $dir = if ($Serve -eq "oficial") { Join-Path $exemplo "build" } else { $saida }
+  Push-Location $Root
+  try { dart run tool/serve_example.dart --dir $dir --port $Port --quiet } finally { Pop-Location }
 }
 
 if ($E2e) {
   $env:RUN_EXAMPLE_E2E = "true"
-  $env:UI_EXAMPLE_BASE_URL = "http://127.0.0.1:$Porta"
+  $env:UI_EXAMPLE_BASE_URL = "http://127.0.0.1:$Port"
   $env:UI_HEADLESS = "true"
   if (-not $env:PUPPETEER_EXECUTABLE_PATH) {
     foreach ($c in @("C:\Program Files\Google\Chrome\Application\chrome.exe", "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")) {
       if (Test-Path $c) { $env:PUPPETEER_EXECUTABLE_PATH = $c; break }
     }
   }
-  Push-Location $Raiz
+  Push-Location $Root
   try {
-    dart test $Testes -j 1 --reporter expanded
+    dart test $Tests -j 1 --reporter expanded
     if ($LASTEXITCODE -ne 0) { throw "suíte e2e falhou (código $LASTEXITCODE)" }
   } finally { Pop-Location }
 }

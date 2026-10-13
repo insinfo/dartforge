@@ -1834,7 +1834,7 @@ na entrada uniforme do `add`/`[]=`; os objetos, duas alocações cada (o
 
 ### 8.4 Os quatro executores (medido em 2026-09-27)
 
-`scripts/compare-performance.py --repeticoes 3`: o JIT e o AOT do DartForge
+`scripts/compare-performance.py --repetitions 3`: o JIT e o AOT do DartForge
 contra a VM (`dart run`) e o `dart compile exe`. O JIT do DartForge gera
 código sem otimização (`CodeGenLevelNone`, o par do `clang -O0`: partida
 rápida para o ciclo de edição e recarga); a VM otimiza as funções quentes em
@@ -1946,7 +1946,7 @@ Correção: `corpus/native/47_mapas_e_conjuntos_int_string.dart` e
 5 s sob carga), `corpus/js` no nativo 235/235; testes de
 `dartforge-runtime` e `dartforge-emit-native` verdes.
 
-`scripts/compare-performance.py --repeticoes 5 colecoes textos`, depois
+`scripts/compare-performance.py --repetitions 5 colecoes textos`, depois
 (máquina com outros agentes compilando: o Dart AOT mediu ~2× o de §8.4, por
 isso a razão é o número que compara):
 
@@ -2343,7 +2343,7 @@ Instruções por requisição (callgrind, `/`, §9.1): **1 225 725 → 1 164 449
 14,8 mil → fora do perfil. O `CodeUnits.[]` do `writeHeaders` (149 por
 requisição) passa pela `$tc` (sem conferir o índice).
 
-`scripts/compare-performance.py --sem-jit --repeticoes 3 colecoes chamadas
+`scripts/compare-performance.py --no-jit --repetitions 3 colecoes chamadas
 textos` (máquina disputada; a razão contra o Dart AOT é o que compara; os
 números incluem o que as outras frentes mudaram desde §8.5):
 
@@ -2457,7 +2457,7 @@ Instruções por requisição (callgrind, `/`, §9.1): **927 176 → 898 112**
 (−3,1%; o heap de N19 mudava na mesma janela — a parte desta mudança, pelas
 funções: `dartforge_typed_len` + `dartforge_typed_ptr` 50,8 mil
 instruções/req → `dartforge_typed_header` 12,6 mil + as visões 4,4 mil).
-`scripts/compare-performance.py --sem-jit --repeticoes 5 tipados`:
+`scripts/compare-performance.py --no-jit --repetitions 5 tipados`:
 `produto_f64` 7,4 ms (Dart AOT 8,1; 0,91×, era 0,97× em §8.4) e `fnv_bytes`
 13,6 ms (Dart AOT 20,1; 0,68×, era 0,67×) — os laços continuam vetorizados
 (sem o `!invariant.load` o `produto_f64` ia a 16 ms: as leituras do cabeçalho

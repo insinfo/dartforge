@@ -82,8 +82,8 @@ def cpu_s(pid):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("saida")
-    ap.add_argument("--duracao", type=float, default=5)
-    ap.add_argument("--conexoes", default="1,32")
+    ap.add_argument("--duration", dest="duracao", type=float, default=5)
+    ap.add_argument("--connections", dest="conexoes", default="1,32")
     ap.add_argument("filtro", nargs="*")
     a = ap.parse_args()
     saida = os.path.abspath(a.saida)

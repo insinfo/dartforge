@@ -24,10 +24,10 @@ O perfil de produção tem agora um caminho próprio de montagem e o mesmo
 teste e2e, sem alterar o carregamento `defer` do arquivo único:
 
 ```powershell
-pwsh scripts/limitless-ui.ps1 -Preparar -Producao
-pwsh scripts/limitless-ui.ps1 -Montar -Producao
-pwsh scripts/limitless-ui.ps1 -Servir dartforge -Producao -Porta 8082
-pwsh scripts/limitless-ui.ps1 -E2e -Producao -Porta 8082
+pwsh scripts/limitless-ui.ps1 -Prepare -Production
+pwsh scripts/limitless-ui.ps1 -Assemble -Production
+pwsh scripts/limitless-ui.ps1 -Serve dartforge -Production -Port 8082
+pwsh scripts/limitless-ui.ps1 -E2e -Production -Port 8082
 ```
 
 O script procura `references/limitless_ui` junto ao repositório; `-Raiz`
@@ -60,7 +60,7 @@ o binário está fora de `target/`: os scripts apontam `DARTFORGE_CACHE_DIR` par
 `work/lui/cache` para não sujar o repositório.
 
 ```powershell
-pwsh scripts/limitless-ui.ps1 -Preparar
+pwsh scripts/limitless-ui.ps1 -Prepare
 ```
 
 Isso faz, em ordem:
@@ -91,15 +91,15 @@ por hash (`#/rota`), então não é preciso fallback de SPA.
 
 ```powershell
 # oficial na 8081
-pwsh scripts/limitless-ui.ps1 -Servir oficial -Porta 8081
+pwsh scripts/limitless-ui.ps1 -Serve oficial -Port 8081
 
 # DartForge: compila, monta o diretório e serve na 8082
-pwsh scripts/limitless-ui.ps1 -Montar
-pwsh scripts/limitless-ui.ps1 -Servir dartforge -Porta 8082
+pwsh scripts/limitless-ui.ps1 -Assemble
+pwsh scripts/limitless-ui.ps1 -Serve dartforge -Port 8082
 
 # a suíte, contra qualquer um dos dois
-pwsh scripts/limitless-ui.ps1 -E2e -Porta 8081
-pwsh scripts/limitless-ui.ps1 -E2e -Porta 8082
+pwsh scripts/limitless-ui.ps1 -E2e -Port 8081
+pwsh scripts/limitless-ui.ps1 -E2e -Port 8082
 ```
 
 `-Montar` roda

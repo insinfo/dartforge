@@ -5,8 +5,8 @@
 # recriável, nada de código. O Cargo nunca apaga versões antigas sozinho.
 #
 #   pwsh scripts/clean.ps1              # só relata o que ocupa espaço
-#   pwsh scripts/clean.ps1 -Limpar      # apaga o lixo seguro
-#   pwsh scripts/clean.ps1 -Limpar -Tudo  # também o release e o cache de oráculos
+#   pwsh scripts/clean.ps1 -Clean      # apaga o lixo seguro
+#   pwsh scripts/clean.ps1 -Clean -All  # também o release e o cache de oráculos
 #
 # O que é seguro apagar, e o custo de recriar:
 #   target/debug            cache de build de desenvolvimento  (~10 min)
@@ -17,11 +17,11 @@
 #   target/differential/nativo  executáveis e .ll do corpus nativo (nada; sempre)
 #   target/native_cache/dartforge_runtime_*.lib  .lib antigas do runtime, fora
 #                           as 2 mais recentes                (nada; sempre)
-#   target/native_cache/obj cache de objeto do backend nativo (Clang de novo; só -Tudo;
+#   target/native_cache/obj cache de objeto do backend nativo (Clang de novo; só -All;
 #                           já se poda sozinho no teto de DARTFORGE_CACHE_OBJ_MB, 256 MB)
 #   target/differential      cache dos oráculos do harness      (~10 min de `dart run`)
 #   target/release          binários usados para medir         (~5 min)
-param([switch]$Limpar, [switch]$Tudo, [int]$AlertaGB = 15)
+param([switch]$Clean, [switch]$All, [int]$AlertGB = 15)
 
 $raiz = Split-Path -Parent $PSScriptRoot
 function Tamanho($p) {
@@ -44,9 +44,9 @@ $alvos += Get-ChildItem "$raiz\target" -Directory -EA SilentlyContinue |
 $alvos += Get-ChildItem ([IO.Path]::GetTempPath()) -Force -EA SilentlyContinue |
   Where-Object { $_.Name -match '^(dartforge-|dfserve|df-recarga$|lsp-stdout-|verificar-poda-err)' } |
   ForEach-Object { [pscustomobject]@{ Caminho = $_.FullName; Quando = 'sempre' } }
-# Com -Tudo o diretório inteiro do harness sai logo abaixo; contar o `nativo`
+# Com -All o diretório inteiro do harness sai logo abaixo; contar o `nativo`
 # à parte somaria o mesmo espaço duas vezes.
-if (-not $Tudo) {
+if (-not $All) {
   $alvos += [pscustomobject]@{ Caminho = "$raiz\target\differential\native"; Quando = 'sempre' }
 }
 $alvos += Get-ChildItem "$raiz\target\native_cache" -File -Filter 'dartforge_runtime_*.lib' -EA SilentlyContinue |
@@ -60,18 +60,18 @@ $total = 0
 foreach ($a in $alvos) {
   $gb = Tamanho $a.Caminho
   if ($gb -le 0) { continue }
-  $marca = if ($a.Quando -eq 'tudo' -and -not $Tudo) { '(só com -Tudo)' } else { '' }
+  $marca = if ($a.Quando -eq 'tudo' -and -not $All) { '(só com -All)' } else { '' }
   "{0,8:N2} GB  {1} {2}" -f $gb, $a.Caminho.Replace("$raiz\", ''), $marca
-  if ($a.Quando -eq 'sempre' -or $Tudo) {
+  if ($a.Quando -eq 'sempre' -or $All) {
     $total += $gb
-    if ($Limpar) { Remove-Item $a.Caminho -Recurse -Force -EA SilentlyContinue }
+    if ($Clean) { Remove-Item $a.Caminho -Recurse -Force -EA SilentlyContinue }
   }
 }
 
 $livre = (Get-PSDrive ($raiz.Substring(0, 1))).Free / 1GB
-if ($Limpar) {
+if ($Clean) {
   "--- apagados {0:N2} GB; livre agora: {1:N1} GB" -f $total, ((Get-PSDrive ($raiz.Substring(0, 1))).Free / 1GB)
 } else {
-  "--- {0:N2} GB de lixo; livre: {1:N1} GB (use -Limpar)" -f $total, $livre
-  if ($livre -lt $AlertaGB) { Write-Warning "menos de $AlertaGB GB livres: rode com -Limpar" }
+  "--- {0:N2} GB de lixo; livre: {1:N1} GB (use -Clean)" -f $total, $livre
+  if ($livre -lt $AlertGB) { Write-Warning "menos de $AlertGB GB livres: rode com -Clean" }
 }

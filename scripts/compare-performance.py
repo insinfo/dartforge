@@ -70,10 +70,10 @@ def ler(saida):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--repeticoes", type=int, default=3)
-    ap.add_argument("--saida")
-    ap.add_argument("--prazo", type=int, default=600, help="segundos por execução")
-    ap.add_argument("--sem-jit", action="store_true", help="sem o JIT do DartForge (só AOT, VM e Dart AOT)")
+    ap.add_argument("--repetitions", dest="repeticoes", type=int, default=3)
+    ap.add_argument("--output", dest="saida")
+    ap.add_argument("--timeout", dest="prazo", type=int, default=600, help="seconds per run")
+    ap.add_argument("--no-jit", dest="sem_jit", action="store_true", help="without the DartForge JIT (only AOT, VM and Dart AOT)")
     ap.add_argument("filtro", nargs="*")
     a = ap.parse_args()
     progs = sorted(f[:-5] for f in os.listdir(BENCH) if f.endswith(".dart") and f != "comum.dart")

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # e2e do `limitless_ui/example` com o bundle de produção (`dartforge-jsprod`),
-# o equivalente de `scripts/limitless-ui.ps1 -Montar -Producao`, `-Servir` e
+# o equivalente de `scripts/limitless-ui.ps1 -Assemble -Production`, `-Servir` e
 # `-E2e` para macOS e Linux.
 #
 #   scripts/limitless-ui-production.sh <raiz-do-limitless_ui> [saida] [-- args do jsprod]

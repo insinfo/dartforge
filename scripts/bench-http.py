@@ -87,14 +87,14 @@ def wrk(porta, rota, conexoes, duracao):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--repeticoes", type=int, default=3)
-    ap.add_argument("--duracao", type=int, default=5, help="segundos de carga por medida")
-    ap.add_argument("--aquecer", type=int, default=2, help="segundos de aquecimento por rota")
-    ap.add_argument("--conexoes", default="1,64")
-    ap.add_argument("--df-exe", help="executável do DartForge já compilado (pula a compilação)")
-    ap.add_argument("--df-antes", help="outro executável do DartForge, medido junto (comparação antes/depois)")
-    ap.add_argument("--so", default="df,vm,aot")
-    ap.add_argument("--saida")
+    ap.add_argument("--repetitions", dest="repeticoes", type=int, default=3)
+    ap.add_argument("--duration", dest="duracao", type=int, default=5, help="seconds of load per measurement")
+    ap.add_argument("--warmup", dest="aquecer", type=int, default=2, help="seconds of warm-up per route")
+    ap.add_argument("--connections", dest="conexoes", default="1,64")
+    ap.add_argument("--df-exe", help="DartForge executable already built (skips the compilation)")
+    ap.add_argument("--df-before", dest="df_antes", help="another DartForge executable, measured together (before/after comparison)")
+    ap.add_argument("--only", dest="so", default="df,vm,aot")
+    ap.add_argument("--output", dest="saida")
     a = ap.parse_args()
     conexoes = [int(x) for x in a.conexoes.split(",")]
     tmp = tempfile.mkdtemp(prefix="df-bench-http-")

@@ -97,10 +97,10 @@ def rodar(exe):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("saida")
-    ap.add_argument("--repeticoes", type=int, default=7)
-    ap.add_argument("--sem-dart", action="store_true")
-    ap.add_argument("--afinidade", default=None)
-    ap.add_argument("--modos", default=None, help="só estes modos, separados por vírgula (A0 entra sempre)")
+    ap.add_argument("--repetitions", dest="repeticoes", type=int, default=7)
+    ap.add_argument("--no-dart", dest="sem_dart", action="store_true")
+    ap.add_argument("--affinity", dest="afinidade", default=None)
+    ap.add_argument("--modes", dest="modos", default=None, help="only these modes, separated by commas (A0 always enters)")
     ap.add_argument("filtro", nargs="*")
     a = ap.parse_args()
     if a.repeticoes < 1:

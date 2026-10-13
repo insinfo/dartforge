@@ -5,13 +5,13 @@
 # O harness diferencial gera também o do SDK de oráculo 3.13 em
 # runtime/ddc/<versão>/ (docs/VERSOES-LINGUAGEM.md §5): a coluna DDC de cada
 # programa liga o dart_sdk.js do SDK que o compilou.
-param([string]$Sdk = "E:/DartSDKs/3.6.2", [string]$Saida = "")
+param([string]$Sdk = "E:/DartSDKs/3.6.2", [string]$Output = "")
 $ErrorActionPreference = "Stop"
-$saida = if ($Saida) { $Saida } else { Join-Path $PSScriptRoot "../runtime/ddc" }
-New-Item -ItemType Directory -Force $saida | Out-Null
+$Output = if ($Output) { $Output } else { Join-Path $PSScriptRoot "../runtime/ddc" }
+New-Item -ItemType Directory -Force $Output | Out-Null
 $executavelDart = if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { 'dart.exe' } else { 'dart' }
 & (Join-Path $Sdk "bin/$executavelDart") "$Sdk/bin/snapshots/dartdevc.dart.snapshot" `
   --multi-root-scheme=org-dartlang-sdk --modules=es6 --module-name=dart_sdk `
-  -o "$saida/dart_sdk.js" "$Sdk/lib/_internal/ddc_platform.dill"
+  -o "$Output/dart_sdk.js" "$Sdk/lib/_internal/ddc_platform.dill"
 if ($LASTEXITCODE -ne 0) { throw "DDC falhou ao gerar dart_sdk.js (código $LASTEXITCODE)." }
-Get-Item "$saida/dart_sdk.js" | Select-Object Name, Length
+Get-Item "$Output/dart_sdk.js" | Select-Object Name, Length

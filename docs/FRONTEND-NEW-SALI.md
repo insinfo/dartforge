@@ -8,13 +8,13 @@ Alvo: `C:/MyDartProjects/new_sali/frontend` (ngdart 8.0.0-dev.4, `dart:html`,
 
     work/bin/dartforge.exe compile-js C:/MyDartProjects/new_sali/frontend/web/main.dart \
         -o work/fe/out --packages C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json
-    pwsh scripts/serve.ps1 -Dir work/fe/out -Web C:/MyDartProjects/new_sali/frontend/web -Fluxo
+    pwsh scripts/serve.ps1 -Dir work/fe/out -Web C:/MyDartProjects/new_sali/frontend/web -Flow
 
 Estado: **616 módulos emitidos, `node --check` 616/616**, os 11 passos do fluxo
 abaixo percorridos no Edge headless **sem nenhuma exceção não tratada**, e duas
 divergências de comportamento em relação ao `dartdevc` (fila no fim).
 
-## O verificador de fluxo (`scripts/serve.ps1 -Fluxo` → `scripts/flow.mjs`)
+## O verificador de fluxo (`scripts/serve.ps1 -Flow` → `scripts/flow.mjs`)
 
 `serve.ps1` continua servindo o diretório e despejando o DOM (`-Headless`);
 com `-Fluxo` ele delega ao `scripts/flow.mjs` (Node, sem dependências — o

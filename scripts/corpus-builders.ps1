@@ -5,16 +5,16 @@
 # manifesto com os sha256. O formato está em corpus/builders/README.md.
 #
 #   scripts/corpus-builders.ps1                 todos os casos
-#   scripts/corpus-builders.ps1 -Caso freezed   só um
-#   -Atualizar   `dart pub get` sem --enforce-lockfile (regrava pubspec.lock)
-#   -Limpar      depois de gravar, apaga .dart_tool/build e as saídas source
+#   scripts/corpus-builders.ps1 -Case freezed   só um
+#   -Update   `dart pub get` sem --enforce-lockfile (regrava pubspec.lock)
+#   -Clean      depois de gravar, apaga .dart_tool/build e as saídas source
 #                da árvore do caso (o package_config.json fica)
 #
 # Um caso por vez, um processo dart por vez: a máquina é compartilhada.
 param(
-    [string]$Caso,
-    [switch]$Atualizar,
-    [switch]$Limpar
+    [string]$Case,
+    [switch]$Update,
+    [switch]$Clean
 )
 
 $ErrorActionPreference = 'Stop'
@@ -130,7 +130,7 @@ function Update-Caso([string]$dir) {
         $pacote = $Matches[1]
         $temBuild = $pubspec -match '(?m)^\s+build_runner:'
 
-        if ($Atualizar) { Invoke-Dart @('pub', 'get') }
+        if ($Update) { Invoke-Dart @('pub', 'get') }
         else { Invoke-Dart @('pub', 'get', '--enforce-lockfile') }
 
         $oraculo = Join-Path $dir 'oraculo'
@@ -246,7 +246,7 @@ function Update-Caso([string]$dir) {
         $nCache = @($saidas | Where-Object { $_.build_to -eq 'cache' }).Count
         Write-Host "   $nSource source, $nCache cache, $excluidos excluídos, executável=$executavel"
 
-        if ($Limpar -and $temBuild) {
+        if ($Clean -and $temBuild) {
             foreach ($s in $saidas) {
                 if ($s.origem -and (Test-Path -LiteralPath $s.origem)) { Remove-Item -LiteralPath $s.origem -Force }
             }
@@ -258,8 +258,8 @@ function Update-Caso([string]$dir) {
     }
 }
 
-if ($Caso) {
-    Update-Caso (Join-Path $corpus $Caso)
+if ($Case) {
+    Update-Caso (Join-Path $corpus $Case)
 } else {
     foreach ($d in Get-ChildItem -LiteralPath $corpus -Directory | Sort-Object Name) {
         if (Test-Path -LiteralPath (Join-Path $d.FullName 'pubspec.yaml')) { Update-Caso $d.FullName }

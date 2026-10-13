@@ -36,7 +36,7 @@ class Medicao(unittest.TestCase):
                  patch.object(medidor, "MODOS", modos), \
                  patch.object(medidor, "compilar", return_value=(exe, 0)), \
                  patch.object(medidor, "rodar", side_effect=execucoes), \
-                 patch("sys.argv", [str(SCRIPT), str(pasta), "--sem-dart", "--repeticoes", "2"]), \
+                 patch("sys.argv", [str(SCRIPT), str(pasta), "--no-dart", "--repetitions", "2"]), \
                  contextlib.redirect_stdout(io.StringIO()):
                 codigo = medidor.main()
             amostras = [json.loads(linha) for linha in (pasta / "amostras.jsonl").read_text(encoding="utf-8").splitlines()]

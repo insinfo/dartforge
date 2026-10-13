@@ -5710,7 +5710,7 @@ commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
   * geracional e compactação;
   * custo das raízes e pausas.
 * **Ambiente**:
-  * `scripts/ci.ps1 -Scoreboard` baixa em `target/ci-placar` e apaga depois;
+  * `scripts/ci.ps1 -Scoreboard` baixa em `target/ci-scoreboard` e apaga depois;
   * `.gitignore` com `**/target/`;
   * `%TEMP%` limpo no fim do dia;
   * relatório local de disco em `RELATORIO-DISCO-C.md` (fora do git).
@@ -6827,7 +6827,7 @@ cargo run --release -p dartforge-differential # 214/214
 cargo run --release -p dartforge-cli -- compile-js `
   C:/MyDartProjects/new_sali/frontend/web/main.dart -o saida `
   --packages C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json
-pwsh scripts/serve.ps1 -Dir saida -Web C:/MyDartProjects/new_sali/frontend/web -Fluxo
+pwsh scripts/serve.ps1 -Dir saida -Web C:/MyDartProjects/new_sali/frontend/web -Flow
 
 # sessão residente
 cargo run --release -p dartforge-cli -- dev <entrada.dart> -o saida --packages <cfg>
@@ -6841,8 +6841,8 @@ compilação incremental), tudo recriável e nada de código. Rode
 
 ```powershell
 pwsh scripts/clean.ps1            # relata o que ocupa espaço
-pwsh scripts/clean.ps1 -Limpar    # apaga o lixo seguro (debug, target-*, incremental)
-pwsh scripts/clean.ps1 -Limpar -Tudo  # também release e o cache de oráculos
+pwsh scripts/clean.ps1 -Clean    # apaga o lixo seguro (debug, target-*, incremental)
+pwsh scripts/clean.ps1 -Clean -All  # também release e o cache de oráculos
 ```
 
 Custo de recriar: `target/debug` ~10 min, `target/differential` (cache dos
@@ -6860,13 +6860,13 @@ depois de integrar o trabalho é parte da limpeza.
 **Regra dos temporários: no SSD E:, nunca no C:.** O C: tem pouco espaço e o
 `%TEMP%` chegou a 10,5 GB de sobras. Temporários grandes vão para
 `target/tmp-*` ou `target/scratch-*` do repositório (os scripts de
-navegador, `measure-lsp.ps1`, `verify-js-pruning.ps1` e `ci.ps1 -Placar`
+navegador, `measure-lsp.ps1`, `verify-js-pruning.ps1` e `ci.ps1 -Scoreboard`
 gravam lá); agentes e sessões longas definem antes
 `$env:TEMP='<repo>\target\tmp-<frente>'; $env:TMP=$env:TEMP` e apagam a
 pasta no fim. Todo teste ou comando que cria um temporário o apaga também
 no caminho de erro, pânico ou tempo esgotado (`tempfile::tempdir`, ou um
 guarda com `Drop` como `OutputDir` em `crates/jit/tests/execucao.rs` e
-`DiretorioGeracoes` no `dartforge reload`). `clean.ps1 -Limpar` apaga
+`DiretorioGeracoes` no `dartforge reload`). `clean.ps1 -Clean` apaga
 `target/tmp-*`, `target/scratch-*` e as sobras antigas no `%TEMP%`
 (`dartforge-*`, `dfserve*`, `df-recarga`, `lsp-stdout-*`).
 

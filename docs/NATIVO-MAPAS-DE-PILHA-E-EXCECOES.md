@@ -2189,7 +2189,7 @@ reconferência pelo lado da exceção (vindo do tratador, a pendência está lig
 inteira, refeita, vem logo abaixo.
 
 **A medida inteira** (2026-10-08, depois do `$ent` e da forma por `"deopt"` do §14.12;
-`scripts/measure-performance-modes.py --repeticoes 7 --afinidade 0x4`: os 32 núcleos do `bench/performance`
+`scripts/measure-performance-modes.py --repetitions 7 --affinity 0x4`: os 32 núcleos do `bench/performance`
 em produção, todos os modos recompilados, 7 execuções alternadas presas a um núcleo P; razões sobre A0):
 
 | modo | média geométrica | melhores | piores (ms) |

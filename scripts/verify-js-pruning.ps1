@@ -5,12 +5,12 @@
 # stdout e código de saída. Imprime tamanho e tempo de compilação de cada.
 #
 #   pwsh scripts/verify-js-pruning.ps1 [-Programas 01_print,57_nosuchmethod] [-Todos]
-#   pwsh scripts/verify-js-pruning.ps1 -Entrada C:/MyDartProjects/new_sali/core/test/x_test.dart -Pacotes …/package_config.json
+#   pwsh scripts/verify-js-pruning.ps1 -Entry C:/MyDartProjects/new_sali/core/test/x_test.dart -Packages …/package_config.json
 param(
   [string[]]$Programas = @(),
-  [switch]$Todos,
-  [string]$Entrada = "",
-  [string]$Pacotes = "",
+  [switch]$All,
+  [string]$Entry = "",
+  [string]$Packages = "",
   [string]$Jsprod = ""
 )
 $ErrorActionPreference = "Stop"
@@ -24,10 +24,10 @@ $trabalho = Join-Path $raiz "target/verificar-poda"
 New-Item -ItemType Directory -Force $trabalho | Out-Null
 
 $lista = @()
-if ($Entrada) {
-  $lista += [pscustomobject]@{ Nome = [IO.Path]::GetFileNameWithoutExtension($Entrada); Dart = $Entrada; Pacotes = $Pacotes }
+if ($Entry) {
+  $lista += [pscustomobject]@{ Nome = [IO.Path]::GetFileNameWithoutExtension($Entry); Dart = $Entry; Pacotes = $Packages }
 } else {
-  if ($Todos) {
+  if ($All) {
     $Programas = Get-ChildItem (Join-Path $raiz "corpus/js") | ForEach-Object {
       if ($_.PSIsContainer) { if (Test-Path (Join-Path $_.FullName "main.dart")) { "$($_.Name)/main" } } elseif ($_.Extension -eq ".dart") { $_.BaseName }
     }
@@ -82,7 +82,7 @@ foreach ($item in $lista) {
   }
   $mundo = ($com.Log -split "`n" | Where-Object { $_ -like "mundo:*" }) -join ""
   $linhas += "{0,-44} {1,9:N0} B -> {2,9:N0} B  {3,5:N2}s -> {4,5:N2}s  {5}" -f $item.Nome, $sem.Bytes, $com.Bytes, $sem.Segundos, $com.Segundos, $(if ($igual -and -not $podado) { "ok" } else { "DIVERGE" })
-  if ($Entrada) { $linhas += $com.Log }
+  if ($Entry) { $linhas += $com.Log }
 }
 $linhas | ForEach-Object { Write-Host $_ }
 Write-Host "$($lista.Count - $falhas)/$($lista.Count) iguais com e sem poda, sem stub executado"

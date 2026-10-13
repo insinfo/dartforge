@@ -8,13 +8,13 @@
 # O main é extraído com `git archive` em target/scratch-build/custo-zero e
 # compilado num alvo próprio (a primeira vez leva uns minutos).
 param(
-    [string]$Entrada = 'C:/MyDartProjects/new_sali/core/test/arvore_processo_item_test.dart',
+    [string]$Entry = 'C:/MyDartProjects/new_sali/core/test/arvore_processo_item_test.dart',
     [string]$Packages = 'C:/MyDartProjects/new_sali/core/.dart_tool/package_config.json',
-    [int]$Rodadas = 5,
-    [double]$Tolerancia = 0.10,
+    [int]$Rounds = 5,
+    [double]$Tolerance = 0.10,
     [string]$Ref = 'main',
     # Reaproveita os binários da base de uma rodada anterior.
-    [switch]$ReusarBase
+    [switch]$ReuseBase
 )
 $ErrorActionPreference = 'Stop'
 $raiz = Split-Path $PSScriptRoot -Parent
@@ -47,7 +47,7 @@ $alvoAtual = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Pa
 Compilar $raiz $alvoAtual (Join-Path $trabalho 'bin-atual')
 
 $binBase = Join-Path $trabalho 'bin-base'
-if (-not ($ReusarBase -and (Test-Path (Join-Path $binBase 'measure.exe')))) {
+if (-not ($ReuseBase -and (Test-Path (Join-Path $binBase 'measure.exe')))) {
     $fonteBase = Join-Path $trabalho 'base-src'
     if (Test-Path $fonteBase) { Remove-Item -Recurse -Force $fonteBase }
     New-Item -ItemType Directory -Force $fonteBase | Out-Null
@@ -59,5 +59,5 @@ if (-not ($ReusarBase -and (Test-Path (Join-Path $binBase 'measure.exe')))) {
     Compilar $fonteBase (Join-Path $trabalho 'base-target') $binBase
 }
 
-& (Join-Path $PSScriptRoot 'zero-cost.ps1') -Current (Join-Path $trabalho 'bin-atual') -Base (Join-Path $trabalho 'bin-base') -Entry $Entrada -Packages $Packages -Rounds $Rodadas -Tolerance $Tolerancia
+& (Join-Path $PSScriptRoot 'zero-cost.ps1') -Current (Join-Path $trabalho 'bin-atual') -Base (Join-Path $trabalho 'bin-base') -Entry $Entry -Packages $Packages -Rounds $Rounds -Tolerance $Tolerance
 exit $LASTEXITCODE

@@ -202,7 +202,7 @@ fn generate_dart_sdk_js(root: &Path, sdk: &Path, destination: &Path) {
         root.join("scripts/generate-dart-sdk.ps1").to_string_lossy().into_owned(),
         "-Sdk".into(),
         sdk.to_string_lossy().into_owned(),
-        "-Saida".into(),
+        "-Output".into(),
         destination.parent().unwrap_or(root).to_string_lossy().into_owned(),
     ];
     let s = run("pwsh", &args, root, Duration::from_secs(300));
