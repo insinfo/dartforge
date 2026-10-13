@@ -431,7 +431,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ("Pointer", "fromFunction", false) if f.static_ => ("_dartforgeFromFunction", Redirection::WithSite),
             ("NativeCallable", "isolateLocal", true) => ("_dartforgeCallableLocal", Redirection::ClassTuple),
             ("NativeCallable", "listener", true) => ("_dartforgeCallableListener", Redirection::ClassTuple),
-            ("Struct" | "Union", "create", false) if f.static_ => ("_dartforgeCompostoCriado", Redirection::DirectOnly),
+            ("Struct" | "Union", "create", false) if f.static_ => ("_dartforgeCompoundCreated", Redirection::DirectOnly),
             _ => return None,
         };
         Some((self.top_level_function("dart:ffi", helper)?, shape))

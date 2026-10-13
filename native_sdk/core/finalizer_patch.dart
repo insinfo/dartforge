@@ -1,14 +1,15 @@
-// Substitui `_internal/vm/lib/finalizer_patch.dart` (sobreposição
+// Replaces `_internal/vm/lib/finalizer_patch.dart` (overlay
 // `native_sdk/`).
 //
-// O `Finalizer` da VM vive do GC fraco dela: `FinalizerEntry.allocate`,
-// `exchangeEntriesCollectedWithNull` e a mensagem que o GC manda ao isolado
-// (`_handleFinalizerMessage`). Aqui o anexo mora no coletor do runtime
-// (`crates/runtime/src/finalizadores.rs`): valor e chave de `detach` fracos,
-// e a ação `() => callback(token)` forte. Quando a coleta acha o valor
-// morto, a ação vai para a fila de finalizações prontas, que o laço de
-// eventos chama entre um evento e outro (na VM, uma mensagem ao isolado).
-// O callback é ligado à zona da criação, como na VM.
+// The VM's `Finalizer` lives off its weak GC: `FinalizerEntry.allocate`,
+// `exchangeEntriesCollectedWithNull` and the message the GC sends to the
+// isolate (`_handleFinalizerMessage`). Here the attachment lives in the
+// runtime's collector (`crates/runtime/src/finalizers.rs`): the value and the
+// `detach` key are weak, and the action `() => callback(token)` is strong.
+// When the collection finds the value dead, the action goes to the queue of
+// ready finalizations, which the event loop calls between one event and the
+// next (on the VM, a message to the isolate). The callback is bound to the
+// creation zone, as on the VM.
 
 part of "core_patch.dart";
 
@@ -31,24 +32,24 @@ final class _FinalizerImpl<T> implements Finalizer<T> {
     if (detach != null) {
       checkValidWeakTarget(detach, 'detach');
     }
-    _anexarFinalizador(
-        this, value, _acaoDeFinalizador<T>(_callback, token), detach);
+    _attachFinalizer(
+        this, value, _finalizerAction<T>(_callback, token), detach);
   }
 
   void detach(Object detach) {
     checkValidWeakTarget(detach, 'detach');
-    _desanexarFinalizador(this, detach);
+    _detachFinalizer(this, detach);
   }
 }
 
-/// A ação de um anexo: só o callback e o token (não o finalizador nem o
-/// valor, que precisa poder morrer).
-void Function() _acaoDeFinalizador<T>(void Function(T) callback, T token) =>
+/// The action of an attachment: only the callback and the token (not the
+/// finalizer nor the value, which must be able to die).
+void Function() _finalizerAction<T>(void Function(T) callback, T token) =>
     () => callback(token);
 
 @pragma("vm:external-name", "DartForge_finalizer_attach")
-external void _anexarFinalizador(
-    Object dono, Object valor, void Function() acao, Object? desanexo);
+external void _attachFinalizer(
+    Object owner, Object val, void Function() action, Object? detachToken);
 
 @pragma("vm:external-name", "DartForge_finalizer_detach")
-external void _desanexarFinalizador(Object dono, Object desanexo);
+external void _detachFinalizer(Object owner, Object detachToken);

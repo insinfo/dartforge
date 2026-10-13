@@ -1,11 +1,12 @@
-// Substitui `_internal/vm/lib/ffi_native_finalizer_patch.dart` (sobreposição
+// Replaces `_internal/vm/lib/ffi_native_finalizer_patch.dart` (overlay
 // `native_sdk/`).
 //
-// O `NativeFinalizer` da VM vive do `FinalizerEntry` do GC dela. Aqui o anexo
-// mora no coletor do runtime (`crates/runtime/src/finalizadores.rs`): o
-// valor e a chave de `detach` fracos, o par (callback C, token) guardado no
-// anexo. Quando a coleta acha o valor morto, chama `callback(token)` na
-// própria coleta, como a VM; no fim do isolado roda os que restarem.
+// The VM's `NativeFinalizer` lives off its GC's `FinalizerEntry`. Here the
+// attachment lives in the runtime's collector
+// (`crates/runtime/src/finalizers.rs`): the value and the `detach` key are
+// weak, the (C callback, token) pair kept in the attachment. When the
+// collection finds the value dead, it calls `callback(token)` in the
+// collection itself, like the VM; at the end of the isolate it runs the remaining ones.
 
 // All imports must be in all FFI patch files to not depend on the order
 // the patches are applied.
@@ -41,17 +42,17 @@ final class _NativeFinalizer implements NativeFinalizer {
     if (detach != null) {
       checkValidWeakTarget(detach, 'detach');
     }
-    _anexarFinalizadorNativo(
+    _attachNativeFinalizer(
         this, value, _callback.address, token.address, detach, externalSize);
   }
 
   void detach(Object detach) {
     checkValidWeakTarget(detach, 'detach');
-    _desanexarFinalizadorNativo(this, detach);
+    _detachNativeFinalizer(this, detach);
   }
 }
 
-/// O dono dos finalizadores de `asTypedList(finalizer:)`.
+/// The owner of the finalizers of `asTypedList(finalizer:)`.
 final _NativeFinalizer _asTypedListFinalizer = _NativeFinalizer(nullptr.cast());
 
 @patch
@@ -61,13 +62,13 @@ void _attachAsTypedListFinalizer(
   Pointer pointer,
   int? externalSize,
 ) {
-  _anexarFinalizadorNativo(_asTypedListFinalizer, typedList, callback.address,
+  _attachNativeFinalizer(_asTypedListFinalizer, typedList, callback.address,
       pointer.address, null, externalSize ?? 0);
 }
 
 @pragma("vm:external-name", "DartForge_finalizer_attach_native")
-external void _anexarFinalizadorNativo(
-    Object dono, Object valor, int funcao, int token, Object? desanexo, int tamanhoExterno);
+external void _attachNativeFinalizer(
+    Object owner, Object val, int function, int token, Object? detachToken, int extSize);
 
 @pragma("vm:external-name", "DartForge_finalizer_detach")
-external void _desanexarFinalizadorNativo(Object dono, Object desanexo);
+external void _detachNativeFinalizer(Object owner, Object detachToken);

@@ -1,6 +1,6 @@
-// Substitui `convert/json.dart` (sobreposição `native_sdk/`). Igual ao do SDK
-// 3.6.2, fora o `writeAsciiString` e o `writeStringSlice` de
-// `_JsonUtf8Stringifier` (marcados "DartForge:", docs/NATIVO-PLANO.md §13.2,
+// Replaces `convert/json.dart` (overlay `native_sdk/`). The same as SDK
+// 3.6.2's, except for `_JsonUtf8Stringifier`'s `writeAsciiString` and
+// `writeStringSlice` (marked "DartForge:", docs/NATIVO-PLANO.md §13.2,
 // item 8).
 // Copyright (c) 2013, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
@@ -1076,9 +1076,9 @@ class _JsonUtf8Stringifier extends _JsonStringifier {
   }
 
   /// Write a string that is known to not have non-ASCII characters.
-  // DartForge: os bytes vão direto ao `buffer` local, sem a chamada do
-  // `writeByte` (virtual) por byte; o bloco cheio é entregue ao `addChunk` no
-  // mesmo byte em que o `writeByte` o entregaria.
+  // DartForge: the bytes go straight to the local `buffer`, without the
+  // (virtual) `writeByte` call per byte; the full block is handed to `addChunk`
+  // at the same byte at which `writeByte` would hand it.
   void writeAsciiString(String string) {
     final length = string.length;
     var buffer = this.buffer;
@@ -1101,9 +1101,9 @@ class _JsonUtf8Stringifier extends _JsonStringifier {
     writeStringSlice(string, 0, string.length);
   }
 
-  // DartForge: o ASCII vai direto ao `buffer` local, como no
-  // `writeAsciiString`; o resto passa pelos `write*CharCode` de sempre, com o
-  // `buffer` e o `index` sincronizados em volta.
+  // DartForge: ASCII goes straight to the local `buffer`, as in
+  // `writeAsciiString`; the rest goes through the usual `write*CharCode`, with
+  // `buffer` and `index` synchronized around it.
   void writeStringSlice(String string, int start, int end) {
     var buffer = this.buffer;
     var index = this.index;
@@ -1122,7 +1122,7 @@ class _JsonUtf8Stringifier extends _JsonStringifier {
       this.index = index;
       if ((char & 0xF800) == 0xD800) {
         // Surrogate.
-        var par = false;
+        var pair = false;
         if (char < 0xDC00 && i + 1 < end) {
           // Lead surrogate.
           var nextChar = string.codeUnitAt(i + 1);
@@ -1131,11 +1131,11 @@ class _JsonUtf8Stringifier extends _JsonStringifier {
             char = 0x10000 + ((char & 0x3ff) << 10) + (nextChar & 0x3ff);
             writeFourByteCharCode(char);
             i++;
-            par = true;
+            pair = true;
           }
         }
         // Unpaired surrogate.
-        if (!par) writeMultiByteCharCode(unicodeReplacementCharacterRune);
+        if (!pair) writeMultiByteCharCode(unicodeReplacementCharacterRune);
       } else {
         writeMultiByteCharCode(char);
       }

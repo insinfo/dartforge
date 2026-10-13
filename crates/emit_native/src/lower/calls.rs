@@ -242,7 +242,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 && arguments.args.is_empty()
                 && self.deferred_prefix(ast, *inner_target)
             {
-                return self.call_support("_dartforgeCarregarBiblioteca", Vec::new(), expr.span);
+                return self.call_support("_dartforgeLoadLibrary", Vec::new(), expr.span);
             }
 
             // `prefix.f(…)`: the element imported with a prefix.

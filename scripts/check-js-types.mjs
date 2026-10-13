@@ -1,7 +1,7 @@
 // Juiz da conferência de tipos do emit_js (docs/INFERENCIA-JS-ALINHAMENTO.md):
 // cruza as divergências que a conferência grava (DARTFORGE_JS_CHECK_TYPES
 // com um caminho .tsv) com a saída do oráculo do analyzer
-// (tools/oraculo_tipos/oraculo.dart) e diz, por categoria, quem acerta o tipo
+// (tools/type_oracle/oracle.dart) e diz, por categoria, quem acerta o tipo
 // estático: o emissor, a inferência comum, os dois (nós distintos do
 // analyzer no mesmo intervalo) ou nenhum.
 //

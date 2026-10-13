@@ -980,16 +980,16 @@ pub fn report(reachability: &Reach) -> String {
         .causes
         .iter()
         .map(|(&node, cause)| match cause {
-            Cause::Root => format!("{}\traiz\t-\t-\t-", name(node)),
+            Cause::Root => format!("{}\troot\t-\t-\t-", name(node)),
             Cause::Ref(p) => format!("{}\tref\t{}\t-\t-", name(node), name(*p)),
             Cause::Table(t, h) => {
-                let who = reachability.callees.get(h).copied().flatten().map_or("raiz", name);
-                format!("{}\ttabela\t{}\t{}\t{}", name(node), name(*t), text(*h), who)
+                let who = reachability.callees.get(h).copied().flatten().map_or("root", name);
+                format!("{}\ttable\t{}\t{}\t{}", name(node), name(*t), text(*h), who)
             }
         })
         .collect();
     lines.sort();
-    let mut s = String::from("simbolo\tcausa\tpai\tseletor\tchamador\n");
+    let mut s = String::from("symbol\tcause\tparent\tselector\tcaller\n");
     for l in lines {
         s.push_str(&l);
         s.push('\n');
@@ -1516,8 +1516,8 @@ mod tests {
         let s = sdk();
         let m = assemble(&program("c:usado"), &[&s], true).unwrap();
         let r = report(&m.reachability);
-        assert!(r.contains("C.usado$c\ttabela\tdf.mt.C$d\tc:usado\tmain\n"), "{r}");
-        assert!(r.contains("main\traiz\t"), "{r}");
+        assert!(r.contains("C.usado$c\ttable\tdf.mt.C$d\tc:usado\tmain\n"), "{r}");
+        assert!(r.contains("main\troot\t"), "{r}");
         assert!(r.contains("aloca\tref\tmain\t"), "{r}");
     }
 

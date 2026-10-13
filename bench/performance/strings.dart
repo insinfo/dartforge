@@ -1,7 +1,7 @@
-// Strings: construção, interpolação, divisão e hash.
-import 'comum.dart';
+// Strings: building, interpolation, splitting and hashing.
+import 'common.dart';
 
-int construir(int n) {
+int build(int n) {
   final sb = StringBuffer();
   for (var i = 0; i < n; i++) {
     sb.write('item $i;');
@@ -19,6 +19,6 @@ int hashes(int n) {
 }
 
 void main() {
-  medir('construir', () => construir(300000));
-  medir('hashes', () => hashes(500000));
+  measure('build', () => build(300000));
+  measure('hashes', () => hashes(500000));
 }

@@ -617,8 +617,8 @@ fn socket_recvfrom(this: i64, owned: bool) -> i64 {
             return 0;
         }
     };
-    let Some(f) = helper("_dartforgeDatagrama") else {
-        panic!("compiler bug: dart:io without a registered `_dartforgeDatagrama`");
+    let Some(f) = helper("_dartforgeDatagram") else {
+        panic!("compiler bug: dart:io without a registered `_dartforgeDatagram`");
     };
     // SAFETY: registered by the `dart:io` overlay with the signature (`Uint8List`,
     // `String`, `Uint8List`, `int`, `int`).
@@ -996,7 +996,7 @@ pub extern "C" fn dartforge_native_SocketControlMessage_fromHandles(resources: i
     #[cfg(unix)]
     {
         // SAFETY: `(List<ResourceHandle>, int, int) → Object`.
-        let f = { let dart_target: usize = io_helper("_dartforgeMensagemDeRecursos"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
+        let f = { let dart_target: usize = io_helper("_dartforgeResourcesMessage"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
         let (level, ty) = resource_level_and_type();
         f(resources, level, ty)
     }
@@ -1014,7 +1014,7 @@ pub extern "C" fn dartforge_native_SocketControlMessageImpl_extractHandles(this:
     #[cfg(unix)]
     {
         // SAFETY: `(Object, int, int) → List<ResourceHandle>`.
-        let f = { let dart_target: usize = io_helper("_dartforgeRecursosDaMensagem"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
+        let f = { let dart_target: usize = io_helper("_dartforgeMessageResources"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
         let (level, ty) = resource_level_and_type();
         f(this, level, ty)
     }
@@ -1106,8 +1106,8 @@ pub extern "C" fn dartforge_native_ResourceHandleImpl_toFile(this: i64) -> i64 {
     #[cfg(unix)]
     {
         // SAFETY: `(Object) → int` and `(int) → RandomAccessFile`.
-        let descriptor = { let dart_target: usize = io_helper("_dartforgeDescritorDoRecurso"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
-        let file = { let dart_target: usize = io_helper("_dartforgeArquivoDoRecurso"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
+        let descriptor = { let dart_target: usize = io_helper("_dartforgeResourceDescriptor"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
+        let file = { let dart_target: usize = io_helper("_dartforgeResourceFile"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         file(NativeFile::new(descriptor(this)))
     }
     #[cfg(windows)]
@@ -1125,7 +1125,7 @@ pub extern "C" fn dartforge_native_ResourceHandleImpl_toRawSocket(this: i64) -> 
     #[cfg(unix)]
     {
         // SAFETY: `(Object) → int`.
-        let descriptor = { let dart_target: usize = io_helper("_dartforgeDescritorDoRecurso"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
+        let descriptor = { let dart_target: usize = io_helper("_dartforgeResourceDescriptor"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         let fd = descriptor(this);
         match local_address(fd) {
             Ok(e) => {

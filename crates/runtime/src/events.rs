@@ -27,7 +27,7 @@
 // Per-thread state (one isolate per thread; P8 gathers everything in `isolado.rs`).
 
 struct LoopTimer {
-    /// The closure that fires the timer (`_Timer._disparar` with the receiver).
+    /// The closure that fires the timer (`_Timer._fire` with the receiver).
     closure: i64,
     root: i64,
     ms: i64,
@@ -102,7 +102,7 @@ pub extern "C" fn dartforge_native_DartForge_scheduleImmediate(closure: i64) {
     });
 }
 
-/// `_Timer._novo(ms, fire, periodic)`: schedules the timer and returns the id
+/// `_Timer._create(ms, fire, periodic)`: schedules the timer and returns the id
 /// (never 0). `fire` is the closure the loop calls at the deadline.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_Timer_new(ms: i64, fire: i64, periodic: u8) -> i64 {
@@ -122,7 +122,7 @@ pub extern "C" fn dartforge_native_DartForge_Timer_new(ms: i64, fire: i64, perio
     })
 }
 
-/// `_Timer._cancelar(id)`: removes the timer from the queue and releases the root.
+/// `_Timer._cancelNative(id)`: removes the timer from the queue and releases the root.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_Timer_cancel(id: i64) {
     let root = EVENTS.with(|e| e.borrow_mut().active.remove(&id).map(|t| t.root));

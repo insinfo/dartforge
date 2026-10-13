@@ -14,7 +14,7 @@ e o `dart compile exe` como referência. Todos em produção (`aot --optimize`).
 Fase 1 compila tudo (pula o executável que já existe na saída); fase 2 roda
 `--repeticoes` vezes cada executável, alternando os modos a cada repetição.
 Cada programa imprime, por núcleo, o tempo de cada rodada e o resultado
-(`comum.dart`); o resultado tem de ser igual em todos. O tempo de um núcleo
+(`common.dart`); o resultado tem de ser igual em todos. O tempo de um núcleo
 numa execução é a mediana das rodadas depois da primeira; o do modo, a mediana
 entre as repetições. `amostras.jsonl` preserva stdout, stderr, código de saída
 e núcleos de cada execução. Resultado diferente em qualquer repetição,
@@ -114,7 +114,7 @@ def main():
         k.GetCurrentProcess.restype = ctypes.c_void_p
         if not k.SetProcessAffinityMask(ctypes.c_void_p(k.GetCurrentProcess()), ctypes.c_size_t(int(a.afinidade, 0))):
             sys.exit(f"SetProcessAffinityMask({a.afinidade}) falhou")
-    programas = sorted(f[:-5] for f in os.listdir(BENCH) if f.endswith(".dart") and f != "comum.dart")
+    programas = sorted(f[:-5] for f in os.listdir(BENCH) if f.endswith(".dart") and f != "common.dart")
     if a.filtro:
         programas = [p for p in programas if any(x in p for x in a.filtro)]
     if not programas:

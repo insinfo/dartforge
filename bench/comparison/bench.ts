@@ -1,5 +1,5 @@
-// Comparativo entre linguagens (RELATORIO-COMPARATIVO-NATIVO.md): os mesmos
-// cinco núcleos em cada uma; `scripts/compare-languages.py` compila e mede.
+// Comparison between languages (RELATORIO-COMPARATIVO-NATIVO.md): the same
+// five kernels in each one; `scripts/compare-languages.py` compiles and measures.
 class No {
   esq: No | null; dir: No | null;
   constructor(e: No | null, d: No | null) { this.esq = e; this.dir = d; }
@@ -18,26 +18,26 @@ function textos(n: number): number {
   for (let i = 0; i < n; i++) { const k = "k" + (i % 5000); m.set(k, (m.get(k) ?? 0) + i); }
   let s = 0; m.forEach((v) => { s += v % 1000; }); return s;
 }
-interface Item { id: number; nome: string; tags: string[]; ativo: boolean; nivel: number }
+interface Item { id: number; name: string; tags: string[]; active: boolean; level: number }
 function json(n: number): number {
   const dados: Item[] = [];
-  for (let i = 0; i < n; i++) dados.push({ id: i, nome: "item" + i, tags: ["a" + (i % 7), "b" + (i % 13)], ativo: i % 2 === 0, nivel: i % 100 });
+  for (let i = 0; i < n; i++) dados.push({ id: i, name: "item" + i, tags: ["a" + (i % 7), "b" + (i % 13)], active: i % 2 === 0, level: i % 100 });
   const lidos: Item[] = JSON.parse(JSON.stringify(dados));
   let s = 0;
   for (const m of lidos) {
     let ativo = 0;
-    if (m.ativo) ativo = 1;
-    s += m.id + m.nome.length + m.tags.length + ativo + m.nivel;
+    if (m.active) ativo = 1;
+    s += m.id + m.name.length + m.tags.length + ativo + m.level;
   }
   return s;
 }
-function medir(nome: string, f: () => number) {
+function medir(name: string, f: () => number) {
   let r = 0; const t: number[] = [];
   for (let i = 0; i < 4; i++) { const t0 = Date.now(); r = f(); t.push(Date.now() - t0); }
-  console.log(nome + ": " + t.join(" ") + " ms | " + r);
+  console.log(name + ": " + t.join(" ") + " ms | " + r);
 }
 medir("fib", () => fib(32));
-medir("arvores", () => arvores(14));
-medir("numerico", () => numerico(30000000));
-medir("textos", () => textos(1000000));
+medir("trees", () => arvores(14));
+medir("numeric", () => numerico(30000000));
+medir("strings", () => textos(1000000));
 medir("json", () => json(50000));

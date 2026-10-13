@@ -1,5 +1,5 @@
-// Comparativo entre linguagens (RELATORIO-COMPARATIVO-NATIVO.md): os mesmos
-// cinco núcleos em cada uma; `scripts/compare-languages.py` compila e mede.
+// Comparison between languages (RELATORIO-COMPARATIVO-NATIVO.md): the same
+// five kernels in each one; `scripts/compare-languages.py` compiles and measures.
 package main
 
 import (
@@ -73,8 +73,8 @@ func textos(n int) int {
 func jsonK(n int) int {
 	dados := make([]map[string]any, n)
 	for i := 0; i < n; i++ {
-		dados[i] = map[string]any{"id": i, "nome": "item" + strconv.Itoa(i),
-			"tags": []string{"a" + strconv.Itoa(i%7), "b" + strconv.Itoa(i%13)}, "ativo": i%2 == 0, "nivel": i % 100}
+		dados[i] = map[string]any{"id": i, "name": "item" + strconv.Itoa(i),
+			"tags": []string{"a" + strconv.Itoa(i%7), "b" + strconv.Itoa(i%13)}, "active": i%2 == 0, "level": i % 100}
 	}
 	texto, _ := json.Marshal(dados)
 	var lidos []map[string]any
@@ -84,10 +84,10 @@ func jsonK(n int) int {
 	s := 0
 	for _, m := range lidos {
 		ativo := 0
-		if m["ativo"].(bool) {
+		if m["active"].(bool) {
 			ativo = 1
 		}
-		s += int(m["id"].(float64)) + len(m["nome"].(string)) + len(m["tags"].([]any)) + ativo + int(m["nivel"].(float64))
+		s += int(m["id"].(float64)) + len(m["name"].(string)) + len(m["tags"].([]any)) + ativo + int(m["level"].(float64))
 	}
 	return s
 }
@@ -105,8 +105,8 @@ func medir(nome string, f func() int) {
 
 func main() {
 	medir("fib", func() int { return fib(32) })
-	medir("arvores", func() int { return arvores(14) })
-	medir("numerico", func() int { return numerico(30000000) })
-	medir("textos", func() int { return textos(1000000) })
+	medir("trees", func() int { return arvores(14) })
+	medir("numeric", func() int { return numerico(30000000) })
+	medir("strings", func() int { return textos(1000000) })
 	medir("json", func() int { return jsonK(50000) })
 }

@@ -217,9 +217,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             getters.push(g);
         }
         let support = match typ {
-            Collection::List => "_dartforgePreencherLista",
-            Collection::Set => "_dartforgePreencherConjunto",
-            Collection::Map => "_dartforgePreencherMapa",
+            Collection::List => "_dartforgeFillList",
+            Collection::Set => "_dartforgeFillSet",
+            Collection::Map => "_dartforgeFillMap",
         };
         let Some(fid) = self.top_level_function("dart:_compact_hash", support) else { return false };
         let words: Vec<i64> = table
@@ -261,7 +261,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The map literal with only entries (`{k: v, …}`, without control
     /// elements nor `?`), as the VM builds it: evaluates the keys and the values in
     /// order, keeps them in a list `[k0, v0, k1, v1, …]` (`AllocList`, a single
-    /// allocation) and inserts everything at the end (`_dartforgePreencherMapa`). The VM
+    /// allocation) and inserts everything at the end (`_dartforgeFillMap`). The VM
     /// does the same (`Map._fromLiteral`,
     /// runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc): the `hashCode`
     /// and the `==` of the keys only run after all values are evaluated.
@@ -281,7 +281,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !only_entries {
             return false;
         }
-        let Some(fid) = self.top_level_function("dart:_compact_hash", "_dartforgePreencherMapa") else { return false };
+        let Some(fid) = self.top_level_function("dart:_compact_hash", "_dartforgeFillMap") else { return false };
         let mut values: Vec<(Operand, u8)> = Vec::with_capacity(elements.len() * 2);
         for el in elements {
             let CollectionElement::MapEntry { key, value, .. } = el else { unreachable!("checked above") };

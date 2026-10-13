@@ -1,13 +1,13 @@
-// Substitui `_internal/vm/lib/timer_patch.dart` (sobreposição `native_sdk/`).
+// Replaces `_internal/vm/lib/timer_patch.dart` (overlay `native_sdk/`).
 //
-// Na VM, `Timer` é criado por `VMLibraryHooks.timerFactory`, que o
-// `dart:isolate` (`timer_impl.dart`) liga a um heap de timers acordado por
-// `RawReceivePort` e pelo *event handler* do `dart:io`. Aqui o heap de
-// timers é do runtime (o laço de eventos de docs/NATIVO-PLANO.md §4.3, P6):
-// `(prazo, seq)` com relógio monotônico, `seq` desempatando prazos iguais na
-// ordem de criação — o determinismo que o corpus exige. O runtime chama
-// `_Timer._disparar` quando o prazo vence, sempre depois de esvaziar as
-// microtarefas.
+// On the VM, `Timer` is created by `VMLibraryHooks.timerFactory`, which
+// `dart:isolate` (`timer_impl.dart`) binds to a timer heap woken by
+// `RawReceivePort` and by `dart:io`'s *event handler*. Here the timer heap
+// belongs to the runtime (the event loop of docs/NATIVO-PLANO.md §4.3, P6):
+// `(deadline, seq)` with a monotonic clock, `seq` breaking ties between equal
+// deadlines in creation order — the determinism the corpus requires. The
+// runtime calls `_Timer._fire` when the deadline expires, always after
+// draining the microtasks.
 
 part of "async_patch.dart";
 
@@ -31,16 +31,16 @@ class Timer {
   }
 }
 
-/// Um timer do runtime: o id é o do heap de timers do laço de eventos
-/// (0 = inativo).
+/// A runtime timer: the id is that of the event loop's timer heap
+/// (0 = inactive).
 final class _Timer implements Timer {
   final void Function(Timer) _callback;
-  final bool _periodico;
+  final bool _periodic;
   int _id = 0;
   int _tick = 0;
 
-  _Timer._(int milliseconds, this._callback, this._periodico) {
-    _id = _novo(milliseconds, _disparar, _periodico);
+  _Timer._(int milliseconds, this._callback, this._periodic) {
+    _id = _create(milliseconds, _fire, _periodic);
   }
 
   bool get isActive => _id != 0;
@@ -51,29 +51,29 @@ final class _Timer implements Timer {
     final id = _id;
     if (id == 0) return;
     _id = 0;
-    _cancelar(id);
+    _cancelNative(id);
   }
 
-  /// Chamado pelo laço de eventos quando o prazo vence. Um timer periódico
-  /// continua agendado (o runtime o reinsere com o próximo prazo) até
+  /// Called by the event loop when the deadline expires. A periodic timer stays
+  /// scheduled (the runtime reinserts it with the next deadline) until
   /// `cancel`.
   @pragma("vm:entry-point", "call")
-  void _disparar() {
+  void _fire() {
     if (_id == 0) return;
     _tick++;
-    if (!_periodico) _id = 0;
+    if (!_periodic) _id = 0;
     _callback(this);
   }
 
-  /// Agenda o timer; devolve o id (nunca 0). O runtime guarda `disparar` (o
-  /// tear-off de `_disparar`, com este `_Timer` no ambiente) como raiz
-  /// enquanto ele estiver agendado e o chama no prazo — o laço de eventos só
-  /// chama closures sem argumentos, o único ponto em que o runtime chama Dart.
+  /// Schedules the timer; returns the id (never 0). The runtime keeps `fire`
+  /// (the tear-off of `_fire`, with this `_Timer` in the environment) as a root
+  /// while it is scheduled and calls it at the deadline — the event loop only
+  /// calls closures without arguments, the only point where the runtime calls Dart.
   @pragma("vm:external-name", "DartForge_Timer_new")
-  external static int _novo(
-      int milliseconds, void Function() disparar, bool periodico);
+  external static int _create(
+      int milliseconds, void Function() fire, bool periodic);
 
-  /// Tira o timer do heap de timers (a raiz é solta).
+  /// Removes the timer from the timer heap (the root is released).
   @pragma("vm:external-name", "DartForge_Timer_cancel")
-  external static void _cancelar(int id);
+  external static void _cancelNative(int id);
 }

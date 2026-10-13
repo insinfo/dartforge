@@ -1,5 +1,5 @@
-// Comparativo entre linguagens (RELATORIO-COMPARATIVO-NATIVO.md): os mesmos
-// cinco núcleos em cada uma; `scripts/compare-languages.py` compila e mede.
+// Comparison between languages (RELATORIO-COMPARATIVO-NATIVO.md): the same
+// five kernels in each one; `scripts/compare-languages.py` compiles and measures.
 import Foundation
 
 final class No {
@@ -43,13 +43,13 @@ func json(_ n: Int) -> Int {
     var dados: [[String: Any]] = []
     dados.reserveCapacity(n)
     for i in 0..<n {
-        dados.append(["id": i, "nome": "item\(i)", "tags": ["a\(i % 7)", "b\(i % 13)"], "ativo": i % 2 == 0, "nivel": i % 100])
+        dados.append(["id": i, "name": "item\(i)", "tags": ["a\(i % 7)", "b\(i % 13)"], "active": i % 2 == 0, "level": i % 100])
     }
     let texto = try! JSONSerialization.data(withJSONObject: dados)
     let lidos = try! JSONSerialization.jsonObject(with: texto) as! [[String: Any]]
     var s = 0
     for m in lidos {
-        s += (m["id"] as! Int) + (m["nome"] as! String).count + (m["tags"] as! [Any]).count + ((m["ativo"] as! Bool) ? 1 : 0) + (m["nivel"] as! Int)
+        s += (m["id"] as! Int) + (m["name"] as! String).count + (m["tags"] as! [Any]).count + ((m["active"] as! Bool) ? 1 : 0) + (m["level"] as! Int)
     }
     return s
 }
@@ -66,7 +66,7 @@ func medir(_ nome: String, _ f: () -> Int) {
 }
 
 medir("fib") { fib(32) }
-medir("arvores") { arvores(14) }
-medir("numerico") { numerico(30000000) }
-medir("textos") { textos(1000000) }
+medir("trees") { arvores(14) }
+medir("numeric") { numerico(30000000) }
+medir("strings") { textos(1000000) }
 medir("json") { json(50000) }

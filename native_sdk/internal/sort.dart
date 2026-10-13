@@ -1,7 +1,7 @@
-// Substitui `internal/sort.dart` (sobreposição `native_sdk/`). Igual ao do
-// SDK 3.6.2, mais `Sort.sortInts` e `Sort.sortIntsCom` (marcados
-// "DartForge:"), que `ListBase.sort` usa para `List<int>` sem comparador e
-// com um comparador de `int`.
+// Replaces `internal/sort.dart` (overlay `native_sdk/`). The same as SDK
+// 3.6.2's, plus `Sort.sortInts` and `Sort.sortIntsWith` (marked
+// "DartForge:"), which `ListBase.sort` uses for `List<int>` without a
+// comparator and with an `int` comparator.
 // Copyright (c) 2011, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -387,17 +387,17 @@ class Sort {
     }
   }
 
-  // DartForge: a mesma ordenação para `List<int>` com a ordem natural (o
-  // `sort()` sem comparador), escrita com `int` estático: o compilador lê e
-  // grava os elementos direto e compara inteiros em linha, em vez de passar
-  // cada comparação por `Comparable.compare` e pelo `compareTo` despachado.
-  // É o algoritmo acima, gerado dele (mesmos passos, mesma ordem de trocas);
-  // `_compararInt` é o `int.compareTo`.
+  // DartForge: the same sort for `List<int>` in natural order (`sort()` without
+  // a comparator), written with a static `int`: the compiler reads and writes
+  // the elements directly and compares integers inline, instead of passing each
+  // comparison through `Comparable.compare` and the dispatched `compareTo`. It
+  // is the algorithm above, generated from it (the same steps, the same order of
+  // swaps); `_compareInt` is `int.compareTo`.
   static void sortInts(List<int> a) {
     _doSortInt(a, 0, a.length - 1);
   }
 
-  static int _compararInt(int a, int b) => a < b ? -1 : (a > b ? 1 : 0);
+  static int _compareInt(int a, int b) => a < b ? -1 : (a > b ? 1 : 0);
 
   static void _doSortInt(
       List<int> a, int left, int right) {
@@ -413,7 +413,7 @@ class Sort {
     for (int i = left + 1; i <= right; i++) {
       var el = a[i];
       int j = i;
-      while ((j > left) && (_compararInt(a[j - 1], el) > 0)) {
+      while ((j > left) && (_compareInt(a[j - 1], el) > 0)) {
         a[j] = a[j - 1];
         j--;
       }
@@ -440,47 +440,47 @@ class Sort {
     var el5 = a[index5];
 
     // Sort the selected 5 elements using a sorting network.
-    if (_compararInt(el1, el2) > 0) {
+    if (_compareInt(el1, el2) > 0) {
       var t = el1;
       el1 = el2;
       el2 = t;
     }
-    if (_compararInt(el4, el5) > 0) {
+    if (_compareInt(el4, el5) > 0) {
       var t = el4;
       el4 = el5;
       el5 = t;
     }
-    if (_compararInt(el1, el3) > 0) {
+    if (_compareInt(el1, el3) > 0) {
       var t = el1;
       el1 = el3;
       el3 = t;
     }
-    if (_compararInt(el2, el3) > 0) {
+    if (_compareInt(el2, el3) > 0) {
       var t = el2;
       el2 = el3;
       el3 = t;
     }
-    if (_compararInt(el1, el4) > 0) {
+    if (_compareInt(el1, el4) > 0) {
       var t = el1;
       el1 = el4;
       el4 = t;
     }
-    if (_compararInt(el3, el4) > 0) {
+    if (_compareInt(el3, el4) > 0) {
       var t = el3;
       el3 = el4;
       el4 = t;
     }
-    if (_compararInt(el2, el5) > 0) {
+    if (_compareInt(el2, el5) > 0) {
       var t = el2;
       el2 = el5;
       el5 = t;
     }
-    if (_compararInt(el2, el3) > 0) {
+    if (_compareInt(el2, el3) > 0) {
       var t = el2;
       el2 = el3;
       el3 = t;
     }
-    if (_compararInt(el4, el5) > 0) {
+    if (_compareInt(el4, el5) > 0) {
       var t = el4;
       el4 = el5;
       el5 = t;
@@ -501,7 +501,7 @@ class Sort {
     int less = left + 1; // First element in the middle partition.
     int great = right - 1; // Last element in the middle partition.
 
-    bool pivots_are_equal = (_compararInt(pivot1, pivot2) == 0);
+    bool pivots_are_equal = (_compareInt(pivot1, pivot2) == 0);
     if (pivots_are_equal) {
       var pivot = pivot1;
       // Degenerated case where the partitioning becomes a Dutch national flag
@@ -520,7 +520,7 @@ class Sort {
       //   3) for x in ]great, right[ : x > pivot.
       for (int k = less; k <= great; k++) {
         var ak = a[k];
-        int comp = _compararInt(ak, pivot);
+        int comp = _compareInt(ak, pivot);
         if (comp == 0) continue;
         if (comp < 0) {
           if (k != less) {
@@ -539,7 +539,7 @@ class Sort {
           // short amount of time. The invariant will be restored when the
           // pivots are put into their final positions.
           while (true) {
-            comp = _compararInt(a[great], pivot);
+            comp = _compareInt(a[great], pivot);
             if (comp > 0) {
               great--;
               // This is the only location in the while-loop where a new
@@ -582,7 +582,7 @@ class Sort {
       //   3. for x in ]great, right[ : x > pivot2
       for (int k = less; k <= great; k++) {
         var ak = a[k];
-        int comp_pivot1 = _compararInt(ak, pivot1);
+        int comp_pivot1 = _compareInt(ak, pivot1);
         if (comp_pivot1 < 0) {
           if (k != less) {
             a[k] = a[less];
@@ -590,10 +590,10 @@ class Sort {
           }
           less++;
         } else {
-          int comp_pivot2 = _compararInt(ak, pivot2);
+          int comp_pivot2 = _compareInt(ak, pivot2);
           if (comp_pivot2 > 0) {
             while (true) {
-              int comp = _compararInt(a[great], pivot2);
+              int comp = _compareInt(a[great], pivot2);
               if (comp > 0) {
                 great--;
                 if (great < k) break;
@@ -602,7 +602,7 @@ class Sort {
                 continue;
               } else {
                 // a[great] <= pivot2.
-                comp = _compararInt(a[great], pivot1);
+                comp = _compareInt(a[great], pivot1);
                 if (comp < 0) {
                   // Triple exchange.
                   a[k] = a[less];
@@ -651,10 +651,10 @@ class Sort {
     // The Android source however removes the pivot elements from the recursive
     // call if the second partition is too large (more than 2/3 of the list).
     if (less < index1 && great > index5) {
-      while (_compararInt(a[less], pivot1) == 0) {
+      while (_compareInt(a[less], pivot1) == 0) {
         less++;
       }
-      while (_compararInt(a[great], pivot2) == 0) {
+      while (_compareInt(a[great], pivot2) == 0) {
         great--;
       }
 
@@ -676,7 +676,7 @@ class Sort {
       //   3. for x in ]great, * ] : x == pivot2
       for (int k = less; k <= great; k++) {
         var ak = a[k];
-        int comp_pivot1 = _compararInt(ak, pivot1);
+        int comp_pivot1 = _compareInt(ak, pivot1);
         if (comp_pivot1 == 0) {
           if (k != less) {
             a[k] = a[less];
@@ -684,10 +684,10 @@ class Sort {
           }
           less++;
         } else {
-          int comp_pivot2 = _compararInt(ak, pivot2);
+          int comp_pivot2 = _compareInt(ak, pivot2);
           if (comp_pivot2 == 0) {
             while (true) {
-              int comp = _compararInt(a[great], pivot2);
+              int comp = _compareInt(a[great], pivot2);
               if (comp == 0) {
                 great--;
                 if (great < k) break;
@@ -696,7 +696,7 @@ class Sort {
                 continue;
               } else {
                 // a[great] < pivot2.
-                comp = _compararInt(a[great], pivot1);
+                comp = _compareInt(a[great], pivot1);
                 if (comp < 0) {
                   // Triple exchange.
                   a[k] = a[less];
@@ -730,26 +730,26 @@ class Sort {
     }
   }
 
-  // DartForge: a mesma ordenação para `List<int>` com um comparador
-  // `int Function(int, int)` (o `sort(compare)` de uma `List<int>`), gerada
-  // de `sortInts` trocando `_compararInt` por `compare`: os mesmos passos e as
-  // mesmas chamadas ao comparador, na mesma ordem, do algoritmo genérico
-  // acima. Os elementos são lidos e gravados direto (sem a caixa do
-  // elemento genérico nem a conferência do `E` a cada `[]=`).
-  static void sortIntsCom(List<int> a, int compare(int a, int b)) {
-    _doSortIntCom(a, 0, a.length - 1, compare);
+  // DartForge: the same sort for `List<int>` with an `int Function(int, int)`
+  // comparator (the `sort(compare)` of a `List<int>`), generated from `sortInts`
+  // by swapping `_compareInt` for `compare`: the same steps and the same
+  // comparator calls, in the same order, as the generic algorithm above. The
+  // elements are read and written directly (without the generic element's box
+  // nor the `E` check on each `[]=`).
+  static void sortIntsWith(List<int> a, int compare(int a, int b)) {
+    _doSortIntWith(a, 0, a.length - 1, compare);
   }
 
-  static void _doSortIntCom(
+  static void _doSortIntWith(
       List<int> a, int left, int right, int compare(int a, int b)) {
     if ((right - left) <= _INSERTION_SORT_THRESHOLD) {
-      _insertionSortIntCom(a, left, right, compare);
+      _insertionSortIntWith(a, left, right, compare);
     } else {
-      _dualPivotQuicksortIntCom(a, left, right, compare);
+      _dualPivotQuicksortIntWith(a, left, right, compare);
     }
   }
 
-  static void _insertionSortIntCom(
+  static void _insertionSortIntWith(
       List<int> a, int left, int right, int compare(int a, int b)) {
     for (int i = left + 1; i <= right; i++) {
       var el = a[i];
@@ -762,7 +762,7 @@ class Sort {
     }
   }
 
-  static void _dualPivotQuicksortIntCom(
+  static void _dualPivotQuicksortIntWith(
       List<int> a, int left, int right, int compare(int a, int b)) {
     assert(right - left > _INSERTION_SORT_THRESHOLD);
 
@@ -978,8 +978,8 @@ class Sort {
     // left         less                     great        right
 
     // Recursive descent. (Don't include the pivot values.)
-    _doSortIntCom(a, left, less - 2, compare);
-    _doSortIntCom(a, great + 2, right, compare);
+    _doSortIntWith(a, left, less - 2, compare);
+    _doSortIntWith(a, great + 2, right, compare);
 
     if (pivots_are_equal) {
       // All elements in the second partition are equal to the pivot. No
@@ -1060,14 +1060,14 @@ class Sort {
       //        ^                      ^
       //       less                  great
       // Sort the second partition using recursive descent.
-      _doSortIntCom(a, less, great, compare);
+      _doSortIntWith(a, less, great, compare);
     } else {
       // The second partition looks as follows:
       // [  *  |  >= pivot1 && <= pivot2  | * ]
       //        ^                        ^
       //       less                    great
       // Simply sort it by recursive descent.
-      _doSortIntCom(a, less, great, compare);
+      _doSortIntWith(a, less, great, compare);
     }
   }
 }

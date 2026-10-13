@@ -4,7 +4,7 @@
 (`dart run`, JIT) e o AOT oficial (`dart compile exe`).
 
 Cada programa imprime, por núcleo, o tempo de cada rodada e o resultado
-(`comum.dart`). O resultado tem de ser igual nos quatro; o tempo estável é a
+(`common.dart`). O resultado tem de ser igual nos quatro; o tempo estável é a
 mediana das rodadas depois da primeira (aquecimento), e a mediana entre as
 repetições. As repetições alternam os executores, e o tempo total do processo
 (com início e compilação do JIT) e o pico de memória residente (RSS, o
@@ -76,7 +76,7 @@ def main():
     ap.add_argument("--no-jit", dest="sem_jit", action="store_true", help="without the DartForge JIT (only AOT, VM and Dart AOT)")
     ap.add_argument("filtro", nargs="*")
     a = ap.parse_args()
-    progs = sorted(f[:-5] for f in os.listdir(BENCH) if f.endswith(".dart") and f != "comum.dart")
+    progs = sorted(f[:-5] for f in os.listdir(BENCH) if f.endswith(".dart") and f != "common.dart")
     if a.filtro:
         progs = [p for p in progs if any(f in p for f in a.filtro)]
     tmp = tempfile.mkdtemp(prefix="df-bench-")

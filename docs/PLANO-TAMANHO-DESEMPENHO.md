@@ -11,7 +11,7 @@ Windows 11 (i3-1215U, máquina ruidosa, ±15–30%); o que é estimativa está m
 | Programa | DartForge `aot --optimize` | Dart 3.6.2 `compile exe` | Snapshot AOT do Dart |
 |---|---:|---:|---:|
 | hello (`print`) | 12 211 200 | 5 797 376 | 798 816 |
-| `bench/http/servidor.dart` | 13 676 544 | 6 108 160 | 1 093 464 |
+| `bench/http/server.dart` | 13 676 544 | 6 108 160 | 1 093 464 |
 
 O `compile exe` do Dart é o `dartaotruntime.exe` (5 015 040) mais o snapshot.
 
@@ -95,7 +95,7 @@ Tamanho, `aot --optimize`, numa cópia do `HEAD` 0ef4a7ac (bytes):
 |---|---:|---:|---:|---:|
 | hello | 12 349 440 | 10 706 944 | 10 253 824 | −2,00 MB (−17,0%) |
 | t0 (`map`/`join`) | 12 351 488 | 10 708 992 | 10 255 360 | −17,0% |
-| `bench/http/servidor.dart` | 13 827 584 | 12 124 672 | 11 592 192 | −2,13 MB (−16,2%) |
+| `bench/http/server.dart` | 13 827 584 | 12 124 672 | 11 592 192 | −2,13 MB (−16,2%) |
 | `bench/performance/json.dart` | 12 429 312 | 10 773 504 | 10 319 872 | −17,0% |
 | `bench/simd/bin/blend.dart` | 12 368 384 | 10 724 864 | 10 272 256 | −16,9% |
 
@@ -168,7 +168,7 @@ em bytes:
 |---|---:|---:|---:|
 | hello | 10 711 552 | 3 181 568 (−70%) | 5 797 376 |
 | t0 (`map`/`join`) | 10 713 088 | 3 183 616 (−70%) | — |
-| `bench/http/servidor.dart` | 12 075 520 | 4 759 552 (−61%) | 6 108 160 |
+| `bench/http/server.dart` | 12 075 520 | 4 759 552 (−61%) | 6 108 160 |
 | `bench/performance/json.dart` | 10 774 016 | 3 522 560 (−67%) | — |
 | `bench/simd/bin/blend.dart` | 10 731 520 | 3 227 648 (−70%) | — |
 
@@ -207,10 +207,10 @@ em bytes:
 
   As outras medidas do `json.dart` ficam dentro de 1%.
 
-Ferramentas, em `tools/tamanho/`:
+Ferramentas, em `tools/size/`:
 
-- `quebra.py` quebra o mapa da ligação (`DARTFORGE_LINK_MAP=1`) por biblioteca.
-- `por-que.py` segue o relatório `DARTFORGE_WHY=<arquivo>`: a cadeia de causas de um
+- `breakdown.py` quebra o mapa da ligação (`DARTFORGE_LINK_MAP=1`) por biblioteca.
+- `why.py` segue o relatório `DARTFORGE_WHY=<arquivo>`: a cadeia de causas de um
   símbolo ("quem puxou isto?") e os bytes por seletor que puxou.
 
 O `alcance.py` da pesquisa virou o próprio `poda.rs`.
@@ -398,7 +398,7 @@ conferência da tabela de cids (`dartforge_register_cids`).
    `NATIVO-ESPACO-UNIFICADO.md` (2026-09-30), implementadas em paralelo por pacote e medidas na
    integração (`NATIVO-PLANO.md` §12).
 
-As ferramentas de medida reusáveis estão em `tools/tamanho/`: `quebra.py` e `por-que.py`. O
+As ferramentas de medida reusáveis estão em `tools/size/`: `breakdown.py` e `why.py`. O
 `alcance.py` da pesquisa virou `crates/emit_native/src/poda.rs`.
 
 ## 4. O que aproveitar do scriptc (Vercel Labs)
@@ -437,9 +437,9 @@ que já está neste plano não se repete aqui. O que ele acrescenta:
 4. **Relatório de "por que isto ficou no executável".** O `crates/world` já registra a causa de
    alcance (`Causa`: raiz, função, variável, classe). Estender isso ao SDK nativo e às tabelas
    responde a perguntas como "quem puxou este método?" e "por que TLS entrou no hello?".
-   - Primeiro passo: trazer para `tools/` o `alcance.py` e o `quebra.py` da pesquisa.
+   - Primeiro passo: trazer para `tools/` o `alcance.py` e o `breakdown.py` da pesquisa.
    - **Feito para as tabelas (2026-09-30):** `DARTFORGE_WHY=<arquivo>` grava a causa de cada
-     símbolo vivo, e `tools/tamanho/por-que.py` segue a cadeia (`NATIVO-PODA-DE-TABELAS.md`
+     símbolo vivo, e `tools/size/why.py` segue a cadeia (`NATIVO-PODA-DE-TABELAS.md`
      §3.10). O runtime Rust fica de fora do relatório; o que ele mostra é qual função Dart cita
      o native.
 5. **Inventário de compatibilidade ligado a evidência.** O scriptc separa suporte comprovado,

@@ -1,7 +1,7 @@
 {
     "name": "dartforge",
     "displayName": "DartForge",
-    "description": "Suporte à linguagem Dart pelo servidor DartForge (diagnósticos incrementais, baixo consumo de memória).",
+    "description": "Dart language support through the DartForge server (incremental diagnostics, low memory use).",
     "version": "0.1.0",
     "publisher": "dartforge",
     "license": "MIT",
@@ -30,7 +30,7 @@
                     ],
                     "scope": "machine-overridable",
                     "default": null,
-                    "markdownDescription": "Caminho do binário `dartforge-lsp`. Quando vazio, a extensão procura `dartforge-lsp` no `PATH`."
+                    "markdownDescription": "Path of the `dartforge-lsp` binary. When empty, the extension looks for `dartforge-lsp` on the `PATH`."
                 },
                 "dartforge.trace.server": {
                     "type": "string",
@@ -41,7 +41,7 @@
                         "verbose"
                     ],
                     "default": "off",
-                    "description": "Rastreia as mensagens entre o cliente e o servidor (verboso; só para depuração)."
+                    "description": "Traces the messages between the client and the server (verbose; for debugging only)."
                 }
             }
         }

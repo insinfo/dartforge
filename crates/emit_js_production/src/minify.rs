@@ -355,7 +355,7 @@ mod tests {
 /// comes before it (the *bootstrap* and the SDK) is the runtime, whose
 /// *strings* are all potential names; what comes after is the program.
 /// Compression deletes it (an expression without effect).
-pub const SDK_END_MARKER: &str = "dartforge:fim-do-sdk";
+pub const SDK_END_MARKER: &str = "dartforge:sdk-end";
 
 /// Runtime functions (`dart.X`) that receive *strings* that are **not**
 /// property names: symbol descriptions, messages, constant values, *record*

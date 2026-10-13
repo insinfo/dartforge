@@ -439,7 +439,7 @@ fn report_error_guarded(error: i64, trace: i64, frame: i64) -> bool {
     let (fatal, listeners) = with_state(|e| (e.errors_fatal, e.error_listeners.clone()));
     // SAFETY: registered by the `dart:isolate` overlay with the signature
     // (`Object?`, `Object?`) → `List<String>`.
-    let describe = { let dart_target: usize = isolate_helper("_dartforgeDescreverErro"); move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
+    let describe = { let dart_target: usize = isolate_helper("_dartforgeDescribeError"); move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
     let description = describe(error, trace);
     if dartforge_exception_pending() != 0 {
         // The error's `toString()` failed: the runtime's description.
@@ -597,8 +597,8 @@ fn run_entry_and_loop(p: &IsolateRequest, call: extern "C" fn(i64) -> i64, contr
     with_isolate_entry(&p.input, &p.message, |input, message, frame| {
         // SAFETY: registered by the `dart:isolate` overlay with the signatures
         // (`int`, `int`, `int`) → `List` and (`Function`, `Object?`) → `void`.
-        let ready_flag = { let dart_target: usize = isolate_helper("_dartforgeMensagemDePronto"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
-        let start = { let dart_target: usize = isolate_helper("_dartforgeIniciarIsolado"); move |a0: i64, a1: i64| { dart_v2(dart_target, a0, a1) } };
+        let ready_flag = { let dart_target: usize = isolate_helper("_dartforgeReadyMessage"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
+        let start = { let dart_target: usize = isolate_helper("_dartforgeStartIsolate"); move |a0: i64, a1: i64| { dart_v2(dart_target, a0, a1) } };
         let m = ready_flag(control, pause, termination);
         if dartforge_exception_pending() != 0 { return; }
         HEAP.with(|h| h.borrow_mut().set_root(frame, 2, m));
@@ -702,7 +702,7 @@ pub extern "C" fn dartforge_native_Isolate_getPortAndCapabilitiesOfCurrentIsolat
     let (c, p, t) = with_state(|e| (e.control, e.pause, e.termination));
     // SAFETY: registered by the `dart:isolate` overlay with the signature (`int`,
     // `int`, `int`) → `List`.
-    let f = { let dart_target: usize = isolate_helper("_dartforgePortaECapacidades"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
+    let f = { let dart_target: usize = isolate_helper("_dartforgePortAndCapabilities"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
     f(c, p, t)
 }
 

@@ -313,9 +313,9 @@ estável a partir de 1, pulando 1000–1012). Chega ao runtime por `@df.cids` e
 Sobreposições (`native_sdk/libraries.json:6-38`): `core/string_patch.dart` (`==` e buscas por
 natives `DartForge_string_*`), `core/integers.dart` (`_Smi.toString` fora da tabela por
 `DartForge_int_toString`, 650-661), `core/double.dart` (cache de `toString`), `core/array.dart`
-(`DartForge_List_fill`/`_copiar`), `core/growable_array.dart` (`_reservar`, cópias no
+(`DartForge_List_fill`/`_copiar`), `core/growable_array.dart` (`_reserve`, cópias no
 runtime), `core/string_buffer_patch.dart` (acumulador do runtime, `DartForge_sb_*`),
-`collection/compact_hash.dart` (campos de verdade `_indiceDF`, `_hashMask`, `_data`,
+`collection/compact_hash.dart` (campos de verdade `_indexDf`, `_hashMask`, `_data`,
 `_usedData`, `_deletedKeys`, 161-178; natives `DartForge_hash_*`), `convert/convert_patch.dart`
 (`_JsonListener._acrescentar`, parser com `chunk` num local), `core/function.dart` (`_Closure.hashCode`
 sem cache), `core/regexp_patch.dart` (`_RegExp` com `_id` num vetor do runtime que nunca
@@ -1382,7 +1382,7 @@ os natives que devolvem número. **Fornece:** `textos.rs` (§3.3), os helpers P1
    nome (§3.7) saem com o legado (P5 confirma que ninguém os emite).
 4. `StringBuffer`: `_AcumuladorDeTexto` (cid 15, `ANEXO`, `Vec<u16>`) nos `DartForge_sb_*`.
 5. `RegExp`: `_ProgramaDeRegExp` (cid 16, `ANEXO`) em `regexp.rs`; na sobreposição,
-   `_RegExp._id` vira `final Object _programa` e os natives recebem o handle; sai `PROGRAMAS_RE`
+   `_RegExp._id` vira `final Object _program` e os natives recebem o handle; sai `PROGRAMAS_RE`
    (hoje cresce sem limite, `RT/regexp.rs:1100-1102`).
 6. Emissor: `llvm/textos_ir.rs` com os helpers, o literal estático (§2.11: `@df.s.<blake3>`
    `linkonce_odr`, comdat, seção da imagem, hash calculado com `layout::hash_de_texto`) e
@@ -1427,7 +1427,7 @@ caixa/célula/contexto/closure/record, `caixa_em_linha`.
    representação com que a captura foi gravada (a do tipo da variável); `lower/registros.rs`:
    record posicional como `REFS`.
 5. `function.dart`: declarar os campos do `_Closure` na ordem do layout
-   (`final int _codigo; final Object? _contexto; final int _tipado; final int _abi;`) no lugar dos
+   (`final int _code; final Object? _context; final int _typed; final int _abi;`) no lugar dos
    da VM, que o runtime nunca usou, para `hashCode`/`==` poderem ser Dart; ou manter os natives
    (P2 decide e registra).
 6. Receber os natives de §4.9.
@@ -1469,7 +1469,7 @@ helpers P3 de §3.5, o braço `AllocList`, `lista_em_linha`.
 
 **Pronto quando:** compila; no fim, `corpus/native` 10, 21, 22, 26, 27, 30, 37, 40, 46 (os dois),
 47 (os dois), 85, 87, 96 e 97 iguais à VM;
-`bench/performance/colecoes.dart` e `objetos_em_colecoes.dart` com a saída da VM.
+`bench/performance/collections.dart` e `objetos_em_colecoes.dart` com a saída da VM.
 
 ### 4.6 P4 — Listas tipadas, SIMD, FFI, E/S (fase D, dados)
 
@@ -1494,7 +1494,7 @@ braços SIMD, `tipada_em_linha`, o acesso em linha a listas tipadas e a `List<E>
 4. `io_*.rs`, `tls.rs`, `zlib.rs`: `dart_bytes`, `dart_lista_fixa`, `dart_int`, `dart_bool`,
    `bytes_da_lista_tipada` sobre a API nova; `tls.rs` sem o `mem::take` (§2.14).
 5. Emissor: `llvm/tipados_ir.rs` e `llvm/simd.rs` (caixa por `@df.simd_box`, descaixa por
-   carga de `h+14`); `lower/tipados.rs`: lista tipada por `@df.typed_len`/`_dados` (saem
+   carga de `h+14`); `lower/tipados.rs`: lista tipada por `@df.typed_len`/`_data` (saem
    `typed_cabecalho` e o cache por ponto, 466-568), `List<E>` por `@df.list_*` com a forma no
    `flags` do armazenamento, gravação direta quando o cid é 8 ou 10 e a forma casa, barreira de
    elemento na lista geral; `lower/comandos.rs` (laços versionados, 322-344);
@@ -1504,7 +1504,7 @@ braços SIMD, `tipada_em_linha`, o acesso em linha a listas tipadas e a `List<E>
 
 **Pronto quando:** compila; no fim, `corpus/native` 01–06, 08, 09, 11–13, 15–20, 24, 31, 32, 34,
 38, 39, 55, 62, 67, 69, 77, 78 e 98 iguais à VM;
-`bench/simd` e `bench/performance/tipados.dart` com a saída da VM;
+`bench/simd` e `bench/performance/typed_data.dart` com a saída da VM;
 `crates/cli/tests/io_regression.rs` verde.
 
 ### 4.7 P5 — Transversais e remoção do legado
@@ -1675,7 +1675,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     `DartForge_record_*` ficam no runtime: o receptor pode ser um record com forma (objeto do
     programa), e o native confere a classe.
 16. **`native_sdk/core/function.dart`:** os campos do `_Closure` da VM saem; entram
-    `int _codigo`, `Object? _contexto`, `int _tipado`, `int _abi` na ordem do bloco (só para a
+    `int _code`, `Object? _context`, `int _typed`, `int _abi` na ordem do bloco (só para a
     classe descrever o layout). `==` e `hashCode` continuam natives (`Closure_equals`,
     `Closure_computeHash`, em `nucleo.rs`): precisam do receptor guardado no `_Contexto`.
 17. **`dartforge_value_class`** devolve o cid do layout (1 para null, 2 para `Smi`), não mais
@@ -1828,8 +1828,8 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     acumulador direto do anexo em `portas.rs`, o `Box<Vec<u16>>`).
 33. **P1 — natives recebidos (§4.9):** além dos da tabela, `DartForge_string_codeUnitAt` (o
     caminho lento de `codeUnitAt`) também veio de `nativos_listas.rs` para `nativos_strings.rs`.
-34. **P1 — `RegExp`:** `_RegExp._id` virou `final Object _programa` (o `_ProgramaDeRegExp`);
-    `_compilar` devolve `Object?` (null no erro); os natives recebem o handle. `ProgramaRe`
+34. **P1 — `RegExp`:** `_RegExp._id` virou `final Object _program` (o `_ProgramaDeRegExp`);
+    `_compile` devolve `Object?` (null no erro); os natives recebem o handle. `ProgramaRe`
     guarda o padrão (`fonte`). Sai `PROGRAMAS_RE`. O legado `dartforge_regexp_new` compila pelo
     mesmo motor (o casador rudimentar saiu) e `dartforge_string_split_map_pieces` devolve a
     parte casada como `String` (o `Value::Match` não existe mais).
@@ -1844,7 +1844,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     diferentes. Os ajudantes são texto fixo em `AJUDANTES`, conferido contra `layout` por
     `const` e por teste. `lower/textos.rs` chama os ajudantes por `CallRuntime df.string_*`
     (efeitos em `textos_ir::EFEITOS_DOS_AJUDANTES`) e faz em linha também
-    `DartForge_string_equals_object`/`_iguais`. O campo `caches_de_texto` saiu de `lower/fn_builder.rs`
+    `DartForge_string_equals_object`/`_equalStrings`. O campo `caches_de_texto` saiu de `lower/fn_builder.rs`
     (autorizado). O literal estático é `@"df.s.<32 hex do blake3(cid, unidades)>"`, com o
     `comdat` escrito junto do global em `emitir_globais_de_texto`.
 37. **P1 — `integers.dart`/`double.dart`** (item 7 de §4.3): ficam como estão até a medição
@@ -2110,7 +2110,7 @@ Máquina Windows 11 (ambiente do scratchpad `agente-http/env.sh`), `--release`:
 6. O mesmo com `--native --gc-stress --exec-limit 60`, uma vez sem e uma com
    `DARTFORGE_GC_VERIFY=1`.
 7. `--native --corpus corpus/js` (235 programas) e `--native --production` (o `aot --optimize`).
-8. `bench/performance/*.dart`, `bench/simd` e `bench/http/servidor.dart` com a saída igual à da VM.
+8. `bench/performance/*.dart`, `bench/simd` e `bench/http/server.dart` com a saída igual à da VM.
 9. Recarga: um programa que guarda strings, listas compactas e gerais, closures, `double` em
    caixa e uma lista grande com cartões em globais, recarregado três vezes (`crates/cli/tests/
    reload_state.rs` ganha o caso), com a saída igual antes e depois.

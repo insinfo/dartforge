@@ -1,8 +1,8 @@
-// Substitui `_internal/vm/lib/identical_patch.dart` (sobreposição
-// `native_sdk/`, P5d): o conteúdo original, mais as funções `_dartforge*`
-// com que o runtime do DartForge constrói os erros que ele mesmo lança
-// (cast que falha, `assert`, faixa, `!` sobre null) como os objetos da fonte
-// — o registro de `dart:core` entrega os endereços delas ao runtime
+// Replaces `_internal/vm/lib/identical_patch.dart` (overlay `native_sdk/`,
+// P5d): the original content, plus the `_dartforge*` functions with which the
+// DartForge runtime builds the errors it throws itself (a failing cast,
+// `assert`, range, `!` on null) as the source's objects — the `dart:core`
+// registration hands their addresses to the runtime
 // (`dartforge_register_helper`).
 
 part of "core_patch.dart";
@@ -18,76 +18,76 @@ external bool identical(Object? a, Object? b);
 int identityHashCode(Object? object) => object._identityHashCode;
 
 @pragma("vm:entry-point")
-Object _dartforgeErroDeTipo(String mensagem) =>
-    new _TypeError._create("", 0, 0, mensagem);
+Object _dartforgeTypeError(String message) =>
+    new _TypeError._create("", 0, 0, message);
 
 @pragma("vm:entry-point")
-Object _dartforgeErroDeAssercao(Object? mensagem) => new AssertionError(mensagem);
+Object _dartforgeAssertionError(Object? message) => new AssertionError(message);
 
 @pragma("vm:entry-point")
-Object _dartforgeErroDeFaixa(int valor, int minimo, int maximo, String? nome) =>
-    new RangeError.range(valor, minimo, maximo, nome);
+Object _dartforgeRangeError(int value, int minimum, int maximum, String? name) =>
+    new RangeError.range(value, minimum, maximum, name);
 
 @pragma("vm:entry-point")
-Object _dartforgeErroDeEstado(String mensagem) => new StateError(mensagem);
+Object _dartforgeStateError(String message) => new StateError(message);
 
-// A `FormatException` que o runtime lança (`int.parse`, os filtros zlib):
-// a classe real do SDK, que o `catch` e o `e.message` do programa enxergam.
+// The `FormatException` the runtime throws (`int.parse`, the zlib filters):
+// the SDK's real class, which the program's `catch` and `e.message` see.
 @pragma("vm:entry-point")
-Object _dartforgeErroDeFormato(String mensagem, Object? fonte, int deslocamento) =>
-    new FormatException(mensagem, fonte, deslocamento < 0 ? null : deslocamento);
-
-@pragma("vm:entry-point")
-Object _dartforgeErroNaoSuportado(String? mensagem) =>
-    new UnsupportedError(mensagem ?? "");
+Object _dartforgeFormatError(String message, Object? source, int offset) =>
+    new FormatException(message, source, offset < 0 ? null : offset);
 
 @pragma("vm:entry-point")
-Object _dartforgeErroDeArgumento(String? mensagem, String? nome) =>
-    new ArgumentError(mensagem, nome);
+Object _dartforgeUnsupportedError(String? message) =>
+    new UnsupportedError(message ?? "");
 
-// A chamada de uma closure com aridade incompatível precisa lançar a classe
-// real do SDK; o id sintético 1012 do runtime não participa do despacho de
-// métodos nem do grafo de subtipos da biblioteca compilada da fonte.
 @pragma("vm:entry-point")
-Object _dartforgeErroDeChamada(String nome) =>
+Object _dartforgeArgumentError(String? message, String? name) =>
+    new ArgumentError(message, name);
+
+// Calling a closure with an incompatible arity must throw the SDK's real
+// class; the runtime's synthetic id 1012 takes part neither in method
+// dispatch nor in the subtype graph of the library compiled from source.
+@pragma("vm:entry-point")
+Object _dartforgeCallError(String name) =>
     new NoSuchMethodError.withInvocation(
-        null, new Invocation.method(new Symbol(nome), const []));
+        null, new Invocation.method(new Symbol(name), const []));
 
-/// O seletor que a classe do receptor não tem (`tipo`: 0 método, 1 getter,
-/// 2 setter): como na VM, o `noSuchMethod` do receptor recebe o
-/// `Invocation`; o resultado dele é o da chamada.
+/// The selector the receiver's class does not have (`type`: 0 method, 1
+/// getter, 2 setter): as on the VM, the receiver's `noSuchMethod` gets the
+/// `Invocation`; its result is the call's.
 @pragma("vm:entry-point")
 Object? _dartforgeNoSuchMethod(
-    Object? receptor,
-    int tipo,
-    String nome,
-    List<Object?> posicionais,
-    List<String> nomes,
-    List<Object?> valores,
-    List<Type> tipos) {
-  final Invocation invocacao;
-  if (tipo == 1) {
-    invocacao = new Invocation.getter(new Symbol(nome));
-  } else if (tipo == 2) {
-    invocacao = new Invocation.setter(
-        new Symbol("$nome="), posicionais.isEmpty ? null : posicionais[0]);
+    Object? receiver,
+    int type,
+    String name,
+    List<Object?> positional,
+    List<String> names,
+    List<Object?> values,
+    List<Type> types) {
+  final Invocation invocation;
+  if (type == 1) {
+    invocation = new Invocation.getter(new Symbol(name));
+  } else if (type == 2) {
+    invocation = new Invocation.setter(
+        new Symbol("$name="), positional.isEmpty ? null : positional[0]);
   } else {
-    final nomeados = <Symbol, Object?>{};
-    for (var i = 0; i < nomes.length; i++) {
-      nomeados[new Symbol(nomes[i])] = valores[i];
+    final named = <Symbol, Object?>{};
+    for (var i = 0; i < names.length; i++) {
+      named[new Symbol(names[i])] = values[i];
     }
-    invocacao = new Invocation.genericMethod(
-        new Symbol(nome), tipos.isEmpty ? null : tipos, posicionais, nomeados);
+    invocation = new Invocation.genericMethod(
+        new Symbol(name), types.isEmpty ? null : types, positional, named);
   }
-  return receptor.noSuchMethod(invocacao);
+  return receiver.noSuchMethod(invocation);
 }
 
 @pragma("vm:entry-point")
-Object _dartforgeRastroVazio() => StackTrace.empty;
+Object _dartforgeEmptyStackTrace() => StackTrace.empty;
 
-/// O gancho de `Uri.base` que o embedder instala na partida
-/// (`DartUtils::PrepareCoreLibrary`: o `_getUriBaseClosure` de `dart:io`).
+/// The `Uri.base` hook the embedder installs at startup
+/// (`DartUtils::PrepareCoreLibrary`: `dart:io`'s `_getUriBaseClosure`).
 @pragma("vm:entry-point")
-void _dartforgeDefinirUriBase(_UriBaseClosure gancho) {
-  _uriBaseClosure = gancho;
+void _dartforgeSetBaseUri(_UriBaseClosure hook) {
+  _uriBaseClosure = hook;
 }

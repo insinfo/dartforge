@@ -477,7 +477,7 @@ bool, null e portas têm hash estrutural), e depois `_rehashObjects`
 `hash_de_identidade`), então o índice copiado nunca vale para chave de
 identidade. `RT/portas.rs`, `materializar` → `refazer_indices_copiados`:
 com os nós ainda enraizados, chama para cada instância copiada o ajudante
-Dart `_dartforgeRefazerIndiceCopiado`
+Dart `_dartforgeRebuildCopiedIndex`
 (`native_sdk/collection/compact_hash.dart`), que confere as chaves como
 `MightNeedReHashing` e, se preciso, zera `_hashMask`/`_deletedKeys` e chama
 o `_regenerateIndex` do próprio SDK; a classe que não é `_Map`/`_Set` sai

@@ -480,7 +480,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let a = a.clone();
         let b = self.coerce(b.clone(), Type::Ref);
         // `String`: the `==` of the two concrete classes is the same native
-        // (`_StringBase._igualA`, which already handles `null` and the other side
+        // (`_StringBase._equalsObject`, which already handles `null` and the other side
         // not being a `String`): one call, without the null rule or the `switch`
         // on the class — the VM's `String_equality` intrinsic.
         if self.ctx.core.string_class == Some(*class) {

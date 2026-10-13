@@ -2,56 +2,56 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
-// O `dart:mirrors` do backend nativo do DartForge (B01): o subconjunto que os
-// builders do ecossistema usam. O `TypeChecker.fromRuntime(T)` do
-// `source_gen` chama `reflectClass(T)` e lê só o nome da classe
-// (`MirrorSystem.getName(mirror.simpleName)`) e a URI da biblioteca que a
-// declara (`(mirror.owner as LibraryMirror).uri`). O resto da reflexão não
-// existe no nativo — como no AOT da VM — e lança `UnsupportedError`.
-// Substitui `_internal/vm/lib/mirrors_patch.dart` (e as partes dele, que
-// dependem dos natives de reflexão da VM).
+// DartForge native backend's `dart:mirrors` (B01): the subset the ecosystem's
+// builders use. `source_gen`'s `TypeChecker.fromRuntime(T)` calls
+// `reflectClass(T)` and only reads the class name
+// (`MirrorSystem.getName(mirror.simpleName)`) and the URI of the library that
+// declares it (`(mirror.owner as LibraryMirror).uri`). The rest of reflection
+// does not exist natively — as in the VM's AOT — and throws `UnsupportedError`.
+// Replaces `_internal/vm/lib/mirrors_patch.dart` (and its parts, which depend
+// on the VM's reflection natives).
 
 import "dart:_internal" as internal;
 
 import "dart:_internal" show patch;
 
-Never _semReflexao(String o) =>
-    throw new UnsupportedError("dart:mirrors: $o não existe no DartForge nativo "
-        "(só reflectClass/reflect com o nome e a biblioteca da classe)");
+Never _noReflection(String o) =>
+    throw new UnsupportedError("dart:mirrors: $o does not exist in native DartForge "
+        "(only reflectClass/reflect with the class name and library)");
 
 @patch
-MirrorSystem currentMirrorSystem() => _semReflexao("currentMirrorSystem");
+MirrorSystem currentMirrorSystem() => _noReflection("currentMirrorSystem");
 
 @patch
 InstanceMirror reflect(dynamic reflectee) => new _InstanceMirrorDf(reflectee);
 
 @patch
 ClassMirror reflectClass(Type key) {
-  final nome = _nome(key);
+  final nameArg = _nameNative(key);
   final uri = _uri(key);
-  if (nome == null || uri == null) {
+  if (nameArg == null || uri == null) {
     throw new ArgumentError("$key does not denote a class");
   }
-  return new _ClassMirrorDf(key, nome, Uri.parse(uri));
+  return new _ClassMirrorDf(key, nameArg, Uri.parse(uri));
 }
 
 @patch
 TypeMirror reflectType(Type key, [List<Type>? typeArguments]) {
-  if (typeArguments != null) _semReflexao("reflectType com argumentos de tipo");
+  if (typeArguments != null) _noReflection("reflectType with type arguments");
   return reflectClass(key);
 }
 
 @pragma("vm:external-name", "DartForge_mirrors_name")
-external String? _nome(Type tipo);
+external String? _nameNative(Type typeArg);
 
 @pragma("vm:external-name", "DartForge_mirrors_uri")
-external String? _uri(Type tipo);
+external String? _uri(Type typeArg);
 
 @patch
 class MirrorSystem {
   @patch
   LibraryMirror findLibrary(Symbol libraryName) =>
-      _semReflexao("MirrorSystem.findLibrary");
+      _noReflection("MirrorSystem.findLibrary");
 
   @patch
   static String getName(Symbol symbol) {
@@ -61,7 +61,7 @@ class MirrorSystem {
   @patch
   static Symbol getSymbol(String name, [LibraryMirror? library]) {
     if (library != null || (name.length > 0 && name[0] == '_')) {
-      _semReflexao("MirrorSystem.getSymbol de nome privado");
+      _noReflection("MirrorSystem.getSymbol of a private name");
     }
     return new internal.Symbol.unvalidated(name);
   }
@@ -73,7 +73,7 @@ class AbstractClassInstantiationError {
   String toString() => "Cannot instantiate abstract class $_className";
 }
 
-/// A biblioteca que declara uma classe: só a URI e o nome simples.
+/// The library that declares a class: only the URI and the simple name.
 final class _LibraryMirrorDf implements LibraryMirror {
   final Uri uri;
   _LibraryMirrorDf(this.uri);
@@ -90,35 +90,35 @@ final class _LibraryMirrorDf implements LibraryMirror {
   String toString() => "LibraryMirror on '$uri'";
 
   noSuchMethod(Invocation i) =>
-      _semReflexao("LibraryMirror.${MirrorSystem.getName(i.memberName)}");
+      _noReflection("LibraryMirror.${MirrorSystem.getName(i.memberName)}");
 }
 
-/// Uma classe pelo objeto `Type`: nome declarado e biblioteca.
+/// A class through the `Type` object: the declared name and the library.
 final class _ClassMirrorDf implements ClassMirror {
-  final Type _tipo;
-  final String _nomeDaClasse;
-  final Uri _uriDaBiblioteca;
-  _ClassMirrorDf(this._tipo, this._nomeDaClasse, this._uriDaBiblioteca);
+  final Type _typeNative;
+  final String _classNameOf;
+  final Uri _libraryUri;
+  _ClassMirrorDf(this._typeNative, this._classNameOf, this._libraryUri);
 
-  Symbol get simpleName => new internal.Symbol.unvalidated(_nomeDaClasse);
+  Symbol get simpleName => new internal.Symbol.unvalidated(_classNameOf);
   Symbol get qualifiedName => new internal.Symbol.unvalidated(
-      "${_uriDaBiblioteca}.$_nomeDaClasse");
-  DeclarationMirror? get owner => new _LibraryMirrorDf(_uriDaBiblioteca);
-  bool get isPrivate => _nomeDaClasse.startsWith("_");
+      "${_libraryUri}.$_classNameOf");
+  DeclarationMirror? get owner => new _LibraryMirrorDf(_libraryUri);
+  bool get isPrivate => _classNameOf.startsWith("_");
   bool get isTopLevel => true;
   bool get hasReflectedType => true;
-  Type get reflectedType => _tipo;
+  Type get reflectedType => _typeNative;
 
   bool operator ==(Object other) =>
-      other is _ClassMirrorDf && other._tipo == _tipo;
-  int get hashCode => _tipo.hashCode;
-  String toString() => "ClassMirror on '$_nomeDaClasse'";
+      other is _ClassMirrorDf && other._typeNative == _typeNative;
+  int get hashCode => _typeNative.hashCode;
+  String toString() => "ClassMirror on '$_classNameOf'";
 
   noSuchMethod(Invocation i) =>
-      _semReflexao("ClassMirror.${MirrorSystem.getName(i.memberName)}");
+      _noReflection("ClassMirror.${MirrorSystem.getName(i.memberName)}");
 }
 
-/// Um objeto: o próprio e a classe do tipo em tempo de execução.
+/// An object: itself and the class of its runtime type.
 final class _InstanceMirrorDf implements InstanceMirror {
   final Object? reflectee;
   _InstanceMirrorDf(this.reflectee);
@@ -132,5 +132,5 @@ final class _InstanceMirrorDf implements InstanceMirror {
   String toString() => "InstanceMirror on ${Error.safeToString(reflectee)}";
 
   noSuchMethod(Invocation i) =>
-      _semReflexao("InstanceMirror.${MirrorSystem.getName(i.memberName)}");
+      _noReflection("InstanceMirror.${MirrorSystem.getName(i.memberName)}");
 }

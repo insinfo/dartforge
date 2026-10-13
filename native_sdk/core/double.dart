@@ -1,7 +1,7 @@
-// DartForge: sobreposição de `_internal/vm/lib/double.dart` (native_sdk/,
-// docs/NATIVO-PLANO.md §7 e a seção JSON). Igual ao da VM 3.6.2,
-// fora o `toString`: o cache de 8 entradas é comparado pelos bits do
-// `double` (sem a caixa e o `identical` por entrada).
+// DartForge: overlay of `_internal/vm/lib/double.dart` (native_sdk/,
+// docs/NATIVO-PLANO.md §7 and the JSON section). The same as the 3.6.2 VM's,
+// except for `toString`: the 8-entry cache is compared by the `double`'s bits
+// (without the box and the `identical` per entry).
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -252,42 +252,42 @@ final class _Double implements double {
   static const int CACHE_SIZE_LOG2 = 3;
   static const int CACHE_LENGTH = 1 << (CACHE_SIZE_LOG2 + 1);
   static const int CACHE_MASK = CACHE_LENGTH - 1;
-  // DartForge: o cache da VM guarda (double, texto) lado a lado numa lista
-  // e compara cada entrada com `identical`; aqui isso era, por entrada, a
-  // leitura pelo seletor, a caixa do `this` e uma chamada ao runtime (o
-  // `jsonEncode` de uma lista de `double` pagava as 8). As chaves são os
-  // bits do `double` (o `identical` de dois `double` é a igualdade dos
-  // bits: `-0.0` e `0.0` diferem, o mesmo NaN é igual) numa lista de `int`;
-  // os textos, a lista ao lado. Mesmas 8 entradas e a mesma troca da mais
-  // antiga: o texto devolvido é o mesmo objeto nos mesmos casos.
+  // DartForge: the VM's cache keeps (double, string) side by side in a list and
+  // compares each entry with `identical`; here that was, per entry, the read
+  // through the selector, the box of `this` and a runtime call (the `jsonEncode`
+  // of a list of `double` paid for all 8). The keys are the `double`'s bits (the
+  // `identical` of two `double`s is the equality of the bits: `-0.0` and `0.0`
+  // differ, the same NaN is equal) in a list of `int`; the strings, in the list
+  // beside it. The same 8 entries and the same replacement of the oldest: the
+  // returned string is the same object in the same cases.
   static final List<int> _cacheBits = new List<int>.filled(CACHE_LENGTH >> 1, 0);
-  static final List<String?> _cacheTextos =
+  static final List<String?> _cacheStrings =
       new List<String?>.filled(CACHE_LENGTH >> 1, null);
   static int _cacheEvictIndex = 0;
 
   @pragma("vm:external-name", "DartForge_double_bits")
-  external static int _bitsDe(double d);
+  external static int _bitsOf(double d);
 
   @pragma("vm:external-name", "Double_toString")
   external String _toString();
 
   String toString() {
-    final int bits = _bitsDe(this);
-    final List<int> chaves = _cacheBits;
+    final int bits = _bitsOf(this);
+    final List<int> keys = _cacheBits;
     for (int i = 0; i < (CACHE_LENGTH >> 1); i++) {
-      if (chaves[i] == bits) {
-        final String? texto = _cacheTextos[i];
-        if (texto != null) return texto;
+      if (keys[i] == bits) {
+        final String? text = _cacheStrings[i];
+        if (text != null) return text;
       }
     }
-    // `identical(0.0, this)`: os bits do `0.0` são 0.
+    // `identical(0.0, this)`: the bits of `0.0` are 0.
     if (bits == 0) {
       return "0.0";
     }
     String result = _toString();
     // Replace the least recently inserted entry.
-    chaves[_cacheEvictIndex] = bits;
-    _cacheTextos[_cacheEvictIndex] = result;
+    keys[_cacheEvictIndex] = bits;
+    _cacheStrings[_cacheEvictIndex] = result;
     _cacheEvictIndex = (_cacheEvictIndex + 1) & (CACHE_MASK >> 1);
     return result;
   }

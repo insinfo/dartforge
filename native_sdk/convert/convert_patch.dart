@@ -1,13 +1,13 @@
-// DartForge: sobreposição de `_internal/vm/lib/convert_patch.dart`
-// (native_sdk/, docs/NATIVO-PLANO.md §7 e a seção JSON), gerada do arquivo
-// da VM 3.6.2. Muda só:
-// * o `_JsonListener`: os valores vão às listas que ele mesmo criou (os
-//   pares chave/valor de um objeto, os elementos de um vetor, a pilha de
-//   contêineres) por um native, sem o despacho do `add` nem a conferência
-//   de covariância da entrada uniforme;
-// * o `_JsonStringParser`: `parse`, `parseString` e `parseNumber` do
-//   `_ChunkedJsonParser` copiados para ele com o `chunk` num local e o
-//   `codeUnitAt` direto.
+// DartForge: overlay of `_internal/vm/lib/convert_patch.dart`
+// (native_sdk/, docs/NATIVO-PLANO.md §7 and the JSON section), generated from
+// the 3.6.2 VM's file. It only changes:
+// * `_JsonListener`: the values go to the lists it created itself (the
+//   key/value pairs of an object, the elements of an array, the container
+//   stack) through a native, without the `add` dispatch nor the covariance
+//   check of the uniform entry;
+// * `_JsonStringParser`: `_ChunkedJsonParser`'s `parse`, `parseString` and
+//   `parseNumber` copied into it with the `chunk` in a local and a direct
+//   `codeUnitAt`.
 // Copyright (c) 2014, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -93,84 +93,85 @@ class _JsonListener {
   final Object? Function(Object? key, Object? value)? reviver;
 
   /**
-   * DartForge (docs/NATIVO-PLANO.md §13.2, item 4): a pilha única dos valores
-   * dos contêineres abertos, no lugar do `[]` por contêiner, da lista de pares
-   * por objeto e das pilhas de contêineres e de estados do parser.
+   * DartForge (docs/NATIVO-PLANO.md §13.2, item 4): the single stack of the
+   * values of the open containers, in place of the `[]` per container, the
+   * list of pairs per object and the parser's container and state stacks.
    *
-   * Abrir um contêiner empilha uma marca, `início anterior * 32 + estado do
-   * parser` (o estado cabe em 5 bits), e os valores do contêiner vêm depois
-   * dela; fechar monta a lista ou o mapa da faixa, tira a faixa e a marca e
-   * devolve o estado salvo (o `restoreState` do parser). Os valores chegam nos
-   * mesmos pontos do listener da VM, e o reviver é chamado nos mesmos pontos,
-   * com a mesma chave e o mesmo índice.
+   * Opening a container pushes a mark, `previous start * 32 + parser state`
+   * (the state fits in 5 bits), and the container's values come after it;
+   * closing builds the list or the map from the range, removes the range and
+   * the mark and returns the saved state (the parser's `restoreState`). The
+   * values arrive at the same points as in the VM's listener, and the reviver
+   * is called at the same points, with the same key and the same index.
    */
-  final List<Object?> _pilha = <Object?>[];
+  final List<Object?> _stack = <Object?>[];
 
-  /** O início, em [_pilha], dos valores do contêiner aberto mais interno. */
-  int _inicio = 0;
+  /** The start, in [_stack], of the values of the innermost open container. */
+  int _start = 0;
 
   /** The most recently read value. */
   Object? value;
 
   /**
-   * DartForge: empilha `v` no fim de `pilha` (a [_pilha], uma lista crescível
-   * de `Object?`) e devolve o novo comprimento: o `add` sem o despacho pela
-   * classe e sem a conferência do `E`. -1, sem mudar nada, se a lista não
-   * está na forma simples do runtime.
+   * DartForge: pushes `v` at the end of `stack` (the [_stack], a growable
+   * list of `Object?`) and returns the new length: the `add` without the
+   * dispatch through the class and without the `E` check. -1, changing
+   * nothing, if the list is not in the runtime's simple shape.
    */
   @pragma("vm:external-name", "DartForge_json_push")
-  external static int _dfEmpilhar(List pilha, Object? v);
+  external static int _dfPush(List stack, Object? v);
 
   /**
-   * DartForge: a marca em `pilha[inicio - 1]`, sem mudar nada; -1 fora da
-   * forma simples.
+   * DartForge: the mark at `stack[begin - 1]`, changing nothing; -1 outside
+   * the simple shape.
    */
   @pragma("vm:external-name", "DartForge_json_mark")
-  external static int _dfMarca(List pilha, int inicio);
+  external static int _dfMark(List stack, int begin);
 
   /**
-   * DartForge: a lista com os valores `pilha[inicio..]` (uma lista crescível
-   * nova, do tipo de [_modelo]); tira da pilha esses valores e a marca em
-   * `inicio - 1`. null, sem mudar nada, fora da forma simples.
+   * DartForge: the list with the values `stack[begin..]` (a new growable
+   * list, of the type of [_template]); removes those values and the mark at
+   * `begin - 1` from the stack. null, changing nothing, outside the simple shape.
    */
   @pragma("vm:external-name", "DartForge_json_close_list")
-  external static List<dynamic>? _dfFecharLista(
-      List pilha, int inicio, List<dynamic> modelo);
+  external static List<dynamic>? _dfCloseList(
+      List stack, int begin, List<dynamic> template);
 
-  /** O tipo das listas do JSON: o do `[]` que o listener da VM cria. */
-  final List<dynamic> _modelo = [];
+  /** The type of the JSON lists: that of the `[]` the VM's listener creates. */
+  final List<dynamic> _template = [];
 
   /**
-   * DartForge: tira da pilha os valores `pilha[inicio..]` e a marca em
-   * `inicio - 1` e devolve a marca; -1, sem mudar nada, fora da forma simples.
+   * DartForge: removes the values `stack[begin..]` and the mark at
+   * `begin - 1` from the stack and returns the mark; -1, changing nothing,
+   * outside the simple shape.
    */
   @pragma("vm:external-name", "DartForge_json_truncate")
-  external static int _dfTruncar(List pilha, int inicio);
+  external static int _dfTruncate(List stack, int begin);
 
-  /** Empilha [v]; devolve o comprimento da pilha. */
-  int _empilhar(Object? v) {
-    final int n = _dfEmpilhar(_pilha, v);
+  /** Pushes [v]; returns the length of the stack. */
+  int _push(Object? v) {
+    final int n = _dfPush(_stack, v);
     if (n >= 0) return n;
-    _pilha.add(v);
-    return _pilha.length;
+    _stack.add(v);
+    return _stack.length;
   }
 
-  /** Abre um contêiner guardando o [estado] do parser. */
-  void _abrir(int estado) {
-    _inicio = _empilhar(_inicio * 32 + estado);
+  /** Opens a container saving the parser's [parserState]. */
+  void _open(int parserState) {
+    _start = _push(_start * 32 + parserState);
   }
 
-  /** Tira da pilha a faixa do contêiner e a marca (o caminho sem o runtime). */
-  int _truncarLento() {
-    final int marca = unsafeCast<int>(_pilha[_inicio - 1]);
-    _pilha.length = _inicio - 1;
-    return marca;
+  /** Removes the container's range and the mark from the stack (the path without the runtime). */
+  int _truncateSlow() {
+    final int mark = unsafeCast<int>(_stack[_start - 1]);
+    _stack.length = _start - 1;
+    return mark;
   }
 
-  /** Restaura o início da [marca] e devolve o estado salvo nela. */
-  int _restaurar(int marca) {
-    _inicio = marca >> 5;
-    return marca & 31;
+  /** Restores the start from the [mark] and returns the state saved in it. */
+  int _restore(int mark) {
+    _start = mark >> 5;
+    return mark & 31;
   }
 
   void handleString(String value) {
@@ -189,63 +190,63 @@ class _JsonListener {
     this.value = null;
   }
 
-  /** Abre um objeto; [estado] é o do parser, devolvido por [endObject]. */
-  void beginObject(int estado) {
-    _abrir(estado);
+  /** Opens an object; [parserState] is the parser's, returned by [endObject]. */
+  void beginObject(int parserState) {
+    _open(parserState);
   }
 
   void propertyName() {
-    _empilhar(value);
+    _push(value);
     value = null;
   }
 
   void propertyValue() {
     if (reviver case final reviver?) {
-      final key = _pilha.last;
-      _empilhar(reviver(key, value));
+      final key = _stack.last;
+      _push(reviver(key, value));
     } else {
-      _empilhar(value);
+      _push(value);
     }
     value = null;
   }
 
-  /** Fecha o objeto aberto; devolve o estado do parser salvo ao abri-lo. */
+  /** Closes the open object; returns the parser state saved when opening it. */
   int endObject() {
-    final mapa = createMapFromKeyValueRangeUnsafe<String, dynamic>(_pilha, _inicio);
-    int marca = _dfTruncar(_pilha, _inicio);
-    if (marca < 0) marca = _truncarLento();
-    value = mapa;
-    return _restaurar(marca);
+    final map = createMapFromKeyValueRangeUnsafe<String, dynamic>(_stack, _start);
+    int mark = _dfTruncate(_stack, _start);
+    if (mark < 0) mark = _truncateSlow();
+    value = map;
+    return _restore(mark);
   }
 
-  /** Abre uma lista; [estado] é o do parser, devolvido por [endArray]. */
-  void beginArray(int estado) {
-    _abrir(estado);
+  /** Opens a list; [parserState] is the parser's, returned by [endArray]. */
+  void beginArray(int parserState) {
+    _open(parserState);
   }
 
   void arrayElement() {
     var reviver = this.reviver;
     if (reviver != null) {
-      value = reviver(_pilha.length - _inicio, value);
+      value = reviver(_stack.length - _start, value);
     }
-    _empilhar(value);
+    _push(value);
     value = null;
   }
 
-  /** Fecha a lista aberta; devolve o estado do parser salvo ao abri-la. */
+  /** Closes the open list; returns the parser state saved when opening it. */
   int endArray() {
-    int marca = _dfMarca(_pilha, _inicio);
-    List<dynamic>? lista = marca < 0 ? null : _dfFecharLista(_pilha, _inicio, _modelo);
-    if (lista == null) {
-      final List<dynamic> nova = [];
-      for (int i = _inicio; i < _pilha.length; i++) {
-        nova.add(_pilha[i]);
+    int mark = _dfMark(_stack, _start);
+    List<dynamic>? items = mark < 0 ? null : _dfCloseList(_stack, _start, _template);
+    if (items == null) {
+      final List<dynamic> fresh = [];
+      for (int i = _start; i < _stack.length; i++) {
+        fresh.add(_stack[i]);
       }
-      marca = _truncarLento();
-      lista = nova;
+      mark = _truncateSlow();
+      items = fresh;
     }
-    value = lista;
-    return _restaurar(marca);
+    value = items;
+    return _restore(mark);
   }
 
   /**
@@ -254,7 +255,7 @@ class _JsonListener {
    * Must only be called when the entire input has been parsed.
    */
   dynamic get result {
-    assert(_pilha.isEmpty);
+    assert(_stack.isEmpty);
     var reviver = this.reviver;
     if (reviver != null) {
       return reviver(null, value);
@@ -1543,15 +1544,14 @@ class _JsonStringParser extends _JsonParserWithListener
   @pragma('vm:unsafe:no-bounds-checks')
   int _getCharUnsafe(int position) => chunk.codeUnitAt(position);
 
-  // DartForge: `parse`, `parseString` e `parseNumber` do
-  // `_ChunkedJsonParser` copiados para cá (o texto da VM, com os estáticos
-  // do mixin qualificados), com o `chunk` num local e o `codeUnitAt` direto.
-  // No mixin, cada unidade passava pelo `_getCharUnsafe` (uma chamada, e
-  // nela a leitura do campo e a consulta das unidades da string ao
-  // runtime); aqui o endereço e o comprimento das unidades do local saem do
-  // laço (`lower/textos.rs`).
+  // DartForge: `_ChunkedJsonParser`'s `parse`, `parseString` and `parseNumber`
+  // copied here (the VM's text, with the mixin's statics qualified), with the
+  // `chunk` in a local and a direct `codeUnitAt`. In the mixin, each unit went
+  // through `_getCharUnsafe` (a call, and in it the field read and the query of
+  // the string's units to the runtime); here the address and the length of the
+  // local's units leave the loop (`lower/strings.rs`).
   void parse(int position) {
-    final String texto = chunk;
+    final String text = chunk;
     int length = chunkEnd;
     if (partialState != _ChunkedJsonParser.NO_PARTIAL) {
       position = parsePartial(position);
@@ -1564,7 +1564,7 @@ class _JsonStringParser extends _JsonParserWithListener
     while (position < length) {
       int char = 0;
       do {
-        char = texto.codeUnitAt(position);
+        char = text.codeUnitAt(position);
         if (char > 0xFF) {
           break;
         }
@@ -1657,7 +1657,7 @@ class _JsonStringParser extends _JsonParserWithListener
     this.state = state;
   }
   int parseString(int position) {
-    final String texto = chunk;
+    final String text = chunk;
     final charAttributes = _ChunkedJsonParser._characterAttributes;
 
     // Format: '"'([^\x00-\x1f\\\"]|'\\'[bfnrt/\\"])*'"'
@@ -1671,7 +1671,7 @@ class _JsonStringParser extends _JsonParserWithListener
         // Caveat: do not combine the following two lines together. It helps
         // compiler to generate better code (it currently can't reorder operations
         // to reduce register pressure).
-        char = texto.codeUnitAt(position);
+        char = text.codeUnitAt(position);
         position++;
         bits |= char; // Includes final '"', but that never matters.
         if (char > 0xFF) {
@@ -1701,7 +1701,7 @@ class _JsonStringParser extends _JsonParserWithListener
     return chunkString(_ChunkedJsonParser.STR_PLAIN);
   }
   int parseNumber(int char, int position) {
-    final String texto = chunk;
+    final String text = chunk;
     // Also called on any unexpected character.
     // Format:
     //  '-'?('0'|[1-9][0-9]*)('.'[0-9]+)?([eE][+-]?[0-9]+)?
@@ -1722,7 +1722,7 @@ class _JsonStringParser extends _JsonParserWithListener
       sign = -1;
       position++;
       if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_SIGN, start);
-      char = texto.codeUnitAt(position);
+      char = text.codeUnitAt(position);
     }
     int digit = char ^ _ChunkedJsonParser.CHAR_0;
     if (digit > 9) {
@@ -1736,7 +1736,7 @@ class _JsonStringParser extends _JsonParserWithListener
     if (digit == 0) {
       position++;
       if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_ZERO, start);
-      char = texto.codeUnitAt(position);
+      char = text.codeUnitAt(position);
       digit = char ^ _ChunkedJsonParser.CHAR_0;
       // If starting with zero, next character must not be digit.
       if (digit <= 9) fail(position);
@@ -1759,7 +1759,7 @@ class _JsonStringParser extends _JsonParserWithListener
         digitCount++;
         position++;
         if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_DIGIT, start);
-        char = texto.codeUnitAt(position);
+        char = text.codeUnitAt(position);
         digit = char ^ _ChunkedJsonParser.CHAR_0;
       } while (digit <= 9);
     }
@@ -1771,7 +1771,7 @@ class _JsonStringParser extends _JsonParserWithListener
       intValue = 0;
       position++;
       if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_DOT, start);
-      char = texto.codeUnitAt(position);
+      char = text.codeUnitAt(position);
       digit = char ^ _ChunkedJsonParser.CHAR_0;
       if (digit > 9) fail(position);
       do {
@@ -1779,7 +1779,7 @@ class _JsonStringParser extends _JsonParserWithListener
         intValue -= 1;
         position++;
         if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_DOT_DIGIT, start);
-        char = texto.codeUnitAt(position);
+        char = text.codeUnitAt(position);
         digit = char ^ _ChunkedJsonParser.CHAR_0;
       } while (digit <= 9);
     }
@@ -1791,14 +1791,14 @@ class _JsonStringParser extends _JsonParserWithListener
       }
       position++;
       if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_E, start);
-      char = texto.codeUnitAt(position);
+      char = text.codeUnitAt(position);
       int expSign = 1;
       int exponent = 0;
       if (((char + 1) | 2) == 0x2e /*+ or -*/) {
         expSign = 0x2C - char; // -1 for _ChunkedJsonParser.MINUS, +1 for _ChunkedJsonParser.PLUS
         position++;
         if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_E_SIGN, start);
-        char = texto.codeUnitAt(position);
+        char = text.codeUnitAt(position);
       }
       digit = char ^ _ChunkedJsonParser.CHAR_0;
       if (digit > 9) {
@@ -1810,7 +1810,7 @@ class _JsonStringParser extends _JsonParserWithListener
         if (exponent > 400) exponentOverflow = true;
         position++;
         if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_E_DIGIT, start);
-        char = texto.codeUnitAt(position);
+        char = text.codeUnitAt(position);
         digit = char ^ _ChunkedJsonParser.CHAR_0;
       } while (digit <= 9);
       if (exponentOverflow) {
@@ -1857,19 +1857,19 @@ class _JsonStringParser extends _JsonParserWithListener
     listener.handleNumber(parseDouble(start, position));
     return position;
   }
-  // DartForge (docs/NATIVO-PLANO.md §13.2, item 5): com todas as unidades até
-  // `0xFF` (`bits`), a `_OneByteString` montada em linha (a alocação da TLAB e
-  // as gravações do `writeIntoOneByteString`), sem a chamada do `substring` ao
-  // runtime; a forma é a canônica, a que o `substring` daria. A vazia é o
-  // literal `""`, como no `substring` da VM.
+  // DartForge (docs/NATIVO-PLANO.md §13.2, item 5): with every unit up to
+  // `0xFF` (`bits`), the `_OneByteString` built inline (the TLAB allocation and
+  // the stores of `writeIntoOneByteString`), without the `substring` call to the
+  // runtime; the shape is the canonical one, the one `substring` would give. The
+  // empty one is the literal `""`, as in the VM's `substring`.
   String getString(int start, int end, int bits) {
     if (bits <= 0xFF) {
       final int n = end - start;
       if (n == 0) return "";
-      final String texto = chunk;
+      final String text = chunk;
       final String r = allocateOneByteString(n);
       for (int i = 0; i < n; i++) {
-        writeIntoOneByteString(r, i, texto.codeUnitAt(start + i));
+        writeIntoOneByteString(r, i, text.codeUnitAt(start + i));
       }
       return r;
     }
@@ -1998,13 +1998,13 @@ class _JsonUtf8Parser extends _JsonParserWithListener
   @pragma('vm:unsafe:no-bounds-checks')
   int _getCharUnsafe(int position) => chunk[position];
 
-  // DartForge (docs/NATIVO-PLANO.md §13.2, item 6): `parse`, `parseString` e
-  // `parseNumber` do `_ChunkedJsonParser`, como no `_JsonStringParser`, com os
-  // bytes num local (`texto[i]`, a leitura em linha da `Uint8List`) no lugar
-  // do `_getCharUnsafe` por byte. Os testes `char > 0xFF` do texto de UTF-16
-  // ficam: um byte nunca passa deles, como o `isUtf16Input` falso do mixin.
+  // DartForge (docs/NATIVO-PLANO.md §13.2, item 6): `_ChunkedJsonParser`'s
+  // `parse`, `parseString` and `parseNumber`, as in `_JsonStringParser`, with the
+  // bytes in a local (`text[i]`, the inline read of the `Uint8List`) in place of
+  // `_getCharUnsafe` per byte. The `char > 0xFF` tests of the UTF-16 text stay:
+  // a byte never exceeds them, like the mixin's false `isUtf16Input`.
   void parse(int position) {
-    final Uint8List texto = chunk;
+    final Uint8List text = chunk;
     int length = chunkEnd;
     if (partialState != _ChunkedJsonParser.NO_PARTIAL) {
       position = parsePartial(position);
@@ -2017,7 +2017,7 @@ class _JsonUtf8Parser extends _JsonParserWithListener
     while (position < length) {
       int char = 0;
       do {
-        char = texto[position];
+        char = text[position];
         if (char > 0xFF) {
           break;
         }
@@ -2110,7 +2110,7 @@ class _JsonUtf8Parser extends _JsonParserWithListener
     this.state = state;
   }
   int parseString(int position) {
-    final Uint8List texto = chunk;
+    final Uint8List text = chunk;
     final charAttributes = _ChunkedJsonParser._characterAttributes;
 
     // Format: '"'([^\x00-\x1f\\\"]|'\\'[bfnrt/\\"])*'"'
@@ -2124,7 +2124,7 @@ class _JsonUtf8Parser extends _JsonParserWithListener
         // Caveat: do not combine the following two lines together. It helps
         // compiler to generate better code (it currently can't reorder operations
         // to reduce register pressure).
-        char = texto[position];
+        char = text[position];
         position++;
         bits |= char; // Includes final '"', but that never matters.
         if (char > 0xFF) {
@@ -2154,7 +2154,7 @@ class _JsonUtf8Parser extends _JsonParserWithListener
     return chunkString(_ChunkedJsonParser.STR_PLAIN);
   }
   int parseNumber(int char, int position) {
-    final Uint8List texto = chunk;
+    final Uint8List text = chunk;
     // Also called on any unexpected character.
     // Format:
     //  '-'?('0'|[1-9][0-9]*)('.'[0-9]+)?([eE][+-]?[0-9]+)?
@@ -2175,7 +2175,7 @@ class _JsonUtf8Parser extends _JsonParserWithListener
       sign = -1;
       position++;
       if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_SIGN, start);
-      char = texto[position];
+      char = text[position];
     }
     int digit = char ^ _ChunkedJsonParser.CHAR_0;
     if (digit > 9) {
@@ -2189,7 +2189,7 @@ class _JsonUtf8Parser extends _JsonParserWithListener
     if (digit == 0) {
       position++;
       if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_ZERO, start);
-      char = texto[position];
+      char = text[position];
       digit = char ^ _ChunkedJsonParser.CHAR_0;
       // If starting with zero, next character must not be digit.
       if (digit <= 9) fail(position);
@@ -2212,7 +2212,7 @@ class _JsonUtf8Parser extends _JsonParserWithListener
         digitCount++;
         position++;
         if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_DIGIT, start);
-        char = texto[position];
+        char = text[position];
         digit = char ^ _ChunkedJsonParser.CHAR_0;
       } while (digit <= 9);
     }
@@ -2224,7 +2224,7 @@ class _JsonUtf8Parser extends _JsonParserWithListener
       intValue = 0;
       position++;
       if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_DOT, start);
-      char = texto[position];
+      char = text[position];
       digit = char ^ _ChunkedJsonParser.CHAR_0;
       if (digit > 9) fail(position);
       do {
@@ -2232,7 +2232,7 @@ class _JsonUtf8Parser extends _JsonParserWithListener
         intValue -= 1;
         position++;
         if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_DOT_DIGIT, start);
-        char = texto[position];
+        char = text[position];
         digit = char ^ _ChunkedJsonParser.CHAR_0;
       } while (digit <= 9);
     }
@@ -2244,14 +2244,14 @@ class _JsonUtf8Parser extends _JsonParserWithListener
       }
       position++;
       if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_E, start);
-      char = texto[position];
+      char = text[position];
       int expSign = 1;
       int exponent = 0;
       if (((char + 1) | 2) == 0x2e /*+ or -*/) {
         expSign = 0x2C - char; // -1 for _ChunkedJsonParser.MINUS, +1 for _ChunkedJsonParser.PLUS
         position++;
         if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_E_SIGN, start);
-        char = texto[position];
+        char = text[position];
       }
       digit = char ^ _ChunkedJsonParser.CHAR_0;
       if (digit > 9) {
@@ -2263,7 +2263,7 @@ class _JsonUtf8Parser extends _JsonParserWithListener
         if (exponent > 400) exponentOverflow = true;
         position++;
         if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_E_DIGIT, start);
-        char = texto[position];
+        char = text[position];
         digit = char ^ _ChunkedJsonParser.CHAR_0;
       } while (digit <= 9);
       if (exponentOverflow) {
@@ -2314,9 +2314,9 @@ class _JsonUtf8Parser extends _JsonParserWithListener
   String getString(int start, int end, int bits) {
     const int maxAsciiChar = 0x7f;
     if (bits <= maxAsciiChar) {
-      // DartForge (docs/NATIVO-PLANO.md §13.2, item 6): o
-      // `createOneByteStringFromCharacters` com a cópia em linha (a alocação
-      // da TLAB e as gravações do `writeIntoOneByteString`), sem a chamada do
+      // DartForge (docs/NATIVO-PLANO.md §13.2, item 6): the
+      // `createOneByteStringFromCharacters` with the inline copy (the TLAB
+      // allocation and the stores of `writeIntoOneByteString`), without the call of
       // `copyRangeFromUint8ListToOneByteString`.
       final Uint8List bytes = chunk;
       final int n = end - start;

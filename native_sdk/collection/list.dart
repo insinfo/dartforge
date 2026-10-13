@@ -1,5 +1,5 @@
-// Substitui `collection/list.dart` (sobreposição `native_sdk/`). Igual ao do
-// SDK 3.6.2, fora o `sort` de `ListBase` (marcado "DartForge:").
+// Replaces `collection/list.dart` (overlay `native_sdk/`). The same as SDK
+// 3.6.2's, except for `ListBase`'s `sort` (marked "DartForge:").
 // Copyright (c) 2013, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -320,18 +320,17 @@ abstract mixin class ListBase<E> implements List<E> {
   }
 
   void sort([int Function(E a, E b)? compare]) {
-    // DartForge: `List<int>` (o tipo reificado) na ordem natural pela
-    // ordenação tipada; o resultado é o mesmo do `_compareAny`.
+    // DartForge: `List<int>` (the reified type) in natural order through the
+    // typed sort; the result is the same as with `_compareAny`.
     if (compare == null && this is List<int>) {
       Sort.sortInts(this as List<int>);
       return;
     }
-    // DartForge: com um comparador que aceita `int`, a mesma ordenação
-    // tipada (`Sort.sortIntsCom`): as mesmas chamadas ao comparador, na
-    // mesma ordem, sem a caixa de cada elemento lido nem a conferência do
-    // `E` a cada gravação.
+    // DartForge: with a comparator that accepts `int`, the same typed sort
+    // (`Sort.sortIntsWith`): the same comparator calls, in the same order,
+    // without boxing each element read nor checking `E` on each store.
     if (compare is int Function(int, int) && this is List<int>) {
-      Sort.sortIntsCom(this as List<int>, compare);
+      Sort.sortIntsWith(this as List<int>, compare);
       return;
     }
     Sort.sort(this, compare ?? _compareAny);

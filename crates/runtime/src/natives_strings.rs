@@ -216,7 +216,7 @@ pub extern "C" fn dartforge_native_DartForge_string_split_by_code(this: i64, lis
     }
 }
 
-/// The overlay's `_StringBase._iguais(other)` (`string_patch.dart`): the same UTF-16
+/// The overlay's `_StringBase._equalStrings(other)` (`string_patch.dart`): the same UTF-16
 /// units (the loop of the VM's `==`, done here).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_string_equals(this: i64, other_one: i64) -> u8 {
@@ -457,7 +457,7 @@ fn append_to_accumulator(accumulator: i64, t: crate::text::TextRef<'_>) {
     });
 }
 
-/// `StringBuffer._novo()`: an empty accumulator.
+/// `StringBuffer._create()`: an empty accumulator.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_sb_new() -> i64 {
     new_accumulator_with(Vec::new())
@@ -468,10 +468,10 @@ pub extern "C" fn dartforge_native_DartForge_sb_new() -> i64 {
 pub extern "C" fn dartforge_native_DartForge_sb_write(accumulator: i64, text: i64) {
     // The return is -1 only when `text` is not a string, which Dart does not allow.
     let n = dartforge_native_DartForge_sb_write_if_string(accumulator, text);
-    assert!(n >= 0, "compiler bug: StringBuffer._escrever without a String");
+    assert!(n >= 0, "compiler bug: StringBuffer._write without a String");
 }
 
-/// The overlay's `StringBuffer._escreverSeTexto(accumulator, obj)`: if `obj` is a
+/// The overlay's `StringBuffer._writeIfString(accumulator, obj)`: if `obj` is a
 /// string, appends its units to the accumulator and returns how many; otherwise
 /// -1, changing nothing (Dart goes on through `toString`).
 #[unsafe(no_mangle)]
@@ -524,7 +524,7 @@ pub extern "C" fn dartforge_native_DartForge_sb_to_string(accumulator: i64) -> i
     })
 }
 
-/// `_StringBase._deCodigos(list, start, end)` (DartForge, the `createFromCharCodes`
+/// `_StringBase._fromCharCodes(list, start, end)` (DartForge, the `createFromCharCodes`
 /// of `string_patch.dart`): the units `[start, end)` of a core list (`_List`,
 /// `_GrowableList`, `_ImmutableList`), all `int`s in `0..=0xFF`, become the
 /// `_OneByteString` in a single copy — the VM's `_scanCodeUnits` and per-unit

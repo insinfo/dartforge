@@ -1,6 +1,6 @@
-// DartForge: sobreposição de `_internal/vm/lib/integers.dart` (native_sdk/,
-// docs/NATIVO-PLANO.md §7 e a seção JSON). Igual ao da VM 3.6.2,
-// fora o `_Smi.toString` fora da tabela pequena, que vai ao runtime.
+// DartForge: overlay of `_internal/vm/lib/integers.dart` (native_sdk/,
+// docs/NATIVO-PLANO.md §7 and the JSON section). The same as the 3.6.2 VM's,
+// except for `_Smi.toString` outside the small table, which goes to the runtime.
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -647,18 +647,18 @@ final class _Smi extends _IntegerImplementation {
       // result type as `num`.
       return _smallLookupTable[unsafeCast<int>(this + 99)];
     }
-    // DartForge: os dígitos pelo runtime (uma chamada e uma alocação). O
-    // laço da VM abaixo custava aqui um `_setAt` (chamada ao runtime) a cada
-    // dois dígitos e o `~/` e o `remainder` pelo despacho de `num`.
-    return _deInteiro(this);
+    // DartForge: the digits through the runtime (one call and one allocation).
+    // The VM's loop below cost here a `_setAt` (a runtime call) every two digits
+    // and the `~/` and the `remainder` through the `num` dispatch.
+    return _fromInt(this);
   }
 
   @pragma("vm:external-name", "DartForge_int_toString")
-  external static String _deInteiro(int valor);
+  external static String _fromInt(int val);
 
-  // O corpo da VM, que o `toString` acima deixou de chamar (fica como
-  // referência do que o native faz; a poda o tira do executável).
-  String _toStringDaVm() {
+  // The VM's body, which the `toString` above no longer calls (it stays as a
+  // reference of what the native does; pruning removes it from the executable).
+  String _vmToString() {
     if (this < 0) return _negativeToString(this);
     // Inspired by Andrei Alexandrescu: "Three Optimization Tips for C++"
     // Avoid expensive remainder operation by doing it on more than

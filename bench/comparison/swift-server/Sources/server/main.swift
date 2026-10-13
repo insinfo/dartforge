@@ -1,5 +1,5 @@
-// O mesmo protocolo de bench/http/servidor.dart: GET / -> "hello",
-// GET /json -> um objeto pequeno, GET /sair encerra; imprime `porta <n>`.
+// The same protocol as bench/http/server.dart: GET / -> "hello",
+// GET /json -> a small object, GET /quit stops; prints `port <n>`.
 import Foundation
 import NIOCore
 import NIOHTTP1
@@ -31,10 +31,10 @@ final class Tratador: ChannelInboundHandler, @unchecked Sendable {
             var texto = "hello"
             if caminho == "/json" {
                 tipo = "application/json"
-                let obj: [String: Any] = ["mensagem": "Hello, World!", "id": contador.proximo(), "ativo": true, "itens": [1, 2, 3]]
+                let obj: [String: Any] = ["message": "Hello, World!", "id": contador.proximo(), "active": true, "items": [1, 2, 3]]
                 texto = String(decoding: try! JSONSerialization.data(withJSONObject: obj), as: UTF8.self)
-            } else if caminho == "/sair" {
-                texto = "tchau"
+            } else if caminho == "/quit" {
+                texto = "bye"
             }
             var corpo = context.channel.allocator.buffer(capacity: texto.utf8.count)
             corpo.writeString(texto)
@@ -43,7 +43,7 @@ final class Tratador: ChannelInboundHandler, @unchecked Sendable {
             cab.add(name: "Content-Length", value: String(corpo.readableBytes))
             context.write(wrapOutboundOut(.head(HTTPResponseHead(version: .http1_1, status: .ok, headers: cab))), promise: nil)
             context.write(wrapOutboundOut(.body(.byteBuffer(corpo))), promise: nil)
-            let sair = caminho == "/sair"
+            let sair = caminho == "/quit"
             context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
                 if sair { exit(0) }
                 if !self.keepAlive { context.close(promise: nil) }
@@ -63,6 +63,6 @@ let canal = try ServerBootstrap(group: grupo)
     }
     .childChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
     .bind(host: "127.0.0.1", port: porta).wait()
-print("porta \(canal.localAddress!.port!)")
+print("port \(canal.localAddress!.port!)")
 fflush(stdout)
 try canal.closeFuture.wait()

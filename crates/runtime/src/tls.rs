@@ -18,7 +18,7 @@
 // Verification of the server certificate follows the VM's evaluator: a
 // certificate that the context's roots do not validate does not abort the
 // handshake right away; the handshake stops (`SSL_ERROR_WANT_CERTIFICATE_VERIFY`,
-// 16), Dart calls `onBadCertificate` and answers (`_decidir`). Until the decision
+// 16), Dart calls `onBadCertificate` and answers (`_decide`). Until the decision
 // comes, nothing that rustls produced after the certificate goes out to the
 // socket.
 //

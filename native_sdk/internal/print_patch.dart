@@ -1,12 +1,12 @@
-// Substitui `_internal/vm/lib/print_patch.dart` (sobreposição `native_sdk/`,
-// P5c). Na VM, `printToConsole` chama a closure `_printClosure` que o
-// embedder (`dart:io`/`builtin`) instala; aqui ela é um native do runtime
-// que escreve a linha e o fim de linha, como o `print` da VM.
+// Replaces `_internal/vm/lib/print_patch.dart` (overlay `native_sdk/`, P5c).
+// On the VM, `printToConsole` calls the `_printClosure` closure that the
+// embedder (`dart:io`/`builtin`) installs; here it is a runtime native that
+// writes the line and the line terminator, like the VM's `print`.
 //
-// As funções `_dartforge*` são os erros que o runtime do DartForge lança
-// (índice fora da faixa…) construídos como os objetos Dart da fonte: o
-// registro de `dart:_internal` entrega os endereços delas ao runtime
-// (`dartforge_register_helper`, `crates/runtime/src/nativos_listas.rs`).
+// The `_dartforge*` functions are the errors the DartForge runtime throws
+// (index out of range…) built as the source's Dart objects: the
+// `dart:_internal` registration hands their addresses to the runtime
+// (`dartforge_register_helper`, `crates/runtime/src/natives_lists.rs`).
 
 part of "internal_patch.dart";
 
@@ -15,18 +15,18 @@ part of "internal_patch.dart";
 external void printToConsole(String line);
 
 @pragma("vm:entry-point")
-Object _dartforgeErroDeIndice(int indice, Object? alvo, int tamanho) =>
-    new IndexError.withLength(indice, tamanho, indexable: alvo, name: "index");
+Object _dartforgeIndexError(int index, Object? target, int size) =>
+    new IndexError.withLength(index, size, indexable: target, name: "index");
 
 @pragma("vm:entry-point")
-Object _dartforgeErroLate(String nome, int codigo) {
-  if (codigo == 0) return new LateError.fieldNI(nome);
-  if (codigo == 1) return new LateError.fieldAI(nome);
-  if (codigo == 2) return new LateError.localNI(nome);
-  if (codigo == 3) return new LateError.localAI(nome);
-  if (codigo == 4) return new LateError.fieldADI(nome);
-  return new LateError.localADI(nome);
+Object _dartforgeLateError(String nameArg, int code) {
+  if (code == 0) return new LateError.fieldNI(nameArg);
+  if (code == 1) return new LateError.fieldAI(nameArg);
+  if (code == 2) return new LateError.localNI(nameArg);
+  if (code == 3) return new LateError.localAI(nameArg);
+  if (code == 4) return new LateError.fieldADI(nameArg);
+  return new LateError.localADI(nameArg);
 }
 
 @pragma("vm:entry-point")
-Object _dartforgeErroPilha() => const StackOverflowError();
+Object _dartforgeStackOverflowError() => const StackOverflowError();

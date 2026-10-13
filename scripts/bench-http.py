@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Benchmark do servidor HTTP (`bench/http/servidor.dart`): o AOT do DartForge
+"""Benchmark do servidor HTTP (`bench/http/server.dart`): o AOT do DartForge
 contra a VM do Dart (`dart run`) e o `dart compile exe`.
 
 Cada executor sobe o servidor (`dart:io` de verdade, keep-alive ligado), que
-imprime `porta <n>`; o `wrk` gera a carga nas rotas `/` ("hello" em texto) e
+imprime `port <n>`; o `wrk` gera a carga nas rotas `/` ("hello" em texto) e
 `/json` (`jsonEncode` de um objeto pequeno), com 1 e N conexões. Mede-se:
 
 * req/s e latência p50/p99 (os percentis do `wrk --latency`);
@@ -25,7 +25,7 @@ O `wrk` vem do gerenciador de pacotes (`apt-get install wrk`).
 import argparse, os, platform, re, shutil, statistics, subprocess, sys, tempfile, time, urllib.request
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FONTE = os.path.join(RAIZ, "bench", "http", "servidor.dart")
+FONTE = os.path.join(RAIZ, "bench", "http", "server.dart")
 DF = os.environ.get("DARTFORGE", os.path.join(RAIZ, "target", "release", "dartforge"))
 ROTAS = [("/", "hello"), ("/json", None)]
 NOMES = {"df0": "DartForge AOT (antes)", "df": "DartForge AOT", "vm": "Dart VM (JIT)", "aot": "Dart AOT"}
@@ -42,7 +42,7 @@ def rss_kb(pid, campo):
 def subir(cmd):
     p = subprocess.Popen(cmd + ["0"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     linha = p.stdout.readline()
-    m = re.match(r"porta (\d+)", linha)
+    m = re.match(r"port (\d+)", linha)
     if not m:
         p.kill()
         raise RuntimeError(f"{cmd}: não subiu: {linha!r} {p.stderr.read()[-2000:]}")
@@ -104,14 +104,14 @@ def main():
             execs["df0"] = [a.df_antes]
         for k in a.so.split(","):
             if k == "df":
-                exe = a.df_exe or os.path.join(tmp, "servidor.df")
+                exe = a.df_exe or os.path.join(tmp, "server.df")
                 if not a.df_exe:
                     subprocess.run([DF, "aot", FONTE, exe, "--optimize"], check=True)
                 execs[k] = [exe]
             elif k == "vm":
                 execs[k] = ["dart", "run", FONTE]
             elif k == "aot":
-                exe = os.path.join(tmp, "servidor.dart.exe")
+                exe = os.path.join(tmp, "server.dart.exe")
                 subprocess.run(["dart", "compile", "exe", FONTE, "-o", exe], check=True, capture_output=True)
                 execs[k] = [exe]
         # resultados[k][(rota, c)] = [(rps, p50, p99)], repouso[k] = [kB], pico[k] = [kB]
@@ -126,7 +126,7 @@ def main():
                     corpo = pedir(porta, "/")
                     assert corpo == "hello", corpo
                     json = pedir(porta, "/json")
-                    assert '"mensagem":"Hello, World!"' in json, json
+                    assert '"message":"Hello, World!"' in json, json
                     time.sleep(0.5)
                     repouso[k].append(rss_kb(p.pid, "VmRSS"))
                     for rota, _ in ROTAS:

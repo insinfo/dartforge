@@ -16,7 +16,7 @@
 // source, the error is the runtime's (`exceptions.rs`).
 
 thread_local! {
-    /// Dart functions that the runtime calls, by name (`_dartforgeErroDeIndice`…).
+    /// Dart functions that the runtime calls, by name (`_dartforgeIndexError`…).
     static HELPERS: RefCell<HashMap<String, usize>> = RefCell::new(HashMap::default());
 }
 
@@ -39,7 +39,7 @@ fn helper(name: &str) -> Option<usize> {
 /// `IndexError` of `ix` in `target` of size `size` (the VM's `RangeError
 /// (index)`).
 fn throw_index(ix: i64, target: i64, size: i64) {
-    if let Some(f) = helper("_dartforgeErroDeIndice") {
+    if let Some(f) = helper("_dartforgeIndexError") {
         // SAFETY: registered by the `dart:_internal` library with this signature
         // (`int`, `Object?`, `int`) → `Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
@@ -106,7 +106,7 @@ fn type_copied_list(h: i64, origin: i64, class: i32) {
 /// and return -1 without changing anything when it is not in that shape — Dart
 /// then does the usual `add`, loop and `length =`.
 ///
-/// `_JsonListener._dfEmpilhar(stack, v)`: `v` at the end of the stack, without the
+/// `_JsonListener._dfPush(stack, v)`: `v` at the end of the stack, without the
 /// `add` dispatch nor the `E` check (`Object?`). Returns the new length. May collect
 /// (the storage growth).
 #[unsafe(no_mangle)]
@@ -135,7 +135,7 @@ fn push_raw(stack: i64, v: i64) -> Option<i64> {
     if !is_object(stack) {
         return None;
     }
-    // SAFETY: live object (the listener's `_pilha` field).
+    // SAFETY: live object (the listener's `_stack` field).
     if unsafe { raw_header(stack) }.class_id != cid::GROWABLE_LIST {
         return None;
     }
@@ -175,7 +175,7 @@ fn cut_stack(stack: i64, p: Data, until: usize) {
     unsafe { *in_block(stack, crate::layout::offsets::LENGTH).cast::<i64>() = until as i64 };
 }
 
-/// `_JsonListener._dfTruncar(stack, start)`: removes the values `stack[start..]`
+/// `_JsonListener._dfTruncate(stack, start)`: removes the values `stack[start..]`
 /// and the mark at `start - 1`; returns the mark, or -1. Does not allocate.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_json_truncate(stack: i64, start: i64) -> i64 {
@@ -189,14 +189,14 @@ pub extern "C" fn dartforge_native_DartForge_json_truncate(stack: i64, start: i6
     mark
 }
 
-/// `_JsonListener._dfMarca(stack, start)`: the mark at `start - 1` (the open
+/// `_JsonListener._dfMark(stack, start)`: the mark at `start - 1` (the open
 /// container), changing nothing; -1 outside the simple shape. Does not allocate.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_json_mark(stack: i64, start: i64) -> i64 {
     stack_mark(stack, start).map_or(-1, |(_, _, m)| m)
 }
 
-/// `_JsonListener._dfFecharLista(stack, start, model)`: the JSON list with the
+/// `_JsonListener._dfCloseList(stack, start, model)`: the JSON list with the
 /// values `stack[start..]`, in order — a new `_GrowableList` of the exact size,
 /// with the reified type of `model` (the listener's `[]` of `List<dynamic>`, the
 /// same type as the `[]` the VM's listener creates per list) —, and the stack
@@ -365,7 +365,7 @@ pub extern "C" fn dartforge_native_GrowableList_setData(this: i64, data: i64) {
     });
 }
 
-/// The overlay's `_preencherLista(list, value)` (`array.dart`): the elements of
+/// The overlay's `_fillList(list, value)` (`array.dart`): the elements of
 /// `_List.filled`/`_GrowableList.filled`, at once. `value` is already of the
 /// list's `E` (the factory's parameter); it goes in unboxed into a compact list,
 /// and the same object into every position of a general one (the VM's
@@ -375,7 +375,7 @@ pub extern "C" fn dartforge_native_DartForge_List_fill(list: i64, value: i64) {
     HEAP.with(|heap| heap.borrow_mut().list_fill(list, crate::heap::Value::Ref(value)));
 }
 
-/// The overlay's `_copiarElementos(dest, origin, n)` (`array.dart`): the first `n`
+/// The overlay's `_copyElements(dest, origin, n)` (`array.dart`): the first `n`
 /// elements of `origin` into the first `n` of `dest`, two core lists (`List.of`,
 /// `toList` and the copies of `_List`/`_GrowableList`). Between lists of the same
 /// shape, the words (with the block barrier on a general one); between different
@@ -456,7 +456,7 @@ mod tests_runtime_type {
 /// collection literals of constant scalars arrive as data, and not as one
 /// instruction per element. Each element: `n` (null), `t`/`f` (bool), `i` + 8 bytes
 /// (int, little-endian), `s` + 4 size bytes + the WTF-8 bytes (a string, canonical
-/// like a literal's). The Dart support (`_dartforgePreencherLista`…) walks it and
+/// like a literal's). The Dart support (`_dartforgeFillList`…) walks it and
 /// discards it.
 ///
 /// # Safety

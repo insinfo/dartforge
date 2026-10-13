@@ -1,9 +1,9 @@
-// Patch do `RegExp` para o backend nativo do DartForge (sobreposição
-// `native_sdk/`). É o `_internal/vm/lib/regexp_patch.dart` do SDK 3.6.2 com o
-// `_RegExp` trocado: o da VM chama o irregexp (natives `RegExp_*` e
-// intrínsecos de registradores); este chama o motor do runtime
-// (`DartForge_regexp_*`, `crates/runtime/src/regexp.rs`). `_RegExpMatch`,
-// `RegExp.escape` e os iteradores de `allMatches` são os da VM.
+// Patch of `RegExp` for the DartForge native backend (overlay `native_sdk/`).
+// It is SDK 3.6.2's `_internal/vm/lib/regexp_patch.dart` with the `_RegExp`
+// swapped: the VM's calls irregexp (`RegExp_*` natives and register
+// intrinsics); this one calls the runtime's engine (`DartForge_regexp_*`,
+// `crates/runtime/src/regexp.rs`). `_RegExpMatch`, `RegExp.escape` and the
+// `allMatches` iterators are the VM's.
 
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
@@ -144,11 +144,11 @@ class _RegExpMatch implements RegExpMatch {
   static const int _MATCH_PAIR = 2;
 }
 
-/// O `RegExp` do backend nativo do DartForge. Mesma interface do `_RegExp`
-/// da VM; o motor é o do runtime (`crates/runtime/src/regexp.rs`, semântica
-/// do ECMAScript como o irregexp), com o padrão compilado uma vez num objeto
-/// do runtime (`_ProgramaDeRegExp`, solto pelo coletor quando o `_RegExp`
-/// morre) e as posições do último casamento lidas uma a uma.
+/// The `RegExp` of the DartForge native backend. The same interface as the
+/// VM's `_RegExp`; the engine is the runtime's (`crates/runtime/src/regexp.rs`,
+/// ECMAScript semantics like irregexp), with the pattern compiled once into a
+/// runtime object (`_ProgramaDeRegExp`, released by the collector when the
+/// `_RegExp` dies) and the positions of the last match read one by one.
 @pragma("vm:entry-point")
 class _RegExp implements RegExp {
   final String pattern;
@@ -156,8 +156,8 @@ class _RegExp implements RegExp {
   final bool isCaseSensitive;
   final bool isUnicode;
   final bool isDotAll;
-  /// O programa compilado (`_ProgramaDeRegExp` do runtime).
-  final Object _programa;
+  /// The compiled program (the runtime's `_ProgramaDeRegExp`).
+  final Object _program;
   final int _groupCount;
 
   factory _RegExp(String pattern,
@@ -165,71 +165,71 @@ class _RegExp implements RegExp {
       bool caseSensitive = true,
       bool unicode = false,
       bool dotAll = false}) {
-    final programa =
-        _compilar(pattern, multiLine, caseSensitive, unicode, dotAll);
-    if (programa == null) {
-      throw FormatException("${_erro()} $pattern");
+    final program =
+        _compile(pattern, multiLine, caseSensitive, unicode, dotAll);
+    if (program == null) {
+      throw FormatException("${_errorNative()} $pattern");
     }
     return _RegExp._(pattern, multiLine, caseSensitive, unicode, dotAll,
-        programa, _grupos(programa));
+        program, _groups(program));
   }
 
   _RegExp._(this.pattern, this.isMultiLine, this.isCaseSensitive,
-      this.isUnicode, this.isDotAll, this._programa, this._groupCount);
+      this.isUnicode, this.isDotAll, this._program, this._groupCount);
 
   @pragma("vm:external-name", "DartForge_regexp_compile")
-  external static Object? _compilar(String padrao, bool multiLinha, bool sensivel,
-      bool unicode, bool pontoTudo);
+  external static Object? _compile(String patternText, bool multiLine, bool caseSensitive,
+      bool unicode, bool dotAll);
 
   @pragma("vm:external-name", "DartForge_regexp_error")
-  external static String _erro();
+  external static String _errorNative();
 
   @pragma("vm:external-name", "DartForge_regexp_groups")
-  external static int _grupos(Object programa);
+  external static int _groups(Object program);
 
   @pragma("vm:external-name", "DartForge_regexp_n_names")
-  external static int _nNomes(Object programa);
+  external static int _nameCount(Object program);
 
   @pragma("vm:external-name", "DartForge_regexp_name")
-  external static String _nome(Object programa, int i);
+  external static String _nameNative(Object program, int i);
 
   @pragma("vm:external-name", "DartForge_regexp_name_index")
-  external static int _indiceDoNome(Object programa, int i);
+  external static int _nameIndex(Object program, int i);
 
   @pragma("vm:external-name", "DartForge_regexp_exec")
-  external static bool _executar(
-      Object programa, String alvo, int inicio, bool pegajoso);
+  external static bool _exec(
+      Object program, String target, int begin, bool sticky);
 
   @pragma("vm:external-name", "DartForge_regexp_capture")
-  external static int _captura(int i);
+  external static int _capture(int i);
 
   Iterable<String> get _groupNames sync* {
-    final n = _nNomes(_programa);
+    final n = _nameCount(_program);
     for (var i = 0; i < n; i++) {
-      yield _nome(_programa, i);
+      yield _nameNative(_program, i);
     }
   }
 
   int _groupNameIndex(String name) {
-    final n = _nNomes(_programa);
+    final n = _nameCount(_program);
     for (var i = 0; i < n; i++) {
-      if (name == _nome(_programa, i)) {
-        return _indiceDoNome(_programa, i);
+      if (name == _nameNative(_program, i)) {
+        return _nameIndex(_program, i);
       }
     }
     return -1;
   }
 
-  List<int>? _casar(String str, int inicio, bool pegajoso) {
-    if (!_executar(_programa, str, inicio, pegajoso)) return null;
-    return List<int>.generate(2 * (_groupCount + 1), _captura);
+  List<int>? _matchNative(String str, int begin, bool sticky) {
+    if (!_exec(_program, str, begin, sticky)) return null;
+    return List<int>.generate(2 * (_groupCount + 1), _capture);
   }
 
   List<int>? _ExecuteMatch(String str, int start_index) =>
-      _casar(str, start_index, false);
+      _matchNative(str, start_index, false);
 
   List<int>? _ExecuteMatchSticky(String str, int start_index) =>
-      _casar(str, start_index, true);
+      _matchNative(str, start_index, true);
 
   RegExpMatch? firstMatch(String input) {
     final match = _ExecuteMatch(input, 0);
@@ -281,7 +281,7 @@ class _RegExp implements RegExp {
   String toString() => "RegExp: pattern=$pattern flags=${_flags()}";
 
   String _flags() {
-    // A ordem do `RegExpFlags::ToCString` da VM.
+    // The order of the VM's `RegExpFlags::ToCString`.
     var s = "";
     if (!isCaseSensitive) s += "i";
     if (isMultiLine) s += "m";

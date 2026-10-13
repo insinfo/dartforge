@@ -433,10 +433,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let ctor = self
             .ctx
             .interner
-            .lookup("_deFonte")
+            .lookup("_fromSource")
             .and_then(|k| self.ctx.program.classes[cid.0 as usize].constructors.get(&k).copied());
         let Some(ctor) = ctor else {
-            return self.unsupported(&format!("missing `{name_str}._deFonte`"), span);
+            return self.unsupported(&format!("missing `{name_str}._fromSource`"), span);
         };
         let n = if set { 1 } else { 2 };
         let args: Vec<TypeId> = match ty.map(|t| self.ctx.table.get(t)) {

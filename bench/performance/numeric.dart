@@ -1,8 +1,8 @@
-// Cálculo numérico escalar: mandelbrot e n-corpos (double e int sem objetos).
-import 'comum.dart';
+// Scalar numeric computation: mandelbrot and collatz (double and int without objects).
+import 'common.dart';
 
 int mandelbrot(int n) {
-  var soma = 0;
+  var sum = 0;
   for (var y = 0; y < n; y++) {
     final ci = 2.0 * y / n - 1.0;
     for (var x = 0; x < n; x++) {
@@ -15,26 +15,26 @@ int mandelbrot(int n) {
         zr = t;
         i++;
       }
-      soma += i;
+      sum += i;
     }
   }
-  return soma;
+  return sum;
 }
 
-int colatz(int limite) {
-  var maior = 0;
-  for (var n = 1; n < limite; n++) {
-    var x = n, passos = 0;
+int collatz(int limit) {
+  var longest = 0;
+  for (var n = 1; n < limit; n++) {
+    var x = n, steps = 0;
     while (x != 1) {
       x = x.isEven ? x >> 1 : 3 * x + 1;
-      passos++;
+      steps++;
     }
-    if (passos > maior) maior = passos;
+    if (steps > longest) longest = steps;
   }
-  return maior;
+  return longest;
 }
 
 void main() {
-  medir('mandelbrot', () => mandelbrot(400));
-  medir('collatz', () => colatz(300000));
+  measure('mandelbrot', () => mandelbrot(400));
+  measure('collatz', () => collatz(300000));
 }

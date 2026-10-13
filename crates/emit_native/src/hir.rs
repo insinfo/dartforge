@@ -901,7 +901,7 @@ pub mod stack_trace_marks {
     /// resumed, starts the chain of awaiters.
     pub const ASYNC_BODY: u8 = 1;
     /// Outside the stack trace: the stub of an `async` function (the VM has a single frame
-    /// for it) and the helpers of `async_patch` (`@pragma("dartforge:rastro-oculto")`).
+    /// for it) and the helpers of `async_patch` (`@pragma("dartforge:hidden-frame")`).
     pub const HIDDEN: u8 = 2;
     /// `_FutureListener.handleValue`: its listener starts the chain
     /// (`MethodRecognizer::kFutureListenerHandleValue`).

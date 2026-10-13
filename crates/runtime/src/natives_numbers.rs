@@ -416,7 +416,7 @@ pub extern "C" fn dartforge_native_Double_toString(this: f64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::OneByte(&buf[..n])))
 }
 
-/// The overlay's `_Double._bitsDe(d)` (`double.dart`): the bits of the `double`,
+/// The overlay's `_Double._bitsOf(d)` (`double.dart`): the bits of the `double`,
 /// the key of the `toString` cache (the VM's `identical` of two `double`s compares
 /// the bits).
 #[unsafe(no_mangle)]
@@ -424,7 +424,7 @@ pub extern "C" fn dartforge_native_DartForge_double_bits(d: f64) -> i64 {
     d.to_bits() as i64
 }
 
-/// The overlay's `_Smi._deInteiro(v)` (`integers.dart`): the decimal digits of
+/// The overlay's `_Smi._fromInt(v)` (`integers.dart`): the decimal digits of
 /// `v`, the text of the VM's `_Smi.toString`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_int_toString(v: i64) -> i64 {

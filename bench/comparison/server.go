@@ -1,6 +1,6 @@
-// Servidor HTTP do comparativo (RELATORIO-COMPARATIVO-NATIVO.md), o mesmo
-// protocolo de bench/http/servidor.dart: GET / -> "hello", GET /json -> um
-// objeto pequeno, GET /sair encerra; imprime `porta <n>` ao ouvir.
+// HTTP server of the comparison (RELATORIO-COMPARATIVO-NATIVO.md), the same
+// protocol as bench/http/server.dart: GET / -> "hello", GET /json -> a small
+// object, GET /quit stops; prints `port <n>` when listening.
 package main
 
 import (
@@ -21,16 +21,16 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("porta %d\n", ouvinte.Addr().(*net.TCPAddr).Port)
+	fmt.Printf("port %d\n", ouvinte.Addr().(*net.TCPAddr).Port)
 	var n atomic.Int64
 	mux := http.NewServeMux()
 	mux.HandleFunc("/json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		corpo, _ := json.Marshal(map[string]any{"mensagem": "Hello, World!", "id": n.Add(1), "ativo": true, "itens": []int{1, 2, 3}})
+		corpo, _ := json.Marshal(map[string]any{"message": "Hello, World!", "id": n.Add(1), "active": true, "items": []int{1, 2, 3}})
 		w.Write(corpo)
 	})
-	mux.HandleFunc("/sair", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("tchau"))
+	mux.HandleFunc("/quit", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("bye"))
 		go os.Exit(0)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

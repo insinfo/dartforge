@@ -66,7 +66,7 @@ pub extern "C" fn dartforge_native_Crypto_GetRandomBytes(n: i64) -> i64 {
 /// current directory). Without `dart:io`, nothing.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_prepare_embedder() {
-    let Some(start) = helper("_dartforgeIniciarIo") else {
+    let Some(start) = helper("_dartforgeStartIo") else {
         return;
     };
     prepare_process_signals();
@@ -82,7 +82,7 @@ pub extern "C" fn dartforge_prepare_embedder() {
     if dartforge_exception_pending() != 0 {
         return;
     }
-    if let Some(define) = helper("_dartforgeDefinirUriBase") {
+    if let Some(define) = helper("_dartforgeSetBaseUri") {
         // SAFETY: registered by the overlay's `dart:core` library with the
         // signature (`Uri Function()`) → `void`.
         let define = { let dart_target: usize = define; move |a0: i64| { dart_v1(dart_target, a0) } };

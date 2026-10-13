@@ -589,7 +589,7 @@ pub extern "C" fn dartforge_native_DartForge_hash_set_fill(ix: i64, data: i64, m
     batch(i, u)
 }
 
-/// `_dfNovosDados(n)` (`compact_hash.dart`): the new `_data` of a table, a general
+/// `_dfNewData(n)` (`compact_hash.dart`): the new `_data` of a table, a general
 /// `_List` of `n` nulls without a reified type (the SDK's `new List.filled(n, null)`,
 /// without evaluating `List<Object?>`: the list never leaves the table). May
 /// collect.

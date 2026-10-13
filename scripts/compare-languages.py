@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compara o DartForge com outros compiladores nativos (RELATORIO-COMPARATIVO-NATIVO.md).
 
-Compila `bench/comparison/{ola,bench}.<ext>` com cada ferramenta encontrada e
+Compila `bench/comparison/{hello,bench}.<ext>` com cada ferramenta encontrada e
 mede: tamanho do executável do `ola`, o tempo de cada núcleo do `bench`
 (o menor das rodadas depois da primeira), o RSS de pico do `bench` e 10
 partidas do `ola`. Os resultados de cada núcleo têm de ser iguais entre as
@@ -105,9 +105,9 @@ def main():
         if cmd is None:
             # JIT: a "execução" é o `dartforge run` da fonte.
             jit = amb.pop("JIT", None)
-            exes = {p: [jit, "run", os.path.join(FONTES, f"{p}.{ext}")] for p in ("ola", "bench")} if jit else {}
+            exes = {p: [jit, "run", os.path.join(FONTES, f"{p}.{ext}")] for p in ("hello", "bench")} if jit else {}
         else:
-            for p in ("ola", "bench"):
+            for p in ("hello", "bench"):
                 exe = os.path.join(saida, f"{p}-{nome}")
                 r = subprocess.run(cmd(os.path.join(FONTES, f"{p}.{ext}"), exe), cwd=FONTES, capture_output=True, text=True, env=amb)
                 if r.returncode != 0 or not os.path.exists(exe):
@@ -119,12 +119,12 @@ def main():
         cod, nucleos, rss = rodar(exes["bench"])
         t0 = time.perf_counter()
         for _ in range(10):
-            subprocess.run(exes["ola"], capture_output=True)
+            subprocess.run(exes["hello"], capture_output=True)
         partida = time.perf_counter() - t0
         diverge = [n for n, (_, r) in nucleos.items() if referencia.setdefault(n, r) != r]
-        tamanho = os.path.getsize(exes["ola"][0]) if cmd is not None else None
+        tamanho = os.path.getsize(exes["hello"][0]) if cmd is not None else None
         linhas.append((nome, tamanho, nucleos, rss, partida, cod, diverge))
-    nomes = ["fib", "arvores", "numerico", "textos", "json"]
+    nomes = ["fib", "trees", "numeric", "strings", "json"]
     print("| ferramenta | `ola` (bytes) | " + " | ".join(f"{n} (ms)" for n in nomes) + " | RSS do bench (MB) | 10× `ola` (s) |")
     print("|---|---:|" + "---:|" * (len(nomes) + 2))
     for nome, tam, nucleos, rss, partida, cod, diverge in linhas:

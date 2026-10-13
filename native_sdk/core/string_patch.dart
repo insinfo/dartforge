@@ -1,6 +1,6 @@
-// Substitui `_internal/vm/lib/string_patch.dart` (sobreposição
-// `native_sdk/`). Igual ao da VM 3.6.2, fora o `==` de `_StringBase`
-// (marcado "DartForge:").
+// Replaces `_internal/vm/lib/string_patch.dart` (overlay `native_sdk/`). The
+// same as the 3.6.2 VM's, except for `_StringBase`'s `==` (marked
+// "DartForge:").
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -162,11 +162,11 @@ abstract final class _StringBase implements String {
 
     final typedCharCodes = unsafeCast<List<int>>(charCodes);
 
-    // DartForge: a lista do runtime toda em Latin-1 vira a string numa
-    // cópia só (`_deCodigos`); o resto (unidade acima de 0xFF ou não `Smi`,
-    // `Uint16List`) segue o caminho da VM, com os erros dela.
+    // DartForge: a runtime list entirely in Latin-1 becomes the string in a
+    // single copy (`_fromCharCodes`); the rest (a unit above 0xFF or not a `Smi`,
+    // `Uint16List`) follows the VM's path, with its errors.
     if (limit == null || limit <= _maxLatin1) {
-      final s = _deCodigos(typedCharCodes, start, end);
+      final s = _fromCharCodes(typedCharCodes, start, end);
       if (s != null) return s;
     }
 
@@ -188,7 +188,7 @@ abstract final class _StringBase implements String {
   }
 
   @pragma("vm:external-name", "DartForge_string_from_char_codes")
-  external static String? _deCodigos(List<int> codigos, int inicio, int fim);
+  external static String? _fromCharCodes(List<int> codes, int begin, int end);
 
   static int _scanCodeUnits(List<int> charCodes, int start, int end) {
     int bits = 0;
@@ -312,19 +312,19 @@ abstract final class _StringBase implements String {
 
   @pragma("vm:exact-result-type", bool)
   bool operator ==(Object other) {
-    // DartForge: `identical`, o `other is String` e as unidades UTF-16
-    // comparadas numa chamada ao runtime (toda `String` é uma string dele: a
-    // classe não pode ser implementada fora do núcleo). O laço da VM
-    // passava cada unidade pelo `codeUnitAt`; o intrínseco dela
-    // (`String_equality`) faz o mesmo numa rotina só.
-    return _igualA(other);
+    // DartForge: `identical`, the `other is String` and the UTF-16 units compared
+    // in one runtime call (every `String` is one of its strings: the class cannot
+    // be implemented outside the core). The VM's loop passed each unit through
+    // `codeUnitAt`; its intrinsic (`String_equality`) does the same in a single
+    // routine.
+    return _equalsObject(other);
   }
 
   @pragma("vm:external-name", "DartForge_string_equals_object")
-  external bool _igualA(Object other);
+  external bool _equalsObject(Object other);
 
   @pragma("vm:external-name", "DartForge_string_equals")
-  external bool _iguais(String other);
+  external bool _equalStrings(String other);
 
   int compareTo(String other) {
     int thisLength = this.length;
@@ -346,20 +346,20 @@ abstract final class _StringBase implements String {
   }
 
   @pragma("vm:recognized", "asm-intrinsic")
-  // DartForge: o laço de `codeUnitAt` (intrínseco em linha na VM) é feito
-  // no runtime (`nativos_strings.rs`), com o mesmo resultado: `other`
-  // vazio casa, fora dos limites não.
+  // DartForge: the `codeUnitAt` loop (an inline intrinsic on the VM) is done in
+  // the runtime (`natives_strings.rs`), with the same result: an empty `other`
+  // matches, out of bounds does not.
   @pragma("vm:exact-result-type", bool)
   @pragma("vm:external-name", "DartForge_string_region_equals")
   external bool _substringMatches(int start, String other);
 
-  // DartForge: a busca de `indexOf`/`lastIndexOf` por uma `String`, depois
-  // da conferência de `start` (`nativos_strings.rs`).
+  // DartForge: the `indexOf`/`lastIndexOf` search for a `String`, after the
+  // `start` check (`natives_strings.rs`).
   @pragma("vm:external-name", "DartForge_string_index_of")
-  external int _indiceDe(String other, int start);
+  external int _indexOfNative(String other, int start);
 
   @pragma("vm:external-name", "DartForge_string_last_index_of")
-  external int _ultimoIndiceDe(String other, int start);
+  external int _lastIndexOfNative(String other, int start);
 
   bool endsWith(String other) {
     return _substringMatches(this.length - other.length, other);
@@ -380,7 +380,7 @@ abstract final class _StringBase implements String {
       throw new RangeError.range(start, 0, this.length, "start");
     }
     if (pattern is String) {
-      return _indiceDe(pattern, start);
+      return _indexOfNative(pattern, start);
     }
     for (int i = start; i <= this.length; i++) {
       // TODO(11276); This has quadratic behavior because matchAsPrefix tries
@@ -397,7 +397,7 @@ abstract final class _StringBase implements String {
       throw new RangeError.range(start, 0, this.length);
     }
     if (pattern is String) {
-      return _ultimoIndiceDe(pattern, start);
+      return _lastIndexOfNative(pattern, start);
     }
     for (int i = start; i >= 0; i--) {
       // TODO(11276); This has quadratic behavior because matchAsPrefix tries
@@ -1017,7 +1017,7 @@ final class _OneByteString extends _StringBase {
   // strings.
   @pragma('vm:never-inline')
   bool operator ==(Object other) {
-    return _igualA(other);
+    return _equalsObject(other);
   }
 
   @pragma("vm:recognized", "asm-intrinsic")
@@ -1025,16 +1025,16 @@ final class _OneByteString extends _StringBase {
   @pragma("vm:external-name", "OneByteString_substringUnchecked")
   external String _substringUncheckedNative(int startIndex, int endIndex);
 
-  // DartForge: o laço de `codeUnitAt` e `_substringUnchecked` é feito no
-  // runtime, que acrescenta os pedaços à lista (`nativos_strings.rs`).
+  // DartForge: the loop of `codeUnitAt` and `_substringUnchecked` is done in the
+  // runtime, which appends the pieces to the list (`natives_strings.rs`).
   List<String> _splitWithCharCode(int charCode) {
     final parts = <String>[];
-    _dividirPorCodigo(parts, charCode);
+    _splitByCode(parts, charCode);
     return parts;
   }
 
   @pragma("vm:external-name", "DartForge_string_split_by_code")
-  external void _dividirPorCodigo(List<String> parts, int charCode);
+  external void _splitByCode(List<String> parts, int charCode);
 
   List<String> split(Pattern pattern) {
     // TODO(vegorov) investigate if this can be rewritten as `is _OneByteString`
@@ -1080,9 +1080,9 @@ final class _OneByteString extends _StringBase {
         if (patternCu0 > 0xFF) {
           return -1;
         }
-        // DartForge: a busca no runtime (`_indiceDe`), sem uma chamada por
-        // unidade.
-        return _indiceDe(patternAsString, start);
+        // DartForge: the search in the runtime (`_indexOfNative`), without a call per
+        // unit.
+        return _indexOfNative(patternAsString, start);
       }
     }
     return super.indexOf(pattern, start);
@@ -1099,8 +1099,8 @@ final class _OneByteString extends _StringBase {
         if (patternCu0 > 0xFF) {
           return false;
         }
-        // DartForge: a busca no runtime (`_indiceDe`).
-        return _indiceDe(patternAsString, start) >= 0;
+        // DartForge: the search in the runtime (`_indexOfNative`).
+        return _indexOfNative(patternAsString, start) >= 0;
       }
     }
     return super.contains(pattern, start);
@@ -1351,7 +1351,7 @@ final class _TwoByteString extends _StringBase {
   // strings.
   @pragma('vm:never-inline')
   bool operator ==(Object other) {
-    return _igualA(other);
+    return _equalsObject(other);
   }
 
   String operator *(int times) {

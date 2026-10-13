@@ -259,7 +259,7 @@ parâmetros com os argumentos); o que não se deduz fica `dynamic`.
    `DartForge_Timer_new`, `DartForge_Timer_cancel` e
    `Error_trySetStackTrace` passam a `Runtime` (implementados em
    `runtime/src/eventos.rs`).
-3. **`native_sdk/async/timer_patch.dart`:** `_Timer._novo` recebe o tear-off
-   `_disparar` (uma closure) em vez do próprio `_Timer`: o laço de eventos só
+3. **`native_sdk/async/timer_patch.dart`:** `_Timer._create` recebe o tear-off
+   `_fire` (uma closure) em vez do próprio `_Timer`: o laço de eventos só
    chama closures sem argumentos — o único ponto em que o runtime chama Dart
    (`dartforge_event_loop`), sem precisar chamar um método pelo nome.

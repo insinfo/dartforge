@@ -232,7 +232,7 @@ tamanho contra um oráculo pela divisão original, tamanhos grandes até o
 limite de u64 e troca de geometria da página. A suíte do runtime passou
 112 testes (inclui o exemplo de API), com três microbenchmarks ignorados;
 os grafos aleatórios passaram 3.000 sementes em cada um dos três modos.
-Medição isolada do módulo real (`bench/arc/metadados.rs`, `rustc -O`, oito
+Medição isolada do módulo real (`bench/arc/metadata.rs`, `rustc -O`, oito
 páginas de 1.024 blocos, dez milhões de pares retain/release e consultas por
 rodada, sem alocar nem coletar, RC permanece um): cinco execuções alternadas
 no núcleo P, mediana das rodadas após a primeira e depois das execuções.

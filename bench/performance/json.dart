@@ -1,116 +1,116 @@
-// JSON (`dart:convert`): decodificação e codificação de documentos realistas
-// — pequeno (~1 KB, muitas vezes), médio (~100 KB) e grande (~6 MB) — com
-// objetos aninhados, listas de `int` e `double`, strings com escapes e
-// Unicode (inclusive fora do BMP), `JsonEncoder.withIndent`,
-// `json.fuse(utf8)` (bytes) e `jsonDecode` com reviver.
+// JSON (`dart:convert`): decoding and encoding of realistic documents —
+// small (~1 KB, many times), medium (~100 KB) and large (~6 MB) — with nested
+// objects, lists of `int` and `double`, strings with escapes and Unicode
+// (including outside the BMP), `JsonEncoder.withIndent`, `json.fuse(utf8)`
+// (bytes) and `jsonDecode` with a reviver.
 //
-// Os documentos saem de um gerador determinístico; o resultado de cada núcleo
-// é uma soma de conferência barata da estrutura ou do texto, e `main` imprime
-// antes das medidas a soma completa (todas as unidades) de cada documento
-// codificado e a conferência da ida e volta, para comparar com a VM.
+// The documents come from a deterministic generator; the result of each
+// kernel is a cheap checksum of the structure or of the text, and `main`
+// prints, before the measurements, the full sum (every unit) of each encoded
+// document and the round-trip check, to compare with the VM.
 import 'dart:convert';
 
-import 'comum.dart';
+import 'common.dart';
 
-/// Gerador congruencial determinístico (os mesmos números em todo executor).
-class Gerador {
+/// Deterministic congruential generator (the same numbers on every executor).
+class Generator {
   int _s;
-  Gerador(this._s);
-  int proximo() => _s = (_s * 1103515245 + 12345) & 0x7fffffff;
-  int ate(int n) => proximo() % n;
+  Generator(this._s);
+  int next() => _s = (_s * 1103515245 + 12345) & 0x7fffffff;
+  int below(int n) => next() % n;
 }
 
-const _palavras = [
-  'alfa', 'beta', 'gama', 'delta', 'epsilon', 'zeta', 'eta', 'teta', //
-  'iota', 'capa', 'lambda', 'mi', 'ni', 'csi', 'omicron', 'pi',
+const _words = [
+  'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta', //
+  'iota', 'kappa', 'lambda', 'mu', 'nu', 'xi', 'omicron', 'pi',
 ];
 
-// Strings com o que o codificador tem de escapar e com Unicode de 2, 3 e 4
-// bytes em UTF-8 (os dois últimos com pares substitutos).
-const _especiais = [
-  'aspas "duplas" e barra \\ invertida',
-  'linha\nnova\ttab\rretorno',
-  'controle \u0001\u0008\u000c\u001f fim',
-  'acentuação: ção, ã, é, ü, ß',
+// Strings with what the encoder must escape and with Unicode of 2, 3 and 4
+// bytes in UTF-8 (the last two with surrogate pairs).
+const _special = [
+  '"double" quotes and back \\ slash',
+  'new\nline\ttab\rreturn',
+  'control \u0001\u0008\u000c\u001f end',
+  'accents: ção, ã, é, ü, ß',
   'CJK 中文字符 日本語 한국어',
-  'emoji 😀🎉 e clave 𝄞 fora do BMP',
-  'barra / normal e <tags> & entidades',
+  'emoji 😀🎉 and clef 𝄞 outside the BMP',
+  'plain / slash and <tags> & entities',
   '',
 ];
 
-String _texto(Gerador g) {
-  final n = 1 + g.ate(6);
+String _text(Generator g) {
+  final n = 1 + g.below(6);
   final sb = StringBuffer();
   for (var i = 0; i < n; i++) {
     if (i > 0) sb.write(' ');
-    sb.write(_palavras[g.ate(_palavras.length)]);
+    sb.write(_words[g.below(_words.length)]);
   }
-  if (g.ate(4) == 0) sb.write(_especiais[g.ate(_especiais.length)]);
+  if (g.below(4) == 0) sb.write(_special[g.below(_special.length)]);
   return sb.toString();
 }
 
-double _real(Gerador g) {
-  switch (g.ate(5)) {
+double _real(Generator g) {
+  switch (g.below(5)) {
     case 0:
-      return g.ate(1000000) / 1000; // 123.456
+      return g.below(1000000) / 1000; // 123.456
     case 1:
-      return -g.ate(100000) / 7; // dízimas
+      return -g.below(100000) / 7; // repeating decimals
     case 2:
-      return g.ate(1000) * 1e-9; // expoente negativo
+      return g.below(1000) * 1e-9; // negative exponent
     case 3:
-      return g.ate(1000) * 1.5e21; // expoente positivo
+      return g.below(1000) * 1.5e21; // positive exponent
     default:
-      return g.ate(100).toDouble(); // 42.0
+      return g.below(100).toDouble(); // 42.0
   }
 }
 
-int _inteiro(Gerador g) {
-  switch (g.ate(4)) {
+int _integer(Generator g) {
+  switch (g.below(4)) {
     case 0:
-      return g.ate(100);
+      return g.below(100);
     case 1:
-      return -g.ate(1000000);
+      return -g.below(1000000);
     case 2:
-      return g.proximo() * g.proximo(); // até ~2^62
+      return g.next() * g.next(); // up to ~2^62
     default:
-      return g.ate(1 << 20);
+      return g.below(1 << 20);
   }
 }
 
-Map<String, dynamic> _registro(Gerador g, int id) => {
+Map<String, dynamic> _record(Generator g, int id) => {
       'id': id,
-      'nome': _texto(g),
-      'ativo': g.ate(2) == 0,
-      'pontuacao': _real(g),
-      'nulo': null,
-      'tags': [for (var i = 0; i < g.ate(5); i++) _palavras[g.ate(16)]],
-      'valores': [for (var i = 0; i < 8; i++) _inteiro(g)],
-      'medidas': [for (var i = 0; i < 6; i++) _real(g)],
-      'endereco': {
-        'rua': _texto(g),
-        'numero': g.ate(5000),
-        'cidade': _especiais[g.ate(_especiais.length)],
+      'name': _text(g),
+      'active': g.below(2) == 0,
+      'score': _real(g),
+      'null': null,
+      'tags': [for (var i = 0; i < g.below(5); i++) _words[g.below(16)]],
+      'values': [for (var i = 0; i < 8; i++) _integer(g)],
+      'measures': [for (var i = 0; i < 6; i++) _real(g)],
+      'address': {
+        'street': _text(g),
+        'number': g.below(5000),
+        'city': _special[g.below(_special.length)],
         'geo': {'lat': _real(g), 'lng': _real(g)},
       },
-      'historico': [
-        for (var i = 0; i < g.ate(3); i++)
-          {'quando': 1700000000 + g.ate(1000000), 'nota': _texto(g), 'ok': g.ate(3) != 0},
+      'history': [
+        for (var i = 0; i < g.below(3); i++)
+          {'when': 1700000000 + g.below(1000000), 'note': _text(g), 'ok': g.below(3) != 0},
       ],
     };
 
-/// Documento com `n` registros e um cabeçalho.
-Map<String, dynamic> documento(int semente, int n) {
-  final g = Gerador(semente);
+/// A document with `n` records and a header.
+Map<String, dynamic> document(int seed, int n) {
+  final g = Generator(seed);
   return {
-    'versao': 3,
-    'gerado': 'dartforge “bench” ✓',
-    'registros': [for (var i = 0; i < n; i++) _registro(g, i)],
-    'resumo': {'total': n, 'fator': 0.1 + 0.2, 'vazio': {}, 'lista_vazia': []},
+    'version': 3,
+    'generated': 'dartforge “bench” ✓',
+    'records': [for (var i = 0; i < n; i++) _record(g, i)],
+    'summary': {'total': n, 'factor': 0.1 + 0.2, 'empty': {}, 'empty_list': []},
   };
 }
 
-/// Soma de conferência de todas as unidades de um texto.
-int somaTexto(String s) {
+/// Checksum of every unit of a string.
+int textSum(String s) {
   var h = s.length;
   for (var i = 0; i < s.length; i++) {
     h = (h * 31 + s.codeUnitAt(i)) & 0x3FFFFFFF;
@@ -118,10 +118,10 @@ int somaTexto(String s) {
   return h;
 }
 
-/// Soma de conferência barata de um valor decodificado: percorre a
-/// estrutura inteira, mas de cada string só o comprimento e a primeira
-/// unidade, e de cada `double` a parte inteira de mil vezes o valor limitada.
-int somaValor(Object? v) {
+/// Cheap checksum of a decoded value: walks the whole structure, but of each
+/// string only the length and the first unit, and of each `double` the
+/// clamped integer part of a thousand times the value.
+int valueSum(Object? v) {
   if (v == null) return 7;
   if (v is bool) return v ? 11 : 13;
   if (v is int) return v & 0xFFFFFF;
@@ -130,23 +130,22 @@ int somaValor(Object? v) {
   if (v is List) {
     var h = 19 + v.length;
     for (final e in v) {
-      h = (h * 31 + somaValor(e)) & 0x3FFFFFFF;
+      h = (h * 31 + valueSum(e)) & 0x3FFFFFFF;
     }
     return h;
   }
   if (v is Map) {
     var h = 23 + v.length;
     v.forEach((k, e) {
-      h = (h * 31 + somaValor(k) + somaValor(e)) & 0x3FFFFFFF;
+      h = (h * 31 + valueSum(k) + valueSum(e)) & 0x3FFFFFFF;
     });
     return h;
   }
-  throw StateError('tipo inesperado ${v.runtimeType}');
+  throw StateError('unexpected type ${v.runtimeType}');
 }
 
-/// Conferência barata do texto codificado: o comprimento e uma unidade a
-/// cada 97.
-int amostra(String s) {
+/// Cheap check of the encoded text: the length and one unit every 97.
+int sample(String s) {
   var h = s.length;
   for (var i = 0; i < s.length; i += 97) {
     h = (h * 31 + s.codeUnitAt(i)) & 0x3FFFFFFF;
@@ -155,79 +154,79 @@ int amostra(String s) {
 }
 
 void main() {
-  final pequenoObj = documento(1, 2);
-  final medioObj = documento(2, 200);
-  final grandeObj = documento(3, 12000);
-  final pequeno = jsonEncode(pequenoObj);
-  final medio = jsonEncode(medioObj);
-  final grande = jsonEncode(grandeObj);
-  final bytesMedio = utf8.encode(medio);
-  final indentado = const JsonEncoder.withIndent('  ').convert(medioObj);
+  final smallObj = document(1, 2);
+  final mediumObj = document(2, 200);
+  final largeObj = document(3, 12000);
+  final small = jsonEncode(smallObj);
+  final medium = jsonEncode(mediumObj);
+  final large = jsonEncode(largeObj);
+  final mediumBytes = utf8.encode(medium);
+  final indented = const JsonEncoder.withIndent('  ').convert(mediumObj);
 
-  // Conferência completa, fora do tempo: tamanhos, soma de todas as
-  // unidades e a ida e volta (decodificar e codificar de novo dá o mesmo).
-  for (final (nome, s) in [('pequeno', pequeno), ('medio', medio), ('grande', grande), ('indentado', indentado)]) {
-    print('$nome: ${s.length} unidades, soma ${somaTexto(s)}, '
-        'ida e volta ${jsonEncode(jsonDecode(s)) == (nome == 'indentado' ? medio : s)}');
+  // Full check, outside the timing: sizes, sum of every unit and the round
+  // trip (decoding and encoding again gives the same).
+  for (final (name, s) in [('small', small), ('medium', medium), ('large', large), ('indented', indented)]) {
+    print('$name: ${s.length} units, sum ${textSum(s)}, '
+        'round trip ${jsonEncode(jsonDecode(s)) == (name == 'indented' ? medium : s)}');
   }
-  print('bytes: ${bytesMedio.length}, ${json.fuse(utf8).decode(bytesMedio) is Map}');
-  print('decodificado: ${somaValor(jsonDecode(grande))}');
+  print('bytes: ${mediumBytes.length}, ${json.fuse(utf8).decode(mediumBytes) is Map}');
+  print('decoded: ${valueSum(jsonDecode(large))}');
 
-  medir('decode_pequeno', () {
+  measure('decode_small', () {
     var h = 0;
     for (var i = 0; i < 2000; i++) {
-      h = (h + somaValor(jsonDecode(pequeno))) & 0x3FFFFFFF;
+      h = (h + valueSum(jsonDecode(small))) & 0x3FFFFFFF;
     }
     return h;
   });
-  medir('encode_pequeno', () {
+  measure('encode_small', () {
     var h = 0;
     for (var i = 0; i < 2000; i++) {
-      h = (h + amostra(jsonEncode(pequenoObj))) & 0x3FFFFFFF;
+      h = (h + sample(jsonEncode(smallObj))) & 0x3FFFFFFF;
     }
     return h;
   });
-  medir('decode_medio', () {
+  measure('decode_medium', () {
     var h = 0;
     for (var i = 0; i < 30; i++) {
-      h = (h + somaValor(jsonDecode(medio))) & 0x3FFFFFFF;
+      h = (h + valueSum(jsonDecode(medium))) & 0x3FFFFFFF;
     }
     return h;
   });
-  medir('encode_medio', () {
+  measure('encode_medium', () {
     var h = 0;
     for (var i = 0; i < 30; i++) {
-      h = (h + amostra(jsonEncode(medioObj))) & 0x3FFFFFFF;
+      h = (h + sample(jsonEncode(mediumObj))) & 0x3FFFFFFF;
     }
     return h;
   });
-  medir('decode_grande', () => somaValor(jsonDecode(grande)), rodadas: 4);
-  medir('encode_grande', () => amostra(jsonEncode(grandeObj)), rodadas: 4);
-  medir('indentado', () {
+  measure('decode_large', () => valueSum(jsonDecode(large)), rounds: 4);
+  measure('encode_large', () => sample(jsonEncode(largeObj)), rounds: 4);
+  measure('indented', () {
     var h = 0;
     for (var i = 0; i < 20; i++) {
-      h = (h + amostra(const JsonEncoder.withIndent('  ').convert(medioObj))) & 0x3FFFFFFF;
+      h = (h + sample(const JsonEncoder.withIndent('  ').convert(mediumObj))) & 0x3FFFFFFF;
     }
     return h;
   });
   final codec = json.fuse(utf8);
-  medir('utf8_bytes', () {
+  measure('utf8_bytes', () {
     var h = 0;
     for (var i = 0; i < 20; i++) {
-      final b = codec.encode(medioObj);
-      h = (h + b.length + somaValor(codec.decode(b))) & 0x3FFFFFFF;
+      final b = codec.encode(mediumObj);
+      h = (h + b.length + valueSum(codec.decode(b))) & 0x3FFFFFFF;
     }
     return h;
   });
-  medir('reviver', () {
+  measure('reviver', () {
     var h = 0;
     for (var i = 0; i < 20; i++) {
-      final v = jsonDecode(medio, reviver: (k, v) {
+      final v = jsonDecode(medium, reviver: (k, v) {
         if (v is double) return v.round();
-        if (k == 'nome' && v is String) return v.toUpperCase();
+        if (k == 'name' && v is String) return v.toUpperCase();
         return v;
       });
-      h = (h + somaValor(v)) & 0x3FFFFFFF;
+      h = (h + valueSum(v)) & 0x3FFFFFFF;
     }
     return h;
   });

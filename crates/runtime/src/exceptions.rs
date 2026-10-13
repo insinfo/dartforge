@@ -59,7 +59,7 @@ const NULL_CHECK_MESSAGE: &str = "Null check operator used on a null value";
 /// `x!` on null: the VM's `TypeError`, catchable, with its message.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_null_check_error_new() -> i64 {
-    if let Some(e) = source_error_with_text("_dartforgeErroDeTipo", NULL_CHECK_MESSAGE) {
+    if let Some(e) = source_error_with_text("_dartforgeTypeError", NULL_CHECK_MESSAGE) {
         return e;
     }
     let m = error_text(NULL_CHECK_MESSAGE);
@@ -330,7 +330,7 @@ pub extern "C" fn dartforge_exception_clear() {
 
 fn allocate_format_exception(message: &str) -> i64 {
     let msg = error_text(message);
-    if helper("_dartforgeErroDeFormato").is_some() {
+    if helper("_dartforgeFormatError").is_some() {
         return with_roots(&[msg], || dartforge_format_exception_new(msg, 0, -1));
     }
     with_roots(&[msg], || {
@@ -353,7 +353,7 @@ pub extern "C" fn dartforge_exception_new(msg_bits: i64, is_ref: u8) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i64, offset: i64) -> i64 {
-    if let Some(f) = helper("_dartforgeErroDeFormato") {
+    if let Some(f) = helper("_dartforgeFormatError") {
         // SAFETY: registered by `dart:core` with the signature
         // `(String, Object?, int) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
@@ -366,7 +366,7 @@ pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i6
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_state_error_new(msg_handle: i64) -> i64 {
-    if let Some(f) = helper("_dartforgeErroDeEstado") {
+    if let Some(f) = helper("_dartforgeStateError") {
         // SAFETY: registered by `dart:core` with the signature `(String) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         return with_roots(&[msg_handle], || g(msg_handle));
@@ -376,7 +376,7 @@ pub extern "C" fn dartforge_state_error_new(msg_handle: i64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_argument_error_new(msg_handle: i64, name_handle: i64) -> i64 {
-    if let Some(f) = helper("_dartforgeErroDeArgumento") {
+    if let Some(f) = helper("_dartforgeArgumentError") {
         // SAFETY: registered by `dart:core` with the signature
         // `(String?, String?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
@@ -407,7 +407,7 @@ pub extern "C" fn dartforge_range_error_new(msg_handle: i64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_range_error_range(val: i64, min: i64, max: i64, name_handle: i64, msg_handle: i64) -> i64 {
-    if let Some(f) = helper("_dartforgeErroDeFaixa") {
+    if let Some(f) = helper("_dartforgeRangeError") {
         // SAFETY: registered by `dart:core`: `(int, int, int, String?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64, a3: i64| -> i64 { dart_r4(dart_target, a0, a1, a2, a3) } };
         let _ = msg_handle;
@@ -441,7 +441,7 @@ pub extern "C" fn dartforge_range_error_index(index: i64, indexable_or_len: i64,
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_unsupported_error_new(msg_handle: i64) -> i64 {
-    if let Some(f) = helper("_dartforgeErroNaoSuportado") {
+    if let Some(f) = helper("_dartforgeUnsupportedError") {
         // SAFETY: registered by `dart:core` with the signature `(String?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         return with_roots(&[msg_handle], || g(msg_handle));
@@ -456,7 +456,7 @@ pub extern "C" fn dartforge_unimplemented_error_new(msg_handle: i64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_assertion_error_new(msg_bits: i64, is_ref: u8) -> i64 {
-    if let Some(f) = helper("_dartforgeErroDeAssercao") {
+    if let Some(f) = helper("_dartforgeAssertionError") {
         // SAFETY: registered by `dart:core` with the signature `(Object?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         let m = if is_ref != 0 { msg_bits } else { HEAP.with(|h| h.borrow_mut().to_ref(crate::heap::Value::Int(msg_bits))) };
@@ -468,7 +468,7 @@ pub extern "C" fn dartforge_assertion_error_new(msg_bits: i64, is_ref: u8) -> i6
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_type_error_new() -> i64 {
     // SDK from source: the source's `_TypeError` (`identical_patch.dart`).
-    if let Some(e) = source_error_with_text("_dartforgeErroDeTipo", "TypeError") {
+    if let Some(e) = source_error_with_text("_dartforgeTypeError", "TypeError") {
         return e;
     }
     allocate_error_with_trace(1011, vec![(0, false)])
@@ -479,7 +479,7 @@ pub extern "C" fn dartforge_type_error_new() -> i64 {
 /// identity and the VM's `toString`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_late_error_new(name: i64, code: i64) -> i64 {
-    if let Some(f) = helper("_dartforgeErroLate") {
+    if let Some(f) = helper("_dartforgeLateError") {
         // SAFETY: helper registered by dart:_internal as (String, int) -> Object.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
         return with_roots(&[name], || g(name, code));
@@ -504,7 +504,7 @@ pub extern "C" fn dartforge_late_error_new(name: i64, code: i64) -> i64 {
 /// threw `StackOverflowError`. We build the same error without consuming the stack.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_stack_overflow_error_new() -> i64 {
-    if let Some(f) = helper("_dartforgeErroPilha") {
+    if let Some(f) = helper("_dartforgeStackOverflowError") {
         // SAFETY: helper registered by dart:_internal as () -> Object.
         let g = { let dart_target: usize = f; move || -> i64 { dart_r0(dart_target) } };
         return g();
@@ -522,7 +522,7 @@ pub extern "C" fn dartforge_no_such_method_error_new(name: i64) -> i64 {
     // In the SDK from source the error is always the SDK's `NoSuchMethodError` (the
     // synthetic class 1012 is not a subtype of anything in the compiled library's
     // RTI: not even a `catch (e)` would catch it).
-    if let Some(f) = helper("_dartforgeErroDeChamada") {
+    if let Some(f) = helper("_dartforgeCallError") {
         // The SDK from source provides the concrete NoSuchMethodError instance.
         // The name is rooted while the Dart constructors allocate.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };

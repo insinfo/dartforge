@@ -22,7 +22,7 @@
 //   (`events.rs`) serves timers and messages in arrival order — in the VM the
 //   timer is also a message —, and drains the microtasks after
 //   each one.
-// * Dispatch calls the overlay's `_RawReceivePort._despachar` (the
+// * Dispatch calls the overlay's `_RawReceivePort._dispatch` (the
 //   VM's `_handleMessage`), which reads the current port and message.
 // * The isolate lives while it has an open port with `keepIsolateAlive`.
 
@@ -784,12 +784,12 @@ fn materialize(g: &Graph) -> i64 {
 /// `identity_hash`): like the VM (`runtime/vm/object_graph_copy.cc`,
 /// `CopyLinkedHashBase` + `_rehashObjects`), the index is rebuilt at the destination
 /// when some key may have another hash. The decision and the rebuild belong to
-/// Dart (`_dartforgeRefazerIndiceCopiado`, `native_sdk/collection/
+/// Dart (`_dartforgeRebuildCopiedIndex`, `native_sdk/collection/
 /// compact_hash.dart`): -1 for an object that is not a `_Map`/`_Set` (the whole class
 /// is left out from then on). The nodes stay rooted in the
 /// frame of [`materialize`].
 fn redo_copied_indices(g: &Graph, handles: &[i64]) {
-    let Some(f) = helper("_dartforgeRefazerIndiceCopiado") else { return };
+    let Some(f) = helper("_dartforgeRebuildCopiedIndex") else { return };
     // SAFETY: registered by `dart:_compact_hash` with the signature
     // `(Object) -> int`.
     let redo = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
@@ -1062,7 +1062,7 @@ impl IsolateQueue {
 /// the VM's event handler (`eventhandler_macos.cc`, `Poll`). The
 /// `Condvar`'s `pthread_cond_timedwait` overshoots the deadline by the kernel's
 /// coalescing slack: 200 timers of 5 ms took 5.9 s versus 1.5 s in the
-/// VM (the probe `tools/sondas/precisao_de_timers.dart`), and
+/// VM (the probe `tools/probes/timer_precision.dart`), and
 /// `corpus/native/33_mensagens_de_controle` timed out. Outside macOS
 /// the `Condvar` is already precise and the waker does nothing.
 struct Waker {
@@ -1214,7 +1214,7 @@ thread_local! {
     static OPEN_PORTS: RefCell<crate::hash::HashMap<i64, bool>> = RefCell::new(crate::hash::HashMap::default());
     /// The message being dispatched: (port, value), the value rooted.
     static CURRENT: RefCell<(i64, i64)> = const { RefCell::new((0, 0)) };
-    /// The Dart dispatcher (`_RawReceivePort._despachar`), rooted.
+    /// The Dart dispatcher (`_RawReceivePort._dispatch`), rooted.
     static DISPATCHER: RefCell<i64> = const { RefCell::new(0) };
 }
 
@@ -1684,7 +1684,7 @@ pub extern "C" fn dartforge_native_DartForge_port_refusal() -> i64 {
 }
 
 /// `DartForge_ports_dispatcher(f)`: the argument-less closure the loop
-/// calls for each message (`_RawReceivePort._despachar`).
+/// calls for each message (`_RawReceivePort._dispatch`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_ports_dispatcher(f: i64) {
     HEAP.with(|h| h.borrow_mut().set_global_root(DISPATCHER_ROOT, f));

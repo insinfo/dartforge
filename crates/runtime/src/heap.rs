@@ -4198,7 +4198,7 @@ mod object_space {
         assert!(!heap.is_live_object(action));
     }
 
-    /// The workload of `bench/performance/objetos_escapam.dart` (`lista_ligada`)
+    /// The workload of `bench/performance/escaping_objects.dart` (`lista_ligada`)
     /// directly on the heap, to measure the collector without compiling Dart:
     /// `cargo test --release -p dartforge-runtime linked_list_on_heap --
     /// --ignored --nocapture` (with `DARTFORGE_GC_TRACE=1`, the collections).

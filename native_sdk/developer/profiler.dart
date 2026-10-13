@@ -2,11 +2,11 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
-// DartForge: o `profiler.dart` da VM com as marcas (`UserTag`) em Dart, sem
-// os natives do perfilador (`UserTag_*`, `Profiler_getCurrentTag`). A
-// semântica observável é a da VM: a mesma marca para o mesmo rótulo, no
-// máximo `UserTag.maxUserTags` marcas, `makeCurrent` devolve a anterior e a
-// marca corrente é por isolado (os estáticos são por isolado).
+// DartForge: the VM's `profiler.dart` with the tags (`UserTag`) in Dart,
+// without the profiler's natives (`UserTag_*`, `Profiler_getCurrentTag`). The
+// observable semantics are the VM's: the same tag for the same label, at most
+// `UserTag.maxUserTags` tags, `makeCurrent` returns the previous one and the
+// current tag is per isolate (the statics are per isolate).
 
 part of "developer.dart";
 
@@ -22,34 +22,34 @@ class UserTag {
 
 @pragma("vm:entry-point")
 final class _UserTag implements UserTag {
-  static final Map<String, _UserTag> _marcas = <String, _UserTag>{};
-  static final _UserTag _padrao = new _UserTag._('Default');
-  static _UserTag? _corrente;
+  static final Map<String, _UserTag> _tags = <String, _UserTag>{};
+  static final _UserTag _defaultTag = new _UserTag._('Default');
+  static _UserTag? _currentTag;
 
   final String label;
 
   _UserTag._(this.label);
 
   factory _UserTag(String label) {
-    final existente = _marcas[label];
-    if (existente != null) return existente;
-    if (_marcas.length >= UserTag.maxUserTags) {
+    final existing = _tags[label];
+    if (existing != null) return existing;
+    if (_tags.length >= UserTag.maxUserTags) {
       throw new UnsupportedError(
           'UserTag instance limit (${UserTag.maxUserTags}) reached.');
     }
-    return _marcas[label] = new _UserTag._(label);
+    return _tags[label] = new _UserTag._(label);
   }
 
   UserTag makeCurrent() {
-    final anterior = _corrente ?? _padrao;
-    _corrente = this;
-    return anterior;
+    final previous = _currentTag ?? _defaultTag;
+    _currentTag = this;
+    return previous;
   }
 }
 
 @patch
 UserTag getCurrentTag() => _getCurrentTag();
 
-UserTag _getCurrentTag() => _UserTag._corrente ?? _UserTag._padrao;
+UserTag _getCurrentTag() => _UserTag._currentTag ?? _UserTag._defaultTag;
 
-UserTag _getDefaultTag() => _UserTag._padrao;
+UserTag _getDefaultTag() => _UserTag._defaultTag;

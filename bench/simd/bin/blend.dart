@@ -1,24 +1,24 @@
-// O blend de cor sólida do rasterizador do dgfx, `(src * a + dst * (255 - a)) >> 8`
-// por canal, em três formas com a mesma saída:
+// The solid-color blend of the dgfx rasterizer, `(src * a + dst * (255 - a)) >> 8`
+// per channel, in three forms with the same output:
 //
-// * escalar, sobre `Int32List`;
-// * SIMD com a API do Dart 3.6: `Int32x4` não multiplica, então as pistas vão
-//   para `Float32x4` e voltam (o caminho que o rasterizador usa hoje);
-// * SIMD com a API de `Int32x4` do Dart 3.14 (`*` e `>>`), pelo pacote
-//   `dartforge_simd` (na VM 3.6.2 é Dart puro; no DartForge, `<4 x i32>`).
+// * scalar, over `Int32List`;
+// * SIMD with the Dart 3.6 API: `Int32x4` does not multiply, so the lanes go
+//   to `Float32x4` and back (the path the rasterizer uses today);
+// * SIMD with Dart 3.14's `Int32x4` API (`*` and `>>`), through the
+//   `dartforge_simd` package (plain Dart on the 3.6.2 VM; `<4 x i32>` in DartForge).
 //
-// Imprime o menor tempo por chamada (µs) de cada forma em várias rodadas e o
-// checksum de cada saída (iguais entre si e entre compiladores).
+// Prints the best time per call (µs) of each form over several rounds and the
+// checksum of each output (equal to each other and across compilers).
 import 'dart:typed_data';
 
 import 'package:dartforge_simd/int32x4_3_14.dart';
 
-const canais = 1 << 16;
-const chamadasPorRodada = 400;
-const rodadas = 7;
-const alfa = 173;
+const channels = 1 << 16;
+const callsPerRound = 400;
+const rounds = 7;
+const alpha = 173;
 
-void blendEscalar(Int32List src, Int32List dst, Int32List out, int a) {
+void blendScalar(Int32List src, Int32List dst, Int32List out, int a) {
   final inv = 255 - a;
   for (var i = 0; i < out.length; i++) {
     out[i] = (src[i] * a + dst[i] * inv) >> 8;
@@ -54,43 +54,43 @@ int checksum(Int32List v) {
   return h;
 }
 
-double medir(void Function() corpo) {
-  var melhor = double.infinity;
-  for (var r = 0; r < rodadas; r++) {
+double measure(void Function() body) {
+  var best = double.infinity;
+  for (var r = 0; r < rounds; r++) {
     final sw = Stopwatch()..start();
-    for (var c = 0; c < chamadasPorRodada; c++) {
-      corpo();
+    for (var c = 0; c < callsPerRound; c++) {
+      body();
     }
-    final us = sw.elapsedMicroseconds / chamadasPorRodada;
-    if (us < melhor) melhor = us;
+    final us = sw.elapsedMicroseconds / callsPerRound;
+    if (us < best) best = us;
   }
-  return melhor;
+  return best;
 }
 
 void main() {
-  final src = Int32List(canais);
-  final dst = Int32List(canais);
-  var semente = 12345;
-  for (var i = 0; i < canais; i++) {
-    semente = (semente * 1103515245 + 12345) & 0x7fffffff;
-    src[i] = semente & 0xff;
-    dst[i] = (semente >> 8) & 0xff;
+  final src = Int32List(channels);
+  final dst = Int32List(channels);
+  var seed = 12345;
+  for (var i = 0; i < channels; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    src[i] = seed & 0xff;
+    dst[i] = (seed >> 8) & 0xff;
   }
-  final out = Int32List(canais);
+  final out = Int32List(channels);
   final src4 = src.buffer.asInt32x4List();
   final dst4 = dst.buffer.asInt32x4List();
   final out4 = out.buffer.asInt32x4List();
 
-  final formas = <String, void Function()>{
-    'escalar': () => blendEscalar(src, dst, out, alfa),
-    'simd_api_3_6': () => blendSimd36(src4, dst4, out4, alfa),
-    'simd_api_3_14': () => blendSimd314(src4, dst4, out4, alfa),
+  final forms = <String, void Function()>{
+    'scalar': () => blendScalar(src, dst, out, alpha),
+    'simd_api_3_6': () => blendSimd36(src4, dst4, out4, alpha),
+    'simd_api_3_14': () => blendSimd314(src4, dst4, out4, alpha),
   };
-  for (final MapEntry(key: nome, value: corpo) in formas.entries) {
+  for (final MapEntry(key: name, value: body) in forms.entries) {
     out.fillRange(0, out.length, 0);
-    corpo();
-    final soma = checksum(out);
-    final us = medir(corpo);
-    print('$nome ${us.toStringAsFixed(1)} us checksum $soma');
+    body();
+    final sum = checksum(out);
+    final us = measure(body);
+    print('$name ${us.toStringAsFixed(1)} us checksum $sum');
   }
 }

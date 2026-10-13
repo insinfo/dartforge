@@ -1,6 +1,6 @@
-// Patch do `dart:ffi` para o backend nativo do DartForge: a
-// `DynamicLibrary` guarda o handle do sistema (`dlopen`/`LoadLibraryW`,
-// `crates/runtime/src/ffi.rs`); `lookupFunction` é `lookup` + `asFunction`.
+// Patch of `dart:ffi` for the DartForge native backend: `DynamicLibrary`
+// keeps the system handle (`dlopen`/`LoadLibraryW`,
+// `crates/runtime/src/ffi.rs`); `lookupFunction` is `lookup` + `asFunction`.
 
 // Copyright (c) 2019, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
@@ -29,24 +29,24 @@ external void _close(int handle);
 final class DynamicLibrary {
   final int _handle;
 
-  DynamicLibrary._comHandle(this._handle);
+  DynamicLibrary._withHandle(this._handle);
 
   @patch
   factory DynamicLibrary.open(String path) {
-    return new DynamicLibrary._comHandle(_open(path));
+    return new DynamicLibrary._withHandle(_open(path));
   }
 
   @patch
   factory DynamicLibrary.process() =>
-      new DynamicLibrary._comHandle(_processLibrary());
+      new DynamicLibrary._withHandle(_processLibrary());
 
   @patch
   factory DynamicLibrary.executable() =>
-      new DynamicLibrary._comHandle(_executableLibrary());
+      new DynamicLibrary._withHandle(_executableLibrary());
 
   @patch
   Pointer<T> lookup<T extends NativeType>(String symbolName) =>
-      new Pointer<T>._comEndereco(_lookup(_handle, symbolName));
+      new Pointer<T>._withAddress(_lookup(_handle, symbolName));
 
   @patch
   bool providesSymbol(String symbolName) => _providesSymbol(_handle, symbolName);

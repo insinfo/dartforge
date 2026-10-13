@@ -6,7 +6,7 @@
 //!
 //! * **the stub `f`** (the usual symbol): creates the **frame** — a heap
 //!   object —, the `Completer` (`_makeAsyncAwaitCompleter`), the closure of the body
-//!   (registered in the zone by `_envolverCorpo`) and starts the body
+//!   (registered in the zone by `_wrapBody`) and starts the body
 //!   synchronously (`_asyncStartSync`), returning `completer.future`;
 //! * **the body `f$async(env, code, result)`**, a closure with the
 //!   frame in its environment. The entry block reads the frame and jumps on the
@@ -15,7 +15,7 @@
 //! **`await e`.** Writes state `k` into the frame, calls `_asyncAwait(e,
 //! body)` and **returns**; the resumption block `R_k` is only reached by the
 //! `switch` of the entry, when the `Future` completes and calls the body again.
-//! With `code == 1` (`_ERRO`) the `result` is an `_ErroAssincrono`: the error is
+//! With `code == 1` (`_ERROR`) the `result` is an `_DfAsyncError`: the error is
 //! thrown there, at the point of the `await`, with its stack trace, and follows the usual
 //! pending exception path — the `try`/`catch`/`finally` that surround the
 //! `await` are those of the lowering (the same `exception_target` as before the
@@ -79,7 +79,7 @@ pub enum AsyncReturn {
 /// | --- | --- | --- | --- | --- |
 /// | `async` | `completer.future` | `await` | `_asyncReturn` | `_asyncRethrow` |
 /// | `sync*` | `_SyncStarIterable` | `yield`, `yield*` (returns `true`) | returns `false` | leaves the body |
-/// | `async*` | the stream of the controller | `await`, `yield`, `yield*` | `_asyncStarReturn` | `_asyncStarErro` |
+/// | `async*` | the stream of the controller | `await`, `yield`, `yield*` | `_asyncStarReturn` | `_asyncStarError` |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyType {
     Async,
@@ -396,7 +396,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 b.call_support("_asyncRethrow", vec![error, stack_trace, completer], span);
             }
             BodyType::AsyncStar => {
-                b.call_support("_asyncStarErro", vec![completer, error, stack_trace], span);
+                b.call_support("_asyncStarError", vec![completer, error, stack_trace], span);
             }
             // Without a top handler: the block is not reached.
             BodyType::SyncStar => {}
@@ -593,7 +593,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// The body closure over the frame, registered in the zone
-    /// (`_envolverCorpo`) and kept in the frame.
+    /// (`_wrapBody`) and kept in the frame.
     fn close_body(&mut self, frame: Operand, symbol_ent: String, span: Span) -> Operand {
         let env = self.emit(Instruction::AllocEnv { values: vec![frame.clone()] }, Type::Ref);
         let clo = self.emit(
@@ -603,7 +603,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
-        let fn_body = self.call_support("_envolverCorpo", vec![clo], span);
+        let fn_body = self.call_support("_wrapBody", vec![clo], span);
         let fn_body = self.coerce(fn_body, Type::Ref);
         self.store_position(frame, Q_BODY, fn_body.clone());
         fn_body
@@ -764,7 +764,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let s = self.lower_expr(ast, iterable);
         let s = self.coerce(s, Type::Ref);
-        let it = self.call_support("_awaitForIterador", vec![s], span);
+        let it = self.call_support("_awaitForIterator", vec![s], span);
         let it = self.coerce(it, Type::Ref);
         if self.is_terminated() {
             return;
@@ -804,7 +804,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             b.set_block(end);
         };
         let mut cancel = |b: &mut Self| {
-            let active = b.call_support("_awaitForAtivo", vec![it.clone()], span);
+            let active = b.call_support("_awaitForActive", vec![it.clone()], span);
             let active = b.coerce(active, Type::I1);
             let yes = b.new_block();
             let after = b.new_block();
@@ -827,7 +827,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         resumption
     }
 
-    /// On resumption: with `code == _ERRO`, throws the `_ErroAssincrono` of
+    /// On resumption: with `code == _ERROR`, throws the `_DfAsyncError` of
     /// `result` there; otherwise continues. Returns the block that branches to the
     /// error-free path (its single predecessor).
     fn throw_if_error(&mut self, code: Operand, result: Operand, span: Span) -> BlockId {
@@ -945,12 +945,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// Throws, at the point of the `await`, the error of an `_ErroAssincrono` with
+    /// Throws, at the point of the `await`, the error of an `_DfAsyncError` with
     /// its stack trace.
     fn throw_async_error(&mut self, val_ref: Operand, span: Span) {
         let fields = self.async_error_fields();
         let Some((ve, vr)) = fields else {
-            self.unsupported("missing async_patch class `_ErroAssincrono`", span);
+            self.unsupported("missing async_patch class `_DfAsyncError`", span);
             return;
         };
         let error = self.read_field(val_ref.clone(), ve, span);
@@ -959,12 +959,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.branch_to_handler();
     }
 
-    /// The `error` and `stack_trace` fields of `_ErroAssincrono`.
+    /// The `error` and `stack_trace` fields of `_DfAsyncError`.
     fn async_error_fields(
         &self,
     ) -> Option<(dartforge_elements::model::VariableId, dartforge_elements::model::VariableId)> {
         let lib = self.ctx.program.libraries.iter().position(|l| l.uri == "dart:async")?;
-        let sym = self.ctx.interner.lookup("_ErroAssincrono")?;
+        let sym = self.ctx.interner.lookup("_DfAsyncError")?;
         let b = self.ctx.program.lookup(dartforge_elements::model::LibraryId(lib as u32), sym)?;
         let dartforge_elements::model::Element::Class(c) = b.getter? else {
             return None;
@@ -977,7 +977,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .copied()
                 .find(|v| self.ctx.symbol_name(self.ctx.program.variables[v.0 as usize].name) == n)
         };
-        Some((field("erro")?, field("rastro")?))
+        Some((field("err")?, field("trace")?))
     }
 
     /// After leaving a pending exception: the branch of `emit_throw_op`

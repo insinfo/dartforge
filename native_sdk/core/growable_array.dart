@@ -1,10 +1,10 @@
-// Substitui `_internal/vm/lib/growable_array.dart` (sobreposição
-// `native_sdk/`). Igual ao da VM 3.6.2, fora o `_grow` (marcado
-// "DartForge:"), que monta o armazenamento maior no runtime numa cópia só
-// (na forma compacta do `E`, se for o caso), o `filled`, que preenche no
-// runtime, e as cópias `_ofArray`/`_ofGrowableList`/`toList`, que copiam no
-// runtime (`_copiarElementos`, `array.dart`). A representação é a da VM: o
-// comprimento e o `_List` de dados (docs/NATIVO-ESPACO-UNIFICADO.md §2.5).
+// Replaces `_internal/vm/lib/growable_array.dart` (overlay `native_sdk/`). The
+// same as the 3.6.2 VM's, except for `_grow` (marked "DartForge:"), which
+// builds the larger storage in the runtime in a single copy (in the compact
+// shape of `E`, if that is the case), `filled`, which fills in the runtime,
+// and the copies `_ofArray`/`_ofGrowableList`/`toList`, which copy in the
+// runtime (`_copyElements`, `array.dart`). The representation is the VM's: the
+// length and the data `_List` (docs/NATIVO-ESPACO-UNIFICADO.md §2.5).
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -127,8 +127,8 @@ class _GrowableList<T> extends ListBase<T> {
   factory _GrowableList.filled(int length, T fill) {
     final result = _GrowableList<T>(length);
     if (fill != null) {
-      // DartForge: como no `_List.filled` (`array.dart`).
-      _preencherLista(result, fill);
+      // DartForge: as in `_List.filled` (`array.dart`).
+      _fillList(result, fill);
     }
     return result;
   }
@@ -161,12 +161,12 @@ class _GrowableList<T> extends ListBase<T> {
   factory _GrowableList._ofArray(_Array<T> elements) {
     final int length = elements.length;
     if (length > 0) {
-      // DartForge: a lista já com o `T` (e a forma dele, N14) e os
-      // elementos copiados de uma vez no runtime (`_copiarElementos`,
-      // `array.dart`). A VM copiava para um `_List` sem tipo, elemento a
-      // elemento, e o entregava ao `_withData`.
+      // DartForge: the list already with its `T` (and its shape, N14) and the
+      // elements copied at once in the runtime (`_copyElements`, `array.dart`). The
+      // VM copied into an untyped `_List`, element by element, and handed it to
+      // `_withData`.
       final list = _GrowableList<T>(length);
-      _copiarElementos(list, elements, length);
+      _copyElements(list, elements, length);
       return list;
     }
     return _GrowableList<T>.empty();
@@ -175,12 +175,12 @@ class _GrowableList<T> extends ListBase<T> {
   factory _GrowableList._ofGrowableList(_GrowableList<T> elements) {
     final int length = elements.length;
     if (length > 0) {
-      // DartForge: a lista já com o `T` (e a forma dele, N14) e os
-      // elementos copiados de uma vez no runtime (`_copiarElementos`,
-      // `array.dart`). A VM copiava para um `_List` sem tipo, elemento a
-      // elemento, e o entregava ao `_withData`.
+      // DartForge: the list already with its `T` (and its shape, N14) and the
+      // elements copied at once in the runtime (`_copyElements`, `array.dart`). The
+      // VM copied into an untyped `_List`, element by element, and handed it to
+      // `_withData`.
       final list = _GrowableList<T>(length);
-      _copiarElementos(list, elements, length);
+      _copyElements(list, elements, length);
       return list;
     }
     return _GrowableList<T>.empty();
@@ -379,18 +379,18 @@ class _GrowableList<T> extends ListBase<T> {
   // Grow from 0 to 3, and then double + 1.
   int _nextCapacity(int old_capacity) => (old_capacity * 2) | 3;
 
-  // DartForge: o `_List` novo de `new_capacity`, com os elementos até o
-  // comprimento e a forma (compacta ou geral) do atual, montado e trocado no
-  // runtime (`Heap::lista_reservar`) numa cópia só. O `_grow` da VM alocava
-  // um `_List` sem tipo, copiava os elementos um a um pelo `[]=` (com a
-  // caixa de cada `int`/`double` de uma lista compacta) e o entregava ao
-  // `_setData`.
+  // DartForge: the new `_List` of `new_capacity`, with the elements up to the
+  // length and the shape (compact or general) of the current one, built and
+  // swapped in the runtime (`Heap::list_reserve`) in a single copy. The VM's
+  // `_grow` allocated an untyped `_List`, copied the elements one by one through
+  // `[]=` (with the box of each `int`/`double` of a compact list) and handed it
+  // to `_setData`.
   void _grow(int new_capacity) {
-    _reservar(new_capacity);
+    _reserve(new_capacity);
   }
 
   @pragma("vm:external-name", "DartForge_GrowableList_reserve")
-  external void _reservar(int capacidade);
+  external void _reserve(int newCapacity);
 
   // This method is marked as never-inline to conserve code size.
   // It is called in rare cases, but used in the add() which is
@@ -520,19 +520,19 @@ class _GrowableList<T> extends ListBase<T> {
     // However, the extra call causes a 5% regression in `ListCopy.toList.2`.
 
     final length = this.length;
-    // DartForge: as duas cópias pelo `_copiarElementos` (`array.dart`), como
-    // no `_ofGrowableList`.
+    // DartForge: both copies through `_copyElements` (`array.dart`), as in
+    // `_ofGrowableList`.
     if (growable) {
       if (length > 0) {
         final result = new _GrowableList<T>(length);
-        _copiarElementos(result, this, length);
+        _copyElements(result, this, length);
         return result;
       }
       return <T>[];
     } else {
       if (length > 0) {
         final list = new _List<T>(length);
-        _copiarElementos(list, this, length);
+        _copyElements(list, this, length);
         return list;
       }
       return List<T>.empty(growable: false);

@@ -1007,7 +1007,7 @@ teste que não falha com a sabotagem não conta.
 
 | eixo | medida | como |
 |---|---|---|
-| tamanho | arquivo; `.text`; `.pdata`+`.xdata` (COFF) ou `.eh_frame`+`.gcc_except_table` (ELF) ou `__eh_frame`+`__unwind_info`+`__gcc_except_tab` (Mach-O); `__df_gcmap` (e, durante a Etapa 2, `.llvm_stackmaps`); dados; runtime (a `staticlib` da variante) | `llvm-objdump -h`/`llvm-size`; o mapa da ligação com `tools/tamanho/quebra.py` |
+| tamanho | arquivo; `.text`; `.pdata`+`.xdata` (COFF) ou `.eh_frame`+`.gcc_except_table` (ELF) ou `__eh_frame`+`__unwind_info`+`__gcc_except_tab` (Mach-O); `__df_gcmap` (e, durante a Etapa 2, `.llvm_stackmaps`); dados; runtime (a `staticlib` da variante) | `llvm-objdump -h`/`llvm-size`; o mapa da ligação com `tools/size/breakdown.py` |
 | forma do código | funções com e sem quadro; `%gcvolta`/gravações/checagens restantes; statepoints, relocates, folhas; funções em quadro residual | contadores do emissor (`--timings`) e `llvm-objdump -d` |
 | compilação | front-end, mundo, HIR, IR, **RS4GC**, otimização, objetos, conversão do mapa, ligação | `--timings`, frio e quente |
 | desempenho | `bench/performance/*.dart` (chamadas, coleções, json, textos, numérico, objetos_*); micro-bench de exceção (lançar e pegar a 1, 10 e 100 quadros); micro-bench de GC (pilha profunda + muitas coletas menores) | mínimo de ≥ 10 execuções alternadas, mediana e dispersão, máquina sem build concorrente (`docs/PESQUISA-LLVM-DART-AOT.md` §7.4) |
@@ -1645,7 +1645,7 @@ Levantadas pelo mesmo script (`efeitos\sementes.tsv`). São três tipos.
 | `dartforge_native_Function_apply` | `RT/closures.rs:171`, `transmute` em `:211` | o código de uma closure, `fn(i64, *const i64, *const i64) -> i64` |
 | `dartforge_event_loop` | `RT/eventos.rs:119` | `chamar: fn(i64) -> i64`, cada microtarefa e timer |
 | `rodar_laco_do_isolado`, `rodar_isolado` | `RT/isolados.rs:331`, `:386` (`transmute` em `:391-392`) | `preparar: fn()` e `chamar: fn(i64) -> i64` |
-| `dartforge_native_Isolate_spawnFunction` | `RT/isolados.rs:437` (ajudantes em `:418-419`) | `_dartforgeMensagemDePronto`, `_dartforgeIniciarIsolado` |
+| `dartforge_native_Isolate_spawnFunction` | `RT/isolados.rs:437` (ajudantes em `:418-419`) | `_dartforgeReadyMessage`, `_dartforgeStartIsolate` |
 | `despachar_proxima` | `RT/portas.rs:1230` | `chamar: fn(i64) -> i64`, a mensagem de uma porta |
 | `materializar` | `RT/portas.rs:626` (`transmute` em `:662`) | getters `fn() -> i64` de constantes |
 | `dartforge_safepoint`, `dartforge_stop_isolates` | `RT/isolados.rs:353`, `RT/portas.rs:1106` | pedidos no ponto seguro |
@@ -1653,7 +1653,7 @@ Levantadas pelo mesmo script (`efeitos\sementes.tsv`). São três tipos.
 | `dartforge_forward_nsm`, `invocar_no_such_method` | `RT/seletores.rs:411`, `:374` (`transmute` em `:399`) | o `noSuchMethod` do usuário |
 | `dartforge_list_from_table_g` | `RT/nativos_listas.rs:468` | getters de literais |
 | `finalizar_programa` | `RT/nucleo.rs:69` | `PARA_TEXTO` da exceção não tratada |
-| `relatar_erro_nao_tratado` | `RT/isolados.rs:270` (`transmute` em `:277`) | `_dartforgeDescreverErro` |
+| `relatar_erro_nao_tratado` | `RT/isolados.rs:270` (`transmute` em `:277`) | `_dartforgeDescribeError` |
 | `refazer_indices_copiados` | `RT/portas.rs:791` (`transmute` em `:795`) | rehash depois de copiar entre isolados |
 
 **Ajudantes do SDK registrados por nome** — construtores de erro e conversões escritos em Dart, chamados
@@ -1994,7 +1994,7 @@ chamada direta a uma função Dart sai `noinline` (o custo fica só nesse modo).
 
 *O registro* ganhou um byte de marcas (`hir::marcas_do_rastro`): o corpo `async`, o quadro oculto (o
 stub da função `async`, que na VM não existe, e os apoios do `async_patch` marcados
-`@pragma("dartforge:rastro-oculto")`, com as closures deles) e `_FutureListener.handleValue`. Os
+`@pragma("dartforge:hidden-frame")`, com as closures deles) e `_FutureListener.handleValue`. Os
 nomes saem como a VM os escreve (`Function::nome_do_rastro`): `main.<anonymous closure>`,
 `C.m.inner`, sem as impressões digitais e os sufixos de corpo.
 
@@ -2002,7 +2002,7 @@ nomes saem como a VM os escreve (`Function::nome_do_rastro`): `main.<anonymous c
 igualdade com o 3.6.2 é não verificada). Os dois bits baixos do campo do registro dizem a espécie
 da entrada: ponto de chamada; a identidade de uma função pela entrada uniforme das closures dela, com
 o token (`Function.token_pos`); a posição do `await` de cada estado de um corpo `async`; o elo de uma
-closure cuja captura tem `@pragma('vm:awaiter-link')` (`_awaitOnObject` e `_envolverCorpo` no
+closure cuja captura tem `@pragma('vm:awaiter-link')` (`_awaitOnObject` e `_wrapBody` no
 `async_patch`). O corpo `async` e o `handleValue` empurram o quadro ou o ouvinte numa pilha por
 thread (`dartforge_stack_trace_enter`, que devolve a profundidade, e `dartforge_stack_trace_exit`, que corta
 nela, antes de cada saída), só com o rastro ligado. No `throw`, o percurso dos quadros de máquina dá

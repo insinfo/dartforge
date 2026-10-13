@@ -1,8 +1,8 @@
-// Listas tipadas: produto escalar, convolução e bytes.
+// Typed lists: dot product, convolution and bytes.
 import 'dart:typed_data';
-import 'comum.dart';
+import 'common.dart';
 
-double produto(Float64List a, Float64List b, int reps) {
+double product(Float64List a, Float64List b, int reps) {
   var s = 0.0;
   for (var r = 0; r < reps; r++) {
     for (var i = 0; i < a.length; i++) {
@@ -32,6 +32,6 @@ void main() {
   for (var i = 0; i < u.length; i++) {
     u[i] = i * 131 & 255;
   }
-  medir('produto_f64', () => produto(a, b, 50));
-  medir('fnv_bytes', () => bytes(u, 10));
+  measure('product_f64', () => product(a, b, 50));
+  measure('fnv_bytes', () => bytes(u, 10));
 }

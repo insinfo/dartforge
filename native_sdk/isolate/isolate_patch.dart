@@ -1,7 +1,7 @@
-// Patch do `dart:isolate` para o backend nativo do DartForge (sobreposição
-// `native_sdk/`): o `_internal/vm/lib/isolate_patch.dart` do SDK 3.6.2 com
-// as portas e as capacidades sobre o runtime (`crates/runtime/src/
-// portas.rs`) no lugar dos objetos nativos da VM. O resto é o da VM.
+// Patch of `dart:isolate` for the DartForge native backend (overlay
+// `native_sdk/`): SDK 3.6.2's `_internal/vm/lib/isolate_patch.dart` with the
+// ports and capabilities over the runtime (`crates/runtime/src/ports.rs`) in
+// place of the VM's native objects. The rest is the VM's.
 
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
@@ -16,9 +16,9 @@ import "dart:collection" show HashMap;
 import "dart:convert" show jsonDecode;
 import "dart:typed_data" show ByteBuffer, TypedData, Uint8List;
 
-// O `timer_impl.dart` da VM (timers por porta e EventHandler) não entra:
-// os timers do nativo são os do laço de eventos do runtime
-// (`native_sdk/async/timer_patch.dart`, `crates/runtime/src/eventos.rs`).
+// The VM's `timer_impl.dart` (timers per port and EventHandler) is not
+// included: the native timers are those of the runtime's event loop
+// (`native_sdk/async/timer_patch.dart`, `crates/runtime/src/events.rs`).
 
 @patch
 class ReceivePort {
@@ -39,19 +39,19 @@ class Capability {
   factory Capability() => new _Capability();
 }
 
-/// Uma capacidade: um id único no processo. A igualdade é pelo id, que a
-/// cópia de uma mensagem preserva (entre isolados também).
+/// A capability: an id unique in the process. Equality is by id, which the copy
+/// of a message preserves (across isolates too).
 @pragma("vm:entry-point")
 class _Capability implements Capability {
   final int _id;
 
-  _Capability() : _id = _nova();
+  _Capability() : _id = _newPort();
 
-  /// A capacidade de id conhecido (a de um isolado, que o runtime guarda).
-  _Capability._comId(this._id);
+  /// The capability of a known id (that of an isolate, which the runtime keeps).
+  _Capability._withId(this._id);
 
   @pragma("vm:external-name", "DartForge_capability_new")
-  external static int _nova();
+  external static int _newPort();
 
   bool operator ==(Object other) {
     return (other is _Capability) && _id == other._id;
@@ -83,7 +83,7 @@ final class _ReceivePortImpl extends Stream implements ReceivePort {
 
   _ReceivePortImpl.fromRawReceivePort(this._rawPort)
       : _controller = new StreamController(sync: true) {
-    _naoEnviavel(this);
+    _notSendable(this);
     _controller.onCancel = close;
     _rawPort.handler = _controller.add;
   }
@@ -107,14 +107,14 @@ final class _ReceivePortImpl extends Stream implements ReceivePort {
   final StreamController _controller;
 }
 
-/// Marca a classe de `objeto` como não enviável numa mensagem (a
-/// `@pragma('vm:isolate-unsendable')` da VM).
+/// Marks the class of `object` as not sendable in a message (the VM's
+/// `@pragma('vm:isolate-unsendable')`).
 @pragma("vm:external-name", "DartForge_class_not_sendable")
-external void _naoEnviavel(Object objeto);
+external void _notSendable(Object object);
 
-/// A porta de recepção: o id da porta no runtime (`crates/runtime/src/
-/// portas.rs`), o manipulador e a `SendPort`. O runtime entrega cada
-/// mensagem chamando `_despachar`, que faz o `_handleMessage` da VM.
+/// The receive port: the id of the port in the runtime
+/// (`crates/runtime/src/ports.rs`), the handler and the `SendPort`. The runtime
+/// delivers each message by calling `_dispatch`, which does the VM's `_handleMessage`.
 @pragma("vm:entry-point")
 final class _RawReceivePort implements RawReceivePort {
   int _id = 0;
@@ -122,44 +122,44 @@ final class _RawReceivePort implements RawReceivePort {
   late final SendPort sendPort = new _SendPort._(_id);
 
   factory _RawReceivePort(String debugName) {
-    if (!_despachanteRegistrado) {
-      _despachanteRegistrado = true;
-      _registrarDespachante(_despachar);
+    if (!_registeredDispatcher) {
+      _registeredDispatcher = true;
+      _registerDispatcher(_dispatch);
     }
     final port = _RawReceivePort._();
-    port._id = _abrir(port);
+    port._id = _open(port);
     _portMap[port._id] = port;
     return port;
   }
 
   _RawReceivePort._();
 
-  static bool _despachanteRegistrado = false;
+  static bool _registeredDispatcher = false;
 
   @pragma("vm:external-name", "DartForge_port_open")
-  external static int _abrir(_RawReceivePort porta);
+  external static int _open(_RawReceivePort portArg);
 
   @pragma("vm:external-name", "DartForge_port_close")
-  external static void _fechar(int id);
+  external static void _closeNative(int id);
 
   @pragma("vm:external-name", "DartForge_port_set_keep_alive")
-  external static void _manterVivo(int id, bool manter);
+  external static void _setKeepAlive(int id, bool keep);
 
   @pragma("vm:external-name", "DartForge_port_keeps_alive")
-  external static bool _mantemVivo(int id);
+  external static bool _keepsAlive(int id);
 
   @pragma("vm:external-name", "DartForge_ports_dispatcher")
-  external static void _registrarDespachante(void Function() despachar);
+  external static void _registerDispatcher(void Function() dispatch);
 
   @pragma("vm:external-name", "DartForge_port_current")
-  external static int _portaAtual();
+  external static int _currentPort();
 
   @pragma("vm:external-name", "DartForge_current_message")
-  external static Object? _mensagemAtual();
+  external static Object? _currentMessage();
 
   close() {
-    // Fecha a porta e a tira do mapa dos manipuladores.
-    _fechar(_id);
+    // Closes the port and removes it from the handlers' map.
+    _closeNative(_id);
     _portMap.remove(_id);
   }
 
@@ -171,9 +171,9 @@ final class _RawReceivePort implements RawReceivePort {
     return sendPort.hashCode;
   }
 
-  /// A mensagem corrente do laço de eventos do runtime.
-  static void _despachar() {
-    _handleMessage(_portaAtual(), _mensagemAtual());
+  /// The current message of the runtime's event loop.
+  static void _dispatch() {
+    _handleMessage(_currentPort(), _currentMessage());
   }
 
   static _handleMessage(int id, var message) {
@@ -190,62 +190,62 @@ final class _RawReceivePort implements RawReceivePort {
   }
 
   void set keepIsolateAlive(bool value) {
-    _manterVivo(_id, value);
+    _setKeepAlive(_id, value);
   }
 
-  bool get keepIsolateAlive => _mantemVivo(_id);
+  bool get keepIsolateAlive => _keepsAlive(_id);
 
   static final _portMap = <int, _RawReceivePort>{};
 }
 
-/// A `SendPort` de uma porta aberta pelo runtime (as portas nativas, como a
-/// do IOService: o `Dart_NewSendPort` da VM).
+/// The `SendPort` of a port opened by the runtime (the native ports, like the
+/// IOService's: the VM's `Dart_NewSendPort`).
 @pragma("vm:entry-point")
 SendPort _dartforgeSendPort(int id) => new _SendPort._(id);
 
-// As funções que o runtime chama num isolado (`crates/runtime/src/
-// isolados.rs`): o que a VM faz em C++ ao criar e encerrar um isolado.
+// The functions the runtime calls in an isolate (`crates/runtime/src/
+// isolates.rs`): what the VM does in C++ when creating and ending an isolate.
 
-/// `[SendPort, Capability, Capability]` do isolado: a porta de controle e
-/// as capacidades de pausa e de término
+/// `[SendPort, Capability, Capability]` of the isolate: the control port and
+/// the pause and termination capabilities
 /// (`Isolate_getPortAndCapabilitiesOfCurrentIsolate`).
 @pragma("vm:entry-point")
-List _dartforgePortaECapacidades(int controle, int pausa, int termino) =>
+List _dartforgePortAndCapabilities(int control, int pause, int onExitPort) =>
     new List<Object>.unmodifiable(<Object>[
-      new _SendPort._(controle),
-      new _Capability._comId(pausa),
-      new _Capability._comId(termino)
+      new _SendPort._(control),
+      new _Capability._withId(pause),
+      new _Capability._withId(onExitPort)
     ]);
 
-/// A mensagem de pronto que o isolado novo manda ao que o criou:
-/// `[porta de controle, [pausa, término]]` (a de `IsolateSpawnState`).
+/// The ready message the new isolate sends to its creator:
+/// `[control port, [pause, termination]]` (that of `IsolateSpawnState`).
 @pragma("vm:entry-point")
-List _dartforgeMensagemDePronto(int controle, int pausa, int termino) => [
-      new _SendPort._(controle),
-      [new _Capability._comId(pausa), new _Capability._comId(termino)]
+List _dartforgeReadyMessage(int control, int pause, int onExitPort) => [
+      new _SendPort._(control),
+      [new _Capability._withId(pause), new _Capability._withId(onExitPort)]
     ];
 
-/// O começo do isolado: a entrada roda como a primeira mensagem, como no
-/// `_delayEntrypointInvocation` da VM para `Isolate.spawn` (que sempre
-/// chama `entryPoint(message)`).
+/// The start of the isolate: the entry point runs as the first message, as in
+/// the VM's `_delayEntrypointInvocation` for `Isolate.spawn` (which always
+/// calls `entryPoint(message)`).
 @pragma("vm:entry-point")
-void _dartforgeIniciarIsolado(Function entrada, Object? mensagem) {
+void _dartforgeStartIsolate(Function entry, Object? initialMessage) {
   final port = RawReceivePort();
   port.handler = (_) {
     port.close();
-    entrada(mensagem);
+    entry(initialMessage);
   };
   port.sendPort.send(null);
 }
 
-/// O erro não tratado como os ouvintes de erro o recebem:
-/// `[erro.toString(), rastro.toString()]`.
+/// The unhandled error as the error listeners receive it:
+/// `[err.toString(), stackTrace.toString()]`.
 @pragma("vm:entry-point")
-List<String> _dartforgeDescreverErro(Object? erro, Object? rastro) =>
-    <String>[erro.toString(), rastro?.toString() ?? ""];
+List<String> _dartforgeDescribeError(Object? err, Object? stackTrace) =>
+    <String>[err.toString(), stackTrace?.toString() ?? ""];
 
-/// O lado de envio: só o id da porta, que a cópia de uma mensagem preserva
-/// — uma `SendPort` vale em qualquer isolado.
+/// The sending side: only the port's id, which the copy of a message preserves
+/// — a `SendPort` is valid in any isolate.
 @pragma("vm:entry-point")
 final class _SendPort implements SendPort {
   final int _id;
@@ -255,9 +255,9 @@ final class _SendPort implements SendPort {
   /*--- public interface ---*/
   @pragma("vm:entry-point", "call")
   void send(var message) {
-    if (_enviar(_id, message)) {
+    if (_sendNative(_id, message)) {
       throw new ArgumentError(
-          "Illegal argument in isolate message: ${_recusa()}");
+          "Illegal argument in isolate message: ${_refusal()}");
     }
   }
 
@@ -270,10 +270,10 @@ final class _SendPort implements SendPort {
   String toString() => "SendPort";
 
   @pragma("vm:external-name", "DartForge_port_send")
-  external static bool _enviar(int id, Object? message);
+  external static bool _sendNative(int id, Object? message);
 
   @pragma("vm:external-name", "DartForge_port_refusal")
-  external static String _recusa();
+  external static String _refusal();
 }
 
 typedef _UnaryFunction(Never args);
@@ -349,10 +349,10 @@ final class Isolate {
   static Uri? get packageConfigSync {
     var hook = VMLibraryHooks.packageConfigUriSync;
     if (hook == null) {
-      // Sem o `builtin` da VM: o package config do processo
-      // (`DARTFORGE_PACKAGE_CONFIG`), como o `--packages` da VM.
-      final caminho = _packageConfigDoProcesso();
-      if (caminho != null) return Uri.file(caminho);
+      // Without the VM's `builtin`: the process's package config
+      // (`DARTFORGE_PACKAGE_CONFIG`), like the VM's `--packages`.
+      final pathArg = _processPackageConfig();
+      if (pathArg != null) return Uri.file(pathArg);
       throw new UnsupportedError("Isolate.packageConfig");
     }
     return hook();
@@ -367,63 +367,63 @@ final class Isolate {
   static Uri? resolvePackageUriSync(Uri packageUri) {
     var hook = VMLibraryHooks.resolvePackageUriSync;
     if (hook == null) {
-      final mapa = _pacotesDoProcesso();
-      if (mapa == null) {
+      final map = _processPackages();
+      if (map == null) {
         throw new UnsupportedError("Isolate.resolvePackageUriSync");
       }
-      return _resolverPacote(mapa, packageUri);
+      return _resolvePackage(map, packageUri);
     }
     return hook(packageUri);
   }
 
   @pragma("vm:external-name", "DartForge_package_config")
-  external static String? _packageConfigDoProcesso();
+  external static String? _processPackageConfig();
 
   @pragma("vm:external-name", "DartForge_read_text")
-  external static String? _lerTexto(String caminho);
+  external static String? _readText(String pathArg);
 
-  static Map<String, Uri>? _mapaDePacotes;
+  static Map<String, Uri>? _packageMap;
 
-  /// Pacote → URI da raiz das bibliotecas (`rootUri` resolvida contra o
-  /// arquivo, mais `packageUri`), do package config do processo; `null` sem
-  /// ele. Como o `_parsePackageConfig` do `builtin.dart` da VM.
-  static Map<String, Uri>? _pacotesDoProcesso() {
-    final pronto = _mapaDePacotes;
-    if (pronto != null) return pronto;
-    final caminho = _packageConfigDoProcesso();
-    if (caminho == null) return null;
-    final texto = _lerTexto(caminho);
-    if (texto == null) return null;
-    final arquivo = Uri.file(caminho);
-    final mapa = <String, Uri>{};
-    final json = jsonDecode(texto);
+  /// Package → URI of the libraries' root (`rootUri` resolved against the file,
+  /// plus `packageUri`), from the process's package config; `null` without it.
+  /// Like the `_parsePackageConfig` of the VM's `builtin.dart`.
+  static Map<String, Uri>? _processPackages() {
+    final ready = _packageMap;
+    if (ready != null) return ready;
+    final pathArg = _processPackageConfig();
+    if (pathArg == null) return null;
+    final text = _readText(pathArg);
+    if (text == null) return null;
+    final fileArg = Uri.file(pathArg);
+    final map = <String, Uri>{};
+    final json = jsonDecode(text);
     if (json is Map && json["packages"] is List) {
       for (final p in json["packages"] as List) {
         if (p is! Map) continue;
-        final nome = p["name"];
-        final raiz = p["rootUri"];
-        if (nome is! String || raiz is! String) continue;
-        var raizUri = arquivo.resolve(raiz.endsWith("/") ? raiz : "$raiz/");
+        final name = p["name"];
+        final root = p["rootUri"];
+        if (name is! String || root is! String) continue;
+        var rootUri = fileArg.resolve(root.endsWith("/") ? root : "$root/");
         final lib = p["packageUri"];
-        mapa[nome] = lib is String
-            ? raizUri.resolve(lib.endsWith("/") ? lib : "$lib/")
-            : raizUri;
+        map[name] = lib is String
+            ? rootUri.resolve(lib.endsWith("/") ? lib : "$lib/")
+            : rootUri;
       }
     }
-    return _mapaDePacotes = mapa;
+    return _packageMap = map;
   }
 
-  /// `package:nome/caminho` pelo mapa; outra URI volta como veio; pacote
-  /// desconhecido ou URI malformada dá `null` (o `_resolvePackageUriSync`
-  /// do `builtin.dart`).
-  static Uri? _resolverPacote(Map<String, Uri> mapa, Uri uri) {
+  /// `package:name/path` through the map; another URI comes back as it came; an
+  /// unknown package or a malformed URI gives `null` (`builtin.dart`'s
+  /// `_resolvePackageUriSync`).
+  static Uri? _resolvePackage(Map<String, Uri> map, Uri uri) {
     if (!uri.isScheme("package")) return uri;
     if (uri.host.isNotEmpty) return null;
-    final fim = uri.path.indexOf("/");
-    if (fim <= 0) return null;
-    final raiz = mapa[uri.path.substring(0, fim)];
-    if (raiz == null) return null;
-    return raiz.resolve(uri.path.substring(fim + 1));
+    final end = uri.path.indexOf("/");
+    if (end <= 0) return null;
+    final root = map[uri.path.substring(0, end)];
+    if (root == null) return null;
+    return root.resolve(uri.path.substring(end + 1));
   }
 
   static bool _packageSupported() =>
@@ -442,8 +442,8 @@ final class Isolate {
     // We do not inherit the package config settings from the parent isolate,
     // instead we use the values that were set on the command line.
     var packageConfig = VMLibraryHooks.packageConfigString;
-    // O script do executável, com ou sem `dart:io` no programa (o embedder
-    // da VM sempre o define; o isolado novo roda no mesmo executável).
+    // The executable's script, with or without `dart:io` in the program (the VM's
+    // embedder always defines it; the new isolate runs in the same executable).
     var script = VMLibraryHooks.platformScript ?? _rootUri;
     if (script == null) {
       // We do not have enough information to support spawning the new
@@ -794,39 +794,39 @@ abstract final class TransferableTypedData {
   }
 }
 
-/// Os bytes de um `TransferableTypedData`: concatenados uma vez na
-/// criação; `materialize` os entrega uma vez só, e enviar numa mensagem os
-/// move (o objeto de origem fica vazio), como o peer externo da VM.
+/// The bytes of a `TransferableTypedData`: concatenated once at creation;
+/// `materialize` hands them over only once, and sending it in a message moves
+/// them (the origin object becomes empty), like the VM's external peer.
 @pragma("vm:entry-point")
 final class _TransferableTypedDataImpl implements TransferableTypedData {
-  Uint8List? _dados;
+  Uint8List? _data;
 
   _TransferableTypedDataImpl(List<TypedData> list) {
     var total = 0;
     for (final c in list) {
       total += c.lengthInBytes;
     }
-    final dados = new Uint8List(total);
+    final data = new Uint8List(total);
     var i = 0;
     for (final c in list) {
-      dados.setRange(
+      data.setRange(
           i, i + c.lengthInBytes, c.buffer.asUint8List(c.offsetInBytes, c.lengthInBytes));
       i += c.lengthInBytes;
     }
-    _dados = dados;
-    _transferivel(this);
+    _data = data;
+    _transferable(this);
   }
 
   ByteBuffer materialize() {
-    final dados = _dados;
-    if (dados == null) {
+    final data = _data;
+    if (data == null) {
       throw new ArgumentError(
           "Attempt to materialize object that was transferred already.");
     }
-    _dados = null;
-    return dados.buffer;
+    _data = null;
+    return data.buffer;
   }
 
   @pragma("vm:external-name", "DartForge_class_transferable")
-  external static void _transferivel(Object objeto);
+  external static void _transferable(Object object);
 }

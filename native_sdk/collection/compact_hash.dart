@@ -102,38 +102,38 @@ void _rehashObjects(List objects) {
   }
 }
 
-// DartForge: um `_Map`/`_Set` copiado entre isolados
-// (`crates/runtime/src/portas.rs`, `refazer_indices_copiados`) chega com o
-// `_index` da origem. Como a VM (`object_graph_copy.cc`,
-// `CopyLinkedHashBase` com `MightNeedReHashing`, e `_rehashObjects` acima),
-// o índice é refeito quando alguma chave pode ter outro hash no destino —
-// texto, número, bool e null têm hash estrutural. Devolve -1 para objeto
-// que não é `_Map`/`_Set`, 1 quando refez e 0 quando não precisou.
+// DartForge: a `_Map`/`_Set` copied between isolates
+// (`crates/runtime/src/ports.rs`, `redo_copied_indices`) arrives with the
+// origin's `_index`. Like the VM (`object_graph_copy.cc`,
+// `CopyLinkedHashBase` with `MightNeedReHashing`, and `_rehashObjects` above),
+// the index is rebuilt when some key may have another hash at the destination
+// — strings, numbers, bool and null have a structural hash. Returns -1 for an
+// object that is not a `_Map`/`_Set`, 1 when it rebuilt and 0 when it did not need to.
 @pragma("vm:entry-point")
-int _dartforgeRefazerIndiceCopiado(Object objeto) {
-  final int passo;
-  if (objeto is _Map) {
-    passo = 2;
-  } else if (objeto is _Set) {
-    passo = 1;
+int _dartforgeRebuildCopiedIndex(Object object) {
+  final int step;
+  if (object is _Map) {
+    step = 2;
+  } else if (object is _Set) {
+    step = 1;
   } else {
     return -1;
   }
-  final h = internal.unsafeCast<_HashVMBase>(objeto);
+  final h = internal.unsafeCast<_HashVMBase>(object);
   final data = h._data;
-  final usados = h._usedData;
-  for (int i = 0; i < usados; i += passo) {
-    final chave = data[i];
-    if (_HashBase._isDeleted(data, chave) ||
-        chave == null ||
-        chave is String ||
-        chave is num ||
-        chave is bool) {
+  final used = h._usedData;
+  for (int i = 0; i < used; i += step) {
+    final keyArg = data[i];
+    if (_HashBase._isDeleted(data, keyArg) ||
+        keyArg == null ||
+        keyArg is String ||
+        keyArg is num ||
+        keyArg is bool) {
       continue;
     }
     h._hashMask = _HashBase._UNINITIALIZED_HASH_MASK;
     h._deletedKeys = 0;
-    internal.unsafeCast<_HashBase>(objeto)._regenerateIndex();
+    internal.unsafeCast<_HashBase>(object)._regenerateIndex();
     return 1;
   }
   return 0;
@@ -195,15 +195,15 @@ abstract class _HashFieldBase implements _HashAbstractImmutableBase {
   _HashFieldBase();
 }
 
-// DartForge (sobreposição `native_sdk/`, P5c/P5d): na VM, os campos de
-// `_HashVMBase` são injetados na classe e lidos por acessores reconhecidos
-// (`vm:recognized`, sem native). Aqui eles são campos de verdade; o resto
-// deste arquivo é o `compact_hash.dart` do SDK 3.6.2 sem mudança.
+// DartForge (overlay `native_sdk/`, P5c/P5d): on the VM, the fields of
+// `_HashVMBase` are injected into the class and read by recognized accessors
+// (`vm:recognized`, no native). Here they are real fields; the rest of this
+// file is SDK 3.6.2's `compact_hash.dart` unchanged.
 abstract class _HashVMBase implements _HashAbstractBase {
-  Uint32List? _indiceDF;
-  Uint32List get _index => _indiceDF!;
+  Uint32List? _indexDf;
+  Uint32List get _index => _indexDf!;
   void set _index(Uint32List value) {
-    _indiceDF = value;
+    _indexDf = value;
   }
 
   int _hashMask = 0;
@@ -219,7 +219,7 @@ abstract class _HashVMBase implements _HashAbstractBase {
 abstract class _HashVMImmutableBase extends _HashVMBase
     implements _HashAbstractImmutableBase {
   // The index is nullable rather than not nullable.
-  Uint32List? get _indexNullable => _indiceDF;
+  Uint32List? get _indexNullable => _indexDf;
   Uint32List get _index => _indexNullable!;
 }
 
@@ -328,27 +328,27 @@ mixin _IdenticalAndIdentityHashCode implements _EqualsAndHashCode {
   bool _equals(Object? e1, Object? e2) => identical(e1, e2);
 }
 
-// DartForge: um literal de mapa grande de escalares constantes chega como a
-// lista `[chave, valor, …]` lida de uma tabela (`lower/literais.rs`), e não
-// como uma chamada de `[]=` por entrada no código.
+// DartForge: a large map literal of constant scalars arrives as the list
+// `[keyArg, val, …]` read from a table (`lower/literals.rs`), and not as a
+// `[]=` call per entry in the code.
 @pragma("vm:entry-point")
-void _dartforgePreencherMapa(Map mapa, List chavesEValores) {
-  for (int i = 0; i < chavesEValores.length; i += 2) {
-    mapa[chavesEValores[i]] = chavesEValores[i + 1];
+void _dartforgeFillMap(Map map, List keysAndValues) {
+  for (int i = 0; i < keysAndValues.length; i += 2) {
+    map[keysAndValues[i]] = keysAndValues[i + 1];
   }
 }
 
 @pragma("vm:entry-point")
-void _dartforgePreencherLista(List lista, List valores) {
-  for (int i = 0; i < valores.length; i++) {
-    lista.add(valores[i]);
+void _dartforgeFillList(List list, List vals) {
+  for (int i = 0; i < vals.length; i++) {
+    list.add(vals[i]);
   }
 }
 
 @pragma("vm:entry-point")
-void _dartforgePreencherConjunto(Set conjunto, List valores) {
-  for (int i = 0; i < valores.length; i++) {
-    conjunto.add(valores[i]);
+void _dartforgeFillSet(Set setArg, List vals) {
+  for (int i = 0; i < vals.length; i++) {
+    setArg.add(vals[i]);
   }
 }
 
@@ -357,8 +357,8 @@ mixin _OperatorEqualsAndCanonicalHashCode implements _EqualsAndHashCode {
 
   int _hashCode(Object? e) {
     final int cid = ClassID.getID(e);
-    // DartForge: um record tem o id da FORMA dele (acima dos predefinidos);
-    // na VM é o `_Record`, predefinido — o hash é o estrutural.
+    // DartForge: a record has the id of its SHAPE (above the predefined ones);
+    // on the VM it is `_Record`, predefined — the hash is the structural one.
     if (cid < ClassID.numPredefinedCids || cid == cidSymbol || e is Record) {
       return e.hashCode;
     }
@@ -378,57 +378,57 @@ mixin _CustomEqualsAndHashCode<K> implements _EqualsAndHashCode {
   bool _equals(Object? e1, Object? e2) => (_equality as Function)(e1, e2);
 }
 
-// DartForge: o caminho rápido do `_Map` e do `_Set` para chaves `int` e
-// `String` (`crates/runtime/src/nativos_hash.rs`). Na VM o compilador
-// especializa `_hashCode`/`_equals` para esses tipos e embute a sonda; aqui
-// o runtime percorre a MESMA tabela (`_index`, `_data`) com as mesmas contas
-// e grava o que o Dart gravaria. Quando não sabe (outra chave, `int` diante
-// de `double`, tabela cheia), não muda nada e devolve o sinal; o caminho do
-// SDK faz a operação.
+// DartForge: the fast path of `_Map` and `_Set` for `int` and `String` keys
+// (`crates/runtime/src/natives_hash.rs`). On the VM the compiler specializes
+// `_hashCode`/`_equals` for those types and inlines the probe; here the
+// runtime walks the SAME table (`_index`, `_data`) with the same arithmetic
+// and stores what Dart would store. When it does not know (another key, an
+// `int` facing a `double`, a full table), it changes nothing and returns the
+// signal; the SDK path does the operation.
 
-/// O novo `_usedData` depois de `mapa[chave] = valor`, ou -1.
+/// The new `_usedData` after `map[keyArg] = val`, or -1.
 @pragma("vm:external-name", "DartForge_hash_map_store")
-external int _dfMapaGravar(Uint32List indice, List<Object?> dados, int mascara,
-    int usados, Object? chave, Object? valor);
+external int _dfMapStore(Uint32List idx, List<Object?> dataArg, int mask,
+    int used, Object? keyArg, Object? val);
 
-/// O valor da chave, `dados` se ela falta, ou `indice` se o Dart procura.
+/// The key's value, `dataArg` if it is missing, or `idx` if Dart must look it up.
 @pragma("vm:external-name", "DartForge_hash_map_lookup")
-external Object? _dfMapaBuscar(
-    Uint32List indice, List<Object?> dados, int mascara, Object? chave);
+external Object? _dfMapLookup(
+    Uint32List idx, List<Object?> dataArg, int mask, Object? keyArg);
 
-/// O novo `_usedData` depois de `conjunto.add(chave)` (o mesmo se já
-/// estava), ou -1.
+/// The new `_usedData` after `setArg.add(keyArg)` (the same if it was
+/// already there), or -1.
 @pragma("vm:external-name", "DartForge_hash_set_add")
-external int _dfConjuntoAdicionar(Uint32List indice, List<Object?> dados,
-    int mascara, int usados, Object? chave);
+external int _dfSetAdd(Uint32List idx, List<Object?> dataArg,
+    int mask, int used, Object? keyArg);
 
-/// A chave guardada, `dados` se ela falta, ou `indice` se o Dart procura.
+/// The stored key, `dataArg` if it is missing, or `idx` if Dart must look it up.
 @pragma("vm:external-name", "DartForge_hash_set_lookup")
-external Object? _dfConjuntoBuscar(
-    Uint32List indice, List<Object?> dados, int mascara, Object? chave);
+external Object? _dfSetLookup(
+    Uint32List idx, List<Object?> dataArg, int mask, Object? keyArg);
 
-// DartForge: os lotes (docs/NATIVO-PLANO.md §13.2, itens 2 e 3). O runtime
-// grava de uma vez as entradas de chave `int`/`String` de `pares` (de `de` até
-// `ate`), na ordem, e para na primeira que não sabe gravar. O resultado junta a
-// posição onde parou (bits altos) e o novo `_usedData` (os 32 bits baixos); o
-// Dart grava a entrada da parada pelo caminho do SDK e chama de novo.
+// DartForge: the batches (docs/NATIVO-PLANO.md §13.2, items 2 and 3). The
+// runtime stores at once the `int`/`String`-keyed entries of `pairs` (from
+// `from` to `until`), in order, and stops at the first one it cannot store.
+// The result joins the position where it stopped (high bits) and the new
+// `_usedData` (the low 32 bits); Dart stores the stopping entry through the SDK path and calls again.
 
-/// `this[pares[i]] = pares[i + 1]` para `i` de `de` até `ate`, de 2 em 2; com
-/// `pularRemovidas`, sem as entradas removidas do `_data` velho.
+/// `this[pairs[i]] = pairs[i + 1]` for `i` from `from` to `until`, in steps of
+/// 2; with `skipDeleted`, without the entries deleted from the old `_data`.
 @pragma("vm:external-name", "DartForge_hash_map_fill")
-external int _dfMapaPreencher(Uint32List indice, List<Object?> dados,
-    int mascara, int usados, List pares, int de, int ate, bool pularRemovidas);
+external int _dfMapFill(Uint32List idx, List<Object?> dataArg,
+    int mask, int used, List pairs, int from, int until, bool skipDeleted);
 
-/// DartForge: o `_data` novo de uma tabela, `new List.filled(n, null)` sem
-/// avaliar o tipo reificado: a lista é interna (nunca sai do `_HashBase`) e só
-/// é comparada por identidade e lida pelos próprios métodos da tabela.
+/// DartForge: the new `_data` of a table, `new List.filled(n, null)` without
+/// evaluating the reified type: the list is internal (it never leaves the
+/// `_HashBase`) and is only compared by identity and read by the table's own methods.
 @pragma("vm:external-name", "DartForge_hash_new_data")
-external List<Object?> _dfNovosDados(int n);
+external List<Object?> _dfNewData(int n);
 
-/// `add(velhos[i])` para `i` de `de` até `ate`, sem as removidas.
+/// `add(old[i])` for `i` from `from` to `until`, without the deleted ones.
 @pragma("vm:external-name", "DartForge_hash_set_fill")
-external int _dfConjuntoPreencher(Uint32List indice, List<Object?> dados,
-    int mascara, int usados, List velhos, int de, int ate);
+external int _dfSetFill(Uint32List idx, List<Object?> dataArg,
+    int mask, int used, List old, int from, int until);
 
 final _uninitializedIndex = new Uint32List(_HashBase._UNINITIALIZED_INDEX_SIZE);
 // Note: not const. Const arrays are made immutable by having a different class
@@ -454,35 +454,35 @@ base class _Map<K, V> extends _HashVMBase
     _deletedKeys = 0;
   }
 
-  // DartForge: `[]=`, `[]` e `containsKey` passam primeiro pelo runtime
-  // (`_dfMapaGravar`/`_dfMapaBuscar`); o resto é o do mixin.
+  // DartForge: `[]=`, `[]` and `containsKey` go through the runtime first
+  // (`_dfMapStore`/`_dfMapLookup`); the rest is the mixin's.
   void operator []=(K key, V value) {
-    final int usados =
-        _dfMapaGravar(_index, _data, _hashMask, _usedData, key, value);
-    if (usados >= 0) {
-      _usedData = usados;
+    final int used =
+        _dfMapStore(_index, _data, _hashMask, _usedData, key, value);
+    if (used >= 0) {
+      _usedData = used;
       return;
     }
     _set(key, value, _hashCode(key));
   }
 
   V? operator [](Object? key) {
-    final Uint32List indice = _index;
-    Object? v = _dfMapaBuscar(indice, _data, _hashMask, key);
-    if (identical(v, indice)) v = _getValueOrData(key);
+    final Uint32List idx = _index;
+    Object? v = _dfMapLookup(idx, _data, _hashMask, key);
+    if (identical(v, idx)) v = _getValueOrData(key);
     return identical(_data, v) ? null : internal.unsafeCast<V>(v);
   }
 
   bool containsKey(Object? key) {
-    final Uint32List indice = _index;
-    Object? v = _dfMapaBuscar(indice, _data, _hashMask, key);
-    if (identical(v, indice)) v = _getValueOrData(key);
+    final Uint32List idx = _index;
+    Object? v = _dfMapLookup(idx, _data, _hashMask, key);
+    if (identical(v, idx)) v = _getValueOrData(key);
     return !identical(_data, v);
   }
 
-  // DartForge: o `_init` do mixin (o `_rehash`) com a reinserção em lote
-  // (`_dfMapaPreencher`): a mesma ordem, e cada entrada que o runtime não
-  // conhece pelo `this[key] = …` de sempre.
+  // DartForge: the mixin's `_init` (the `_rehash`) with the batch reinsertion
+  // (`_dfMapFill`): the same order, and each entry the runtime does not know
+  // through the usual `this[key] = …`.
   void _init(int size, int hashMask, List? oldData, int oldUsed) {
     if (size < _HashBase._INITIAL_INDEX_SIZE) {
       size = _HashBase._INITIAL_INDEX_SIZE;
@@ -492,13 +492,13 @@ base class _Map<K, V> extends _HashVMBase
     assert(_HashBase._UNUSED_PAIR == 0);
     _index = new Uint32List(size);
     _hashMask = hashMask;
-    _data = _dfNovosDados(size);
+    _data = _dfNewData(size);
     _usedData = 0;
     _deletedKeys = 0;
     if (oldData != null) {
       int i = 0;
       while (i < oldUsed) {
-        final int r = _dfMapaPreencher(
+        final int r = _dfMapFill(
             _index, _data, _hashMask, _usedData, oldData, i, oldUsed, true);
         _usedData = r & 0xFFFFFFFF;
         i = r >> 32;
@@ -513,17 +513,17 @@ base class _Map<K, V> extends _HashVMBase
     }
   }
 
-  // DartForge: o `_populateUnsafe` do mixin pelo lote.
+  // DartForge: the mixin's `_populateUnsafe` through the batch.
   void _populateUnsafe(List<Object?> keyValuePairs) {
-    _dfPreencherDaFaixa(keyValuePairs, 0, keyValuePairs.length);
+    _dfFillFromRange(keyValuePairs, 0, keyValuePairs.length);
   }
 
-  /// DartForge: o `_populateUnsafe` dos pares `pares[de..ate)` (o mapa de um
-  /// objeto do JSON, da pilha do listener), sem conferir tipos: a mesma
-  /// capacidade do `_populateUnsafe` e as gravações do `_set`, na ordem.
-  void _dfPreencherDaFaixa(List<Object?> pares, int de, int ate) {
-    assert((ate - de).isEven);
-    int size = _roundUpToPowerOfTwo(ate - de);
+  /// DartForge: the `_populateUnsafe` of the pairs `pairs[from..until)` (the map
+  /// of a JSON object, from the listener's stack), without checking types: the
+  /// same capacity as `_populateUnsafe` and the stores of `_set`, in order.
+  void _dfFillFromRange(List<Object?> pairs, int from, int until) {
+    assert((until - from).isEven);
+    int size = _roundUpToPowerOfTwo(until - from);
     if (size < _HashBase._INITIAL_INDEX_SIZE) {
       size = _HashBase._INITIAL_INDEX_SIZE;
     }
@@ -533,18 +533,18 @@ base class _Map<K, V> extends _HashVMBase
     assert(_HashBase._UNUSED_PAIR == 0);
     _index = new Uint32List(size);
     _hashMask = hashMask;
-    _data = _dfNovosDados(size);
+    _data = _dfNewData(size);
     _usedData = 0;
     _deletedKeys = 0;
-    int i = de;
-    while (i < ate) {
-      final int r = _dfMapaPreencher(
-          _index, _data, _hashMask, _usedData, pares, i, ate, false);
+    int i = from;
+    while (i < until) {
+      final int r = _dfMapFill(
+          _index, _data, _hashMask, _usedData, pairs, i, until, false);
       _usedData = r & 0xFFFFFFFF;
       i = r >> 32;
-      if (i < ate) {
-        final key = internal.unsafeCast<K>(pares[i]);
-        final value = internal.unsafeCast<V>(pares[i + 1]);
+      if (i < until) {
+        final key = internal.unsafeCast<K>(pairs[i]);
+        final value = internal.unsafeCast<V>(pairs[i + 1]);
         _set(key, value, _hashCode(key));
         i += 2;
       }
@@ -578,16 +578,16 @@ base class _ConstMap<K, V> extends _HashVMImmutableBase
     throw new UnsupportedError("_ConstMap can only be allocated by the VM");
   }
 
-  // DartForge: a constante `const {…}` é o `_Map` do literal adotado aqui
-  // (a VM aloca o `_ConstMap` direto do kernel). O índice é criado na
-  // primeira consulta, como no da VM.
+  // DartForge: the constant `const {…}` is the `_Map` of the literal adopted here
+  // (the VM allocates the `_ConstMap` straight from the kernel). The index is
+  // created on the first lookup, as in the VM's.
   @pragma("vm:entry-point")
-  _ConstMap._deFonte(_HashVMBase fonte) {
-    // Como a da VM: os dados exatos (imutáveis) e a máscara de hash que o
-    // `_createIndex` preguiçoso confere.
-    _data = new List<Object?>.unmodifiable(fonte._data.take(fonte._usedData));
-    _usedData = fonte._usedData;
-    _deletedKeys = fonte._deletedKeys;
+  _ConstMap._fromSource(_HashVMBase source) {
+    // Like the VM's: the exact (immutable) data and the hash mask that the lazy
+    // `_createIndex` checks.
+    _data = new List<Object?>.unmodifiable(source._data.take(source._usedData));
+    _usedData = source._usedData;
+    _deletedKeys = source._deletedKeys;
     _hashMask = _HashBase._indexSizeToHashMask(
         _roundUpToPowerOfTwo(max(_data.length, _HashBase._INITIAL_INDEX_SIZE)));
   }
@@ -1249,37 +1249,37 @@ base class _Set<E> extends _HashVMBase
     _deletedKeys = 0;
   }
 
-  // DartForge: `add`, `contains` e `lookup` passam primeiro pelo runtime
-  // (`_dfConjuntoAdicionar`/`_dfConjuntoBuscar`); o resto é o do mixin.
+  // DartForge: `add`, `contains` and `lookup` go through the runtime first
+  // (`_dfSetAdd`/`_dfSetLookup`); the rest is the mixin's.
   bool add(E key) {
-    final int antes = _usedData;
-    final int usados =
-        _dfConjuntoAdicionar(_index, _data, _hashMask, antes, key);
-    if (usados >= 0) {
-      if (usados == antes) return false;
-      _usedData = usados;
+    final int before = _usedData;
+    final int used =
+        _dfSetAdd(_index, _data, _hashMask, before, key);
+    if (used >= 0) {
+      if (used == before) return false;
+      _usedData = used;
       return true;
     }
     return _add(key, _hashCode(key));
   }
 
   bool contains(Object? key) {
-    final Uint32List indice = _index;
-    Object? k = _dfConjuntoBuscar(indice, _data, _hashMask, key);
-    if (identical(k, indice)) k = _getKeyOrData(key);
+    final Uint32List idx = _index;
+    Object? k = _dfSetLookup(idx, _data, _hashMask, key);
+    if (identical(k, idx)) k = _getKeyOrData(key);
     return !identical(_data, k);
   }
 
   E? lookup(Object? key) {
-    final Uint32List indice = _index;
-    Object? k = _dfConjuntoBuscar(indice, _data, _hashMask, key);
-    if (identical(k, indice)) k = _getKeyOrData(key);
+    final Uint32List idx = _index;
+    Object? k = _dfSetLookup(idx, _data, _hashMask, key);
+    if (identical(k, idx)) k = _getKeyOrData(key);
     return identical(_data, k) ? null : internal.unsafeCast<E>(k);
   }
 
-  // DartForge: o `_init` do mixin (o `_rehash`) com a reinserção em lote
-  // (`_dfConjuntoPreencher`); cada chave que o runtime não conhece pelo
-  // `add` de sempre.
+  // DartForge: the mixin's `_init` (the `_rehash`) with the batch reinsertion
+  // (`_dfSetFill`); each key the runtime does not know through the usual
+  // `add`.
   void _init(int size, int hashMask, List? oldData, int oldUsed) {
     if (size < _HashBase._INITIAL_INDEX_SIZE) {
       size = _HashBase._INITIAL_INDEX_SIZE;
@@ -1287,13 +1287,13 @@ base class _Set<E> extends _HashVMBase
     }
     _index = new Uint32List(size);
     _hashMask = hashMask;
-    _data = _dfNovosDados(size >> 1);
+    _data = _dfNewData(size >> 1);
     _usedData = 0;
     _deletedKeys = 0;
     if (oldData != null) {
       int i = 0;
       while (i < oldUsed) {
-        final int r = _dfConjuntoPreencher(
+        final int r = _dfSetFill(
             _index, _data, _hashMask, _usedData, oldData, i, oldUsed);
         _usedData = r & 0xFFFFFFFF;
         i = r >> 32;
@@ -1338,16 +1338,16 @@ base class _ConstSet<E> extends _HashVMImmutableBase
     throw new UnsupportedError("_ConstSet can only be allocated by the VM");
   }
 
-  // DartForge: como `_ConstMap._deFonte`, para `const {a, b}`.
+  // DartForge: like `_ConstMap._fromSource`, for `const {a, b}`.
   @pragma("vm:entry-point")
-  _ConstSet._deFonte(_HashVMBase fonte) {
-    // Como a da VM: os dados exatos (imutáveis) e a máscara de hash que o
-    // `_createIndex` preguiçoso confere.
-    _data = new List<Object?>.unmodifiable(fonte._data.take(fonte._usedData));
-    _usedData = fonte._usedData;
-    _deletedKeys = fonte._deletedKeys;
-    // O índice de um set tem o dobro das entradas de `_data` (uma chave
-    // por entrada; no mapa são duas): o mesmo tamanho do `_createIndex`.
+  _ConstSet._fromSource(_HashVMBase source) {
+    // Like the VM's: the exact (immutable) data and the hash mask that the lazy
+    // `_createIndex` checks.
+    _data = new List<Object?>.unmodifiable(source._data.take(source._usedData));
+    _usedData = source._usedData;
+    _deletedKeys = source._deletedKeys;
+    // The index of a set has twice the entries of `_data` (one key per entry; in
+    // the map there are two): the same size as `_createIndex`'s.
     _hashMask = _HashBase._indexSizeToHashMask(
         _roundUpToPowerOfTwo(max(_data.length * 2, _HashBase._INITIAL_INDEX_SIZE)));
   }
@@ -1479,11 +1479,11 @@ typedef DefaultSet<E> = _Set<E>;
 Map<K, V> createMapFromKeyValueListUnsafe<K, V>(List<Object?> keyValuePairs) =>
     DefaultMap<K, V>().._populateUnsafe(keyValuePairs);
 
-/// DartForge: o mapa dos pares `keyValuePairs[start..]` (até o fim da lista),
-/// como o [createMapFromKeyValueListUnsafe] da sublista, sem copiá-la: o
-/// listener do JSON monta cada objeto da faixa da pilha de valores
-/// (`convert_patch.dart`, docs/NATIVO-PLANO.md §13.2, item 4).
+/// DartForge: the map of the pairs `keyValuePairs[start..]` (up to the end of
+/// the list), like [createMapFromKeyValueListUnsafe] of the sublist, without
+/// copying it: the JSON listener builds each object from the range of the
+/// value stack (`convert_patch.dart`, docs/NATIVO-PLANO.md §13.2, item 4).
 Map<K, V> createMapFromKeyValueRangeUnsafe<K, V>(
         List<Object?> keyValuePairs, int start) =>
     DefaultMap<K, V>()
-      .._dfPreencherDaFaixa(keyValuePairs, start, keyValuePairs.length);
+      .._dfFillFromRange(keyValuePairs, start, keyValuePairs.length);

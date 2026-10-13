@@ -817,7 +817,7 @@ mod arc_port_tests {
             let emitter = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
             for (pc, pending) in [(datagram as *const () as usize, false), (error as *const () as usize, true)] {
                 let version = register(pc, 5);
-                HELPERS.with(|a| a.borrow_mut().insert("_dartforgeDatagrama".into(), pc));
+                HELPERS.with(|a| a.borrow_mut().insert("_dartforgeDatagram".into(), pc));
                 emitter.send_to(&[1, 2, 3], dest).unwrap();
                 let mut r = 0;
                 let limit = std::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -842,7 +842,7 @@ mod arc_port_tests {
                 }
                 dartforge_arc_take_return_owned_v1(pc as i64, version);
             }
-            HELPERS.with(|a| a.borrow_mut().remove("_dartforgeDatagrama"));
+            HELPERS.with(|a| a.borrow_mut().remove("_dartforgeDatagram"));
             dartforge_arc_release(socket); dartforge_arc_collect();
             HEAP.with(|h| { h.replace(previous); });
         }

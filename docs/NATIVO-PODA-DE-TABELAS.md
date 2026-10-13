@@ -198,9 +198,9 @@ primeira vez em que ele entrou:
 <entrada>	tabela	<tabela>	<seletor>	<primeira função viva que chamou o seletor>
 ```
 
-`tools/tamanho/por-que.py` segue a cadeia até a raiz ("quem puxou este método?") e soma, com o
+`tools/size/why.py` segue a cadeia até a raiz ("quem puxou este método?") e soma, com o
 mapa da ligação, os bytes por causa. `DARTFORGE_LINK_MAP=1` pede o mapa ao ligador
-(`<saída>.map`); `tools/tamanho/quebra.py` quebra o `.text` por biblioteca.
+(`<saída>.map`); `tools/size/breakdown.py` quebra o `.text` por biblioteca.
 
 `--timings` mostra a poda: tabelas vivas, pares vivos de quantos, tempo.
 
@@ -313,12 +313,12 @@ desliga.
 | `EN/driver.rs` | `montar` na ligação de produção; `--timings` |
 | `EN/ligador.rs`, `ligador_windows.rs`, `ligador_macos.rs` | `DARTFORGE_LINK_MAP` |
 | `corpus/native/81_poda_de_tabelas.dart` | o caso do teste de ausência |
-| `tools/tamanho/` | `quebra.py`, `por-que.py` |
+| `tools/size/` | `breakdown.py`, `why.py` |
 
 ## 6. Limites
 
 * Sem restrição pelo tipo do receptor: `toString` chamado em qualquer lugar mantém o `toString` de
   toda classe viva. A restrição do `crates/world` pede os tipos no resumo; fica para depois.
-* Os ajudantes `_dartforge*` são raízes por biblioteca: `_dartforgeIniciarIo` mantém o preparo do
+* Os ajudantes `_dartforge*` são raízes por biblioteca: `_dartforgeStartIo` mantém o preparo do
   `dart:io` em todo programa. Tirá-los pede saber quais o programa pode disparar.
 * As funções que só uma tabela podada citava continuam no bitcode do SDK; quem as tira é o LTO.

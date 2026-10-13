@@ -586,7 +586,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 // whose listener starts the chain of awaiters.
                 if ctx.stack_trace {
                     builder.stack_trace.token = ast_func.name.and_then(|n| ctx.line_and_column(unit, n.span.start));
-                    if crate::source::has_pragma(ctx.program, ctx.interner, f_idx, "dartforge:rastro-oculto") {
+                    if crate::source::has_pragma(ctx.program, ctx.interner, f_idx, "dartforge:hidden-frame") {
                         builder.stack_trace.marks |= crate::hir::stack_trace_marks::HIDDEN;
                     }
                     if name == "handleValue"

@@ -1,11 +1,13 @@
-//! Medição isolada dos metadados do módulo ARC real, sem heap nem coleta.
+//! Isolated measurement of the real ARC module's metadata, without a heap or
+//! collection.
 //!
-//! Oito páginas com 1.024 blocos cada; dez milhões de pares retain/release
-//! e consultas por rodada, em ordem permutada. O RC permanece em um: a fila
-//! de zeros não cresce e cada objeto vira candidato só uma vez.
-//! Compilar com `rustc --edition=2024 -O bench/arc/metadados.rs -o <exe>`.
-//! Fixar a afinidade do processo medidor e alternar versões antes/depois;
-//! desprezar a primeira rodada. Não representa o custo total do ARC no Dart.
+//! Eight pages with 1,024 blocks each; ten million retain/release pairs and
+//! queries per round, in permuted order. The RC stays at one: the zero queue
+//! does not grow and each object becomes a candidate only once.
+//! Compile with `rustc --edition=2024 -O bench/arc/metadata.rs -o <exe>`.
+//! Pin the affinity of the measuring process and alternate before/after
+//! versions; discard the first round. It does not represent the total cost of
+//! ARC in Dart.
 #![allow(dead_code)]
 
 #[path = "../../crates/runtime/src/arc.rs"]
@@ -19,15 +21,15 @@ use arc::{ArcHeapState, Geometry};
 use std::{hint::black_box, time::Instant};
 
 #[inline(never)]
-fn medir(arc: &mut ArcHeapState, handles: &[i64]) -> u64 {
-    let mut soma = 0;
+fn measure(arc: &mut ArcHeapState, handles: &[i64]) -> u64 {
+    let mut sum = 0;
     for i in 0..10_000_000usize {
         let h = black_box(handles[i.wrapping_mul(4099) & (handles.len() - 1)]);
         arc.retain_ref(h).unwrap();
         arc.release(h).unwrap();
-        soma += black_box(arc.meta(h).unwrap().rc);
+        sum += black_box(arc.meta(h).unwrap().rc);
     }
-    soma
+    sum
 }
 
 fn main() {
@@ -48,8 +50,8 @@ fn main() {
     }
     for _ in 0..6 {
         let t = Instant::now();
-        let soma = medir(&mut arc, black_box(&handles));
-        assert_eq!(soma, 10_000_000);
-        println!("{} {soma}", t.elapsed().as_micros());
+        let sum = measure(&mut arc, black_box(&handles));
+        assert_eq!(sum, 10_000_000);
+        println!("{} {sum}", t.elapsed().as_micros());
     }
 }

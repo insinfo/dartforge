@@ -1,8 +1,8 @@
-// Substitui `_internal/vm/bin/io_service_patch.dart` (sobreposição
-// `native_sdk/`): o arquivo da VM, igual, menos o pedido `sslProcessFilter`,
-// que o filtro TLS atende na thread do isolado (`secure_socket_patch.dart`,
-// `_SecureFilterImpl._processarPedido`): os anéis do filtro são `Uint8List`
-// do heap do isolado, que as threads do IOService não enxergam.
+// Replaces `_internal/vm/bin/io_service_patch.dart` (overlay `native_sdk/`):
+// the VM's file, unchanged, except for the `sslProcessFilter` request, which
+// the TLS filter serves on the isolate's thread (`secure_socket_patch.dart`,
+// `_SecureFilterImpl._processRequest`): the filter's rings are `Uint8List`s of
+// the isolate's heap, which the IOService threads do not see.
 
 // Copyright (c) 2013, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
@@ -25,7 +25,7 @@ class _IOService {
   @patch
   static Future<Object?> _dispatch(int request, List data) {
     if (request == _IOService.sslProcessFilter) {
-      return _SecureFilterImpl._processarPedido(data);
+      return _SecureFilterImpl._processRequest(data);
     }
     int id;
     do {

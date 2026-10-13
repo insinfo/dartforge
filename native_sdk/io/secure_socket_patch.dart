@@ -1,18 +1,18 @@
-// Substitui `_internal/vm/bin/secure_socket_patch.dart` (sobreposição
-// `native_sdk/`): as mesmas classes, com o estado nativo no runtime do
-// DartForge (`crates/runtime/src/tls.rs`, sobre o rustls) em vez do
-// BoringSSL da VM. O `secure_socket.dart` do SDK fica intacto:
+// Replaces `_internal/vm/bin/secure_socket_patch.dart` (overlay
+// `native_sdk/`): the same classes, with the native state in the DartForge
+// runtime (`crates/runtime/src/tls.rs`, over rustls) instead of the VM's
+// BoringSSL. The SDK's `secure_socket.dart` stays intact:
 //
-// * os quatro anéis do filtro são `Uint8List` do Dart (na VM, memória C
-//   externa) e o pedido `sslProcessFilter` do IOService é atendido na
-//   thread do isolado (`io_service_patch.dart`, `_processarPedido`), num
-//   evento seguinte do laço, como a resposta da porta do IOService: o filtro
-//   só faz criptografia em memória;
-// * o fim do handshake e o certificado a avaliar voltam como códigos do
-//   `_handshake` (a VM chama o `handshakeCompleteHandler` e posta na porta
-//   do avaliador de dentro do native);
-// * os natives com parâmetros nomeados da VM viram posicionais e devolvem o
-//   texto do erro, que o Dart lança como a `TlsException` da VM.
+// * the filter's four rings are Dart `Uint8List`s (on the VM, external C
+//   memory) and the IOService's `sslProcessFilter` request is served on the
+//   isolate's thread (`io_service_patch.dart`, `_processRequest`), in a later
+//   event of the loop, like the answer from the IOService port: the filter
+//   only does in-memory cryptography;
+// * the end of the handshake and the certificate to evaluate come back as
+//   codes of `_handshake` (the VM calls the `handshakeCompleteHandler` and
+//   posts to the evaluator's port from inside the native);
+// * the VM's natives with named parameters become positional and return the
+//   error text, which Dart throws as the VM's `TlsException`.
 
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
@@ -66,25 +66,25 @@ class _SecureSocket extends _Socket implements SecureSocket {
   }
 }
 
-/// O filtro de um `RawSecureSocket`: a conexão TLS nativa e os quatro anéis
-/// que o `secure_socket.dart` enche e esvazia.
+/// The filter of a `RawSecureSocket`: the native TLS connection and the four
+/// rings that `secure_socket.dart` fills and drains.
 @pragma("vm:entry-point")
 base class _SecureFilterImpl extends NativeFieldWrapperClass1
     implements _SecureFilter {
-  // Os tamanhos da VM: um anel cheio de texto cabe no anel cifrado.
+  // The VM's sizes: a ring full of plaintext fits in the encrypted ring.
   @pragma("vm:entry-point")
   static final int SIZE = 8 * 1024;
   @pragma("vm:entry-point")
   static final int ENCRYPTED_SIZE = 10 * 1024;
 
-  /// Os filtros vivos pelo identificador que `_pointer()` entrega ao
-  /// pedido `sslProcessFilter`.
-  static final Map<int, _SecureFilterImpl> _filtros = <int, _SecureFilterImpl>{};
-  static int _proximoId = 1;
+  /// The live filters by the identifier that `_pointer()` hands to the
+  /// `sslProcessFilter` request.
+  static final Map<int, _SecureFilterImpl> _filters = <int, _SecureFilterImpl>{};
+  static int _nextId = 1;
 
   int _id = 0;
-  bool _servidor = false;
-  Function? _aoCompletarHandshake;
+  bool _server = false;
+  Function? _onHandshakeComplete;
 
   _SecureFilterImpl._() {
     buffers = <_ExternalBuffer>[
@@ -97,9 +97,9 @@ base class _SecureFilterImpl extends NativeFieldWrapperClass1
   }
 
   void init() {
-    _novo();
-    _id = _proximoId++;
-    _filtros[_id] = this;
+    _create();
+    _id = _nextId++;
+    _filters[_id] = this;
   }
 
   void connect(
@@ -109,103 +109,103 @@ base class _SecureFilterImpl extends NativeFieldWrapperClass1
       bool requestClientCertificate,
       bool requireClientCertificate,
       Uint8List protocols) {
-    _servidor = isServer;
-    final erro = _conectar(hostName, context, isServer,
+    _server = isServer;
+    final error = _connect(hostName, context, isServer,
         requestClientCertificate, requireClientCertificate, protocols);
-    if (erro != null) {
-      throw new TlsException("Failure in connect", new OSError(erro));
+    if (error != null) {
+      throw new TlsException("Failure in connect", new OSError(error));
     }
   }
 
   void destroy() {
     buffers = null;
-    _filtros.remove(_id);
-    _destruir();
+    _filters.remove(_id);
+    _destroy();
   }
 
   Future<bool> handshake() {
-    final estado = _handshake();
-    if (estado < 0) {
+    final state = _handshake();
+    if (state < 0) {
       throw new HandshakeException(
-          "Handshake error in ${_servidor ? 'server' : 'client'}",
-          new OSError(_erro() ?? ""));
+          "Handshake error in ${_server ? 'server' : 'client'}",
+          new OSError(_errorNative() ?? ""));
     }
-    if (estado == 1) {
-      _aoCompletarHandshake!();
+    if (state == 1) {
+      _onHandshakeComplete!();
       return new Future<bool>.value(false);
     }
     const int kSslErrorWantCertificateVerify = 16; // ssl.h:558
-    if (estado != kSslErrorWantCertificateVerify) {
+    if (state != kSslErrorWantCertificateVerify) {
       return new Future<bool>.value(false);
     }
-    // O avaliador da VM responde por uma porta; a decisão chega num evento
-    // seguinte, e o `onBadCertificate` roda fora do handshake.
-    final avaliacao = new Completer<bool>();
+    // The VM's evaluator answers through a port; the decision arrives in a later
+    // event, and `onBadCertificate` runs outside the handshake.
+    final evaluation = new Completer<bool>();
     Timer.run(() {
-      final certificado =
-          new _X509CertificateImpl._adotar(_certificadoPendente());
-      bool confiavel = false;
+      final certificate =
+          new _X509CertificateImpl._adopt(_pendingCertificate());
+      bool trusted = false;
       final callback = badCertificateCallback;
       if (callback != null) {
         try {
-          confiavel = callback(certificado);
+          trusted = callback(certificate);
         } catch (e, st) {
-          avaliacao.completeError(e, st);
+          evaluation.completeError(e, st);
           return;
         }
       }
-      _decidir(confiavel);
-      avaliacao.complete(true);
+      _decide(trusted);
+      evaluation.complete(true);
     });
-    return avaliacao.future;
+    return evaluation.future;
   }
 
   void rehandshake() => throw new UnimplementedError();
 
   int processBuffer(int bufferIndex) => throw new UnimplementedError();
 
-  /// O pedido `sslProcessFilter` (`_pushAllFilterStages`):
-  /// `[filtro, emHandshake, início0, fim0, …, início3, fim3]` → as posições
-  /// novas, ou `[código, mensagem]`.
+  /// The `sslProcessFilter` request (`_pushAllFilterStages`):
+  /// `[filter, inHandshake, start0, end0, …, start3, end3]` → the new positions,
+  /// or `[code, message]`.
   ///
-  /// Como a resposta do IOService da VM, que chega por uma porta, a resposta
-  /// vem num evento seguinte do laço (`Future` de um `Timer`), nunca numa
-  /// microtarefa: o laço do `_tryFilter` cede a vez a cada passo, e os
-  /// eventos de E/S e os timers dos outros soquetes (o fim do handshake do
-  /// servidor no mesmo isolado, por exemplo) andam.
-  static Future<Object?> _processarPedido(List dados) =>
-      new Future<Object?>(() => _processarAgora(dados));
+  /// Like the answer of the VM's IOService, which arrives through a port, the
+  /// answer comes in a later event of the loop (a `Timer`'s `Future`), never in
+  /// a microtask: the `_tryFilter` loop yields at each step, and the I/O events
+  /// and timers of the other sockets (the end of the server handshake in the
+  /// same isolate, for example) move on.
+  static Future<Object?> _processRequest(List dataArg) =>
+      new Future<Object?>(() => _processNow(dataArg));
 
-  static Object? _processarAgora(List dados) {
-    final filtro = _filtros[dados[0] as int];
-    final buffers = filtro?.buffers;
-    if (filtro == null || buffers == null) {
-      // Destruído com o pedido em voo: nada muda.
-      return <Object?>[for (int i = 2; i < dados.length; i++) dados[i]];
+  static Object? _processNow(List dataArg) {
+    final filter = _filters[dataArg[0] as int];
+    final buffers = filter?.buffers;
+    if (filter == null || buffers == null) {
+      // Destroyed with the request in flight: nothing changes.
+      return <Object?>[for (int i = 2; i < dataArg.length; i++) dataArg[i]];
     }
-    final posicoes = new Int64List(8);
+    final positions = new Int64List(8);
     for (int i = 0; i < 8; i++) {
-      posicoes[i] = dados[i + 2] as int;
+      positions[i] = dataArg[i + 2] as int;
     }
-    final codigo = filtro._processar(
-        dados[1] as bool,
+    final code = filter._process(
+        dataArg[1] as bool,
         buffers[0].data as Uint8List,
         buffers[1].data as Uint8List,
         buffers[2].data as Uint8List,
         buffers[3].data as Uint8List,
-        posicoes);
-    filtro._despejarChaves();
-    if (codigo != 0) {
-      return <Object?>[codigo, filtro._erro()];
+        positions);
+    filter._dumpKeys();
+    if (code != 0) {
+      return <Object?>[code, filter._errorNative()];
     }
-    return <Object?>[...posicoes];
+    return <Object?>[...positions];
   }
 
-  String? selectedProtocol() => _protocolo();
+  String? selectedProtocol() => _protocolNative();
 
   X509Certificate? get peerCertificate {
-    final p = _certificadoDoPar();
-    return p == 0 ? null : new _X509CertificateImpl._adotar(p);
+    final p = _peerCertificate();
+    return p == 0 ? null : new _X509CertificateImpl._adopt(p);
   }
 
   bool Function(X509Certificate)? badCertificateCallback;
@@ -215,24 +215,24 @@ base class _SecureFilterImpl extends NativeFieldWrapperClass1
   }
 
   void registerHandshakeCompleteCallback(Function handshakeCompleteHandler) {
-    _aoCompletarHandshake = handshakeCompleteHandler;
+    _onHandshakeComplete = handshakeCompleteHandler;
   }
 
-  SendPort? _portaDeChaves;
+  SendPort? _keyPort;
 
   void registerKeyLogPort(SendPort port) {
-    _portaDeChaves = port;
-    _registrarChaves();
+    _keyPort = port;
+    _registerKeys();
   }
 
-  /// Leva as linhas do `keyLog` registradas pelo rustls à porta.
-  void _despejarChaves() {
-    final porta = _portaDeChaves;
-    if (porta == null) return;
-    final linhas = _chavesPendentes();
-    if (linhas == null) return;
-    for (final linha in linhas.split("\n")) {
-      porta.send(linha);
+  /// Sends the `keyLog` lines registered by rustls to the port.
+  void _dumpKeys() {
+    final portArg = _keyPort;
+    if (portArg == null) return;
+    final lines = _pendingKeys();
+    if (lines == null) return;
+    for (final line in lines.split("\n")) {
+      portArg.send(line);
     }
   }
 
@@ -242,32 +242,32 @@ base class _SecureFilterImpl extends NativeFieldWrapperClass1
   List<_ExternalBuffer>? buffers;
 
   @pragma("vm:external-name", "DartForge_tls_filter_new")
-  external void _novo();
+  external void _create();
   @pragma("vm:external-name", "DartForge_tls_filter_connect")
-  external String? _conectar(String host, SecurityContext contexto,
-      bool servidor, bool pedir, bool exigir, Uint8List protocolos);
+  external String? _connect(String host, SecurityContext ctx,
+      bool asServer, bool request, bool require, Uint8List protocolList);
   @pragma("vm:external-name", "DartForge_tls_filter_destroy")
-  external void _destruir();
+  external void _destroy();
   @pragma("vm:external-name", "DartForge_tls_filter_handshake")
   external int _handshake();
   @pragma("vm:external-name", "DartForge_tls_filter_error")
-  external String? _erro();
+  external String? _errorNative();
   @pragma("vm:external-name", "DartForge_tls_filter_pending_certificate")
-  external int _certificadoPendente();
+  external int _pendingCertificate();
   @pragma("vm:external-name", "DartForge_tls_filter_decide")
-  external void _decidir(bool confiavel);
+  external void _decide(bool trusted);
   @pragma("vm:external-name", "DartForge_tls_filter_protocol")
-  external String? _protocolo();
+  external String? _protocolNative();
   @pragma("vm:external-name", "DartForge_tls_filter_peer_certificate")
-  external int _certificadoDoPar();
+  external int _peerCertificate();
   @pragma("vm:external-name", "DartForge_tls_filter_register_keys")
-  external void _registrarChaves();
+  external void _registerKeys();
   @pragma("vm:external-name", "DartForge_tls_filter_pending_keys")
-  external String? _chavesPendentes();
+  external String? _pendingKeys();
   @pragma("vm:external-name", "DartForge_tls_filter_process")
-  external int _processar(bool emHandshake, Uint8List textoLido,
-      Uint8List textoAEscrever, Uint8List cifradoLido,
-      Uint8List cifradoAEscrever, Int64List posicoes);
+  external int _process(bool inHandshake, Uint8List textRead,
+      Uint8List textToWrite, Uint8List encryptedRead,
+      Uint8List encryptedToWrite, Int64List positions);
 }
 
 @patch
@@ -298,9 +298,9 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   }
 
   set allowLegacyUnsafeRenegotiation(bool allow) {
-    // O rustls não renegocia; o valor só é guardado. Um pedido de
-    // renegociação do servidor é recusado com ou sem a opção (sem ela, como a
-    // VM); `tls_renegociacao.dart` em crates/cli/tests.
+    // rustls does not renegotiate; the value is only kept. A renegotiation request
+    // from the server is refused with or without the option (without it, like the
+    // VM); `tls_renegociacao.dart` in crates/cli/tests.
     _allowLegacyUnsafeRenegotiation = allow;
   }
 
@@ -319,9 +319,9 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   static Uint8List _bytes(List<int> b) =>
       b is Uint8List ? b : new Uint8List.fromList(b);
 
-  static void _verificar(String operacao, String? erro) {
-    if (erro != null) {
-      throw new TlsException("Failure in $operacao", new OSError(erro));
+  static void _verify(String operation, String? error) {
+    if (error != null) {
+      throw new TlsException("Failure in $operation", new OSError(error));
     }
   }
 
@@ -331,9 +331,9 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   }
 
   void usePrivateKeyBytes(List<int> keyBytes, {String? password}) {
-    // Como a VM: sem chave nos bytes (PEM, PEM cifrado, PKCS#12, senha
-    // errada), `ArgumentError`, não `TlsException`.
-    if (!_usarChave(_bytes(keyBytes), password ?? "")) {
+    // Like the VM: no key in the bytes (PEM, encrypted PEM, PKCS#12, wrong
+    // password), `ArgumentError`, not `TlsException`.
+    if (!_useKey(_bytes(keyBytes), password ?? "")) {
       throw new ArgumentError("Expected private key, but none was found");
     }
   }
@@ -344,11 +344,11 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   }
 
   void setTrustedCertificatesBytes(List<int> certBytes, {String? password}) {
-    // A mensagem é a da VM (`security_context.cc` usa o texto das raízes
-    // embutidas também aqui).
-    final erro = _confiar(_bytes(certBytes), password ?? "");
-    if (erro != null) {
-      throw new TlsException("Failure trusting builtin roots", new OSError(erro));
+    // The message is the VM's (`security_context.cc` uses the text of the
+    // built-in roots here too).
+    final error = _trust(_bytes(certBytes), password ?? "");
+    if (error != null) {
+      throw new TlsException("Failure trusting builtin roots", new OSError(error));
     }
   }
 
@@ -358,8 +358,8 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   }
 
   void useCertificateChainBytes(List<int> chainBytes, {String? password}) {
-    _verificar("useCertificateChainBytes",
-        _usarCadeia(_bytes(chainBytes), password ?? ""));
+    _verify("useCertificateChainBytes",
+        _useChain(_bytes(chainBytes), password ?? ""));
   }
 
   void setClientAuthorities(String file, {String? password}) {
@@ -368,8 +368,8 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   }
 
   void setClientAuthoritiesBytes(List<int> authCertBytes, {String? password}) {
-    _verificar("setClientAuthoritiesBytes",
-        _usarAutoridades(_bytes(authCertBytes), password ?? ""));
+    _verify("setClientAuthoritiesBytes",
+        _useAuthorities(_bytes(authCertBytes), password ?? ""));
   }
 
   void setAlpnProtocols(List<String> protocols, bool isServer) {
@@ -381,13 +381,13 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   @pragma("vm:external-name", "DartForge_tls_context_new")
   external void _createNativeContext();
   @pragma("vm:external-name", "DartForge_tls_context_key")
-  external bool _usarChave(Uint8List bytes, String senha);
+  external bool _useKey(Uint8List bytes, String pass);
   @pragma("vm:external-name", "DartForge_tls_context_trusted")
-  external String? _confiar(Uint8List bytes, String senha);
+  external String? _trust(Uint8List bytes, String pass);
   @pragma("vm:external-name", "DartForge_tls_context_chain")
-  external String? _usarCadeia(Uint8List bytes, String senha);
+  external String? _useChain(Uint8List bytes, String pass);
   @pragma("vm:external-name", "DartForge_tls_context_authorities")
-  external String? _usarAutoridades(Uint8List bytes, String senha);
+  external String? _useAuthorities(Uint8List bytes, String pass);
   @pragma("vm:external-name", "DartForge_tls_context_alpn")
   external void _setAlpnProtocols(Uint8List protocols, bool isServer);
   @pragma("vm:external-name", "DartForge_tls_context_builtin_roots")
@@ -398,16 +398,16 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   external int _getMinimumProtocolVersion();
 }
 
-/// Um certificado X.509 (o DER no campo nativo).
+/// An X.509 certificate (the DER in the native field).
 base class _X509CertificateImpl extends NativeFieldWrapperClass1
     implements X509Certificate {
   _X509CertificateImpl._();
 
-  /// O certificado do ponteiro que um native entregou (com uma referência
-  /// para este objeto).
-  factory _X509CertificateImpl._adotar(int ponteiro) {
+  /// The certificate of the pointer a native handed over (with a reference to
+  /// this object).
+  factory _X509CertificateImpl._adopt(int pointer) {
     final c = new _X509CertificateImpl._();
-    c._fixar(ponteiro);
+    c._pin(pointer);
     return c;
   }
 
@@ -415,17 +415,17 @@ base class _X509CertificateImpl extends NativeFieldWrapperClass1
   late final String pem = _pem();
   late final Uint8List sha1 = _sha1();
 
-  String get subject => _sujeito();
-  String get issuer => _emissor();
+  String get subject => _subject();
+  String get issuer => _issuer();
 
   DateTime get startValidity =>
-      new DateTime.fromMillisecondsSinceEpoch(_inicio(), isUtc: true);
+      new DateTime.fromMillisecondsSinceEpoch(_start(), isUtc: true);
 
   DateTime get endValidity =>
-      new DateTime.fromMillisecondsSinceEpoch(_fim(), isUtc: true);
+      new DateTime.fromMillisecondsSinceEpoch(_end(), isUtc: true);
 
   @pragma("vm:external-name", "DartForge_tls_x509_adopt")
-  external void _fixar(int ponteiro);
+  external void _pin(int pointer);
   @pragma("vm:external-name", "DartForge_tls_x509_der")
   external Uint8List _der();
   @pragma("vm:external-name", "DartForge_tls_x509_pem")
@@ -433,11 +433,11 @@ base class _X509CertificateImpl extends NativeFieldWrapperClass1
   @pragma("vm:external-name", "DartForge_tls_x509_sha1")
   external Uint8List _sha1();
   @pragma("vm:external-name", "DartForge_tls_x509_subject")
-  external String _sujeito();
+  external String _subject();
   @pragma("vm:external-name", "DartForge_tls_x509_issuer")
-  external String _emissor();
+  external String _issuer();
   @pragma("vm:external-name", "DartForge_tls_x509_start")
-  external int _inicio();
+  external int _start();
   @pragma("vm:external-name", "DartForge_tls_x509_end")
-  external int _fim();
+  external int _end();
 }

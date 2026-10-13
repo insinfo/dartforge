@@ -497,7 +497,7 @@ pub unsafe extern "C" fn dartforge_arc_ffi_callback_closure_owned_v1(ctx: i64) -
 
 /// The `Pointer<X>` of argument `i` under ARC, with a code owner.
 ///
-/// The Dart helper `_dartforgePonteiro` runs inside a native scope: the token of
+/// The Dart helper `_dartforgePointer` runs inside a native scope: the token of
 /// the Owned port's return stays in it and is copied into the caller's owner
 /// before closing. An exception from the helper stays pending and the result is
 /// null, without an owner. May allocate, collect and run Dart.

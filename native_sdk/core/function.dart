@@ -13,8 +13,8 @@ final class _Closure implements Function {
   @pragma("vm:external-name", "Closure_equals")
   external bool operator ==(Object other);
 
-  // DartForge: o hash é calculado (coerente com `==`: a função e o
-  // receptor do tear-off), sem o cache em `_hash` da VM.
+  // DartForge: the hash is computed (consistent with `==`: the function and the
+  // tear-off's receiver), without the VM's cache in `_hash`.
   int get hashCode {
     return _computeHash();
   }
@@ -25,18 +25,18 @@ final class _Closure implements Function {
   @pragma("vm:external-name", "Closure_computeHash")
   external int _computeHash();
 
-  // DartForge (docs/NATIVO-ESPACO-UNIFICADO.md §2.5): os campos na ordem do
-  // bloco que o runtime e o código gerado criam (`_Closure`, cid 11,
-  // `INSTANCIA` de quatro campos). O Dart não os lê nem grava: `==` e
-  // `hashCode` precisam do receptor guardado no `_Contexto`, e ficam nos
-  // natives. A instância nasce só no runtime/código gerado, nunca por
-  // construtor.
+  // DartForge (docs/NATIVO-ESPACO-UNIFICADO.md §2.5): the fields in the order of
+  // the block the runtime and the generated code create (`_Closure`, cid 11, an
+  // `INSTANCE` of four fields). Dart neither reads nor writes them: `==` and
+  // `hashCode` need the receiver kept in the `_Contexto`, and stay in the
+  // natives. The instance is only born in the runtime/generated code, never
+  // through a constructor.
   @pragma("vm:entry-point")
-  int _codigo = 0;
+  int _code = 0;
   @pragma("vm:entry-point")
-  Object? _contexto;
+  Object? _context;
   @pragma("vm:entry-point")
-  int _tipado = 0;
+  int _typed = 0;
   @pragma("vm:entry-point")
   int _abi = 0;
 }

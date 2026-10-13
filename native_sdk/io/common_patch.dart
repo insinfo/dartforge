@@ -1,9 +1,9 @@
-// Substitui `_internal/vm/bin/common_patch.dart` (sobreposição `native_sdk/`):
-// o arquivo da VM, igual, mais as funções `_dartforge*` que o runtime do
-// DartForge chama para construir objetos do `dart:io` (a VM os constrói
-// pela API C, `DartUtils::NewDartOSError`, `SyncDirectoryListing`…). O
-// registro da biblioteca entrega os endereços ao runtime
-// (`dartforge_register_helper`); os natives estão em
+// Replaces `_internal/vm/bin/common_patch.dart` (overlay `native_sdk/`): the
+// VM's file, unchanged, plus the `_dartforge*` functions the DartForge runtime
+// calls to build `dart:io` objects (the VM builds them through the C API,
+// `DartUtils::NewDartOSError`, `SyncDirectoryListing`…). The library's
+// registration hands the addresses to the runtime
+// (`dartforge_register_helper`); the natives are in
 // `crates/runtime/src/io_*.rs`.
 
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
@@ -72,95 +72,95 @@ _setupHooks() {
 }
 
 // ---------------------------------------------------------------------------
-// DartForge: construtores que o runtime chama.
+// DartForge: constructors the runtime calls.
 
-/// O `OSError` de um native (`DartUtils::NewDartOSError`).
+/// The `OSError` of a native (`DartUtils::NewDartOSError`).
 @pragma("vm:entry-point")
 OSError _dartforgeOSError(String message, int errorCode) =>
     new OSError(message, errorCode);
 
-/// Uma entrada da listagem síncrona (`SyncDirectoryListing::HandleFile`,
-/// `HandleDirectory`, `HandleLink`): o tipo é o `ListType` da VM
-/// (0 arquivo, 1 diretório, 2 link) e o caminho vai em bytes, sem
-/// decodificar, como no `fromRawPath` da VM.
+/// An entry of the synchronous listing (`SyncDirectoryListing::HandleFile`,
+/// `HandleDirectory`, `HandleLink`): the kind is the VM's `ListType`
+/// (0 file, 1 directory, 2 link) and the path comes as bytes, undecoded, as in
+/// the VM's `fromRawPath`.
 @pragma("vm:entry-point")
-void _dartforgeEntradaDeListagem(
-    List<FileSystemEntity> lista, int tipo, Uint8List caminho) {
-  switch (tipo) {
+void _dartforgeListingEntry(
+    List<FileSystemEntity> list, int kind, Uint8List path) {
+  switch (kind) {
     case 0:
-      lista.add(new File.fromRawPath(caminho));
+      list.add(new File.fromRawPath(path));
     case 1:
-      lista.add(new Directory.fromRawPath(caminho));
+      list.add(new Directory.fromRawPath(path));
     default:
-      lista.add(new Link.fromRawPath(caminho));
+      list.add(new Link.fromRawPath(path));
   }
 }
 
-/// O erro da listagem síncrona (`SyncDirectoryListing::HandleError`).
+/// The error of the synchronous listing (`SyncDirectoryListing::HandleError`).
 @pragma("vm:entry-point")
-Object _dartforgeErroDeListagem(OSError erro, String caminho) =>
+Object _dartforgeListingError(OSError error, String path) =>
     new FileSystemException._fromOSError(
-        erro, "Directory listing failed", caminho);
+        error, "Directory listing failed", path);
 
-/// O preparo de `dart:io` que o embedder da VM faz antes do `main`
-/// (`DartUtils::SetupIOLibrary`): o script do programa. Devolve o gancho de
-/// `Uri.base` (`_getUriBaseClosure`), que o runtime instala em `dart:core`.
+/// The `dart:io` setup the VM's embedder does before `main`
+/// (`DartUtils::SetupIOLibrary`): the program's script. Returns the
+/// `Uri.base` hook (`_getUriBaseClosure`), which the runtime installs in `dart:core`.
 @pragma("vm:entry-point")
-Object _dartforgeIniciarIo(String script) {
+Object _dartforgeStartIo(String script) {
   _Platform._nativeScript = script;
   return _getUriBaseClosure();
 }
 
-/// O erro de início de um processo no `_ProcessStartStatus` (o
-/// `Dart_SetField` de `Process_Start`).
+/// The start error of a process in the `_ProcessStartStatus` (the
+/// `Dart_SetField` of `Process_Start`).
 @pragma("vm:entry-point")
-void _dartforgeFalhaAoIniciar(
-    _ProcessStartStatus status, int codigo, String mensagem) {
-  status._errorCode = codigo;
-  status._errorMessage = mensagem;
+void _dartforgeStartFailure(
+    _ProcessStartStatus status, int code, String controlMessage) {
+  status._errorCode = code;
+  status._errorMessage = controlMessage;
 }
 
-/// O `Datagram` que `Socket_RecvFrom` devolve (a VM chama `_makeDatagram`).
+/// The `Datagram` that `Socket_RecvFrom` returns (the VM calls `_makeDatagram`).
 @pragma("vm:entry-point")
-Datagram _dartforgeDatagrama(
-        Uint8List dados, String endereco, Uint8List bruto, int porta, int tipo) =>
-    _makeDatagram(dados, endereco, bruto, porta, tipo);
+Datagram _dartforgeDatagram(
+        Uint8List payload, String address, Uint8List raw, int port, int kind) =>
+    _makeDatagram(payload, address, raw, port, kind);
 
 // ---------------------------------------------------------------------------
-// DartForge: as mensagens de controle e os recursos passados por soquete
-// (`SocketControlMessage`, `ResourceHandle`, N04). O runtime faz o
-// `sendmsg`/`recvmsg`; estes montam os objetos Dart (a VM os monta com a
-// API de embutir). `nivel`/`tipo` são o `SOL_SOCKET`/`SCM_RIGHTS` do sistema.
+// DartForge: the control messages and the resources passed through a socket
+// (`SocketControlMessage`, `ResourceHandle`, N04). The runtime does the
+// `sendmsg`/`recvmsg`; these build the Dart objects (the VM builds them with
+// the embedding API). `cmsgLevel`/`kind` are the system's `SOL_SOCKET`/`SCM_RIGHTS`.
 
-/// `SocketControlMessage.fromHandles`: os descritores como `int32` do
-/// sistema, na ordem.
+/// `SocketControlMessage.fromHandles`: the descriptors as system `int32`s, in
+/// order.
 @pragma("vm:entry-point")
-Object _dartforgeMensagemDeRecursos(List<ResourceHandle> recursos, int nivel, int tipo) {
-  final dados = Uint8List(recursos.length * 4);
-  final bd = ByteData.sublistView(dados);
-  for (var i = 0; i < recursos.length; i++) {
-    bd.setInt32(i * 4, (recursos[i] as _ResourceHandleImpl)._handle, Endian.host);
+Object _dartforgeResourcesMessage(List<ResourceHandle> resources, int cmsgLevel, int kind) {
+  final payload = Uint8List(resources.length * 4);
+  final bd = ByteData.sublistView(payload);
+  for (var i = 0; i < resources.length; i++) {
+    bd.setInt32(i * 4, (resources[i] as _ResourceHandleImpl)._handle, Endian.host);
   }
-  return _SocketControlMessageImpl(nivel, tipo, dados);
+  return _SocketControlMessageImpl(cmsgLevel, kind, payload);
 }
 
-/// `_SocketControlMessageImpl.extractHandles`: os descritores de uma
-/// mensagem `SCM_RIGHTS`; outra mensagem não tem recursos.
+/// `_SocketControlMessageImpl.extractHandles`: the descriptors of an
+/// `SCM_RIGHTS` message; another message has no resources.
 @pragma("vm:entry-point")
-List<ResourceHandle> _dartforgeRecursosDaMensagem(Object m, int nivel, int tipo) {
+List<ResourceHandle> _dartforgeMessageResources(Object m, int cmsgLevel, int kind) {
   final msg = m as _SocketControlMessageImpl;
-  if (msg.level != nivel || msg.type != tipo) return <ResourceHandle>[];
+  if (msg.level != cmsgLevel || msg.type != kind) return <ResourceHandle>[];
   final bd = ByteData.sublistView(msg.data);
   return <ResourceHandle>[
     for (var i = 0; i + 4 <= msg.data.length; i += 4) _ResourceHandleImpl(bd.getInt32(i, Endian.host)),
   ];
 }
 
-/// O descritor de um `ResourceHandle`.
+/// The descriptor of a `ResourceHandle`.
 @pragma("vm:entry-point")
-int _dartforgeDescritorDoRecurso(Object recurso) => (recurso as _ResourceHandleImpl)._handle;
+int _dartforgeResourceDescriptor(Object resource) => (resource as _ResourceHandleImpl)._handle;
 
-/// `ResourceHandleImpl_toFile`: o arquivo do ponteiro que o runtime abriu
-/// sobre o descritor.
+/// `ResourceHandleImpl_toFile`: the file of the pointer the runtime opened over
+/// the descriptor.
 @pragma("vm:entry-point")
-RandomAccessFile _dartforgeArquivoDoRecurso(int ponteiro) => _RandomAccessFile(ponteiro, "");
+RandomAccessFile _dartforgeResourceFile(int pointer) => _RandomAccessFile(pointer, "");

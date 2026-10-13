@@ -348,7 +348,7 @@ pub extern "C" fn dartforge_native_Directory_FillWithDirectoryListing(
     recursive: u8,
     follow_links_flag: u8,
 ) {
-    let (Some(input), Some(error)) = (helper("_dartforgeEntradaDeListagem"), helper("_dartforgeErroDeListagem")) else {
+    let (Some(input), Some(error)) = (helper("_dartforgeListingEntry"), helper("_dartforgeListingError")) else {
         panic!("compiler bug: dart:io without the overlay's listing functions");
     };
     // SAFETY: registered by the overlay's `dart:io` library with these

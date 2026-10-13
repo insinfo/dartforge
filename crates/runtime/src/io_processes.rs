@@ -59,8 +59,8 @@ fn list_strings(list: i64) -> Option<Vec<Vec<u8>>> {
 /// Writes the start error into the `_ProcessStartStatus` (the VM's
 /// `Dart_SetField`), through the overlay's function.
 fn start_failure(status: i64, code: i64, message: &str) {
-    let Some(f) = helper("_dartforgeFalhaAoIniciar") else {
-        panic!("compiler bug: dart:io without a registered `_dartforgeFalhaAoIniciar`");
+    let Some(f) = helper("_dartforgeStartFailure") else {
+        panic!("compiler bug: dart:io without a registered `_dartforgeStartFailure`");
     };
     // SAFETY: registered by the `dart:io` overlay with the signature
     // (`_ProcessStartStatus`, `int`, `String`) → `void`.

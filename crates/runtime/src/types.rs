@@ -1592,7 +1592,7 @@ pub extern "C" fn dartforge_arc_rti_string_owned_v1(t: i64) -> i64 {
 /// `TypeError` with the message. In the source SDK, the exception must be the real
 /// `_TypeError` class for `e is TypeError` and `toString` dispatch.
 fn dartforge_type_error_with_message(message: i64) -> i64 {
-    if let Some(f) = helper("_dartforgeErroDeTipo") {
+    if let Some(f) = helper("_dartforgeTypeError") {
         // SAFETY: the helper registered by `dart:core` receives a String and
         // returns the concrete `_TypeError` instance.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };

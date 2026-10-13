@@ -714,3 +714,73 @@ já são `--all --summary --map` e `--section --groups --symbols`).
 | `verificar-poda-js.ps1` | `verify-js-pruning.ps1` |
 | `verificar-recarga.mjs` | `verify-reload.mjs` |
 | `dados/efeitos-runtime/efeitos.tsv` | `data/runtime-effects/effects.tsv` |
+
+## Pacotes Dart, SDK nativo, ferramentas e bench (fase 4)
+
+Sem aliases: os nomes antigos deixam de existir.
+
+### `packages/build_executor`
+
+| antes | depois |
+|---|---|
+| `lib/src/canal.dart` (`Canal`, `CanalStdio`; `entrada`, `enviar`, `fechar`) | `lib/src/channel.dart` (`Channel`, `StdioChannel`; `input`, `send`, `close`) |
+| `lib/src/servico.dart` (`servir`, `FabricaDeBuilder`, `protocolo`, `versaoDoExecutor`) | `lib/src/service.dart` (`serve`, `BuilderFactory`, `protocol`, `executorVersion`) |
+| bootstrap gerado: `_df.servir({…})` | `_df.serve({…})` |
+
+### `packages/macros` (lado do executor) e `packages/macros_builder`
+
+| antes | depois |
+|---|---|
+| `executor/canal_stdio.dart` (`CanalStdio`) | `executor/stdio_channel.dart` (`StdioChannel`) |
+| `executor/servico.dart` (`servir`, `Canal`, `FabricaDeMacro`, `argumentoDeJson`, `interfacesDe`) | `executor/service.dart` (`serve`, `Channel`, `MacroFactory`, `argumentFromJson`, `interfacesOf`) |
+| `executor/executar.dart` (`Fase {tipos, declaracoes, definicoes}`, `executarFase`) | `executor/execute.dart` (`Phase {types, declarations, definitions}`, `executePhase`) |
+| `executor/modelo.dart` (`Modelo`, `Hospedeiro`, `ErroDoHospedeiro`, `IdentificadorImpl`, `AnotacaoImpl`, `TipoNomeadoImpl`, `DeclaracaoImpl`, `ClasseImpl`, `CampoImpl`, `MetodoImpl`, `ConstrutorImpl`, `TipoEstaticoImpl`, `ExcecaoDeImplementacao`/`DeCiclo`/`Inesperada`, `codigoParaJson`, `codigoDeJson`) | `executor/model.dart` (`Model`, `Host`, `HostError`, `IdentifierImpl`, `TypeAnnotationImpl`, `NamedTypeImpl`, `DeclarationImpl`, `ClassImpl`, `FieldImpl`, `MethodImpl`, `ConstructorImpl`, `StaticTypeImpl`, `ImplementationException`/`CycleException`/`UnexpectedException`, `codeToJson`, `codeFromJson`) |
+| `executor/resultado.dart` (`Resultado.paraJson`, `ConstrutorDe*`, `augmentacaoDeFuncao`, `augmentacoesDeVariavel`) | `executor/result.dart` (`Result.toJson`, `*BuilderImpl`, `functionAugmentation`, `variableAugmentations`) |
+| `executor/montagem.dart` (`montarAugmentation`, `ResolvedorMontagem`, `IdentificadorResolvido`, `TipoAumentado`, `TipoDeIdentificador {topo, estatico, instancia, local}`) | `executor/assembly.dart` (`assembleAugmentation`, `AssemblyResolver`, `ResolvedIdentifier`, `AugmentedType`, `IdentifierKind {topLevel, staticMember, instanceMember, local}`) |
+| `test/montagem.dart`, `test/montagem_cfe.dart` | `test/assembly.dart`, `test/assembly_cfe.dart` |
+| `macros_builder/lib/src/consultas_definicoes.dart`, `membros_gerados.dart`, `modelo_analyzer.dart` (`modeloDaClasse`), `resolvedor_montagem_analyzer.dart`, `resolver_identificadores.dart`, `tabela_identificadores.dart` | `definition_queries.dart`, `generated_members.dart`, `analyzer_model.dart` (`classModel`), `analyzer_assembly_resolver.dart`, `identifier_resolver.dart`, `identifier_table.dart` |
+| saídas do builder (`.macro_uses.json`…): `versao, aplicacoes, resultados, alvo, resultado, execucao, modelo, biblioteca, classe, construtor, modelo_indisponivel` | `version, applications, results, target, result, execution, model, library, class, constructor, model_unavailable` |
+
+### Esquema `macro.*` (modelo, resultado, argumentos)
+
+| antes | depois |
+|---|---|
+| chaves do modelo `nome, tipo, nomeado(s), posicionais, obrigatorio, retorno, limite, anulavel, chave, versao, dono, superclasse, restricoes, sobre, representacao, estilo, corpo, operador, inicializador, construtor, declaracao, texto` | `name, type, named, positional, required, return, bound, nullable, key, version, owner, superclass, constraints, on, representation, style, body, operator, initializer, constructor, declaration, text` |
+| `bibliotecas, declaracoes, membros {campos, metodos, construtores, valores}` | `libraries, declarations, members {fields, methods, constructors, values}` |
+| `k`: `classe, metodo, construtor, campo, funcao, variavel, parametro, valorEnum, biblioteca`; `t`: `nomeado, funcao, omitido` | `class, method, constructor, field, function, variable, parameter, enumValue, library`; `named, function, omitted` |
+| argumentos `{posicionais, nomeados}`, `t`: `lista, mapa, codigo, tipo` | `{positional, named}`, `list, map, code, type` |
+| fases `tipos, declaracoes, definicoes` | `types, declarations, definitions` |
+| consultas `resolverIdentificador {uri, nome}`, `declaracao`, `membros {dono, tipo}`, `tiposDe {biblioteca}`, `declaracoesDe`, `resolver {tipo}`, `ehExatamente`, `ehSubtipo`, `comoInstanciaDe`, `inferirTipo {chave}` | `resolveIdentifier {uri, name}`, `declarationOf`, `members {owner, kind}`, `typesOf {library}`, `topLevelDeclarationsOf`, `resolve {type}`, `isExactly`, `isSubtypeOf`, `asInstanceOf`, `inferType {key}` |
+| erros `implementacao, ciclo, inesperado` | `implementation, cycle, unexpected` |
+| resultado `diagnosticos, excecao {tipo, mensagem, pilha}, valoresDeEnum, biblioteca, tiposNovos, tipos`; diagnóstico `severidade, mensagem {texto, alvo}, contexto, correcao` | `diagnostics, exception {kind, message, stackTrace}, enumValues, library, newTypes, types`; `severity, message {text, target}, context, correction` |
+| sessão gravada `corpus/macros/410_json_codable/esperado/sessao.dfexec` | `…/esperado/session.dfexec` (convertida; a regravação pela VM 3.6.2 é byte a byte igual) |
+
+### `native_sdk/`
+
+| antes | depois |
+|---|---|
+| chave `substitui` do `libraries.json` | `replaces` |
+| pragma `dartforge:rastro-oculto` | `dartforge:hidden-frame` |
+| `_dartforgeErroDe{Argumento,Assercao,Chamada,Estado,Faixa,Formato,Indice,Listagem,Tipo}`, `_dartforgeErroLate`, `_dartforgeErroNaoSuportado`, `_dartforgeErroPilha` | `_dartforge{Argument,Assertion,Call,State,Range,Format,Index,Listing,Type}Error`, `_dartforgeLateError`, `_dartforgeUnsupportedError`, `_dartforgeStackOverflowError` |
+| `_dartforgePreencher{Lista,Mapa,Conjunto}`, `_dartforgeIniciar{Io,Isolado}`, `_dartforgeMensagemDe{Pronto,Recursos}`, `_dartforgeRecursosDaMensagem`, `_dartforgeDescreverErro`, `_dartforgeRastroVazio`, `_dartforgeRefazerIndiceCopiado`, `_dartforgePonteiro`, `_dartforgeDatagrama`, `_dartforgeDefinirUriBase`, `_dartforgeCarregarBiblioteca`, `_dartforgeCompostoCriado`, `_dartforgeFalhaAoIniciar`, `_dartforgeEntradaDeListagem`, `_dartforgeArquivoDoRecurso`, `_dartforgeDescritorDoRecurso`, `_dartforgePortaECapacidades` | `_dartforgeFill{List,Map,Set}`, `_dartforgeStart{Io,Isolate}`, `_dartforge{Ready,Resources}Message`, `_dartforgeMessageResources`, `_dartforgeDescribeError`, `_dartforgeEmptyStackTrace`, `_dartforgeRebuildCopiedIndex`, `_dartforgePointer`, `_dartforgeDatagram`, `_dartforgeSetBaseUri`, `_dartforgeLoadLibrary`, `_dartforgeCompoundCreated`, `_dartforgeStartFailure`, `_dartforgeListingEntry`, `_dartforgeResourceFile`, `_dartforgeResourceDescriptor`, `_dartforgePortAndCapabilities` |
+| apoio do `async`: `_envolverCorpo`, `_novoCorpo`, `_CorpoSyncStar`, `_ErroAssincrono` (`erro`, `rastro`), `_SUCESSO`/`_ERRO`, `_asyncStarErro`, `_awaitForIterador`, `_awaitForAtivo` | `_wrapBody`, `_newBody`, `_SyncStarBody`, `_DfAsyncError` (`err`, `trace`), `_SUCCESS`/`_ERROR`, `_asyncStarError`, `_awaitForIterator`, `_awaitForActive` |
+| `compact_hash.dart`: `_dfMapa{Gravar,Buscar,Preencher}`, `_dfConjunto{Adicionar,Buscar,Preencher}`, `_dfNovosDados`, `_dfPreencherDaFaixa`, `_deFonte`, `_indiceDF` | `_dfMap{Store,Lookup,Fill}`, `_dfSet{Add,Lookup,Fill}`, `_dfNewData`, `_dfFillFromRange`, `_fromSource`, `_indexDf` |
+| `convert_patch.dart`: `_dfEmpilhar`, `_dfMarca`, `_dfTruncar`, `_dfFecharLista`, `_pilha`, `_modelo` | `_dfPush`, `_dfMark`, `_dfTruncate`, `_dfCloseList`, `_stack`, `_template` |
+| `timer_patch.dart`: `_disparar`, `_novo`, `_cancelar` | `_fire`, `_create`, `_cancelNative` |
+| `internal/sort.dart`: `Sort.sortIntsCom` | `Sort.sortIntsWith` |
+| demais membros privados e locais em português das sobreposições | equivalentes em inglês (ver o `git log` do commit da fase 4) |
+
+### `tools/`, `bench/`, relatório de poda
+
+| antes | depois |
+|---|---|
+| `tools/tamanho/por-que.py`, `quebra.py` | `tools/size/why.py`, `breakdown.py` |
+| `tools/oraculo_tipos/oraculo.dart` (`#falha`) | `tools/type_oracle/oracle.dart` (`#failure`) |
+| `tools/sondas/precisao_de_timers.dart` | `tools/probes/timer_precision.dart` |
+| relatório `DARTFORGE_WHY`: `simbolo, causa, pai, seletor, chamador`; causas `raiz, ref, tabela` | `symbol, cause, parent, selector, caller`; `root, ref, table` |
+| marcador do JS de produção `dartforge:fim-do-sdk` | `dartforge:sdk-end` |
+| `bench/performance/comum.dart` (`medir`), `chamadas`, `colecoes`, `numerico`, `objetos_em_colecoes`, `objetos_escapam`, `objetos_temporarios`, `textos`, `tipados` | `common.dart` (`measure`), `calls`, `collections`, `numeric`, `objects_in_collections`, `escaping_objects`, `temporary_objects`, `strings`, `typed_data` |
+| `bench/http/servidor.dart`, `bench/comparison/{servidor,ola}.*`, `carga.go`, `swift-servidor` | `bench/http/server.dart`, `bench/comparison/{server,hello}.*`, `load.go`, `swift-server` |
+| protocolo HTTP do bench: `porta <n>`, `/sair` → `tchau`, JSON `mensagem, ativo, itens` | `port <n>`, `/quit` → `bye`, `message, active, items` |
+| núcleos do comparativo `arvores, numerico, textos` | `trees, numeric, strings` |
+| `bench/arc/metadados.rs` | `bench/arc/metadata.rs` |

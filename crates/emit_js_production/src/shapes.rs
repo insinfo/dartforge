@@ -377,7 +377,7 @@ pub fn apply(source: &str) -> Result<String, String> {
             }
         }
         if !repeated.is_empty() {
-            // Right after the marker (`"dartforge:fim-do-sdk";`).
+            // Right after the marker (`"dartforge:sdk-end";`).
             let after = source[sdk_end as usize..]
                 .find(';')
                 .map(|k| sdk_end + k as u32 + 1);

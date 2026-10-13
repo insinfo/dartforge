@@ -208,7 +208,7 @@ pub extern "C" fn dartforge_ffi_closure_address(clo: i64) -> i64 {
     closure_env(clo).0
 }
 
-/// The address of a `Pointer` (the `_endereco` field).
+/// The address of a `Pointer` (the `_address` field).
 fn address_of(pointer: i64) -> Option<i64> {
     HEAP.with(|h| {
         let h = h.borrow();
@@ -245,7 +245,7 @@ pub extern "C" fn dartforge_ffi_return_pointer(address: i64, clo: i64) -> i64 {
 
 /// The `Pointer<X>` that a native call returns, under ARC, with a code owner.
 ///
-/// `clo` is borrowed by the caller. The Dart helper `_dartforgePonteiro` runs
+/// `clo` is borrowed by the caller. The Dart helper `_dartforgePointer` runs
 /// inside a native scope: the token of the Owned port's return stays in it and is
 /// copied into the caller's owner before closing. An exception from the helper
 /// stays pending and the result is null, without an owner. May allocate, collect
@@ -261,8 +261,8 @@ pub extern "C" fn dartforge_arc_ffi_return_pointer_owned_v1(address: i64, clo: i
 
 /// A Dart `Pointer` with the address and, if known, the type `Pointer<X>`.
 fn new_pointer(address: i64, ty: Option<i64>) -> i64 {
-    let Some(f) = helper("_dartforgePonteiro") else {
-        panic!("compiler bug: dart:ffi without a registered `_dartforgePonteiro`");
+    let Some(f) = helper("_dartforgePointer") else {
+        panic!("compiler bug: dart:ffi without a registered `_dartforgePointer`");
     };
     // SAFETY: registered by the `dart:ffi` overlay with the signature (`int`) →
     // `Pointer`.

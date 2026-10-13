@@ -1,11 +1,10 @@
-// Substitui `_internal/vm/lib/schedule_microtask_patch.dart` (sobreposição
-// `native_sdk/`). A fila de microtarefas e a ordem delas são as do
-// `schedule_microtask.dart` da fonte (`_nextCallback`,
-// `_startMicrotaskLoop`); o runtime só precisa rodar a closure que o
-// `dart:async` pede, antes de qualquer timer (o laço de eventos de
-// docs/NATIVO-PLANO.md, P6). Na VM, quem entrega essa closure é o
-// `dart:isolate` (`_setScheduleImmediateClosure`), ligado à porta de
-// mensagens do isolado; aqui é um native.
+// Replaces `_internal/vm/lib/schedule_microtask_patch.dart` (overlay
+// `native_sdk/`). The microtask queue and its order are those of the source's
+// `schedule_microtask.dart` (`_nextCallback`, `_startMicrotaskLoop`); the
+// runtime only needs to run the closure `dart:async` asks for, before any
+// timer (the event loop of docs/NATIVO-PLANO.md, P6). On the VM, the one that
+// delivers this closure is `dart:isolate` (`_setScheduleImmediateClosure`),
+// tied to the isolate's message port; here it is a native.
 
 part of "async_patch.dart";
 
@@ -13,11 +12,11 @@ part of "async_patch.dart";
 class _AsyncRun {
   @patch
   static void _scheduleImmediate(void callback()) {
-    _agendarImediato(callback);
+    _scheduleImmediateNative(callback);
   }
 
-  /// Enfileira `callback` para o laço de eventos rodar antes do próximo
-  /// timer. O runtime guarda a closure como raiz até rodá-la.
+  /// Queues `callback` for the event loop to run before the next timer. The
+  /// runtime keeps the closure as a root until it runs it.
   @pragma("vm:external-name", "DartForge_scheduleImmediate")
-  external static void _agendarImediato(void Function() callback);
+  external static void _scheduleImmediateNative(void Function() callback);
 }

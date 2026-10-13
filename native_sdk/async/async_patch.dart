@@ -1,21 +1,21 @@
-// Patch do `dart:async` para o backend nativo do DartForge (sobreposição
-// `native_sdk/`, docs/NATIVO-PLANO.md §7). Substitui
-// `_internal/vm/lib/async_patch.dart` da seção `vm` do SDK 3.6.2.
+// Patch of `dart:async` for the DartForge native backend (overlay
+// `native_sdk/`, docs/NATIVO-PLANO.md §7). Replaces
+// `_internal/vm/lib/async_patch.dart` of the `vm` section of SDK 3.6.2.
 //
-// Por que não o da VM: o `async`/`sync*`/`async*` da VM suspende o quadro de
-// máquina (`_SuspendState._resume`/`_clone`, intrínsecos sem fallback), o que
-// é incompatível com a pilha-sombra explícita do nativo. O modelo daqui é o do
-// dart2js (`_internal/js_runtime/lib/async_patch.dart`): o corpo `async` vira
-// uma máquina de estados (P6), o quadro mora no heap, e cada `await` registra
-// a continuação `corpo(códigoDeStatus, resultado)`. Os membros abaixo são os
-// do dart2js, sem `JS(...)`: o laço de exceção que o dart2js escreve em JS
-// (`_wrapJsFunctionForAsync`) está escrito em Dart em `_envolverCorpo`.
+// Why not the VM's: the VM's `async`/`sync*`/`async*` suspends the machine
+// frame (`_SuspendState._resume`/`_clone`, intrinsics with no fallback), which
+// is incompatible with the native backend's explicit shadow stack. The model
+// here is dart2js's (`_internal/js_runtime/lib/async_patch.dart`): the `async`
+// body becomes a state machine (P6), the frame lives in the heap, and each
+// `await` registers the continuation `body(statusCode, res)`. The members below
+// are dart2js's, without `JS(...)`: the exception loop dart2js writes in JS
+// (`_wrapJsFunctionForAsync`) is written in Dart in `_wrapBody`.
 //
-// O que o `dart:async` da fonte exige de um patch é só isto (as quatro
-// `external` dele): `_trySetStackTrace`, `Timer._createTimer`,
-// `Timer._createPeriodicTimer` (`timer_patch.dart`) e
-// `_AsyncRun._scheduleImmediate` (`schedule_microtask_patch.dart`). O resto é
-// o apoio que o lowering de `async` chama.
+// All the source `dart:async` requires from a patch is this (its four
+// `external`s): `_trySetStackTrace`, `Timer._createTimer`,
+// `Timer._createPeriodicTimer` (`timer_patch.dart`) and
+// `_AsyncRun._scheduleImmediate` (`schedule_microtask_patch.dart`). The rest is
+// the support the `async` lowering calls.
 
 import "dart:_internal" show patch, unsafeCast;
 
@@ -26,21 +26,21 @@ part "timer_patch.dart";
 @pragma("vm:external-name", "Error_trySetStackTrace")
 external void _trySetStackTrace(Object error, StackTrace stackTrace);
 
-/// Códigos de status da continuação de um corpo `async` (os de
-/// `dart:_async_status_codes` do dart2js).
-const int _SUCESSO = 0;
-const int _ERRO = 1;
+/// Status codes of the continuation of an `async` body (those of dart2js's
+/// `dart:_async_status_codes`).
+const int _SUCCESS = 0;
+const int _ERROR = 1;
 
-/// A continuação de um corpo `async` transformado em máquina de estados:
-/// `corpo(_SUCESSO, valor)` retoma com o valor do `await`; `corpo(_ERRO,
-/// erro)` retoma lançando `erro` no ponto do `await` (§4.2 do plano).
+/// The continuation of an `async` body turned into a state machine:
+/// `body(_SUCCESS, val)` resumes with the value of the `await`; `body(_ERROR,
+/// err)` resumes by throwing `err` at the `await` (§4.2 of the plan).
 typedef _WrappedAsyncBody = void Function(int errorCode, dynamic result);
 
-/// O par (erro, rastro) que a continuação recebe com `_ERRO`.
-final class _ErroAssincrono {
-  final Object erro;
-  final StackTrace rastro;
-  _ErroAssincrono(this.erro, this.rastro);
+/// The (error, stack trace) pair the continuation receives with `_ERROR`.
+final class _DfAsyncError {
+  final Object err;
+  final StackTrace trace;
+  _DfAsyncError(this.err, this.trace);
 }
 
 class _AsyncAwaitCompleter<T> implements Completer<T> {
@@ -50,7 +50,7 @@ class _AsyncAwaitCompleter<T> implements Completer<T> {
   _AsyncAwaitCompleter() : isSync = false;
 
   void complete([FutureOr<T>? value]) {
-    // Todo caminho exige que, se o valor é null, `null as T` passe.
+    // Every path requires that, if the value is null, `null as T` passes.
     value = (value == null) ? value as T : value;
     if (!isSync) {
       _future._asyncComplete(value);
@@ -75,70 +75,71 @@ class _AsyncAwaitCompleter<T> implements Completer<T> {
   bool get isCompleted => !_future._mayComplete;
 }
 
-/// Cria o `Completer` de uma função `async`.
+/// Creates the `Completer` of an `async` function.
 @pragma("vm:entry-point", "call")
 Completer<T> _makeAsyncAwaitCompleter<T>() {
   return _AsyncAwaitCompleter<T>();
 }
 
-/// Começa o corpo de uma função `async` de forma síncrona e devolve o
-/// `Future` dela.
+/// Starts the body of an `async` function synchronously and returns its
+/// `Future`.
 ///
-/// Os apoios marcados `dartforge:rastro-oculto` (e as closures deles) ficam
-/// fora do rastro simbólico: a VM não tem esses quadros
+/// The helpers marked `dartforge:hidden-frame` (and their closures) stay out
+/// of the symbolic stack trace: the VM does not have those frames
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14).
 @pragma("vm:entry-point", "call")
-@pragma("dartforge:rastro-oculto")
+@pragma("dartforge:hidden-frame")
 dynamic _asyncStartSync(
     _WrappedAsyncBody bodyFunction, _AsyncAwaitCompleter completer) {
-  bodyFunction(_SUCESSO, null);
+  bodyFunction(_SUCCESS, null);
   completer.isSync = true;
   return completer.future;
 }
 
-/// `p.loadLibrary()` de um `import deferred`: a biblioteca já está no
-/// programa compilado.
+/// `p.loadLibrary()` of a `deferred` import: the library is already in the
+/// compiled program.
 @pragma("vm:entry-point", "call")
-Future<Null> _dartforgeCarregarBiblioteca() => new _Future<Null>.value(null);
+Future<Null> _dartforgeLoadLibrary() => new _Future<Null>.value(null);
 
-/// O `await` de uma função `async`: registra a continuação no objeto.
+/// The `await` of an `async` function: registers the continuation on the object.
 @pragma("vm:entry-point", "call")
-@pragma("dartforge:rastro-oculto")
+@pragma("dartforge:hidden-frame")
 dynamic _asyncAwait(dynamic object, _WrappedAsyncBody bodyFunction) {
   _awaitOnObject(object, bodyFunction);
 }
 
-/// O `return` de uma função `async`.
+/// The `return` of an `async` function.
 @pragma("vm:entry-point", "call")
-@pragma("dartforge:rastro-oculto")
+@pragma("dartforge:hidden-frame")
 dynamic _asyncReturn(dynamic object, Completer completer) {
   completer.complete(object);
 }
 
-/// A exceção não capturada de uma função `async` (o modelo por valor: o
-/// corpo termina com a exceção pendente, que chega aqui como valor).
+/// The uncaught exception of an `async` function (the by-value model: the
+/// body ends with the pending exception, which arrives here as a value).
 @pragma("vm:entry-point", "call")
-@pragma("dartforge:rastro-oculto")
+@pragma("dartforge:hidden-frame")
 dynamic _asyncRethrow(Object error, StackTrace stackTrace, Completer completer) {
   completer.completeError(error, stackTrace);
 }
 
-/// Espera `object`: se é `Future`, registra a continuação nele; senão, num
-/// `_Future` já completado com ele (a ordem de microtarefas é a da fonte).
+/// Awaits `object`: if it is a `Future`, registers the continuation on it;
+/// otherwise, on a `_Future` already completed with it (the microtask order is
+/// the source's).
 ///
-/// `vm:awaiter-link`: as closures que capturam `bodyFunction` levam o rastro
-/// simbólico a quem espera (o `TryGetAwaiterLink` da VM).
-@pragma("dartforge:rastro-oculto")
+/// `vm:awaiter-link`: the closures that capture `bodyFunction` carry the
+/// symbolic stack trace to the awaiter (the VM's `TryGetAwaiterLink`).
+@pragma("dartforge:hidden-frame")
 void _awaitOnObject(object, @pragma('vm:awaiter-link') _WrappedAsyncBody bodyFunction) {
   FutureOr<dynamic> Function(dynamic) thenCallback =
-      (result) => bodyFunction(_SUCESSO, result);
+      (result) => bodyFunction(_SUCCESS, result);
 
   Function errorCallback = (Object error, StackTrace stackTrace) {
-    bodyFunction(_ERRO, _ErroAssincrono(error, stackTrace));
+    bodyFunction(_ERROR, _DfAsyncError(error, stackTrace));
   };
 
   if (object is _Future) {
-    // A continuação já foi registrada na zona (`_envolverCorpo`).
+    // The continuation was already registered in the zone (`_wrapBody`).
     object._thenAwait(thenCallback, errorCallback);
   } else if (object is Future) {
     object.then(thenCallback, onError: errorCallback);
@@ -148,94 +149,94 @@ void _awaitOnObject(object, @pragma('vm:awaiter-link') _WrappedAsyncBody bodyFun
   }
 }
 
-/// Registra o corpo na zona corrente e o protege: se a retomada lança, o
-/// corpo é chamado de novo com `_ERRO` — o laço que o dart2js escreve em JS
-/// em `_wrapJsFunctionForAsync`.
+/// Registers the body in the current zone and guards it: if resuming throws,
+/// the body is called again with `_ERROR` — the loop dart2js writes in JS in
+/// `_wrapJsFunctionForAsync`.
 @pragma("vm:entry-point", "call")
-@pragma("dartforge:rastro-oculto")
-_WrappedAsyncBody _envolverCorpo(@pragma('vm:awaiter-link') _WrappedAsyncBody corpo) {
-  void protegido(int codigo, dynamic resultado) {
+@pragma("dartforge:hidden-frame")
+_WrappedAsyncBody _wrapBody(@pragma('vm:awaiter-link') _WrappedAsyncBody body) {
+  void guarded(int code, dynamic res) {
     while (true) {
       try {
-        corpo(codigo, resultado);
+        body(code, res);
         break;
       } catch (e, s) {
-        resultado = _ErroAssincrono(e, s);
-        codigo = _ERRO;
+        res = _DfAsyncError(e, s);
+        code = _ERROR;
       }
     }
   }
 
-  return Zone.current.registerBinaryCallback<void, int, dynamic>(protegido);
+  return Zone.current.registerBinaryCallback<void, int, dynamic>(guarded);
 }
 
 // ─── sync* ──────────────────────────────────────────────────────────────────
 //
-// O modelo é o da VM (`_internal/vm/lib/async_patch.dart`, `_SyncStarIterable`
-// e `_SyncStarIterator`), com a máquina de estados no lugar do
-// `_SuspendState`: chamar a função `sync*` não roda nada e devolve o
-// iterável; cada `iterator` começa o corpo do início, com um quadro novo
-// (`_novoCorpo`, o equivalente do `_stateAtStart._clone()` da VM).
+// The model is the VM's (`_internal/vm/lib/async_patch.dart`, `_SyncStarIterable`
+// and `_SyncStarIterator`), with the state machine in place of the
+// `_SuspendState`: calling the `sync*` function runs nothing and returns the
+// iterable; each `iterator` starts the body from the beginning, with a new
+// frame (`_newBody`, the equivalent of the VM's `_stateAtStart._clone()`).
 //
-// O corpo é `corpo(iterador, código, valor)` e devolve se há mais elementos:
-// `yield e` grava `_current` e devolve `true`; `yield* e` grava
-// `_yieldStarIterable` e devolve `true`; o fim do corpo devolve `false`. Uma
-// exceção sai do corpo como de qualquer função, e `moveNext` a trata como a
-// VM; `código == _ERRO` retoma lançando o `_ErroAssincrono` no ponto do
-// `yield*` (a exceção do iterador aninhado).
+// The body is `body(iter, code, val)` and returns whether there are more
+// elements: `yield e` stores `_current` and returns `true`; `yield* e` stores
+// `_yieldStarIterable` and returns `true`; the end of the body returns
+// `false`. An exception leaves the body as from any function, and `moveNext`
+// handles it like the VM; `code == _ERROR` resumes by throwing the
+// `_DfAsyncError` at the `yield*` (the nested iterator's exception).
 
-/// O corpo de uma função `sync*` transformado em máquina de estados:
-/// `bool corpo(_SyncStarIterator iterador, int codigo, Object? valor)`. Fica
-/// `Function` (chamado dinamicamente) porque a closure que o lowering cria não
-/// carrega o tipo de função reificado, e um teste contra o tipo exato falharia.
-typedef _CorpoSyncStar = Function;
+/// The body of a `sync*` function turned into a state machine:
+/// `bool body(_SyncStarIterator iter, int code, Object? val)`. It stays a
+/// `Function` (called dynamically) because the closure the lowering creates
+/// does not carry the reified function type, and a test against the exact type would fail.
+typedef _SyncStarBody = Function;
 
-/// Cria o iterável de uma chamada de função `sync*`.
+/// Creates the iterable of a `sync*` function call.
 @pragma("vm:entry-point", "call")
-_SyncStarIterable<T> _makeSyncStarIterable<T>(Function novo) {
-  return _SyncStarIterable<T>(novo);
+_SyncStarIterable<T> _makeSyncStarIterable<T>(Function fresh) {
+  return _SyncStarIterable<T>(fresh);
 }
 
-/// `yield e` num corpo `sync*`.
+/// `yield e` in a `sync*` body.
 @pragma("vm:entry-point", "call")
-bool _syncStarYield(_SyncStarIterator iterador, Object? valor) {
-  iterador._current = valor;
+bool _syncStarYield(_SyncStarIterator iter, Object? val) {
+  iter._current = val;
   return true;
 }
 
-/// `yield* e` num corpo `sync*`.
+/// `yield* e` in a `sync*` body.
 @pragma("vm:entry-point", "call")
-bool _syncStarYieldStar(_SyncStarIterator iterador, Iterable iteravel) {
-  iterador._yieldStarIterable = iteravel;
+bool _syncStarYieldStar(_SyncStarIterator iter, Iterable iterableArg) {
+  iter._yieldStarIterable = iterableArg;
   return true;
 }
 
 class _SyncStarIterable<T> extends Iterable<T> {
-  // `_CorpoSyncStar Function()`, sem o tipo exato (ver `_CorpoSyncStar`).
-  final Function _novoCorpo;
+  // `_SyncStarBody Function()`, without the exact type (see `_SyncStarBody`).
+  final Function _newBody;
 
-  _SyncStarIterable(this._novoCorpo);
+  _SyncStarIterable(this._newBody);
 
   Iterator<T> get iterator {
-    return _SyncStarIterator<T>(_novoCorpo());
+    return _SyncStarIterator<T>(_newBody());
   }
 }
 
 class _SyncStarIterator<T> implements Iterator<T> {
-  _CorpoSyncStar? _state;
+  _SyncStarBody? _state;
   Iterator<T>? _yieldStarIterator;
 
-  // Pilha dos corpos sync* suspensos num `yield*` de outro sync*.
-  List<_CorpoSyncStar>? _stack;
+  // Stack of the sync* bodies suspended in a `yield*` of another sync*.
+  List<_SyncStarBody>? _stack;
 
-  // O corpo grava `_current` ou `_yieldStarIterable` antes de suspender.
+  // The body stores `_current` or `_yieldStarIterable` before suspending.
   T? _current;
   Iterable<T>? _yieldStarIterable;
 
   @override
   T get current => _current as T;
 
-  _SyncStarIterator(_CorpoSyncStar state) : _state = state;
+  _SyncStarIterator(_SyncStarBody state) : _state = state;
 
   bool _handleSyncStarMethodCompletion() {
     _current = null;
@@ -257,7 +258,7 @@ class _SyncStarIterator<T> implements Iterator<T> {
     Object? pendingException;
     StackTrace? pendingStackTrace;
     while (true) {
-      // Primeiro o iterador aninhado de um `yield*` (se houver).
+      // First the nested iterator of a `yield*` (if any).
       final iterator = _yieldStarIterator;
       if (iterator != null) {
         try {
@@ -273,12 +274,12 @@ class _SyncStarIterator<T> implements Iterator<T> {
       }
 
       try {
-        // Retoma o corpo corrente até o próximo elemento.
-        final corpo = _state!;
+        // Resumes the current body until the next element.
+        final body = _state!;
         final bool hasMore = (pendingException == null
-            ? corpo(this, _SUCESSO, null)
-            : corpo(this, _ERRO,
-                _ErroAssincrono(pendingException, pendingStackTrace!))) as bool;
+            ? body(this, _SUCCESS, null)
+            : body(this, _ERROR,
+                _DfAsyncError(pendingException, pendingStackTrace!))) as bool;
         pendingException = null;
         pendingStackTrace = null;
         if (!hasMore) {
@@ -296,17 +297,17 @@ class _SyncStarIterator<T> implements Iterator<T> {
         rethrow;
       }
 
-      // `yield*` de um iterável.
+      // `yield*` of an iterable.
       final iterable = _yieldStarIterable;
       if (iterable != null) {
         _yieldStarIterable = null;
         _current = null;
         if (iterable is _SyncStarIterable) {
-          // `yield*` de outro sync*: o corpo dele passa a ser o corrente, e
-          // este fica na pilha até ele terminar.
+          // `yield*` of another sync*: its body becomes the current one, and this
+          // one stays on the stack until it ends.
           final stack = (_stack ??= []);
           stack.add(_state!);
-          _state = unsafeCast<_SyncStarIterable>(iterable)._novoCorpo();
+          _state = unsafeCast<_SyncStarIterable>(iterable)._newBody();
         } else {
           try {
             _yieldStarIterator = iterable.iterator;
@@ -325,16 +326,16 @@ class _SyncStarIterator<T> implements Iterator<T> {
 
 // ─── async* ─────────────────────────────────────────────────────────────────
 //
-// O controlador é o da VM, sem mudança de comportamento (a ordem de eventos e
-// microtarefas é a dela). Onde a VM retoma o `_SuspendState`, aqui se chama o
-// corpo transformado: `asyncStarBody(cancelado)` vira
-// `corpo(_SUCESSO, cancelado)`. O lowering emite, como o compilador da VM:
+// The controller is the VM's, with no change of behavior (the order of events
+// and microtasks is its order). Where the VM resumes the `_SuspendState`, here
+// the transformed body is called: `asyncStarBody(canceled)` becomes
+// `body(_SUCCESS, canceled)`. The lowering emits, like the VM's compiler:
 //
-// * no começo do corpo e depois de cada `yield`: se `cancelado`, `return`;
-// * `yield e`: `if (_asyncStarAdd(c, e)) return;` e suspende;
-// * `yield* s`: `if (_asyncStarAddStream(c, s)) return;` e suspende;
-// * `return`: `_asyncStarReturn(c)`; exceção não capturada:
-//   `_asyncStarErro(c, e, s)`.
+// * at the start of the body and after each `yield`: if `canceled`, `return`;
+// * `yield e`: `if (_asyncStarAdd(c, e)) return;` and suspends;
+// * `yield* s`: `if (_asyncStarAddStream(c, s)) return;` and suspends;
+// * `return`: `_asyncStarReturn(c)`; uncaught exception:
+//   `_asyncStarError(c, e, s)`.
 
 @pragma("vm:entry-point")
 class _AsyncStarStreamController<T> {
@@ -364,7 +365,7 @@ class _AsyncStarStreamController<T> {
     scheduleMicrotask(runBody);
   }
 
-  // Acrescenta o evento ao stream. Devolve true se o gerador deve terminar.
+  // Adds the event to the stream. Returns true if the generator must end.
   bool add(T event) {
     if (!onListenReceived) throw StateError("yield before stream is listened to");
     if (isSuspendedAtYield) throw StateError("unexpected yield");
@@ -378,8 +379,8 @@ class _AsyncStarStreamController<T> {
     return false;
   }
 
-  // Acrescenta os elementos de `stream`; o gerador volta a ser agendado
-  // quando todos forem consumidos. Devolve true se o gerador deve terminar.
+  // Adds the elements of `stream`; the generator is scheduled again when all
+  // of them are consumed. Returns true if the generator must end.
   bool addStream(Stream<T> stream) {
     if (!onListenReceived) throw StateError("yield before stream is listened to");
     if (!controller.hasListener) {
@@ -440,8 +441,8 @@ class _AsyncStarStreamController<T> {
     }
     if (cancellationFuture == null) {
       cancellationFuture = new _Future();
-      // Só retoma o gerador suspenso num `yield`; o cancelamento não afeta um
-      // gerador suspenso num `await`.
+      // Only resumes a generator suspended in a `yield`; cancellation does not
+      // affect a generator suspended in an `await`.
       if (isSuspendedAtYield) {
         scheduleGenerator();
       }
@@ -450,69 +451,69 @@ class _AsyncStarStreamController<T> {
   }
 }
 
-/// Cria o controlador de uma chamada de função `async*`.
+/// Creates the controller of an `async*` function call.
 @pragma("vm:entry-point", "call")
 _AsyncStarStreamController<T> _makeAsyncStarController<T>() {
   return _AsyncStarStreamController<T>();
 }
 
-/// Liga o corpo ao controlador e devolve o stream (o gerador só roda quando
-/// alguém escuta).
+/// Binds the body to the controller and returns the stream (the generator only
+/// runs when someone listens).
 @pragma("vm:entry-point", "call")
-Stream _asyncStarStart(_AsyncStarStreamController controlador,
-    @pragma('vm:awaiter-link') _WrappedAsyncBody corpo) {
-  controlador.asyncStarBody = (cancelado) {
-    corpo(_SUCESSO, cancelado);
+Stream _asyncStarStart(_AsyncStarStreamController asyncController,
+    @pragma('vm:awaiter-link') _WrappedAsyncBody body) {
+  asyncController.asyncStarBody = (canceled) {
+    body(_SUCCESS, canceled);
   };
-  return controlador.stream;
+  return asyncController.stream;
 }
 
-/// `yield e` num corpo `async*`: true se o gerador deve terminar.
+/// `yield e` in an `async*` body: true if the generator must end.
 @pragma("vm:entry-point", "call")
-bool _asyncStarAdd(_AsyncStarStreamController controlador, Object? valor) {
-  return controlador.add(valor);
+bool _asyncStarAdd(_AsyncStarStreamController asyncController, Object? val) {
+  return asyncController.add(val);
 }
 
-/// `yield* s` num corpo `async*`: true se o gerador deve terminar.
+/// `yield* s` in an `async*` body: true if the generator must end.
 @pragma("vm:entry-point", "call")
-bool _asyncStarAddStream(_AsyncStarStreamController controlador, Stream s) {
-  return controlador.addStream(s);
+bool _asyncStarAddStream(_AsyncStarStreamController asyncController, Stream s) {
+  return asyncController.addStream(s);
 }
 
-/// O fim de um corpo `async*`.
+/// The end of an `async*` body.
 @pragma("vm:entry-point", "call")
-void _asyncStarReturn(_AsyncStarStreamController controlador) {
-  controlador.close();
+void _asyncStarReturn(_AsyncStarStreamController asyncController) {
+  asyncController.close();
 }
 
-/// A exceção não capturada de um corpo `async*`.
+/// The uncaught exception of an `async*` body.
 @pragma("vm:entry-point", "call")
-void _asyncStarErro(
-    _AsyncStarStreamController controlador, Object erro, StackTrace rastro) {
-  controlador.addError(erro, rastro);
-  controlador.close();
+void _asyncStarError(
+    _AsyncStarStreamController asyncController, Object err, StackTrace trace) {
+  asyncController.addError(err, trace);
+  asyncController.close();
 }
 
 // ─── await for ──────────────────────────────────────────────────────────────
 //
-// `await for (x in s) corpo` é baixado como o kernel da VM o desaçucara:
+// `await for (x in s) body` is lowered the way the VM's kernel desugars it:
 //
 //     final it = StreamIterator(s);
 //     try {
-//       while (await it.moveNext()) { x = it.current; corpo }
+//       while (await it.moveNext()) { x = it.current; body }
 //     } finally {
 //       if (it._subscription != null) await it.cancel();
 //     }
 
-/// O `StreamIterator` de um `await for`.
+/// The `StreamIterator` of an `await for`.
 @pragma("vm:entry-point", "call")
-StreamIterator<T> _awaitForIterador<T>(Stream<T> s) {
+StreamIterator<T> _awaitForIterator<T>(Stream<T> s) {
   return StreamIterator<T>(s);
 }
 
-/// Se o iterador do `await for` ainda tem inscrição (então o `finally`
-/// cancela; sem inscrição não há o que cancelar, e não se espera nada).
+/// Whether the `await for` iterator still has a subscription (then the
+/// `finally` cancels; without a subscription there is nothing to cancel, and nothing is awaited).
 @pragma("vm:entry-point", "call")
-bool _awaitForAtivo(StreamIterator iterador) {
-  return iterador is _StreamIterator && iterador._subscription != null;
+bool _awaitForActive(StreamIterator iter) {
+  return iter is _StreamIterator && iter._subscription != null;
 }

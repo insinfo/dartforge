@@ -91,7 +91,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let x = self.emit(Instruction::Xor(x, c2), Type::I64);
                 Some(self.emit(Instruction::And(x, k(0x3fff_ffff)), Type::I64))
             }
-            // `_Double._bitsDe(d)`: the bits of the `double`.
+            // `_Double._bitsOf(d)`: the bits of the `double`.
             ("DartForge_double_bits", None, [d]) | ("DartForge_double_bits", Some(d), []) => {
                 let d = self.coerce(d.clone(), Type::F64);
                 Some(self.emit(Instruction::Bitcast { op: d, to: Type::I64 }, Type::I64))

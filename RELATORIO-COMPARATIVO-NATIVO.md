@@ -47,8 +47,8 @@ python3 scripts/compare-languages.py target/comparativo [ferramenta...]
 
 ### Servidor HTTP
 
-O mesmo servidor em cada linguagem (`bench/comparison/servidor.*`, o
-protocolo de `bench/http/servidor.dart`):
+O mesmo servidor em cada linguagem (`bench/comparison/server.*`, o
+protocolo de `bench/http/server.dart`):
 - `GET /` responde `hello`;
 - `GET /json` responde um objeto pequeno codificado na hora.
 
@@ -59,7 +59,7 @@ protocolo de `bench/http/servidor.dart`):
 | Swift | SwiftNIO (`swift-servidor/`) |
 | TypeScript | `node:http` (Perry e scriptc) |
 
-- A carga vem de `bench/comparison/carga.go`: clientes com keep-alive em laço
+- A carga vem de `bench/comparison/load.go`: clientes com keep-alive em laço
   por 5 s, com 1 e 32 conexões. Ele substitui o `wrk`, que não está instalado.
 - Além de req/s e latência, mede-se a CPU do servidor por mil requisições.
   É a medida mais justa entre servidores de uma thread (Dart) e de várias

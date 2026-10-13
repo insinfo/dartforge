@@ -1,9 +1,9 @@
-// Cliente fino do servidor DartForge: só localiza o binário e o inicia.
+// Thin client of the DartForge server: it only locates the binary and starts it.
 //
-// Toda a lógica vive no servidor Rust (`crates/lsp`, binário
-// `dartforge-lsp`); aqui não há análise, diagnóstico nem conversão de
-// posição — só o transporte stdio via `vscode-languageclient`, como o
-// cliente do rust-analyzer (`references/rust-analyzer/editors/code`).
+// All the logic lives in the Rust server (`crates/lsp`, binary
+// `dartforge-lsp`); there is no analysis, diagnostics or position conversion
+// here — only the stdio transport through `vscode-languageclient`, like the
+// rust-analyzer client (`references/rust-analyzer/editors/code`).
 import * as vscode from "vscode";
 import {
     LanguageClient,
@@ -12,38 +12,38 @@ import {
     TransportKind,
 } from "vscode-languageclient/node";
 
-let cliente: LanguageClient | undefined;
+let client: LanguageClient | undefined;
 
-/// Localiza o binário: configuração `dartforge.serverPath`, senão `PATH`.
-async function caminhoDoServidor(): Promise<string> {
-    const configurado = vscode.workspace
+/// Locates the binary: the `dartforge.serverPath` setting, otherwise `PATH`.
+async function serverPath(): Promise<string> {
+    const configured = vscode.workspace
         .getConfiguration("dartforge")
         .get<string | null>("serverPath");
-    if (configurado && configurado.trim() !== "") {
-        return configurado;
+    if (configured && configured.trim() !== "") {
+        return configured;
     }
     return "dartforge-lsp";
 }
 
-export async function activate(contexto: vscode.ExtensionContext): Promise<void> {
-    const comando = await caminhoDoServidor();
-    const servidor: ServerOptions = {
-        command: comando,
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    const command = await serverPath();
+    const server: ServerOptions = {
+        command,
         args: ["--stdio"],
         transport: TransportKind.stdio,
     };
-    const opcoes: LanguageClientOptions = {
+    const options: LanguageClientOptions = {
         documentSelector: [{ scheme: "file", language: "dart" }],
         traceOutputChannel: vscode.window.createOutputChannel("DartForge"),
     };
-    cliente = new LanguageClient("dartforge", "DartForge", servidor, opcoes);
-    contexto.subscriptions.push(cliente);
-    await cliente.start();
+    client = new LanguageClient("dartforge", "DartForge", server, options);
+    context.subscriptions.push(client);
+    await client.start();
 }
 
 export async function deactivate(): Promise<void> {
-    if (cliente) {
-        await cliente.stop();
-        cliente = undefined;
+    if (client) {
+        await client.stop();
+        client = undefined;
     }
 }

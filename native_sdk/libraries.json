@@ -1,11 +1,11 @@
 {
-  "comment:0": "Sobreposição do SDK para o backend nativo do DartForge (docs/NATIVO-PLANO.md §7, P5a).",
-  "comment:1": "O alvo parte de uma seção do libraries.json do SDK (base) e troca arquivos inteiros: a chave é o caminho relativo ao lib/ do SDK, o valor o arquivo desta pasta que o substitui.",
-  "comment:2": "O caminho lógico continua sendo o do SDK: um 'part' de um arquivo substituído resolve ao lado do original, e pode ele mesmo estar substituído.",
-  "comment:3": "Só o que depende da máquina interna da VM é nosso: _SuspendState (async), Timer e microtarefas ligados ao dart:isolate/dart:io, e o Finalizer do GC fraco.",
+  "comment:0": "SDK overlay for the DartForge native backend (docs/NATIVO-PLANO.md §7, P5a).",
+  "comment:1": "The target starts from a section of the SDK's libraries.json (base) and swaps whole files: the key is the path relative to the SDK's lib/, the value the file of this folder that replaces it.",
+  "comment:2": "The logical path is still the SDK's: a 'part' of a replaced file resolves next to the original, and may itself be replaced.",
+  "comment:3": "Only what depends on the VM's internal machinery is ours: _SuspendState (async), Timer and microtasks tied to dart:isolate/dart:io, and the weak-GC Finalizer.",
   "dartforge_native": {
     "base": "vm",
-    "substitui": {
+    "replaces": {
       "_internal/vm/lib/async_patch.dart": "async/async_patch.dart",
       "_internal/vm/lib/schedule_microtask_patch.dart": "async/schedule_microtask_patch.dart",
       "_internal/vm/lib/timer_patch.dart": "async/timer_patch.dart",

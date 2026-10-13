@@ -222,7 +222,7 @@ Natives: `AssertionError_throwNew`, `AssertionError_throwNewSource`
 * `assert(c, m)` é baixado por `FnBuilder::lower_assert`
   (`crates/emit_native/src/lower/comandos.rs:9-43`), que cria o erro por
   `dartforge_assertion_error_new` (`crates/runtime/src/excecoes.rs:429-437`)
-  com o ajudante `_dartforgeErroDeAssercao` da sobreposição
+  com o ajudante `_dartforgeAssertionError` da sobreposição
   (`native_sdk/core/identical_patch.dart:25`).
 * Diferença conhecida: o texto é o de `AssertionError(m)`, sem a URL, a
   linha e o trecho da asserção que `_throwNew` extrai do script na VM.
@@ -249,7 +249,7 @@ Natives: `LibraryPrefix_isLoaded`, `_issueLoad`, `_loadingUnit`, `_setLoaded`
 * Sítios: `_internal/vm/lib/lib_prefix.dart:9-90` (`_LibraryPrefix`,
   `_loadLibrary`, `_checkLoaded`), que o front-end da VM insere para
   `import … deferred as p`.
-* O lowering troca `p.loadLibrary()` por `_dartforgeCarregarBiblioteca`, um
+* O lowering troca `p.loadLibrary()` por `_dartforgeLoadLibrary`, um
   `Future` já completo (`crates/emit_native/src/lower/chamadas.rs:225-234`;
   `native_sdk/async/async_patch.dart:97`): o programa compilado já contém a
   biblioteca. Não há `_checkLoaded` antes de `loadLibrary`.
@@ -265,7 +265,7 @@ Natives: `Object_instanceOf`, `Object_simpleInstanceOf` (`nativos.rs:549`,
 * `is`/`as` são baixados pela RTI do nativo (`crates/emit_native/src/lower/rti.rs`),
   e a falha cria o `_TypeError` da fonte por
   `dartforge_type_error_with_message` (`crates/runtime/src/tipos.rs:1121-1130`;
-  ajudante `_dartforgeErroDeTipo`, `native_sdk/core/identical_patch.dart:21`).
+  ajudante `_dartforgeTypeError`, `native_sdk/core/identical_patch.dart:21`).
 
 ## 4. Inalcançáveis
 

@@ -1,5 +1,5 @@
 //! Minimal cases of the inference gap groups measured against the oracle
-//! (`tools/oraculo_tipos`): each case pins the static type that
+//! (`tools/type_oracle`): each case pins the static type that
 //! `package:analyzer` gives an expression. They use the real 3.6.2 SDK
 //! (`SdkLayout::discover` / `DARTFORGE_SDK_LIB`); without it, the tests are
 //! skipped.

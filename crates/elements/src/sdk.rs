@@ -209,7 +209,7 @@ impl SdkLayout {
     /// docs/NATIVO-PLANO.md §7, P5a).
     ///
     /// `<overlay_dir>/libraries.json` has a `target` section with `base` (the
-    /// starting SDK section, `vm`) and `substitui`: a path relative to the SDK's
+    /// starting SDK section, `vm`) and `replaces`: a path relative to the SDK's
     /// `lib/` → a file relative to the overlay. The swap is by **content**: the
     /// loaded unit keeps the SDK path, so a `part` of a swapped file resolves
     /// next to the original (and may be swapped too). That way the overlay only
@@ -234,11 +234,11 @@ impl SdkLayout {
             .and_then(|b| b.as_str())
             .ok_or_else(|| format!("{target}.base missing in {}", path.display()))?;
         let mut sdk = Self::load(lib_dir, base)?;
-        if let Some(swaps) = section_.get("substitui").and_then(|s| s.as_object()) {
+        if let Some(swaps) = section_.get("replaces").and_then(|s| s.as_object()) {
             for (original, new_) in swaps {
                 let new_ = new_
                     .as_str()
-                    .ok_or_else(|| format!("{target}.substitui[{original}] is not a string in {}", path.display()))?;
+                    .ok_or_else(|| format!("{target}.replaces[{original}] is not a string in {}", path.display()))?;
                 let original = crate::load::normalize(&lib_dir.join(original));
                 let new_ = crate::load::normalize(&overlay_dir.join(new_));
                 if !original.is_file() {
@@ -402,10 +402,10 @@ mod tests {
         };
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native_sdk");
         let sdk = SdkLayout::load_with_overlay(&lib, &dir, "dartforge_native").unwrap();
-        // One substitution per entry of `substitui` in libraries.json.
+        // One substitution per entry of `replaces` in libraries.json.
         let json: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("libraries.json")).unwrap()).unwrap();
-        let expected_ones = json["dartforge_native"]["substitui"].as_object().unwrap().len();
+        let expected_ones = json["dartforge_native"]["replaces"].as_object().unwrap().len();
         assert_eq!(sdk.replacements.len(), expected_ones);
         assert!(expected_ones >= 20);
         let async_patch = &sdk.library("async").unwrap().patches[0];
@@ -428,7 +428,7 @@ mod tests {
             .iter()
             .map(|u| program.units[u.0 as usize].source.as_str())
             .collect();
-        for mark in ["DartForge_scheduleImmediate", "DartForge_Timer_new", "_envolverCorpo"] {
+        for mark in ["DartForge_scheduleImmediate", "DartForge_Timer_new", "_wrapBody"] {
             assert!(async_sources.iter().any(|s| s.contains(mark)), "{mark} missing from the loaded dart:async");
         }
         assert!(!async_sources.iter().any(|s| s.contains("class _SuspendState")), "the VM's _SuspendState is still loaded");

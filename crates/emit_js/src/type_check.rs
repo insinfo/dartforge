@@ -17,7 +17,7 @@
 //!   a line appended to the file (file:line, node kind, category, expression
 //!   text, emitter type, shared type, path, start and length in bytes — these
 //!   three to cross-reference with the `package:analyzer` oracle,
-//!   `tools/oraculo_tipos`). Each emission first appends a `#totais` line
+//!   `tools/type_oracle`). Each emission first appends a `#totais` line
 //!   (checked expressions, checked identifiers, skipped write targets).
 //!
 //! The comparison normalizes what is only representation (see [`normalize`] and
@@ -58,7 +58,7 @@ pub struct Divergence {
     pub emitter: String,
     pub common: String,
     /// Path of the unit and byte range of the expression, to cross-reference
-    /// with the analyzer oracle (`tools/oraculo_tipos`).
+    /// with the analyzer oracle (`tools/type_oracle`).
     pub path: String,
     pub start: usize,
     pub length: usize,

@@ -235,7 +235,7 @@ Nas mesmas medidas, o resto do tempo fica constante: front-end 10 s, mundo 5,5 s
 LLVM IR 22–30 s.
 
 Fora de linha, o corpo médio de função do programa cai de 1 748 para 1 273 bytes. Do mapa da
-ligação, `tools/tamanho/quebra.py` e `tam/mapa_cat.py`:
+ligação, `tools/size/breakdown.py` e `tam/mapa_cat.py`:
 
 | forma | partida | com P2+P3+ajudantes |
 |---|---:|---:|

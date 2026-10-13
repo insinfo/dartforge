@@ -1,23 +1,23 @@
-# Extensão DartForge para VS Code
+# DartForge extension for VS Code
 
-Cliente TypeScript **fino** do servidor `dartforge-lsp` (Rust): só localiza
-o binário e o inicia por stdio. Toda a lógica — sincronização incremental,
-conversão UTF-16, diagnósticos — vive no servidor (`crates/lsp`). A
-extensão ser TypeScript é necessidade da plataforma (o host do VS Code
-executa JavaScript), registrada no PLANO.md como precisão obrigatória.
+A **thin** TypeScript client of the `dartforge-lsp` server (Rust): it only
+locates the binary and starts it over stdio. All the logic — incremental
+synchronization, UTF-16 conversion, diagnostics — lives in the server
+(`crates/lsp`). The extension being TypeScript is a platform requirement (the
+VS Code host runs JavaScript), recorded in PLANO.md as a mandatory exception.
 
-## Pré-requisitos
+## Prerequisites
 
-- Node 20+ e npm.
-- O binário `dartforge-lsp` construído e no `PATH`, ou o caminho dele na
-  configuração `dartforge.serverPath`:
+- Node 20+ and npm.
+- The `dartforge-lsp` binary built and on the `PATH`, or its path in the
+  `dartforge.serverPath` setting:
 
 ```powershell
 cargo build --release -p dartforge-lsp
-# o binário fica em target\release\dartforge-lsp.exe
+# the binary ends up in target\release\dartforge-lsp.exe
 ```
 
-## Compilar a extensão
+## Building the extension
 
 ```powershell
 cd editors\vscode
@@ -25,42 +25,42 @@ npm install
 npm run compile
 ```
 
-## Rodar em modo de desenvolvimento (F5)
+## Running in development mode (F5)
 
-1. Abra a pasta `editors/vscode` no VS Code.
-2. Pressione F5 (ou *Run and Debug › Run Extension*): abre uma janela de
-   desenvolvimento com a extensão carregada.
-3. Nessa janela, abra um arquivo `.dart` (por exemplo do
-   `C:/MyDartProjects/new_sali` com um erro de sintaxe inserido, como
-   `int x = ;` dentro de uma função): o servidor publica
-   `textDocument/publishDiagnostics` e o editor sublinha o erro com
+1. Open the `editors/vscode` folder in VS Code.
+2. Press F5 (or *Run and Debug › Run Extension*): it opens a development
+   window with the extension loaded.
+3. In that window, open a `.dart` file (for example from
+   `C:/MyDartProjects/new_sali` with a syntax error inserted, like
+   `int x = ;` inside a function): the server publishes
+   `textDocument/publishDiagnostics` and the editor underlines the error with
    `source: "dartforge"`.
-4. O canal *Output › DartForge* mostra o ciclo de vida (`initialize`,
-   `didOpen`, `publishDiagnostics`); com `dartforge.trace.server` em
-   `messages` ou `verbose`, cada mensagem do protocolo.
+4. The *Output › DartForge* channel shows the life cycle (`initialize`,
+   `didOpen`, `publishDiagnostics`); with `dartforge.trace.server` set to
+   `messages` or `verbose`, every protocol message.
 
-## Configurações
+## Settings
 
-| Chave | Padrão | Efeito |
+| Key | Default | Effect |
 | --- | --- | --- |
-| `dartforge.serverPath` | `null` (usa o `PATH`) | Caminho do binário `dartforge-lsp` |
-| `dartforge.trace.server` | `off` | Rastreia mensagens cliente ↔ servidor |
+| `dartforge.serverPath` | `null` (uses the `PATH`) | Path of the `dartforge-lsp` binary |
+| `dartforge.trace.server` | `off` | Traces client ↔ server messages |
 
-## O que o servidor oferece
+## What the server offers
 
-Tudo vem do servidor pelo protocolo; o `vscode-languageclient` liga cada
-recurso que o servidor anuncia no `initialize`, sem código na extensão:
-diagnósticos (imediatos e tipados), completar (com importação automática e
-snippets de chamada), hover, ir para definição, para a definição do tipo e
-para as implementações, referências, destaques no documento, renomear
-(com `prepareRename`), ações rápidas e assistências, ajuda de assinatura,
-símbolos do documento e do workspace, dobras, expandir seleção, dicas
-embutidas e hierarquia de tipos. A paridade medida de cada um com o
-servidor do Dart está em `docs/LSP.md` ("Paridade com o servidor do Dart").
+Everything comes from the server through the protocol; `vscode-languageclient`
+enables each capability the server announces in `initialize`, with no code in
+the extension: diagnostics (immediate and typed), completion (with automatic
+import and call snippets), hover, go to definition, to the type definition and
+to the implementations, references, document highlights, rename (with
+`prepareRename`), quick fixes and assists, signature help, document and
+workspace symbols, folding, selection ranges, inlay hints and type hierarchy.
+The measured parity of each one with Dart's server is in `docs/LSP.md`
+("Paridade com o servidor do Dart").
 
-## O que a extensão NÃO faz (de propósito)
+## What the extension does NOT do (on purpose)
 
-Nenhuma análise no cliente: sem parsing, sem diagnósticos próprios e sem
-recursos implementados em TypeScript. Formatação fica com o `dart format`
-(decisão em `docs/LSP.md`). Se o binário não for encontrado, o VS Code
-mostra o erro de ativação no canal da extensão.
+No analysis in the client: no parsing, no diagnostics of its own and no
+features implemented in TypeScript. Formatting is left to `dart format`
+(decision in `docs/LSP.md`). If the binary is not found, VS Code shows the
+activation error in the extension's channel.

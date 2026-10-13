@@ -65,7 +65,7 @@ fn invalid_lookup_holds_owned_helper_until_exception_is_published() {
     std::thread::spawn(|| {
         dartforge_memory_arc_v1();
         let pc = error as *const () as usize;
-        let name = b"_dartforgeErroDeChamada";
+        let name = b"_dartforgeCallError";
         // SAFETY: static one-word fixture with an Owned Mint return.
         let v = unsafe { dartforge_arc_register_return_owned_v1(pc as i64, 1) };
         // SAFETY: static name and a callback with a compatible ABI.

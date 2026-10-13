@@ -1112,11 +1112,11 @@ mediu.
 (`rewrite_async.dart`) e os apoios do `async_patch` de δ: o stub cria o
 quadro (um objeto do heap), o `Completer`
 (`_makeAsyncAwaitCompleter<T>`, `T` o tipo do valor do `Future`), a closure
-do corpo registrada na zona (`_envolverCorpo`) e começa por
+do corpo registrada na zona (`_wrapBody`) e começa por
 `_asyncStartSync`. O corpo `f$async(env, código, resultado)` salta pelo estado
 guardado no quadro; `await e` grava o estado, chama `_asyncAwait(e, corpo)` e
 retorna, e o bloco de retomada só é alcançado pelo `switch` da entrada. Com
-`código == _ERRO` o erro é lançado no ponto do `await` com o rastro dele e
+`código == _ERROR` o erro é lançado no ponto do `await` com o rastro dele e
 segue o caminho de exceção pendente de sempre (os `try`/`catch`/`finally` em
 volta são os do lowering). Exceção que chega ao topo vai a `_asyncRethrow`;
 `return v` vai a `_asyncReturn` (o gancho está em `FnBuilder::terminate`).
@@ -1556,7 +1556,7 @@ IOService (`io_service_patch.dart`).
 * **Certificados.** O que as raízes do contexto não validam não derruba o
   handshake: ele para com o código 16 (`SSL_ERROR_WANT_CERTIFICATE_VERIFY`),
   o Dart chama o `onBadCertificate` / `badCertificateCallback` num evento
-  seguinte e decide (`_decidir`); até lá nada do que o rustls produziu sai
+  seguinte e decide (`_decide`); até lá nada do que o rustls produziu sai
   para o soquete. Recusado, o erro é o da VM:
   `HandshakeException: Handshake error in client (OS Error: \n\tCERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate(handshake.cc:392))`
   (os motivos seguem os textos do BoringSSL). As raízes embutidas
@@ -2145,7 +2145,7 @@ AOT 49, VM 181).
 
 ### 9.1 O benchmark
 
-`bench/http/servidor.dart` é um servidor `dart:io` de verdade: `HttpServer.bind`
+`bench/http/server.dart` é um servidor `dart:io` de verdade: `HttpServer.bind`
 no loopback, `GET /` responde `hello` (texto), `GET /json` responde o
 `jsonEncode` de um objeto pequeno; keep-alive ligado (o padrão do
 `HttpServer`), `autoCompress` desligado. `scripts/bench-http.py` compila o
@@ -2510,7 +2510,7 @@ Na rota `/json`: 606 103 (Dart AOT 125 788).
   quando o ambiente tinha um valor só).
   `corpus/native/60_closures_de_ambiente_direto.dart`.
 * **`String.fromCharCodes` de lista do runtime**
-  (`native_sdk/core/string_patch.dart`, `_deCodigos`;
+  (`native_sdk/core/string_patch.dart`, `_fromCharCodes`;
   `DartForge_string_from_char_codes`): a lista toda em Latin-1 vira a string
   numa cópia só, em vez do `_scanCodeUnits` e de um `_setAt` (uma chamada ao
   runtime) por unidade — os nomes e valores de cabeçalho do `_HttpParser`.
@@ -3223,7 +3223,7 @@ benchmarks são iguais às da VM nos três. A estimativa é a de
 | servidor HTTP, req/s, 64 conexões | 6 206 | 6 731 | 9 104 | — | — |
 | servidor, RSS em repouso / pico (MB) | 16,2 / 23,2 | 19,3 / 28,1 | 17,0 / 27,7 | — | — |
 | `hello` (bytes) | 10 786 816 | 10 711 552 | 5 797 376 | 1,85× | — |
-| `bench/http/servidor.dart` (bytes) | 12 213 760 | 12 075 520 | 6 108 160 | 1,98× | — |
+| `bench/http/server.dart` (bytes) | 12 213 760 | 12 075 520 | 6 108 160 | 1,98× | — |
 | string `"abc"` em memória | ≈ 90 B | 32 B (layout) | 32 B | 1× | 32 B |
 
 Sem mudança (dentro do ruído): `crivo`, `lista_leitura`, `lista_sort`,
@@ -3369,7 +3369,7 @@ Acrescentados depois do primeiro perfil da implementação (o mesmo método):
    `writeStringSlice` do `_JsonUtf8Stringifier` gravam o ASCII direto num
    `Uint8List` local, sem o `writeByte` virtual por byte; o bloco cheio vai ao
    `addChunk` no mesmo byte de antes, e o resto passa pelos `write*CharCode`.
-9. **O `_data` novo sem o tipo reificado** (`_dfNovosDados`): o `new
+9. **O `_data` novo sem o tipo reificado** (`_dfNewData`): o `new
    List.filled(n, null)` dos `_init` sobrepostos e do lote do JSON avaliava o
    `List<Object?>` a cada tabela. A lista nunca sai da tabela (a VM também a cria
    sem argumentos de tipo). A lista do JSON sai pronta do runtime

@@ -1,6 +1,6 @@
 //! Type dump: writes, for each body expression, the static type our inference
 //! gave it, in the same format as the `package:analyzer` oracle
-//! (`tools/oraculo_tipos/oraculo.dart`). It is an inference diagnostic tool,
+//! (`tools/type_oracle/oracle.dart`). It is an inference diagnostic tool,
 //! not a product (the logic lives in `dartforge_types::dump`).
 //!
 //! ```text

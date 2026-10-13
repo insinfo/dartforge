@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Servidor HTTP do comparativo (RELATORIO-COMPARATIVO-NATIVO.md): o mesmo
-protocolo de `bench/http/servidor.dart` em Dart (DartForge e Dart), Go, Swift
+protocolo de `bench/http/server.dart` em Dart (DartForge e Dart), Go, Swift
 (SwiftNIO) e TypeScript (Perry, scriptc), sob a carga de
-`bench/comparison/carga.go` (keep-alive; substitui o `wrk` no macOS).
+`bench/comparison/load.go` (keep-alive; substitui o `wrk` no macOS).
 
 Para cada servidor: sobe na porta 0, aquece, e mede `/` e `/json` com 1 e N
 conexões: req/s, latência p50/p99, CPU do servidor por mil requisições
@@ -30,7 +30,7 @@ def servidores(saida):
     jit = ferramenta("DARTFORGE_JIT", "dartforge-jit")
     dart, go, swift = ferramenta("DART", "dart"), ferramenta("GO", "go"), ferramenta("SWIFT", "swift")
     perry, scriptc, tinygo = ferramenta("PERRY", "perry"), ferramenta("SCRIPTC", "scriptc"), ferramenta("TINYGO", "tinygo")
-    fonte = lambda ext: os.path.join(FONTES, f"servidor.{ext}")
+    fonte = lambda ext: os.path.join(FONTES, f"server.{ext}")
     exe = lambda nome: os.path.join(saida, f"srv-{nome}")
     s = {}
     for modo, cli, extra, amb in [
@@ -52,9 +52,9 @@ def servidores(saida):
     if tinygo:
         s["tinygo"] = ([tinygo, "build", "-opt=2", "-no-debug", "-o", exe("tinygo"), fonte("go")], [exe("tinygo")], {})
     if swift:
-        pacote = os.path.join(FONTES, "swift-servidor")
+        pacote = os.path.join(FONTES, "swift-server")
         s["swift-nio"] = ([swift, "build", "-c", "release", "--package-path", pacote],
-                          [os.path.join(pacote, ".build", "release", "servidor")], {})
+                          [os.path.join(pacote, ".build", "release", "server")], {})
     if perry:
         s["perry"] = ([perry, "compile", fonte("ts"), "-o", exe("perry")], [exe("perry")], {})
     if scriptc:
@@ -90,7 +90,7 @@ def main():
     os.makedirs(saida, exist_ok=True)
     go = ferramenta("GO", "go")
     carga = os.path.join(saida, "carga")
-    subprocess.run([go, "build", "-o", carga, os.path.join(FONTES, "carga.go")], check=True)
+    subprocess.run([go, "build", "-o", carga, os.path.join(FONTES, "load.go")], check=True)
     conexoes = [int(c) for c in a.conexoes.split(",")]
     todos = servidores(saida)
     linhas = []
@@ -113,7 +113,7 @@ def main():
             l = proc.stdout.readline()
             if not l:
                 break
-            m = re.match(r"porta (\d+)", l.strip())
+            m = re.match(r"port (\d+)", l.strip())
             if m:
                 porta = int(m.group(1))
                 break
@@ -137,7 +137,7 @@ def main():
                 cpu_mil = (c1 - c0) * 1000 / max(rps * a.duracao / 1000, 1e-9)
                 linhas.append((nome, rota, c, rps, p50, p99, erros, cpu_mil, tamanho, rss_repouso, int(ps(proc.pid, "rss") or 0) // 1024))
         try:
-            urllib.request.urlopen(base + "/sair", timeout=2).read()
+            urllib.request.urlopen(base + "/quit", timeout=2).read()
         except Exception:
             pass
         time.sleep(0.3)
