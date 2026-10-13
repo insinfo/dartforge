@@ -237,10 +237,7 @@ fn parse_channels(
         if list.iter().any(is_var) || list.last().is_some_and(var_slash) {
             return Ok(Err(function_string(name, &[original], span)?));
         }
-        return fail(
-            format!("Missing element {}.", arg_names[list.len()]),
-            span,
-        );
+        return fail(format!("Missing element {}.", arg_names[list.len()]), span);
     }
     if let Some(alpha) = slash_alpha {
         let mut v = list;
@@ -354,7 +351,10 @@ pub(crate) fn mix(args: ArgumentResult) -> SassResult<Value> {
 
 pub(crate) fn invert(args: ArgumentResult, global: bool) -> SassResult<Value> {
     let span = args.span;
-    let a = bind_args(args, &signature!("color", "weight" = ParamDefault::Pct(100.0)))?;
+    let a = bind_args(
+        args,
+        &signature!("color", "weight" = ParamDefault::Pct(100.0)),
+    )?;
     let weight = as_number(&a[1], "weight", span)?;
     if matches!(a[0], Value::Dimension(..)) || (global && is_special(&a[0])) {
         if weight.num.0 != 100.0 || !has_unit(&weight, &Unit::Percent) {
@@ -499,7 +499,13 @@ pub(crate) fn shift_channel(args: ArgumentResult, channel: usize, sign: f64) -> 
     let span = args.span;
     let a = bind_args(args, &signature!("color", "amount"))?;
     let c = color_arg(&a[0], "color", span)?;
-    let amount = value_in_range(&as_number(&a[1], "amount", span)?, 0.0, 100.0, "amount", span)?;
+    let amount = value_in_range(
+        &as_number(&a[1], "amount", span)?,
+        0.0,
+        100.0,
+        "amount",
+        span,
+    )?;
     let v = (hsl_of(&c)[channel] + sign * amount).clamp(0.0, 100.0);
     if channel == 1 {
         change_hsl(&c, None, Some(v), None, None, span)
@@ -600,7 +606,12 @@ pub(crate) fn opacity(args: ArgumentResult, global: bool) -> SassResult<Value> {
 pub(crate) fn hwb(args: ArgumentResult) -> SassResult<Value> {
     let span = args.span;
     let overloads = [
-        signature!("hue", "whiteness", "blackness", "alpha" = ParamDefault::Num(1.0)),
+        signature!(
+            "hue",
+            "whiteness",
+            "blackness",
+            "alpha" = ParamDefault::Num(1.0)
+        ),
         signature!("channels"),
     ];
     let i = choose_overload(&overloads, &args);

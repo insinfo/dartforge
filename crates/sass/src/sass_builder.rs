@@ -23,24 +23,24 @@ use crate::{InputSyntax, Options, OutputStyle};
 /// A `build_runner` asset: package and path inside it (`lib/a.scss`,
 /// `web/b.scss`), always with `/`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Ativo {
-    pub pacote: String,
-    pub caminho: String,
+pub struct Asset {
+    pub package: String,
+    pub path: String,
 }
 
-impl Ativo {
+impl Asset {
     /// `AssetId.uri`: `package:` inside `lib/`, `asset:` outside.
     pub fn uri(&self) -> String {
-        match self.caminho.strip_prefix("lib/") {
-            Some(rest) => format!("package:{}/{rest}", self.pacote),
-            None => format!("asset:{}/{}", self.pacote, self.caminho),
+        match self.path.strip_prefix("lib/") {
+            Some(rest) => format!("package:{}/{rest}", self.package),
+            None => format!("asset:{}/{}", self.package, self.path),
         }
     }
 
     /// `AssetId.resolve(uri, from: from)`: a relative URL resolves against
     /// the URI of `from` (`Uri.resolveUri`); only `package:` and `asset:` are
     /// accepted.
-    pub fn resolve(uri: &str, from: &Ativo) -> Result<Ativo, String> {
+    pub fn resolve(uri: &str, from: &Asset) -> Result<Asset, String> {
         let resolved = match scheme(uri) {
             Some(_) => uri.to_owned(),
             None => resolve_relative(&from.uri(), uri),
@@ -53,16 +53,16 @@ impl Ativo {
         let rest = rest.split(['?', '#']).next().unwrap_or("");
         let rest = rest.strip_prefix('/').unwrap_or(rest);
         let mut segs = rest.split('/');
-        let pacote = segs.next().unwrap_or("").to_owned();
+        let package = segs.next().unwrap_or("").to_owned();
         let others: Vec<&str> = segs.collect();
         match sch {
-            "package" => Ok(Ativo {
-                pacote,
-                caminho: join_segments("lib", &others),
+            "package" => Ok(Asset {
+                package,
+                path: join_segments("lib", &others),
             }),
-            "asset" => Ok(Ativo {
-                pacote,
-                caminho: join_segments("", &others),
+            "asset" => Ok(Asset {
+                package,
+                path: join_segments("", &others),
             }),
             _ => Err(error()),
         }
@@ -156,18 +156,18 @@ fn resolve_relative(base: &str, rel: &str) -> String {
 
 /// The package roots, by name, as in `package_config.json`.
 #[derive(Debug, Clone, Default)]
-pub struct Pacotes {
+pub struct Packages {
     roots: HashMap<String, PathBuf>,
 }
 
-impl Pacotes {
-    /// Empty packages; add to it with [`Pacotes::inserir`].
+impl Packages {
+    /// Empty packages; add to it with [`Packages::insert`].
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Adds (or replaces) the root of a package.
-    pub fn inserir(&mut self, name: impl Into<String>, root: impl Into<PathBuf>) {
+    pub fn insert(&mut self, name: impl Into<String>, root: impl Into<PathBuf>) {
         self.roots.insert(name.into(), root.into());
     }
 
@@ -182,12 +182,11 @@ impl Pacotes {
     /// # Errors
     ///
     /// The file cannot be read or does not have the expected shape.
-    pub fn de_package_config(path: &Path) -> io::Result<Self> {
+    pub fn from_package_config(path: &Path) -> io::Result<Self> {
         let text = std::fs::read_to_string(path)?;
         let dir = path.parent().unwrap_or(Path::new(""));
-        let mut p = Pacotes::new();
-        let invalid =
-            || io::Error::new(io::ErrorKind::InvalidData, "invalid package_config.json");
+        let mut p = Packages::new();
+        let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid package_config.json");
         // Minimal JSON reading: the objects of `packages` with `name` and
         // `rootUri` (the crate does not depend on a JSON reader).
         let list = text.find("\"packages\"").ok_or_else(invalid)?;
@@ -201,7 +200,7 @@ impl Pacotes {
                     Some(abs) => PathBuf::from(percent_decode(abs)),
                     None => dir.join(percent_decode(&root)),
                 };
-                p.inserir(name, normalize(&root));
+                p.insert(name, normalize(&root));
             }
             rest = &rest[end + 1..];
         }
@@ -284,9 +283,9 @@ pub trait Leitor {
 
 /// The disk, and nothing else.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Disco;
+pub struct Disk;
 
-impl Leitor for Disco {
+impl Leitor for Disk {
     fn existe(&self, path: &Path) -> bool {
         path.is_file()
     }
@@ -299,8 +298,8 @@ impl Leitor for Disco {
 /// was read and what was probed without existing (the action's
 /// dependencies).
 struct BuildImporter<'a> {
-    input: &'a Ativo,
-    packages: &'a Pacotes,
+    input: &'a Asset,
+    packages: &'a Packages,
     reader: &'a dyn Leitor,
     read: RefCell<Vec<PathBuf>>,
     probed: RefCell<Vec<PathBuf>>,
@@ -315,12 +314,12 @@ impl std::fmt::Debug for BuildImporter<'_> {
 }
 
 impl BuildImporter<'_> {
-    fn file(&self, a: &Ativo) -> Option<PathBuf> {
-        self.packages.root(&a.pacote).map(|r| r.join(&a.caminho))
+    fn file(&self, a: &Asset) -> Option<PathBuf> {
+        self.packages.root(&a.package).map(|r| r.join(&a.path))
     }
 
     /// `buildStep.canRead(id)`.
-    fn can_read(&self, a: &Ativo) -> bool {
+    fn can_read(&self, a: &Asset) -> bool {
         let Some(f) = self.file(a) else {
             return false;
         };
@@ -337,7 +336,7 @@ impl BuildImporter<'_> {
     }
 
     /// `_resolveImport`, resolving relative URLs against `from`.
-    fn resolve(&self, import: &str, from: &Ativo) -> Result<Option<Ativo>, String> {
+    fn resolve(&self, import: &str, from: &Asset) -> Result<Option<Asset>, String> {
         let ext = extension(import);
         if ext == ".sass" || ext == ".scss" {
             return exactly_one(self.try_import(import, from)?);
@@ -354,14 +353,14 @@ impl BuildImporter<'_> {
         exactly_one(self.try_with_extensions(&index, from)?)
     }
 
-    fn try_with_extensions(&self, import: &str, from: &Ativo) -> Result<Vec<Ativo>, String> {
+    fn try_with_extensions(&self, import: &str, from: &Asset) -> Result<Vec<Asset>, String> {
         let mut v = self.try_import(&format!("{import}.sass"), from)?;
         v.extend(self.try_import(&format!("{import}.scss"), from)?);
         Ok(v)
     }
 
     /// `_tryImport`: the partial `_name` and the file itself, in that order.
-    fn try_import(&self, import: &str, from: &Ativo) -> Result<Vec<Ativo>, String> {
+    fn try_import(&self, import: &str, from: &Asset) -> Result<Vec<Asset>, String> {
         let mut v = Vec::new();
         let (dir, base) = dirname_basename(import);
         let partial = if dir == "." {
@@ -371,11 +370,11 @@ impl BuildImporter<'_> {
         } else {
             format!("{dir}/_{base}")
         };
-        let partial = Ativo::resolve(&partial, from)?;
+        let partial = Asset::resolve(&partial, from)?;
         if self.can_read(&partial) {
             v.push(partial);
         }
-        let itself = Ativo::resolve(import, from)?;
+        let itself = Asset::resolve(import, from)?;
         if self.can_read(&itself) {
             v.push(itself);
         }
@@ -425,7 +424,7 @@ fn dirname_basename(s: &str) -> (String, String) {
     }
 }
 
-fn exactly_one(v: Vec<Ativo>) -> Result<Option<Ativo>, String> {
+fn exactly_one(v: Vec<Asset>) -> Result<Option<Asset>, String> {
     match v.len() {
         0 => Ok(None),
         1 => Ok(v.into_iter().next()),
@@ -446,7 +445,7 @@ impl Importer for BuildImporter<'_> {
         // URL as it came — and the `BuildImporter` resolves it against the
         // **input** (`AssetId.resolve(…, from: inputId)`).
         if scheme(url).is_none() {
-            if let Ok(from) = Ativo::resolve(base, self.input) {
+            if let Ok(from) = Asset::resolve(base, self.input) {
                 if from != *self.input {
                     let resolved = resolve_relative(base, url);
                     if let Some(a) = self.resolve(&resolved, &from)? {
@@ -459,10 +458,10 @@ impl Importer for BuildImporter<'_> {
     }
 
     fn load(&self, canonical: &str) -> Result<ImporterResult, String> {
-        let a = Ativo::resolve(canonical, self.input)?;
+        let a = Asset::resolve(canonical, self.input)?;
         let f = self
             .file(&a)
-            .ok_or_else(|| format!("unknown package: {}", a.pacote))?;
+            .ok_or_else(|| format!("unknown package: {}", a.package))?;
         let contents = self.reader.ler(&f).map_err(|e| format!("{e}"))?;
         let mut l = self.read.borrow_mut();
         if !l.contains(&f) {
@@ -470,19 +469,19 @@ impl Importer for BuildImporter<'_> {
         }
         Ok(ImporterResult {
             contents,
-            syntax: InputSyntax::for_path(Path::new(&a.caminho)),
+            syntax: InputSyntax::for_path(Path::new(&a.path)),
         })
     }
 }
 
-/// The result of [`compilar`].
+/// The result of [`compile`].
 #[derive(Debug, Clone)]
 pub struct Compiled {
     /// The `compileResult.css` (without a final `\n` or source map comment).
     pub css: String,
     /// The `.css.map` as `sass_builder` writes it (`json.encode`, with the
     /// `sources` rewritten), when requested.
-    pub mapa: Option<String>,
+    pub map: Option<String>,
     /// The files the compilation read (dependencies).
     pub lidos: Vec<PathBuf>,
     /// The files the importer looked for and did not find (also
@@ -493,10 +492,10 @@ pub struct Compiled {
 impl Compiled {
     /// The `.css` that `sass_builder` writes: the CSS, the
     /// `sourceMappingURL` comment when there is a source map, and `\n`.
-    pub fn arquivo_css(&self, input: &Ativo) -> String {
-        match &self.mapa {
+    pub fn css_file(&self, input: &Asset) -> String {
+        match &self.map {
             Some(_) => {
-                let name = input.caminho.rsplit('/').next().unwrap_or("");
+                let name = input.path.rsplit('/').next().unwrap_or("");
                 let base = match name.rfind('.') {
                     Some(i) if i > 0 => &name[..i],
                     _ => name,
@@ -514,10 +513,10 @@ impl Compiled {
 /// # Errors
 ///
 /// The Sass compilation error (the grass/dart-sass message).
-pub fn compilar(
+pub fn compile(
     source: &str,
-    input: &Ativo,
-    packages: &Pacotes,
+    input: &Asset,
+    packages: &Packages,
     reader: &dyn Leitor,
     style: OutputStyle,
     source_map: bool,
@@ -535,13 +534,13 @@ pub fn compilar(
         .version(version)
         .quiet(true)
         .importer(&importer)
-        .input_syntax(InputSyntax::for_path(Path::new(&input.caminho)));
+        .input_syntax(InputSyntax::for_path(Path::new(&input.path)));
     let (css, raw_map) =
         crate::compile_with_source_map(source.to_owned(), &input.uri(), &options, source_map)?;
-    let mapa = raw_map.map(|m| m.json_sass_builder(input));
+    let map = raw_map.map(|m| m.json_sass_builder(input));
     Ok(Compiled {
         css,
-        mapa,
+        map,
         lidos: importer.read.into_inner(),
         sondados: importer.probed.into_inner(),
     })
@@ -551,15 +550,15 @@ pub fn compilar(
 /// (`writeSourceMaps`): what is in `lib/` becomes
 /// `packages/<package>/<rest>`; what is in `web/` of the package itself,
 /// relative to `web/`; the rest stays as it came.
-pub fn map_source(url: &str, input: &Ativo) -> String {
-    let Ok(a) = Ativo::resolve(url, input) else {
+pub fn map_source(url: &str, input: &Asset) -> String {
+    let Ok(a) = Asset::resolve(url, input) else {
         return url.to_owned();
     };
-    if let Some(rest) = a.caminho.strip_prefix("lib/") {
-        return format!("packages/{}/{rest}", a.pacote);
+    if let Some(rest) = a.path.strip_prefix("lib/") {
+        return format!("packages/{}/{rest}", a.package);
     }
-    if a.pacote == input.pacote {
-        if let Some(rest) = a.caminho.strip_prefix("web/") {
+    if a.package == input.package {
+        if let Some(rest) = a.path.strip_prefix("web/") {
             return rest.to_owned();
         }
     }
@@ -572,16 +571,16 @@ mod tests {
 
     #[test]
     fn resolves_like_asset_id() {
-        let e = Ativo {
-            pacote: "app".into(),
-            caminho: "web/css/main.scss".into(),
+        let e = Asset {
+            package: "app".into(),
+            path: "web/css/main.scss".into(),
         };
         assert_eq!(e.uri(), "asset:app/web/css/main.scss");
-        let a = Ativo::resolve("../x/_y.scss", &e).unwrap();
-        assert_eq!(a.caminho, "web/x/_y.scss");
-        let b = Ativo::resolve("package:ui/src/a.scss", &e).unwrap();
+        let a = Asset::resolve("../x/_y.scss", &e).unwrap();
+        assert_eq!(a.path, "web/x/_y.scss");
+        let b = Asset::resolve("package:ui/src/a.scss", &e).unwrap();
         assert_eq!(
-            (b.pacote.as_str(), b.caminho.as_str()),
+            (b.package.as_str(), b.path.as_str()),
             ("ui", "lib/src/a.scss")
         );
         assert_eq!(
@@ -592,6 +591,6 @@ mod tests {
             map_source("asset:app/web/css/main.scss", &e),
             "css/main.scss"
         );
-        assert!(Ativo::resolve("http://x/y", &e).is_err());
+        assert!(Asset::resolve("http://x/y", &e).is_err());
     }
 }

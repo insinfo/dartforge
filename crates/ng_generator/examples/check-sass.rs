@@ -30,7 +30,7 @@ fn main() -> std::process::ExitCode {
         packages.extend(e.flatten().map(|x| x.path()).filter(|p| p.is_dir()));
     }
 
-    // `--bytes`: compares the CSS of `compilar_com(.., Comprimido)` byte for
+    // `--bytes`: compares the CSS of `compile_with(.., Comprimido)` byte for
     // byte with that of `sass_builder` (without the source map comment),
     // instead of after the shim.
     let bytes = std::env::args().any(|a| a == "--bytes");
@@ -66,7 +66,7 @@ fn main() -> std::process::ExitCode {
                 Some(i) => &theirs[..i],
                 None => theirs,
             };
-            match sass::compilar_com(&source, scss.parent(), sass::Estilo::Comprimido) {
+            match sass::compile_with(&source, scss.parent(), sass::Estilo::Comprimido) {
                 Ok((a, _)) if a == theirs => equal += 1,
                 Ok((a, _)) => {
                     different += 1;
@@ -87,7 +87,7 @@ fn main() -> std::process::ExitCode {
             }
             continue;
         }
-        let ours = match sass::compilar_em(&source, scss.parent()) {
+        let ours = match sass::compile_in(&source, scss.parent()) {
             Ok(c) => c,
             Err(_) => {
                 refused += 1;

@@ -1,15 +1,15 @@
 //! The build engine API (`docs/BUILD-PEDIDOS-GERADOR-NG.md`): generating one
 //! file at a time, with the index maintained incrementally, gives the same
-//! text as generating the whole package (`gerar_em`), and reports what it
+//! text as generating the whole package (`generate_in`), and reports what it
 //! queried. Runs over the ngdart corpus, with the semantic database.
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::sdk::SdkLayout;
+use dartforge_intern::Interner;
 use dartforge_ng_generator::resolucao::Resolvedor;
 use dartforge_ng_generator::{
-    ConsultaNg, Indice, Pacote, Placar, analisar_arquivo, caminho_do_template, gerar_arquivo,
-    gerar_em,
+    Indice, NgQuery, Pacote, Scoreboard, analisar_arquivo, caminho_do_template, generate_in,
+    gerar_arquivo,
 };
-use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
 
 fn root() -> PathBuf {
@@ -57,9 +57,9 @@ fn one_file_at_a_time_gives_the_same_as_the_package() {
 
     // The whole package, through the usual path.
     let mut c = dartforge_elements::gerado::Construtor::nova();
-    let mut scoreboard = Placar::default();
+    let mut scoreboard = Scoreboard::default();
     let mut i1 = Interner::new();
-    gerar_em(
+    generate_in(
         &package,
         &[root.join("lib")],
         &mut i1,
@@ -97,14 +97,14 @@ fn one_file_at_a_time_gives_the_same_as_the_package() {
                     p.display()
                 );
                 if p.ends_with("d01_dois_filhos.dart") {
-                    d01_queries = s.consultas.clone();
+                    d01_queries = s.queries.clone();
                 }
             }
             Err(r) => assert!(
                 expected.is_none(),
                 "{} refused on its own ({}) and generated in the package",
                 p.display(),
-                r.texto()
+                r.text()
             ),
         }
     }
@@ -112,8 +112,8 @@ fn one_file_at_a_time_gives_the_same_as_the_package() {
     assert!(
         d01_queries.iter().any(|c| matches!(
             c,
-            ConsultaNg::Filho { classe, seletor, .. }
-                if classe == "A02TextoEstatico" && seletor == "a02-texto-estatico"
+            NgQuery::Child { class, selector, .. }
+                if class == "A02TextoEstatico" && selector == "a02-texto-estatico"
         )),
         "d01 queried the children: {d01_queries:?}"
     );
@@ -121,13 +121,16 @@ fn one_file_at_a_time_gives_the_same_as_the_package() {
     // Removing a file from the index drops what it declared, and whoever used
     // it now queries the missing selector.
     let child = root.join("lib").join("src").join("a02_texto_estatico.dart");
-    assert!(index.declarante("a02-texto-estatico").is_some());
+    assert!(index.declarer("a02-texto-estatico").is_some());
     index.remover(&child);
-    assert!(index.declarante("a02-texto-estatico").is_none());
+    assert!(index.declarer("a02-texto-estatico").is_none());
     let (p, a) = findings
         .iter()
         .find(|(p, _)| p.ends_with("d01_dois_filhos.dart"))
         .unwrap();
     let after = gerar_arquivo(&package, p, a, Some(&resolver), &mut i2, &index);
-    assert!(after.is_err(), "d01 still generated without the child in the index");
+    assert!(
+        after.is_err(),
+        "d01 still generated without the child in the index"
+    );
 }

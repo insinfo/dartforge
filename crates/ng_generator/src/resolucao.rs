@@ -17,131 +17,120 @@ use std::path::{Path, PathBuf};
 
 /// What the emitter needs to ask about names. It is a trait so that tests can
 /// answer without loading a whole program.
-/// An instance method found in the hierarchy ([`Resolucao::metodo`]).
+/// An instance method found in the hierarchy ([`Resolution::method`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Metodo {
-    pub posicionais: usize,
+pub struct Method {
+    pub positional: usize,
     /// The written return type and the file of its scope; `None` without a
-    /// written type or with [`Metodo::incerto`].
-    pub retorno: Option<(String, PathBuf)>,
+    /// written type or with [`Method::uncertain`].
+    pub return_type: Option<(String, PathBuf)>,
     /// The return type mentions a type parameter that the substitution did not
     /// resolve: the type exists, but it cannot be written (never `dynamic`).
-    pub incerto: bool,
+    pub uncertain: bool,
 }
 
-pub trait Resolucao {
-    /// URI of the library that declares `nome` in the scope of `arquivo`.
-    fn uri_do_tipo(&self, arquivo: &Path, nome: &str) -> Option<String>;
+pub trait Resolution {
+    /// URI of the library that declares `name` in the scope of `file`.
+    fn type_uri(&self, file: &Path, name: &str) -> Option<String>;
 
-    /// Declared type of `membro` in class `tipo` (named in the scope of
-    /// `arquivo`), with the file in whose scope that type was written — that of
+    /// Declared type of `member` in class `ty` (named in the scope of
+    /// `file`), with the file in whose scope that type was written — that of
     /// the class that declares the member, not that of the component.
     ///
     /// It is what allows interpolating `{{ item.nome }}`: without knowing that
     /// `nome` is a `String`, one cannot choose between `interpolateString`,
     /// `interpolate` and `updateTextWithPrimitive`.
-    fn tipo_do_membro(
-        &self,
-        _arquivo: &Path,
-        _tipo: &str,
-        _membro: &str,
-    ) -> Option<(String, PathBuf)> {
+    fn member_type(&self, _file: &Path, _ty: &str, _member: &str) -> Option<(String, PathBuf)> {
         None
     }
 
-    /// The instance method `nome` of class `tipo` (named in the scope of
-    /// `arquivo`, walking up the superclasses): how many positional parameters
+    /// The instance method `name` of class `ty` (named in the scope of
+    /// `file`, walking up the superclasses): how many positional parameters
     /// it has (`rewriteTearOff`) and the written return type, with the file in
     /// whose scope it resolves. `None` when it is not a method (field, getter,
     /// static) or when the return type mentions a type parameter.
-    fn metodo(&self, _arquivo: &Path, _tipo: &str, _nome: &str) -> Option<Metodo> {
+    fn method(&self, _file: &Path, _ty: &str, _name: &str) -> Option<Method> {
         None
     }
 
-    /// [`Self::tipo_do_membro`] with `livres`: the component's type parameters,
+    /// [`Self::member_type`] with `free`: the component's type parameters,
     /// in scope in all its views (the views are generic). A receiver argument
     /// that is one of them is substituted as is.
-    fn tipo_do_membro_livre(
+    fn member_type_with_free(
         &self,
-        arquivo: &Path,
-        tipo: &str,
-        membro: &str,
-        _livres: &[String],
+        file: &Path,
+        ty: &str,
+        member: &str,
+        _free: &[String],
     ) -> Option<(String, PathBuf)> {
-        self.tipo_do_membro(arquivo, tipo, membro)
+        self.member_type(file, ty, member)
     }
 
-    /// [`Self::metodo`] with `livres` and the receiver's arguments in `tipo`.
-    fn metodo_livre(
-        &self,
-        arquivo: &Path,
-        tipo: &str,
-        nome: &str,
-        _livres: &[String],
-    ) -> Option<Metodo> {
-        self.metodo(arquivo, tipo, nome)
+    /// [`Self::method`] with `free` and the receiver's arguments in `ty`.
+    fn free_method(&self, file: &Path, ty: &str, name: &str, _free: &[String]) -> Option<Method> {
+        self.method(file, ty, name)
     }
 
-    /// Is the instance member `membro` of class `tipo` (named in the scope of
-    /// `arquivo`, walking up the superclasses) a `final`/`const` field?
+    /// Is the instance member `member` of class `ty` (named in the scope of
+    /// `file`, walking up the superclasses) a `final`/`const` field?
     /// `Some(false)` for a mutable field or a getter; `None` when the
     /// declaration is not found. It is ngcompiler's `isImmutable` for an
     /// inherited member.
-    fn membro_final(&self, _arquivo: &Path, _tipo: &str, _membro: &str) -> Option<bool> {
+    fn final_member(&self, _file: &Path, _ty: &str, _member: &str) -> Option<bool> {
         None
     }
 
-    /// Does class `tipo` (or something above it, in Dart's order) have an
-    /// instance setter `membro` — of a non-final field or a `set membro(..)`?
-    /// It is what an event's `membro = x` write needs: the `PropertyWrite` with
-    /// the implicit receiver becomes `_ctx.membro`. `false` when unknown.
-    fn tem_setter(&self, _arquivo: &Path, _tipo: &str, _membro: &str) -> bool {
+    /// Does class `ty` (or something above it, in Dart's order) have an
+    /// instance setter `member` — of a non-final field or a `set member(..)`?
+    /// It is what an event's `member = x` write needs: the `PropertyWrite` with
+    /// the implicit receiver becomes `_ctx.member`. `false` when unknown.
+    fn has_setter(&self, _file: &Path, _ty: &str, _member: &str) -> bool {
         false
     }
 
-    /// The type parameters of class `tipo` (in the scope of `arquivo`): for
+    /// The type parameters of class `ty` (in the scope of `file`): for
     /// each one, whether it has a written bound. `None` when the class is not
     /// found.
-    fn limites_de_tipo(&self, _arquivo: &Path, _tipo: &str) -> Option<Vec<bool>> {
+    fn type_bounds(&self, _file: &Path, _ty: &str) -> Option<Vec<bool>> {
         None
     }
 
-    /// The base name of type `tipo` (without `?` and without type arguments) is
-    /// not declared in the scope of `arquivo` — neither imported, nor in
+    /// The base name of type `ty` (without `?` and without type arguments) is
+    /// not declared in the scope of `file` — neither imported, nor in
     /// `dart:core`. For the analyzer it is an `InvalidType`, and the official
     /// `_TypeResolver` gives `dynamic` to any member read from it (typical
     /// case: the class comes from a file generated by a later phase, which the
     /// builder's resolver does not see). `false` when unknown.
-    fn tipo_inexistente(&self, _arquivo: &Path, _tipo: &str) -> bool {
+    fn nonexistent_type(&self, _file: &Path, _ty: &str) -> bool {
         false
     }
 
-    /// What a `directives:` name designates in the scope of `arquivo`: a class
+    /// What a `directives:` name designates in the scope of `file`: a class
     /// or a constant list of other names.
-    fn designado(&self, arquivo: &Path, nome: &str) -> Option<Designado> {
-        self.uri_do_tipo(arquivo, nome)
-            .map(|uri| Designado::Classe { uri })
+    fn designated(&self, file: &Path, name: &str) -> Option<Designated> {
+        self.type_uri(file, name)
+            .map(|uri| Designated::Class { uri })
     }
 
-    /// An `exports:` name in the scope of `arquivo`: the URI of the library
+    /// An `exports:` name in the scope of `file`: the URI of the library
     /// that declares it and what it is.
-    fn exportado(&self, _arquivo: &Path, _nome: &str) -> Option<(String, Exportado)> {
+    fn exported(&self, _file: &Path, _name: &str) -> Option<(String, Exported)> {
         None
     }
 
-    /// The static member `membro` of class `tipo` (in the scope of `arquivo`).
-    fn membro_estatico(&self, _arquivo: &Path, _tipo: &str, _membro: &str) -> Option<Estatico> {
+    /// The static member `member` of class `ty` (in the scope of `file`).
+    fn static_member(&self, _file: &Path, _ty: &str, _member: &str) -> Option<Static> {
         None
     }
 
     /// The event type of an `@Output` (`_outputType`,
     /// `NX:source_gen/template_compiler/find_components.dart:412-445`): the `T`
-    /// of the `Stream<T>` declared in member `membro` of class `classe` of
+    /// of the `Stream<T>` declared in member `member` of class `class` of
     /// library `uri`, with the file of the scope in which it is written; a type
     /// parameter of the declaring class becomes its bound (or `dynamic`), and
     /// `Stream<void>` or a raw `Stream`, `dynamic`. `None` when unknown (member
     /// without a written type, a type that is not `Stream<..>`).
-    fn tipo_da_saida(&self, _uri: &str, _classe: &str, _membro: &str) -> Option<(String, PathBuf)> {
+    fn output_type(&self, _uri: &str, _class: &str, _member: &str) -> Option<(String, PathBuf)> {
         None
     }
 }
@@ -150,70 +139,70 @@ pub trait Resolucao {
 /// the official compiler writes it through the import of the library that
 /// declares it, with type `dynamic`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Exportado {
+pub enum Exported {
     /// Class: valid as the receiver of a static member.
-    Classe,
+    Class,
     /// `enum`, `mixin` or *extension type*: in analyzer 6 it is not a
     /// `ClassElement`, and `_extractExports` does not give it an
     /// `AnalyzedClass` (`find_components.dart:891-893`). Valid as a receiver,
     /// but the member read from it is mutable and `dynamic`
     /// (`analyzed_class.dart:134-137`).
-    TipoSemClasse,
+    TypeWithoutClass,
     /// Top-level variable: immutable when `const`/`final` (`isImmutable`).
-    Variavel { imutavel: bool },
+    Variable { immutable: bool },
     /// Getter de topo.
     Getter,
     /// Top-level function: valid as a call target.
-    Funcao,
+    Function,
 }
 
 /// A static member read through `Class.name`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Estatico {
+pub enum Static {
     /// Field (or enum value): immutable when `const`/`final`.
-    Campo {
-        imutavel: bool,
+    Field {
+        immutable: bool,
     },
     Getter,
-    Metodo,
+    Method,
 }
 
 /// An item of `directives: [...]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Designado {
+pub enum Designated {
     /// A class, by the URI of the library that declares it.
-    Classe { uri: String },
+    Class { uri: String },
     /// A constant list (`coreDirectives`, `li.limitlessFormDirectives`): the
     /// names of the items, to be resolved in the scope of the file that
     /// declares it.
-    Lista { itens: Vec<String>, escopo: PathBuf },
+    List { items: Vec<String>, scope: PathBuf },
 }
 
 pub struct Resolvedor<'a> {
     program: &'a Program,
     interner: &'a Interner,
     /// Path of each main unit to its library.
-    por_caminho: HashMap<PathBuf, LibraryId>,
+    by_path: HashMap<PathBuf, LibraryId>,
 }
 
 impl<'a> Resolvedor<'a> {
     pub fn novo(program: &'a Program, interner: &'a Interner) -> Self {
-        let mut por_caminho = HashMap::new();
-        for unidade in &program.units {
-            let Some(caminho) = &unidade.path else {
+        let mut by_path = HashMap::new();
+        for unit in &program.units {
+            let Some(path) = &unit.path else {
                 continue;
             };
-            por_caminho
-                .entry(dartforge_elements::gerado::chave(caminho))
-                .or_insert(unidade.library);
+            by_path
+                .entry(dartforge_elements::gerado::chave(path))
+                .or_insert(unit.library);
         }
         // The generation's dialect is that of the program (`ngdart` 8 or
         // `ngx_dart` 9).
-        crate::dialect::fixar(crate::dialect::do_programa(program));
+        crate::dialect::set_dialect(crate::dialect::do_programa(program));
         Self {
             program,
             interner,
-            por_caminho,
+            by_path,
         }
     }
 
@@ -222,7 +211,7 @@ impl<'a> Resolvedor<'a> {
     /// This is where the component index of **all** packages comes from —
     /// without it, an `<li-select>` from limitless_ui would be just an unknown
     /// tag.
-    pub fn bibliotecas(
+    pub fn libraries(
         &self,
     ) -> impl Iterator<
         Item = (
@@ -239,7 +228,7 @@ impl<'a> Resolvedor<'a> {
                 return None;
             }
             Some((
-                crate::dialect::canonica(lib.uri.as_str()),
+                crate::dialect::canonical(lib.uri.as_str()),
                 &u.ast,
                 &u.unit,
                 u.source.as_str(),
@@ -255,133 +244,131 @@ impl<'a> Resolvedor<'a> {
 
     /// The loaded program: the directive metadata comes from it
     /// (`metadata.rs`), as the official compiler takes it from the `analyzer`.
-    pub fn programa(&self) -> &'a Program {
+    pub fn program(&self) -> &'a Program {
         self.program
     }
 
-    /// A classe `classe` declarada na biblioteca de URI `uri`.
-    pub fn classe_por_uri(&self, uri: &str, classe: &str) -> Option<ClassId> {
+    /// The class `class` declared in the library with URI `uri`.
+    pub fn class_by_uri(&self, uri: &str, class: &str) -> Option<ClassId> {
         let lib = self
             .program
             .libraries
             .iter()
-            .position(|l| crate::dialect::canonica(&l.uri) == uri)?;
-        let sym = self.interner.lookup(classe)?;
+            .position(|l| crate::dialect::canonical(&l.uri) == uri)?;
+        let sym = self.interner.lookup(class)?;
         match self.program.libraries[lib].declared.get(&sym)?.getter? {
             Element::Class(id) => Some(id),
             _ => None,
         }
     }
 
-    /// What `nome` (without a prefix) or `prefixo.nome` designates in the scope
+    /// What `name` (without a prefix) or `prefix.name` designates in the scope
     /// of library `lib`. An ambiguous name designates nothing.
-    pub fn elemento_em(
-        &self,
-        lib: LibraryId,
-        prefixo: Option<&str>,
-        nome: &str,
-    ) -> Option<Element> {
-        let biblioteca = self.program.library(lib);
-        let sym = self.interner.lookup(nome)?;
-        let espaco = match prefixo {
-            None => &biblioteca.scope,
-            Some(p) => biblioteca.prefixes.get(&self.interner.lookup(p)?)?,
+    pub fn element_at(&self, lib: LibraryId, prefix: Option<&str>, name: &str) -> Option<Element> {
+        let library = self.program.library(lib);
+        let sym = self.interner.lookup(name)?;
+        let space = match prefix {
+            None => &library.scope,
+            Some(p) => library.prefixes.get(&self.interner.lookup(p)?)?,
         };
-        let ligacao = espaco.get(&sym)?;
-        if ligacao.ambiguous {
+        let binding = space.get(&sym)?;
+        if binding.ambiguous {
             return None;
         }
-        ligacao.getter
+        binding.getter
     }
 
-    /// Is `nome` an import prefix in the scope of `lib`?
-    pub fn e_prefixo(&self, lib: LibraryId, nome: &str) -> bool {
+    /// Is `name` an import prefix in the scope of `lib`?
+    pub fn is_prefix(&self, lib: LibraryId, name: &str) -> bool {
         self.interner
-            .lookup(nome)
+            .lookup(name)
             .is_some_and(|s| self.program.library(lib).prefixes.contains_key(&s))
     }
 
-    /// Biblioteca do arquivo, se ele foi carregado.
-    pub fn biblioteca(&self, arquivo: &Path) -> Option<LibraryId> {
-        self.por_caminho
-            .get(&dartforge_elements::gerado::chave(arquivo))
+    /// Library of the file, if it was loaded.
+    pub fn library(&self, file: &Path) -> Option<LibraryId> {
+        self.by_path
+            .get(&dartforge_elements::gerado::chave(file))
             .copied()
     }
 
     /// The class or `typedef` of an anchored name (`NameªN`): the name declared
     /// in library `N`, from any scope.
-    fn ancorado(&self, nome: &str) -> Option<Element> {
-        let (simples, lib) = separar_ancora(nome)?;
-        let biblioteca = self.program.libraries.get(lib)?;
-        let sym = self.interner.lookup(simples)?;
-        biblioteca.declared.get(&sym)?.getter
+    fn anchored(&self, name: &str) -> Option<Element> {
+        let (simple, lib) = split_anchor(name)?;
+        let library = self.program.libraries.get(lib)?;
+        let sym = self.interner.lookup(simple)?;
+        library.declared.get(&sym)?.getter
     }
 
-    /// `texto` (a type written in the scope of `arquivo`) with each name
-    /// anchored to the library that declares it ([`ANCORA`]): this way it can
+    /// `text` (a type written in the scope of `file`) with each name
+    /// anchored to the library that declares it ([`ANCHOR`]): this way it can
     /// be put in place of a type parameter written in another scope (the `E` of
     /// `ListMixin<E>`) and keep designating the same type. Names that are
     /// written the same in any scope (`dynamic`, the `dart:core` ones of
-    /// [`escrito_igual_em_todo_escopo`]), the `livres` and the already anchored
+    /// [`written_the_same_in_every_scope`]), the `free` and the already anchored
     /// ones stay as they are. `None` if some name is not found.
-    fn ancorar(&self, arquivo: &Path, texto: &str, livres: &[String]) -> Option<String> {
-        let lib = self.biblioteca(arquivo)?;
-        let mut saida = String::with_capacity(texto.len());
-        let mut palavra = String::new();
-        let fechar = |palavra: &mut String, saida: &mut String| -> Option<()> {
-            if palavra.is_empty() {
+    fn anchor(&self, file: &Path, text: &str, free: &[String]) -> Option<String> {
+        let lib = self.library(file)?;
+        let mut output = String::with_capacity(text.len());
+        let mut word = String::new();
+        let close = |word: &mut String, output: &mut String| -> Option<()> {
+            if word.is_empty() {
                 return Some(());
             }
-            let fica = palavra.contains(ANCORA)
-                || livres.iter().any(|l| l == palavra.as_str())
-                || escrito_igual_em_todo_escopo(palavra, &[])
-                || matches!(palavra.as_str(), "void" | "Function");
-            if fica {
-                saida.push_str(palavra);
+            let stays = word.contains(ANCHOR)
+                || free.iter().any(|l| l == word.as_str())
+                || written_the_same_in_every_scope(word, &[])
+                || matches!(word.as_str(), "void" | "Function");
+            if stays {
+                output.push_str(word);
             } else {
-                let (prefixo, simples) = match palavra.split_once('.') {
+                let (prefix, simple) = match word.split_once('.') {
                     Some((p, s)) => (Some(p), s),
-                    None => (None, palavra.as_str()),
+                    None => (None, word.as_str()),
                 };
-                let dona = match self.elemento_em(lib, prefixo, simples)? {
+                let owner = match self.element_at(lib, prefix, simple)? {
                     Element::Class(id) => self.program.class(id).library,
                     Element::Typedef(id) => self.program.typedef(id).library,
                     _ => return None,
                 };
-                saida.push_str(simples);
-                saida.push(ANCORA);
-                saida.push_str(&dona.0.to_string());
+                output.push_str(simple);
+                output.push(ANCHOR);
+                output.push_str(&owner.0.to_string());
             }
-            palavra.clear();
+            word.clear();
             Some(())
         };
-        for ch in texto.chars() {
+        for ch in text.chars() {
             if ch.is_alphanumeric() || matches!(ch, '_' | '$' | '.') {
-                palavra.push(ch);
+                word.push(ch);
             } else {
-                fechar(&mut palavra, &mut saida)?;
-                saida.push(ch);
+                close(&mut word, &mut output)?;
+                output.push(ch);
             }
         }
-        fechar(&mut palavra, &mut saida)?;
-        Some(saida)
+        close(&mut word, &mut output)?;
+        Some(output)
     }
 
     /// The arguments written on the receiver, anchored in the scope of
-    /// `arquivo`; what cannot be anchored stays as it is (and the lookup treats
+    /// `file`; what cannot be anchored stays as it is (and the lookup treats
     /// it as unknown).
-    fn ancorar_argumentos(&self, arquivo: &Path, args: Vec<String>, livres: &[String]) -> Vec<String> {
+    fn anchor_arguments(&self, file: &Path, args: Vec<String>, free: &[String]) -> Vec<String> {
         args.into_iter()
-            .map(|a| self.ancorar(arquivo, &a, livres).unwrap_or(a))
+            .map(|a| self.anchor(file, &a, free).unwrap_or(a))
             .collect()
     }
 
-    fn procurar(&self, arquivo: &Path, nome: &str) -> Option<&'a str> {
-        if nome.contains(ANCORA) {
-            return match self.ancorado(nome)? {
-                Element::Class(id) => {
-                    Some(self.program.library(self.program.class(id).library).uri.as_str())
-                }
+    fn look_up(&self, file: &Path, name: &str) -> Option<&'a str> {
+        if name.contains(ANCHOR) {
+            return match self.anchored(name)? {
+                Element::Class(id) => Some(
+                    self.program
+                        .library(self.program.class(id).library)
+                        .uri
+                        .as_str(),
+                ),
                 Element::Typedef(id) => Some(
                     self.program
                         .library(self.program.typedef(id).library)
@@ -391,32 +378,32 @@ impl<'a> Resolvedor<'a> {
                 _ => None,
             };
         }
-        let lib = self.biblioteca(arquivo)?;
-        let biblioteca = self.program.library(lib);
-        let (prefixo, simples) = match nome.split_once('.') {
+        let lib = self.library(file)?;
+        let library = self.program.library(lib);
+        let (prefix, simple) = match name.split_once('.') {
             Some((p, t)) => (Some(p), t),
-            None => (None, nome),
+            None => (None, name),
         };
-        let sym = self.interner.lookup(simples)?;
-        let espaco = match prefixo {
-            None => &biblioteca.scope,
+        let sym = self.interner.lookup(simple)?;
+        let space = match prefix {
+            None => &library.scope,
             Some(p) => {
                 let psym = self.interner.lookup(p)?;
-                biblioteca.prefixes.get(&psym)?
+                library.prefixes.get(&psym)?
             }
         };
-        let ligacao = espaco.get(&sym)?;
-        if ligacao.ambiguous {
+        let binding = space.get(&sym)?;
+        if binding.ambiguous {
             return None;
         }
-        match ligacao.getter? {
+        match binding.getter? {
             Element::Class(id) => {
-                let dona = self.program.class(id).library;
-                Some(self.program.library(dona).uri.as_str())
+                let owner = self.program.class(id).library;
+                Some(self.program.library(owner).uri.as_str())
             }
             Element::Typedef(id) => {
-                let dona = self.program.typedef(id).library;
-                Some(self.program.library(dona).uri.as_str())
+                let owner = self.program.typedef(id).library;
+                Some(self.program.library(owner).uri.as_str())
             }
             _ => None,
         }
@@ -428,157 +415,146 @@ impl<'a> Resolvedor<'a> {
 /// (`docs/NGDART-COMPILADOR-DE-VISOES.md` §A3). `ª` is alphabetic for
 /// `char::is_alphanumeric`, so every word reader of the port treats `NameªN` as
 /// a single name.
-pub const ANCORA: char = 'ª';
+pub const ANCHOR: char = 'ª';
 
 /// The name without the anchor (`Itemª12` → `Item`).
-pub fn sem_ancora(nome: &str) -> &str {
-    nome.split(ANCORA).next().unwrap_or(nome)
+pub fn without_anchor(name: &str) -> &str {
+    name.split(ANCHOR).next().unwrap_or(name)
 }
 
 /// `(name, library)` of an anchored name.
-fn separar_ancora(nome: &str) -> Option<(&str, usize)> {
-    let (simples, lib) = nome.split_once(ANCORA)?;
-    Some((simples, lib.parse().ok()?))
+fn split_anchor(name: &str) -> Option<(&str, usize)> {
+    let (simple, lib) = name.split_once(ANCHOR)?;
+    Some((simple, lib.parse().ok()?))
 }
 
 /// URI `asset:<package>/<folder>/<rest>` of a library URI.
 ///
 /// The official emitter works in this space; `package:x/y` is `asset:x/lib/y`.
-pub fn asset_de_uri(uri: &str, pacote_do_projeto: &str, raiz: &Path) -> Option<String> {
-    if let Some(resto) = uri.strip_prefix("package:") {
-        let (pkg, caminho) = resto.split_once('/')?;
-        return Some(format!("asset:{pkg}/lib/{caminho}"));
+pub fn asset_of_uri(uri: &str, project_package: &str, root: &Path) -> Option<String> {
+    if let Some(rest) = uri.strip_prefix("package:") {
+        let (pkg, path) = rest.split_once('/')?;
+        return Some(format!("asset:{pkg}/lib/{path}"));
     }
     // `file:///…/web/main.dart` of the project itself.
-    let caminho = uri.strip_prefix("file:///").map(|c| c.replace('/', "\\"))?;
-    let rel = Path::new(&caminho).strip_prefix(raiz).ok()?;
+    let path = uri.strip_prefix("file:///").map(|c| c.replace('/', "\\"))?;
+    let rel = Path::new(&path).strip_prefix(root).ok()?;
     let rel = rel.to_string_lossy().replace('\\', "/");
-    Some(format!("asset:{pacote_do_projeto}/{rel}"))
+    Some(format!("asset:{project_package}/{rel}"))
 }
 
-/// `ngcompiler`'s `getImportModulePath`: how a file generated in `modulo`
-/// writes the import of `importado`, both as `asset:` URIs.
-pub fn caminho_do_import(modulo: &str, importado: &str) -> Option<String> {
-    let m = Asset::analisar(modulo)?;
-    let i = Asset::analisar(importado)?;
-    if modulo == importado {
-        return i.caminho.rsplit('/').next().map(str::to_string);
+/// `ngcompiler`'s `getImportModulePath`: how a file generated in `module`
+/// writes the import of `imported`, both as `asset:` URIs.
+pub fn import_path(module: &str, imported: &str) -> Option<String> {
+    let m = Asset::parse(module)?;
+    let i = Asset::parse(imported)?;
+    if module == imported {
+        return i.path.rsplit('/').next().map(str::to_string);
     }
     // The same package in both dialects (`ngx_forms` and the canonical
     // `ngforms`).
-    let mesmo_pacote = crate::dialect::pacote_canonico(m.pacote)
-        == crate::dialect::pacote_canonico(i.pacote);
-    if m.pasta == i.pasta && mesmo_pacote {
-        return Some(relativo(m.caminho, i.caminho));
+    let same_package = crate::dialect::canonical_package(m.package)
+        == crate::dialect::canonical_package(i.package);
+    if m.folder == i.folder && same_package {
+        return Some(relative(m.path, i.path));
     }
-    if i.pasta == "lib" {
-        return Some(format!("package:{}/{}", i.pacote, i.caminho));
+    if i.folder == "lib" {
+        return Some(format!("package:{}/{}", i.package, i.path));
     }
     None
 }
 
 struct Asset<'a> {
-    pacote: &'a str,
+    package: &'a str,
     /// `lib`, `web`, `test`.
-    pasta: &'a str,
+    folder: &'a str,
     /// What comes after the folder.
-    caminho: &'a str,
+    path: &'a str,
 }
 
 impl<'a> Asset<'a> {
-    fn analisar(uri: &'a str) -> Option<Self> {
-        let resto = uri.strip_prefix("asset:")?;
-        let (pacote, resto) = resto.split_once('/')?;
-        let (pasta, caminho) = resto.split_once('/')?;
+    fn parse(uri: &'a str) -> Option<Self> {
+        let rest = uri.strip_prefix("asset:")?;
+        let (package, rest) = rest.split_once('/')?;
+        let (folder, path) = rest.split_once('/')?;
         Some(Asset {
-            pacote,
-            pasta,
-            caminho,
+            package,
+            folder,
+            path,
         })
     }
 }
 
-/// Relative path from `modulo` to `importado`, counting segments.
-fn relativo(modulo: &str, importado: &str) -> String {
-    let m: Vec<&str> = modulo.split('/').collect();
-    let i: Vec<&str> = importado.split('/').collect();
-    let mut prefixo = 0;
-    while prefixo < m.len().min(i.len()) && m[prefixo] == i[prefixo] {
-        prefixo += 1;
+/// Relative path from `module` to `imported`, counting segments.
+fn relative(module: &str, imported: &str) -> String {
+    let m: Vec<&str> = module.split('/').collect();
+    let i: Vec<&str> = imported.split('/').collect();
+    let mut prefix = 0;
+    while prefix < m.len().min(i.len()) && m[prefix] == i[prefix] {
+        prefix += 1;
     }
-    let subir = m.len().saturating_sub(1).saturating_sub(prefixo);
-    let mut partes: Vec<&str> = vec![".."; subir];
-    partes.extend_from_slice(&i[prefixo..]);
-    partes.join("/")
+    let ups = m.len().saturating_sub(1).saturating_sub(prefix);
+    let mut parts: Vec<&str> = vec![".."; ups];
+    parts.extend_from_slice(&i[prefix..]);
+    parts.join("/")
 }
 
 /// Accepts `T` and `p.T`: the prefix is looked up in the prefix's own
 /// namespace, as Dart resolution requires.
-impl Resolucao for Resolvedor<'_> {
-    fn uri_do_tipo(&self, arquivo: &Path, nome: &str) -> Option<String> {
-        self.procurar(arquivo, nome)
-            .map(|u| crate::dialect::canonica(u).into_owned())
+impl Resolution for Resolvedor<'_> {
+    fn type_uri(&self, file: &Path, name: &str) -> Option<String> {
+        self.look_up(file, name)
+            .map(|u| crate::dialect::canonical(u).into_owned())
     }
 
-    fn tipo_do_membro(
+    fn member_type(&self, file: &Path, ty: &str, member: &str) -> Option<(String, PathBuf)> {
+        self.member_type_with_free(file, ty, member, &[])
+    }
+
+    fn member_type_with_free(
         &self,
-        arquivo: &Path,
-        tipo: &str,
-        membro: &str,
+        file: &Path,
+        ty: &str,
+        member: &str,
+        free: &[String],
     ) -> Option<(String, PathBuf)> {
-        self.tipo_do_membro_livre(arquivo, tipo, membro, &[])
+        let class = self.class(file, ty)?;
+        let (_, args) = split_arguments(ty.trim().trim_end_matches('?'));
+        let args = self.anchor_arguments(file, args, free);
+        self.class_member_with(class, member, Some(&args), free)
     }
 
-    fn tipo_do_membro_livre(
-        &self,
-        arquivo: &Path,
-        tipo: &str,
-        membro: &str,
-        livres: &[String],
-    ) -> Option<(String, PathBuf)> {
-        let classe = self.classe(arquivo, tipo)?;
-        let (_, args) = separar_argumentos(tipo.trim().trim_end_matches('?'));
-        let args = self.ancorar_argumentos(arquivo, args, livres);
-        self.membro_da_classe_com(classe, membro, Some(&args), livres)
-    }
-
-    fn limites_de_tipo(&self, arquivo: &Path, tipo: &str) -> Option<Vec<bool>> {
-        let c = self.program.class(self.classe(arquivo, tipo)?);
+    fn type_bounds(&self, file: &Path, ty: &str) -> Option<Vec<bool>> {
+        let c = self.program.class(self.class(file, ty)?);
         Some(c.type_params.iter().map(|p| p.bound.is_some()).collect())
     }
 
-    fn tem_setter(&self, arquivo: &Path, tipo: &str, membro: &str) -> bool {
-        let Some(sym) = self.interner.lookup(&format!("{membro}_=")) else {
+    fn has_setter(&self, file: &Path, ty: &str, member: &str) -> bool {
+        let Some(sym) = self.interner.lookup(&format!("{member}_=")) else {
             return false;
         };
-        self.classe(arquivo, tipo)
-            .and_then(|c| self.membro_de_instancia(c, sym, 0))
+        self.class(file, ty)
+            .and_then(|c| self.instance_member(c, sym, 0))
             .is_some()
     }
 
-    fn metodo(&self, arquivo: &Path, tipo: &str, nome: &str) -> Option<Metodo> {
-        self.metodo_livre(arquivo, tipo, nome, &[])
+    fn method(&self, file: &Path, ty: &str, name: &str) -> Option<Method> {
+        self.free_method(file, ty, name, &[])
     }
 
-    fn metodo_livre(
-        &self,
-        arquivo: &Path,
-        tipo: &str,
-        nome: &str,
-        livres: &[String],
-    ) -> Option<Metodo> {
-        let sym = self.interner.lookup(nome)?;
-        let classe = self.classe(arquivo, tipo)?;
-        let (_, escritos) = separar_argumentos(tipo.trim().trim_end_matches('?'));
-        let escritos = self.ancorar_argumentos(arquivo, escritos, livres);
+    fn free_method(&self, file: &Path, ty: &str, name: &str, free: &[String]) -> Option<Method> {
+        let sym = self.interner.lookup(name)?;
+        let class = self.class(file, ty)?;
+        let (_, written) = split_arguments(ty.trim().trim_end_matches('?'));
+        let written = self.anchor_arguments(file, written, free);
         // Without written arguments and without free ones, the lookup without
         // substitution; with them, through the hierarchy with the arguments.
-        let (id, fid, args) = if escritos.is_empty() && livres.is_empty() {
-            let (id, fid) = self.membro_de_instancia(classe, sym, 0)?;
+        let (id, fid, args) = if written.is_empty() && free.is_empty() {
+            let (id, fid) = self.instance_member(class, sym, 0)?;
             (id, fid, None)
         } else {
-            let iniciais = self.instanciar(classe, &escritos, livres)?;
-            let (id, fid, a) = self.membro_com_argumentos(classe, iniciais, sym, 0, livres)?;
+            let initials = self.instantiate(class, &written, free)?;
+            let (id, fid, a) = self.member_with_arguments(class, initials, sym, 0, free)?;
             (id, fid, Some(a))
         };
         let c = self.program.class(id);
@@ -592,116 +568,116 @@ impl Resolucao for Resolvedor<'_> {
         if f.static_ || !matches!(f.kind, dartforge_frontend::ast::FunctionKind::Function) {
             return None;
         }
-        let posicionais = f.parameters.as_ref().map_or(0, |ps| {
+        let positional = f.parameters.as_ref().map_or(0, |ps| {
             ps.iter()
                 .filter(|p| !matches!(p.kind, dartforge_frontend::ast::ParameterKind::Named))
                 .count()
         });
-        let mut incerto = false;
-        let retorno = match f.return_type {
+        let mut uncertain = false;
+        let return_type = match f.return_type {
             None => None,
             Some(t) => {
                 let sp = u.ast.ty(t).span;
-                let texto = u.source.get(sp.start..sp.end)?.to_string();
-                let proprios: Vec<&str> = c
+                let text = u.source.get(sp.start..sp.end)?.to_string();
+                let own: Vec<&str> = c
                     .type_params
                     .iter()
                     .map(|p| self.interner.resolve(p.name))
                     .collect();
-                let do_metodo: Vec<&str> = f
+                let of_method: Vec<&str> = f
                     .type_params
                     .iter()
                     .map(|p| self.interner.resolve(p.name.sym))
                     .collect();
-                let palavras: Vec<&str> = texto
+                let words: Vec<&str> = text
                     .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
                     .collect();
-                let cita_proprio = palavras.iter().any(|t| proprios.contains(t));
-                let cita_do_metodo = palavras.iter().any(|t| do_metodo.contains(t));
+                let references_itself = words.iter().any(|t| own.contains(t));
+                let method_references = words.iter().any(|t| of_method.contains(t));
                 // The parameters of the declaring class, replaced by the
                 // arguments the lookup brought; if any is missing, uncertain.
-                let troca: Option<Vec<(&str, String)>> = match (&args, cita_proprio) {
+                let troca: Option<Vec<(&str, String)>> = match (&args, references_itself) {
                     (_, false) => Some(Vec::new()),
                     (None, true) => None,
                     (Some(a), true) => {
-                        let pares: Vec<(&str, String)> = proprios
+                        let pairs: Vec<(&str, String)> = own
                             .iter()
                             .zip(a)
                             .filter_map(|(n, v)| v.clone().map(|v| (*n, v)))
                             .collect();
-                        let falta = palavras
+                        let missing = words
                             .iter()
-                            .any(|t| proprios.contains(t) && !pares.iter().any(|(n, _)| n == t));
-                        (!falta).then_some(pares)
+                            .any(|t| own.contains(t) && !pairs.iter().any(|(n, _)| n == t));
+                        (!missing).then_some(pairs)
                     }
                 };
                 match troca {
-                    Some(pares) if !cita_do_metodo => {
-                        Some((substituir_palavras(&texto, &pares), u.path.clone()?))
+                    Some(pairs) if !method_references => {
+                        Some((replace_words(&text, &pairs), u.path.clone()?))
                     }
                     _ => {
-                        incerto = true;
+                        uncertain = true;
                         None
                     }
                 }
             }
         };
-        Some(Metodo {
-            posicionais,
-            retorno,
-            incerto,
+        Some(Method {
+            positional,
+            return_type,
+            uncertain,
         })
     }
 
-    fn tipo_da_saida(&self, uri: &str, classe: &str, membro: &str) -> Option<(String, PathBuf)> {
-        let cid = self.classe_por_uri(uri, classe)?;
-        let sym = self.interner.lookup(membro)?;
-        let (dona, fid) = self.membro_de_instancia(cid, sym, 0)?;
-        let (texto, escopo) = self.tipo_da_funcao(fid)?;
-        let (base, args) = separar_argumentos(texto.trim());
-        if self.procurar(&escopo, base) != Some("dart:async")
+    fn output_type(&self, uri: &str, class: &str, member: &str) -> Option<(String, PathBuf)> {
+        let cid = self.class_by_uri(uri, class)?;
+        let sym = self.interner.lookup(member)?;
+        let (owner, fid) = self.instance_member(cid, sym, 0)?;
+        let (text, scope) = self.function_type(fid)?;
+        let (base, args) = split_arguments(text.trim());
+        if self.look_up(&scope, base) != Some("dart:async")
             || base.rsplit('.').next() != Some("Stream")
         {
             return None;
         }
         let x = match args.as_slice() {
-            [] => return Some(("dynamic".into(), escopo)),
+            [] => return Some(("dynamic".into(), scope)),
             [x] => x.trim().to_string(),
             _ => return None,
         };
         if x == "void" {
-            return Some(("dynamic".into(), escopo));
+            return Some(("dynamic".into(), scope));
         }
         // `fromDartType` resolves the type parameter from above to its bound
         // (`resolveToBound`), without a bound `dynamic`.
-        let c = self.program.class(dona);
+        let c = self.program.class(owner);
         if let Some(p) = c
             .type_params
             .iter()
             .find(|p| self.interner.resolve(p.name) == x.trim_end_matches('?'))
         {
             return match p.bound {
-                None => Some(("dynamic".into(), escopo)),
-                // O limite, escrito no escopo da unidade dele.
-                Some((unidade, t)) => {
-                    let u = self.program.unit(unidade);
+                None => Some(("dynamic".into(), scope)),
+                // The bound, written in the scope of its unit.
+                Some((unit, t)) => {
+                    let u = self.program.unit(unit);
                     let sp = u.ast.ty(t).span;
-                    let texto = u.source.get(sp.start..sp.end)?.to_string();
-                    Some((texto, u.path.clone()?))
+                    let text = u.source.get(sp.start..sp.end)?.to_string();
+                    Some((text, u.path.clone()?))
                 }
             };
         }
-        Some((x, escopo))
+        Some((x, scope))
     }
 
-    fn tipo_inexistente(&self, arquivo: &Path, tipo: &str) -> bool {
-        if tipo.contains(ANCORA) {
+    fn nonexistent_type(&self, file: &Path, ty: &str) -> bool {
+        if ty.contains(ANCHOR) {
             return false;
         }
-        let Some(lib) = self.biblioteca(arquivo) else {
+        let Some(lib) = self.library(file) else {
             return false;
         };
-        let base = tipo.trim().trim_end_matches('?');
+        let base = ty.trim().trim_end_matches('?');
         let base = base.split('<').next().unwrap_or(base).trim();
         // Function type, record or reserved word: not a name to find.
         if base.is_empty()
@@ -712,31 +688,31 @@ impl Resolucao for Resolvedor<'_> {
         {
             return false;
         }
-        let biblioteca = self.program.library(lib);
-        let (prefixo, simples) = match base.split_once('.') {
+        let library = self.program.library(lib);
+        let (prefix, simple) = match base.split_once('.') {
             Some((p, t)) => (Some(p), t),
             None => (None, base),
         };
-        let espaco = match prefixo {
-            None => &biblioteca.scope,
+        let space = match prefix {
+            None => &library.scope,
             Some(p) => match self
                 .interner
                 .lookup(p)
-                .and_then(|ps| biblioteca.prefixes.get(&ps))
+                .and_then(|ps| library.prefixes.get(&ps))
             {
                 Some(e) => e,
                 None => return true,
             },
         };
-        match self.interner.lookup(simples) {
+        match self.interner.lookup(simple) {
             None => true,
-            Some(sym) => espaco.get(&sym).is_none(),
+            Some(sym) => space.get(&sym).is_none(),
         }
     }
 
-    fn membro_final(&self, arquivo: &Path, tipo: &str, membro: &str) -> Option<bool> {
-        let sym = self.interner.lookup(membro)?;
-        let (_, fid) = self.membro_de_instancia(self.classe(arquivo, tipo)?, sym, 0)?;
+    fn final_member(&self, file: &Path, ty: &str, member: &str) -> Option<bool> {
+        let sym = self.interner.lookup(member)?;
+        let (_, fid) = self.instance_member(self.class(file, ty)?, sym, 0)?;
         let f = self.program.function(fid);
         let Some(vid) = f.variable else {
             // Written getter: never immutable.
@@ -752,58 +728,58 @@ impl Resolucao for Resolvedor<'_> {
             return None;
         };
         let u = self.program.unit(unit);
-        let dartforge_frontend::ast::MemberKind::Field(lista) = &u.ast.member(member).kind else {
+        let dartforge_frontend::ast::MemberKind::Field(list) = &u.ast.member(member).kind else {
             return None;
         };
-        Some(lista.final_ || lista.const_)
+        Some(list.final_ || list.const_)
     }
 
-    fn exportado(&self, arquivo: &Path, nome: &str) -> Option<(String, Exportado)> {
-        let lib = self.biblioteca(arquivo)?;
-        let sym = self.interner.lookup(nome)?;
-        let ligacao = self.program.library(lib).scope.get(&sym)?;
-        if ligacao.ambiguous {
+    fn exported(&self, file: &Path, name: &str) -> Option<(String, Exported)> {
+        let lib = self.library(file)?;
+        let sym = self.interner.lookup(name)?;
+        let binding = self.program.library(lib).scope.get(&sym)?;
+        if binding.ambiguous {
             return None;
         }
-        let (dona, o_que) = match ligacao.getter? {
+        let (owner, what) = match binding.getter? {
             Element::Class(id) => {
                 let c = self.program.class(id);
-                let o_que = match c.kind {
+                let what = match c.kind {
                     dartforge_elements::model::ClassKind::Class
-                    | dartforge_elements::model::ClassKind::MixinApplication => Exportado::Classe,
-                    _ => Exportado::TipoSemClasse,
+                    | dartforge_elements::model::ClassKind::MixinApplication => Exported::Class,
+                    _ => Exported::TypeWithoutClass,
                 };
-                (c.library, o_que)
+                (c.library, what)
             }
             Element::Variable(vid) => {
                 let v = self.program.variable(vid);
                 (
                     v.library,
-                    Exportado::Variavel {
-                        imutavel: v.const_ || v.final_,
+                    Exported::Variable {
+                        immutable: v.const_ || v.final_,
                     },
                 )
             }
             Element::Function(fid) => {
                 let f = self.program.function(fid);
-                let o_que = match f.kind {
-                    dartforge_elements::model::FunctionKind::Function => Exportado::Funcao,
-                    dartforge_elements::model::FunctionKind::Getter => Exportado::Getter,
+                let what = match f.kind {
+                    dartforge_elements::model::FunctionKind::Function => Exported::Function,
+                    dartforge_elements::model::FunctionKind::Getter => Exported::Getter,
                     _ => return None,
                 };
-                (f.library, o_que)
+                (f.library, what)
             }
             _ => return None,
         };
         Some((
-            crate::dialect::canonica_string(self.program.library(dona).uri.clone()),
-            o_que,
+            crate::dialect::canonical_string(self.program.library(owner).uri.clone()),
+            what,
         ))
     }
 
-    fn membro_estatico(&self, arquivo: &Path, tipo: &str, membro: &str) -> Option<Estatico> {
-        let id = self.classe(arquivo, tipo)?;
-        let sym = self.interner.lookup(membro)?;
+    fn static_member(&self, file: &Path, ty: &str, member: &str) -> Option<Static> {
+        let id = self.class(file, ty)?;
+        let sym = self.interner.lookup(member)?;
         let c = self.program.class(id);
         // Enum value: constant (it is in `enum_constants`, not among the static
         // members).
@@ -811,74 +787,74 @@ impl Resolucao for Resolvedor<'_> {
             .iter()
             .any(|&v| self.program.variable(v).name == sym)
         {
-            return Some(Estatico::Campo { imutavel: true });
+            return Some(Static::Field { immutable: true });
         }
         let fid = *c.static_members.get(&sym)?;
         let f = self.program.function(fid);
         match (f.variable, f.kind) {
             (Some(vid), _) => {
                 let v = self.program.variable(vid);
-                Some(Estatico::Campo {
-                    imutavel: v.const_ || v.final_,
+                Some(Static::Field {
+                    immutable: v.const_ || v.final_,
                 })
             }
-            (None, dartforge_elements::model::FunctionKind::Getter) => Some(Estatico::Getter),
-            (None, dartforge_elements::model::FunctionKind::Function) => Some(Estatico::Metodo),
+            (None, dartforge_elements::model::FunctionKind::Getter) => Some(Static::Getter),
+            (None, dartforge_elements::model::FunctionKind::Function) => Some(Static::Method),
             _ => None,
         }
     }
 
-    fn designado(&self, arquivo: &Path, nome: &str) -> Option<Designado> {
-        let lib = self.biblioteca(arquivo)?;
-        let biblioteca = self.program.library(lib);
-        let (prefixo, simples) = match nome.split_once('.') {
+    fn designated(&self, file: &Path, name: &str) -> Option<Designated> {
+        let lib = self.library(file)?;
+        let library = self.program.library(lib);
+        let (prefix, simple) = match name.split_once('.') {
             Some((p, t)) => (Some(p), t),
-            None => (None, nome),
+            None => (None, name),
         };
-        let sym = self.interner.lookup(simples)?;
-        let espaco = match prefixo {
-            None => &biblioteca.scope,
-            Some(p) => biblioteca.prefixes.get(&self.interner.lookup(p)?)?,
+        let sym = self.interner.lookup(simple)?;
+        let space = match prefix {
+            None => &library.scope,
+            Some(p) => library.prefixes.get(&self.interner.lookup(p)?)?,
         };
-        let ligacao = espaco.get(&sym)?;
-        if ligacao.ambiguous {
+        let binding = space.get(&sym)?;
+        if binding.ambiguous {
             return None;
         }
-        match ligacao.getter? {
+        match binding.getter? {
             Element::Class(id) => {
-                let dona = self.program.class(id).library;
-                Some(Designado::Classe {
-                    uri: crate::dialect::canonica_string(self.program.library(dona).uri.clone()),
+                let owner = self.program.class(id).library;
+                Some(Designated::Class {
+                    uri: crate::dialect::canonical_string(self.program.library(owner).uri.clone()),
                 })
             }
-            Element::Variable(vid) => self.lista_constante(vid),
+            Element::Variable(vid) => self.constant_list(vid),
             _ => None,
         }
     }
 }
 
 impl<'a> Resolvedor<'a> {
-    /// The class that the name `tipo` designates in the scope of `arquivo`.
-    fn classe(&self, arquivo: &Path, tipo: &str) -> Option<ClassId> {
-        let simples = separar_argumentos(tipo.trim().trim_end_matches('?')).0;
-        if simples.contains(ANCORA) {
-            return match self.ancorado(simples)? {
+    /// The class that the name `ty` designates in the scope of `file`.
+    fn class(&self, file: &Path, ty: &str) -> Option<ClassId> {
+        let simple = split_arguments(ty.trim().trim_end_matches('?')).0;
+        if simple.contains(ANCHOR) {
+            return match self.anchored(simple)? {
                 Element::Class(id) => Some(id),
                 _ => None,
             };
         }
-        let lib = self.biblioteca(arquivo)?;
-        let biblioteca = self.program.library(lib);
-        let (prefixo, simples) = match simples.split_once('.') {
+        let lib = self.library(file)?;
+        let library = self.program.library(lib);
+        let (prefix, simple) = match simple.split_once('.') {
             Some((p, t)) => (Some(p), t),
-            None => (None, simples),
+            None => (None, simple),
         };
-        let sym = self.interner.lookup(simples)?;
-        let espaco = match prefixo {
-            None => &biblioteca.scope,
-            Some(p) => biblioteca.prefixes.get(&self.interner.lookup(p)?)?,
+        let sym = self.interner.lookup(simple)?;
+        let space = match prefix {
+            None => &library.scope,
+            Some(p) => library.prefixes.get(&self.interner.lookup(p)?)?,
         };
-        match espaco.get(&sym)?.getter? {
+        match space.get(&sym)?.getter? {
             Element::Class(id) => Some(id),
             _ => None,
         }
@@ -888,7 +864,7 @@ impl<'a> Resolvedor<'a> {
     /// literal of names (`const coreDirectives = [NgClass, NgFor]`), also
     /// spread ones (`...other`). Any other shape (`if`, `for`, expression) gets
     /// no answer — and whoever asks refuses.
-    fn lista_constante(&self, vid: dartforge_elements::model::VariableId) -> Option<Designado> {
+    fn constant_list(&self, vid: dartforge_elements::model::VariableId) -> Option<Designated> {
         use dartforge_frontend::ast;
         let v = self.program.variable(vid);
         if !v.const_ {
@@ -898,14 +874,14 @@ impl<'a> Resolvedor<'a> {
             return None;
         };
         let u = self.program.unit(unit);
-        let ast::DeclKind::Variables(lista) = &u.ast.decl(decl).kind else {
+        let ast::DeclKind::Variables(list) = &u.ast.decl(decl).kind else {
             return None;
         };
-        let inicial = lista.variables.get(index)?.initializer?;
-        let ast::ExprKind::List { elements, .. } = &u.ast.expr(inicial).kind else {
+        let initial = list.variables.get(index)?.initializer?;
+        let ast::ExprKind::List { elements, .. } = &u.ast.expr(initial).kind else {
             return None;
         };
-        let mut itens = Vec::new();
+        let mut items = Vec::new();
         for e in elements.iter() {
             // `...otherList`: the constant value is the flattened list, in
             // order — the same as its name in place.
@@ -914,43 +890,43 @@ impl<'a> Resolvedor<'a> {
             else {
                 return None;
             };
-            itens.push(nome_qualificado(&u.ast, self.interner, *x)?);
+            items.push(qualified_name(&u.ast, self.interner, *x)?);
         }
-        Some(Designado::Lista {
-            itens,
-            escopo: u.path.clone()?,
+        Some(Designated::List {
+            items,
+            scope: u.path.clone()?,
         })
     }
 
     /// Declared type of an instance member, walking up through the superclass
     /// when the class does not declare it — which is where the inherited fields
     /// are.
-    /// The instance member `sym` seen from `classe` and the class that declares
+    /// The instance member `sym` seen from `class` and the class that declares
     /// it, in Dart's lookup order: the class itself, the mixins from last to
     /// first (`with A, B` puts `B` on top of `A`) and, finally, the superclass,
     /// recursively.
-    fn membro_de_instancia(
+    fn instance_member(
         &self,
-        classe: ClassId,
+        class: ClassId,
         sym: dartforge_intern::SymbolId,
-        profundidade: u32,
+        depth: u32,
     ) -> Option<(ClassId, dartforge_elements::model::FunctionElementId)> {
-        if profundidade > 64 {
+        if depth > 64 {
             return None;
         }
-        let c = self.program.class(classe);
+        let c = self.program.class(class);
         if let Some(&fid) = c.instance_members.get(&sym) {
-            return Some((classe, fid));
+            return Some((class, fid));
         }
         for &m in c.mixin_classes.iter().rev() {
-            if let Some(achado) = self.membro_de_instancia(m, sym, profundidade + 1) {
-                return Some(achado);
+            if let Some(found) = self.instance_member(m, sym, depth + 1) {
+                return Some(found);
             }
         }
-        self.membro_de_instancia(c.supertype_class?, sym, profundidade + 1)
+        self.instance_member(c.supertype_class?, sym, depth + 1)
     }
 
-    /// The type of member `membro` of `classe` seen from a receiver with type
+    /// The type of member `member` of `class` seen from a receiver with type
     /// arguments `args` (`Grupo<dynamic>` gives `["dynamic"]`; a raw `Grupo`,
     /// none). The analyzer instantiates the receiver and walks up the hierarchy
     /// substituting the parameters of each supertype (`MenuItemGroup<T>` →
@@ -960,79 +936,79 @@ impl<'a> Resolvedor<'a> {
     /// (`dynamic` and the `dart:core` types), and a type that needs an unknown
     /// one gets no answer. Without `args` (implicit receiver, the class
     /// itself), a type that mentions a parameter also gets no answer.
-    fn membro_da_classe_com(
+    fn class_member_with(
         &self,
-        classe: ClassId,
-        membro: &str,
+        class: ClassId,
+        member: &str,
         args: Option<&[String]>,
-        livres: &[String],
+        free: &[String],
     ) -> Option<(String, PathBuf)> {
-        let sym = self.interner.lookup(membro)?;
-        let (id, fid, args_de_quem_declara) = match args {
+        let sym = self.interner.lookup(member)?;
+        let (id, fid, declarer_args) = match args {
             None => {
-                let (id, fid) = self.membro_de_instancia(classe, sym, 0)?;
+                let (id, fid) = self.instance_member(class, sym, 0)?;
                 (id, fid, None)
             }
             Some(a) => {
-                let iniciais = self.instanciar(classe, a, livres)?;
-                let (id, fid, v) = self.membro_com_argumentos(classe, iniciais, sym, 0, livres)?;
+                let initials = self.instantiate(class, a, free)?;
+                let (id, fid, v) = self.member_with_arguments(class, initials, sym, 0, free)?;
                 (id, fid, Some(v))
             }
         };
         let c = self.program.class(id);
-        let (tipo, escopo) = self.tipo_da_funcao(fid)?;
-        let proprios: Vec<&str> = c
+        let (ty, scope) = self.function_type(fid)?;
+        let own: Vec<&str> = c
             .type_params
             .iter()
             .map(|p| self.interner.resolve(p.name))
             .collect();
-        let mut do_metodo: Vec<&str> = Vec::new();
+        let mut of_method: Vec<&str> = Vec::new();
         if let dartforge_elements::model::FunctionRef::Function { unit, function } =
             self.program.function(fid).node
         {
             let f = self.program.unit(unit).ast.function(function);
-            do_metodo.extend(
+            of_method.extend(
                 f.type_params
                     .iter()
                     .map(|p| self.interner.resolve(p.name.sym)),
             );
         }
-        let palavras: Vec<&str> = tipo
+        let words: Vec<&str> = ty
             .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
             .collect();
         // A method parameter: the analyzer infers it at the call; here, no.
-        if palavras.iter().any(|t| do_metodo.contains(t)) {
+        if words.iter().any(|t| of_method.contains(t)) {
             return None;
         }
-        if !palavras.iter().any(|t| proprios.contains(t)) {
-            return Some((tipo, escopo));
+        if !words.iter().any(|t| own.contains(t)) {
+            return Some((ty, scope));
         }
-        let args = args_de_quem_declara?;
-        let troca: Vec<(&str, String)> = proprios
+        let args = declarer_args?;
+        let troca: Vec<(&str, String)> = own
             .iter()
             .zip(&args)
             .filter_map(|(n, a)| a.clone().map(|a| (*n, a)))
             .collect();
         // A mentioned parameter whose argument is unknown: no answer.
-        if palavras
+        if words
             .iter()
-            .any(|t| proprios.contains(t) && !troca.iter().any(|(n, _)| n == t))
+            .any(|t| own.contains(t) && !troca.iter().any(|(n, _)| n == t))
         {
             return None;
         }
-        Some((substituir_palavras(&tipo, &troca), escopo))
+        Some((replace_words(&ty, &troca), scope))
     }
 
-    /// The arguments of `classe` from those written on the receiver: each one
+    /// The arguments of `class` from those written on the receiver: each one
     /// known if it is written the same in any scope; for a raw one, the
     /// instantiation to bounds (without a bound, `dynamic`).
-    fn instanciar(
+    fn instantiate(
         &self,
-        classe: ClassId,
+        class: ClassId,
         args: &[String],
-        livres: &[String],
+        free: &[String],
     ) -> Option<Vec<Option<String>>> {
-        let c = self.program.class(classe);
+        let c = self.program.class(class);
         if args.is_empty() {
             return Some(
                 c.type_params
@@ -1046,94 +1022,95 @@ impl<'a> Resolvedor<'a> {
         }
         Some(
             args.iter()
-                .map(|a| escrito_igual_em_todo_escopo(a, livres).then(|| a.trim().to_string()))
+                .map(|a| written_the_same_in_every_scope(a, free).then(|| a.trim().to_string()))
                 .collect(),
         )
     }
 
     /// The arguments of a written supertype (`extends LabeledList<T>`), with
     /// the parameters of the class below replaced by its arguments.
-    fn argumentos_do_supertipo(
+    fn supertype_arguments(
         &self,
-        escrito: (
+        written: (
             dartforge_elements::model::UnitId,
             dartforge_frontend::ast::TypeId,
         ),
-        superclasse: ClassId,
+        superclass: ClassId,
         troca: &[(&str, Option<String>)],
-        livres: &[String],
+        free: &[String],
     ) -> Vec<Option<String>> {
-        let n = self.program.class(superclasse).type_params.len();
-        let u = self.program.unit(escrito.0);
-        let sp = u.ast.ty(escrito.1).span;
-        let Some(texto) = u.source.get(sp.start..sp.end) else {
+        let n = self.program.class(superclass).type_params.len();
+        let u = self.program.unit(written.0);
+        let sp = u.ast.ty(written.1).span;
+        let Some(text) = u.source.get(sp.start..sp.end) else {
             return vec![None; n];
         };
-        let (_, escritos) = separar_argumentos(texto.trim().trim_end_matches('?'));
-        if escritos.is_empty() {
+        let (_, written) = split_arguments(text.trim().trim_end_matches('?'));
+        if written.is_empty() {
             return self
-                .instanciar(superclasse, &[], livres)
+                .instantiate(superclass, &[], free)
                 .unwrap_or_else(|| vec![None; n]);
         }
-        if escritos.len() != n {
+        if written.len() != n {
             return vec![None; n];
         }
-        escritos
+        written
             .iter()
             .map(|a| {
-                let palavras: Vec<&str> = a
+                let words: Vec<&str> = a
                     .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
                     .filter(|p| !p.is_empty())
                     .collect();
-                let mut pares = Vec::new();
-                for p in &palavras {
+                let mut pairs = Vec::new();
+                for p in &words {
                     if let Some((n, v)) = troca.iter().find(|(n, _)| n == p) {
-                        pares.push((*n, v.clone()?));
+                        pairs.push((*n, v.clone()?));
                     }
                 }
                 // A free name that the supertype mentions without being a
                 // parameter of this class is another type (from the scope of
                 // whoever wrote it): not valid.
-                let so_parametros = palavras
+                let only_params = words
                     .iter()
-                    .all(|p| troca.iter().any(|(n, _)| n == p) || !livres.iter().any(|l| l == p));
-                let novo = substituir_palavras(a, &pares);
+                    .all(|p| troca.iter().any(|(n, _)| n == p) || !free.iter().any(|l| l == p));
+                let new_text = replace_words(a, &pairs);
                 // What the supertype writes besides the parameters belongs to
                 // the scope of the unit that writes it: anchored there, it is
                 // valid in any other (§A3).
-                let novo = u
+                let new_text = u
                     .path
                     .as_deref()
-                    .and_then(|p| self.ancorar(p, &novo, livres))
-                    .unwrap_or(novo);
-                (so_parametros && escrito_igual_em_todo_escopo(&novo, livres)).then_some(novo)
+                    .and_then(|p| self.anchor(p, &new_text, free))
+                    .unwrap_or(new_text);
+                (only_params && written_the_same_in_every_scope(&new_text, free))
+                    .then_some(new_text)
             })
             .collect()
     }
 
-    /// The member `sym` seen from `classe` with arguments `args`, in Dart's
+    /// The member `sym` seen from `class` with arguments `args`, in Dart's
     /// lookup order (the class, the mixins from last to first, the superclass
     /// and, finally, the interfaces — the analyzer's `lookUpGetter2` also finds
     /// abstract members), with the arguments of the class that declares it.
     #[allow(clippy::type_complexity)]
-    fn membro_com_argumentos(
+    fn member_with_arguments(
         &self,
-        classe: ClassId,
+        class: ClassId,
         args: Vec<Option<String>>,
         sym: dartforge_intern::SymbolId,
-        profundidade: u32,
-        livres: &[String],
+        depth: u32,
+        free: &[String],
     ) -> Option<(
         ClassId,
         dartforge_elements::model::FunctionElementId,
         Vec<Option<String>>,
     )> {
-        if profundidade > 64 {
+        if depth > 64 {
             return None;
         }
-        let c = self.program.class(classe);
+        let c = self.program.class(class);
         if let Some(&fid) = c.instance_members.get(&sym) {
-            return Some((classe, fid, args));
+            return Some((class, fid, args));
         }
         let troca: Vec<(&str, Option<String>)> = c
             .type_params
@@ -1143,40 +1120,40 @@ impl<'a> Resolvedor<'a> {
             .collect();
         // A written supertype that did not resolve leaves the lists with
         // different lengths: without the pair, the arguments stay unknown.
-        let pareados = |classes: &[ClassId], escritos: &[_]| -> Vec<(ClassId, Option<_>)> {
-            if classes.len() == escritos.len() {
+        let paired = |classes: &[ClassId], written: &[_]| -> Vec<(ClassId, Option<_>)> {
+            if classes.len() == written.len() {
                 classes
                     .iter()
                     .copied()
-                    .zip(escritos.iter().copied().map(Some))
+                    .zip(written.iter().copied().map(Some))
                     .collect()
             } else {
                 classes.iter().map(|&k| (k, None)).collect()
             }
         };
-        let argumentos = |k: ClassId, escrito: Option<_>| match escrito {
-            Some(e) => self.argumentos_do_supertipo(e, k, &troca, livres),
+        let arguments = |k: ClassId, written: Option<_>| match written {
+            Some(e) => self.supertype_arguments(e, k, &troca, free),
             None => vec![None; self.program.class(k).type_params.len()],
         };
-        for (m, escrito) in pareados(&c.mixin_classes, &c.mixins).into_iter().rev() {
-            let a = argumentos(m, escrito);
-            if let Some(achado) = self.membro_com_argumentos(m, a, sym, profundidade + 1, livres) {
-                return Some(achado);
+        for (m, written) in paired(&c.mixin_classes, &c.mixins).into_iter().rev() {
+            let a = arguments(m, written);
+            if let Some(found) = self.member_with_arguments(m, a, sym, depth + 1, free) {
+                return Some(found);
             }
         }
         if let Some(sc) = c.supertype_class {
             let a = match c.supertype {
-                Some(escrito) => self.argumentos_do_supertipo(escrito, sc, &troca, livres),
+                Some(written) => self.supertype_arguments(written, sc, &troca, free),
                 None => Vec::new(),
             };
-            if let Some(achado) = self.membro_com_argumentos(sc, a, sym, profundidade + 1, livres) {
-                return Some(achado);
+            if let Some(found) = self.member_with_arguments(sc, a, sym, depth + 1, free) {
+                return Some(found);
             }
         }
-        for (i, escrito) in pareados(&c.interface_classes, &c.interfaces) {
-            let a = argumentos(i, escrito);
-            if let Some(achado) = self.membro_com_argumentos(i, a, sym, profundidade + 1, livres) {
-                return Some(achado);
+        for (i, written) in paired(&c.interface_classes, &c.interfaces) {
+            let a = arguments(i, written);
+            if let Some(found) = self.member_with_arguments(i, a, sym, depth + 1, free) {
+                return Some(found);
             }
         }
         None
@@ -1185,24 +1162,24 @@ impl<'a> Resolvedor<'a> {
     /// The type an accessor returns: for a field, the type written on the
     /// field; for a getter, the declared return type. Along with it, the file
     /// where that text was written, which is the scope in which it resolves.
-    /// Does some supertype of `classe` (excluding it) declare the member
-    /// `nome`?
-    fn sobrescreve(&self, classe: ClassId, nome: dartforge_intern::SymbolId) -> bool {
-        let c = self.program.class(classe);
+    /// Does some supertype of `class` (excluding it) declare the member
+    /// `name`?
+    fn overrides(&self, class: ClassId, name: dartforge_intern::SymbolId) -> bool {
+        let c = self.program.class(class);
         c.mixin_classes
             .iter()
             .chain(c.supertype_class.iter())
             .chain(c.interface_classes.iter())
-            .any(|&k| self.membro_de_instancia(k, nome, 0).is_some())
+            .any(|&k| self.instance_member(k, name, 0).is_some())
     }
 
     /// `E.values` (or `p.E.values`) with `E` an `enum` in the scope of
-    /// `arquivo`: the `List<E>` the analyzer infers (the synthetic `values` of
+    /// `file`: the `List<E>` the analyzer infers (the synthetic `values` of
     /// the `enum`).
-    fn valores_de_enum(
+    fn enum_values(
         &self,
         ast: &dartforge_frontend::ast::Ast,
-        arquivo: Option<&Path>,
+        file: Option<&Path>,
         e: dartforge_frontend::ast::ExprId,
     ) -> Option<String> {
         use dartforge_frontend::ast::ExprKind;
@@ -1217,13 +1194,13 @@ impl<'a> Resolvedor<'a> {
         if self.interner.resolve(name.sym) != "values" {
             return None;
         }
-        let nome = nome_qualificado(ast, self.interner, *target)?;
-        let id = self.classe(arquivo?, &nome)?;
+        let name = qualified_name(ast, self.interner, *target)?;
+        let id = self.class(file?, &name)?;
         (self.program.class(id).kind == dartforge_elements::model::ClassKind::Enum)
-            .then(|| format!("List<{nome}>"))
+            .then(|| format!("List<{name}>"))
     }
 
-    fn tipo_da_funcao(
+    fn function_type(
         &self,
         fid: dartforge_elements::model::FunctionElementId,
     ) -> Option<(String, PathBuf)> {
@@ -1232,40 +1209,40 @@ impl<'a> Resolvedor<'a> {
             let v = self.program.variable(vid);
             if let dartforge_elements::model::VariableRef::Field { unit, member, .. } = v.node {
                 let u = self.program.unit(unit);
-                let dartforge_frontend::ast::MemberKind::Field(lista) = &u.ast.member(member).kind
+                let dartforge_frontend::ast::MemberKind::Field(list) = &u.ast.member(member).kind
                 else {
                     return None;
                 };
-                let Some(t) = lista.ty else {
+                let Some(t) = list.ty else {
                     // Without a written type, what the analyzer infers from the
                     // initializer (`final itemsRole = 'menuitem';`), in the
-                    // certain shapes ([`crate::component::tipo_inferido`]).
+                    // certain shapes ([`crate::component::inferred_type`]).
                     // Overriding a member from above, the type would come from
                     // it (inference through the override): no answer.
-                    if self.sobrescreve(v.class?, v.name) {
+                    if self.overrides(v.class?, v.name) {
                         return None;
                     }
-                    let inicial = lista
+                    let initial = list
                         .variables
                         .iter()
                         .find(|x| x.name.sym == v.name)?
                         .initializer?;
                     // `Enum.values` (the `static const List<Enum> values` every
                     // `enum` has): `List<Enum>`.
-                    if let Some(t) = self.valores_de_enum(&u.ast, u.path.as_deref(), inicial) {
+                    if let Some(t) = self.enum_values(&u.ast, u.path.as_deref(), initial) {
                         return Some((t, u.path.clone()?));
                     }
-                    let tipo = crate::component::tipo_inferido(
+                    let ty = crate::component::inferred_type(
                         &u.ast,
                         u.source.as_str(),
                         self.interner,
-                        inicial,
+                        initial,
                     )?;
-                    return Some((tipo, u.path.clone()?));
+                    return Some((ty, u.path.clone()?));
                 };
                 let s = u.ast.ty(t).span;
-                let texto = u.source.get(s.start..s.end)?;
-                return Some((texto.to_string(), u.path.clone()?));
+                let text = u.source.get(s.start..s.end)?;
+                return Some((text.to_string(), u.path.clone()?));
             }
             return None;
         }
@@ -1273,27 +1250,27 @@ impl<'a> Resolvedor<'a> {
             return None;
         };
         let u = self.program.unit(unit);
-        let funcao = u.ast.function(function);
-        let t = funcao.return_type?;
+        let function = u.ast.function(function);
+        let t = function.return_type?;
         let s = u.ast.ty(t).span;
         Some((u.source.get(s.start..s.end)?.to_string(), u.path.clone()?))
     }
 }
 
 /// `A` or `p.A`, as written in a `directives:` list.
-pub(crate) fn nome_qualificado(
-    arvore: &dartforge_frontend::ast::Ast,
+pub(crate) fn qualified_name(
+    tree: &dartforge_frontend::ast::Ast,
     interner: &Interner,
     id: dartforge_frontend::ast::ExprId,
 ) -> Option<String> {
     use dartforge_frontend::ast::ExprKind;
-    match &arvore.expr(id).kind {
+    match &tree.expr(id).kind {
         ExprKind::Identifier(n) => Some(interner.resolve(n.sym).to_string()),
         ExprKind::Property {
             target,
             name,
             null_aware: false,
-        } => match &arvore.expr(*target).kind {
+        } => match &tree.expr(*target).kind {
             ExprKind::Identifier(p) => Some(format!(
                 "{}.{}",
                 interner.resolve(p.sym),
@@ -1309,35 +1286,35 @@ pub(crate) fn nome_qualificado(
 mod testes {
     use super::*;
 
-    /// O caso do `CallbackComponent`: o oficial escreveu
-    /// `'../../../../shared/services/oidc_service.dart'` e
+    /// The `CallbackComponent` case: the official compiler wrote
+    /// `'../../../../shared/services/oidc_service.dart'` and
     /// `'package:ngrouter/src/router/router.dart'`.
     #[test]
-    fn caminhos_como_no_oficial() {
-        let modulo =
+    fn paths_as_in_official() {
+        let module =
             "asset:new_sali_frontend/lib/src/modules/auth/pages/callback/callback_component.dart";
         assert_eq!(
-            caminho_do_import(
-                modulo,
+            import_path(
+                module,
                 "asset:new_sali_frontend/lib/src/shared/services/oidc_service.dart"
             )
             .unwrap(),
             "../../../../shared/services/oidc_service.dart"
         );
         assert_eq!(
-            caminho_do_import(modulo, "asset:ngrouter/lib/src/router/router.dart").unwrap(),
+            import_path(module, "asset:ngrouter/lib/src/router/router.dart").unwrap(),
             "package:ngrouter/src/router/router.dart"
         );
         assert_eq!(
-            caminho_do_import(modulo, modulo).unwrap(),
+            import_path(module, module).unwrap(),
             "callback_component.dart"
         );
     }
 
     #[test]
-    fn asset_de_package() {
+    fn package_asset() {
         assert_eq!(
-            asset_de_uri(
+            asset_of_uri(
                 "package:ngrouter/src/router/router.dart",
                 "x",
                 Path::new("/p")
@@ -1348,44 +1325,45 @@ mod testes {
     }
 }
 
-/// `Grupo<A, B<C>>` em `("Grupo", ["A", "B<C>"])`; sem `<`, lista vazia.
-pub(crate) fn separar_argumentos(tipo: &str) -> (&str, Vec<String>) {
-    let Some(i) = tipo.find('<') else {
-        return (tipo, Vec::new());
+/// `Grupo<A, B<C>>` into `("Grupo", ["A", "B<C>"])`; without `<`, an empty
+/// list.
+pub(crate) fn split_arguments(ty: &str) -> (&str, Vec<String>) {
+    let Some(i) = ty.find('<') else {
+        return (ty, Vec::new());
     };
-    let dentro = tipo[i + 1..]
+    let inside = ty[i + 1..]
         .trim_end()
         .strip_suffix('>')
-        .unwrap_or(&tipo[i + 1..]);
+        .unwrap_or(&ty[i + 1..]);
     let mut args = Vec::new();
-    let mut nivel = 0i32;
-    let mut atual = String::new();
-    for ch in dentro.chars() {
+    let mut level = 0i32;
+    let mut current = String::new();
+    for ch in inside.chars() {
         match ch {
-            '<' | '(' => nivel += 1,
-            '>' | ')' => nivel -= 1,
-            ',' if nivel == 0 => {
-                args.push(atual.trim().to_string());
-                atual.clear();
+            '<' | '(' => level += 1,
+            '>' | ')' => level -= 1,
+            ',' if level == 0 => {
+                args.push(current.trim().to_string());
+                current.clear();
                 continue;
             }
             _ => {}
         }
-        atual.push(ch);
+        current.push(ch);
     }
-    if !atual.trim().is_empty() {
-        args.push(atual.trim().to_string());
+    if !current.trim().is_empty() {
+        args.push(current.trim().to_string());
     }
-    (tipo[..i].trim(), args)
+    (ty[..i].trim(), args)
 }
 
 /// A type argument that is written the same in any file: `dynamic`, `void` and
 /// the `dart:core` types without a prefix (with `?` or arguments also like
 /// that).
-fn escrito_igual_em_todo_escopo(tipo: &str, livres: &[String]) -> bool {
-    let t = tipo.trim().trim_end_matches('?');
-    let (base, args) = separar_argumentos(t);
-    let do_core = matches!(
+fn written_the_same_in_every_scope(ty: &str, free: &[String]) -> bool {
+    let t = ty.trim().trim_end_matches('?');
+    let (base, args) = split_arguments(t);
+    let from_core = matches!(
         base,
         "dynamic"
             | "void"
@@ -1403,31 +1381,33 @@ fn escrito_igual_em_todo_escopo(tipo: &str, livres: &[String]) -> bool {
             | "Never"
     );
     // An anchored name designates the same type in any scope (§A3).
-    let ancorado = base.contains(ANCORA);
-    (do_core || ancorado || (args.is_empty() && livres.iter().any(|l| l == base)))
-        && args.iter().all(|a| escrito_igual_em_todo_escopo(a, livres))
+    let anchored = base.contains(ANCHOR);
+    (from_core || anchored || (args.is_empty() && free.iter().any(|l| l == base)))
+        && args
+            .iter()
+            .all(|a| written_the_same_in_every_scope(a, free))
 }
 
-/// Replaces each word of `texto` that is one of the names of `troca` with the
+/// Replaces each word of `text` that is one of the names of `troca` with the
 /// value.
-fn substituir_palavras(texto: &str, troca: &[(&str, String)]) -> String {
-    let mut saida = String::with_capacity(texto.len());
-    let mut palavra = String::new();
-    let fechar = |palavra: &mut String, saida: &mut String| {
-        match troca.iter().find(|(n, _)| *n == palavra.as_str()) {
-            Some((_, v)) => saida.push_str(v),
-            None => saida.push_str(palavra),
+fn replace_words(text: &str, troca: &[(&str, String)]) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut word = String::new();
+    let close = |word: &mut String, output: &mut String| {
+        match troca.iter().find(|(n, _)| *n == word.as_str()) {
+            Some((_, v)) => output.push_str(v),
+            None => output.push_str(word),
         }
-        palavra.clear();
+        word.clear();
     };
-    for ch in texto.chars() {
+    for ch in text.chars() {
         if ch.is_alphanumeric() || ch == '_' || ch == '$' {
-            palavra.push(ch);
+            word.push(ch);
         } else {
-            fechar(&mut palavra, &mut saida);
-            saida.push(ch);
+            close(&mut word, &mut output);
+            output.push(ch);
         }
     }
-    fechar(&mut palavra, &mut saida);
-    saida
+    close(&mut word, &mut output);
+    output
 }

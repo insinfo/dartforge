@@ -2458,7 +2458,8 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
         // Parse custom properties as declarations no matter what.
         if name_buffer.initial_plain().starts_with("--") {
             let value_start = self.toks().cursor();
-            let value = self.parse_interpolated_declaration_value_with(false, false, true, false)?;
+            let value =
+                self.parse_interpolated_declaration_value_with(false, false, true, false)?;
             let value_span = self.toks_mut().span_from(value_start);
             self.expect_statement_separator(Some("custom property"))?;
             return Ok(DeclarationOrBuffer::Stmt(AstStmt::Style(AstStyle {

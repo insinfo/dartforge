@@ -17,9 +17,9 @@
 //! are reproduced (`exprs.expressions[0]` on an empty list, `value as int?`,
 //! `value as num`).
 use super::Exception;
-use super::tree::*;
 use super::token_kind as tk;
 use super::tokenizer::{Token, Tokenizer, TokenizerState};
+use super::tree::*;
 
 type R<T> = Result<T, Exception>;
 
@@ -103,7 +103,9 @@ impl<'a> Parser<'a> {
             }
         }
         self.check_end_of_file();
-        Ok(StyleSheet { top_level: productions })
+        Ok(StyleSheet {
+            top_level: productions,
+        })
     }
 
     /// `checkEndOfFile`.
@@ -535,7 +537,7 @@ impl<'a> Parser<'a> {
             let mut must_have_param = false;
             let mut keep_going = true;
             while keep_going {
-                let antes = (
+                let before = (
                     self.peeked.start,
                     self.peeked.kind,
                     self.tokenizer.position(),
@@ -558,7 +560,7 @@ impl<'a> Parser<'a> {
                 // consumed (for example `@mixin m(` at the end of the file):
                 // the builder hangs.
                 if keep_going
-                    && antes
+                    && before
                         == (
                             self.peeked.start,
                             self.peeked.kind,
@@ -598,7 +600,9 @@ impl<'a> Parser<'a> {
                 let mut new_declarations = Vec::new();
                 for include in std::mem::take(&mut productions) {
                     match include {
-                        Node::Include(i) => new_declarations.push(Node::Declaration(Declaration::Include(i))),
+                        Node::Include(i) => {
+                            new_declarations.push(Node::Declaration(Declaration::Include(i)))
+                        }
                         _ => self.warning(),
                     }
                 }
@@ -887,7 +891,10 @@ impl<'a> Parser<'a> {
         match group {
             Some(group) => {
                 let declarations = self.process_declarations(true)?;
-                Ok(Some(Node::Rule(RuleSet { group, declarations })))
+                Ok(Some(Node::Rule(RuleSet {
+                    group,
+                    declarations,
+                })))
             }
             None => Ok(None),
         }
@@ -959,7 +966,7 @@ impl<'a> Parser<'a> {
         self.eat(tk::LBRACE)?;
         let mut decls = Vec::new();
         loop {
-            let antes = (
+            let before = (
                 self.peeked.start,
                 self.peeked.kind,
                 self.tokenizer.position(),
@@ -1002,7 +1009,7 @@ impl<'a> Parser<'a> {
             }
             // The official one does not terminate when nothing is consumed (for
             // example a `.x` inside `@page { }`): the builder hangs.
-            if antes
+            if before
                 == (
                     self.peeked.start,
                     self.peeked.kind,
@@ -1393,10 +1400,7 @@ impl<'a> Parser<'a> {
             });
         }
         self.eat(tk::RBRACK)?;
-        Ok(Some(simple(
-            SimpleKind::Attribute { op, value },
-            attr_name,
-        )))
+        Ok(Some(simple(SimpleKind::Attribute { op, value }, attr_name)))
     }
 
     /// `processDeclaration`.
@@ -1522,7 +1526,8 @@ impl<'a> Parser<'a> {
                         let hex_text1 = self.peeked_text();
                         self.next()?;
                         // Joins the identifier only if there is no whitespace.
-                        if self.peek_identifier() && self.previous_end() == Some(self.peeked.start) {
+                        if self.peek_identifier() && self.previous_end() == Some(self.peeked.start)
+                        {
                             let rest = self.identifier()?.name;
                             hex_text = Some(format!("{hex_text1}{rest}"));
                         } else {
@@ -1626,10 +1631,7 @@ impl<'a> Parser<'a> {
                 } else if self.maybe_eat_ur(tk::HEX_RANGE, true)? {
                     first = Some(self.previous_text());
                 }
-                Ok(Some(TermOrList::One(Expr::UnicodeRange {
-                    first,
-                    second,
-                })))
+                Ok(Some(TermOrList::One(Expr::UnicodeRange { first, second })))
             }
             tk::AT => {
                 // Less (`lessSupport`): `property: @name` => `var(name)`.
@@ -2005,12 +2007,14 @@ fn hex_digit(c: u16) -> i64 {
 /// `int.parse` of the text of a numeric token (sign and digits): outside the
 /// 64-bit range Dart throws `FormatException`.
 fn int_parse(text: &str) -> R<i64> {
-    text.parse::<i64>().map_err(|_| Exception("FormatException"))
+    text.parse::<i64>()
+        .map_err(|_| Exception("FormatException"))
 }
 
 /// `double.parse` of the text of a numeric token.
 fn double_parse(text: &str) -> R<f64> {
-    text.parse::<f64>().map_err(|_| Exception("FormatException"))
+    text.parse::<f64>()
+        .map_err(|_| Exception("FormatException"))
 }
 
 /// `int.parse('0x…')`: up to 64 bits (with the sign bit, as in Dart).
@@ -2055,14 +2059,14 @@ fn style_for_dart(property: &Identifier, exprs: &Expressions) -> R<()> {
             if e.len() == 1
                 && let Expr::Term(t) = &e[0]
             {
-                let px_ou_pt = matches!(
+                let px_or_pt = matches!(
                     t.kind,
                     TermKind::Unit {
                         unit: tk::UNIT_LENGTH_PX | tk::UNIT_LENGTH_PT,
                         ..
                     }
                 );
-                if px_ou_pt || t.is_number() {
+                if px_or_pt || t.is_number() {
                     as_num(&t.value)?;
                 }
             }

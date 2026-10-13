@@ -10,19 +10,19 @@
 //! [`crate::shadow_css`] (which reads and prints with the csslib port,
 //! [`crate::csslib`]): the `StyleCompiler` calls `shimShadowCss(style,
 //! '_ngcontent-%ID%', '_nghost-%ID%')` (`style_compiler.dart`).
-use crate::view::Motivo;
+use crate::view::Reason;
 
 /// `_viewClass` do `style_compiler.dart`.
-const CONTEUDO: &str = "_ngcontent-%ID%";
+const CONTENT: &str = "_ngcontent-%ID%";
 /// `_hostClass` do `style_compiler.dart`.
-const HOSPEDEIRO: &str = "_nghost-%ID%";
+const HOST: &str = "_nghost-%ID%";
 
 /// Turns the stylesheet into the text that goes inside `styles` in
 /// `<name>.css.shim.dart`. `Err` where the official compiler throws (and the
 /// build fails); a parse error is not a failure — the official one warns and
 /// generates anyway.
-pub fn shim(css: &str) -> Result<String, Motivo> {
-    crate::shadow_css::shim_shadow_css(css, CONTEUDO, HOSPEDEIRO).map_err(|_| Motivo::Estilos)
+pub fn shim(css: &str) -> Result<String, Reason> {
+    crate::shadow_css::shim_shadow_css(css, CONTENT, HOST).map_err(|_| Reason::Styles)
 }
 
 #[cfg(test)]
@@ -31,15 +31,15 @@ mod testes {
 
     /// The exact output of the official compiler for the CSS of case b15.
     #[test]
-    fn folha_rica_igual_ao_oficial() {
+    fn rich_sheet_equal_to_official() {
         let css = "/* um comentário */\n:host {\n  display: block;\n}\n\n.a .b {\n  color: red;\n}\n\n.c, .d {\n  margin: 0 auto;\n}\n\na:hover {\n  text-decoration: underline;\n}\n\n@media (max-width: 600px) {\n  .a {\n    display: none;\n  }\n}\n";
-        let esperado = "._nghost-%ID%{display:block}.a._ngcontent-%ID% .b._ngcontent-%ID%{color:red}.c._ngcontent-%ID%,.d._ngcontent-%ID%{margin:0 auto}a:hover._ngcontent-%ID%{text-decoration:underline}@media (max-width:600px){.a._ngcontent-%ID%{display:none}}";
-        assert_eq!(shim(css).unwrap(), esperado);
+        let expected = "._nghost-%ID%{display:block}.a._ngcontent-%ID% .b._ngcontent-%ID%{color:red}.c._ngcontent-%ID%,.d._ngcontent-%ID%{margin:0 auto}a:hover._ngcontent-%ID%{text-decoration:underline}@media (max-width:600px){.a._ngcontent-%ID%{display:none}}";
+        assert_eq!(shim(css).unwrap(), expected);
     }
 
     /// A do caso b07.
     #[test]
-    fn folha_simples_igual_ao_oficial() {
+    fn simple_sheet_equal_to_official() {
         let css = ".c { color: red; }\nspan { font-weight: bold; }\n";
         assert_eq!(
             shim(css).unwrap(),
@@ -49,7 +49,7 @@ mod testes {
 
     /// The shapes of case b16, one by one, against the official output.
     #[test]
-    fn formas_do_b16_iguais_ao_oficial() {
+    fn b16_shapes_equal_to_official() {
         let css = ".a::before {
   content: \"x\";
 }
@@ -83,8 +83,8 @@ input[type=\"text\"] {
   animation: girar 1s;
 }
 ";
-        let esperado = ".a._ngcontent-%ID%::before{content:\"x\"}._nghost-%ID%.tema-escuro .b._ngcontent-%ID%{color:white}._nghost-%ID%.pai .c._ngcontent-%ID%,.pai ._nghost-%ID% .c._ngcontent-%ID%{color:red} .d{color:blue}.e._ngcontent-%ID% > .f._ngcontent-%ID%{margin:0}input[type=\"text\"]._ngcontent-%ID%{border:0}@keyframes girar{from{opacity:0}to{opacity:1}}.g._ngcontent-%ID%{animation:girar 1s}";
-        assert_eq!(shim(css).unwrap(), esperado);
+        let expected = ".a._ngcontent-%ID%::before{content:\"x\"}._nghost-%ID%.tema-escuro .b._ngcontent-%ID%{color:white}._nghost-%ID%.pai .c._ngcontent-%ID%,.pai ._nghost-%ID% .c._ngcontent-%ID%{color:red} .d{color:blue}.e._ngcontent-%ID% > .f._ngcontent-%ID%{margin:0}input[type=\"text\"]._ngcontent-%ID%{border:0}@keyframes girar{from{opacity:0}to{opacity:1}}.g._ngcontent-%ID%{animation:girar 1s}";
+        assert_eq!(shim(css).unwrap(), expected);
     }
 
     /// Shapes that csslib accepts and the official shim generates (outputs of
@@ -92,8 +92,8 @@ input[type=\"text\"] {
     /// nested, `@font-face` comes out as is, `#ffffff` becomes `white`, `10 px`
     /// becomes `10px`, the media operators come out in uppercase.
     #[test]
-    fn formas_do_csslib_iguais_ao_oficial() {
-        let casos = [
+    fn csslib_shapes_equal_to_official() {
+        let cases = [
             (
                 ".a { .b { color: red; } }",
                 ".a._ngcontent-%ID%{.b._ngcontent-%ID%{color:red}}",
@@ -111,8 +111,8 @@ input[type=\"text\"] {
                 "@media ONLY screen AND (max-width:600px){.x._ngcontent-%ID%{filter:alpha(opacity=50)}}@supports (display:grid){.y._ngcontent-%ID%{--z:var(--w, black)}}",
             ),
         ];
-        for (css, esperado) in casos {
-            assert_eq!(shim(css).unwrap(), esperado, "{css}");
+        for (css, expected) in cases {
+            assert_eq!(shim(css).unwrap(), expected, "{css}");
         }
     }
 
@@ -121,7 +121,7 @@ input[type=\"text\"] {
     /// the endless loop of `processMarginsDeclarations` in a `@page` with a
     /// selector.
     #[test]
-    fn recusa_onde_o_oficial_falha() {
+    fn refuses_where_the_official_fails() {
         assert!(shim("@keyframes k{}").is_err());
         assert!(shim("@page{.x}").is_err());
         assert!(shim("@supports").is_err());

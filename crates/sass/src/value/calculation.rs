@@ -306,9 +306,27 @@ impl SassCalculation {
                 |n| Ok(num(Self::to_radians(n, span)?.tan(), Unit::None)),
                 span,
             ),
-            "atan" => Self::single(name, arg, true, |n| Ok(Self::to_degrees(n.num.0.atan())), span),
-            "asin" => Self::single(name, arg, true, |n| Ok(Self::to_degrees(n.num.0.asin())), span),
-            "acos" => Self::single(name, arg, true, |n| Ok(Self::to_degrees(n.num.0.acos())), span),
+            "atan" => Self::single(
+                name,
+                arg,
+                true,
+                |n| Ok(Self::to_degrees(n.num.0.atan())),
+                span,
+            ),
+            "asin" => Self::single(
+                name,
+                arg,
+                true,
+                |n| Ok(Self::to_degrees(n.num.0.asin())),
+                span,
+            ),
+            "acos" => Self::single(
+                name,
+                arg,
+                true,
+                |n| Ok(Self::to_degrees(n.num.0.acos())),
+                span,
+            ),
             "abs" => match Self::simplify(arg) {
                 CalculationArg::Number(n) => {
                     Ok(Value::Dimension(num(n.num.0.abs(), n.unit.clone())))

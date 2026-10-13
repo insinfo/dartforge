@@ -1276,7 +1276,9 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
                     } else {
                         parser.parse_argument_invocation(false, lower.as_deref() == Some("var"))
                     };
-                    parser.flags_mut().set(ContextFlags::IN_CALC_166, was_in_calc);
+                    parser
+                        .flags_mut()
+                        .set(ContextFlags::IN_CALC_166, was_in_calc);
                     let arguments = arguments?;
 
                     Ok(AstExpr::FunctionCall(FunctionCallExpr {
@@ -1290,7 +1292,9 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
                     let was_in_calc = parser.flags().in_calc_166();
                     parser.flags_mut().set(ContextFlags::IN_CALC_166, false);
                     let arguments = parser.parse_argument_invocation(false, false);
-                    parser.flags_mut().set(ContextFlags::IN_CALC_166, was_in_calc);
+                    parser
+                        .flags_mut()
+                        .set(ContextFlags::IN_CALC_166, was_in_calc);
                     let arguments = arguments?;
                     Ok(
                         AstExpr::InterpolatedFunction(Arc::new(InterpolatedFunction {

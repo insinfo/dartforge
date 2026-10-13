@@ -743,11 +743,9 @@ impl ExtensionStore {
     }
 
     /// Returns a one-off `Extension` whose extender is composed solely of a
-    /// compound selector containing `simples`.
-    fn extension_for_compound(&self, simples: Vec<SimpleSelector>) -> Extension {
-        let compound = CompoundSelector {
-            components: simples,
-        };
+    /// compound selector containing `simple`.
+    fn extension_for_compound(&self, simple: Vec<SimpleSelector>) -> Extension {
+        let compound = CompoundSelector { components: simple };
         let specificity = Some(self.source_specificity_for(&compound));
         Extension::one_off(
             ComplexSelector::new(vec![ComplexSelectorComponent::Compound(compound)], false),

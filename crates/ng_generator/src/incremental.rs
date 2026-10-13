@@ -1,23 +1,23 @@
 //! Generation of **one** file, for the build engine (`crates/build`,
 //! `docs/BUILD-PEDIDOS-GERADOR-NG.md`): the engine has one action per `.dart`
 //! and reruns only that of the edited component. Besides the text, the
-//! generation returns what it asked other libraries ([`ConsultaNg`]) — it is
+//! generation returns what it asked other libraries ([`NgQuery`]) — it is
 //! through these queries that the engine knows whom to wake up when a child's
 //! `@Input` changes or a selector appears.
 //!
-//! The output is the same as [`crate::gerar_em`]: both go through
-//! `gerar_interno`.
-use crate::resolucao::{Designado, Resolucao};
-use crate::view::Recusa;
-use crate::{Achados, Indice, Pacote};
+//! The output is the same as [`crate::generate_in`]: both go through
+//! `generate_internal`.
+use crate::resolucao::{Designated, Resolution};
+use crate::view::Refusal;
+use crate::{Findings, Indice, Pacote};
 use dartforge_intern::Interner;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 /// What generating one file produces.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SaidaArquivo {
-    /// Texto do `<nome>.template.dart`.
+pub struct FileOutput {
+    /// Texto do `<name>.template.dart`.
     pub template: String,
     /// Files read: the `.dart`, the `.html` of `templateUrl`, each `styleUrls`
     /// stylesheet (the `.css`, or the `.scss` it comes from).
@@ -26,247 +26,239 @@ pub struct SaidaArquivo {
     pub extras: Vec<(PathBuf, String)>,
     /// What the generation asked other libraries, without repetition, in the
     /// order it asked.
-    pub consultas: Vec<ConsultaNg>,
+    pub queries: Vec<NgQuery>,
 }
 
 /// A question the generation asked outside its own file.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ConsultaNg {
+pub enum NgQuery {
     /// A component or directive of `directives:` resolved: the selector and who
     /// declares it.
-    Filho {
-        seletor: String,
-        biblioteca: String,
-        classe: String,
+    Child {
+        selector: String,
+        library: String,
+        class: String,
     },
     /// A type resolved by the semantic database (injection, member type for
     /// `interpolate*`, item of `directives:`/`pipes:`): the library that
     /// declares it and the name.
-    Tipo { biblioteca: String, nome: String },
+    Type { library: String, name: String },
     /// A template tag that is not HTML and that no component of `directives:`
     /// declares: if one appears, the generation changes.
-    SeletorAusente(String),
+    MissingSelector(String),
 }
 
 /// Reads and analyzes a `.dart`: the findings the generation and the index use.
-pub fn analisar_arquivo(fonte: &Path, texto: &str, nomes: &mut Interner) -> Achados {
-    let _ = fonte;
-    let tokens = dartforge_frontend::lexer::lex(texto);
-    let analisada = dartforge_frontend::parser::parse_lexed(texto, tokens, nomes);
-    crate::achar(&analisada.ast, &analisada.unit, texto, nomes)
+pub fn analisar_arquivo(source: &Path, text: &str, names: &mut Interner) -> Findings {
+    let _ = source;
+    let tokens = dartforge_frontend::lexer::lex(text);
+    let parsed = dartforge_frontend::parser::parse_lexed(text, tokens, names);
+    crate::find(&parsed.ast, &parsed.unit, text, names)
 }
 
-/// Generates the `.template.dart` of `fonte` — the same text
-/// [`crate::gerar_em`] would write for it —, or says why not. The refusal
-/// carries the [`crate::view::Motivo`] (`recusa.motivo`) and the sub-shape.
+/// Generates the `.template.dart` of `source` — the same text
+/// [`crate::generate_in`] would write for it —, or says why not. The refusal
+/// carries the [`crate::view::Reason`] (`refusal.reason`) and the sub-shape.
 pub fn gerar_arquivo(
-    pacote: &Pacote,
-    fonte: &Path,
-    achados: &Achados,
-    resolvedor: Option<&dyn Resolucao>,
-    nomes: &mut Interner,
-    indice: &Indice,
-) -> Result<SaidaArquivo, Recusa> {
-    let nome = fonte
+    package: &Pacote,
+    source: &Path,
+    findings: &Findings,
+    resolver: Option<&dyn Resolution>,
+    names: &mut Interner,
+    index: &Indice,
+) -> Result<FileOutput, Refusal> {
+    let name = source
         .file_name()
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-    let gravador = resolvedor.map(Gravador::novo);
-    let gerado = crate::gerar_interno(
-        pacote,
-        fonte,
-        &nome,
-        achados,
-        gravador.as_ref().map(|g| g as &dyn Resolucao),
-        nomes,
-        indice,
+    let recorder = resolver.map(Recorder::novo);
+    let gerado = crate::generate_internal(
+        package,
+        source,
+        &name,
+        findings,
+        recorder.as_ref().map(|g| g as &dyn Resolution),
+        names,
+        index,
     );
-    let mut consultas: Vec<ConsultaNg> = gravador
-        .map(|g| g.consultas.into_inner())
-        .unwrap_or_default();
-    consultas.extend(filhos_consultados(fonte, achados, resolvedor, indice));
-    let (template, entradas, extras) = gerado?;
-    let mut unicas = Vec::new();
-    for c in consultas {
-        if !unicas.contains(&c) {
-            unicas.push(c);
+    let mut queries: Vec<NgQuery> = recorder.map(|g| g.queries.into_inner()).unwrap_or_default();
+    queries.extend(queried_children(source, findings, resolver, index));
+    let (template, inputs, extras) = gerado?;
+    let mut unique = Vec::new();
+    for c in queries {
+        if !unique.contains(&c) {
+            unique.push(c);
         }
     }
-    Ok(SaidaArquivo {
+    Ok(FileOutput {
         template,
-        entradas,
+        entradas: inputs,
         extras,
-        consultas: unicas,
+        queries: unique,
     })
 }
 
 /// The children each component of the file resolved, and the tags that found no
 /// owner.
-fn filhos_consultados(
-    fonte: &Path,
-    achados: &Achados,
-    resolvedor: Option<&dyn Resolucao>,
-    indice: &Indice,
-) -> Vec<ConsultaNg> {
-    let mut saida = Vec::new();
-    for comp in &achados.componentes {
-        let (usadas, _) = indice.diretivas_de(comp, fonte, resolvedor);
-        for u in &usadas {
-            let seletor = match (&u.filho, &u.diretiva) {
-                (Some(f), _) => f.seletor.clone(),
-                (None, Some(d)) => d.seletor.clone(),
-                (None, None) => indice
-                    .diretivas
-                    .get(&(u.uri.clone(), u.classe.clone()))
-                    .map(|d| d.seletor.clone())
+fn queried_children(
+    source: &Path,
+    findings: &Findings,
+    resolver: Option<&dyn Resolution>,
+    index: &Indice,
+) -> Vec<NgQuery> {
+    let mut output = Vec::new();
+    for comp in &findings.components {
+        let (used, _) = index.directives_of(comp, source, resolver);
+        for u in &used {
+            let selector = match (&u.child, &u.directive) {
+                (Some(f), _) => f.selector.clone(),
+                (None, Some(d)) => d.selector.clone(),
+                (None, None) => index
+                    .directives
+                    .get(&(u.uri.clone(), u.class.clone()))
+                    .map(|d| d.selector.clone())
                     .unwrap_or_default(),
             };
-            saida.push(ConsultaNg::Filho {
-                seletor,
-                biblioteca: u.uri.clone(),
-                classe: u.classe.clone(),
+            output.push(NgQuery::Child {
+                selector,
+                library: u.uri.clone(),
+                class: u.class.clone(),
             });
         }
-        let filhos = crate::filhos_por_tag(&usadas);
+        let children = crate::children_by_tag(&used);
         let template = match (&comp.template, &comp.template_url) {
             (Some(t), _) => t.clone(),
-            (None, Some(u)) => fonte
+            (None, Some(u)) => source
                 .parent()
                 .and_then(|d| std::fs::read_to_string(d.join(u)).ok())
                 .unwrap_or_default(),
             (None, None) => String::new(),
         };
         let mut tags = Vec::new();
-        tags_de(&crate::html::analisar(&template), &mut tags);
+        tags_of(&crate::html::parse(&template), &mut tags);
         for t in tags {
-            if !crate::dom::tag_html(&t) && !filhos.contains_key(&t) && t != "ng-container" {
-                saida.push(ConsultaNg::SeletorAusente(t));
+            if !crate::dom::tag_html(&t) && !children.contains_key(&t) && t != "ng-container" {
+                output.push(NgQuery::MissingSelector(t));
             }
         }
     }
-    saida
+    output
 }
 
-fn tags_de(nos: &[crate::html::No], saida: &mut Vec<String>) {
-    for n in nos {
-        if let crate::html::No::Elemento(e) = n {
-            if !saida.contains(&e.nome) {
-                saida.push(e.nome.clone());
+fn tags_of(nodes: &[crate::html::Node], output: &mut Vec<String>) {
+    for n in nodes {
+        if let crate::html::Node::Element(e) = n {
+            if !output.contains(&e.name) {
+                output.push(e.name.clone());
             }
-            tags_de(&e.filhos, saida);
+            tags_of(&e.children, output);
         }
     }
 }
 
-/// A [`Resolucao`] that answers for the inner one and records each type found.
-struct Gravador<'a> {
-    dentro: &'a dyn Resolucao,
-    consultas: RefCell<Vec<ConsultaNg>>,
+/// A [`Resolution`] that answers for the inner one and records each type found.
+struct Recorder<'a> {
+    inside: &'a dyn Resolution,
+    queries: RefCell<Vec<NgQuery>>,
 }
 
-impl<'a> Gravador<'a> {
-    fn novo(dentro: &'a dyn Resolucao) -> Self {
-        Gravador {
-            dentro,
-            consultas: RefCell::new(Vec::new()),
+impl<'a> Recorder<'a> {
+    fn novo(inside: &'a dyn Resolution) -> Self {
+        Recorder {
+            inside,
+            queries: RefCell::new(Vec::new()),
         }
     }
 
-    fn anotar(&self, biblioteca: &str, nome: &str) {
-        let simples = nome.trim_end_matches('?');
-        let simples = simples.rsplit('.').next().unwrap_or(simples);
-        let c = ConsultaNg::Tipo {
-            biblioteca: biblioteca.to_string(),
-            nome: simples.to_string(),
+    fn record_refusal(&self, library: &str, name: &str) {
+        let simple = name.trim_end_matches('?');
+        let simple = simple.rsplit('.').next().unwrap_or(simple);
+        let c = NgQuery::Type {
+            library: library.to_string(),
+            name: simple.to_string(),
         };
-        let mut v = self.consultas.borrow_mut();
+        let mut v = self.queries.borrow_mut();
         if !v.contains(&c) {
             v.push(c);
         }
     }
 }
 
-impl Resolucao for Gravador<'_> {
-    fn uri_do_tipo(&self, arquivo: &Path, nome: &str) -> Option<String> {
-        let r = self.dentro.uri_do_tipo(arquivo, nome);
+impl Resolution for Recorder<'_> {
+    fn type_uri(&self, file: &Path, name: &str) -> Option<String> {
+        let r = self.inside.type_uri(file, name);
         if let Some(uri) = &r {
-            self.anotar(uri, nome);
+            self.record_refusal(uri, name);
         }
         r
     }
 
-    fn tipo_do_membro(
+    fn member_type(&self, file: &Path, ty: &str, member: &str) -> Option<(String, PathBuf)> {
+        if let Some(uri) = self.inside.type_uri(file, ty) {
+            self.record_refusal(&uri, ty);
+        }
+        self.inside.member_type(file, ty, member)
+    }
+
+    fn method(&self, file: &Path, ty: &str, name: &str) -> Option<crate::resolucao::Method> {
+        if let Some(uri) = self.inside.type_uri(file, ty) {
+            self.record_refusal(&uri, ty);
+        }
+        self.inside.method(file, ty, name)
+    }
+
+    fn type_bounds(&self, file: &Path, ty: &str) -> Option<Vec<bool>> {
+        if let Some(uri) = self.inside.type_uri(file, ty) {
+            self.record_refusal(&uri, ty);
+        }
+        self.inside.type_bounds(file, ty)
+    }
+
+    fn has_setter(&self, file: &Path, ty: &str, member: &str) -> bool {
+        if let Some(uri) = self.inside.type_uri(file, ty) {
+            self.record_refusal(&uri, ty);
+        }
+        self.inside.has_setter(file, ty, member)
+    }
+
+    fn member_type_with_free(
         &self,
-        arquivo: &Path,
-        tipo: &str,
-        membro: &str,
+        file: &Path,
+        ty: &str,
+        member: &str,
+        free: &[String],
     ) -> Option<(String, PathBuf)> {
-        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
-            self.anotar(&uri, tipo);
+        if let Some(uri) = self.inside.type_uri(file, ty) {
+            self.record_refusal(&uri, ty);
         }
-        self.dentro.tipo_do_membro(arquivo, tipo, membro)
+        self.inside.member_type_with_free(file, ty, member, free)
     }
 
-    fn metodo(&self, arquivo: &Path, tipo: &str, nome: &str) -> Option<crate::resolucao::Metodo> {
-        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
-            self.anotar(&uri, tipo);
-        }
-        self.dentro.metodo(arquivo, tipo, nome)
-    }
-
-    fn limites_de_tipo(&self, arquivo: &Path, tipo: &str) -> Option<Vec<bool>> {
-        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
-            self.anotar(&uri, tipo);
-        }
-        self.dentro.limites_de_tipo(arquivo, tipo)
-    }
-
-    fn tem_setter(&self, arquivo: &Path, tipo: &str, membro: &str) -> bool {
-        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
-            self.anotar(&uri, tipo);
-        }
-        self.dentro.tem_setter(arquivo, tipo, membro)
-    }
-
-    fn tipo_do_membro_livre(
+    fn free_method(
         &self,
-        arquivo: &Path,
-        tipo: &str,
-        membro: &str,
-        livres: &[String],
-    ) -> Option<(String, PathBuf)> {
-        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
-            self.anotar(&uri, tipo);
+        file: &Path,
+        ty: &str,
+        name: &str,
+        free: &[String],
+    ) -> Option<crate::resolucao::Method> {
+        if let Some(uri) = self.inside.type_uri(file, ty) {
+            self.record_refusal(&uri, ty);
         }
-        self.dentro
-            .tipo_do_membro_livre(arquivo, tipo, membro, livres)
+        self.inside.free_method(file, ty, name, free)
     }
 
-    fn metodo_livre(
-        &self,
-        arquivo: &Path,
-        tipo: &str,
-        nome: &str,
-        livres: &[String],
-    ) -> Option<crate::resolucao::Metodo> {
-        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
-            self.anotar(&uri, tipo);
+    fn final_member(&self, file: &Path, ty: &str, member: &str) -> Option<bool> {
+        if let Some(uri) = self.inside.type_uri(file, ty) {
+            self.record_refusal(&uri, ty);
         }
-        self.dentro.metodo_livre(arquivo, tipo, nome, livres)
+        self.inside.final_member(file, ty, member)
     }
 
-    fn membro_final(&self, arquivo: &Path, tipo: &str, membro: &str) -> Option<bool> {
-        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
-            self.anotar(&uri, tipo);
-        }
-        self.dentro.membro_final(arquivo, tipo, membro)
-    }
-
-    fn designado(&self, arquivo: &Path, nome: &str) -> Option<Designado> {
-        let r = self.dentro.designado(arquivo, nome);
-        if let Some(Designado::Classe { uri }) = &r {
-            self.anotar(uri, nome);
+    fn designated(&self, file: &Path, name: &str) -> Option<Designated> {
+        let r = self.inside.designated(file, name);
+        if let Some(Designated::Class { uri }) = &r {
+            self.record_refusal(uri, name);
         }
         r
     }
@@ -274,36 +266,32 @@ impl Resolucao for Gravador<'_> {
     // The type missing from the scope depends on the libraries the file
     // imports, which the import closure of the invalidation (`NgEstagioA`)
     // already covers; there is no declaring library to record.
-    fn tipo_inexistente(&self, arquivo: &Path, tipo: &str) -> bool {
-        self.dentro.tipo_inexistente(arquivo, tipo)
+    fn nonexistent_type(&self, file: &Path, ty: &str) -> bool {
+        self.inside.nonexistent_type(file, ty)
     }
 
-    fn exportado(
-        &self,
-        arquivo: &Path,
-        nome: &str,
-    ) -> Option<(String, crate::resolucao::Exportado)> {
-        let r = self.dentro.exportado(arquivo, nome);
+    fn exported(&self, file: &Path, name: &str) -> Option<(String, crate::resolucao::Exported)> {
+        let r = self.inside.exported(file, name);
         if let Some((uri, _)) = &r {
-            self.anotar(uri, nome);
+            self.record_refusal(uri, name);
         }
         r
     }
 
-    fn membro_estatico(
+    fn static_member(
         &self,
-        arquivo: &Path,
-        tipo: &str,
-        membro: &str,
-    ) -> Option<crate::resolucao::Estatico> {
-        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
-            self.anotar(&uri, tipo);
+        file: &Path,
+        ty: &str,
+        member: &str,
+    ) -> Option<crate::resolucao::Static> {
+        if let Some(uri) = self.inside.type_uri(file, ty) {
+            self.record_refusal(&uri, ty);
         }
-        self.dentro.membro_estatico(arquivo, tipo, membro)
+        self.inside.static_member(file, ty, member)
     }
 
-    fn tipo_da_saida(&self, uri: &str, classe: &str, membro: &str) -> Option<(String, PathBuf)> {
-        self.anotar(uri, classe);
-        self.dentro.tipo_da_saida(uri, classe, membro)
+    fn output_type(&self, uri: &str, class: &str, member: &str) -> Option<(String, PathBuf)> {
+        self.record_refusal(uri, class);
+        self.inside.output_type(uri, class, member)
     }
 }

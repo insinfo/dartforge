@@ -15,11 +15,11 @@
 //! `validate.dart` and, from `property.dart`, the style values for Dart (nobody
 //! reads them; see [`parser`]). The options are the `parse` defaults: `checked`
 //! false (the warnings conditioned on it do not exist) and `lessSupport` true.
-pub mod tree;
-pub mod printer;
 pub mod parser;
+pub mod printer;
 pub mod token_kind;
 pub mod tokenizer;
+pub mod tree;
 pub mod visitor;
 
 /// An exception that the official code throws (the name of the Dart type, or

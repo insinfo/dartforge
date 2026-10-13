@@ -5,9 +5,9 @@
 use std::rc::Rc;
 
 use super::Exception;
-use super::tree::*;
 use super::token_kind as tk;
 use super::tokenizer::dart_trim;
+use super::tree::*;
 use super::visitor::{R, Visitor};
 
 /// `CssPrinter`.
@@ -104,7 +104,7 @@ impl CssPrinter {
             SimpleKind::PseudoElement { legacy } => {
                 format!("{}{}", if *legacy { ":" } else { "::" }, s.name())
             }
-            _ => return Err(Exception("seletor sem toString")),
+            _ => return Err(Exception("selector without toString")),
         })
     }
 }
@@ -298,7 +298,11 @@ impl Visitor for CssPrinter {
     }
 
     fn visit_import_directive(&mut self, node: &mut Node) -> R<()> {
-        if let Node::Import { import, media_queries } = node {
+        if let Node::Import {
+            import,
+            media_queries,
+        } = node
+        {
             // `_isTesting`: always as `url(…)`.
             self.emit(&format!("@import url({import})"));
             self.emit_media_queries(media_queries)?;

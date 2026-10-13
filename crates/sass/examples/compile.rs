@@ -1,7 +1,7 @@
 //! Compiles the SCSS from standard input in both styles and shows the CSS
 //! and the source map (as `asset:p/web/a.scss`), to compare by hand with
 //! dart-sass.
-use dartforge_sass::sass_builder::{compilar, Ativo, Disco, Pacotes};
+use dartforge_sass::sass_builder::{compile, Asset, Disk, Packages};
 use dartforge_sass::{OutputStyle, VersaoDartSass};
 
 /// The imitated version: `SASS_VERSION` (`1.66.0` or `1.102.0`, the
@@ -16,27 +16,25 @@ use std::io::Read;
 
 fn main() {
     let mut source = String::new();
-    std::io::stdin()
-        .read_to_string(&mut source)
-        .expect("input");
-    let input = Ativo {
-        pacote: "p".into(),
-        caminho: "web/a.scss".into(),
+    std::io::stdin().read_to_string(&mut source).expect("input");
+    let input = Asset {
+        package: "p".into(),
+        path: "web/a.scss".into(),
     };
     for (style, name) in [
         (OutputStyle::Expanded, "expanded"),
         (OutputStyle::Compressed, "compressed"),
     ] {
-        match compilar(
+        match compile(
             &source,
             &input,
-            &Pacotes::new(),
-            &Disco,
+            &Packages::new(),
+            &Disk,
             style,
             true,
             version(),
         ) {
-            Ok(c) => println!("--- {name}\n{}\nMAP {}", c.css, c.mapa.unwrap_or_default()),
+            Ok(c) => println!("--- {name}\n{}\nMAP {}", c.css, c.map.unwrap_or_default()),
             Err(e) => println!("ERR {e}"),
         }
     }

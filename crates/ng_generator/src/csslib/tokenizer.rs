@@ -224,7 +224,7 @@ impl<'a> Tokenizer<'a> {
             let c = self.text[self.index];
             self.index += 1;
             if c == ch::SPACE || c == ch::TAB || c == ch::RETURN {
-                // nada
+                // nothing
             } else if c == ch::NEWLINE {
                 if !self.in_string {
                     return Ok(Some(self.finish_token(tk::WHITESPACE)));

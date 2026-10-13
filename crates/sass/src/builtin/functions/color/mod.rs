@@ -1680,7 +1680,12 @@ pub(crate) fn hwb_module(args: ArgumentResult, v: &mut Visitor) -> SassResult<Va
     }
     let span = args.span;
     let overloads = [
-        signature!("hue", "whiteness", "blackness", "alpha" = ParamDefault::Num(1.0)),
+        signature!(
+            "hue",
+            "whiteness",
+            "blackness",
+            "alpha" = ParamDefault::Num(1.0)
+        ),
         signature!("channels"),
     ];
     let i = choose_overload(&overloads, &args);
@@ -2160,7 +2165,11 @@ pub(crate) fn to_gamut(args: ArgumentResult, v: &mut Visitor) -> SassResult<Valu
     let span = args.span;
     let a = bind_args(
         args,
-        &signature!("color", "space" = ParamDefault::Null, "method" = ParamDefault::Null),
+        &signature!(
+            "color",
+            "space" = ParamDefault::Null,
+            "method" = ParamDefault::Null
+        ),
     )?;
     let c = as_color(&a[0], "color", span)?;
     let space = if a[1] == Value::Null {

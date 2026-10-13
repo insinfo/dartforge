@@ -726,10 +726,7 @@ impl<'a> Serializer<'a> {
         }
         let text = file.source_slice(previous).as_bytes();
         let limit = (search_from as usize - 1).min(text.len().saturating_sub(1));
-        let end_offset = text[..=limit]
-            .iter()
-            .rposition(|&b| b == b'{')
-            .unwrap_or(0);
+        let end_offset = text[..=limit].iter().rposition(|&b| b == b'{').unwrap_or(0);
         let end = previous.low() + end_offset as u64;
         self.line_of(span.low()) == self.line_of(end)
     }
@@ -980,14 +977,12 @@ impl<'a> Serializer<'a> {
         let file = self.map.find_file(pos);
         let line = file.find_line(pos);
         let start = file.line_span(line).low();
-        file
-            .source_slice(
-                file
-                    .span
-                    .subspan(start - file.span.low(), pos - file.span.low()),
-            )
-            .encode_utf16()
-            .count()
+        file.source_slice(
+            file.span
+                .subspan(start - file.span.low(), pos - file.span.low()),
+        )
+        .encode_utf16()
+        .count()
     }
 
     /// `_writeWithIndent`.

@@ -14,9 +14,9 @@
 //! it.
 use std::rc::Rc;
 
-use crate::csslib::tree::*;
 use crate::csslib::printer::CssPrinter;
 use crate::csslib::token_kind as tk;
+use crate::csslib::tree::*;
 use crate::csslib::visitor::{R, Visitor};
 use crate::csslib::{self, Exception};
 
@@ -144,10 +144,10 @@ impl ComplexSelector {
     }
 
     /// `toSelector`.
-    fn to_selector(&mut self) -> Selector {
+    fn build_selector(&mut self) -> Selector {
         let mut sequences = Vec::new();
         for c in &mut self.compound_selectors {
-            sequences.extend(c.to_sequences().iter().cloned());
+            sequences.extend(c.fixed_sequences().iter().cloned());
         }
         Selector { sequences }
     }
@@ -289,7 +289,7 @@ impl CompoundSelector {
 
     /// `toSequences`: fixes the combinators (the compound's on the first, none
     /// on the others) and returns the list.
-    fn to_sequences(&mut self) -> &[Rc<Sequence>] {
+    fn fixed_sequences(&mut self) -> &[Rc<Sequence>] {
         if !self.sequences.is_empty() {
             for s in &self.sequences {
                 s.combinator.set(tk::COMBINATOR_NONE);
@@ -330,7 +330,7 @@ impl ShadowTransformer<'_> {
             if compound.contains_host_context() {
                 let mut ancestral = CompoundSelector::new(compound.combinator);
                 let mut descendant = CompoundSelector::new(tk::COMBINATOR_DESCENDANT);
-                let sequences = clone_all(compound.to_sequences());
+                let sequences = clone_all(compound.fixed_sequences());
                 for seq in sequences {
                     if is_host_context_function(&seq.selector) {
                         // No copy: the argument's sequences go in as they are.
@@ -434,7 +434,7 @@ impl Visitor for ShadowTransformer<'_> {
         g.selectors.clear();
         for mut c in complexes {
             self.shim_selectors(&mut c)?;
-            g.selectors.push(c.to_selector());
+            g.selectors.push(c.build_selector());
         }
         Ok(())
     }

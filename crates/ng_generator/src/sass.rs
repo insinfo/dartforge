@@ -11,9 +11,9 @@
 //! `@forward` and `@import` are resolved as the `sass_builder` `BuildImporter`
 //! resolves them: relative to the file, and `package:` through the project's
 //! `.dart_tool/package_config.json` (see [`dartforge_sass::sass_builder`]).
-use crate::view::Motivo;
+use crate::view::Reason;
 use dartforge_sass::OutputStyle;
-use dartforge_sass::sass_builder::{self, Ativo, Disco, Pacotes};
+use dartforge_sass::sass_builder::{self, Asset, Disk, Packages};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -32,7 +32,7 @@ pub enum Estilo {
 }
 
 impl Estilo {
-    fn do_dart_sass(self) -> OutputStyle {
+    fn output_style(self) -> OutputStyle {
         match self {
             Estilo::Expandido => OutputStyle::Expanded,
             Estilo::Comprimido => OutputStyle::Compressed,
@@ -44,14 +44,14 @@ impl Estilo {
 ///
 /// # Errors
 ///
-/// [`Motivo::Estilos`] when dart-sass would refuse the stylesheet.
+/// [`Reason::Styles`] when dart-sass would refuse the stylesheet.
 ///
 /// ```
-/// use dartforge_ng_generator::sass::compilar;
-/// assert_eq!(compilar(".a { .b { top: 0 } }").unwrap(), ".a .b{top:0}\n");
+/// use dartforge_ng_generator::sass::compile;
+/// assert_eq!(compile(".a { .b { top: 0 } }").unwrap(), ".a .b{top:0}\n");
 /// ```
-pub fn compilar(fonte: &str) -> Result<String, Motivo> {
-    compilar_em(fonte, None)
+pub fn compile(source: &str) -> Result<String, Reason> {
+    compile_in(source, None)
 }
 
 /// Compiles Sass resolving `@use`, `@forward` and `@import` from `dir`, for the
@@ -65,14 +65,14 @@ pub fn compilar(fonte: &str) -> Result<String, Motivo> {
 ///
 /// # Errors
 ///
-/// [`Motivo::Estilos`] when dart-sass would refuse the stylesheet.
+/// [`Reason::Styles`] when dart-sass would refuse the stylesheet.
 ///
 /// ```
-/// use dartforge_ng_generator::sass::compilar_em;
-/// assert_eq!(compilar_em("$c: #fff;\na { color: $c; }", None).unwrap(), "a{color:#fff}\n");
+/// use dartforge_ng_generator::sass::compile_in;
+/// assert_eq!(compile_in("$c: #fff;\na { color: $c; }", None).unwrap(), "a{color:#fff}\n");
 /// ```
-pub fn compilar_em(fonte: &str, dir: Option<&Path>) -> Result<String, Motivo> {
-    compilar_com(fonte, dir, Estilo::Comprimido).map(|(css, _)| css)
+pub fn compile_in(source: &str, dir: Option<&Path>) -> Result<String, Reason> {
+    compile_with(source, dir, Estilo::Comprimido).map(|(css, _)| css)
 }
 
 /// Compiles like `sass_builder` 2.2.1 (the dart-sass of the lock): the official
@@ -84,56 +84,56 @@ pub fn compilar_em(fonte: &str, dir: Option<&Path>) -> Result<String, Motivo> {
 ///
 /// The stylesheet is treated as a file in `dir` (the package is that of the
 /// nearest `pubspec.yaml`; without one, `dir` is the root of an anonymous
-/// package). Whoever knows the input file should use [`compilar_arquivo`],
+/// package). Whoever knows the input file should use [`compile_file`],
 /// which also generates the map.
 ///
 /// # Errors
 ///
-/// [`Motivo::Estilos`] when dart-sass would refuse the stylesheet.
+/// [`Reason::Styles`] when dart-sass would refuse the stylesheet.
 ///
 /// ```
-/// use dartforge_ng_generator::sass::{compilar_com, Estilo};
-/// let (css, lidos) = compilar_com(".a { color: red; }", None, Estilo::Expandido).unwrap();
+/// use dartforge_ng_generator::sass::{compile_with, Estilo};
+/// let (css, lidos) = compile_with(".a { color: red; }", None, Estilo::Expandido).unwrap();
 /// assert_eq!(css, ".a {\n  color: red;\n}\n");
 /// assert!(lidos.is_empty());
 /// ```
-pub fn compilar_com(
-    fonte: &str,
+pub fn compile_with(
+    source: &str,
     dir: Option<&Path>,
-    estilo: Estilo,
-) -> Result<(String, Vec<PathBuf>), Motivo> {
+    style: Estilo,
+) -> Result<(String, Vec<PathBuf>), Reason> {
     // Without a directory, an anonymous package without a root: nothing is
     // loaded.
-    let (entrada, pacotes) = match dir {
-        Some(d) => identificar(&d.join("__entrada__.scss")),
+    let (input, packages) = match dir {
+        Some(d) => identify(&d.join("__entrada__.scss")),
         None => (
-            Ativo {
-                pacote: "anonimo".into(),
-                caminho: "__entrada__.scss".into(),
+            Asset {
+                package: "anonimo".into(),
+                path: "__entrada__.scss".into(),
             },
-            Pacotes::new(),
+            Packages::new(),
         ),
     };
-    let c = sass_builder::compilar(
-        fonte,
-        &entrada,
-        &pacotes,
-        &Disco,
-        estilo.do_dart_sass(),
+    let c = sass_builder::compile(
+        source,
+        &input,
+        &packages,
+        &Disk,
+        style.output_style(),
         false,
         VersaoDartSass::V1_102_0,
     )
-    .map_err(|_| Motivo::Estilos)?;
+    .map_err(|_| Reason::Styles)?;
     Ok((format!("{}\n", c.css), c.lidos))
 }
 
-/// O resultado de [`compilar_arquivo`].
+/// O resultado de [`compile_file`].
 #[derive(Debug, Clone)]
-pub struct Folha {
+pub struct Sheet {
     /// The `.css` exactly as `sass_builder` writes it (with the
     /// `sourceMappingURL` comment when there is a map).
     pub css: String,
-    /// O `.css.map`, quando pedido.
+    /// The `.css.map`, when requested.
     pub mapa: Option<String>,
     /// The files read (the input is not included) and those looked up without
     /// existing: dependencies of the compilation.
@@ -142,40 +142,40 @@ pub struct Folha {
 }
 
 /// Compiles the `scss` file like `sass_builder` (input, package and
-/// `package_config.json` found from the path) and, if `mapa`, generates its
+/// `package_config.json` found from the path) and, if `map`, generates its
 /// `.css.map`.
 ///
 /// # Errors
 ///
-/// [`Motivo::Estilos`] when the file cannot be read or dart-sass would refuse
+/// [`Reason::Styles`] when the file cannot be read or dart-sass would refuse
 /// the stylesheet.
-pub fn compilar_arquivo(scss: &Path, estilo: Estilo, mapa: bool) -> Result<Folha, Motivo> {
-    let fonte = std::fs::read_to_string(scss).map_err(|_| Motivo::Estilos)?;
-    let (entrada, pacotes) = identificar(scss);
-    let c = sass_builder::compilar(
-        &fonte,
-        &entrada,
-        &pacotes,
-        &Disco,
-        estilo.do_dart_sass(),
-        mapa,
+pub fn compile_file(scss: &Path, style: Estilo, map: bool) -> Result<Sheet, Reason> {
+    let source = std::fs::read_to_string(scss).map_err(|_| Reason::Styles)?;
+    let (input, packages) = identify(scss);
+    let c = sass_builder::compile(
+        &source,
+        &input,
+        &packages,
+        &Disk,
+        style.output_style(),
+        map,
         VersaoDartSass::V1_102_0,
     )
-    .map_err(|_| Motivo::Estilos)?;
-    Ok(Folha {
-        css: c.arquivo_css(&entrada),
-        mapa: c.mapa,
+    .map_err(|_| Reason::Styles)?;
+    Ok(Sheet {
+        css: c.css_file(&input),
+        mapa: c.map,
         lidos: c.lidos,
         sondados: c.sondados,
     })
 }
 
-/// Compiles the asset `caminho` (relative to the package root, with `/`) of
-/// package `pacote`, with text `fonte`, like the `SassBuilder` of
-/// `sass_builder` 2.2.1: `raizes` are the package roots of
-/// `package_config.json` and `leitor` is the `BuildStep`. With `mapa`,
+/// Compiles the asset `path` (relative to the package root, with `/`) of
+/// package `package`, with text `source`, like the `SassBuilder` of
+/// `sass_builder` 2.2.1: `roots` are the package roots of
+/// `package_config.json` and `reader` is the `BuildStep`. With `map`,
 /// generates the `.css.map` and puts the `sourceMappingURL` comment in the
-/// `.css`. `versao` is the imitated dart-sass (the `sass` of `pubspec.lock`).
+/// `.css`. `version` is the imitated dart-sass (the `sass` of `pubspec.lock`).
 ///
 /// # Errors
 ///
@@ -195,83 +195,83 @@ pub fn compilar_arquivo(scss: &Path, estilo: Estilo, mapa: bool) -> Result<Folha
 /// assert_eq!(f.mapa.unwrap(), r#"{"version":3,"sourceRoot":"","sources":["x.scss"],"names":[],"mappings":"AAAA"}"#);
 /// ```
 pub fn compilar_ativo(
-    fonte: &str,
-    pacote: &str,
-    caminho: &str,
-    raizes: &BTreeMap<String, PathBuf>,
-    leitor: &dyn Leitor,
-    estilo: Estilo,
-    mapa: bool,
-    versao: VersaoDartSass,
-) -> Result<Folha, String> {
-    let mut pacotes = Pacotes::new();
-    for (nome, raiz) in raizes {
-        pacotes.inserir(nome.clone(), raiz.clone());
+    source: &str,
+    package: &str,
+    path: &str,
+    roots: &BTreeMap<String, PathBuf>,
+    reader: &dyn Leitor,
+    style: Estilo,
+    map: bool,
+    version: VersaoDartSass,
+) -> Result<Sheet, String> {
+    let mut packages = Packages::new();
+    for (name, root) in roots {
+        packages.insert(name.clone(), root.clone());
     }
-    let entrada = Ativo {
-        pacote: pacote.to_owned(),
-        caminho: caminho.to_owned(),
+    let input = Asset {
+        package: package.to_owned(),
+        path: path.to_owned(),
     };
-    let c = sass_builder::compilar(
-        fonte,
-        &entrada,
-        &pacotes,
-        leitor,
-        estilo.do_dart_sass(),
-        mapa,
-        versao,
+    let c = sass_builder::compile(
+        source,
+        &input,
+        &packages,
+        reader,
+        style.output_style(),
+        map,
+        version,
     )
     .map_err(|e| e.to_string())?;
-    Ok(Folha {
-        css: c.arquivo_css(&entrada),
-        mapa: c.mapa,
+    Ok(Sheet {
+        css: c.css_file(&input),
+        mapa: c.map,
         lidos: c.lidos,
         sondados: c.sondados,
     })
 }
 
-/// The asset of `arquivo` and the packages: the package is that of the nearest
+/// The asset of `file` and the packages: the package is that of the nearest
 /// `pubspec.yaml` (without one, the file's directory is the root of an
 /// anonymous package); the others come from the
 /// `.dart_tool/package_config.json` of the package or of a directory above it
 /// (workspace).
-fn identificar(arquivo: &Path) -> (Ativo, Pacotes) {
-    let dir = arquivo.parent().unwrap_or(Path::new(""));
-    let raiz = dir.ancestors().find(|d| d.join("pubspec.yaml").is_file());
-    let (raiz, nome) = match raiz {
+fn identify(file: &Path) -> (Asset, Packages) {
+    let dir = file.parent().unwrap_or(Path::new(""));
+    let root = dir.ancestors().find(|d| d.join("pubspec.yaml").is_file());
+    let (root, name) = match root {
         Some(r) => (
             r.to_path_buf(),
-            nome_do_pubspec(&r.join("pubspec.yaml")).unwrap_or_default(),
+            pubspec_name(&r.join("pubspec.yaml")).unwrap_or_default(),
         ),
         None => (dir.to_path_buf(), "anonimo".to_owned()),
     };
-    let mut pacotes = raiz
+    let mut packages = root
         .ancestors()
         .map(|d| d.join(".dart_tool/package_config.json"))
         .find(|c| c.is_file())
-        .and_then(|c| Pacotes::de_package_config(&c).ok())
+        .and_then(|c| Packages::from_package_config(&c).ok())
         .unwrap_or_default();
-    pacotes.inserir(nome.clone(), raiz.clone());
-    let caminho = arquivo
-        .strip_prefix(&raiz)
-        .unwrap_or(arquivo)
+    packages.insert(name.clone(), root.clone());
+    let path = file
+        .strip_prefix(&root)
+        .unwrap_or(file)
         .to_string_lossy()
         .replace('\\', "/");
     (
-        Ativo {
-            pacote: nome,
-            caminho,
+        Asset {
+            package: name,
+            path,
         },
-        pacotes,
+        packages,
     )
 }
 
 /// The `name:` of a `pubspec.yaml`.
-fn nome_do_pubspec(pubspec: &Path) -> Option<String> {
-    let texto = std::fs::read_to_string(pubspec).ok()?;
-    texto.lines().find_map(|l| {
-        let resto = l.strip_prefix("name:")?;
-        let nome = resto.split('#').next()?.trim().trim_matches(['"', '\'']);
-        (!nome.is_empty()).then(|| nome.to_owned())
+fn pubspec_name(pubspec: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(pubspec).ok()?;
+    text.lines().find_map(|l| {
+        let rest = l.strip_prefix("name:")?;
+        let name = rest.split('#').next()?.trim().trim_matches(['"', '\'']);
+        (!name.is_empty()).then(|| name.to_owned())
     })
 }

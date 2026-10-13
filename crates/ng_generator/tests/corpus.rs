@@ -10,9 +10,9 @@
 use dartforge_elements::config::PackageConfig;
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_ng_generator::resolucao::Resolvedor;
-use dartforge_ng_generator::{Pacote, Placar, caminho_do_template, gerar_em};
 use dartforge_intern::Interner;
+use dartforge_ng_generator::resolucao::Resolvedor;
+use dartforge_ng_generator::{Pacote, Scoreboard, caminho_do_template, generate_in};
 use std::path::{Path, PathBuf};
 
 /// The names under `dependencies:` in the corpus `pubspec.yaml` (the
@@ -121,8 +121,8 @@ fn what_we_generate_equals_the_official_output() {
     let resolver = Resolvedor::novo(&program, &names);
     let mut interner = Interner::new();
     let mut c = dartforge_elements::gerado::Construtor::nova();
-    let mut scoreboard = Placar::default();
-    gerar_em(
+    let mut scoreboard = Scoreboard::default();
+    generate_in(
         &package,
         &[root.join("lib")],
         &mut interner,
@@ -174,7 +174,7 @@ fn what_we_generate_equals_the_official_output() {
         scoreboard.pendentes.len()
     );
     for (p, c) in scoreboard.pendentes.iter().zip(&scoreboard.conjuntos) {
-        let refusals: Vec<String> = c.iter().map(|r| r.texto()).collect();
+        let refusals: Vec<String> = c.iter().map(|r| r.text()).collect();
         println!(
             "  pending {}: {}",
             p.file_name().unwrap_or_default().to_string_lossy(),
@@ -193,7 +193,7 @@ fn what_we_generate_equals_the_official_output() {
             panic!("{file} should be refused ({shape}) and was generated");
         };
         assert!(
-            set.iter().any(|r| r.forma == *shape),
+            set.iter().any(|r| r.shape == *shape),
             "{file} refused for another reason: {set:?}"
         );
     }

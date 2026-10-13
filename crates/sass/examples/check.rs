@@ -10,7 +10,7 @@
 //! writes `i.expanded.css`, `i.expanded.css.map`, `i.compressed.css`,
 //! `i.compressed.css.map` (the `.css` as `sass_builder` writes it, with the
 //! `sourceMappingURL` comment), or `i.<style>.err` when dart-sass refuses.
-use dartforge_sass::sass_builder::{compilar, Ativo, Disco, Pacotes};
+use dartforge_sass::sass_builder::{compile, Asset, Disk, Packages};
 use dartforge_sass::{OutputStyle, VersaoDartSass};
 
 /// The imitated version: `SASS_VERSION` (`1.66.0` or `1.102.0`, the
@@ -40,19 +40,19 @@ fn main() {
         }
         let (file, root, name, cfg) = (Path::new(c[0]), Path::new(c[1]), c[2], c[3]);
         let mut packages = if cfg == "-" {
-            Pacotes::new()
+            Packages::new()
         } else {
-            Pacotes::de_package_config(Path::new(cfg)).expect("cfg")
+            Packages::from_package_config(Path::new(cfg)).expect("cfg")
         };
-        packages.inserir(name, root);
+        packages.insert(name, root);
         let path = file
             .strip_prefix(root)
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        let input = Ativo {
-            pacote: name.into(),
-            caminho: path,
+        let input = Asset {
+            package: name.into(),
+            path,
         };
         let source = std::fs::read_to_string(file).unwrap_or_default();
         for (style, en) in [
@@ -74,7 +74,7 @@ fn main() {
                     .stack_size(256 << 20)
                     .spawn(move || {
                         let r = std::panic::catch_unwind(|| {
-                            compilar(&source, &input, &packages, &Disco, style, true, version())
+                            compile(&source, &input, &packages, &Disk, style, true, version())
                         })
                         .map(|r| r.map_err(|e| e.to_string()));
                         let _ = tx.send(r);
@@ -93,11 +93,11 @@ fn main() {
                 (Ok(Ok(c)), Some(e)) => {
                     // The source map trailer goes in even before the map exists.
                     let mut with_map = c.clone();
-                    with_map.mapa.get_or_insert_with(String::new);
-                    let ours = with_map.arquivo_css(&input);
+                    with_map.map.get_or_insert_with(String::new);
+                    let ours = with_map.css_file(&input);
                     let same = ours == e;
                     css_ok += same as usize;
-                    let same_map = c.mapa.as_deref() == expected_map.as_deref();
+                    let same_map = c.map.as_deref() == expected_map.as_deref();
                     map_ok += same_map as usize;
                     if !same || !same_map {
                         bad.push(format!(
@@ -110,7 +110,7 @@ fn main() {
                             let _ = std::fs::write(d.join(format!("{i}.{en}.official.css")), &e);
                             let _ = std::fs::write(
                                 d.join(format!("{i}.{en}.ours.map")),
-                                c.mapa.unwrap_or_default(),
+                                c.map.unwrap_or_default(),
                             );
                             let _ = std::fs::write(
                                 d.join(format!("{i}.{en}.official.map")),
@@ -128,9 +128,7 @@ fn main() {
                     "{label}: our ERROR: {}",
                     e.lines().next().unwrap_or("")
                 )),
-                (Ok(Ok(_)), None) => {
-                    bad.push(format!("{label}: official rejects, ours compiles"))
-                }
+                (Ok(Ok(_)), None) => bad.push(format!("{label}: official rejects, ours compiles")),
                 (Err(_), _) => bad.push(format!("{label}: PANIC")),
             }
         }
@@ -138,7 +136,5 @@ fn main() {
     for r in &bad {
         println!("{r}");
     }
-    println!(
-        "total {total}: css equal {css_ok}, maps equal {map_ok} (errors in both: {err_ok})"
-    );
+    println!("total {total}: css equal {css_ok}, maps equal {map_ok} (errors in both: {err_ok})");
 }

@@ -58,7 +58,7 @@ pub struct BinaryOpExpr {
 pub enum IfCondition {
     Paren(Box<IfCondition>),
     Not(Box<IfCondition>),
-    /// Grupos ligados por `and` (`true`) ou `or` (`false`).
+    /// Groups joined by `and` (`true`) or `or` (`false`).
     Op(Vec<IfCondition>, bool),
     Function {
         name: Interpolation,

@@ -1,4 +1,4 @@
-//! Native Sass (`sass::compilar_com`) against the real `sass_builder` 2.2.1,
+//! Native Sass (`sass::compile_with`) against the real `sass_builder` 2.2.1,
 //! shape by shape and in both styles (`tests/sass_formas`, oracle recorded by
 //! `scripts/sass-formas.sh` with the dart-sass 1.102.0 of the lock).
 //!
@@ -6,7 +6,7 @@
 //! **exactly** the bytes the builder wrote. A shape that the official one
 //! rejects (`.erro`) must be refused. No refusal where the official one
 //! compiles, and no approximate output.
-use dartforge_ng_generator::sass::{Estilo, compilar_com};
+use dartforge_ng_generator::sass::{Estilo, compile_with};
 use std::path::Path;
 
 #[test]
@@ -36,7 +36,7 @@ fn sass_shapes_equal_to_sass_builder() {
             let text = std::fs::read_to_string(f).unwrap();
             let expected =
                 std::fs::read(base.join("esperado").join(format!("{shape}.{name}.css"))).ok();
-            match (compilar_com(&text, Some(&sources), style), expected) {
+            match (compile_with(&text, Some(&sources), style), expected) {
                 (Ok((css, _)), Some(e)) if css.as_bytes() == e.as_slice() => equal += 1,
                 (Ok((css, _)), Some(e)) => different.push(format!(
                     "{shape} ({name}): native {css:?} ≠ official {:?}",

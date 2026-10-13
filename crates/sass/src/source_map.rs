@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use codemap::{CodeMap, Span};
 
-use crate::sass_builder::{map_source, Ativo};
+use crate::sass_builder::{map_source, Asset};
 
 /// A point of the map: source (URL, line, column) → target (line, column,
 /// offset). Lines and columns start at 0; columns count UTF-16 units. The
@@ -253,7 +253,7 @@ impl SourceMap {
     }
 
     /// The JSON of the `.css.map` that `sass_builder` writes.
-    pub fn json_sass_builder(&self, input: &Ativo) -> String {
+    pub fn json_sass_builder(&self, input: &Asset) -> String {
         self.json(|u| map_source(u, input))
     }
 }
