@@ -283,6 +283,24 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "extension type A.new(int it) {\n  A(this.it);\n}\n",
         &[("duplicate_constructor", 2, 3, 1)],
     ),
+    // A synthetic identifier is not an undefined name, so it does not
+    // suppress the import warnings (2026-10-13).
+    (
+        "await_sintetico.dart",
+        "import 'dart:async';\nget await => 4;\ntest1() async {\n  var y = await;\n}\n",
+        &[("unused_import", 1, 8, 12), ("unused_local_variable", 4, 7, 1), ("missing_identifier", 4, 16, 1)],
+    ),
+    // A reserved word as a local variable's name (2026-10-13).
+    (
+        "palavra_reservada_local.dart",
+        "main() {\n  var enum;\n  var super;\n}\n",
+        &[
+            ("expected_identifier_but_got_keyword", 2, 7, 4),
+            ("unused_local_variable", 2, 7, 4),
+            ("expected_identifier_but_got_keyword", 3, 7, 5),
+            ("unused_local_variable", 3, 7, 5),
+        ],
+    ),
 ];
 
 #[test]

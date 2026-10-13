@@ -426,6 +426,11 @@ pub(crate) fn warn_undefined_prefixed_name(inf: &mut BodyInferrer<'_>, cx: &Body
 /// function body, the ignored name of an import that does not exist, or an
 /// undefined name.
 fn undefined_read_name(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name, lexical: Lexical) {
+    // `if (node.isSynthetic) return null;` (`_resolve1`): the parser already
+    // reported the missing identifier.
+    if is_synthetic_name(inf, n) {
+        return;
+    }
     if lexical != Lexical::StandaloneSetter
         && let Some(this) = analyzer_this_type(inf, cx)
     {
@@ -477,6 +482,12 @@ pub(crate) fn join_reference(inf: &mut BodyInferrer<'_>, cx: &Body, id: LocalId,
         let the_name = inf.interner.resolve(n.sym).to_string();
         inf.warning_with_code(code, n.span, &[&the_name]);
     }
+}
+
+/// The empty name the parser's recovery inserts in place of a missing
+/// identifier (a synthetic token in the analyzer).
+fn is_synthetic_name(inf: &BodyInferrer<'_>, n: ast::Name) -> bool {
+    n.span.start == n.span.end && inf.interner.resolve(n.sym).is_empty()
 }
 
 /// The end of [`undefined_read_name`]: `await` in a function body, an
@@ -4288,6 +4299,9 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
 /// final, to a method…); otherwise, undefined name, without the exception for
 /// imports that do not exist, which the write does not consult.
 fn undefined_written_name(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name) {
+    if is_synthetic_name(inf, n) {
+        return;
+    }
     if let Some(this) = analyzer_this_type(inf, cx) {
         match lookup_through_this(inf, cx, this, n.sym, true) {
             ThroughThis::Instance => {
