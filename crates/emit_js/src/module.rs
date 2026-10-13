@@ -1111,7 +1111,7 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
 /// the names a JS function owns or guards (`length`, `caller`…), which an
 /// assignment on a class cannot shadow.
 pub(crate) fn eager_literal(ctx: &Ctx, init: &str, name: &str) -> Option<String> {
-    if ctx.filter.is_none() || matches!(name, "length" | "name" | "prototype" | "caller" | "arguments") {
+    if !ctx.production() || matches!(name, "length" | "name" | "prototype" | "caller" | "arguments") {
         return None;
     }
     let lit = init.strip_prefix("return ")?.strip_suffix(';')?;
@@ -1830,7 +1830,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // type arguments is the rti itself, not a `_ti => rti` function
     // (`rtiFromSignature` and the other readers of the runtime only call the
     // entry when it is a function); the whole object is already built lazily.
-    let sig_value = |code: String| if ctx.filter.is_some() && !code.contains("_ti") { code } else { format!("_ti => {code}") };
+    let sig_value = |code: String| if ctx.production() && !code.contains("_ti") { code } else { format!("_ti => {code}") };
     if !method_sigs.is_empty() {
         let mut items: Vec<String> = Vec::new();
         for (n, t) in method_sigs.iter() {
@@ -1888,7 +1888,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 };
                 let ty = if f.late { f.ty.with_nullable(true) } else { f.ty.clone() };
                 let final_ = f.final_ && !f.late;
-                if ctx.filter.is_some() {
+                if ctx.production() {
                     // Production profile: `isConst` is only read by the
                     // debugger, and a missing `isFinal` reads as `false`.
                     let fin = if final_ { ", isFinal: true" } else { "" };
@@ -2310,7 +2310,7 @@ impl NullInits {
 }
 
 fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], skip: &HashSet<String>, body: &mut Writer) {
-    let mut nulls = NullInits { production: ctx.filter.is_some(), ..NullInits::default() };
+    let mut nulls = NullInits { production: ctx.production(), ..NullInits::default() };
     for f in fields {
         if skip.contains(&f.name) || f.helper {
             continue;
@@ -2364,7 +2364,7 @@ fn is_primary_constructor(ctx: &Ctx, c: ClassId, ctor: &ast::Constructor) -> boo
 /// Field initializers emitted by the constructor's own emitter (primary
 /// constructor): its parameters are in scope.
 fn emit_field_inits_in_constructor(e: &mut FnEmitter, fields: &[FieldInfo], skip: &HashSet<String>, body: &mut Writer) {
-    let mut nulls = NullInits { production: e.ctx.filter.is_some(), ..NullInits::default() };
+    let mut nulls = NullInits { production: e.ctx.production(), ..NullInits::default() };
     for f in fields {
         if skip.contains(&f.name) || f.helper {
             continue;

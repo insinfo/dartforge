@@ -547,6 +547,12 @@ impl<'a> Ctx<'a> {
     }
 
     /// State of the function; without a filter, `Live`.
+    /// The production profile's emission choices that are not pruning
+    /// ([`crate::filter::Liveness::production`]).
+    pub fn production(&self) -> bool {
+        self.filter.is_some_and(|f| f.production())
+    }
+
     pub fn fn_state(&self, f: FunctionElementId) -> crate::filter::State {
         self.filter.map_or(crate::filter::State::Live, |x| x.function(f))
     }

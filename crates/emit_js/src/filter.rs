@@ -76,6 +76,13 @@ pub trait Liveness {
     fn omit_implicit_checks(&self) -> bool {
         false
     }
+    /// Whether the emission makes the production profile's choices that are
+    /// not pruning (eager static literals, short signatures, chained `null`
+    /// initializations). [`AllLive`] says no: with it the text is the one
+    /// without a filter.
+    fn production(&self) -> bool {
+        true
+    }
 }
 
 /// Everything live: must emit exactly what the unfiltered path emits.
@@ -93,6 +100,9 @@ impl Liveness for AllLive {
     }
     fn selector(&self, _: &str) -> bool {
         true
+    }
+    fn production(&self) -> bool {
+        false
     }
     fn write_selector(&self, _: &str) -> bool {
         true
