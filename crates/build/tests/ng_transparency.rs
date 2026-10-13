@@ -298,17 +298,17 @@ fn ng_dart_edit_in_each_file_equals_from_scratch() {
     );
 }
 
-/// Dependent package (B03): `corpus/ngdart_dependente`, an application that
+/// Dependent package (B03): `corpus/ngdart_dependent`, an application that
 /// uses the component of a `path` dependency. The `.template.dart` files of
 /// both packages come out of the native generator equal to the
 /// `build_runner` oracle, and edits in the dependency and in the application
 /// give the state of a from-scratch engine.
 ///
-/// Requires `dart pub get` in `corpus/ngdart_dependente/app`.
+/// Requires `dart pub get` in `corpus/ngdart_dependent/app`.
 #[test]
-#[ignore = "requires `dart pub get` in corpus/ngdart_dependente/app"]
+#[ignore = "requires `dart pub get` in corpus/ngdart_dependent/app"]
 fn ng_dependency_through_the_engine_equals_oracle() {
-    let origin = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/ngdart_dependente");
+    let origin = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/ngdart_dependent");
     let tmp = tempfile::tempdir().unwrap();
     // The generation keys start from the canonical roots of `package_config`
     // (on Windows, the long name: the runner's temporary directory comes as

@@ -258,7 +258,7 @@ jobs:
         if: success() || failure()
         shell: pwsh
         run: |
-          $cases = @(Get-ChildItem corpus/builders, corpus/macros -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') }) + @(Get-Item corpus/ngdart, corpus/ngdart_dependente/app)
+          $cases = @(Get-ChildItem corpus/builders, corpus/macros -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') }) + @(Get-Item corpus/ngdart, corpus/ngdart_dependent/app)
           foreach ($c in $cases) {
             Push-Location $c.FullName
             dart pub get --enforce-lockfile | Out-Null

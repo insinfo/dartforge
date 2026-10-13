@@ -138,7 +138,7 @@ como o `limitless_ui` do `example`, e os `hosted` ngdart/ngcompiler, cujos
 consultas `FonteBiblioteca` de uma rodada ficam só nas bibliotecas que as do
 pacote alcançam por `import`/`export`: editar a aplicação não acorda a rodada
 de uma dependência. Conferido contra o `build_runner` oficial
-(`corpus/ngdart_dependente`, oráculo por `scripts/corpus-ngdart-dependent.sh`):
+(`corpus/ngdart_dependent`, oráculo por `scripts/corpus-ngdart-dependent.sh`):
 os 5 `.template.dart` da aplicação e da dependência iguais, e incremental = do
 zero depois de editar o HTML e um `@Input` da dependência e o `.dart` da
 aplicação (`ng_dependencia_pelo_motor_igual_ao_oraculo`). Na mesma rodada de

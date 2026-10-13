@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenera o oráculo de corpus/ngdart_dependente: o `build_runner` oficial
+# Regenera o oráculo de corpus/ngdart_dependent: o `build_runner` oficial
 # (ngdart 8.0.0-dev.4 com `build_web_compilers`, que pede as saídas opcionais
 # do ngdart) numa cópia do caso, e os `.template.dart` dos dois pacotes
 # (`app_ng` e a dependência `path` `dep_ng`) copiados de
@@ -9,7 +9,7 @@
 set -euo pipefail
 dart=${1:-dart}
 raiz=$(cd "$(dirname "$0")/.." && pwd)
-caso=$raiz/corpus/ngdart_dependente
+caso=$raiz/corpus/ngdart_dependent
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 cp -r "$caso/app" "$caso/dep" "$tmp/"
