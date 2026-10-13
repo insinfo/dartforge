@@ -331,9 +331,81 @@ fn forward_identical(js: &str, found: &mut Found) {
     }
 }
 
+/// The program's `addRules` calls (from `program_start` on) become one, in
+/// the place of the last: each library registered its classes' rules in its
+/// own `JSON.parse`, repeating the rules of the classes they share (the
+/// ngdart views and directives) and compressing apart. `addRules` is an
+/// `Object.assign` into the universe's rules, so one call with the later
+/// value of each key leaves the same rules once the libraries have loaded.
+/// Loading a library defines classes and lazy members and checks no type
+/// (the rules are first read when `main` runs). A key that an
+/// `addOrUpdateRules` of the program also touches keeps the order of every
+/// call: nothing is merged then. `DARTFORGE_JSPROD_MERGE_RULES=0` turns it
+/// off.
+pub fn merge_program_rules(js: &str, program_start: usize) -> String {
+    const PREFIX: &str = "dart_rti.";
+    let mut calls: Vec<(usize, usize, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+    let mut updated: HashSet<String> = HashSet::new();
+    for (k, c) in CALLS.iter().enumerate() {
+        for (p, _) in js[program_start..].match_indices(c) {
+            let p = program_start + p;
+            let Some((end, content)) = js_string(js, p + c.len()) else { return js.to_string() };
+            let Ok(serde_json::Value::Object(o)) = serde_json::from_str::<serde_json::Value>(&content) else { return js.to_string() };
+            if k == 1 {
+                updated.extend(o.keys().cloned());
+                continue;
+            }
+            // The whole statement: `dart_rti._Universe.addRules(…, JSON.parse("…"));`.
+            if !js[..p].ends_with(PREFIX) || !js[end..].starts_with("));") {
+                return js.to_string();
+            }
+            calls.push((p - PREFIX.len(), end + 3, o));
+        }
+    }
+    if calls.len() < 2 || calls.iter().any(|(_, _, o)| o.keys().any(|k| updated.contains(k))) {
+        return js.to_string();
+    }
+    calls.sort_by_key(|c| c.0);
+    let mut merged = serde_json::Map::new();
+    for (_, _, o) in &calls {
+        for (k, v) in o {
+            merged.insert(k.clone(), v.clone());
+        }
+    }
+    let json = serde_json::to_string(&serde_json::Value::Object(merged)).unwrap_or_default();
+    let last = calls.len() - 1;
+    let mut out = String::with_capacity(js.len());
+    let mut pos = 0;
+    for (i, (start, end, _)) in calls.iter().enumerate() {
+        out.push_str(&js[pos..*start]);
+        if i == last {
+            out.push_str(&format!("{PREFIX}{}{}));", CALLS[0], dartforge_emit_js::js::string_literal(&json)));
+        }
+        pos = *end;
+    }
+    out.push_str(&js[pos..]);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn program_rules_merge_into_the_last_call() {
+        let js = format!(
+            "{}SDK_END\n{}f();\n{}",
+            rules(r#"{"|S":{"|x":[]}}"#),
+            rules(r#"{"|A":{"|x":[]},"|B":{"|y":[]}}"#),
+            rules(r#"{"|B":{"|y":[]},"|C":"|A"}"#)
+        );
+        let start = js.find("SDK_END").unwrap();
+        let out = merge_program_rules(&js, start);
+        assert_eq!(out.matches("addRules").count(), 2, "{out}");
+        assert!(out.contains(r#"{\"|A\":{\"|x\":[]},\"|B\":{\"|y\":[]},\"|C\":\"|A\"}"#), "{out}");
+        assert!(out.find("f();").unwrap() < out.rfind("addRules").unwrap(), "{out}");
+        assert!(out.trim_end().ends_with("\"));"), "{out}");
+    }
 
     fn rules(json: &str) -> String {
         format!("dart_rti._Universe.addRules(dart.typeUniverse, JSON.parse({}));\n", dartforge_emit_js::js::string_literal(json))

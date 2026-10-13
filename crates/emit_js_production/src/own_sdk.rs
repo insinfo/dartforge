@@ -526,6 +526,13 @@ pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::propertie
     // rti rules only for the supertypes that some recipe cites
     // (`rti_rules.rs`); `DARTFORGE_JSPROD_RULES=0` turns it off.
     let js = if std::env::var("DARTFORGE_JSPROD_RULES").map_or(true, |v| v != "0") { crate::rti_rules::prune(&js) } else { js };
+    // The program's rules in one call (`rti_rules::merge_program_rules`):
+    // the program starts at the `NodeList` bridge that `bundle::assemble`
+    // writes right after the SDK.
+    let js = match js.find("if (typeof NodeList !== 'undefined'") {
+        Some(start) if std::env::var("DARTFORGE_JSPROD_MERGE_RULES").map_or(true, |v| v != "0") => crate::rti_rules::merge_program_rules(&js, start),
+        _ => js,
+    };
     // After pruning the rules: the table is not a citation.
     let js = match rti {
         Some(r) if std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0") => name_table(&js, r),
