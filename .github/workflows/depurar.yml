@@ -5,7 +5,7 @@
 #
 #   gh workflow run depurar.yml --ref main -f so=macos-latest \
 #     -f programa=corpus/native/33_mensagens_de_controle.dart \
-#     -f ambiente="DARTFORGE_IO_RASTRO=1"
+#     -f ambiente="DARTFORGE_IO_TRACE=1"
 name: depurar
 
 on:
@@ -42,7 +42,7 @@ jobs:
       CARGO_PROFILE_RELEASE_LTO: 'false'
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
       MACOSX_DEPLOYMENT_TARGET: '11.0'
-      DARTFORGE_SDK_DA_FONTE: '1'
+      DARTFORGE_SDK_FROM_SOURCE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/dart

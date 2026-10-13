@@ -10,9 +10,9 @@ alvo; aqui fica só o que o código faz hoje.
 `--memoria tracing|arc` (ou `--memoria=`) em `aot`, `compile-native`, `run`
 e `reload`. Em `run`, a opção deve preceder o arquivo; argumentos depois
 dele pertencem ao programa. Cada comando parte de tracing e somente a
-opção explícita seleciona ARC, mesmo com `DARTFORGE_MEMORIA=arc` herdado.
+opção explícita seleciona ARC, mesmo com `DARTFORGE_MEMORY=arc` herdado.
 A recarga com reinício transporta a seleção para o processo filho. A
-opção define `DARTFORGE_MEMORIA`, lida uma vez por `alvo::memoria_arc` e
+opção define `DARTFORGE_MEMORY`, lida uma vez por `alvo::memoria_arc` e
 transportada em `Module::memoria_arc` (programa e SDK). O padrão continua
 `tracing`.
 
@@ -35,7 +35,7 @@ símbolo versionado faz a ligação com um runtime sem a ABI falhar (§24).
 
 O runtime é um só para os dois modos. O ARC liga por isolado, em tempo de
 execução. Esta seção registra o primeiro desenho, ainda selecionável com
-`DARTFORGE_ARC_BERCARIO=1`. O padrão atual é o ARC puro da §6.
+`DARTFORGE_ARC_NURSERY=1`. O padrão atual é o ARC puro da §6.
 
 | Parte | Como funciona hoje | Arquivo |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ execução. Esta seção registra o primeiro desenho, ainda selecionável com
 | Código gerado | No ARC, `SetField`, o `dartforge_object_set` especializado, `CellSet` e os ajudantes de lista (`@df.list_write_ref`, `@df.list_write_data`) não gravam em linha: chamam o runtime, que conta e aplica a barreira (§18.1, decisão 6). A alocação continua em linha (o objeto nasce jovem). | `llvm/mod.rs`, `llvm/listas_ir.rs`, `llvm/caixas_ir.rs` |
 | Raízes | **Adiadas**: a pilha-sombra (ou os mapas), os quadros do runtime, os globais, os literais e as demais raízes de `Heap::raizes` não contam. Elas protegem os zeros que veem na sincronização: o zero protegido fica na fila (a tabela de contagem zero). | `heap.rs`, `arc.rs` (`drenar_zeros`) |
 | Morte | Só na sincronização (fim da coleta menor), nunca dentro de uma gravação: o runtime mantém o contrato de raízes do rastreamento. O descarte rompe as arestas e solta os destinos fora do conjunto (§19.4). | `arc.rs` (`descartar`) |
-| Ciclos | Na completa, o ponto fixo global (§22.3): `L` é o alcance pelas raízes reais com a regra condicional dos efêmeros, e todo registrado vivo fora de `L` morre num lote só, inclusive o de RC positivo só por ciclos. A *trial deletion* lateral sem tocar o RC real (§22.1) fica para `DARTFORGE_ARC_CICLOS=sempre`, em toda sincronização e repetida a cada volta com morte nova. Candidatos: quem desceu a um RC positivo, quem desceu a zero e voltou a subir antes da drenagem (o autociclo `x[i] = x` depois de soltar a última ocorrência de fora) e quem uma raiz vê. As raízes não geram decremento ao sumir, então o sobrevivente protegido só por elas volta a ser candidato. | `heap.rs` (`ponto_fixo_arc`), `arc.rs` (`coletar_ciclos`, `candidatar`, `drenar_zeros`) |
+| Ciclos | Na completa, o ponto fixo global (§22.3): `L` é o alcance pelas raízes reais com a regra condicional dos efêmeros, e todo registrado vivo fora de `L` morre num lote só, inclusive o de RC positivo só por ciclos. A *trial deletion* lateral sem tocar o RC real (§22.1) fica para `DARTFORGE_ARC_CYCLES=sempre`, em toda sincronização e repetida a cada volta com morte nova. Candidatos: quem desceu a um RC positivo, quem desceu a zero e voltou a subir antes da drenagem (o autociclo `x[i] = x` depois de soltar a última ocorrência de fora) e quem uma raiz vê. As raízes não geram decremento ao sumir, então o sobrevivente protegido só por elas volta a ser candidato. | `heap.rs` (`ponto_fixo_arc`), `arc.rs` (`coletar_ciclos`, `candidatar`, `drenar_zeros`) |
 | Efêmeros | Entre as completas, cada entrada contada é uma ocorrência do valor atribuída à chave no grafo: segura o valor enquanto a chave vive, mesmo com o portador já inalcançável (retenção, nunca morte antes da hora). A morte da chave rompe a entrada; a do portador a solta. No ponto fixo o portador conta: a entrada de portador fora de `L` sai da contagem antes do lote (sem isso, o ciclo valor→portador ficava vivo pela chave). | `heap.rs` (`EfemerosDoArc`, `ponto_fixo_arc`) |
 | Fracas e finalizadores | As tabelas laterais esquecem os mortos na sincronização (fracas zeradas, anexos e finalizáveis disparados), em laço até não haver morte nova. | `heap.rs` (`sincronizar_arc`) |
 | Reclamação | Na completa: as marcas passam a ser os vivos do RC (não a marcação por rastreamento) e a varredura completa devolve os blocos dos mortos (§19.4). Até lá o morto fica com as arestas zeradas e sem metadados. | `heap.rs` (`reclamar_arc`) |
@@ -74,10 +74,10 @@ zeros pelas raízes vira só auditoria.
 
 | Variável | Efeito |
 | --- | --- |
-| `DARTFORGE_ARC_CONFERIR=1` | depois de cada sincronização, nenhum objeto alcançável das raízes sem RC vivo (com o pai, a posição e os metadados no pânico) e o RC de cada vivo igual às ocorrências recontadas (§20.3, modo auditor) |
-| `DARTFORGE_ARC_CICLOS=sempre` ou `nunca` | a *trial deletion* em toda sincronização (além do ponto fixo da completa), ou nem ela nem o ponto fixo |
-| `DARTFORGE_ARC_TRACO=1` | uma linha por evento: sincronização (promovidos, lembrados, fotos), registro, retain, release, morte |
-| `DARTFORGE_GC_RASTRO=1` | a linha `[arc]` de cada sincronização: promovidos, contados, retains, releases, mortos pelo RC e por ciclo, rodadas, examinados, candidatos |
+| `DARTFORGE_ARC_CHECK=1` | depois de cada sincronização, nenhum objeto alcançável das raízes sem RC vivo (com o pai, a posição e os metadados no pânico) e o RC de cada vivo igual às ocorrências recontadas (§20.3, modo auditor) |
+| `DARTFORGE_ARC_CYCLES=sempre` ou `nunca` | a *trial deletion* em toda sincronização (além do ponto fixo da completa), ou nem ela nem o ponto fixo |
+| `DARTFORGE_ARC_TRACE=1` | uma linha por evento: sincronização (promovidos, lembrados, fotos), registro, retain, release, morte |
+| `DARTFORGE_GC_TRACE=1` | a linha `[arc]` de cada sincronização: promovidos, contados, retains, releases, mortos pelo RC e por ciclo, rodadas, examinados, candidatos |
 
 Uma violação do contador (release com RC zero, retain de morto, trial
 negativo, auditoria divergente) é pânico `bug do ARC`, nunca erro Dart
@@ -103,16 +103,16 @@ negativo, auditoria divergente) é pânico `bug do ARC`, nunca erro Dart
   primeira rodada achou dois furos, corrigidos: o zero que volta a subir não
   virava candidato (o autociclo vazava), e o ciclo valor→portador de um
   efêmero ficava vivo pela chave.
-* O corpus nativo com `DARTFORGE_MEMORIA=arc` pelo `dartforge-differential`
+* O corpus nativo com `DARTFORGE_MEMORY=arc` pelo `dartforge-differential`
   (2026-10-08, Windows x86-64, 238 programas):
 
   | Rodada | Resultado |
   | --- | --- |
-  | `--nativo`, `DARTFORGE_ARC_CONFERIR=1` | 238/238 |
-  | `--nativo`, `DARTFORGE_ARC_CICLOS=sempre`, `DARTFORGE_ARC_CONFERIR=1` | 238/238 |
+  | `--nativo`, `DARTFORGE_ARC_CHECK=1` | 238/238 |
+  | `--nativo`, `DARTFORGE_ARC_CYCLES=sempre`, `DARTFORGE_ARC_CHECK=1` | 238/238 |
   | `--nativo --gc-stress` | 238/238 |
-  | `--jit-aot`, `DARTFORGE_ARC_CONFERIR=1` | 238/238, JIT × AOT sem divergência |
-  | Depois do ponto fixo (2026-10-08): `--nativo` com auditoria, `--gc-stress`, `DARTFORGE_ARC_CICLOS=sempre` com auditoria | 238/238 nos três |
+  | `--jit-aot`, `DARTFORGE_ARC_CHECK=1` | 238/238, JIT × AOT sem divergência |
+  | Depois do ponto fixo (2026-10-08): `--nativo` com auditoria, `--gc-stress`, `DARTFORGE_ARC_CYCLES=sempre` com auditoria | 238/238 nos três |
 
   O job `nativo-arc` do `pesado.yml` roda o corpus com a auditoria e com o
   `--gc-stress`.
@@ -133,11 +133,11 @@ o padrão do modo `arc`, ninguém percorre o heap para decidir vida:
 | Ciclos | Na completa, o ponto fixo da §22.3 quando há efêmeros; senão a *trial deletion* até não haver morte nova. Candidatos: quem desceu a RC positivo, o zero que voltou a subir, o jovem que sobreviveu à drenagem e quem uma raiz vê. | `heap.rs`, `arc.rs` |
 | Memória | O jovem morto sai pela varredura dos jovens (sem marca); o morto pelo RC volta à faixa livre da classe um a um (`EspacoDeObjetos::soltar_morto`, com o bit de marca apagado), sem varrer páginas. | `espaco.rs` |
 
-`DARTFORGE_ARC_BERCARIO=1` volta ao desenho da §2 (para comparar).
+`DARTFORGE_ARC_NURSERY=1` volta ao desenho da §2 (para comparar).
 
 Validação (Windows x86-64): os grafos aleatórios da §4 nos três modos (3000
 sementes cada); o corpus nativo com a auditoria (238/238), com
-`--gc-stress` (238/238), com `DARTFORGE_ARC_CICLOS=sempre` e a auditoria
+`--gc-stress` (238/238), com `DARTFORGE_ARC_CYCLES=sempre` e a auditoria
 (238/238) e no JIT × AOT (238/238 idênticos); `dart:io` 127/130 (as duas
 do ambiente desta máquina, `02` e `03`, e o `91`, que estoura os 5 s com
 quatro tarefas em paralelo). O `--gc-stress` achou o caminho que faltava: o
@@ -157,7 +157,7 @@ ordem de ganho esperado:
    raízes da drenagem.
 
 **Otimizações feitas (2026-10-08, à noite)**, escolhidas pelo tempo por fase da
-drenagem que o rastro passou a mostrar (`DARTFORGE_GC_RASTRO=1`: `fases=`
+drenagem que o rastro passou a mostrar (`DARTFORGE_GC_TRACE=1`: `fases=`
 raízes/fotos/jovens das raízes/efêmeros/decisão dos jovens/soltura dos jovens
 mortos/raízes candidatas/zeros e ciclos/memória, e `laco=` zeros/ciclos/ponto
 fixo/tabelas, em µs; `zeros_vistos=` e `adiados=` contam a fila de zeros):
@@ -348,7 +348,7 @@ da ABI, com coleta forçada, cobrem aliases repetidos num record e concatenaçã
 de formas int/double, valores encaixotados e liberação das entradas e da
 cadeia de saída. Suítes debug/release: 113 aprovados, três microbenchmarks ignorados.
 Os três testes ABI de owners (I/O, record e concatenação) também passaram
-com `DARTFORGE_ARC_CONFERIR=1`, auditando RC nas coletas.
+com `DARTFORGE_ARC_CHECK=1`, auditando RC nas coletas.
 O corpus remoto atual ainda não contém estas migrações.
 
 O quadro dos nós em `materializar` (mensagens entre isolados) agora conta
@@ -357,7 +357,7 @@ O retorno não introduz safepoint depois de fechar o quadro. Teste dirigido
 monta dois nós cíclicos com duas referências ao mesmo filho, coleta durante
 a construção e verifica preservação e morte do ciclo depois da última raiz.
 Passou com auditoria RC no modo puro; os quatro testes ABI de owners também
-passaram com `DARTFORGE_ARC_CONFERIR=1` e `DARTFORGE_ARC_BERCARIO=1`.
+passaram com `DARTFORGE_ARC_CHECK=1` e `DARTFORGE_ARC_NURSERY=1`.
 Isso cobre os nós temporários; os owners da fila de mensagens e sua
 transferência ao despacho continuam pendentes (§21.3/§23.2).
 Suíte release completa: 114 aprovados, três microbenchmarks ignorados.

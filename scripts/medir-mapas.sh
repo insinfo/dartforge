@@ -11,7 +11,7 @@
 #
 # A0 em produção vai pela LTO completa do ligador e B0 pelo ThinLTO
 # distribuído; com `DISTRIBUIDA=1`, A0 também vai pelo distribuído
-# (`DARTFORGE_LTO_DISTRIBUIDA=1`), e a diferença fica só no modo de raízes.
+# (`DARTFORGE_LTO_DISTRIBUTED=1`), e a diferença fica só no modo de raízes.
 #
 # Uso: [DISTRIBUIDA=1] scripts/medir-mapas.sh <dir de saída> [llvm-objdump]
 set -eu
@@ -27,9 +27,9 @@ for f in "$raiz"/bench/performance/*.dart; do
     dev="$saida/$nome-$modo-dev.exe"
     exe="$saida/$nome-$modo.exe"
     ini=$(date +%s.%N)
-    DARTFORGE_CACHE_OBJ=0 DARTFORGE_RAIZES=$modo "$raiz/target/release/dartforge" compile-native "$f" -o "$dev" >/dev/null
+    DARTFORGE_CACHE_OBJ=0 DARTFORGE_ROOTS=$modo "$raiz/target/release/dartforge" compile-native "$f" -o "$dev" >/dev/null
     fim=$(date +%s.%N)
-    DARTFORGE_LTO_DISTRIBUIDA=${DISTRIBUIDA:-0} DARTFORGE_RAIZES=$modo "$raiz/target/release/dartforge" aot "$f" "$exe" --optimize >/dev/null
+    DARTFORGE_LTO_DISTRIBUTED=${DISTRIBUIDA:-0} DARTFORGE_ROOTS=$modo "$raiz/target/release/dartforge" aot "$f" "$exe" --optimize >/dev/null
     secoes=$("$objdump" -h "$exe" | awk 'NR>4 {printf "%s=%d ", $2, strtonum("0x"$3)}')
     pega() { v=$(echo "$secoes" | tr ' ' '\n' | grep "^$1=" | cut -d= -f2 | head -1); echo "${v:-0}"; }
     printf '%s\t%s\t%.1f\t%s\t%s\t%s\t%s\t%s\n' "$nome" "$modo" "$(awk -v a="$ini" -v b="$fim" 'BEGIN{print b-a}')" "$(stat -c %s "$exe")" "$(pega .text)" "$(pega .rdata)" "$(pega .pdata)" "$(pega .dfgcm)"

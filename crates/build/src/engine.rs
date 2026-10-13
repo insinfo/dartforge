@@ -46,7 +46,7 @@ pub struct EngineOptions {
     /// Reads and writes the state across processes in
     /// `.dart_tool/dartforge/build/estado` (§4.1). Off by default: only when
     /// the user asks for it (`dartforge build --estado`,
-    /// `DARTFORGE_BUILD_ESTADO=1`), per governing rule 6 of `PLANO.md`.
+    /// `DARTFORGE_BUILD_STATE=1`), per governing rule 6 of `PLANO.md`.
     pub persist: bool,
     /// `--config <name>`: `build.<name>.yaml` in place of the root's
     /// `build.yaml` (targets, `global_options` and `triggers`).

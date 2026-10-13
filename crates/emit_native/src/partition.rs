@@ -39,10 +39,10 @@ pub const DEFAULT_THRESHOLD: usize = 48 << 20;
 /// Size of each part.
 pub const DEFAULT_TARGET: usize = 16 << 20;
 
-/// The threshold and the target, adjustable (`DARTFORGE_PARTE_MB`, in MiB; `0` turns
+/// The threshold and the target, adjustable (`DARTFORGE_PART_MB`, in MiB; `0` turns
 /// splitting off).
 pub fn limits() -> Option<(usize, usize)> {
-    match std::env::var("DARTFORGE_PARTE_MB").ok().and_then(|v| v.trim().parse::<usize>().ok()) {
+    match std::env::var("DARTFORGE_PART_MB").ok().and_then(|v| v.trim().parse::<usize>().ok()) {
         Some(0) => None,
         Some(mb) => Some((2 * (mb << 20), mb << 20)),
         None => Some((DEFAULT_THRESHOLD, DEFAULT_TARGET)),

@@ -343,7 +343,7 @@ def um(a, cfg, k, nome, arq, env):
     # Os pacotes publicados já trazem o código gerado; o motor de build
     # tomaria a cópia do pacote como raiz e cobraria as dependências de
     # desenvolvimento dela.
-    env_df['DARTFORGE_BUILD_COMPILANDO_EXECUTOR'] = '1'
+    env_df['DARTFORGE_BUILD_COMPILING_EXECUTOR'] = '1'
     rc, out, err, dt = rodar([a.dartforge, 'aot', arq, exe, '--packages', cfg], cwd, a.tempo_compilacao, env_df,
                              a.memoria_compilacao, k + ' [compilacao]')
     res['t_compilacao'] = round(dt, 1)

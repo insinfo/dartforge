@@ -24,11 +24,11 @@ lowering. Este documento separa as duas coisas.
   (`crates/emit_native/src/lower/sdk_fonte.rs:561-563` →
   `FnBuilder::nao_suportado`, `crates/emit_native/src/lower/fn_builder.rs:316-343`;
   prefixo em `crates/emit_native/src/lib.rs:72`). O programa que não passa
-  por ali compila e roda; `DARTFORGE_FONTE_NAO_SUPORTADO=1` lista, na
+  por ali compila e roda; `DARTFORGE_SOURCE_UNSUPPORTED=1` lista, na
   compilação, cada construto que virou `UnsupportedError`.
 * O SDK da fonte é o único modo desde o espaço unificado
   (docs/NATIVO-ESPACO-UNIFICADO.md §4.7): o runtime por nome e
-  `DARTFORGE_SDK_DA_FONTE` saíram.
+  `DARTFORGE_SDK_FROM_SOURCE` saíram.
 * `libraries.json` da sobreposição troca **arquivos inteiros**; `file_patch.dart`,
   `socket_patch.dart`, `sync_socket_patch.dart`, `internal_patch.dart`,
   `type_patch.dart`, `errors_patch.dart`, `object_patch.dart`,

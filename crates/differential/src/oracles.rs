@@ -744,13 +744,13 @@ const JIT_CODEGEN_SLACK: Duration = Duration::from_secs(10);
 
 /// The JIT's isolated executor (`crates/jit`, binary `dartforge-executar-ir`).
 ///
-/// `DARTFORGE_EXECUTAR_IR` overrides; otherwise, the executable next to this
+/// `DARTFORGE_RUN_IR` overrides; otherwise, the executable next to this
 /// harness, which is where `cargo build -p dartforge-jit` leaves it in the
 /// same `target/`. The harness does not link LLVM: the JIT is one process per
 /// program, because the runtime ends the process in the same cases where the
 /// AOT executable exits (`docs/JIT.md`, «Execução e término»).
 pub fn jit_executor() -> PathBuf {
-    if let Some(p) = std::env::var_os("DARTFORGE_EXECUTAR_IR") {
+    if let Some(p) = std::env::var_os("DARTFORGE_RUN_IR") {
         return PathBuf::from(p);
     }
     let name = if cfg!(windows) { "dartforge-executar-ir.exe" } else { "dartforge-executar-ir" };

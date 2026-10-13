@@ -17,7 +17,7 @@
 //!   in the load, plus the list of the project's `.dart` files (a new file
 //!   may satisfy an import);
 //! * it only retains a program whose total source fits in the budget
-//!   (`DARTFORGE_LSP_SESSAO_MIB`, in MiB of source; default
+//!   (`DARTFORGE_LSP_SESSION_MIB`, in MiB of source; default
 //!   [`DEFAULT_BUDGET_MIB`]; `0` turns the session off). The measured live
 //!   cost is proportional to the source (`docs/LSP.md`, "Sessão semântica").
 
@@ -80,9 +80,9 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// Session with the budget from `DARTFORGE_LSP_SESSAO_MIB` (or the default).
+    /// Session with the budget from `DARTFORGE_LSP_SESSION_MIB` (or the default).
     pub(crate) fn new() -> Self {
-        let mib = std::env::var("DARTFORGE_LSP_SESSAO_MIB")
+        let mib = std::env::var("DARTFORGE_LSP_SESSION_MIB")
             .ok()
             .and_then(|v| v.trim().parse::<usize>().ok())
             .unwrap_or(DEFAULT_BUDGET_MIB);
@@ -90,10 +90,10 @@ impl Session {
     }
 
     /// The session of the wide load (the whole SDK and the packages), with the
-    /// budget from `DARTFORGE_LSP_AMPLO_MIB` (default
+    /// budget from `DARTFORGE_LSP_WIDE_MIB` (default
     /// [`DEFAULT_WIDE_BUDGET_MIB`]; `0` goes back to loading on every search).
     pub(crate) fn wide() -> Self {
-        let mib = std::env::var("DARTFORGE_LSP_AMPLO_MIB")
+        let mib = std::env::var("DARTFORGE_LSP_WIDE_MIB")
             .ok()
             .and_then(|v| v.trim().parse::<usize>().ok())
             .unwrap_or(DEFAULT_WIDE_BUDGET_MIB);

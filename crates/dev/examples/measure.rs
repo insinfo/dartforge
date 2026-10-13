@@ -58,9 +58,9 @@ fn main() {
     });
     let target = args.get(2).map(PathBuf::from).unwrap_or_else(|| input.clone());
     let edits: usize = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(20);
-    // `DARTFORGE_DEV_SAIDA` lets the checker point the session at the same
+    // `DARTFORGE_DEV_OUTPUT` lets the checker point the session at the same
     // directory that the full `compile-js` wrote.
-    let output = std::env::var_os("DARTFORGE_DEV_SAIDA")
+    let output = std::env::var_os("DARTFORGE_DEV_OUTPUT")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("target/dev-measure"));
     if !input.exists() {

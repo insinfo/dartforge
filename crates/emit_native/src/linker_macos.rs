@@ -975,7 +975,7 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
         }
         // Measurement: LLVM options for the LTO (`DARTFORGE_LTO_MLLVM="-a -b=1"`,
         // as on Windows). The ThinLTO cache does not see them in the key: measure with
-        // `DARTFORGE_SEM_CACHE_THINLTO=1`.
+        // `DARTFORGE_NO_THINLTO_CACHE=1`.
         if let Ok(v) = std::env::var("DARTFORGE_LTO_MLLVM") {
             for o in v.split_whitespace() {
                 cmd.arg("-mllvm").arg(o);
@@ -1000,7 +1000,7 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
         // symbol table (`-x` only strips the local ones) and into the weak binding
         // that dyld redoes on every load: 6.5 MB of `new_sali/backend`.
         // The unexported symbols become local and `-x` strips them; with
-        // `DARTFORGE_MANTER_SIMBOLOS=1` they stay, for profiling.
+        // `DARTFORGE_KEEP_SYMBOLS=1` they stay, for profiling.
         if matches!(l.product, Product::Executable) {
             cmd.arg("-no_exported_symbols");
         }

@@ -13,7 +13,7 @@
 //! 4. scalar replacement of objects that do not escape (`escape`), and
 //!    `mem2reg` and the cleanups again.
 //!
-//! `DARTFORGE_OTIMIZAR_HIR=0` turns everything off (for comparison).
+//! `DARTFORGE_OPTIMIZE_HIR=0` turns everything off (for comparison).
 
 mod cfg;
 pub mod arc;
@@ -52,7 +52,7 @@ pub(crate) fn prepare_for_emission(module: &mut Module, arc_memory: bool, by_tab
 
 /// Are the passes turned off by the environment?
 fn disabled() -> bool {
-    std::env::var("DARTFORGE_OTIMIZAR_HIR").is_ok_and(|v| v == "0")
+    std::env::var("DARTFORGE_OPTIMIZE_HIR").is_ok_and(|v| v == "0")
 }
 
 fn clear(func: &mut Function, do_not_throw: &std::collections::HashSet<String>) {

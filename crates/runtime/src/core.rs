@@ -39,7 +39,7 @@ pub extern "C" fn dartforge_init(input: extern "C" fn(), to_string_fn: extern "C
     enable_allocation_cache();
     if debug() {
         // Debugging: a runtime panic shows the stack of Dart functions
-        // (`DARTFORGE_RASTRO=1` at compile time).
+        // (`DARTFORGE_CALL_TRACE=1` at compile time).
         let pattern = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |i| {
             show_trace();
@@ -139,7 +139,7 @@ pub fn finalize_program() -> i32 {
         eprintln!("dartforge: DARTFORGE_GC_STATS=exigir and the run did not exercise the collector (no collection, or no root read from a map)");
         return 70;
     }
-    if std::env::var("DARTFORGE_GC_MEMORIA").is_ok_and(|v| !v.is_empty() && v != "0") {
+    if std::env::var("DARTFORGE_GC_MEMORY").is_ok_and(|v| !v.is_empty() && v != "0") {
         HEAP.with(|heap| eprint!("[memory] end of program\n{}", heap.borrow().memory_report()));
     }
     global_exit_code()

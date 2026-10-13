@@ -1117,7 +1117,7 @@ pub fn effects_of(name: &str) -> Effects {
         .unwrap_or(CONSERVATIVE)
 }
 
-/// The compilation checks the effects table (`DARTFORGE_EFEITOS=conferir`):
+/// The compilation checks the effects table (`DARTFORGE_EFFECTS=conferir`):
 /// each call to an extern marked as not collecting or not throwing goes between
 /// `dartforge_effects_before` and `dartforge_effects_after`, and the runtime
 /// terminates the process, naming it, if the extern collects or leaves a
@@ -1125,7 +1125,7 @@ pub fn effects_of(name: &str) -> Effects {
 /// that is how a mark goes from 1 to 0.
 pub fn check_effects() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var("DARTFORGE_EFEITOS").is_ok_and(|v| v == "conferir"))
+    *ENABLED.get_or_init(|| std::env::var("DARTFORGE_EFFECTS").is_ok_and(|v| v == "conferir"))
 }
 
 /// The marks that the check of `name` carries to the runtime: bit 0, does not collect;

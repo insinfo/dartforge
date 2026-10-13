@@ -2041,7 +2041,7 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
 
 // ─── Map-based roots in the JIT (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.8) ───
 //
-// With `DARTFORGE_RAIZES=mapas`, the session:
+// With `DARTFORGE_ROOTS=mapas`, the session:
 //
 // * generates code with minimal optimization (`CodeGenLevelLess`): `-O0` uses
 //   FastISel, which has known defects with `gc.relocate` (§3.4);
@@ -2065,18 +2065,18 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
 // ([`Lljit::use_local_registry`]) or the source SDK library's
 // ([`Lljit::use_library_registry`]).
 
-/// `DARTFORGE_RAIZES=mapas` in this process (the emitter reads the same variable,
+/// `DARTFORGE_ROOTS=mapas` in this process (the emitter reads the same variable,
 /// `dartforge_emit_native::target::roots_by_maps`).
 pub(crate) fn roots_by_maps() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *SIM.get_or_init(|| std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas"))
+    *SIM.get_or_init(|| std::env::var("DARTFORGE_ROOTS").is_ok_and(|v| v == "mapas"))
 }
 
-/// The symbolic stack trace (`DARTFORGE_RASTRO_VM=simbolico`, the same as
+/// The symbolic stack trace (`DARTFORGE_STACK_TRACE=simbolico`, the same as
 /// `emit_native::target::symbolic_trace`).
 pub(crate) fn symbolic_trace() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *SIM.get_or_init(|| std::env::var("DARTFORGE_RASTRO_VM").is_ok_and(|v| v == "simbolico"))
+    *SIM.get_or_init(|| std::env::var("DARTFORGE_STACK_TRACE").is_ok_and(|v| v == "simbolico"))
 }
 
 /// Registers the map section `[start, end)` in the runtime.

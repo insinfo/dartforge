@@ -136,10 +136,10 @@ pub fn compile_and_link(
     // Production with the source SDK: bitcode, optimized together with the SDK one at
     // link time (LTO).
     let generator = Generator::choose(&options.clang);
-    // `DARTFORGE_PRODUCAO_SEM_LTO=1` (measurement, docs/NATIVO-PRODUCAO-GRANDE.md
+    // `DARTFORGE_PRODUCTION_NO_LTO=1` (measurement, docs/NATIVO-PRODUCAO-GRANDE.md
     // §3.2): the parts of the program go as `-O2` objects, and only the SDK
     // bitcode goes through the linker's LTO.
-    let without_lto = production && std::env::var("DARTFORGE_PRODUCAO_SEM_LTO").is_ok_and(|v| v == "1");
+    let without_lto = production && std::env::var("DARTFORGE_PRODUCTION_NO_LTO").is_ok_and(|v| v == "1");
     let generation = Generation { cpu: options.cpu, ..Generation::of_program(options.optimize, production && !without_lto) };
     if keep_ir {
         // The copy in `.df_tmp` only exists for those who asked for DARTFORGE_KEEP_IR
@@ -163,8 +163,8 @@ pub fn compile_and_link(
         // which only Clang writes (the embedded generator does not: `lld` would do
         // the full LTO in a single module, on one thread — 1 600 s on
         // new_sali/backend, docs/NATIVO-PRODUCAO-GRANDE.md §1.2).
-        // `DARTFORGE_GERADOR` chooses by hand.
-        let parts_generator = if production && !without_lto && std::env::var_os("DARTFORGE_GERADOR").is_none() {
+        // `DARTFORGE_GENERATOR` chooses by hand.
+        let parts_generator = if production && !without_lto && std::env::var_os("DARTFORGE_GENERATOR").is_none() {
             Generator::clang_if_any(&options.clang)
         } else {
             generator.clone()
@@ -215,17 +215,17 @@ pub fn compile_and_link(
     // §3.4): on Windows, because the `lld-link` LTO does not run the pass; on
     // Linux, also because the LLVM map has absolute relocations in a
     // read-only section, which `ld.lld` rejects in a PIE executable (Step 4).
-    // `DARTFORGE_LTO_DISTRIBUIDA=1` (measurement, §8): the same path with the
+    // `DARTFORGE_LTO_DISTRIBUTED=1` (measurement, §8): the same path with the
     // shadow stack, to compare the root modes in the same pipeline.
     let single_distributed = cfg!(feature = "embedded-llvm")
         && production
         && !without_lto
         && matches!(crate::target::target_os(), Os::Windows | Os::Linux)
-        && (crate::target::roots_by_maps()? || std::env::var("DARTFORGE_LTO_DISTRIBUIDA").is_ok_and(|v| v == "1"));
+        && (crate::target::roots_by_maps()? || std::env::var("DARTFORGE_LTO_DISTRIBUTED").is_ok_and(|v| v == "1"));
     // The bitcode that goes to the distributed ThinLTO has to carry the ThinLTO
     // summary, which only Clang writes: without it, the backend with the index of the
-    // link returns an empty module. `DARTFORGE_GERADOR` chooses by hand.
-    let generator = if single_distributed && std::env::var_os("DARTFORGE_GERADOR").is_none() {
+    // link returns an empty module. `DARTFORGE_GENERATOR` chooses by hand.
+    let generator = if single_distributed && std::env::var_os("DARTFORGE_GENERATOR").is_none() {
         Generator::Clang(options.clang.clone())
     } else {
         generator
@@ -355,13 +355,13 @@ thread_local! {
     static NO_LTO_AT_LINK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// The optimization level of the production LTO (`DARTFORGE_LTO_NIVEL`, 0–3):
+/// The optimization level of the production LTO (`DARTFORGE_LTO_LEVEL`, 0–3):
 /// `-O1` for the program in parts (ThinLTO; docs/NATIVO-PRODUCAO-GRANDE.md
 /// §6.2: optimization falls from 275 to 150 s of CPU on new_sali/backend,
 /// `bench/performance` does not change), `-O2` for the rest.
 pub fn lto_level() -> u8 {
     let pattern = if LINK_IN_PARTS.get() { 1 } else { 2 };
-    std::env::var("DARTFORGE_LTO_NIVEL").ok().and_then(|v| v.trim().parse::<u8>().ok()).filter(|n| *n <= 3).unwrap_or(pattern)
+    std::env::var("DARTFORGE_LTO_LEVEL").ok().and_then(|v| v.trim().parse::<u8>().ok()).filter(|n| *n <= 3).unwrap_or(pattern)
 }
 
 /// Whether the LTO of this link runs LLVM's *machine outliner* on every
@@ -392,10 +392,10 @@ pub fn outliner_at_link() -> bool {
 }
 
 /// The directory of the ThinLTO cache of the production link (next to the object
-/// cache); `None` with `DARTFORGE_SEM_CACHE_THINLTO=1` or without an object
+/// cache); `None` with `DARTFORGE_NO_THINLTO_CACHE=1` or without an object
 /// cache.
 pub fn thinlto_cache() -> Option<PathBuf> {
-    if std::env::var("DARTFORGE_SEM_CACHE_THINLTO").is_ok_and(|v| v == "1") {
+    if std::env::var("DARTFORGE_NO_THINLTO_CACHE").is_ok_and(|v| v == "1") {
         return None;
     }
     ObjectCache::from_env()?;
@@ -405,10 +405,10 @@ pub fn thinlto_cache() -> Option<PathBuf> {
 }
 
 /// How many code generations (parts, or ThinLTO modules in the linker) at
-/// the same time: `DARTFORGE_PARTES_PARALELAS`, otherwise half the threads of the
+/// the same time: `DARTFORGE_PARALLEL_PARTS`, otherwise half the threads of the
 /// machine, at most 3.
 pub fn generation_tasks() -> usize {
-    std::env::var("DARTFORGE_PARTES_PARALELAS")
+    std::env::var("DARTFORGE_PARALLEL_PARTS")
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).clamp(1, 3)))
@@ -417,7 +417,7 @@ pub fn generation_tasks() -> usize {
 
 /// The objects of the parts of a large module (C9), in order: each part
 /// assembled only when its turn comes, through the object cache (or in `staging`),
-/// `DARTFORGE_PARTES_PARALELAS` at a time (default: half the threads of the
+/// `DARTFORGE_PARALLEL_PARTS` at a time (default: half the threads of the
 /// machine, at most 3 — the memory of a generator, ~44 bytes per byte of
 /// IR at `-O0`, is the measure, not the cores).
 fn generate_parts(
@@ -583,14 +583,14 @@ fn link(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &P
     }
 }
 
-/// Whether the link on Windows is the one from before N15 (`DARTFORGE_LIGAR_COM_CLANG`
+/// Whether the link on Windows is the one from before N15 (`DARTFORGE_LINK_WITH_CLANG`
 /// set): the executable and the DLL of the source SDK.
 pub fn link_with_clang() -> bool {
-    cfg!(windows) && std::env::var_os("DARTFORGE_LIGAR_COM_CLANG").is_some()
+    cfg!(windows) && std::env::var_os("DARTFORGE_LINK_WITH_CLANG").is_some()
 }
 
 /// The link through the Clang driver, as it was before N15 (the Visual Studio
-/// toolchain on the machine): `DARTFORGE_LIGAR_COM_CLANG=1` on Windows. Only
+/// toolchain on the machine): `DARTFORGE_LINK_WITH_CLANG=1` on Windows. Only
 /// to compare with the link without the system toolchain.
 fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::generator::Cpu>) -> Result<(), String> {
     if crate::target::target_os() == Os::Linux {

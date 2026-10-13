@@ -22,7 +22,7 @@ $alvo = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $r
 cargo build --release -p dartforge-dev --example measure_generation
 if ($LASTEXITCODE -ne 0) { throw 'build do exemplo falhou' }
 if (-not $env:DARTFORGE_DART_SDK_JS) { $env:DARTFORGE_DART_SDK_JS = Join-Path $raiz 'runtime/ddc/dart_sdk.js' }
-$env:DARTFORGE_AVISOS = '0'
+$env:DARTFORGE_WARNINGS = '0'
 $saida = Join-Path $raiz 'target/scratch-build/dev-geracao'
 $a = @("$Projeto/web/main.dart", "$Projeto/.dart_tool/package_config.json", $saida, "$Repeticoes")
 if ($SemMotor) { $a += 'sem-motor' }

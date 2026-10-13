@@ -119,7 +119,7 @@ pub fn run_corpus(env: &Environment, programs: &[Program], op: Options, progress
     in_parallel(programs, op.threads, |p| run_program(env, p, op), progress)
 }
 
-/// Concurrent emissions when `DARTFORGE_IR_PARALELO_MAX` does not say otherwise.
+/// Concurrent emissions when `DARTFORGE_IR_PARALLEL_MAX` does not say otherwise.
 ///
 /// Each emission loads the SDK, analyzes and lowers the program inside the
 /// harness process. Today that is cheap (measured in `STATE.md` §3.2: the
@@ -149,10 +149,10 @@ impl Limiter {
         Limiter { max, free: Mutex::new(max), slot: Condvar::new() }
     }
 
-    /// `DARTFORGE_IR_PARALELO_MAX` when it is a positive number, otherwise
+    /// `DARTFORGE_IR_PARALLEL_MAX` when it is a positive number, otherwise
     /// [`DEFAULT_CONCURRENT_EMISSIONS`].
     pub fn from_env() -> Limiter {
-        let max = std::env::var("DARTFORGE_IR_PARALELO_MAX")
+        let max = std::env::var("DARTFORGE_IR_PARALLEL_MAX")
             .ok()
             .and_then(|v| v.trim().parse::<usize>().ok())
             .filter(|n| *n > 0)

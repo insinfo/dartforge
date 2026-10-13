@@ -6,7 +6,7 @@
 //!
 //! Each function under check carries, on the line before the `define`, the comment
 //! `; df.refs v1 v5 …`: the `Ref` values of the HIR (without constants or
-//! `alloca`s), which the emitter writes with `DARTFORGE_CONFERIR_SOMBRA=1`. The
+//! `alloca`s), which the emitter writes with `DARTFORGE_CHECK_SHADOW=1`. The
 //! checker computes, from the text alone:
 //!
 //! * the liveness of each `%v<n>` (`phi`s count at the end of the predecessor);
@@ -35,9 +35,9 @@ use std::collections::{HashMap, HashSet};
 /// The comment with the `Ref` values of a function.
 pub(super) const REFS_MARK: &str = "; df.refs";
 
-/// The check is on (`DARTFORGE_CONFERIR_SOMBRA=1`).
+/// The check is on (`DARTFORGE_CHECK_SHADOW=1`).
 pub fn linked() -> bool {
-    std::env::var("DARTFORGE_CONFERIR_SOMBRA").is_ok_and(|v| v == "1")
+    std::env::var("DARTFORGE_CHECK_SHADOW").is_ok_and(|v| v == "1")
 }
 
 /// The `%x`s of `line` (without the `%`).

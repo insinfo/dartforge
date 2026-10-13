@@ -87,7 +87,7 @@ O que mudou no código gerado (todos no modo padrão, fora do ARC):
   depois de todos os valores, como na VM.
 * Texto constante estático, vetores constantes e leitura do vetor de
   argumentos deixam de ser pontos de coleta.
-* As raízes pelo chamado (`DARTFORGE_RAIZES_NO_CHAMADO=1`) ficam só sob
+* As raízes pelo chamado (`DARTFORGE_ROOTS_IN_CALLEE=1`) ficam só sob
   medida: com menos raízes, slots compartilhados retêm valores mortos até o
   quadro fechar (núcleo `json`: 1,05 milhão de objetos vivos contra 650 mil,
   pico 121 contra 95 MB). Falta zerar o slot do valor que morre.
@@ -121,7 +121,7 @@ incompletos**.
   `DARTFORGE_LLVM_DIR`, `LLVM_SYS_221_PREFIX`, `DARTFORGE_SDK_LIB` e
   `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk`: o clang
   do pacote não acha o SDK sozinho. O diagnóstico ARC exige também
-  `DARTFORGE_MEMORIA=arc`; `compile-native --emit-ir` procura `ld64.lld` no
+  `DARTFORGE_MEMORY=arc`; `compile-native --emit-ir` procura `ld64.lld` no
   PATH (pôr o `bin` do LLVM nele).
 * O volume passou de “SSD Dock” a `ssd_dock`. Os build scripts guardam o
   caminho antigo por `env!`: depois de mudar o caminho, `touch
@@ -174,7 +174,7 @@ em `bench/performance/numerico.dart` passou, em ordem, por:
   Ref declarada.
 * `dartforge_rti_init`: `dartforge_rti_init_table` passou de `1 1 0`
   para `0 0 0`. Isso foi confirmado pela análise estática (`folha_pura`) e
-  por execução AOT tracing com `DARTFORGE_EFEITOS=conferir`, normal e sob
+  por execução AOT tracing com `DARTFORGE_EFFECTS=conferir`, normal e sob
   GC stress (nome presente na tabela conferida, saída igual à do Dart). O
   parâmetro Rust passou a `*const i64`, como no vetor constante do módulo.
 * `df.ffi.v_lp$ent`: contratos de `dartforge_ffi_closure_address`
@@ -199,7 +199,7 @@ em `bench/performance/numerico.dart` passou, em ordem, por:
   (`dartforge_ffi_handles_close_with_object`; sob ARC, a variante Owned
   retém antes de soltar as células). `handles_abrir`, `handle_novo` e
   `handles_fechar` passaram de `1 1 0` para `0 0 0`, conferido por
-  execução com `DARTFORGE_EFEITOS=conferir` (29 pontos instrumentados no
+  execução com `DARTFORGE_EFFECTS=conferir` (29 pontos instrumentados no
   IR), normal e sob GC stress, tracing e ARC legado da CLI: saída igual à
   do `dart run` 3.6.2 (`target/prova-handles/`). Handle inválido: a VM não
   confere (comportamento indefinido); o DartForge lança `ArgumentError` e
@@ -265,7 +265,7 @@ avançou pelo `dart:core` (módulo 2). O que entrou:
   `exception_capturavel`, `args_casam`, `arg_indice`, natives de record,
   `string_igual_a`, `string_concat`, `to_string_bool/f64`, `rastro_texto`,
   `membro_recusado` (encerra o processo). Execução com
-  `DARTFORGE_EFEITOS=conferir` e GC stress, tracing e ARC legado
+  `DARTFORGE_EFFECTS=conferir` e GC stress, tracing e ARC legado
   (`target/prova-efeitos/`), instrumentou no programa `arg_indice`,
   `args_casam`, `capturavel`, `record_fieldAt/numFields`, `rti_e`,
   `string_concat` e `to_string_bool`, com saída igual à do Dart. As
@@ -313,7 +313,7 @@ ainda **não publicada** na CLI: nenhum binário AOT roda com ela, e as
 entradas novas (`env_escalar`, trampolins, captura por endereço) só têm
 testes unitários e de preparação.
 
-### Publicação na CLI (`DARTFORGE_ARC_PREPARADO=1`)
+### Publicação na CLI (`DARTFORGE_ARC_PREPARED=1`)
 
 Opção explícita, só com `--memoria=arc`; o padrão (tracing) e o ARC legado
 não mudam. Com ela:
@@ -351,7 +351,7 @@ não mudam. Com ela:
 
 Os quatro programas de prova (`prova-lote5`, `-ajudantes`, `-efeitos`,
 `-handles`) rodam com programa e SDK preparados, com e sem
-`DARTFORGE_EFEITOS=conferir`, com `DARTFORGE_ARC_CONFERIR=1`, normal e GC
+`DARTFORGE_EFFECTS=conferir`, com `DARTFORGE_ARC_CHECK=1`, normal e GC
 stress: 16 execuções iguais ao `dart run` 3.6.2 (`p6-*`).
 
 Corpus nativo (`corpus/native`, 130 programas) com a opção, contra o
@@ -470,21 +470,21 @@ leituras de campo `final` emprestadas sem retain; depois §§27–34 e o gate AR
 | verificação | resultado |
 | --- | --- |
 | emissor, unitários incluindo ignorados | 480 + 110 doctests (473 + 7 ignorados com tabelas) |
-| quatro programas de prova com programa e SDK preparados (`DARTFORGE_ARC_PREPARADO=1`), com/sem `conferir`, `DARTFORGE_ARC_CONFERIR=1`, normal/GC stress | 16 execuções, saída igual ao Dart (`p6-*`) |
+| quatro programas de prova com programa e SDK preparados (`DARTFORGE_ARC_PREPARED=1`), com/sem `conferir`, `DARTFORGE_ARC_CHECK=1`, normal/GC stress | 16 execuções, saída igual ao Dart (`p6-*`) |
 | os mesmos em tracing e ARC legado, com `conferir`, normal/GC stress | 16 execuções, saída igual ao Dart (`r6-*`) |
 | provas AOT do CI (`provar-arc-aot.py`, 8 exemplos) | todas `sucesso` (`prova6-*.log`) |
-| corpus nativo com programa e SDK preparados, `DARTFORGE_ARC_CONFERIR=1` | 125 de 126 iguais ao Dart (`corpus3-prep/resumo.tsv`) |
+| corpus nativo com programa e SDK preparados, `DARTFORGE_ARC_CHECK=1` | 125 de 126 iguais ao Dart (`corpus3-prep/resumo.tsv`) |
 | corpus nativo preparado com `--excecoes=tabelas` | 125 de 126 iguais (`corpus-tabelas/resumo.tsv`) |
-| quatro programas de prova, preparado com `--excecoes=tabelas`, `DARTFORGE_ARC_CONFERIR=1`, normal/GC stress | 8 execuções iguais ao Dart (`p7/`) |
+| quatro programas de prova, preparado com `--excecoes=tabelas`, `DARTFORGE_ARC_CHECK=1`, normal/GC stress | 8 execuções iguais ao Dart (`p7/`) |
 | corpus nativo em tracing, mesmo binário | 125 de 126 iguais (`corpus3-tracing/resumo.tsv`; o `33` difere nos dois) |
 | marcas rebaixadas (`41`, `122`, `gc_d02`, `95` do corpus) com `conferir`, tracing/ARC legado/preparado, normal/GC stress | 24 execuções iguais (`corpus-conferir/`) |
 | quatro programas de prova, tracing/ARC legado/preparado, `conferir`, normal/GC stress | 24 execuções iguais (`r7-*`) |
 | runtime, todos os alvos incluindo ignorados | 227 + integrações + 83 doctests (`lote5-runtime.log`) |
-| `%` variável, setter `=>`, `late`, enums, `sync*`/`async`, captura escalar e por endereço, records, SIMD, `try`/`finally`, com e sem `DARTFORGE_EFEITOS=conferir`, tracing/ARC, normal/GC stress | 8 execuções, saída igual ao Dart (`prova-lote5/`) |
+| `%` variável, setter `=>`, `late`, enums, `sync*`/`async`, captura escalar e por endereço, records, SIMD, `try`/`finally`, com e sem `DARTFORGE_EFFECTS=conferir`, tracing/ARC, normal/GC stress | 8 execuções, saída igual ao Dart (`prova-lote5/`) |
 | programas anteriores (`ajudantes`, `efeitos`, `handles`) refeitos com conferir, tracing/ARC, normal/GC stress | 12 execuções, saída igual ao Dart (`r5-*`) |
 | `Handle` AOT, tracing/ARC, normal/GC stress, efeitos conferidos | 8 execuções, saída igual ao Dart (`prova-handles/`) |
 | listas compactas/gerais, tipadas, visões, `ByteData`, strings pela CLI, tracing e ARC, normal/GC stress | 4 execuções, saída igual ao Dart (`prova-ajudantes/`) |
-| efeitos rebaixados, exceções, records, nomeados, `is`, com `DARTFORGE_EFEITOS=conferir`, tracing/ARC, normal/GC stress | 12 execuções (três programas), saída igual ao Dart |
+| efeitos rebaixados, exceções, records, nomeados, `is`, com `DARTFORGE_EFFECTS=conferir`, tracing/ARC, normal/GC stress | 12 execuções (três programas), saída igual ao Dart |
 | `memory_cli` (nativo), incluindo ignorados | 2 passaram (`arc-lote3-memoria-cli.log`) |
 | `provar-arc-aot.py arc_native_port_owned --debug` | 24 execuções, `sucesso` (`prova-porta-nativa-owned/evidencia.json`) |
 | `memory_cli` (nativo, sem JIT), incluindo ignorados | 2 passaram (`memoria-cli.log`) |
@@ -1365,7 +1365,7 @@ compilação deve respeitar essa seleção. C++ aparece nas fixtures de
 exceções estrangeiras; compilador e runtime são implementados em Rust.
 
 Correção da seleção na CLI registrada em 4fe197ef: AOT/compile-native/run/
-reload partem de tracing, mesmo com DARTFORGE_MEMORIA=arc herdado; somente
+reload partem de tracing, mesmo com DARTFORGE_MEMORY=arc herdado; somente
 a opção explícita escolhe ARC. run/reload agora reconhecem --memoria=arc.
 Em run a opção deve preceder o arquivo; depois dele é argumento de main.
 O reinício da recarga transporta a seleção para o filho e mantém a variante
@@ -1974,7 +1974,7 @@ Logs target/arc-unbox-{contratos,runtime-catalogo,suite,doc}.log.
 
 Condição reafirmada pelo proprietário: integração de ownership no pipeline
 somente com --memoria=arc; tracing permanece o modo sem essa opção.
-A CLI já traduz a opção para DARTFORGE_MEMORIA, consultada antes de preparar
+A CLI já traduz a opção para DARTFORGE_MEMORY, consultada antes de preparar
 programa/SDK. O pipeline documenta essa condição; regressão cobre boxing
 double no tracing com exceções checagem/tabelas, sem fábricas Owned ou RC ARC.
 
@@ -2080,7 +2080,7 @@ target/unwind-forcado-fixture.log. Prova com runtime completo pendente.
 CI 38019611633, fonte f460ce72: as duas provas Linux terminaram com sucesso.
 Artefato estrangeiro conferido byte a byte: oito stdout foreign-cleanup-ok LF,
 quatro IR e quatro C++, simples/quadros × O0/O2 × ARC/tracing. Rodada usa
-DARTFORGE_ARC_CONFERIR=1, DARTFORGE_ARC_BERCARIO=0 e DARTFORGE_GC_STRESS=1,
+DARTFORGE_ARC_CHECK=1, DARTFORGE_ARC_NURSERY=0 e DARTFORGE_GC_STRESS=1,
 nomes efetivamente consumidos pelo runtime. Morte final do Mint, liberação dos
 dois quadros, identidade C++, destrutores e restauração de raízes passaram.
 Evidência congelada em bench/results/2026-10-10-unwind-estrangeiro-linux-ci,
@@ -2102,8 +2102,8 @@ local consulta também faixas livres e região disponível; regressão reproduzi
 o falso positivo e agora passa em tracing e ARC sem zerar cabeçalhos.
 A execução C++ completa precisa ser repetida antes de afirmar morte final.
 
-Revisão dos ambientes de prova: o runtime lê DARTFORGE_ARC_CONFERIR,
-DARTFORGE_ARC_BERCARIO e DARTFORGE_GC_STRESS. Atribuições anteriores a
+Revisão dos ambientes de prova: o runtime lê DARTFORGE_ARC_CHECK,
+DARTFORGE_ARC_NURSERY e DARTFORGE_GC_STRESS. Atribuições anteriores a
 ARC_CONFERIR, BER e GC_STRESS eram ignoradas. Os resultados anteriores
 comprovam as saídas e propriedades observadas, mas não ativação dessas opções.
 Arquivos históricos congelados permanecem intactos; suas alegações de execução
@@ -2156,7 +2156,7 @@ Teste cobre tracing/ARC × estresse direto ligado/desligado, dois tokens,
 Conferência de efeitos também precisa de unwind: snapshot de profundidade na
 entrada e restauração no pouso abandonam externs atravessadas e suas proibições
 de coleta. Não conferem saída normal nem alteram pendência. Teste nested do
-runtime e corpo LLVM em DARTFORGE_EFEITOS=conferir passaram, objetos Linux O0/O2;
+runtime e corpo LLVM em DARTFORGE_EFFECTS=conferir passaram, objetos Linux O0/O2;
 35 doctests do runtime e dois testes do catálogo passaram. Logs
 `target/observacao-heap-*`, `target/efeitos-unwind-*`, `target/unwind-estrangeiro-*`.
 Fonte anterior 24efc32a passou também na prova de rastro explícito macOS;
@@ -2211,7 +2211,7 @@ originais, limpa a pendência, coleta e retém a captura do rastro novamente:
 ARC_CONFERIR confere sua validade após coleta. Oito variantes Windows
 simples/misto × ARC/tracing × normal/erro passaram com código zero e MAX+LF
 byte exato; dois caminhos ARC estritos também passaram. Geração com
-DARTFORGE_EFEITOS=conferir, execução ARC_CONFERIR=1, BER=0, GC_STRESS=1.
+DARTFORGE_EFFECTS=conferir, execução ARC_CONFERIR=1, BER=0, GC_STRESS=1.
 Logs/IR/stdout `target/rastro-aot-*`. CI Unix usa o mesmo exemplo e requer
 nova execução desta fonte. Não observa morte final em AOT nem identidade do
 objeto nativo de unwind; não cobre rastro implicitamente capturado da pilha,
@@ -2251,7 +2251,7 @@ troca de identidade imprime null e reprova stdout. Não observa identidade do
 objeto nativo de unwind, rastro ou morte final em AOT. Oito variantes Windows
 simples/misto × ARC/tracing × normal/erro passaram, código zero e MAX byte exato,
 sob ARC_CONFERIR=1, BER=0, GC_STRESS=1. Variante erro ARC misto também passou
-com DARTFORGE_EFEITOS=conferir na geração; CI ativa essa conferência para os
+com DARTFORGE_EFFECTS=conferir na geração; CI ativa essa conferência para os
 próximos oito casos Unix. Logs `target/ownership-excecao-owned-*` e
 `target/excecao-owned-*`. Execução Unix da leitura Owned ainda pendente.
 
@@ -2772,14 +2772,14 @@ Verificação local após a separação: suíte unitária completa de
 ignorados. Os três testes novos cobrem o CFG antes da publicação, a pendência
 recalculada após editar a continuação e um sítio invalidado entre etapas.
 O teste de emissão determinística também passou com
-`DARTFORGE_EXCECOES=tabelas`. O corpus completo remoto ainda usa `719e94cc`,
+`DARTFORGE_EXCEPTIONS=tabelas`. O corpus completo remoto ainda usa `719e94cc`,
 anterior à separação do passe.
 Validação local do passe separado, código de `a80d1b84`: A1, A1 sob
 `--gc-stress`, B1 e B1 sob `--gc-stress`, todos 238/238 e código de saída 0.
 O harness foi recompilado com `embedded-llvm`; SHA-256
 `3F5B4C1286C66C8BFB25880798B3C90F5C5DDCF753FC4C675204A99CE3798738`.
 Relatórios em `target/validacao-a80d1b84/`, incluindo a tentativa inicial
-inválida (`DARTFORGE_MEMORIA=rastreamento`, rejeitada antes de compilar),
+inválida (`DARTFORGE_MEMORY=rastreamento`, rejeitada antes de compilar),
 seguida das quatro rodadas válidas com `tracing`. São verificações de
 correção; os tempos totais do harness não medem desempenho dos modos.
 
@@ -2841,7 +2841,7 @@ as saídas. Os quatro testes do passe passaram, incluindo rejeição de função
 trocada; a consulta ainda não insere owners ou cleanups ARC.
 Na revisão `0d64636e`, a suíte completa do emissor passou: 106 testes,
 zero falhas, sete manuais ignorados. O teste `emitir_ir_e_deterministico`
-também passou com `DARTFORGE_EXCECOES=tabelas`, em 33,39 s, emitindo o
+também passou com `DARTFORGE_EXCEPTIONS=tabelas`, em 33,39 s, emitindo o
 mesmo programa duas vezes sequencialmente e quatro em paralelo. O SDK
 `C:/tools/dartsdk-3.6.2/lib/libraries.json` estava presente: não foi o
 retorno antecipado por SDK ausente. Esse teste verifica o IR de `print(1)`;
@@ -2905,7 +2905,7 @@ As migrações posteriores das listas (`0fa1d363`), visões e resultados I/O
 (`838df90e`), records da ABI e concatenação (`7cc04df8`) ainda não estão
 nesta rodada. Validação local debug/release até `7cc04df8`: 113 aprovados,
 três microbenchmarks ignorados; os três testes ABI de owners passaram com
-`DARTFORGE_ARC_CONFERIR=1`. HIR, contratos por extern, slots persistentes,
+`DARTFORGE_ARC_CHECK=1`. HIR, contratos por extern, slots persistentes,
 saídas excepcionais e desempenho global continuam pendentes.
 Owners persistentes de globais/exceção (`9e7f6451`) e tabelas canônicas
 (`2496944a`) foram acrescentados depois dessa rodada. Eventos transferem o
@@ -3139,7 +3139,7 @@ harness. O custo está associado à frequência de coleta desse cenário,
 não apenas à concorrência ou à auditoria. Não é benchmark nem prova de
 ausência de regressão: faltam comparação anterior e perfil das drenagens.
 Perfil diagnóstico do caso 60 reduzido a mil iterações (não substitui o
-original), sem auditoria, com estresse/ciclos e `DARTFORGE_GC_RASTRO=1`:
+original), sem auditoria, com estresse/ciclos e `DARTFORGE_GC_TRACE=1`:
 4.018 drenagens, 991.674 µs acumulados; trial de ciclos 976.231 µs e
 8.670.594 nós examinados ao fim. Cerca de 98% do tempo registrado foi
 no trial. Executável anterior preservado, SHA-256
@@ -3185,7 +3185,7 @@ ocorria em toda drenagem, embora a impressão já dependesse do rastro.
 A sequência de coleta e o formato das métricas foram preservados. Suíte
 release: 145 unitários, três microbenchmarks ignorados, 13 integrações e
 12 doctests aprovados (`target/runtime-rastro-condicional-release.log`).
-Teste de ciclo com `DARTFORGE_GC_RASTRO=1`: 1/1, com métricas emitidas
+Teste de ciclo com `DARTFORGE_GC_TRACE=1`: 1/1, com métricas emitidas
 (`target/runtime-rastro-condicional-ligado.log`). Ainda não há comparação
 antes/depois desta mudança; a razão 1,968695 acima pertence a `5bbfc80f`.
 
@@ -4463,7 +4463,7 @@ binários anteriores: dois testes com JIT, rejeição da lista vazia sem JIT;
 isso valida a proteção do script, não os testes na revisão atual. A
 validação local de recarga da revisão `7217e888` concluiu com sucesso:
 `cargo test --locked --release -p dartforge-cli --features jit --test reload_state -- --ignored --nocapture`,
-com `DARTFORGE_SDK_DA_FONTE=1`: dois testes passaram, zero falhas ou
+com `DARTFORGE_SDK_FROM_SOURCE=1`: dois testes passaram, zero falhas ou
 ignorados, cinco filtrados (os não ignorados), em 14,43 s. Executados
 `cli_preserva_estatico_apos_editar_o_mesmo_arquivo_dart` e
 `cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas`. A listagem
@@ -4506,13 +4506,13 @@ microbenchmark só valem presos a um núcleo P).
 | Pacotes do pub-cache (209): FP / mensagem errada | 46 / 33 | **35 / 2** (nenhum de código publicado) |
 | Códigos em `verificados.txt` | 167 | **477** |
 
-Como medir nesta máquina: `DARTFORGE_PARIDADE_AMOSTRAS=100000 dartforge-parity placar --detalhes
+Como medir nesta máquina: `DARTFORGE_PARITY_SAMPLES=100000 dartforge-parity placar --detalhes
 --trabalhadores 8` (o corpus e o oráculo gravado estão no repositório); para os projetos reais, copiar
 `new_sali/{core,frontend,backend}`, `limitless_ui` e os de `2024/` para uma pasta própria (só `.dart`,
 `pubspec.*`, `analysis_options.yaml`), rodar `dart pub get` lá (os `package_config.json` dos originais
 apontam para o Windows) e `dartforge-parity projetos --oraculo --corpus <pasta com projetos.json>`
 (`--mutacoes 30 --regravar` para as mutações); os pacotes do pub-cache pelo
-`scripts/paridade-pub-cache.py` (`PUB_CACHE=~/tools/dart/pub-cache`). `DARTFORGE_ORACULO_3_6` aponta
+`scripts/paridade-pub-cache.py` (`PUB_CACHE=~/tools/dart/pub-cache`). `DARTFORGE_ORACLE_3_6` aponta
 o SDK 3.6.2. Achados: FP nos projetos reais por anotação de FFI por alias de `typedef`, constante
 privada usada só em `case`, anotação de diretiva, falso `top_level_cycle` de campos `late`; FP de
 arquivo único (partes sem a biblioteca no lote, padrão de `super.x` sem corpos da superclasse); `/x.dart`
@@ -4619,7 +4619,7 @@ Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE
 * **ARC** (`docs/ARC-IMPLEMENTACAO.md`): o RC das ocorrências fortes entre objetos velhos, com as raízes
   adiadas e o berçário pela coleta menor; a gravação num velho conta na hora, o acesso cru tira uma foto;
   na completa, o ponto fixo global (§22.3: alcance pelas raízes com a regra condicional dos efêmeros, lote
-  único dos inalcançáveis); *trial deletion* lateral com `DARTFORGE_ARC_CICLOS=sempre`; reclamação pelas
+  único dos inalcançáveis); *trial deletion* lateral com `DARTFORGE_ARC_CYCLES=sempre`; reclamação pelas
   marcas do RC. Grafos aleatórios com semente contra um oráculo independente (3000 sementes por modo); a
   primeira rodada achou dois vazamentos, corrigidos (o zero que volta a subir não virava candidato; o ciclo
   valor→portador de um efêmero ficava vivo pela chave). Opt-in por `--memoria=arc` no AOT e no JIT; o
@@ -4914,7 +4914,7 @@ com o código.
 * Oráculos em `E:\dftemp`: `cmp.py` (corpus contra `dartforge analyze`), `oraculo_lsp.py`,
   `oraculo_multi.py`, `oraculo_diag.py` (publicações de diagnóstico), `lsp\dif_metodo.py`
   (diferenças por amostra de um método do oráculo do LSP).
-* Placar: `DARTFORGE_PARIDADE_AMOSTRAS=100000 ./target/release/dartforge-parity placar --detalhes`;
+* Placar: `DARTFORGE_PARITY_SAMPLES=100000 ./target/release/dartforge-parity placar --detalhes`;
   projetos reais: `dartforge-parity projetos`.
 
 ---
@@ -6235,7 +6235,7 @@ antes de toda alocação.
 * Fontes geradas em memória (`crates/elements/src/gerado.rs`): os
   `.template.dart` do ngdart podem vir de uma tabela indexada pelo caminho
   natural, sem passar pelo disco. Geração imutável e trocada inteira — o
-  navegador nunca vê meio estado. `DARTFORGE_GERADOS=build_runner` prova o
+  navegador nunca vê meio estado. `DARTFORGE_GENERATED=build_runner` prova o
   encanamento: 284 templates lidos da memória dão 616 módulos byte a byte
   iguais aos da compilação que lê do disco.
 * `crates/ng_generator` — o compilador do ngdart em Rust, com dois oráculos:
@@ -6299,7 +6299,7 @@ antes de toda alocação.
   atacar), e o conversor de expressões reusa o parser Dart da trilha nova
   em vez de aproximar texto.
 
-  `DARTFORGE_GERADOS=ng` compila com ele, fazendo antes uma carga de
+  `DARTFORGE_GENERATED=ng` compila com ele, fazendo antes uma carga de
   resolução (o equivalente ao `BuildStep.resolver`, lendo o nosso banco
   semântico); o que falta continua vindo do `build_runner`.
 
@@ -6351,7 +6351,7 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   fonte e sintaxe Sass fora do subconjunto continuam no apoio.
 * **`compile-js` do `new_sali/frontend` com o motor** (padrão quando há
   `build_runner`; o `emit_js` não depende mais do `ng_generator`): 575 módulos,
-  **574 byte a byte iguais** aos do `DARTFORGE_GERADOS=ng` de antes (579
+  **574 byte a byte iguais** aos do `DARTFORGE_GENERATED=ng` de antes (579
   módulos); o do `limitless_ui` difere só por absorver os 4 `.css.dart` que o
   fluxo antigo lia do `.dart_tool/build/generated` (caminho fora do pub
   cache, então módulo próprio) e o motor publica no caminho natural, como os
@@ -6774,7 +6774,7 @@ nativo; o harness já apaga cada `.exe` depois de executar, salvo
 `DARTFORGE_KEEP_EXE`) e as `.lib` do runtime em `target/native_cache/` fora
 as 2 mais recentes (o próprio cache também poda). Só com `-Tudo`:
 `target/native_cache/obj`, o cache de objeto, que se poda sozinho no teto de
-`DARTFORGE_CACHE_OBJ_MB` (256 MB). `DARTFORGE_CACHE_NATIVO` muda o
+`DARTFORGE_CACHE_OBJ_MB` (256 MB). `DARTFORGE_NATIVE_CACHE` muda o
 diretório; sem ele, `$CARGO_TARGET_DIR/native_cache`. Worktrees de
 agentes têm cada uma o seu `target/` — removê-las (`git worktree remove`)
 depois de integrar o trabalho é parte da limpeza.
@@ -6848,7 +6848,7 @@ compilado sem o SDK, e é por isso também que 30 programas nem carregam
 (`dart:math`, `dart:async`, `dart:collection`…). Quando o SDK entrar, cada
 emissão analisa o SDK inteiro (no JS isso custa centenas de MB, §1.3); por
 isso o harness separa emissões simultâneas de trabalhadores:
-`DARTFORGE_IR_PARALELO_MAX` (padrão 2) limita as emissões físicas, e a
+`DARTFORGE_IR_PARALLEL_MAX` (padrão 2) limita as emissões físicas, e a
 ordem de conclusão continua variando, que é o que o teste precisa. O
 cache por **módulo** — o SDK compilado uma vez e compartilhado entre
 programas — só paga depois disso, e exige símbolos e ids de classe estáveis

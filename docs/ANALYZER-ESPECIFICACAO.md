@@ -27519,7 +27519,7 @@ continua dando `experiment_not_enabled … 3.6.0`, c19) — por isso esses arqui
 ##### 2. Estado atual no DartForge
 
 - **Corpus/placar** (`crates/parity`): `SdkOraculo::{V362,V3134}` (`oraculo.rs:18-25`), `raiz()`
-  (`:57-63`, `E:/DartSDKs/3.6.2` e `E:/DartSDKs/3.13.4/dart-sdk`, variáveis `DARTFORGE_ORACULO_3_6/_3_13`);
+  (`:57-63`, `E:/DartSDKs/3.6.2` e `E:/DartSDKs/3.13.4/dart-sdk`, variáveis `DARTFORGE_ORACLE_3_6/_3_13`);
   `RECURSOS_DESCONHECIDOS_NO_3_6_2` (`:252`); `usa_sintaxe_nova` (`:259`); `regravar_oraculo`
   (`main.rs:327`) regrava com o SDK do grupo e depois `substituir_arquivos` (`main.rs:423`) troca os
   registros dos arquivos da lista pelos do 3.13.4 (`oraculo_313_do_grupo`, `main.rs:410`);

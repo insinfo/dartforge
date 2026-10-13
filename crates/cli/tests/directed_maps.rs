@@ -10,12 +10,12 @@
 //! compilation, at run time or in the output —; a case that passes with the
 //! sabotage proves nothing.
 //!
-//! Also: the checking build (`DARTFORGE_RAIZES_CONFERIR=1` with
-//! `DARTFORGE_GC_PERCURSO=conferir`, E2.5) and the seed-scheduled collection
-//! (`DARTFORGE_GC_AGENDA`).
+//! Also: the checking build (`DARTFORGE_ROOTS_CHECK=1` with
+//! `DARTFORGE_GC_WALK=conferir`, E2.5) and the seed-scheduled collection
+//! (`DARTFORGE_GC_SCHEDULE`).
 //!
 //! Heavy (one compilation per case and per sabotage): runs with
-//! `DARTFORGE_TESTES_MAPAS=1`, on the targets that have the mode.
+//! `DARTFORGE_MAPS_TESTS=1`, on the targets that have the mode.
 //! Written without compiling or running (2026-10-05).
 #![cfg(feature = "jit")]
 
@@ -30,9 +30,9 @@ struct Case {
     /// Compile with the roots on the shadow stack (`--raizes=sombra`): the case
     /// whose sabotage targets the shadow stack frame (D5).
     shadow: bool,
-    /// The emitter's sabotage (`DARTFORGE_SABOTAGEM` at compile time).
+    /// The emitter's sabotage (`DARTFORGE_SABOTAGE` at compile time).
     emitter_sabotage: Option<&'static str>,
-    /// The runtime's sabotage (`DARTFORGE_SABOTAGEM` at run time).
+    /// The runtime's sabotage (`DARTFORGE_SABOTAGE` at run time).
     runtime_sabotage: Option<&'static str>,
 }
 
@@ -191,9 +191,9 @@ const CASES: &[Case] = &[
 fn enabled() -> bool {
     let target = (cfg!(windows) && cfg!(target_arch = "x86_64"))
         || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
-    let requested = std::env::var("DARTFORGE_TESTES_MAPAS").is_ok_and(|v| v == "1");
+    let requested = std::env::var("DARTFORGE_MAPS_TESTS").is_ok_and(|v| v == "1");
     if !requested {
-        eprintln!("DARTFORGE_TESTES_MAPAS=1 not set: stack map root tests skipped");
+        eprintln!("DARTFORGE_MAPS_TESTS=1 not set: stack map root tests skipped");
     }
     target && requested
 }
@@ -236,12 +236,12 @@ fn compile(file: &str, tables: bool, shadow: bool, env: &[(&str, &str)], output:
     if tables {
         c.arg("--excecoes=tabelas");
     }
-    c.env_remove("DARTFORGE_SABOTAGEM").env_remove("DARTFORGE_RAIZES_CONFERIR");
+    c.env_remove("DARTFORGE_SABOTAGE").env_remove("DARTFORGE_ROOTS_CHECK");
     if shadow {
         // The dominance checker of the shadow mode (§7.4).
-        c.env("DARTFORGE_CONFERIR_SOMBRA", "1");
+        c.env("DARTFORGE_CHECK_SHADOW", "1");
     } else {
-        c.env("DARTFORGE_CONFERIR_RS4GC", "1");
+        c.env("DARTFORGE_CHECK_RS4GC", "1");
     }
     for (k, v) in env {
         c.env(k, v);
@@ -258,8 +258,8 @@ fn run_with(exe: &Path, stress: bool, env: &[(&str, &str)]) -> Output {
     if stress {
         c.env("DARTFORGE_GC_STRESS", "1");
     }
-    c.env("DARTFORGE_GC_STATS", "exigir").env("DARTFORGE_GC_VENENO", "1");
-    c.env_remove("DARTFORGE_SABOTAGEM").env_remove("DARTFORGE_GC_PERCURSO").env_remove("DARTFORGE_GC_AGENDA");
+    c.env("DARTFORGE_GC_STATS", "exigir").env("DARTFORGE_GC_POISON", "1");
+    c.env_remove("DARTFORGE_SABOTAGE").env_remove("DARTFORGE_GC_WALK").env_remove("DARTFORGE_GC_SCHEDULE");
     for (k, v) in env {
         c.env(k, v);
     }
@@ -304,14 +304,14 @@ fn targeted_cases_pass_and_fail_with_the_sabotage() {
 
         if let Some(s) = case.emitter_sabotage {
             let sab = dir.join(format!("case{k}-sab{}", std::env::consts::EXE_SUFFIX));
-            let failed = match compile(case.file, case.tables, case.shadow, &[("DARTFORGE_SABOTAGEM", s)], &sab) {
+            let failed = match compile(case.file, case.tables, case.shadow, &[("DARTFORGE_SABOTAGE", s)], &sab) {
                 Err(_) => true,
                 Ok(()) => !right_output(&run(&sab, &[]), case.expected),
             };
             assert!(failed, "{}: passed with the sabotage `{s}` — the case does not prove what it claims", case.file);
         }
         if let Some(s) = case.runtime_sabotage {
-            let r = run(&exe, &[("DARTFORGE_SABOTAGEM", s)]);
+            let r = run(&exe, &[("DARTFORGE_SABOTAGE", s)]);
             assert!(!right_output(&r, case.expected), "{}: passed with the runtime sabotage `{s}`", case.file);
         }
     }
@@ -328,9 +328,9 @@ fn walk_checked_against_the_shadow_stack() {
     let dir = work_dir("conferencia");
     for case in CASES.iter().filter(|c| !c.shadow && c.runtime_sabotage.is_none() && c.emitter_sabotage.is_some()) {
         let exe = dir.join(format!("conf{}", std::env::consts::EXE_SUFFIX));
-        compile(case.file, case.tables, false, &[("DARTFORGE_RAIZES_CONFERIR", "1")], &exe)
+        compile(case.file, case.tables, false, &[("DARTFORGE_ROOTS_CHECK", "1")], &exe)
             .unwrap_or_else(|e| panic!("{}: did not compile:\n{e}", case.file));
-        let r = run(&exe, &[("DARTFORGE_GC_PERCURSO", "conferir")]);
+        let r = run(&exe, &[("DARTFORGE_GC_WALK", "conferir")]);
         let stderr = String::from_utf8_lossy(&r.stderr).into_owned();
         assert!(right_output(&r, case.expected), "{}: the check failed ({}):\n{stderr}", case.file, r.status);
         assert!(statistic(&stderr, "checked_roots").is_some_and(|n| n > 0), "{}: no root checked:\n{stderr}", case.file);
@@ -338,7 +338,7 @@ fn walk_checked_against_the_shadow_stack() {
 }
 
 /// D7 per extern (§7.3, §7.5): with the effects table check
-/// (`DARTFORGE_EFEITOS=conferir`), each extern marked as a leaf runs watched,
+/// (`DARTFORGE_EFFECTS=conferir`), each extern marked as a leaf runs watched,
 /// and a collection inside it ends the process naming it. D1 passes; with the
 /// fake leaf (`folha:dartforge_string_concat`), it fails, and the message
 /// names the extern.
@@ -350,11 +350,11 @@ fn leaf_that_collects_is_found_by_name() {
     let dir = work_dir("efeitos");
     let case = &CASES[0];
     let exe = dir.join(format!("efeitos{}", std::env::consts::EXE_SUFFIX));
-    compile(case.file, false, false, &[("DARTFORGE_EFEITOS", "conferir")], &exe).unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+    compile(case.file, false, false, &[("DARTFORGE_EFFECTS", "conferir")], &exe).unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     let r = run(&exe, &[]);
     assert!(right_output(&r, case.expected), "with the check: {}", String::from_utf8_lossy(&r.stderr));
     let sab = dir.join(format!("efeitos-sab{}", std::env::consts::EXE_SUFFIX));
-    compile(case.file, false, false, &[("DARTFORGE_EFEITOS", "conferir"), ("DARTFORGE_SABOTAGEM", "folha:dartforge_string_concat")], &sab)
+    compile(case.file, false, false, &[("DARTFORGE_EFFECTS", "conferir"), ("DARTFORGE_SABOTAGE", "folha:dartforge_string_concat")], &sab)
         .unwrap_or_else(|e| panic!("did not compile with the sabotage:\n{e}"));
     let r = run(&sab, &[]);
     let stderr = String::from_utf8_lossy(&r.stderr).into_owned();
@@ -372,7 +372,7 @@ fn seed_scheduled_collection() {
     let exe = dir.join(format!("agenda{}", std::env::consts::EXE_SUFFIX));
     compile(case.file, false, false, &[], &exe).unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     for seed in ["1,7", "42,13", "9,3"] {
-        let r = run_with(&exe, false, &[("DARTFORGE_GC_AGENDA", seed)]);
+        let r = run_with(&exe, false, &[("DARTFORGE_GC_SCHEDULE", seed)]);
         assert!(right_output(&r, case.expected), "schedule {seed}: {}", String::from_utf8_lossy(&r.stderr));
     }
 }

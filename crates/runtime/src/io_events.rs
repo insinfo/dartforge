@@ -375,13 +375,13 @@ impl DescriptorInfo {
     }
 }
 
-/// `DARTFORGE_IO_RASTRO=1`: one line on stderr per poll event, per request to the
+/// `DARTFORGE_IO_TRACE=1`: one line on stderr per poll event, per request to the
 /// handler and per change of what the poll watches (the diagnosis of `dart:io`
 /// defects that only show up on one system).
 #[cfg(unix)]
 fn io_trace() -> bool {
     static R: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *R.get_or_init(|| std::env::var("DARTFORGE_IO_RASTRO").is_ok_and(|v| v == "1"))
+    *R.get_or_init(|| std::env::var("DARTFORGE_IO_TRACE").is_ok_and(|v| v == "1"))
 }
 
 /// `DartUtils::PostInt32`: the event mask on the port.

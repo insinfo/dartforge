@@ -9,7 +9,7 @@
 //! evaluated before the call), and the same prototype.
 //!
 //! The replacement is textual, through `oxc`'s spans, as in `flatten.rs`.
-//! `DARTFORGE_JSPROD_FORMAS=0` turns it off.
+//! `DARTFORGE_JSPROD_SHAPES=0` turns it off.
 
 use oxc_ast::ast::{AssignmentOperator, AssignmentTarget, Expression, ExpressionStatement};
 use oxc_ast_visit::{Visit, walk};
@@ -351,9 +351,9 @@ pub fn apply(source: &str) -> Result<String, String> {
     // The program's closed recipes evaluated once: a repeated `t$R("R")`
     // becomes the variable `t$T…`, declared right after the SDK (the rti
     // universe already exists, and the result is the same canonical object).
-    // `DARTFORGE_JSPROD_RECEITAS_FIXAS=0` turns it off.
+    // `DARTFORGE_JSPROD_FIXED_RECIPES=0` turns it off.
     if sdk_end != u32::MAX
-        && std::env::var("DARTFORGE_JSPROD_RECEITAS_FIXAS").map_or(true, |v| v != "0")
+        && std::env::var("DARTFORGE_JSPROD_FIXED_RECIPES").map_or(true, |v| v != "0")
     {
         let mut count: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
         for (_, _, r) in &a.recipes {

@@ -12,9 +12,9 @@ use crate::oracle::Record;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-/// Divergence samples per (code, category): `DARTFORGE_PARIDADE_AMOSTRAS`, 3 by default.
+/// Divergence samples per (code, category): `DARTFORGE_PARITY_SAMPLES`, 3 by default.
 fn sample_limit() -> usize {
-    std::env::var("DARTFORGE_PARIDADE_AMOSTRAS").ok().and_then(|v| v.parse().ok()).unwrap_or(3)
+    std::env::var("DARTFORGE_PARITY_SAMPLES").ok().and_then(|v| v.parse().ok()).unwrap_or(3)
 }
 
 /// The counters of one code.

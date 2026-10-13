@@ -263,7 +263,7 @@ impl NativeGenerator for NgStageA {
         let mut names = dartforge_intern::Interner::new();
         let (g, scoreboard) =
             dartforge_ng_generator::generate_with_fallback(&package, &mut names, None, Some(&resolver));
-        if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
+        if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
             eprintln!(
                 "ngdart (stage A): queries {:.1} ms ({} files), generate_with_fallback {:.1} ms",
                 t_queries.as_secs_f64() * 1000.0,
@@ -549,7 +549,7 @@ impl NgStageA {
             }
         }
         cache.resource_readers.retain(|_, v| !v.is_empty());
-        if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
+        if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
             eprintln!(
                 "ngdart (stage B): {} file(s) in the closure of {} .dart edit(s)",
                 closure.len(),
@@ -680,7 +680,7 @@ impl NgStageA {
         for (target, bytes) in new {
             cache.output.outputs.insert(target, bytes);
         }
-        if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
+        if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
             eprintln!(
                 "ngdart (stage B): {} component(s) for {}",
                 cache.resource_readers[resource].len(),

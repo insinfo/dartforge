@@ -853,7 +853,7 @@ pub struct Assembly {
 /// Assembles the method tables in the IR of the program (§3.8): those of the program
 /// rewritten with only the live pairs, and those of the SDK summaries defined,
 /// pruned, with the function that returns each one. `prune = false`: all the
-/// pairs (`DARTFORGE_SEM_PODA_DE_TABELAS`).
+/// pairs (`DARTFORGE_NO_TABLE_PRUNING`).
 ///
 /// # Errors
 /// A table line of the program that cannot be read (format outside that of
@@ -1022,16 +1022,16 @@ pub fn read_summaries(files: &[PathBuf]) -> Result<Vec<std::sync::Arc<Summary>>,
 }
 
 /// The assembly of the production link: reads the summaries, assembles, writes the
-/// report if `DARTFORGE_POR_QUE` asks and shows the numbers with `timings`.
+/// report if `DARTFORGE_WHY` asks and shows the numbers with `timings`.
 ///
 /// # Errors
 /// Those of [`read_summaries`] and [`assemble`], or a report that cannot be written.
 pub fn assemble_production(ir: &str, files: &[PathBuf], timings: bool) -> Result<String, String> {
     let summaries = read_summaries(files)?;
     let refs: Vec<&Summary> = summaries.iter().map(|r| r.as_ref()).collect();
-    let prune = !std::env::var("DARTFORGE_SEM_PODA_DE_TABELAS").is_ok_and(|v| v == "1");
+    let prune = !std::env::var("DARTFORGE_NO_TABLE_PRUNING").is_ok_and(|v| v == "1");
     let m = assemble(ir, &refs, prune)?;
-    if let Some(file) = std::env::var_os("DARTFORGE_POR_QUE") {
+    if let Some(file) = std::env::var_os("DARTFORGE_WHY") {
         let file = Path::new(&file);
         std::fs::write(file, report(&m.reachability)).map_err(|e| format!("{}: {e}", file.display()))?;
     }
@@ -1203,7 +1203,7 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
     // recipes: the fixpoint repeats until the keys stop growing.
     let letters: HashMap<i64, char> = m.ffi_types.iter().copied().collect();
     let composites: HashSet<i64> = m.ffi_composites.iter().map(|c| c.rti).collect();
-    let prune_ffi = !m.ffi_trampolines.is_empty() && !std::env::var("DARTFORGE_SEM_PODA_FFI").is_ok_and(|v| v == "1");
+    let prune_ffi = !m.ffi_trampolines.is_empty() && !std::env::var("DARTFORGE_NO_FFI_PRUNING").is_ok_and(|v| v == "1");
     let mut live_ffis: HashSet<String> = HashSet::new();
     let (program, reachability) = loop {
         let program = hir_summary_with(m, prune_ffi.then_some(&live_ffis));

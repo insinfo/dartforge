@@ -278,7 +278,7 @@ fn emit_ir_internal(
     // the unwind tables with the system.
     let table_exceptions = target::table_exceptions()?;
     if table_exceptions && !prune {
-        return Err("exceptions by tables (DARTFORGE_EXCECOES=tabelas) do not exist in the JIT: use compile-native".to_string());
+        return Err("exceptions by tables (DARTFORGE_EXCEPTIONS=tabelas) do not exist in the JIT: use compile-native".to_string());
     }
     // The roots mode (`target::roots_by_maps`). In the JIT (the only one that emits
     // without pruning) the map of each object is found and registered by the
@@ -432,8 +432,8 @@ fn emit_ir_internal(
     // the SDK summaries (`pruning::prune_hir`): what the production link would
     // remove later leaves before optimizing and emitting. Not in the JIT (the next
     // generation of a reload may call any selector).
-    // `DARTFORGE_SEM_PODA_HIR=1` turns it off.
-    if prune && !std::env::var("DARTFORGE_SEM_PODA_HIR").is_ok_and(|v| v == "1") {
+    // `DARTFORGE_NO_HIR_PRUNING=1` turns it off.
+    if prune && !std::env::var("DARTFORGE_NO_HIR_PRUNING").is_ok_and(|v| v == "1") {
         let t_prune = Instant::now();
         if let Some(e) = prune_program_hir(&mut hir_module, options.optimize)?
             && options.timings
@@ -454,7 +454,7 @@ fn emit_ir_internal(
     // The same pipeline prepares the SDK libraries and materializes tables
     // only after the HIR transformations.
     optimize::prepare_for_emission(&mut hir_module, arc_memory, table_exceptions);
-    // The published ARC preparation (`DARTFORGE_ARC_PREPARADO=1`): the program
+    // The published ARC preparation (`DARTFORGE_ARC_PREPARED=1`): the program
     // alone, calling the prepared SDK (`sdk_module`, the same option in the
     // cache key) through the summaries of its own calls.
     if target::arc_prepared()? {
@@ -492,7 +492,7 @@ fn emit_ir_internal(
     // (docs/NATIVO-PRODUCAO-GRANDE.md §5). The price is the performance of code
     // that calls dynamic dispatch a lot or reads many fields
     // (`bench/performance/chamadas.dart`: 1.4–2.5× slower); with
-    // `DARTFORGE_AJUDANTES_FORA=` (empty) and `DARTFORGE_CAMPOS_POR_CHAMADA=0`
+    // `DARTFORGE_OUTLINED_HELPERS=` (empty) and `DARTFORGE_FIELDS_BY_CALL=0`
     // the large program goes back fully inline. A small program stays
     // inline (LTO removes what is left).
     let large_size = hir_module.functions.len() >= LARGE_PROGRAM_FUNCTIONS;
@@ -500,7 +500,7 @@ fn emit_ir_internal(
     if large && options.timings {
         eprintln!("  Large program: {} HIR functions (fields and helpers by call)", hir_module.functions.len());
     }
-    let fields_per_call = match std::env::var("DARTFORGE_CAMPOS_POR_CHAMADA") {
+    let fields_per_call = match std::env::var("DARTFORGE_FIELDS_BY_CALL") {
         Ok(v) => v == "1",
         Err(_) => large,
     };
@@ -515,8 +515,8 @@ fn emit_ir_internal(
         .with_outlined_helpers(llvm::out_of_line_helpers(!options.optimize && large_size, large))
         // `optsize` on the functions of the large program: −8.7% in the executable of the
         // backend, without changing the time (docs/NATIVO-PRODUCAO-GRANDE.md §5);
-        // `DARTFORGE_OPTSIZE_PROGRAMA=0` turns it off.
-        .with_optimize_size(large && !std::env::var("DARTFORGE_OPTSIZE_PROGRAMA").is_ok_and(|v| v == "0"))
+        // `DARTFORGE_OPTSIZE_PROGRAM=0` turns it off.
+        .with_optimize_size(large && !std::env::var("DARTFORGE_OPTSIZE_PROGRAM").is_ok_and(|v| v == "0"))
         .with_production(options.optimize)
         // Without optimization there is no inlining: one roots frame per native
         // frame, and the runtime checks the order (the dead frame).

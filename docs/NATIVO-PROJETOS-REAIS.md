@@ -40,7 +40,7 @@ corpus, `crates/differential/src/oraculos.rs:260`) e no nativo
 código de saída. Programa que a VM não compila (código 254: dependência
 de teste ausente, como `test_descriptor`) fica fora do placar. O motor de
 build do dartforge é desligado no roteiro
-(`DARTFORGE_BUILD_COMPILANDO_EXECUTOR=1`): os pacotes publicados já trazem
+(`DARTFORGE_BUILD_COMPILING_EXECUTOR=1`): os pacotes publicados já trazem
 o código gerado, e o motor tomaria a cópia do pacote como raiz e cobraria
 as dependências de desenvolvimento dela.
 
@@ -253,7 +253,7 @@ que o SDK compilado pode chamar num objeto do programa. O que fica fora:
   tomado na linearização, para uma superclasse não preencher o lugar. Os
   membros sintéticos (encaminhadores de `noSuchMethod`) nunca são podados.
 
-`DARTFORGE_SEM_PODA_DO_PROGRAMA=1` desliga. No backend: 38 062 de 110 817
+`DARTFORGE_NO_PROGRAM_PRUNING=1` desliga. No backend: 38 062 de 110 817
 funções do programa vivas; o IR caiu para 1,32 GB.
 
 ### C8. O inliner copiava getters preguiçosos de globais
@@ -288,7 +288,7 @@ vezes — 21% das linhas.
    (`@df.area_id`) passa a externo na parte 0. Cada parte é montada só
    quando é a vez dela (`Plano::parte`) e tem a sua chave no cache de
    objetos — uma edição recompila só as partes que mudaram.
-   `DARTFORGE_PARTE_MB` (0 desliga), `DARTFORGE_PARTES_PARALELAS` (padrão:
+   `DARTFORGE_PART_MB` (0 desliga), `DARTFORGE_PARALLEL_PARTS` (padrão:
    metade das threads, no máximo 3). Vale também na produção: cada parte
    vira um bitcode e o ThinLTO do ligador as junta (`/opt:lldltojobs`,
    `--thinlto-jobs` no mesmo número).
@@ -464,7 +464,7 @@ passa pela análise de capturas (`EN/lower/mod.rs`).
 `save()` roda em `Isolate.run` (`pdfCompute`), e no isolado novo
 `PdfPage.prepare` faz `_contentGraphics[content]!` com `content` vindo de
 `contents` — a chave está no mapa, mas a busca não a acha (rastro com
-`DARTFORGE_RASTRO=1` + `DARTFORGE_DEPURAR=1`).
+`DARTFORGE_CALL_TRACE=1` + `DARTFORGE_DEBUG=1`).
 
 **Regra.** A cópia de mensagem da VM refaz o índice de um `_Map`/`_Set`
 cuja chave pode mudar de hash no destino (hash de identidade novo, ou

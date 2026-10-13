@@ -108,9 +108,9 @@ pub struct LlvmEmitter<'a> {
     scope_thunks: std::collections::BTreeMap<String, (String, Vec<Type>, Type)>,
     /// Symbols defined in a `comdat` (`selectors::linkage_of`).
     comdats: Vec<String>,
-    /// `DARTFORGE_RASTRO=1` at compile time: each function reports the entry and the
+    /// `DARTFORGE_CALL_TRACE=1` at compile time: each function reports the entry and the
     /// exit to the runtime, which shows the stack of Dart functions on an exception
-    /// (`DARTFORGE_DEPURAR=1`). Only for debugging the source SDK.
+    /// (`DARTFORGE_DEBUG=1`). Only for debugging the source SDK.
     stack_trace: Option<usize>,
     stack_trace_names: Vec<String>,
     // --- Per-isolate global area ---
@@ -199,7 +199,7 @@ pub struct LlvmEmitter<'a> {
     /// model (the pending flag checked after each call), and the IR is
     /// then the usual one, byte for byte.
     tab: Option<&'a FunctionTables>,
-    /// `DARTFORGE_EFEITOS=conferir` ([`externs::check_effects`]): the names
+    /// `DARTFORGE_EFFECTS=conferir` ([`externs::check_effects`]): the names
     /// of the externs checked in this module, in order of first use (the
     /// index is that of the global `@df.efn.<k>` with the text).
     checked_externs: Vec<String>,
@@ -221,7 +221,7 @@ pub struct LlvmEmitter<'a> {
     /// of the variadic C calls made by a `gc` function
     /// ([`Self::c_call_text`]); they go into the module after the functions.
     variadic_set: Vec<String>,
-    /// The checking build of the walk (`DARTFORGE_RAIZES_CONFERIR=1`
+    /// The checking build of the walk (`DARTFORGE_ROOTS_CHECK=1`
     /// with `--raizes=mapas`, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §15.2,
     /// E2.5): in a `gc` function, the first of the check slots at the end
     /// of the roots frame and how many there are. Before each collection point they
@@ -277,7 +277,7 @@ impl<'a> LlvmEmitter<'a> {
             owned_thunks: std::collections::BTreeMap::new(),
             scope_thunks: std::collections::BTreeMap::new(),
             comdats: Vec::new(),
-            stack_trace: std::env::var("DARTFORGE_RASTRO").is_ok_and(|v| v == "1").then_some(0),
+            stack_trace: std::env::var("DARTFORGE_CALL_TRACE").is_ok_and(|v| v == "1").then_some(0),
             stack_trace_names: Vec::new(),
             global_slots: std::collections::HashMap::new(),
             slot_hashes: Vec::new(),
@@ -882,7 +882,7 @@ impl<'a> LlvmEmitter<'a> {
         // (§3.7): without `gc`, with the usual slots.
         let cost = analysis.rooted_set.len() as u64 * (analysis.live_at.len() + analysis.live_at_end.len()) as u64;
         let within_budget = cost <= crate::target::maps_budget();
-        if self.maps && !within_budget && std::env::var_os("DARTFORGE_RELATORIO_MAPAS").is_some() {
+        if self.maps && !within_budget && std::env::var_os("DARTFORGE_MAPS_REPORT").is_some() {
             eprintln!("dartforge: {} outside the maps budget ({cost}): shadow stack", func.symbol);
         }
         if self.maps && within_budget {
@@ -1035,7 +1035,7 @@ impl<'a> LlvmEmitter<'a> {
                 // block — it became a dynamic allocation, with `__chkstk` and
                 // `stacksave` on each call of the function, and prevented the inliner
                 // from taking the frame into the entry block of the caller.
-                // `DARTFORGE_SEM_QUADRO_NA_ENTRADA=1` at compile time goes back to the
+                // `DARTFORGE_NO_FRAME_AT_ENTRY=1` at compile time goes back to the
                 // old place (measurement).
                 if self.has_frame && Self::frame_at_entry() {
                     let n = self.frame_size();
@@ -1646,7 +1646,7 @@ impl<'a> LlvmEmitter<'a> {
                         }
                         let joined = args_formatted.join(", ");
                         let r = ret_ty.llvm_ir();
-                        // `DARTFORGE_EFEITOS=conferir`: the extern marked as not
+                        // `DARTFORGE_EFFECTS=conferir`: the extern marked as not
                         // collecting or not throwing runs watched by the runtime.
                         let marks = if externs::check_effects() { externs::marks_to_check(name) } else { 0 };
                         if marks != 0 {
@@ -2534,12 +2534,12 @@ impl<'a> LlvmEmitter<'a> {
     /// The roots frame at the top of the entry block (see the prologue).
     fn frame_at_entry() -> bool {
         static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_SEM_QUADRO_NA_ENTRADA").is_some_and(|v| !v.is_empty() && v != "0"))
+        !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_NO_FRAME_AT_ENTRY").is_some_and(|v| !v.is_empty() && v != "0"))
     }
 
     /// `dartforge_rti_eval` without a tuple and with `this`: goes through the cache of the
     /// use site in the area ([`Self::emit_rti_evaluate_cached`]).
-    /// `DARTFORGE_SEM_CACHE_RTI=1` at compile time turns it off (measurement).
+    /// `DARTFORGE_NO_RTI_CACHE=1` at compile time turns it off (measurement).
     fn rti_evaluate_cached(i: &Instruction) -> bool {
         static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         matches!(i, Instruction::CallRuntime { name, args, .. }
@@ -2547,7 +2547,7 @@ impl<'a> LlvmEmitter<'a> {
                 && args.len() == 4
                 && matches!(args[3].0, Operand::Constant(Constant::Int(0)))
                 && !matches!(args[1].0, Operand::Constant(_)))
-            && !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_SEM_CACHE_RTI").is_some_and(|v| !v.is_empty() && v != "0"))
+            && !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_NO_RTI_CACHE").is_some_and(|v| !v.is_empty() && v != "0"))
     }
 
     /// `P<i>` evaluated with a cache at the use site (N17): two words of the
@@ -3885,7 +3885,7 @@ impl<'a> LlvmEmitter<'a> {
     /// without a conversion that allocates (the type of the parameter, no constant
     /// text). Only on the shadow stack of tracing memory: roots
     /// by maps and ARC follow the usual rule. Only with
-    /// `DARTFORGE_RAIZES_NO_CHAMADO=1` ([`roots_in_callee`]).
+    /// `DARTFORGE_ROOTS_IN_CALLEE=1` ([`roots_in_callee`]).
     fn callee_roots_the_arguments(&self, inst: &Instruction) -> bool {
         if self.maps || self.module.arc_memory || !roots_in_callee() {
             return false;
@@ -4075,7 +4075,7 @@ const MAP_LEAVES: &[&str] = &[
 ];
 
 /// The rule of roots by the callee (`LlvmEmitter::callee_roots_the_arguments`)
-/// is on: `DARTFORGE_RAIZES_NO_CHAMADO=1` (measurement; off by
+/// is on: `DARTFORGE_ROOTS_IN_CALLEE=1` (measurement; off by
 /// default). It removes ~8% of the root stores of new_sali/backend, but
 /// changes the coloring of the slots: a shared slot keeps the last value
 /// until it is reused or the frame closes, and with fewer rooted values the
@@ -4084,7 +4084,7 @@ const MAP_LEAVES: &[&str] = &[
 /// 121 against 95 MB). Zeroing the slot of the value that dies before turning it on is still missing.
 fn roots_in_callee() -> bool {
     static ENABLED_IN_CALLEE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED_IN_CALLEE.get_or_init(|| std::env::var("DARTFORGE_RAIZES_NO_CHAMADO").is_ok_and(|v| v == "1"))
+    *ENABLED_IN_CALLEE.get_or_init(|| std::env::var("DARTFORGE_ROOTS_IN_CALLEE").is_ok_and(|v| v == "1"))
 }
 
 /// Roots by maps: the call of the line may collect — the indirect one, and the
@@ -4417,7 +4417,7 @@ lento:\n\
 pub const OUTLINED_HELPERS_LARGE_PROGRAM: &[&str] =
     &["subclass", "allocate", "barrier", "element_barrier", "get_area", "new_instance"];
 
-/// The list of out-of-line helpers: `DARTFORGE_AJUDANTES_FORA` (a list
+/// The list of out-of-line helpers: `DARTFORGE_OUTLINED_HELPERS` (a list
 /// separated by commas; `1`, all; empty, none); otherwise all in the
 /// large program, in development (`-O0`, where `alwaysinline` copies
 /// the helper at each use and code generation pays for each copy:
@@ -4426,7 +4426,7 @@ pub const OUTLINED_HELPERS_LARGE_PROGRAM: &[&str] =
 /// inline helpers (the corpus/native: 53 → 116 s).
 pub fn out_of_line_helpers(large_development: bool, large_program: bool) -> Vec<String> {
     let all = || ["selector", "class"].iter().chain(OUTLINED_HELPERS_LARGE_PROGRAM).map(|s| (*s).to_string()).collect();
-    match std::env::var("DARTFORGE_AJUDANTES_FORA") {
+    match std::env::var("DARTFORGE_OUTLINED_HELPERS") {
         Ok(v) if v == "1" => all(),
         Ok(v) => v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect(),
         Err(_) if large_development || large_program => all(),

@@ -1069,9 +1069,9 @@ pub fn prune_with_index(src: &str, index: &SdkIndex, roots: &[String]) -> (Strin
             eprintln!("[jsprod] {n:>8}  {s}");
         }
     }
-    // `DARTFORGE_JSPROD_GATILHO=html$` lists the live units tied to a
+    // `DARTFORGE_JSPROD_TRIGGER=html$` lists the live units tied to a
     // symbol.
-    if let Ok(target) = std::env::var("DARTFORGE_JSPROD_GATILHO") {
+    if let Ok(target) = std::env::var("DARTFORGE_JSPROD_TRIGGER") {
         for target in target.split(',') {
             let Some(d) = symbols.lookup(target) else { continue };
             for (i, &(start, end, _)) in slices.iter().enumerate() {
@@ -1082,10 +1082,10 @@ pub fn prune_with_index(src: &str, index: &SdkIndex, roots: &[String]) -> (Strin
             }
         }
     }
-    // `DARTFORGE_JSPROD_QUEM=html$.Element` lists the live units that cite
+    // `DARTFORGE_JSPROD_WHO=html$.Element` lists the live units that cite
     // the symbol — with the text, which is what makes it possible to fix the
     // classification.
-    if let Ok(target) = std::env::var("DARTFORGE_JSPROD_QUEM") {
+    if let Ok(target) = std::env::var("DARTFORGE_JSPROD_WHO") {
         for target in target.split(',') {
             let Some(d) = symbols.lookup(target) else {
                 eprintln!("[jsprod] {target}: no such symbol");
@@ -1102,8 +1102,8 @@ pub fn prune_with_index(src: &str, index: &SdkIndex, roots: &[String]) -> (Strin
             }
         }
     }
-    // `DARTFORGE_JSPROD_CAMINHO=core._BigIntImpl` answers who pulled it in.
-    if let Ok(target) = std::env::var("DARTFORGE_JSPROD_CAMINHO") {
+    // `DARTFORGE_JSPROD_PATH=core._BigIntImpl` answers who pulled it in.
+    if let Ok(target) = std::env::var("DARTFORGE_JSPROD_PATH") {
         for target in target.split(',') {
             match symbols.lookup(target).and_then(|d| reach::path(units, &roots, symbols.total(), d)) {
                 Some(c) => eprintln!("[jsprod] {target} <- {}", c.iter().rev().map(|&s| symbols.name(s)).collect::<Vec<_>>().join(" <- ")),

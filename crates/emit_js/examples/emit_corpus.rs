@@ -4,7 +4,7 @@
 //!
 //! `cargo run --release -p dartforge-emit-js --example emit_corpus -- <out_dir> corpus/js/*.dart`
 //!
-//! With `DARTFORGE_JS_CONFERIR_TIPOS` set, each compilation also checks the
+//! With `DARTFORGE_JS_CHECK_TYPES` set, each compilation also checks the
 //! emitter's types against the shared inference (`crates/emit_js/src/type_check.rs`).
 //! With `EMITIR_CORPUS_EXECUTAVEL=1`, each program is also written ready for Node
 //! in `<out_dir>/<name>/` (`node <out_dir>/<name>/main.mjs`), with the

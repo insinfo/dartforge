@@ -41,10 +41,10 @@ pub const SOURCE_LIBRARIES: &[&str] =
         "mirrors",
     ];
 
-/// Overlay directory: `DARTFORGE_SDK_NATIVO`, otherwise the `native_sdk/`
+/// Overlay directory: `DARTFORGE_NATIVE_SDK`, otherwise the `native_sdk/`
 /// of the repository that compiled this binary.
 pub fn overlay_dir() -> PathBuf {
-    if let Some(d) = std::env::var_os("DARTFORGE_SDK_NATIVO") {
+    if let Some(d) = std::env::var_os("DARTFORGE_NATIVE_SDK") {
         return PathBuf::from(d);
     }
     if let Some(d) = dartforge_elements::distribution::native_overlay() {
@@ -429,7 +429,7 @@ fn defined_symbols(ir: &str, exit: &mut Vec<String>) {
 
 /// The key of the compiled SDK: blake3 of the SDK sources that enter (the
 /// source libraries, the `vm` patches, `libraries.json`), of the
-/// overlay, of the compiler (`DARTFORGE_EMISSOR_HASH`, `build.rs`), of the
+/// overlay, of the compiler (`DARTFORGE_EMITTER_HASH`, `build.rs`), of the
 /// identity of Clang and of the flags.
 fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     fn join(dir: &Path, exit: &mut Vec<PathBuf>) {
@@ -471,24 +471,24 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     h.update(b"dartforge-sdk-fonte\0");
     h.update(env!("CARGO_PKG_VERSION").as_bytes());
     h.update(b"\0");
-    h.update(env!("DARTFORGE_EMISSOR_HASH").as_bytes());
+    h.update(env!("DARTFORGE_EMITTER_HASH").as_bytes());
     h.update(b"\0");
     // The debug trace changes the code (`llvm/mod.rs`).
-    h.update(std::env::var("DARTFORGE_RASTRO").unwrap_or_default().as_bytes());
+    h.update(std::env::var("DARTFORGE_CALL_TRACE").unwrap_or_default().as_bytes());
     h.update(b"\0");
     // The symbolic stack trace adds the labels and the table (`llvm/stack_trace.rs`);
     // the default does not enter.
-    if std::env::var("DARTFORGE_RASTRO_VM").is_ok_and(|v| v == "simbolico") {
+    if std::env::var("DARTFORGE_STACK_TRACE").is_ok_and(|v| v == "simbolico") {
         h.update(b"rastro=simbolico\0");
     }
     // The exception model changes the code (`optimize/tables.rs`). The default
     // does not enter the key: the usual SDK keeps the usual key.
-    if std::env::var("DARTFORGE_EXCECOES").is_ok_and(|v| v == "tabelas") {
+    if std::env::var("DARTFORGE_EXCEPTIONS").is_ok_and(|v| v == "tabelas") {
         h.update(b"excecoes=tabelas\0");
     }
     // ARC memory changes the code (the stores through the runtime, the activation at the
     // entry); the default does not enter. The version is that of the memory ABI.
-    if std::env::var("DARTFORGE_MEMORIA").is_ok_and(|v| v == "arc") {
+    if std::env::var("DARTFORGE_MEMORY").is_ok_and(|v| v == "arc") {
         h.update(b"memoria=arc_v1\0");
     }
     // The published ARC preparation changes the bodies (tokens, cleanup); the
@@ -497,7 +497,7 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
         h.update(b"arc=preparado_v1\0");
     }
     // The roots mode changes the code (`llvm/mod.rs`); the default does not enter.
-    if std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas") {
+    if std::env::var("DARTFORGE_ROOTS").is_ok_and(|v| v == "mapas") {
         // `_v2`: with the unwind table on Unix (`with_uwtable`).
         h.update(b"raizes=mapas_v2\0");
         // The budget ceiling decides which functions come out with a map, and the
@@ -506,7 +506,7 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
         h.update(if crate::target::check_roots() { b"conferir\0" } else { b"\0\0\0\0\0\0\0\0\0" });
     }
     // The test sabotages change the code (`target::sabotage`).
-    if let Ok(s) = std::env::var("DARTFORGE_SABOTAGEM")
+    if let Ok(s) = std::env::var("DARTFORGE_SABOTAGE")
         && !s.is_empty()
     {
         h.update(b"sabotagem=");
@@ -517,16 +517,16 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     if crate::llvm::externs::check_effects() {
         h.update(b"efeitos=conferir\0");
     }
-    // The measurement switches of the emitter (`DARTFORGE_SEM_…`, which turn off an
+    // The measurement switches of the emitter (`DARTFORGE_NO_…`, which turn off an
     // optimization to compare before and after) change the code.
     let mut keys: Vec<(String, String)> = std::env::vars()
-        .filter(|(k, _)| k.starts_with("DARTFORGE_SEM_"))
+        .filter(|(k, _)| k.starts_with("DARTFORGE_NO_"))
         .collect();
     keys.sort();
     for (k, v) in keys {
         h.update(format!("{k}={v}\0").as_bytes());
     }
-        // The comparison link (`DARTFORGE_LIGAR_COM_CLANG`) gives another DLL.
+        // The comparison link (`DARTFORGE_LINK_WITH_CLANG`) gives another DLL.
     h.update(if crate::driver::link_with_clang() { b"clang" } else { b"lld" });
     h.update(b"\0");
     h.update(clang_id.as_bytes());
@@ -601,9 +601,9 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
     // (like the parts of the program, `driver.rs`): from the embedded generator it
     // does not have the summary, and `lld` did the full LTO of the SDK in a single
     // module, in one thread, before the parts (docs/NATIVO-PRODUCAO-GRANDE.md).
-    // `DARTFORGE_GERADOR` chooses by hand. Without Clang (the distribution without the
+    // `DARTFORGE_GENERATOR` chooses by hand. Without Clang (the distribution without the
     // system toolchain), the embedded generator.
-    let generator = if profile == SdkProfile::Production && std::env::var_os("DARTFORGE_GERADOR").is_none() {
+    let generator = if profile == SdkProfile::Production && std::env::var_os("DARTFORGE_GENERATOR").is_none() {
         Generator::clang_if_any(clang)
     } else {
         Generator::choose(clang)
@@ -728,7 +728,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         .map_err(|e| format!("linking the source SDK DLL failed: {e}"))?;
     } else if crate::target::target_os() == crate::target::Os::Windows && crate::driver::link_with_clang() {
         // The link from before N15 (the Clang driver, `link.exe` and the
-        // Visual C++ CRT), only for comparison (`DARTFORGE_LIGAR_COM_CLANG`).
+        // Visual C++ CRT), only for comparison (`DARTFORGE_LINK_WITH_CLANG`).
         let exit = std::process::Command::new(clang)
             .current_dir(&tmp)
             .arg("-shared")
@@ -1124,7 +1124,7 @@ mod tests {
 
     /// P5c: emits the source SDK modules and shows, per library, the
     /// IR size and the rejected members (by reason). With
-    /// `DARTFORGE_SDK_COMPILAR=1`, compiles and installs the objects in the cache.
+    /// `DARTFORGE_SDK_COMPILE=1`, compiles and installs the objects in the cache.
     /// `cargo test -p dartforge-emit-native emit_the_sdk -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; runs separately"]
@@ -1160,26 +1160,26 @@ mod tests {
                 std::fs::write(Path::new(&dir).join(format!("{b}.recusados.tsv")), r).unwrap();
             }
         }
-        if std::env::var("DARTFORGE_SDK_COMPILAR").is_ok_and(|v| v == "1") {
+        if std::env::var("DARTFORGE_SDK_COMPILE").is_ok_and(|v| v == "1") {
             let clang = crate::driver::NativeDriverOptions::default().clang;
             let s = compiled_sdk(crate::sdk_tests(), &clang).unwrap();
             println!("dll: {:?} (frio: {:?})", s.dll, s.cold);
         }
     }
 
-    /// Compiles and runs `DARTFORGE_PROGRAMA` with the source SDK (P5c):
+    /// Compiles and runs `DARTFORGE_PROGRAM` with the source SDK (P5c):
     /// `cargo test -p dartforge-emit-native compile_with_source_sdk -- --ignored --nocapture`.
     #[test]
     #[ignore = "manual; runs separately"]
     fn compile_with_source_sdk() {
-        let Ok(p) = std::env::var("DARTFORGE_PROGRAMA") else { return };
+        let Ok(p) = std::env::var("DARTFORGE_PROGRAM") else { return };
         let entry = PathBuf::from(p);
         let exit = entry.with_extension("exe");
         let r = std::thread::Builder::new()
             .stack_size(256 << 20)
             .spawn(move || {
 
-                let optimize = std::env::var("DARTFORGE_OTIMIZAR").is_ok_and(|v| v == "1");
+                let optimize = std::env::var("DARTFORGE_OPTIMIZE").is_ok_and(|v| v == "1");
                 let options = crate::CompileOptions { sdk: Some(crate::sdk_tests()), packages: None, timings: true, optimize: optimize, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
                 crate::compile(&entry, &exit, &options).map(|_| exit)
             })
@@ -1333,7 +1333,7 @@ mod tests {
         for (c, (members, occ)) in v.iter().take(80) {
             println!("{members:>5} {occ:>6}  {c}");
         }
-        if let Ok(file) = std::env::var("DARTFORGE_MEDIR_SAIDA") {
+        if let Ok(file) = std::env::var("DARTFORGE_MEASURE_OUTPUT") {
             let mut t = String::new();
             for m in &members {
                 t.push_str(&format!("{}\t{}\t{}\n", m.library, m.symbol, m.diagnostics.join(" | ")));

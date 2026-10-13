@@ -181,7 +181,7 @@ em bytes:
   - depois, 11–22 s nas mesmas condições.
 
   É o LTO que encolhe.
-- **Chave de comparação:** com `DARTFORGE_SEM_PODA_DE_TABELAS=1`, o `corpus/native/81` volta a
+- **Chave de comparação:** com `DARTFORGE_NO_TABLE_PRUNING=1`, o `corpus/native/81` volta a
   10,8 MB, e todas as formas dos membros não usados reaparecem no mapa.
 - **Verificação, na cópia com a mudança:**
 
@@ -209,8 +209,8 @@ em bytes:
 
 Ferramentas, em `tools/tamanho/`:
 
-- `quebra.py` quebra o mapa da ligação (`DARTFORGE_MAPA_DA_LIGACAO=1`) por biblioteca.
-- `por-que.py` segue o relatório `DARTFORGE_POR_QUE=<arquivo>`: a cadeia de causas de um
+- `quebra.py` quebra o mapa da ligação (`DARTFORGE_LINK_MAP=1`) por biblioteca.
+- `por-que.py` segue o relatório `DARTFORGE_WHY=<arquivo>`: a cadeia de causas de um
   símbolo ("quem puxou isto?") e os bytes por seletor que puxou.
 
 O `alcance.py` da pesquisa virou o próprio `poda.rs`.
@@ -262,7 +262,7 @@ do AOT com `--optimize`, com execuções alternadas e a mediana da razão paread
 - **Perfil do JSON (self):** a classe do valor cai de 12,6% para 0,7%, e a coleta de 10,0% para
   4,9%.
 - **O "depois" inclui o que outras frentes mudaram na mesma árvore no intervalo.** A parte em
-  linha sozinha, medida no mesmo binário com `DARTFORGE_SEM_CLASSE_EM_LINHA=1`, dá uma razão de
+  linha sozinha, medida no mesmo binário com `DARTFORGE_NO_INLINE_CLASS=1`, dá uma razão de
   1,07 no JSON total.
 - **HTTP:** só 4 repetições válidas, com builds concorrentes. Não há ganho mensurável acima do
   ruído, o que concorda com o −2–3% estimado.
@@ -371,7 +371,7 @@ convivendo com o espaço: `docs/NATIVO-ESPACO-UNIFICADO.md`. Ela troca o desenho
 por cids fixos para as classes do runtime (1–65), três formatos de corpo que o coletor percorre sem
 olhar a classe (`INSTANCIA`, `BRUTO`, `REFS`), classes de tamanho médias e regiões grandes, cartões
 nas listas grandes, literais de string estáticos no AOT e a cópia entre isolados por bloco; e tira
-o caminho sem SDK da fonte (`sdk_por_nome.rs`, `DARTFORGE_SDK_DA_FONTE`). A implementação foi
+o caminho sem SDK da fonte (`sdk_por_nome.rs`, `DARTFORGE_SDK_FROM_SOURCE`). A implementação foi
 dividida em pacotes paralelos (P0–P5, §4 da especificação) e é validada na integração (§5); os
 números medidos entram em `NATIVO-PLANO.md` §12. O marcador de ABI de §4 abaixo entrou como a
 conferência da tabela de cids (`dartforge_register_cids`).
@@ -438,7 +438,7 @@ que já está neste plano não se repete aqui. O que ele acrescenta:
    alcance (`Causa`: raiz, função, variável, classe). Estender isso ao SDK nativo e às tabelas
    responde a perguntas como "quem puxou este método?" e "por que TLS entrou no hello?".
    - Primeiro passo: trazer para `tools/` o `alcance.py` e o `quebra.py` da pesquisa.
-   - **Feito para as tabelas (2026-09-30):** `DARTFORGE_POR_QUE=<arquivo>` grava a causa de cada
+   - **Feito para as tabelas (2026-09-30):** `DARTFORGE_WHY=<arquivo>` grava a causa de cada
      símbolo vivo, e `tools/tamanho/por-que.py` segue a cadeia (`NATIVO-PODA-DE-TABELAS.md`
      §3.10). O runtime Rust fica de fora do relatório; o que ele mostra é qual função Dart cita
      o native.

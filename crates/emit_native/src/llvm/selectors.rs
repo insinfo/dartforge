@@ -146,7 +146,7 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// The names of the call-trace functions (`DARTFORGE_RASTRO=1`).
+    /// The names of the call-trace functions (`DARTFORGE_CALL_TRACE=1`).
     pub(super) fn emit_stack_trace_names(&mut self) {
         for (k, s) in std::mem::take(&mut self.stack_trace_names).iter().enumerate() {
             writeln!(self.out, "@df.call_trace.{k} = private unnamed_addr constant [{} x i8] c\"{}\"", s.len(), llvm_bytes(s)).unwrap();
@@ -422,7 +422,7 @@ impl LlvmEmitter<'_> {
         self.emit_owned_thunks();
         self.emit_scope_thunks();
         self.emit_stack_trace_names();
-        // `DARTFORGE_EFEITOS=conferir`: the names of the checked externs.
+        // `DARTFORGE_EFFECTS=conferir`: the names of the checked externs.
         for (k, s) in std::mem::take(&mut self.checked_externs).iter().enumerate() {
             writeln!(self.out, "@df.efn.{k} = private unnamed_addr constant [{} x i8] c\"{}\"", s.len(), llvm_bytes(s)).unwrap();
         }

@@ -30,9 +30,9 @@ use std::time::Instant;
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
-/// Live-memory cap of an isolated batch (`DARTFORGE_PARIDADE_TETO_MB`, 2048).
+/// Live-memory cap of an isolated batch (`DARTFORGE_PARITY_CAP_MB`, 2048).
 fn memory_cap() -> usize {
-    std::env::var("DARTFORGE_PARIDADE_TETO_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(2048usize) << 20
+    std::env::var("DARTFORGE_PARITY_CAP_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(2048usize) << 20
 }
 
 /// Each batch in a child process of this executable, with at most 90 s (a

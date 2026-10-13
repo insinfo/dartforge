@@ -812,14 +812,14 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
     // `DARTFORGE_JSPROD_THIS=0` turns it off.
     let source = if std::env::var("DARTFORGE_JSPROD_THIS").map_or(true, |v| v != "0") { crate::alias_this::apply(&source) } else { source };
     let source = if std::env::var("DARTFORGE_JSPROD_DEDUP").map_or(true, |v| v != "0") { dedup_strings(&source)? } else { source };
-    // Library members as variables (`flatten.rs`); `DARTFORGE_JSPROD_ACHATAR=0`
+    // Library members as variables (`flatten.rs`); `DARTFORGE_JSPROD_FLATTEN=0`
     // turns it off.
-    let source = if std::env::var("DARTFORGE_JSPROD_ACHATAR").map_or(true, |v| v != "0") { crate::flatten::apply(&source)?.0 } else { source };
+    let source = if std::env::var("DARTFORGE_JSPROD_FLATTEN").map_or(true, |v| v != "0") { crate::flatten::apply(&source)?.0 } else { source };
     // Trivial functions inlined at their calls (`inline.rs`);
     // `DARTFORGE_JSPROD_INLINE=0` turns it off.
     let source = if std::env::var("DARTFORGE_JSPROD_INLINE").map_or(true, |v| v != "0") { crate::inline::apply(&source)? } else { source };
-    // Compact forms (`shapes.rs`); `DARTFORGE_JSPROD_FORMAS=0` turns it off.
-    let source = if std::env::var("DARTFORGE_JSPROD_FORMAS").map_or(true, |v| v != "0") { crate::shapes::apply(&source)? } else { source };
+    // Compact forms (`shapes.rs`); `DARTFORGE_JSPROD_SHAPES=0` turns it off.
+    let source = if std::env::var("DARTFORGE_JSPROD_SHAPES").map_or(true, |v| v != "0") { crate::shapes::apply(&source)? } else { source };
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, &source, SourceType::cjs()).parse();
     if let Some(e) = parsed.diagnostics.first() {
@@ -830,10 +830,10 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
     // joins lists of *strings* (`["a","b"]` becomes `"a.b".split(".")` in
     // `defineExtensionAccessors`), and the name disappears from the text
     // while still being read at run time. And again afterwards, for whatever
-    // it creates. `DARTFORGE_JSPROD_COMPRIMIR=0` turns compression off.
+    // it creates. `DARTFORGE_JSPROD_COMPRESS=0` turns compression off.
     let mut strings = IdentifierStrings::new(marker_start(&program));
     strings.visit_program(&program);
-    if std::env::var("DARTFORGE_JSPROD_COMPRIMIR").map_or(true, |v| v != "0") {
+    if std::env::var("DARTFORGE_JSPROD_COMPRESS").map_or(true, |v| v != "0") {
         let mut c = oxc_minifier::CompressOptions::smallest();
         c.treeshake.manual_pure_functions = ["dart.privateName", "dart.fnType", "dart.gFnType", "dart$$privateName", "dart$$fnType", "dart$$gFnType", "t$R"].iter().map(|s| s.to_string()).collect();
         let _ = Minifier::new(MinifierOptions { mangle: None, mangle_properties: None, compress: Some(c) }).minify(&allocator, &mut program);
@@ -848,9 +848,9 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
         .filter(|n| n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') && !n.as_bytes()[0].is_ascii_digit())
         .collect();
     free.sort_unstable();
-    // `DARTFORGE_JSPROD_PROPS_POR=a,b`: why each name stays or goes
+    // `DARTFORGE_JSPROD_PROPS_WHY=a,b`: why each name stays or goes
     // (diagnostics).
-    if let Ok(targets) = std::env::var("DARTFORGE_JSPROD_PROPS_POR") {
+    if let Ok(targets) = std::env::var("DARTFORGE_JSPROD_PROPS_WHY") {
         for a in targets.split(',') {
             eprintln!(
                 "[jsprod] property {a}: renamable={} reserved={} name-string={} free={}",
@@ -888,7 +888,7 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
         // The short names on our own (`assign_names`): `oxc` avoids every
         // *string* of the file as a target, and the single letters (`"a"`,
         // `"p"` of tags and CSS) went unused.
-        if std::env::var("DARTFORGE_JSPROD_NOMES_PROPRIOS").map_or(true, |v| v != "0") {
+        if std::env::var("DARTFORGE_JSPROD_OWN_NAMES").map_or(true, |v| v != "0") {
             let renamed: std::collections::HashSet<String> =
                 probe_candidates.iter().filter(|c| !o.reserved.contains(c.as_str())).cloned().collect();
             let mut extra_taken: Vec<&str> = JS_PROTOTYPE_NAMES.to_vec();

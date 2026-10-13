@@ -645,7 +645,7 @@ fn analyze_package(
 
 /// The SDK `lib/` of the analyzer, when it diagnoses with types.
 pub(crate) fn analyzer_sdk<A: Analyzer>(analyzer: &A) -> Option<PathBuf> {
-    if std::env::var("DARTFORGE_LSP_TIPADO").is_ok_and(|v| v == "0") {
+    if std::env::var("DARTFORGE_LSP_TYPED").is_ok_and(|v| v == "0") {
         return None;
     }
     analyzer.sdk_for_diagnostics()

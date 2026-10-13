@@ -363,7 +363,7 @@ coisas:
 
 O que falta volta como raiz, e o mundo é recalculado: o resultado é ponto
 fixo do mundo **e** do texto. Cada cura é uma lacuna da análise e sai no
-relatório. `DARTFORGE_JSPROD_RODADAS=1` mostra as lacunas sem curar.
+relatório. `DARTFORGE_JSPROD_ROUNDS=1` mostra as lacunas sem curar.
 
 Custo medido:
 
@@ -371,7 +371,7 @@ Custo medido:
 * `limitless_ui/example`: 574 ms de 14 s;
 * corpus: menos de 1 ms.
 
-**Modo *stub*** (`--verificar-stub` ou `DARTFORGE_JSPROD_VERIFICAR=stub`): o
+**Modo *stub*** (`--verificar-stub` ou `DARTFORGE_JSPROD_VERIFY=stub`): o
 que o mundo diz morto vira `dart_podado("uri::C.m")`, que escreve
 `DARTFORGE-PODADO:` no stderr e sai com 97. É uma chamada a código podado
 pega na execução, com o nome.
@@ -380,8 +380,8 @@ compara as três execuções.
 
 **Diagnóstico:**
 
-* `DARTFORGE_JSPROD_POR=Nome` imprime a cadeia de causas até a raiz;
-* `DARTFORGE_JSPROD_CONFERIR=1` roda a conferência a seco
+* `DARTFORGE_JSPROD_WHY=Nome` imprime a cadeia de causas até a raiz;
+* `DARTFORGE_JSPROD_CHECK=1` roda a conferência a seco
   (`checkEnqueuerConsistency`);
 * `--sem-poda-usuario` desliga a etapa.
 
@@ -761,7 +761,7 @@ Nada entra sem passar por aqui.
 
 7. **Relatório de poda, não só um número.** `docs/PESQUISA-OTIMIZACAO.md`
    §10 pede que a saída explique o resultado. O `--sem-poda`/`--sem-membros`
-   e o `DARTFORGE_JSPROD_QUEM`/`_CAMINHO`/`_GATILHO` já são a metade
+   e o `DARTFORGE_JSPROD_WHO`/`_CAMINHO`/`_GATILHO` já são a metade
    diagnóstica disso; falta a metade narrativa:
 
    ```text
@@ -933,7 +933,7 @@ acrescentou o filtro opcional: `filtro.rs`, o campo `Ctx::filtro`,
 | `minificar.rs` | a compactação do arquivo final: comentários e espaço, sem renomear (§3, etapa 7 parcial). |
 
 Três defeitos que a medição pegou — e que o diagnóstico embutido
-(`DARTFORGE_JSPROD_QUEM`, `_CAMINHO`, `_GATILHO`) localizou em vez de
+(`DARTFORGE_JSPROD_WHO`, `_CAMINHO`, `_GATILHO`) localizou em vez de
 adivinhar. Cada um virou teste de regressão:
 
 1. **`dart.applyMixin(V, M);` lida como declaração de `dart.applyMixin`.**

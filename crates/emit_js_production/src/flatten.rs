@@ -29,7 +29,7 @@
 //!   `delete N.x`.
 //!
 //! The replacement is textual, through the spans `oxc` gives each access, as
-//! in *string* deduplication. `DARTFORGE_JSPROD_ACHATAR=0` turns it off.
+//! in *string* deduplication. `DARTFORGE_JSPROD_FLATTEN=0` turns it off.
 
 use oxc_ast::ast::{
     Argument, AssignmentOperator, AssignmentTarget, BindingIdentifier, CallExpression,
@@ -53,7 +53,7 @@ struct Namespace {
     pinned: HashSet<String>,
     /// The object is observed as a whole: nothing of it becomes a variable.
     escapes: bool,
-    /// Where it first escaped (diagnostics, `DARTFORGE_JSPROD_ACHATAR_POR`).
+    /// Where it first escaped (diagnostics, `DARTFORGE_JSPROD_FLATTEN_WHY`).
     escapes_at: Option<u32>,
 }
 
@@ -377,7 +377,7 @@ pub fn apply(source: &str) -> Result<(String, usize), String> {
     let mut declared: Vec<String> = Vec::new();
     let mut names: Vec<&String> = a.ns.keys().collect();
     names.sort();
-    let diag = std::env::var("DARTFORGE_JSPROD_ACHATAR_POR").ok();
+    let diag = std::env::var("DARTFORGE_JSPROD_FLATTEN_WHY").ok();
     for n in names {
         let ns = &a.ns[n];
         if diag

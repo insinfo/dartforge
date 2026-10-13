@@ -3,7 +3,7 @@
 #
 #   scripts/corpus-nativo.sh [tracing|arc|preparado|tabelas] [jobs] [filtro]
 #
-# `preparado` liga DARTFORGE_ARC_PREPARADO=1 (programa e SDK preparados);
+# `preparado` liga DARTFORGE_ARC_PREPARED=1 (programa e SDK preparados);
 # `tabelas` é o mesmo com --excecoes=tabelas.
 # As saídas de referência do Dart ficam em target/corpus-dart/ e só são
 # refeitas quando o .dart muda. O resumo vai para target/corpus-<modo>/resumo.tsv.
@@ -31,15 +31,15 @@ um() {
   memoria=""
   case $modo in
     arc) extra=(--memoria=arc); memoria=arc ;;
-    preparado) extra=(--memoria=arc); memoria=arc; export DARTFORGE_ARC_PREPARADO=1 ;;
-    tabelas) extra=(--memoria=arc --excecoes=tabelas); memoria=arc; export DARTFORGE_ARC_PREPARADO=1 ;;
+    preparado) extra=(--memoria=arc); memoria=arc; export DARTFORGE_ARC_PREPARED=1 ;;
+    tabelas) extra=(--memoria=arc --excecoes=tabelas); memoria=arc; export DARTFORGE_ARC_PREPARED=1 ;;
   esac
   # `${extra[@]+…}`: o bash 3.2 do macOS recusa o vetor vazio sob `set -u`.
   if ! "$bin" compile-native "$f" -o "$dest/$n" ${extra[@]+"${extra[@]}"} > "$dest/$n.build.log" 2>&1; then
     printf "%s\tbuild\t%s\n" "$n" "$(tail -1 "$dest/$n.build.log" | cut -c1-200)"
     return
   fi
-  (cd "$dir" && DARTFORGE_MEMORIA=$memoria DARTFORGE_ARC_CONFERIR=1 timeout 60 "$dest/$n" > "$dest/$n.out" 2>&1 < /dev/null)
+  (cd "$dir" && DARTFORGE_MEMORY=$memoria DARTFORGE_ARC_CHECK=1 timeout 60 "$dest/$n" > "$dest/$n.out" 2>&1 < /dev/null)
   c=$?
   if cmp -s "$dest/$n.out" "$ref/$n.out"; then r=igual; else r=diferente; fi
   printf "%s\t%s\texit=%s\n" "$n" "$r" "$c"

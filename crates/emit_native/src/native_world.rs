@@ -28,7 +28,7 @@
 //! and the class registration cite them), but the body — and what it would
 //! carry along — goes away. If the world is wrong, the error is loud, with the name:
 //! `UnsupportedError` "código podado como inalcançável foi chamado: <símbolo>".
-//! `DARTFORGE_SEM_PODA_DO_PROGRAMA=1` turns it off (measurement).
+//! `DARTFORGE_NO_PROGRAM_PRUNING=1` turns it off (measurement).
 
 use dartforge_elements::model::{Element, FunctionElementId, Program};
 use dartforge_frontend::ast;
@@ -53,7 +53,7 @@ pub fn compute(
     outline: &OutlineTypes,
     bodies: &BodyTypes,
 ) -> Option<dartforge_world::World> {
-    if std::env::var_os("DARTFORGE_SEM_PODA_DO_PROGRAMA").is_some_and(|v| v != "0") {
+    if std::env::var_os("DARTFORGE_NO_PROGRAM_PRUNING").is_some_and(|v| v != "0") {
         return None;
     }
     let mut r = dartforge_world::Roots::default();

@@ -6,12 +6,12 @@
 //! and incremental equal to from-scratch on every edit of the case.
 //!
 //! Prerequisites, hence `#[ignore]`: a `dartforge` with the `native` feature
-//! (`DARTFORGE_COMPILADOR`, or `target/release/dartforge`), the SDK
+//! (`DARTFORGE_COMPILER`, or `target/release/dartforge`), the SDK
 //! (`DARTFORGE_SDK_LIB`/`DART_SDK`, like `compile-native`) and the
 //! `package_config.json` of each case (`dart pub get --enforce-lockfile`).
 //! Each case compiles its own executable (minutes: the whole `analyzer`),
 //! which is deleted at the end of the case — they fit on disk one at a time.
-//! `DARTFORGE_CORPUS_BUILDERS` changes the corpus root; `DARTFORGE_CASOS`
+//! `DARTFORGE_CORPUS_BUILDERS` changes the corpus root; `DARTFORGE_CASES`
 //! (comma-separated names) limits the cases.
 use dartforge_build::query::NoDb;
 use dartforge_build::native_executor::{NativeConfig, NativeExecutor};
@@ -29,7 +29,7 @@ fn corpus_root() -> PathBuf {
 }
 
 fn compiler() -> PathBuf {
-    std::env::var_os("DARTFORGE_COMPILADOR")
+    std::env::var_os("DARTFORGE_COMPILER")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -136,7 +136,7 @@ fn update(m: &mut Engine, changed: &[PathBuf]) -> (EngineReport, f64) {
 #[ignore = "requires dartforge with the nativo feature and `dart pub get` in each case of corpus/builders"]
 fn corpus_builders_through_the_native_executor() {
     assert!(compiler().is_file(), "compiler {} does not exist", compiler().display());
-    let filter: Option<Vec<String>> = std::env::var("DARTFORGE_CASOS")
+    let filter: Option<Vec<String>> = std::env::var("DARTFORGE_CASES")
         .ok()
         .map(|s| s.split(',').map(|x| x.trim().to_string()).collect());
     let mut cases: Vec<PathBuf> = std::fs::read_dir(corpus_root())

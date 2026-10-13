@@ -128,7 +128,7 @@ Regras do fluxo:
   análise. O motor usa o cache do SDK em disco (`SdkCache`, o mesmo do
   `analyze`, em `DARTFORGE_CACHE_DIR` ou `target/dartforge`).
 * **Sem SDK** (`AnalisadorSemantico::novo(None)`, ou SDK não descoberto) ou
-  com `DARTFORGE_LSP_TIPADO=0`, só a publicação imediata existe. Pânico na
+  com `DARTFORGE_LSP_TYPED=0`, só a publicação imediata existe. Pânico na
   análise tipada é contido: fica a imediata.
 * O laço do binário acorda pelo gancho `Servidor::ao_ter_diagnosticos`;
   testes e medições usam `Servidor::aguardar_diagnosticos(limite)`.
@@ -302,7 +302,7 @@ memória é explícita:
   incluído) e a lista de `.dart` do projeto (arquivo novo pode satisfazer um
   import); disco alterado por outra ferramenta recarrega;
 * só retém programa cuja fonte somada cabe no orçamento
-  `DARTFORGE_LSP_SESSAO_MIB` (MiB de fonte; padrão 8; `0` desliga). Acima
+  `DARTFORGE_LSP_SESSION_MIB` (MiB de fonte; padrão 8; `0` desliga). Acima
   dele, o programa vale só para a consulta e cai com a resposta.
 
 Medida (2026-09-27, Linux, release, SDK 3.6.2 real; `cargo run --release -p

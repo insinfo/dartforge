@@ -8,7 +8,7 @@ use std::{
 
 fn cli() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_dartforge"));
-    cmd.env("DARTFORGE_MEMORIA", "arc");
+    cmd.env("DARTFORGE_MEMORY", "arc");
     cmd
 }
 
@@ -80,7 +80,7 @@ fn aot_only_enables_arc_with_an_explicit_option() {
         );
         check(
             Command::new(exe)
-                .env("DARTFORGE_MEMORIA", "arc")
+                .env("DARTFORGE_MEMORY", "arc")
                 .output()
                 .unwrap(),
             if arc { "1\n\n" } else { "0\n\n" },

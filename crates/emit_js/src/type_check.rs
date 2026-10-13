@@ -5,7 +5,7 @@
 //! provides the static type and the resolved element of each node in
 //! [`dartforge_types::resolved::BodyTypes`] — which the native backend consumes
 //! directly. This module is the first step towards a single source: with
-//! `DARTFORGE_JS_CONFERIR_TIPOS` set, each emitted expression (outside
+//! `DARTFORGE_JS_CHECK_TYPES` set, each emitted expression (outside
 //! speculative emission) has its `Ty` compared with the shared type, converted
 //! to `Ty`, and each identifier has the target the emitter resolved compared
 //! with the shared `Resolved`. Divergences are recorded; the emission does not change.
@@ -40,7 +40,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write as _;
 
 /// Name of the environment variable that turns the check on.
-pub const ENV_VAR: &str = "DARTFORGE_JS_CONFERIR_TIPOS";
+pub const ENV_VAR: &str = "DARTFORGE_JS_CHECK_TYPES";
 
 /// A divergence between the emitter and the shared inference.
 #[derive(Clone, Debug)]

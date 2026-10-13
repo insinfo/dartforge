@@ -39,7 +39,7 @@ pub const fn target_os() -> Os {
 
 /// The exception model of the generated code
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13), through the variable
-/// `DARTFORGE_EXCECOES` (the `--excecoes=` of `compile-native` sets it):
+/// `DARTFORGE_EXCEPTIONS` (the `--excecoes=` of `compile-native` sets it):
 ///
 /// * absent, empty or `checagem`: the exception is a pending state of the runtime that
 ///   the caller checks after each call — the usual IR, byte for byte;
@@ -47,7 +47,7 @@ pub const fn target_os() -> Os {
 ///   `landingpad` of whoever handles it (`optimize/tables.rs`), with the
 ///   runtime's personality (`dartforge_personality`). Only on Windows
 ///   x86-64, the only target with the personality written, and without the function
-///   call trace (`DARTFORGE_RASTRO=1` counts entries and exits, and
+///   call trace (`DARTFORGE_CALL_TRACE=1` counts entries and exits, and
 ///   unwinding skips the exits).
 ///
 /// The program and the SDK have to come out in the same model: the variable goes into the key
@@ -56,7 +56,7 @@ pub const fn target_os() -> Os {
 /// # Errors
 /// An unknown value, or `tabelas` where the mode does not exist.
 pub fn table_exceptions() -> Result<bool, String> {
-    let value = std::env::var("DARTFORGE_EXCECOES").unwrap_or_default();
+    let value = std::env::var("DARTFORGE_EXCEPTIONS").unwrap_or_default();
     match value.as_str() {
         "" | "checagem" => Ok(false),
         "tabelas" => {
@@ -70,18 +70,18 @@ pub fn table_exceptions() -> Result<bool, String> {
                     "exceptions by tables (--excecoes=tabelas) only exist on Windows x86-64 and, on Linux and macOS, on x86-64 and aarch64".to_string()
                 );
             }
-            if std::env::var("DARTFORGE_RASTRO").is_ok_and(|v| v == "1") {
-                return Err("exceptions by tables (--excecoes=tabelas) do not combine with DARTFORGE_RASTRO=1".to_string());
+            if std::env::var("DARTFORGE_CALL_TRACE").is_ok_and(|v| v == "1") {
+                return Err("exceptions by tables (--excecoes=tabelas) do not combine with DARTFORGE_CALL_TRACE=1".to_string());
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_EXCECOES={other}: the exception models are `checagem` and `tabelas`")),
+        other => Err(format!("DARTFORGE_EXCEPTIONS={other}: the exception models are `checagem` and `tabelas`")),
     }
 }
 
 /// The memory policy of the generated code (docs/ARC-CICLOS-ESPECIFICACAO.md
 /// §18.1, decision 1, and §24; docs/ARC-IMPLEMENTACAO.md), through the variable
-/// `DARTFORGE_MEMORIA` (the `--memoria=` of `aot` and `compile-native` sets it):
+/// `DARTFORGE_MEMORY` (the `--memoria=` of `aot` and `compile-native` sets it):
 ///
 /// * absent, empty or `tracing`: the usual tracing collector — the usual
 ///   IR, byte for byte;
@@ -97,30 +97,30 @@ pub fn table_exceptions() -> Result<bool, String> {
 /// # Errors
 /// An unknown value.
 pub fn arc_memory() -> Result<bool, String> {
-    let value = std::env::var("DARTFORGE_MEMORIA").unwrap_or_default();
+    let value = std::env::var("DARTFORGE_MEMORY").unwrap_or_default();
     match value.as_str() {
         "" | "tracing" => Ok(false),
         "arc" => Ok(true),
-        other => Err(format!("DARTFORGE_MEMORIA={other}: the memory policies are `tracing` and `arc`")),
+        other => Err(format!("DARTFORGE_MEMORY={other}: the memory policies are `tracing` and `arc`")),
     }
 }
 
 /// The published ARC preparation (owners in the HIR, `optimize::arc`), through the
-/// variable `DARTFORGE_ARC_PREPARADO=1`: only with ARC memory. Absent,
+/// variable `DARTFORGE_ARC_PREPARED=1`: only with ARC memory. Absent,
 /// ARC follows the legacy regime of the CLI (no tokens in the code).
 pub fn arc_prepared() -> Result<bool, String> {
-    if !std::env::var("DARTFORGE_ARC_PREPARADO").is_ok_and(|v| v == "1") {
+    if !std::env::var("DARTFORGE_ARC_PREPARED").is_ok_and(|v| v == "1") {
         return Ok(false);
     }
     if !arc_memory()? {
-        return Err("DARTFORGE_ARC_PREPARADO=1 requires ARC memory (`--memoria=arc`)".into());
+        return Err("DARTFORGE_ARC_PREPARED=1 requires ARC memory (`--memoria=arc`)".into());
     }
     Ok(true)
 }
 
 /// Where the collector roots live in the generated code
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8), through the variable
-/// `DARTFORGE_RAIZES` (the `--raizes=` of `compile-native` sets it):
+/// `DARTFORGE_ROOTS` (the `--raizes=` of `compile-native` sets it):
 ///
 /// * absent, empty or `sombra`: the roots frame of each function (the
 ///   shadow stack) — the usual IR, byte for byte;
@@ -138,7 +138,7 @@ pub fn arc_prepared() -> Result<bool, String> {
 /// # Errors
 /// An unknown value, or `mapas` where the mode does not exist.
 pub fn roots_by_maps() -> Result<bool, String> {
-    let value = std::env::var("DARTFORGE_RAIZES").unwrap_or_default();
+    let value = std::env::var("DARTFORGE_ROOTS").unwrap_or_default();
     match value.as_str() {
         "" | "sombra" => Ok(false),
         "mapas" => {
@@ -149,17 +149,17 @@ pub fn roots_by_maps() -> Result<bool, String> {
                     "roots by maps (--raizes=mapas) exist on Windows x86-64 and on Linux and macOS on x86-64 and aarch64".to_string(),
                 );
             }
-            if !crate::generator::EMBEDDED_GENERATOR || std::env::var("DARTFORGE_GERADOR").is_ok_and(|g| g == "clang") {
+            if !crate::generator::EMBEDDED_GENERATOR || std::env::var("DARTFORGE_GENERATOR").is_ok_and(|g| g == "clang") {
                 return Err("roots by maps (--raizes=mapas) require dartforge's embedded generator (Clang does not run the maps pass)".to_string());
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_RAIZES={other}: the roots modes are `sombra` and `mapas`")),
+        other => Err(format!("DARTFORGE_ROOTS={other}: the roots modes are `sombra` and `mapas`")),
     }
 }
 
 /// The stack trace in the VM format (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-/// §13.14), through the variable `DARTFORGE_RASTRO_VM` (the `--rastro=` of
+/// §13.14), through the variable `DARTFORGE_STACK_TRACE` (the `--rastro=` of
 /// `compile-native` sets it):
 ///
 /// * absent, empty or `nenhum`: no table, the usual IR, and the text of the
@@ -177,7 +177,7 @@ pub fn roots_by_maps() -> Result<bool, String> {
 /// # Errors
 /// An unknown value, or `simbolico` on a target without the walker.
 pub fn symbolic_stack_trace() -> Result<bool, String> {
-    let value = std::env::var("DARTFORGE_RASTRO_VM").unwrap_or_default();
+    let value = std::env::var("DARTFORGE_STACK_TRACE").unwrap_or_default();
     match value.as_str() {
         "" | "nenhum" => Ok(false),
         "simbolico" => {
@@ -188,30 +188,30 @@ pub fn symbolic_stack_trace() -> Result<bool, String> {
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_RASTRO_VM={other}: the stack traces are `simbolico` and `nenhum`")),
+        other => Err(format!("DARTFORGE_STACK_TRACE={other}: the stack traces are `simbolico` and `nenhum`")),
     }
 }
 
 /// The cap of the `rewrite-statepoints-for-gc` budget per function
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4): `live values × collection
 /// points`. Above it the function stays on the shadow stack (the residual frame,
-/// §3.7). `DARTFORGE_ORCAMENTO_MAPAS=<n>` changes the cap (it goes into the key of the compiled
+/// §3.7). `DARTFORGE_MAPS_BUDGET=<n>` changes the cap (it goes into the key of the compiled
 /// SDK); the default, 250 000, is 500 values rooted across 500
 /// points.
 pub fn maps_budget() -> u64 {
-    std::env::var("DARTFORGE_ORCAMENTO_MAPAS").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(250_000)
+    std::env::var("DARTFORGE_MAPS_BUDGET").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(250_000)
 }
 
 /// The check build of the walk by maps (§15.2, E2.5):
-/// `DARTFORGE_RAIZES_CONFERIR=1` at compile time, with `--raizes=mapas`. Each
+/// `DARTFORGE_ROOTS_CHECK=1` at compile time, with `--raizes=mapas`. Each
 /// `gc` function also writes, before each collection point, its live values
-/// into slots of the shadow-stack frame; with `DARTFORGE_GC_PERCURSO=conferir`
+/// into slots of the shadow-stack frame; with `DARTFORGE_GC_WALK=conferir`
 /// at run time, the runtime requires the walk by maps to have visited them.
 pub fn check_roots() -> bool {
-    std::env::var("DARTFORGE_RAIZES_CONFERIR").is_ok_and(|v| v == "1")
+    std::env::var("DARTFORGE_ROOTS_CHECK").is_ok_and(|v| v == "1")
 }
 
-/// A test sabotage turned on at compile time (`DARTFORGE_SABOTAGEM=a,b,…`,
+/// A test sabotage turned on at compile time (`DARTFORGE_SABOTAGE=a,b,…`,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3 and §14.7). Each directed
 /// test of maps mode must fail with its own; a test that does not fail
 /// with the sabotage does not count. Those of the emitter:
@@ -231,12 +231,12 @@ pub fn check_roots() -> bool {
 ///
 /// The variable goes into the key of the compiled SDK.
 pub fn sabotage(name: &str) -> bool {
-    std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim() == name)
+    std::env::var("DARTFORGE_SABOTAGE").unwrap_or_default().split(',').any(|s| s.trim() == name)
 }
 
 /// Extern `name` is in the `folha:<name>` sabotage.
 pub fn sabotaged_leaf(name: &str) -> bool {
-    std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim().strip_prefix("folha:") == Some(name))
+    std::env::var("DARTFORGE_SABOTAGE").unwrap_or_default().split(',').any(|s| s.trim().strip_prefix("folha:") == Some(name))
 }
 
 /// The `target datalayout`/`target triple` header of the module.

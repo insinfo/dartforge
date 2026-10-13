@@ -130,9 +130,9 @@ fn run() -> Result<(), String> {
             e.instantiated_classes, e.user_classes, e.type_classes, e.live_functions, e.user_functions, e.selectors, m.rounds,
             ms(m.world_time), ms(m.emit_time), ms(m.verify_time),
         );
-        let limit = std::env::var("DARTFORGE_JSPROD_CURAS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
+        let limit = std::env::var("DARTFORGE_JSPROD_FIXES").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
         if m.fixes.len() > limit {
-            eprintln!("warning: verifier: {} gap(s) fixed; DARTFORGE_JSPROD_CURAS=N shows more", m.fixes.len());
+            eprintln!("warning: verifier: {} gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more", m.fixes.len());
         }
         for c in m.fixes.iter().take(limit) {
             eprintln!("warning: verifier: {c}");
@@ -148,10 +148,10 @@ fn run() -> Result<(), String> {
                 "warning: the reachability analysis did not converge in {} round(s): the file went out without pruning the user code",
                 m.rounds
             );
-            // `DARTFORGE_JSPROD_ESTRITO=1`: not converging is an error (the
+            // `DARTFORGE_JSPROD_STRICT=1`: not converging is an error (the
             // production CI).
-            if std::env::var("DARTFORGE_JSPROD_ESTRITO").is_ok_and(|v| v == "1") {
-                return Err("the reachability analysis did not converge (DARTFORGE_JSPROD_ESTRITO=1)".into());
+            if std::env::var("DARTFORGE_JSPROD_STRICT").is_ok_and(|v| v == "1") {
+                return Err("the reachability analysis did not converge (DARTFORGE_JSPROD_STRICT=1)".into());
             }
         }
     }

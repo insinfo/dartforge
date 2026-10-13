@@ -86,7 +86,7 @@ JS embutido nem runtime de terceiros. `int` tem a semântica da VM (64 bits).
 | `Indisponivel` | diagnóstico quando nenhum executor foi configurado; não é o caminho normal do JS com macro |
 | `ExecutorDfexec<C: Canal>` | o cliente `macro.*` sobre qualquer canal: processo (`CanalDeProcesso`), gravação (`CanalGravador`) ou sessão gravada (`CanalGravado`, o executor falso dos testes) |
 | `vm::iniciar` | executor de materialização e caminho padrão de `compile-js`/`jsprod`: executa a nossa API numa VM Dart (MACROS-COMPATIBILIDADE.md) e recarrega a augmentation em memória |
-| `nativo::iniciar` | **o executor nativo (D4)**: o mesmo bootstrap e o mesmo `package_config.json`, compilados pelo `dartforge compile-native` (o `emit_native`, com `--versao-linguagem 3.6 --enable-experiment=macros`) num executável em cache em `.dart_tool/dartforge/macros/nativo`; `dartforge macros --nativo`, e `DARTFORGE_MACROS_NATIVO=<dartforge com a feature nativo>` no `compile-js`/`jsprod` |
+| `nativo::iniciar` | **o executor nativo (D4)**: o mesmo bootstrap e o mesmo `package_config.json`, compilados pelo `dartforge compile-native` (o `emit_native`, com `--versao-linguagem 3.6 --enable-experiment=macros`) num executável em cache em `.dart_tool/dartforge/macros/nativo`; `dartforge macros --nativo`, e `DARTFORGE_MACROS_NATIVE=<dartforge com a feature nativo>` no `compile-js`/`jsprod` |
 
 **Executor nativo (B06, 2026-09-27)**: `macros_host::nativo` compila
 `packages/macros` (a API, o `executor/servico.dart` e o `canal_stdio.dart`) e

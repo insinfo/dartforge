@@ -305,11 +305,11 @@ pub struct Context {
 }
 
 /// The `is C` read inline by the generated code ([`Context::subtypes`]). To
-/// measure, `DARTFORGE_SEM_CLASSE_EM_LINHA=1` does not publish the bitmaps: the generated
+/// measure, `DARTFORGE_NO_INLINE_CLASS=1` does not publish the bitmaps: the generated
 /// code always goes to the runtime (the answer is the same).
 pub fn inline_class() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *SIM.get_or_init(|| std::env::var_os("DARTFORGE_SEM_CLASSE_EM_LINHA").is_none())
+    *SIM.get_or_init(|| std::env::var_os("DARTFORGE_NO_INLINE_CLASS").is_none())
 }
 
 const _: () = {
@@ -575,7 +575,7 @@ static HAS_STACK_MAPS: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 
 /// The numbers of the map-based walk, for the whole process (§7.5, the proof
 /// that it collected): native frames walked, roots read from maps and
-/// roots checked against the shadow stack (`DARTFORGE_GC_PERCURSO`).
+/// roots checked against the shadow stack (`DARTFORGE_GC_WALK`).
 static FRAMES_WALKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static MAP_ROOTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static ROOTS_CHECKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -591,7 +591,7 @@ pub fn has_stack_maps() -> bool {
     HAS_STACK_MAPS.load(std::sync::atomic::Ordering::Acquire)
 }
 
-/// A test sabotage enabled (`DARTFORGE_SABOTAGEM=a,b,…`,
+/// A test sabotage enabled (`DARTFORGE_SABOTAGE=a,b,…`,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3 and §14.7): each targeted
 /// test must fail with its own. The runtime's: `sem_nop` (the reader
 /// without the `nop` rule), `slack` (D8: the 4 KiB stack slack) and
@@ -600,18 +600,18 @@ pub fn has_stack_maps() -> bool {
 pub fn sabotage(name: &str) -> bool {
     static ENABLED: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
     ENABLED
-        .get_or_init(|| std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+        .get_or_init(|| std::env::var("DARTFORGE_SABOTAGE").unwrap_or_default().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
         .iter()
         .any(|s| s == name)
 }
 
-/// `DARTFORGE_GC_PERCURSO=conferir` (§3.6, E2.5): each collection checks that
+/// `DARTFORGE_GC_WALK=conferir` (§3.6, E2.5): each collection checks that
 /// the map-based walk visited the roots that the check build
-/// (`DARTFORGE_RAIZES_CONFERIR=1` at compile time) wrote on the shadow stack, and
+/// (`DARTFORGE_ROOTS_CHECK=1` at compile time) wrote on the shadow stack, and
 /// an anomaly of the walk aborts instead of just ending it.
 fn checked_walk() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *SIM.get_or_init(|| std::env::var("DARTFORGE_GC_PERCURSO").is_ok_and(|v| v == "conferir"))
+    *SIM.get_or_init(|| std::env::var("DARTFORGE_GC_WALK").is_ok_and(|v| v == "conferir"))
 }
 
 /// Ends the process: a map the runtime cannot read is a lost
@@ -1015,7 +1015,7 @@ fn visit_frame(
 }
 
 /// An anomaly of the walk (SP that does not grow, outside the stack): ends the
-/// walk; with `DARTFORGE_GC_PERCURSO=conferir`, aborts.
+/// walk; with `DARTFORGE_GC_WALK=conferir`, aborts.
 fn walk_anomaly(reason: &str) {
     if checked_walk() {
         map_rejected(&format!("stack walk anomaly: {reason}"));
@@ -1329,7 +1329,7 @@ fn visit_check_slots(mut f: impl FnMut(i64)) {
     }
 }
 
-/// `DARTFORGE_GC_PERCURSO=conferir`: every root the check build
+/// `DARTFORGE_GC_WALK=conferir`: every root the check build
 /// wrote on the shadow stack must be among those the map-based walk
 /// visited (`from_maps`). A missing one is a root the map lost.
 #[allow(unsafe_code)]
@@ -1359,7 +1359,7 @@ fn check_walk(from_maps: &[i64]) {
 /// The heap of an isolate: the object space (every runtime value is a block
 /// of it, docs/NATIVO-ESPACO-UNIFICADO.md), the roots, the side tables per
 /// handle and the collection.
-/// The seeded scheduled collection (`DARTFORGE_GC_AGENDA=<seed>,<rate>`,
+/// The seeded scheduled collection (`DARTFORGE_GC_SCHEDULE=<seed>,<rate>`,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.5): one collection in one out of every
 /// `rate` allocations, drawn by a fixed generator from the seed. The
 /// same seed and the same program collect at the same points: it finds the defect
@@ -1376,7 +1376,7 @@ struct Schedule {
 
 impl Schedule {
     fn from_env() -> Option<Schedule> {
-        let v = std::env::var("DARTFORGE_GC_AGENDA").ok()?;
+        let v = std::env::var("DARTFORGE_GC_SCHEDULE").ok()?;
         let (seed, rate) = v.split_once(',')?;
         let seed: u64 = seed.trim().parse().ok()?;
         let rate: u64 = rate.trim().parse().ok().filter(|&t| t > 0)?;
@@ -1407,7 +1407,7 @@ pub struct Heap {
     next_frame: i64,
     allocations: usize,
     stress: bool,
-    /// `DARTFORGE_GC_AGENDA`; `None` without it.
+    /// `DARTFORGE_GC_SCHEDULE`; `None` without it.
     schedule: Option<Schedule>,
     stats: HeapStats,
     /// Positions walked by the last marking.
@@ -1494,28 +1494,28 @@ pub struct Heap {
     external: u128,
     /// Internal sum before the saturated projection into HeapStats; preserves discounts after overflow.
     exact_estimated_bytes: u128,
-    /// `DARTFORGE_GC_VERIFICAR=1`: every minor collection checks, through a
+    /// `DARTFORGE_GC_VERIFY=1`: every minor collection checks, through a
     /// full traversal, that no reachable young object was left unmarked (a
     /// missing write barrier).
     /// How much the heap may grow until the next full collection, in % of what
     /// survived the last one ([`GROWTH`]; to measure,
-    /// `DARTFORGE_GC_CRESCIMENTO`).
+    /// `DARTFORGE_GC_GROWTH`).
     growth: usize,
     /// The bytes between minor collections ([`YOUNG_LIMIT`]; to measure,
-    /// `DARTFORGE_GC_JOVEM_KB`).
+    /// `DARTFORGE_GC_YOUNG_KB`).
     young_limit: usize,
     verify: bool,
     /// Checks every handle against the page map before reading the block (the
     /// N4 invalid handle messages): under `--gc-stress`, with verification,
     /// in tests and in the debug runtime, or with
-    /// `DARTFORGE_VALIDAR_HANDLES=1`. Otherwise, an object handle is the
+    /// `DARTFORGE_VALIDATE_HANDLES=1`. Otherwise, an object handle is the
     /// block (the generated code's invariant): only the `FREE` state (object already
     /// collected) is checked, in the header read that happens anyway.
     validate_handles: bool,
-    /// `DARTFORGE_GC_RASTRO=1`: one line per collection on stderr (the kind, the
+    /// `DARTFORGE_GC_TRACE=1`: one line per collection on stderr (the kind, the
     /// marked ones, the estimate and the trigger).
     trace: bool,
-    /// `DARTFORGE_GC_MEMORIA=1`: after each full collection (and at the end of the
+    /// `DARTFORGE_GC_MEMORY=1`: after each full collection (and at the end of the
     /// program), the memory breakdown of the space per size class, of the
     /// runtime tables and of the process ([`Heap::memory_report`]).
     /// With `2`, after every collection.
@@ -1607,8 +1607,8 @@ impl Heap {
             marking_work: 0,
             pending: Vec::new(),
             byte_threshold: 2 * YOUNG_LIMIT,
-            growth: std::env::var("DARTFORGE_GC_CRESCIMENTO").ok().and_then(|v| v.parse::<usize>().ok()).map_or(GROWTH, |c| c.max(110)),
-            young_limit: std::env::var("DARTFORGE_GC_JOVEM_KB")
+            growth: std::env::var("DARTFORGE_GC_GROWTH").ok().and_then(|v| v.parse::<usize>().ok()).map_or(GROWTH, |c| c.max(110)),
+            young_limit: std::env::var("DARTFORGE_GC_YOUNG_KB")
                 .ok()
                 .and_then(|v| v.parse::<usize>().ok())
                 .map_or(YOUNG_LIMIT, |kb| (kb * 1024).max(64 * 1024)),
@@ -1632,22 +1632,22 @@ impl Heap {
             // rejected: there, as under `--gc-stress`, the dead are zeroed right away.
             external: 0,
             exact_estimated_bytes: 0,
-            objects: ObjectSpace::new(stress || cfg!(test) || std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1")),
+            objects: ObjectSpace::new(stress || cfg!(test) || std::env::var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1")),
             published: false,
             young_bytes: 0,
             arc: None,
             minor_collection: false,
             minors_since_full: 0,
             work_in_full: 0,
-            verify: std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1"),
+            verify: std::env::var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1"),
             validate_handles: stress
                 || cfg!(any(test, debug_assertions))
                 // Poison only catches use-after-free in validation.
-                || std::env::var("DARTFORGE_GC_VENENO").is_ok_and(|v| !v.is_empty() && v != "0")
-                || std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1")
-                || std::env::var("DARTFORGE_VALIDAR_HANDLES").as_deref() == Ok("1"),
-            trace: std::env::var("DARTFORGE_GC_RASTRO").as_deref() == Ok("1"),
-            memory: std::env::var("DARTFORGE_GC_MEMORIA").ok().and_then(|v| v.parse::<u8>().ok()).unwrap_or(0),
+                || std::env::var("DARTFORGE_GC_POISON").is_ok_and(|v| !v.is_empty() && v != "0")
+                || std::env::var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1")
+                || std::env::var("DARTFORGE_VALIDATE_HANDLES").as_deref() == Ok("1"),
+            trace: std::env::var("DARTFORGE_GC_TRACE").as_deref() == Ok("1"),
+            memory: std::env::var("DARTFORGE_GC_MEMORY").ok().and_then(|v| v.parse::<u8>().ok()).unwrap_or(0),
             finalizable: crate::hash::HashMap::default(),
             weak_refs: crate::hash::HashMap::default(),
             ephemerons: crate::hash::HashMap::default(),
@@ -2410,7 +2410,7 @@ impl Heap {
             // SAFETY: block of a page of the space.
             #[allow(unsafe_code)]
             Some(b) if unsafe { (*b).state } == crate::space::POISON_STATE => {
-                panic!("compiler bug: handle already collected (missing root; poisoned block, DARTFORGE_GC_VENENO)\nhandle {handle}")
+                panic!("compiler bug: handle already collected (missing root; poisoned block, DARTFORGE_GC_POISON)\nhandle {handle}")
             }
             // SAFETY: block of a page of the space.
             #[allow(unsafe_code)]
@@ -2986,7 +2986,7 @@ impl Heap {
         }
     }
 
-    /// `DARTFORGE_GC_VERIFICAR=1`, after the marking of a minor collection:
+    /// `DARTFORGE_GC_VERIFY=1`, after the marking of a minor collection:
     /// a full traversal from the roots, without generations, must not
     /// find an unmarked young object — it would be an old-to-young reference that
     /// the write barrier did not remember.
@@ -3247,7 +3247,7 @@ impl Heap {
         }
     }
 
-    /// The memory breakdown (`DARTFORGE_GC_MEMORIA=1`): the object space, the
+    /// The memory breakdown (`DARTFORGE_GC_MEMORY=1`): the object space, the
     /// runtime's side tables (entries and capacity bytes) and the
     /// process (resident, peak, committed system heap).
     pub fn memory_report(&self) -> String {
@@ -4183,12 +4183,12 @@ mod object_space {
     /// The workload of `bench/performance/objetos_escapam.dart` (`lista_ligada`)
     /// directly on the heap, to measure the collector without compiling Dart:
     /// `cargo test --release -p dartforge-runtime linked_list_on_heap --
-    /// --ignored --nocapture` (with `DARTFORGE_GC_RASTRO=1`, the collections).
+    /// --ignored --nocapture` (with `DARTFORGE_GC_TRACE=1`, the collections).
     #[test]
     #[ignore = "measurement"]
     fn linked_list_in_heap() {
         let mut heap = Heap::new(false);
-        heap.trace = std::env::var("DARTFORGE_GC_RASTRO").as_deref() == Ok("1");
+        heap.trace = std::env::var("DARTFORGE_GC_TRACE").as_deref() == Ok("1");
         let frame = heap.push_frame_with_slots(1);
         for _ in 0..6 {
             let t = std::time::Instant::now();
@@ -4537,7 +4537,7 @@ mod fixed_root_tests {
 pub static LAYOUT_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 thread_local! {
-    /// `DARTFORGE_EFEITOS=conferir` (`effects_check.rs`): the externs running
+    /// `DARTFORGE_EFFECTS=conferir` (`effects_check.rs`): the externs running
     /// on this thread that the effects table marks `collects = 0`. With
     /// any of them, a collection is the wrong mark — the defect of a wrong roots
     /// map, only on our side — and ends the process saying which.
@@ -4913,17 +4913,17 @@ pub struct HeapArc {
     /// these; until then, the writes counted on the spot skip the object.
     snapshots: crate::hash::HashMap<Ref, Vec<Ref>>,
     ephemerons: ArcEphemerons,
-    /// `DARTFORGE_ARC_CONFERIR=1`: after each synchronization, no
+    /// `DARTFORGE_ARC_CHECK=1`: after each synchronization, no
     /// reachable object dead and the RC of each live one equal to the recounted occurrences.
     check: bool,
-    /// `DARTFORGE_ARC_CICLOS=sempre`: the cycle round (*trial
+    /// `DARTFORGE_ARC_CYCLES=sempre`: the cycle round (*trial
     /// deletion*) on every synchronization; `nunca`: neither it nor the full collection's
     /// fixed point (the diagnostic); the default: the fixed point in the full collection.
     cycles: Option<bool>,
     /// Pure ARC (the default; docs/ARC-IMPLEMENTACAO.md §6): every reference
     /// write counts on the spot, also in a young object, and draining
     /// ([`Heap::drain_arc`]) decides lifetime without walking the heap. With
-    /// `DARTFORGE_ARC_BERCARIO=1`, the first-stage mode: the nursery through the
+    /// `DARTFORGE_ARC_NURSERY=1`, the first-stage mode: the nursery through the
     /// traced minor collection and the young object's edges counted at promotion.
     pure: bool,
 }
@@ -5228,15 +5228,15 @@ impl Heap {
             state: crate::arc::ArcHeapState::new(),
             snapshots: crate::hash::HashMap::default(),
             ephemerons: ArcEphemerons::default(),
-            check: std::env::var("DARTFORGE_ARC_CONFERIR").is_ok_and(|v| v == "1"),
-            cycles: match std::env::var("DARTFORGE_ARC_CICLOS").as_deref() {
+            check: std::env::var("DARTFORGE_ARC_CHECK").is_ok_and(|v| v == "1"),
+            cycles: match std::env::var("DARTFORGE_ARC_CYCLES").as_deref() {
                 Ok("sempre") => Some(true),
                 Ok("nunca") => Some(false),
                 _ => None,
             },
-            pure: !std::env::var("DARTFORGE_ARC_BERCARIO").is_ok_and(|v| v == "1"),
+            pure: !std::env::var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "1"),
         });
-        arc.state.trace_log = std::env::var("DARTFORGE_ARC_TRACO").is_ok_and(|v| v == "1");
+        arc.state.trace_log = std::env::var("DARTFORGE_ARC_TRACE").is_ok_and(|v| v == "1");
         arc.state.without_edges = Some(block_without_refs);
         let reached_set = self.reachable_by_tracing();
         for &x in &reached_set {
@@ -5362,7 +5362,7 @@ impl Heap {
     /// 3. the decrements: the snapshots and the replaced ephemeron entries;
     /// 4. the zeros die in cascade, except those seen by the roots (which
     ///    stay in the queue); in the full collection, the global fixed point
-    ///    ([`Heap::arc_fixpoint`]); with `DARTFORGE_ARC_CICLOS=sempre`, the
+    ///    ([`Heap::arc_fixpoint`]); with `DARTFORGE_ARC_CYCLES=sempre`, the
     ///    cycle round on every synchronization;
     /// 5. the side tables forget the dead (weak, ephemerons,
     ///    finalizers) until there are no new deaths;
@@ -5455,7 +5455,7 @@ impl Heap {
         for &h in &root_list {
             arc.state.add_candidate(h);
         }
-        // With `DARTFORGE_ARC_CICLOS=sempre`, the cycle round repeats on
+        // With `DARTFORGE_ARC_CYCLES=sempre`, the cycle round repeats on
         // each pass with new deaths: the discard (and the ephemeron that leaves with the
         // holder) releases survivors that may have been left in a cycle without a
         // root. In the full collection, the fixed point decides everyone's lifetime (§22.3).
@@ -5949,7 +5949,7 @@ impl Heap {
         self.recompute_triggers(live_set);
     }
 
-    /// `DARTFORGE_ARC_CONFERIR=1` (§20.3, the auditor mode): no object
+    /// `DARTFORGE_ARC_CHECK=1` (§20.3, the auditor mode): no object
     /// reachable from the roots died, and the RC of each live one is the sum of the
     /// recounted occurrences.
     ///

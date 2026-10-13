@@ -324,7 +324,7 @@ receptor na falta.
 > **Histórico (até 2026-09-30).** O runtime escrito à mão que casava membros
 > **pelo nome** (`lower/sdk_por_nome.rs`: `length`, `add`, `substring`,
 > `join`, `Exception(…)`, `StringBuffer()`…), congelado desde a rodada 2 e
-> usado só com `DARTFORGE_SDK_DA_FONTE=0`, saiu com o espaço unificado, com
+> usado só com `DARTFORGE_SDK_FROM_SOURCE=0`, saiu com o espaço unificado, com
 > o despacho pelo nome em mundo fechado (`lower/despacho.rs`) e os externs
 > `dartforge_list_*`/`map_*`/`set_*`/`string_*` que só ele emitia
 > (docs/NATIVO-ESPACO-UNIFICADO.md §3.7, §4.7). Até 2026-09-27 esta seção

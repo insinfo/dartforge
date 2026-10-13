@@ -150,7 +150,7 @@ em `tipos_de_locais` pelo offset do nome, como as demais locais.
 ## δ (P5c) → α: ganchos do SDK da fonte nos módulos de α (registro)
 
 O SDK compilado da fonte (P5c) entra pelo `Context::sdk_da_fonte` (hoje só
-com `DARTFORGE_SDK_DA_FONTE=1`; sem ele o IR do corpus é o mesmo de antes,
+com `DARTFORGE_SDK_FROM_SOURCE=1`; sem ele o IR do corpus é o mesmo de antes,
 programa a programa — `determinismo --nativo` conferido). Nos arquivos de α
 entraram só ganchos de uma a três linhas, que desviam para
 `lower/sdk_fonte.rs` (δ) quando o SDK é da fonte:

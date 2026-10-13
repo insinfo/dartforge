@@ -83,7 +83,7 @@ pub struct Context<'a> {
     previous_ids: Option<std::collections::HashMap<(String, String), u32>>,
     /// The closed world of the program (`native_world.rs`): a program function or
     /// global outside it becomes a body that throws. `None`: no pruning
-    /// (the SDK modules, `DARTFORGE_SEM_PODA_DO_PROGRAMA=1`).
+    /// (the SDK modules, `DARTFORGE_NO_PROGRAM_PRUNING=1`).
     pub world: Option<dartforge_world::World>,
     /// Memo of `sdk_source::implementations` by (class, name): the lookup
     /// walks ALL the program classes and the linearization of each one, and

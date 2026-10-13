@@ -589,9 +589,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // runtime, with the same text: the program that does not go through there
         // compiles, and the one that does fails loudly, never silently.
         if self.ctx.from_source.contains(&unit.library) {
-            // `DARTFORGE_FONTE_NAO_SUPORTADO=1`: lists, during compilation, each
+            // `DARTFORGE_SOURCE_UNSUPPORTED=1`: lists, during compilation, each
             // construct that became an `UnsupportedError` in the source code.
-            if std::env::var_os("DARTFORGE_FONTE_NAO_SUPORTADO").is_some() {
+            if std::env::var_os("DARTFORGE_SOURCE_UNSUPPORTED").is_some() {
                 eprintln!("source unsupported in {}: {what}", self.func.symbol);
             }
             if !self.is_terminated() {
@@ -1108,7 +1108,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // it (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.2, E1.1). The
         // read of the pending flag itself is the standalone check (the end of a
         // statement inside `try`) and stays.
-        // `DARTFORGE_SEM_EFEITOS_NA_CONFERENCIA=1` goes back to checking everything (measurement).
+        // `DARTFORGE_NO_EFFECTS_IN_CHECK=1` goes back to checking everything (measurement).
         if let Instruction::CallRuntime { name, .. } = &inst
             && name != "dartforge_exception_pending"
             && !Self::check_every_extern()
@@ -1176,7 +1176,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn check_every_extern() -> bool {
         static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *ENABLED.get_or_init(|| {
-            std::env::var_os("DARTFORGE_SEM_EFEITOS_NA_CONFERENCIA").is_some_and(|v| !v.is_empty() && v != "0")
+            std::env::var_os("DARTFORGE_NO_EFFECTS_IN_CHECK").is_some_and(|v| !v.is_empty() && v != "0")
         })
     }
 

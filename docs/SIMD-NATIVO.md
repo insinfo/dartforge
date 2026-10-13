@@ -416,7 +416,7 @@ fica enraizado; `i` fica em `a..L ⊆ 0..x.length` e não transborda
 closures, funções locais, laços internos (o de dentro se versiona sozinho),
 rótulos, `try`, `switch`, padrões, coleções literais e `const`
 (`duplicavel`). Funções `async` ficam de fora.
-`DARTFORGE_SEM_VERSIONAR_TIPADAS=1` na compilação desliga (medida; entra
+`DARTFORGE_NO_TYPED_VERSIONING=1` na compilação desliga (medida; entra
 na chave do SDK). Correção: `corpus/native/77_versionamento_listas_tipadas`
 (prova que falha por lista curta, começo negativo, índice além do `Smi` e
 perto de `2^63`; visão com deslocamento e não modificável na mesma função;
@@ -469,7 +469,7 @@ rodadas × 400 chamadas), Windows x64, `aot --optimize`; o mínimo de 7
 execuções intercaladas dos binários (máquina ruidosa, com builds de outros
 agentes; o Dart AOT deu 75 μs no escalar, contra 70 na medida do README).
 "HEAD" é o binário de `9edf24d3`; "sem versionar" é o de agora com
-`DARTFORGE_SEM_VERSIONAR_TIPADAS=1` (já com §8.3). Saídas iguais em todos
+`DARTFORGE_NO_TYPED_VERSIONING=1` (já com §8.3). Saídas iguais em todos
 (checksum `446940672`).
 
 | forma | Dart AOT 3.6.2 | HEAD | sem versionar | agora | `--cpu x86-64-v2` | `--cpu x86-64-v3` |

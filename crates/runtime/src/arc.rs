@@ -375,7 +375,7 @@ pub struct ArcHeapState {
     exits: Vec<Ref>,
     pub statistics: ArcStats,
     /// One line on stderr per event (registration, retain, release, death): the
-    /// diagnostic of `DARTFORGE_ARC_TRACO=1`.
+    /// diagnostic of `DARTFORGE_ARC_TRACE=1`.
     pub trace_log: bool,
     /// Does the object have no reference position at all (in the heap, the `RAW`
     /// body: string, numeric box, typed data)? Without an outgoing edge it is never

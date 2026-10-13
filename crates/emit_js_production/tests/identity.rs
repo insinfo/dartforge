@@ -8,7 +8,7 @@
 //! 3. `Analysis::emit(Some(&AllLive))` — the filter that says everything
 //!    is live.
 //!
-//! If `DARTFORGE_IDENTIDADE_REF` points to a directory with the output of
+//! If `DARTFORGE_IDENTITY_REF` points to a directory with the output of
 //! `dartforge compile-js` from **before** the change (`<name>/…js`), path 1 is
 //! also compared against it.
 
@@ -38,7 +38,7 @@ fn modules(e: &dartforge_emit_js::Emitted) -> Vec<(String, String)> {
 #[test]
 #[ignore = "compiles real programs against the SDK; run with --ignored"]
 fn no_filter_and_all_live_emit_the_same_text() {
-    let reference = std::env::var("DARTFORGE_IDENTIDADE_REF").ok().map(PathBuf::from);
+    let reference = std::env::var("DARTFORGE_IDENTITY_REF").ok().map(PathBuf::from);
     for p in programs() {
         let packages = p.parent().map(|d| d.join(".dart_tool/package_config.json")).filter(|x| x.is_file());
         let a = dartforge_emit_js::compile(&p, None, packages.as_deref()).expect("compilar");

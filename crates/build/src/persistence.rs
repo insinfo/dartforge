@@ -31,10 +31,10 @@ use std::sync::Arc;
 
 /// Environment variable that turns on the on-disk state in `dev`, `serve`
 /// and `compile-js` (and in `dartforge build`, besides `--estado`).
-pub const ENV_VAR: &str = "DARTFORGE_BUILD_ESTADO";
+pub const ENV_VAR: &str = "DARTFORGE_BUILD_STATE";
 
 /// Did the user ask for the on-disk state through the environment
-/// (`DARTFORGE_BUILD_ESTADO` with a non-empty value other than `0`)? Without a
+/// (`DARTFORGE_BUILD_STATE` with a non-empty value other than `0`)? Without a
 /// request nothing goes to disk: governing rule 6 of `PLANO.md` ("the disk
 /// only receives what the user asks for").
 pub fn requested_in_env() -> bool {

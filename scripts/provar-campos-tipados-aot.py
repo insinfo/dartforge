@@ -36,10 +36,10 @@ def main():
     fontes = {"inline": fonte, "extensao": fonte.replace(
         "  double extensa = 3.5;", padding + "  double extensa = 3.5;")}
     ambiente = dict(os.environ)
-    ambiente.pop("DARTFORGE_MEMORIA", None)
+    ambiente.pop("DARTFORGE_MEMORY", None)
     ambiente.update(TEMP=str(saida), TMP=str(saida))
     execucao = dict(ambiente, DARTFORGE_GC_STRESS="1",
-                    DARTFORGE_ARC_CONFERIR="1", DARTFORGE_ARC_BERCARIO="0")
+                    DARTFORGE_ARC_CHECK="1", DARTFORGE_ARC_NURSERY="0")
     (saida / "evidencia.json").write_text('{"status": "em_execucao"}\n', encoding="utf-8")
     evidencias = []
     for nome, texto in fontes.items():

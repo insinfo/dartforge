@@ -82,7 +82,7 @@ pub fn build_stage(input: &Path, packages: Option<&Path>) -> Option<Result<Build
     }
     let root = dartforge_build::package_root(input)?;
     // The state saved across processes (§4.1 of BUILD-MOTOR.md), only when
-    // the user asks for it (`DARTFORGE_BUILD_ESTADO=1`): the session starts
+    // the user asks for it (`DARTFORGE_BUILD_STATE=1`): the session starts
     // from the actions that are still valid.
     let options = EngineOptions { persist: dartforge_build::persistence::requested_in_env(), ..EngineOptions::default() };
     Some(Engine::new(&root, &cfg, options).map(|mut m| {

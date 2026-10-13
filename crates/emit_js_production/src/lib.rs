@@ -83,7 +83,7 @@ pub struct WorldReport {
     pub fixes: Vec<String>,
     /// Pending references with no matching element (should be empty).
     pub no_element: Vec<String>,
-    /// Inconsistencies of the dry-run check (`DARTFORGE_JSPROD_CONFERIR=1`).
+    /// Inconsistencies of the dry-run check (`DARTFORGE_JSPROD_CHECK=1`).
     pub inconsistencies: Option<usize>,
     /// Words of the live `JS()` *templates* in the final world (JS names).
     pub js_names: std::collections::HashSet<String>,
@@ -120,7 +120,7 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        let stub = std::env::var("DARTFORGE_JSPROD_VERIFICAR").is_ok_and(|v| v == "stub");
+        let stub = std::env::var("DARTFORGE_JSPROD_VERIFY").is_ok_and(|v| v == "stub");
         // The own SDK is the default (it passes the whole corpus/js the same
         // as the VM); `DARTFORGE_JSPROD_SDK=ddc` or `--sdk-ddc` go back to the
         // pruned `dart_sdk.js`. The verifier's *stub* mode only exists on the
@@ -215,9 +215,9 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
     let t = Instant::now();
     let mut roots = roots(a, index);
     report.world_time += t.elapsed();
-    // `DARTFORGE_JSPROD_RODADAS=1` shows the gaps in the analysis without
+    // `DARTFORGE_JSPROD_ROUNDS=1` shows the gaps in the analysis without
     // fixing them.
-    let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_RODADAS").ok().and_then(|v| v.parse().ok()).unwrap_or(8).max(1);
+    let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_ROUNDS").ok().and_then(|v| v.parse().ok()).unwrap_or(8).max(1);
     for round in 1..=max_rounds {
         let t = Instant::now();
         let world = dartforge_world::compute(input, &roots);
@@ -249,14 +249,14 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
                 report.fixes.push("user code pruning disabled: the analysis did not converge".to_string());
             }
             report.stats = world.stats.clone();
-            if std::env::var("DARTFORGE_JSPROD_CONFERIR").is_ok_and(|v| v != "0") {
+            if std::env::var("DARTFORGE_JSPROD_CHECK").is_ok_and(|v| v != "0") {
                 let inc = dartforge_world::check_consistency(input, &roots, &world);
                 for i in inc.iter().take(10) {
                     eprintln!("[jsprod] world inconsistency: {i:?}");
                 }
                 report.inconsistencies = Some(inc.len());
             }
-            if let Ok(target) = std::env::var("DARTFORGE_JSPROD_POR") {
+            if let Ok(target) = std::env::var("DARTFORGE_JSPROD_WHY") {
                 explain(a, &world, &target);
             }
             return Ok((emitted, Some(report)));
@@ -272,7 +272,7 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
     unreachable!()
 }
 
-/// `DARTFORGE_JSPROD_POR=Name`: why the class (or function) `Name` is in the
+/// `DARTFORGE_JSPROD_WHY=Name`: why the class (or function) `Name` is in the
 /// file — the chain of causes up to the root.
 fn explain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World, target: &str) {
     use dartforge_elements::model::{ClassId, FunctionElementId};

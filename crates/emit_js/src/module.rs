@@ -310,10 +310,10 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
             classes.push(ClassId(i as u32));
         }
     }
-    // `DARTFORGE_CRONO=1` prints the cost per module (ordering, classes, rest,
+    // `DARTFORGE_MODULE_TIMES=1` prints the cost per module (ordering, classes, rest,
     // rules) and how many fragments came from the cache — that is how we found
     // that an edit re-emitted 1,343 classes of a module with 345 libraries.
-    let cron = std::env::var("DARTFORGE_CRONO").is_ok();
+    let cron = std::env::var("DARTFORGE_MODULE_TIMES").is_ok();
     let t0 = std::time::Instant::now();
     let ordered = order_classes(ctx, &classes);
     let t_ord = t0.elapsed();

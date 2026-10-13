@@ -52,7 +52,7 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Outcome {
 #[cfg(feature = "native")]
 /// `--excecoes checagem|tabelas`: the exception model of the generated code
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13). The emitter reads it from the
-/// `DARTFORGE_EXCECOES` variable (`dartforge_emit_native::target::table_exceptions`),
+/// `DARTFORGE_EXCEPTIONS` variable (`dartforge_emit_native::target::table_exceptions`),
 /// which is also part of the compiled SDK's key — the program and the SDK
 /// always come out in the same model; the option only sets it, for this process.
 #[allow(unsafe_code)]
@@ -62,14 +62,14 @@ fn set_exception_model(value: &str) -> Result<(), String> {
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
-    unsafe { std::env::set_var("DARTFORGE_EXCECOES", value) };
+    unsafe { std::env::set_var("DARTFORGE_EXCEPTIONS", value) };
     Ok(())
 }
 
 #[cfg(feature = "native")]
 /// `--memoria tracing|arc`: the memory policy of the generated code
 /// (docs/ARC-CICLOS-ESPECIFICACAO.md §18.1 and §24; docs/ARC-IMPLEMENTACAO.md).
-/// Like [`set_exception_model`]: the emitter reads `DARTFORGE_MEMORIA`, which
+/// Like [`set_exception_model`]: the emitter reads `DARTFORGE_MEMORY`, which
 /// is part of the compiled SDK's key.
 #[allow(unsafe_code)]
 pub(crate) fn set_memory_policy(value: &str) -> Result<(), String> {
@@ -78,14 +78,14 @@ pub(crate) fn set_memory_policy(value: &str) -> Result<(), String> {
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
-    unsafe { std::env::set_var("DARTFORGE_MEMORIA", value) };
+    unsafe { std::env::set_var("DARTFORGE_MEMORY", value) };
     Ok(())
 }
 
 #[cfg(feature = "native")]
 /// `--raizes sombra|mapas`: where the collector's roots live in the generated
 /// code (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8). Like
-/// [`set_exception_model`]: the emitter reads `DARTFORGE_RAIZES`.
+/// [`set_exception_model`]: the emitter reads `DARTFORGE_ROOTS`.
 #[allow(unsafe_code)]
 fn set_roots_mode(value: &str) -> Result<(), String> {
     if value != "sombra" && value != "mapas" {
@@ -93,7 +93,7 @@ fn set_roots_mode(value: &str) -> Result<(), String> {
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
-    unsafe { std::env::set_var("DARTFORGE_RAIZES", value) };
+    unsafe { std::env::set_var("DARTFORGE_ROOTS", value) };
     Ok(())
 }
 
@@ -102,7 +102,7 @@ fn set_roots_mode(value: &str) -> Result<(), String> {
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14): `simbolico` emits the
 /// address → (function, line, column) table and the `StackTrace` comes out
 /// with the Dart frames; `nenhum` (the default) emits no table. Like
-/// [`set_exception_model`]: the emitter reads `DARTFORGE_RASTRO_VM`.
+/// [`set_exception_model`]: the emitter reads `DARTFORGE_STACK_TRACE`.
 #[allow(unsafe_code)]
 fn set_stack_trace(value: &str) -> Result<(), String> {
     if value != "simbolico" && value != "nenhum" {
@@ -110,7 +110,7 @@ fn set_stack_trace(value: &str) -> Result<(), String> {
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
-    unsafe { std::env::set_var("DARTFORGE_RASTRO_VM", value) };
+    unsafe { std::env::set_var("DARTFORGE_STACK_TRACE", value) };
     Ok(())
 }
 

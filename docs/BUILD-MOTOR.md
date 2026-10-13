@@ -179,7 +179,7 @@ pub enum Consulta {
 
 O equivalente do `asset_graph.json`: `.dart_tool/dartforge/build/estado/`
 (`persistencia.rs`). **Só quando o usuário pede** — `dartforge build
---estado`, ou `DARTFORGE_BUILD_ESTADO=1` para `build`, `compile-js`, `dev` e
+--estado`, ou `DARTFORGE_BUILD_STATE=1` para `build`, `compile-js`, `dev` e
 `serve` —, pela regra governante 6 do `PLANO.md` ("o disco só recebe o que o
 usuário pedir"). Sem pedido o motor continua só em memória (o D-B1 vale como
 padrão).
@@ -256,8 +256,8 @@ Por ação, na ordem, o primeiro que aceita:
    `dartforge build --dart <exe>` ou `DARTFORGE_BUILD_DART`. O **nativo**
    (`executor_nativo.rs`, B01) é o mesmo bootstrap compilado pelo
    `compile-native` do DartForge, sem VM: é o padrão do `dartforge build`
-   com a feature `native` (`DARTFORGE_BUILD_NATIVO=0` o desliga; nos
-   compiladores só com `DARTFORGE_BUILD_NATIVO=1`). O executável fica em
+   com a feature `native` (`DARTFORGE_BUILD_NATIVE=0` o desliga; nos
+   compiladores só com `DARTFORGE_BUILD_NATIVE=1`). O executável fica em
    `.dart_tool/dartforge/build/executor-<chave>`, com um depfile dos fontes
    que o programa carrega (o código dos builders para o motor); o processo
    recebe `DARTFORGE_PACKAGE_CONFIG` (o `--packages` da VM) e
@@ -266,7 +266,7 @@ Por ação, na ordem, o primeiro que aceita:
    (`dependencias_executor.rs`). Sem executor, o padrão é
    `Indisponivel(motivo)`. A sessão
    encerra o executor ao terminar ou quando ele é substituído. Cada
-   mensagem do executor (VM ou nativo) tem prazo: `DARTFORGE_BUILD_PRAZO`
+   mensagem do executor (VM ou nativo) tem prazo: `DARTFORGE_BUILD_TIMEOUT`
    segundos sem resposta (padrão 600; `0` desliga; as consultas `build.*`
    do meio da ação reiniciam a contagem) e o processo é encerrado — a ação
    em curso vira `Origem::Falha` com o motivo, e as seguintes seguem a
@@ -336,14 +336,14 @@ executor Dart, como o `build_runner_core` 8.0.0 os executa.
   mudou e recarrega.
 * `serve` procura a geração corrente antes do disco (um `.css` pedido pelo
   navegador é demanda).
-* `compile-js` usa o motor numa passada; `DARTFORGE_GERADOS` fica um ciclo
+* `compile-js` usa o motor numa passada; `DARTFORGE_GENERATED` fica um ciclo
   como sinônimo (`build_runner` = só apoio; `ng` = padrão com motor).
 * `dartforge build [--release] [--plano] [--comparar] [--escrever-cache
   <dir>] [--trabalhadores N] [--estrito] [--dart <exe>] [--estado]
   [--define ...] [--config <nome>] [--build-filter <glob>]` (§2.1);
   `--dart` (ou `DARTFORGE_BUILD_DART`, que vale também para `dev`, `serve` e
   `compile-js`) liga o executor de builders pela VM; `--estado` (ou
-  `DARTFORGE_BUILD_ESTADO=1`, idem) liga o estado entre processos (§4.1).
+  `DARTFORGE_BUILD_STATE=1`, idem) liga o estado entre processos (§4.1).
 
 ## 8. Custo zero (regra governante, PLANO.md)
 

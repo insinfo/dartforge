@@ -1668,11 +1668,11 @@ engenharia em `docs/ARC-IMPLEMENTACAO.md` (§6, "ARC puro").
 
 | Entrega | Estado | Evidência |
 | --- | --- | --- |
-| E0 | parcial: o inventário de formas é o do `GrafoDoHeap` (bitmap da instância, `REFS`, corpo de fora, anexos, efêmeros e fracos), sem a tabela formal por construtor/escritor | auditoria por recontagem (`DARTFORGE_ARC_CONFERIR=1`) em toda drenagem |
+| E0 | parcial: o inventário de formas é o do `GrafoDoHeap` (bitmap da instância, `REFS`, corpo de fora, anexos, efêmeros e fracos), sem a tabela formal por construtor/escritor | auditoria por recontagem (`DARTFORGE_ARC_CHECK=1`) em toda drenagem |
 | E1 | feita: `--memoria arc`/`--memoria=arc` no AOT e no JIT; o modo entra na chave do SDK compilado; tracing segue padrão, com o IR de sempre | corpus 238/238 nos dois modos |
 | E2 | **não iniciada**: não há owners na HIR (§20); a contagem é toda do runtime | — |
 | E3 | feita, com desvio: o RC conta **toda** gravação forte (também em jovem), pela barreira do runtime e, nas alocações em linha do código gerado, por `dartforge_arc_initial`; a escrita crua de um native tira uma foto, recontada na drenagem. As raízes não contam (RC adiado, Deutsch–Bobrow): a drenagem, no lugar da coleta menor, protege só o que as raízes veem; o jovem registrado sobrevive, o jovem que só as raízes veem é registrado, o resto morre sem varredura do heap e solta o que contava; os zeros cascateiam; o morto pelo RC volta ao alocador um a um (`soltar_morto`) | corpus 238/238 com auditoria, com `--gc-stress` e JIT × AOT 238/238 |
-| E4 | feita: *trial deletion* dos candidatos (§8) na drenagem completa, ou em toda drenagem com `DARTFORGE_ARC_CICLOS=sempre`; efêmeros pelo ponto fixo do §22.3 quando há algum; fracos e finalizadores despachados na drenagem | grafos aleatórios com semente contra oráculo independente (3000 sementes × 3 modos, `arc_grafos_aleatorios_*`); corpus 238/238 com ciclos em toda drenagem e auditoria |
+| E4 | feita: *trial deletion* dos candidatos (§8) na drenagem completa, ou em toda drenagem com `DARTFORGE_ARC_CYCLES=sempre`; efêmeros pelo ponto fixo do §22.3 quando há algum; fracos e finalizadores despachados na drenagem | grafos aleatórios com semente contra oráculo independente (3000 sementes × 3 modos, `arc_grafos_aleatorios_*`); corpus 238/238 com ciclos em toda drenagem e auditoria |
 | E5 | parcial: exceções, async, eventos, isolados e JIT passam no corpus; a matriz `tracing/arc × pendência/tabelas × debug/otimizado` não está no harness (as combinações rodam por variável de ambiente) | corpus nativo 238/238 em Windows; Linux e macOS 238/238 no modo anterior (berçário), ainda não com o ARC puro |
 | E6 | início: o filtro mínimo do §32 — objeto de corpo `BRUTO` (texto, caixa numérica, dados tipados) não tem aresta e não vira candidato a ciclo | — |
 
@@ -1834,7 +1834,7 @@ IDs de sítio são estáveis através de clonagem/inlining: `ValueId` isolado
 não é identidade persistente. Inlining remapeia a origem e o contexto da cópia.
 Uma transformação que altera heap/CFG depois da prova deve atualizar a prova
 por regra verificada ou invalidá-la e recalcular os afetados antes da emissão.
-Com `DARTFORGE_OTIMIZAR_HIR=0`, manter ARC geral correto e seus verificadores;
+Com `DARTFORGE_OPTIMIZE_HIR=0`, manter ARC geral correto e seus verificadores;
 desligar otimização nunca desliga a recuperação residual nem cria certificados.
 
 ## 28. Análise de referências e resumos interprocedurais

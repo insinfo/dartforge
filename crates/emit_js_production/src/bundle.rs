@@ -183,7 +183,7 @@ pub fn entry_from_mjs(mjs: &str, modules: &[Module]) -> Option<String> {
     m.namespaces.first().and_then(|ns| ns.trim_start_matches("var ").split(' ').next().map(str::to_string))
 }
 
-/// The verifier mode's `dart_podado` (`DARTFORGE_JSPROD_VERIFICAR=stub`): a
+/// The verifier mode's `dart_podado` (`DARTFORGE_JSPROD_VERIFY=stub`): a
 /// member the closed world said was dead was called. It writes the name to
 /// stderr and exits with 97 — never a `throw`, which the program could catch
 /// and go on with different behavior.

@@ -259,7 +259,7 @@ e o que pode variar com a ordem de conclusão é o nosso código. O mesmo IR
 é a entrada da chave do cache de objeto (`crates/emit_native/src/cache_objeto.rs`),
 que é a razão prática do teste: IR instável faria o cache errar sempre. O
 harness separa **trabalhadores** (1, 4, 8, que disputam a fila e mudam a
-ordem de conclusão) de **emissões simultâneas** (`DARTFORGE_IR_PARALELO_MAX`,
+ordem de conclusão) de **emissões simultâneas** (`DARTFORGE_IR_PARALLEL_MAX`,
 por memória) — o teste precisa da primeira coisa, não da segunda. Medido
 em `ESTADO.md` §3.2: 214 programas em 0,2–0,5 s por passada.
 
@@ -276,7 +276,7 @@ mesmo programa 6 vezes em sequência e 4 em threads e exige texto idêntico
 byte a byte. Auditados 19 pontos de iteração em `emit_js`,
 `emit_js_production`, `mundo` e `dev`: 4 corrigidos (o de cima; o
 `seletores()` público do `Mundo`, agora ordenado; e dois relatórios de
-depuração em stderr — `DARTFORGE_AVISOS_RESUMO` e `DARTFORGE_JSPROD_DEBUG` —
+depuração em stderr — `DARTFORGE_WARNINGS_SUMMARY` e `DARTFORGE_JSPROD_DEBUG` —
 que ordenavam só pela contagem, sem desempate), os outros 15 provados
 indiferentes à ordem (resultado ordenado depois, só pertinência, ou
 reinserção noutro mapa sem ordem). Em `emit_native/src/{lower,llvm}` e

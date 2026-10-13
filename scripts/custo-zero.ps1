@@ -53,7 +53,7 @@ function Corpus([string]$dir, [string]$saida) {
 # (2) Sessão residente: média de ms por edição de corpo (platô do `measure`).
 function Sessao([string]$dir, [string]$entrada, [string]$cfg, [string]$alvo) {
     $exe = Join-Path $dir 'measure.exe'
-    $env:DARTFORGE_DEV_SAIDA = Join-Path $tmp ('dev-' + (Split-Path $dir -Leaf))
+    $env:DARTFORGE_DEV_OUTPUT = Join-Path $tmp ('dev-' + (Split-Path $dir -Leaf))
     $a = @($entrada)
     if ($cfg) { $a += $cfg } else { $a += '' }
     $a += @($alvo, "$Edicoes")

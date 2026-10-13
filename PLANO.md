@@ -985,7 +985,7 @@ que o navegador nunca veja meio estado — módulo novo com template velho.
 **Escada de migração.** O que o gerador ainda não sabe gerar continua
 vindo do `build_runner`, e a aplicação compila em todos os passos. A cada
 forma nova que ele aprende, um arquivo sai do apoio e entra no nosso.
-`DARTFORGE_GERADOS=ng` liga o gerador; `=build_runner` monta a geração só
+`DARTFORGE_GENERATED=ng` liga o gerador; `=build_runner` monta a geração só
 com o que o `build_runner` escreveu, para separar encanamento de gerador.
 
 **Oráculo.** Os 284 `.template.dart` que o `build_runner` já escreveu no

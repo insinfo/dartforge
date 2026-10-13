@@ -42,8 +42,8 @@ estraga. Vários dos erros do emissor são observáveis em execução (§4).
 
 `crates/emit_js/src/conferencia.rs`, ligada por variável de ambiente:
 
-    DARTFORGE_JS_CONFERIR_TIPOS=1                  # resumo por categoria em stderr
-    DARTFORGE_JS_CONFERIR_TIPOS=/tmp/div.tsv       # e uma linha por divergência
+    DARTFORGE_JS_CHECK_TYPES=1                  # resumo por categoria em stderr
+    DARTFORGE_JS_CHECK_TYPES=/tmp/div.tsv       # e uma linha por divergência
 
 - **Tipo.** Em `emit_expr`, antes das coerções de contexto (`coerce_to`), o
   `Ty` que o emissor deduziu é comparado com o tipo comum
@@ -67,7 +67,7 @@ acrescenta antes uma linha `#totais`.
 
     # 1. emitir o corpus com a conferência (e guardar o JS para comparar)
     cargo build --release -p dartforge-emit-js --example emitir_corpus
-    DARTFORGE_JS_CONFERIR_TIPOS=/tmp/div.tsv \
+    DARTFORGE_JS_CHECK_TYPES=/tmp/div.tsv \
         target/release/examples/emitir_corpus /tmp/js corpus/js/*.dart
 
     # 2. oráculo do analyzer (num diretório com pubspec que dependa de
@@ -291,7 +291,7 @@ Sugestões:
 ## 9. Passos 2 e 3 (2026-09-27): o emissor lê `BodyTypes`
 
 Medido com a conferência ligada sobre os 196 programas do `corpus/js`
-(`emitir_corpus`, `DARTFORGE_JS_CONFERIR_TIPOS=…tsv`; os totais saem na
+(`emitir_corpus`, `DARTFORGE_JS_CHECK_TYPES=…tsv`; os totais saem na
 linha `#totais` e no resumo em stderr):
 
 | | antes (§ Resumo) | agora |

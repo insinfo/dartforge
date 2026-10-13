@@ -62,7 +62,7 @@ saida = ['# The effects table of the runtime externs (docs/NATIVO-MAPAS-DE-PILHA
          '#   runs_dart  may call generated Dart code (implies collects = 1 and throws = 1)',
          "# The runtime's `build.rs` checks the list against the fragments and generates the table that the",
          '# emitter reads (`dartforge_runtime::effects`). A mark only goes from 1 to 0 together with the',
-         '# run that checks it (`DARTFORGE_EFEITOS=conferir`).',
+         '# run that checks it (`DARTFORGE_EFFECTS=conferir`).',
          '# name\tcollects\tthrows\truns_dart']
 cont = {}
 for n in sorted(nomes):

@@ -53,11 +53,11 @@ impl OracleSdk {
         self.root().join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" }).is_file()
     }
 
-    /// Where the SDK is on this machine (`DARTFORGE_ORACULO_3_6`/`_3_13` override it).
+    /// Where the SDK is on this machine (`DARTFORGE_ORACLE_3_6`/`_3_13` override it).
     pub fn root(self) -> PathBuf {
         let (var, default) = match self {
-            OracleSdk::V362 => ("DARTFORGE_ORACULO_3_6", "E:/DartSDKs/3.6.2"),
-            OracleSdk::V3134 => ("DARTFORGE_ORACULO_3_13", "E:/DartSDKs/3.13.4/dart-sdk"),
+            OracleSdk::V362 => ("DARTFORGE_ORACLE_3_6", "E:/DartSDKs/3.6.2"),
+            OracleSdk::V3134 => ("DARTFORGE_ORACLE_3_13", "E:/DartSDKs/3.13.4/dart-sdk"),
         };
         std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(default))
     }

@@ -3,21 +3,21 @@
 //! outside the repository and are `#[ignore]`:
 //!
 //! - `project_stylesheets_equal_to_official`: walks the output of an official
-//!   build (`DARTFORGE_SHIM_GERADO`, the `.dart_tool/build/generated`) and, for
+//!   build (`DARTFORGE_SHIM_GENERATED`, the `.dart_tool/build/generated`) and, for
 //!   each `X.css.shim.dart`, generates ours with [`generate_sheet`] from the
 //!   `X.css` next to it (output of `sass_builder`) or, if there is none, from
-//!   the `X.css` in the package (`DARTFORGE_SHIM_RAIZES`, `package=dir`
+//!   the `X.css` in the package (`DARTFORGE_SHIM_ROOTS`, `package=dir`
 //!   separated by `,`).
 //!
 //!   ```text
-//!   DARTFORGE_SHIM_GERADO=…/example/.dart_tool/build/generated \
-//!   DARTFORGE_SHIM_RAIZES=limitless_ui=…/limitless_ui,limitless_ui_example=…/example \
+//!   DARTFORGE_SHIM_GENERATED=…/example/.dart_tool/build/generated \
+//!   DARTFORGE_SHIM_ROOTS=limitless_ui=…/limitless_ui,limitless_ui_example=…/example \
 //!   cargo test --release -p dartforge-ng-generator --test shim_check -- --ignored --nocapture
 //!   ```
 //!
 //! - `shim_equal_to_dart_oracle`: reads the output of a Dart program that calls
 //!   the official `shimShadowCss` on a list of `.css` files
-//!   (`DARTFORGE_SHIM_ORACULO`; records `=== path`, `OK`/`ERR`, the text and
+//!   (`DARTFORGE_SHIM_ORACLE`; records `=== path`, `OK`/`ERR`, the text and
 //!   `\0`) and compares: equal output, or a refusal where the official one
 //!   throws.
 use std::path::{Path, PathBuf};
@@ -61,12 +61,12 @@ fn difference(a: &str, b: &str) -> String {
 #[test]
 #[ignore]
 fn project_stylesheets_equal_to_official() {
-    let Ok(generated) = std::env::var("DARTFORGE_SHIM_GERADO") else {
-        eprintln!("set DARTFORGE_SHIM_GERADO");
+    let Ok(generated) = std::env::var("DARTFORGE_SHIM_GENERATED") else {
+        eprintln!("set DARTFORGE_SHIM_GENERATED");
         return;
     };
     let generated = PathBuf::from(generated);
-    let roots: Vec<(String, PathBuf)> = std::env::var("DARTFORGE_SHIM_RAIZES")
+    let roots: Vec<(String, PathBuf)> = std::env::var("DARTFORGE_SHIM_ROOTS")
         .unwrap_or_default()
         .split(',')
         .filter_map(|pair| {
@@ -128,8 +128,8 @@ fn project_stylesheets_equal_to_official() {
 #[test]
 #[ignore]
 fn shim_equal_to_dart_oracle() {
-    let Ok(oracle) = std::env::var("DARTFORGE_SHIM_ORACULO") else {
-        eprintln!("set DARTFORGE_SHIM_ORACULO");
+    let Ok(oracle) = std::env::var("DARTFORGE_SHIM_ORACLE") else {
+        eprintln!("set DARTFORGE_SHIM_ORACLE");
         return;
     };
     let text = std::fs::read_to_string(&oracle).expect("oracle");

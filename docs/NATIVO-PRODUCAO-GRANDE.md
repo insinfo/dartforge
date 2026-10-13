@@ -48,13 +48,13 @@ Por isso o `lld` faz a LTO **completa**:
 * só depois divide a geração de código em partições.
 
 O comentário do C9 ("ThinLTO entre as partes") só vale com
-`DARTFORGE_GERADOR=clang`.
+`DARTFORGE_GENERATOR=clang`.
 
 ### 1.3 O que a poda deixa vivo, contra o que o Dart retém
 
 Fontes:
 
-* **Nosso lado:** o relatório `DARTFORGE_POR_QUE` da montagem das tabelas
+* **Nosso lado:** o relatório `DARTFORGE_WHY` da montagem das tabelas
   (`EN/poda.rs`, o RTA por seletor sobre o IR).
 * **Dart:** `--print-instructions-sizes-to` do `gen_snapshot` (o `dart compile
   aot-snapshot` do mesmo programa).
@@ -294,8 +294,8 @@ outros builds rodando. Os números são os mínimos por medida, em µs:
 
 No programa grande o padrão é o tamanho. Uma decisão do dono, depois da medida: 33 min e 94 MB
 eram inaceitáveis. O preço está na §5.1. Para voltar ao código em linha:
-`DARTFORGE_CAMPOS_POR_CHAMADA=0` e `DARTFORGE_AJUDANTES_FORA=` (vazio). Também dá para escolher
-os ajudantes um a um (`DARTFORGE_AJUDANTES_FORA=allocate,barrier`).
+`DARTFORGE_FIELDS_BY_CALL=0` e `DARTFORGE_OUTLINED_HELPERS=` (vazio). Também dá para escolher
+os ajudantes um a um (`DARTFORGE_OUTLINED_HELPERS=allocate,barrier`).
 
 Achado no caminho: com as partes do programa em ThinLTO e o SDK em LTO completa, a divisão do
 módulo do SDK em partições (`/opt:lldltopartitions`) promove o `@df.area_id` interno de um
@@ -311,7 +311,7 @@ variam menos.
 
 ### 6.1 Onde o tempo da ligação vai
 
-O perfil é o `--time-trace` do `lld` (`DARTFORGE_LTO_PERFIL=<arquivo.json>`). Com a ligação
+O perfil é o `--time-trace` do `lld` (`DARTFORGE_LTO_PROFILE=<arquivo.json>`). Com a ligação
 fria (objetos em cache, cache do ThinLTO vazio) e 3 tarefas, o ThinLTO gasta 771 s de CPU
 (266 s de relógio):
 
@@ -355,7 +355,7 @@ O `bench/performance` (mínimo de 3 rodadas por medida) fica entre 0,94 e 1,09×
 `-O2`, dentro do ruído da máquina.
 
 Padrão: `-O1` na ligação do programa em partes (`driver::nivel_da_lto`); `-O2` no programa
-pequeno. Ficam como chaves de medida: `DARTFORGE_LTO_NIVEL`, `DARTFORGE_PRELINK_O` (o nível da
+pequeno. Ficam como chaves de medida: `DARTFORGE_LTO_LEVEL`, `DARTFORGE_PRELINK_O` (o nível da
 pré-ligação das partes) e `DARTFORGE_LTO_MLLVM` (opções do LLVM na ligação, Windows).
 
 ### 6.3 O corpo do objeto sem dependência de memória

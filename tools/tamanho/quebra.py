@@ -5,7 +5,7 @@ Uso:
     python tools/tamanho/quebra.py <mapa> [--secao 0001] [--grupos N] [--simbolos N]
 
 O mapa é o do `lld-link` (Windows): compile em produção com
-`DARTFORGE_MAPA_DA_LIGACAO=1` (`dartforge aot x.dart x.exe --optimize`), e ele
+`DARTFORGE_LINK_MAP=1` (`dartforge aot x.dart x.exe --optimize`), e ele
 sai em `x.map`. A seção `0001` é o `.text`; `0002`, o `.rdata`.
 
 Cada símbolo ocupa do endereço dele até o próximo. A origem é:

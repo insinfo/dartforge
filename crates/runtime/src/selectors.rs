@@ -496,17 +496,17 @@ pub extern "C" fn dartforge_member_rejected(text: i64) {
     std::process::exit(254);
 }
 
-/// `DARTFORGE_DEPURAR=1`: the runtime reports on stderr every thrown exception and
+/// `DARTFORGE_DEBUG=1`: the runtime reports on stderr every thrown exception and
 /// every selector that the receiver's class does not have.
 fn debug() -> bool {
     thread_local! {
-        static D: bool = std::env::var("DARTFORGE_DEPURAR").is_ok_and(|v| v == "1");
+        static D: bool = std::env::var("DARTFORGE_DEBUG").is_ok_and(|v| v == "1");
     }
     D.with(|d| *d)
 }
 
 thread_local! {
-    /// The stack of Dart functions (`DARTFORGE_RASTRO=1` at compile time).
+    /// The stack of Dart functions (`DARTFORGE_CALL_TRACE=1` at compile time).
     static TRACE: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
 }
 

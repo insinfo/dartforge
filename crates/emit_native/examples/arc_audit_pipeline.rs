@@ -323,7 +323,7 @@ fn main() -> Result<(), String> {
             // The explicit selection of the diagnostics must match the memory
             // key used by the cache/compilation of the SDK libraries.
             if !selected_arc || !dartforge_emit_native::target::arc_memory()? {
-                return Err("the audit requires --memoria=arc and DARTFORGE_MEMORIA=arc".into());
+                return Err("the audit requires --memoria=arc and DARTFORGE_MEMORY=arc".into());
             }
             if entries.is_empty() {
                 return Err("informe os arquivos Dart a auditar".into());

@@ -224,7 +224,7 @@ pub fn statement(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<C
         // takes (`.llvm_addrsig`), so the `==` of tear-offs stays correct
         // (`linker_windows.rs`, corpus/native 80).
         cmd.arg("--icf=safe");
-        // `DARTFORGE_MANTER_SIMBOLOS=1`: the symbol table stays (profiling).
+        // `DARTFORGE_KEEP_SYMBOLS=1`: the symbol table stays (profiling).
         if !keep_symbols() && !l.keep_debug_info {
             cmd.arg("--strip-all");
         }
@@ -250,14 +250,14 @@ pub fn statement(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<C
     Ok(cmd)
 }
 
-/// `DARTFORGE_MAPA_DA_LIGACAO=1`: the link map of a production executable
+/// `DARTFORGE_LINK_MAP=1`: the link map of a production executable
 /// next to it (`<output>.map`), with the address and the size of each
 /// symbol after LTO — what `tools/tamanho/quebra.py` reads and the code
 /// absence test checks (docs/NATIVO-PODA-DE-TABELAS.md §3.10).
 /// [`request_link_maps`] also turns it on.
 pub fn link_map(exit: &Path) -> Option<PathBuf> {
     let request = MAPS.load(std::sync::atomic::Ordering::Relaxed)
-        || std::env::var("DARTFORGE_MAPA_DA_LIGACAO").is_ok_and(|v| v == "1");
+        || std::env::var("DARTFORGE_LINK_MAP").is_ok_and(|v| v == "1");
     request.then(|| exit.with_extension("map"))
 }
 
@@ -270,8 +270,8 @@ pub fn request_link_maps() {
     MAPS.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// `DARTFORGE_MANTER_SIMBOLOS=1` leaves the symbol table in the executable,
+/// `DARTFORGE_KEEP_SYMBOLS=1` leaves the symbol table in the executable,
 /// for profiling (`perf`, `callgrind`) the generated code.
 pub fn keep_symbols() -> bool {
-    std::env::var("DARTFORGE_MANTER_SIMBOLOS").is_ok_and(|v| v == "1")
+    std::env::var("DARTFORGE_KEEP_SYMBOLS").is_ok_and(|v| v == "1")
 }

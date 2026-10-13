@@ -7,7 +7,7 @@
 //!   linked into dartforge itself (`crates/llvm`), in process — without Clang
 //!   on the machine of whoever uses dartforge, without a process per module and without
 //!   writing the IR to disk;
-//! * **Clang** (`DARTFORGE_GERADOR=clang`, or a build without the feature): the
+//! * **Clang** (`DARTFORGE_GENERATOR=clang`, or a build without the feature): the
 //!   `clang -x ir -c` of before.
 //!
 //! What a generation is asked for is a [`Generation`]; the key of the caches
@@ -59,7 +59,7 @@ impl Generation {
     pub fn description(&self) -> String {
         // The pipeline swapped for measurement (`dartforge_llvm::generate`) changes the
         // object: it goes into the key.
-        let pipeline = match std::env::var("DARTFORGE_PIPELINE_OBJETO") {
+        let pipeline = match std::env::var("DARTFORGE_OBJECT_PIPELINE") {
             Ok(p) if self.optimize && self.format == Format::Object && !p.is_empty() => format!(" {p}"),
             _ => String::new(),
         };
@@ -211,10 +211,10 @@ pub enum Generator {
 
 impl Generator {
     /// The generator of this build and this environment: the embedded one when the build
-    /// has it, unless `DARTFORGE_GERADOR=clang`; otherwise `clang`.
+    /// has it, unless `DARTFORGE_GENERATOR=clang`; otherwise `clang`.
     pub fn choose(clang: &Path) -> Generator {
         #[cfg(feature = "embedded-llvm")]
-        if std::env::var("DARTFORGE_GERADOR").map_or(true, |g| g != "clang") {
+        if std::env::var("DARTFORGE_GENERATOR").map_or(true, |g| g != "clang") {
             return Generator::Builtin;
         }
         Generator::Clang(clang.to_path_buf())
@@ -272,14 +272,14 @@ impl Generator {
                 let mut bytes = dartforge_llvm::generate(&name, ir, &options)?;
                 // Roots by maps: the stack map of the object, from the LLVM
                 // format (~98 bytes per record) to the compact one (`gcmap.rs`).
-                // `DARTFORGE_SEM_MAPA_COMPACTO=1` leaves the LLVM one in COFF
+                // `DARTFORGE_NO_COMPACT_MAP=1` leaves the LLVM one in COFF
                 // (measurement); in ELF the conversion is mandatory, and Mach-O stays
                 // in the LLVM format.
                 if generation.format == Format::Object && ir.contains(dartforge_llvm::GC_MARK) && crate::gcmap::convert_here() {
                     crate::gcmap::convert(&mut bytes)?;
                 }
                 // The symbolic stack trace: the 12-byte-per-entry table becomes
-                // DFPC (`compact_stack_trace.rs`); `DARTFORGE_RASTRO_CRU=1` leaves it.
+                // DFPC (`compact_stack_trace.rs`); `DARTFORGE_STACK_TRACE_RAW=1` leaves it.
                 if generation.format == Format::Object && ir.contains("@df.pcf.") && crate::compact_stack_trace::convert_here() {
                     crate::compact_stack_trace::convert(&mut bytes)?;
                 }

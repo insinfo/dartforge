@@ -95,8 +95,8 @@ def main():
     destino.mkdir(parents=True, exist_ok=True)
     ambiente = os.environ.copy()
     ambiente.update({
-        "DARTFORGE_ARC_CONFERIR": "1",
-        "DARTFORGE_ARC_BERCARIO": "0",
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_ARC_NURSERY": "0",
         "DARTFORGE_GC_STRESS": "1",
     })
     # Traps intencionais não precisam gerar dumps de memória no runner Unix.
@@ -112,7 +112,7 @@ def main():
             "crates/emit_native", "crates/runtime", "scripts/provar-arc-aot.py"]),
         "rustc": informacao(["rustc", "--version"]),
         "ambiente": {k: ambiente[k] for k in (
-            "DARTFORGE_ARC_CONFERIR", "DARTFORGE_ARC_BERCARIO", "DARTFORGE_GC_STRESS")},
+            "DARTFORGE_ARC_CHECK", "DARTFORGE_ARC_NURSERY", "DARTFORGE_GC_STRESS")},
         "execucoes": [],
     }
     manifesto_path = destino / "evidencia.json"

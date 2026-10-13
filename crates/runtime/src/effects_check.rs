@@ -1,7 +1,7 @@
 // Checking of the extern effects table (`crates/runtime/effects.tsv`,
 // docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8).
 //
-// With `DARTFORGE_EFEITOS=conferir` at compile time, generated code calls
+// With `DARTFORGE_EFFECTS=conferir` at compile time, generated code calls
 // `dartforge_effects_before(name, marks)` before and `dartforge_effects_after()`
 // after every extern that the table marks `collects = 0` (bit 0 of the marks) or
 // `throws = 0` (bit 1). Here the mark is put to the test:

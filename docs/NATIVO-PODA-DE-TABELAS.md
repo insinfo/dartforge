@@ -189,7 +189,7 @@ LTO os tira do executável.
 
 ### 3.10 Relatório "por que isto ficou"
 
-`DARTFORGE_POR_QUE=<arquivo>` na compilação de produção grava, para cada nó vivo, a causa da
+`DARTFORGE_WHY=<arquivo>` na compilação de produção grava, para cada nó vivo, a causa da
 primeira vez em que ele entrou:
 
 ```
@@ -199,14 +199,14 @@ primeira vez em que ele entrou:
 ```
 
 `tools/tamanho/por-que.py` segue a cadeia até a raiz ("quem puxou este método?") e soma, com o
-mapa da ligação, os bytes por causa. `DARTFORGE_MAPA_DA_LIGACAO=1` pede o mapa ao ligador
+mapa da ligação, os bytes por causa. `DARTFORGE_LINK_MAP=1` pede o mapa ao ligador
 (`<saída>.map`); `tools/tamanho/quebra.py` quebra o `.text` por biblioteca.
 
 `--timings` mostra a poda: tabelas vivas, pares vivos de quantos, tempo.
 
 ### 3.11 Chave de comparação
 
-`DARTFORGE_SEM_PODA_DE_TABELAS=1` monta as tabelas com todos os pares (o modelo de antes, mas com a
+`DARTFORGE_NO_TABLE_PRUNING=1` monta as tabelas com todos os pares (o modelo de antes, mas com a
 mesma estrutura de módulos): serve para medir o ganho e para isolar um erro. Só o `montar` a lê; a
 chave do SDK não muda.
 
@@ -219,7 +219,7 @@ está em quando ela acontece: antes da otimização e da geração de código, e
 
 No `new_sali/backend` saem 131 270 funções e 77 633 globais: 476 MB dos 1,31 GB de IR
 (`docs/NATIVO-PRODUCAO-GRANDE.md` §1.3). `--timings` mostra a contagem na linha `Poda:`. Teste:
-`poda::testes::definicoes_mortas_do_programa_saem_do_ir`. `DARTFORGE_SEM_PODA_DE_TABELAS=1`
+`poda::testes::definicoes_mortas_do_programa_saem_do_ir`. `DARTFORGE_NO_TABLE_PRUNING=1`
 desliga também isto.
 
 O despacho compacto do programa grande (`docs/NATIVO-PRODUCAO-GRANDE.md` §3) chama
@@ -255,7 +255,7 @@ então a poda vale nos dois perfis. Ela não vale no JIT, porque a geração seg
 recarga pode chamar qualquer seletor.
 
 Testes: `poda_da_hir_tira_o_que_nao_alcanca` e `poda_da_hir_ve_o_seletor_chamado_pelo_sdk`.
-`DARTFORGE_SEM_PODA_HIR=1` desliga.
+`DARTFORGE_NO_HIR_PRUNING=1` desliga.
 
 ### 3.14 Os trampolins da FFI pelas assinaturas pedidas
 
@@ -284,7 +284,7 @@ receita do argumento de tipo (sozinho, na tupla `L<…>` ou em `NativeFunction<�
   (nenhuma chave achada fica sem trampolim).
 
 Testes: `testes_ffi::chave_da_assinatura_na_receita` e `receitas_do_ir_vao_ao_resumo`; o corpus
-de FFI (`08`, `12`, `13`, `15`–`19`, `128`) nos quatro modos. `DARTFORGE_SEM_PODA_FFI=1`
+de FFI (`08`, `12`, `13`, `15`–`19`, `128`) nos quatro modos. `DARTFORGE_NO_FFI_PRUNING=1`
 desliga.
 
 ## 4. Verificação
@@ -311,7 +311,7 @@ desliga.
 | `EN/llvm/mod.rs` | `com_tabelas_na_ligacao` |
 | `EN/sdk_modulo.rs` | tabelas no `BibliotecaDoSdk`, `.poda` no perfil de produção, `SdkCompilado::resumos` |
 | `EN/driver.rs` | `montar` na ligação de produção; `--timings` |
-| `EN/ligador.rs`, `ligador_windows.rs`, `ligador_macos.rs` | `DARTFORGE_MAPA_DA_LIGACAO` |
+| `EN/ligador.rs`, `ligador_windows.rs`, `ligador_macos.rs` | `DARTFORGE_LINK_MAP` |
 | `corpus/native/81_poda_de_tabelas.dart` | o caso do teste de ausência |
 | `tools/tamanho/` | `quebra.py`, `por-que.py` |
 

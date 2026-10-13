@@ -396,7 +396,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      DARTFORGE_SDK_DA_FONTE: '1'
+      DARTFORGE_SDK_FROM_SOURCE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/harness
@@ -448,8 +448,8 @@ jobs:
           - { id: B1, raizes: mapas, excecoes: tabelas }
         estresse: [false, true]
     env:
-      DARTFORGE_RAIZES: ${{ matrix.modo.raizes }}
-      DARTFORGE_EXCECOES: ${{ matrix.modo.excecoes }}
+      DARTFORGE_ROOTS: ${{ matrix.modo.raizes }}
+      DARTFORGE_EXCEPTIONS: ${{ matrix.modo.excecoes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # O cache do job `compilar`: o harness é recompilado com o gerador
@@ -477,7 +477,7 @@ jobs:
         if: matrix.modo.id == 'B0' && !matrix.estresse
         shell: pwsh
         env:
-          DARTFORGE_TESTES_MAPAS: '1'
+          DARTFORGE_MAPS_TESTS: '1'
           CARGO_PROFILE_RELEASE_LTO: 'false'
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test directed_maps -- --test-threads=1 --nocapture
@@ -497,8 +497,8 @@ jobs:
       matrix:
         estresse: [false, true]
     env:
-      DARTFORGE_MEMORIA: arc
-      DARTFORGE_ARC_CONFERIR: ${{ matrix.estresse && '0' || '1' }}
+      DARTFORGE_MEMORY: arc
+      DARTFORGE_ARC_CHECK: ${{ matrix.estresse && '0' || '1' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/harness
@@ -576,7 +576,7 @@ jobs:
           retention-days: 14
 
   # O SDK compilado da fonte (P5c/P5d, docs/NATIVO-PLANO.md §7.7), ainda
-  # opt-in: o corpus nativo inteiro com DARTFORGE_SDK_DA_FONTE=1 (a DLL do SDK
+  # opt-in: o corpus nativo inteiro com DARTFORGE_SDK_FROM_SOURCE=1 (a DLL do SDK
   # é compilada uma vez, no primeiro programa), e o perfil de produção — UM
   # executável autocontido, que o teste copia sozinho para uma pasta vazia e
   # executa. O artefato não entra no placar consolidado do nativo de hoje.
@@ -587,13 +587,13 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     env:
-      DARTFORGE_SDK_DA_FONTE: '1'
+      DARTFORGE_SDK_FROM_SOURCE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/harness
         with:
           nome: sdk-fonte
-          titulo: Nativo com o SDK da fonte (DARTFORGE_SDK_DA_FONTE=1)
+          titulo: Nativo com o SDK da fonte (DARTFORGE_SDK_FROM_SOURCE=1)
           args: --nativo --jobs 4
           nativo: 'true'
           aceitar-placar-parcial: 'true'
@@ -722,7 +722,7 @@ jobs:
         shell: bash
         env:
           PISO: ${{ matrix.piso }}
-          DARTFORGE_SDK_DA_FONTE: '1'
+          DARTFORGE_SDK_FROM_SOURCE: '1'
         run: |
           set -uo pipefail
           mkdir -p relatorios
@@ -742,11 +742,11 @@ jobs:
           : > relatorios/modos.txt
           for modo in "A1 sombra tabelas" "B0 mapas checagem" "B1 mapas tabelas"; do
             set -- $modo
-            c=0; DARTFORGE_RAIZES=$2 DARTFORGE_EXCECOES=$3 ./target/release/dartforge-differential --nativo --jobs 3 > "relatorios/nativo-$1.txt" 2>&1 || c=$?
+            c=0; DARTFORGE_ROOTS=$2 DARTFORGE_EXCEPTIONS=$3 ./target/release/dartforge-differential --nativo --jobs 3 > "relatorios/nativo-$1.txt" 2>&1 || c=$?
             echo "$1: código $c"
             echo "$1 $(grep -E '^DartForge Nativo: ' "relatorios/nativo-$1.txt" || echo 'sem placar')" >> relatorios/modos.txt
           done
-          c=0; DARTFORGE_MEMORIA=arc DARTFORGE_ARC_CONFERIR=1 ./target/release/dartforge-differential --nativo --jobs 3 > relatorios/nativo-arc.txt 2>&1 || c=$?
+          c=0; DARTFORGE_MEMORY=arc DARTFORGE_ARC_CHECK=1 ./target/release/dartforge-differential --nativo --jobs 3 > relatorios/nativo-arc.txt 2>&1 || c=$?
           echo "arc: código $c"
           echo "ARC $(grep -E '^DartForge Nativo: ' relatorios/nativo-arc.txt || echo 'sem placar')" >> relatorios/modos.txt
           io=$(grep -E '^DartForge Nativo: ' relatorios/io.txt || true)

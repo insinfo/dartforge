@@ -1089,7 +1089,7 @@ tear-off ou `toString` de classe. *Construto que falta no código da fonte* vira
 (`FnBuilder::nao_suportado`): a poda é conservadora (todo `toString`, todo
 alvo de um despacho), e o programa que não passa por ali compila; o que passa
 falha alto, nunca em silêncio. No código do programa continua sendo erro de
-compilação (N1). `DARTFORGE_FONTE_NAO_SUPORTADO=1` lista esses pontos na
+compilação (N1). `DARTFORGE_SOURCE_UNSUPPORTED=1` lista esses pontos na
 compilação.
 
 *Natives e intrínsecos* (`lower/externos.rs`): o `external` da fonte com
@@ -1204,7 +1204,7 @@ falha com ele. IR de um programa `async` típico (83): 1,2 MB, a maior parte do
 
 ### 7.9 δ: o SDK da fonte compilado (P5c) e a troca (P5d), medido
 
-**Como o SDK entra.** Com `DARTFORGE_SDK_DA_FONTE=1` (opt-in até o placar
+**Como o SDK entra.** Com `DARTFORGE_SDK_FROM_SOURCE=1` (opt-in até o placar
 do SDK da fonte passar o de hoje), as oito bibliotecas da fonte (`core`,
 `async`, `collection`, `convert`, `math`, `_internal`, `_compact_hash`,
 `typed_data`, com os patches `vm` e a sobreposição `native_sdk/`) são
@@ -1512,7 +1512,7 @@ do usuário para o build do dartforge:
   `Cargo.lock`, o alvo e a variante). O AOT procura em `lib/` da
   distribuição (`<raiz>/bin/dartforge` → `<raiz>/lib/`, ou `DARTFORGE_LIB`),
   depois no diretório do build; não há mais compilação com o `rustc` da
-  máquina. `DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1` pula a etapa em `cargo
+  máquina. `DARTFORGE_RUNTIME_NO_PRECOMPILE=1` pula a etapa em `cargo
   check`/`clippy`.
 * **Gerador de objetos embutido** (`crates/llvm`, `src/gerador.rs`, feature
   `embedded-llvm`, ligada pelo `jit` da CLI). O LLVM ligado ao dartforge lê
@@ -1520,7 +1520,7 @@ do usuário para o build do dartforge:
   com a CPU que o Clang assume sem `-march` (`x86-64`, `apple-m1`,
   `generic`) e código independente de posição fora do Windows — o que o
   `clang -x ir -c` fazia, sem processo por módulo e sem gravar o IR.
-  `DARTFORGE_GERADOR=clang` volta ao Clang. A chave dos caches leva a
+  `DARTFORGE_GENERATOR=clang` volta ao Clang. A chave dos caches leva a
   identidade do gerador (versão do LLVM, triple, CPU).
   Produção: a API C do LLVM não escreve o resumo do ThinLTO, então o
   bitcode (`lto-pre-link<O2>`) vai para a **LTO completa** do `lld`, com a
@@ -1644,7 +1644,7 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
   bibliotecas do MSVC/Windows SDK na máquina.
 * **O SDK da fonte é o padrão** (a troca de P5d): o corpus nativo passa
   225/225 por ele e 99/225 pelo runtime por nome de antes, que fica atrás de
-  `DARTFORGE_SDK_DA_FONTE=0`.
+  `DARTFORGE_SDK_FROM_SOURCE=0`.
 
 ### 7.14 Depuração nativa (J05)
 
@@ -1701,7 +1701,7 @@ executável precisar de menos trabalho.
 ### 8.1 Os passes (`crates/emit_native/src/optimize/`)
 
 Rodam sobre o módulo HIR do programa, antes do emissor, em todo modo (AOT,
-produção e JIT); `DARTFORGE_OTIMIZAR_HIR=0` desliga para comparar.
+produção e JIT); `DARTFORGE_OPTIMIZE_HIR=0` desliga para comparar.
 
 1. **`mem2reg`**: locais (`Alloca` lido e gravado só por `Load`/`Store`)
    viram valores SSA, com `phi` nas fronteiras de dominância (Cytron et al.;
@@ -2028,10 +2028,10 @@ sem mover** (marcas "pegajosas"):
    mutação do runtime passa por `Heap::get_mut`, que lembra o velho (objeto
    ou slot); o código gerado, depois de gravar um `Ref` num campo, testa o
    estado no cabeçalho (`h - 18`) e chama `dartforge_remember` se é velho.
-   `DARTFORGE_GC_VERIFICAR=1` faz cada coleta menor conferir, por uma
+   `DARTFORGE_GC_VERIFY=1` faz cada coleta menor conferir, por uma
    travessia completa, que nenhum jovem alcançável ficou sem marca (o
    corpus inteiro passa com `--gc-stress` e a verificação ligada);
-   `DARTFORGE_GC_RASTRO=1` escreve uma linha por coleta.
+   `DARTFORGE_GC_TRACE=1` escreve uma linha por coleta.
 5. **O que veio junto** (pedido da coordenação): o `hashCode` de `String`
    calculado uma vez por valor (`Heap::hash_de_texto`, usado por
    `String_getHashCode` e pela sonda de `nativos_hash.rs`); o handle de cada
@@ -2128,7 +2128,7 @@ Agora:
 
 O nó da lista tem 32 bytes (a VM, 24). Validação: corpus/js 235/235 e
 corpus/native 59/59 em AOT, JIT e `--gc-stress` com
-`DARTFORGE_GC_VERIFICAR=1`; `bench/performance` inteiro com os resultados da
+`DARTFORGE_GC_VERIFY=1`; `bench/performance` inteiro com os resultados da
 VM. Medido (3 rodadas alternadas, máquina carregada; razão contra o Dart
 AOT das mesmas rodadas):
 
@@ -2620,10 +2620,10 @@ Mesmo assim o ruído é de ±15–30% entre repetições (frequência variável 
 notebook, a máquina disputada). Por isso a comparação de uma mudança é a
 **razão por par** (os dois executores vizinhos na mesma repetição), com
 mediana e faixa sobre 20 pares. Para separar o efeito de cada mudança, as
-do emissor têm uma chave de medida na compilação (`DARTFORGE_SEM_CACHE_RTI=1`,
-`DARTFORGE_SEM_QUADRO_NA_ENTRADA=1`). As variáveis `DARTFORGE_SEM_*` entram
+do emissor têm uma chave de medida na compilação (`DARTFORGE_NO_RTI_CACHE=1`,
+`DARTFORGE_NO_FRAME_AT_ENTRY=1`). As variáveis `DARTFORGE_NO_*` entram
 na chave do SDK em cache (`sdk_modulo.rs`). A do alocador é de execução
-(`DARTFORGE_ALOCADOR_SEM_CACHE=1`).
+(`DARTFORGE_ALLOCATOR_NO_CACHE=1`).
 
 O perfil, sem `perf`: um amostrador em Python suspende a thread do isolado
 a cada ~1–4 ms e percorre a pilha com o `StackWalk64` da `dbghelp`. A
@@ -3034,7 +3034,7 @@ São as propostas 1 e 2 de `PLANO-TAMANHO-DESEMPENHO.md` §2.
    SDK da fonte, porque a forma de record só tinha a aresta para o id 0. Agora ela também tem
    as arestas para as classes `Record` e `Object` do `dart:core` (`lower/mod.rs`).
 
-**Chave de medida:** com `DARTFORGE_SEM_CLASSE_EM_LINHA=1` na execução, o runtime não publica
+**Chave de medida:** com `DARTFORGE_NO_INLINE_CLASS=1` na execução, o runtime não publica
 os dois vetores, e o código gerado vai sempre ao runtime. A resposta é a mesma.
 
 ### 11.2 Medido
@@ -3139,7 +3139,7 @@ cabeçalho de 16 bytes e um cid fixo (1–65 para as classes do runtime, 128 em
 diante para as demais); o coletor percorre o corpo pelo formato (`INSTANCIA`,
 `BRUTO`, `REFS`) e uma lista grande tem cartões; os literais de string do AOT
 são objetos estáticos; a cópia entre isolados é por bloco; e o caminho sem
-SDK da fonte saiu (`lower/sdk_por_nome.rs`, `DARTFORGE_SDK_DA_FONTE`, o
+SDK da fonte saiu (`lower/sdk_por_nome.rs`, `DARTFORGE_SDK_FROM_SOURCE`, o
 despacho pelo nome em mundo fechado de `lower/despacho.rs` e os externs
 `dartforge_list_*`/`map_*`/`set_*`/`string_*` que só ele emitia).
 
@@ -3147,7 +3147,7 @@ despacho pelo nome em mundo fechado de `lower/despacho.rs` e os externs
 
 Implementado por pacotes em paralelo (P0–P5, §4 da especificação); a
 integração (§5 da especificação) valida na ordem: testes de unidade do runtime
-e do emissor, o módulo `heap` com `DARTFORGE_GC_VERIFICAR=1`, o corpus nativo
+e do emissor, o módulo `heap` com `DARTFORGE_GC_VERIFY=1`, o corpus nativo
 (82 programas de antes mais os novos 90–99) no AOT, no JIT e com
 `--gc-stress`, o corpus `js`, a produção (`aot --optimize`), os benchmarks com
 a saída da VM e a recarga (`crates/cli/tests/reload_state.rs`,
@@ -3155,7 +3155,7 @@ a saída da VM e a recarga (`crates/cli/tests/reload_state.rs`,
 
 Integrado em 2026-09-30, tudo verde: `corpus/native` (92 programas) no AOT, no
 JIT e no `--jit-aot` (JIT × AOT idênticos), com `--gc-stress --limite-exec 60`
-sem e com `DARTFORGE_GC_VERIFICAR=1`, e no `aot --optimize` contra a VM;
+sem e com `DARTFORGE_GC_VERIFY=1`, e no `aot --optimize` contra a VM;
 `corpus/js` no AOT (235); os testes do runtime, do emissor, do JIT e da CLI,
 inclusive os `#[ignore]` de fixture, recarga e JIT, e `cargo test --workspace`.
 O que a integração corrigiu está em §4.10 da especificação (itens 55–64).
@@ -3177,7 +3177,7 @@ Os programas novos (`corpus/native`):
 * `98_tipadas_visoes_externas`: listas tipadas de todos os tipos, visões,
   `ByteData`, listas acima de 16 KiB, SIMD e `asTypedList` sobre `malloc`;
 * `99_pressao_de_coleta`: pressão de coleta com gravação velho→jovem, para
-  rodar com `--gc-stress` e `DARTFORGE_GC_VERIFICAR=1`.
+  rodar com `--gc-stress` e `DARTFORGE_GC_VERIFY=1`.
 
 Comportamentos da VM 3.6.2 que os programas fixam e que não são óbvios: a VM
 compartilha as strings entre isolados (até as montadas em tempo de execução
@@ -3246,7 +3246,7 @@ Números da primeira medição da integração, antes da correção de
 passava 65% do tempo conferindo handles no mapa de páginas.
 
 **Gatilhos (P0b passo 10).** `LIMITE_JOVEM` remedido com
-`DARTFORGE_GC_JOVEM_KB` em 1, 2, 4 e 8 MiB (3 rodadas alternadas de
+`DARTFORGE_GC_YOUNG_KB` em 1, 2, 4 e 8 MiB (3 rodadas alternadas de
 `objetos_escapam`, `objetos_temporarios`, `textos`, `json`,
 `objetos_em_colecoes`): nenhum valor ganha em todos. 4 e 8 MiB melhoram
 `arvores` e `mapa_int_objeto` (5–10%) e pioram o JSON pequeno e médio
@@ -3451,14 +3451,14 @@ foi medida antes de mudar qualquer coisa.
 
 ### 14.1 Como medir
 
-`DARTFORGE_GC_MEMORIA=1` escreve no stderr, depois de cada coleta completa e
+`DARTFORGE_GC_MEMORY=1` escreve no stderr, depois de cada coleta completa e
 no fim do programa, a quebra da memória (`EspacoDeObjetos::relatorio_de_memoria`
 e `Heap::relatorio_de_memoria`): por classe de tamanho, as páginas, os blocos
 e os ocupados; as páginas vazias guardadas e as da reserva (sujas); as regiões
 grandes no espaço (quantas mortas à espera da completa) e em cache; os corpos
 de fora e os anexos; os vetores do espaço; as tabelas laterais do `Heap`
 (entradas e KiB); e o processo (residente, pico e o heap do sistema
-confirmado, `HeapSummary`). `DARTFORGE_GC_MEMORIA=2` escreve depois de toda
+confirmado, `HeapSummary`). `DARTFORGE_GC_MEMORY=2` escreve depois de toda
 coleta, menor inclusive (o que acha o pico). O pico de um programa em lote vem
 de `PeakWorkingSet64` lido a cada 20 ms; o repouso e o pico do servidor, do
 script de §9.10.
@@ -3579,6 +3579,6 @@ MB) e nenhuma região grande morta à espera.
 **Pendente.** O `--gc-stress --limite-exec 60` do `corpus/native` passou
 95/96 com as outras frentes rodando em paralelo. O `91_textos_grandes_e_interpolacao`
 estourou os 60 s. Sozinho, ele passa em 22 s (23 s rodando o executável
-direto), e o `9*` passou inteiro com `DARTFORGE_GC_VERIFICAR=1`. As vazias
+direto), e o `9*` passou inteiro com `DARTFORGE_GC_VERIFY=1`. As vazias
 guardadas pela folga de §14.2 (causa 3) ficam como estavam: são as páginas que
 o heap usa de novo antes do gatilho da completa seguinte.

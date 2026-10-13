@@ -288,7 +288,7 @@ pelo DartForge, contra a VM.
 
 - **O que já existe:**
   - o executável do DartForge é nativo comum, com DWARF (`--depuracao`) e
-    símbolos (`DARTFORGE_MANTER_SIMBOLOS=1`);
+    símbolos (`DARTFORGE_KEEP_SYMBOLS=1`);
   - o LLDB e o `sample` veem nomes Dart;
   - o rastro simbólico (`--rastro=simbolico`) dá a pilha Dart nas exceções.
 - **A fazer (runtime):**

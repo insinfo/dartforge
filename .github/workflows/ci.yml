@@ -294,7 +294,7 @@ jobs:
       - name: test (ignorados que o runner satisfaz)
         if: success() || failure()
         env:
-          DARTFORGE_COMPILADOR_NATIVO: ${{ github.workspace }}\target\release\dartforge.exe
+          DARTFORGE_NATIVE_COMPILER: ${{ github.workspace }}\target\release\dartforge.exe
         run: >-
           cargo test --locked --workspace --tests --no-fail-fast --
           --ignored --skip pub_corpus --skip new_sali_type_checks --skip corpus_runs_under_dart_run
@@ -505,13 +505,13 @@ jobs:
             for modo in arc tracing; do
               for caminho in normal erro; do
                 exe="target/prova-arc-resume/${perfil}-${modo}-${caminho}"
-                DARTFORGE_EFEITOS=conferir cargo run --locked --release -p dartforge-emit-native --features embedded-llvm --example arc_guarded_returns -- "$exe" "$modo" "$caminho" automatico "$perfil"
+                DARTFORGE_EFFECTS=conferir cargo run --locked --release -p dartforge-emit-native --features embedded-llvm --example arc_guarded_returns -- "$exe" "$modo" "$caminho" automatico "$perfil"
                 grep -F 'personality ptr @dartforge_personality_cleanup_itanium' "${exe}.ll"
                 grep -F 'resume { ptr, i32 } %lpad' "${exe}.ll"
                 if [ "$perfil" = misto ]; then
                   grep -F '@llvm.eh.typeid.for(ptr null)' "${exe}.ll"
                 fi
-                DARTFORGE_ARC_CONFERIR=1 DARTFORGE_ARC_BERCARIO=0 DARTFORGE_GC_STRESS=1 "$exe" > "${exe}.stdout"
+                DARTFORGE_ARC_CHECK=1 DARTFORGE_ARC_NURSERY=0 DARTFORGE_GC_STRESS=1 "$exe" > "${exe}.stdout"
                 cmp "target/prova-arc-resume/${caminho}.esperado" "${exe}.stdout"
               done
             done
@@ -534,10 +534,10 @@ jobs:
           for perfil in simples quadros retoma; do
             for nivel in 0 2; do
               exe="target/prova-unwind-estrangeiro/prova-${perfil}-O${nivel}"
-              DARTFORGE_EFEITOS=conferir cargo run --locked --release -p dartforge-emit-native --features embedded-llvm --example arc_foreign_unwind -- "$exe" "$nivel" "$perfil"
+              DARTFORGE_EFFECTS=conferir cargo run --locked --release -p dartforge-emit-native --features embedded-llvm --example arc_foreign_unwind -- "$exe" "$nivel" "$perfil"
               for modo in arc tracing; do
                 for caminho in cpp forcado forcado_dart; do
-                  DARTFORGE_ARC_CONFERIR=1 DARTFORGE_ARC_BERCARIO=0 DARTFORGE_GC_STRESS=1 "$exe" "$modo" "$caminho" > "${exe}-${modo}-${caminho}.stdout"
+                  DARTFORGE_ARC_CHECK=1 DARTFORGE_ARC_NURSERY=0 DARTFORGE_GC_STRESS=1 "$exe" "$modo" "$caminho" > "${exe}-${modo}-${caminho}.stdout"
                   cmp "target/prova-unwind-estrangeiro/${caminho}.esperado" "${exe}-${modo}-${caminho}.stdout"
                 done
               done
@@ -571,7 +571,7 @@ jobs:
       - name: Olá, mundo — AOT de desenvolvimento, produção e JIT
         shell: bash
         env:
-          DARTFORGE_SDK_DA_FONTE: '1'
+          DARTFORGE_SDK_FROM_SOURCE: '1'
         run: |
           set -euo pipefail
           d=$(mktemp -d)

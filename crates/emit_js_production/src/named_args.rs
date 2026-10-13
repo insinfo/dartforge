@@ -63,7 +63,7 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Wor
     // The program's own `noSuchMethod`, live outside the SDK.
     for (k, f) in p.functions.iter().enumerate() {
         if f.class.is_some() && !p.library(f.library).is_sdk && i.resolve(f.name) == "noSuchMethod" && world.is_live_function(FunctionElementId(k as u32)) {
-            if std::env::var("DARTFORGE_JSPROD_RASTRO").is_ok() {
+            if std::env::var("DARTFORGE_JSPROD_TRACE").is_ok() {
                 eprintln!("[jsprod] named args: noSuchMethod live in {}; source names", p.library(f.library).uri);
             }
             return None;

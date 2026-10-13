@@ -912,8 +912,8 @@ pub fn arguments(sysroot: &SysrootWindows, l: &Linkage<'_>) -> Vec<std::ffi::OsS
             }
         }
         // Measurement: the time profile of the LTO (module by module, pass by pass),
-        // `DARTFORGE_LTO_PERFIL=<file.json>`.
-        if let Some(f) = std::env::var_os("DARTFORGE_LTO_PERFIL") {
+        // `DARTFORGE_LTO_PROFILE=<file.json>`.
+        if let Some(f) = std::env::var_os("DARTFORGE_LTO_PROFILE") {
             let mut o = std::ffi::OsString::from("--time-trace=");
             o.push(&f);
             a.push(o);

@@ -16682,7 +16682,7 @@ reanálise do pacote inteiro a cada mudança (I5/I6 a tornariam proporcional ao 
 **Estado em 2026-10-12 (macOS, medido).** Do lado do `crates/lsp`, sem mexer no motor:
 
 * A carga ampla das buscas não locais (projeto + SDK inteiro + pacotes) fica numa sessão própria
-  (`Sessao::ampla`, `DARTFORGE_LSP_AMPLO_MIB`), atualizada pelo mesmo `didChange` de corpo (I4); os corpos das
+  (`Sessao::ampla`, `DARTFORGE_LSP_WIDE_MIB`), atualizada pelo mesmo `didChange` de corpo (I4); os corpos das
   bibliotecas de fora são inferidos sob demanda por unidade (`Consulta::inferir_bibliotecas`, o `inferir_corpos`
   de I2) e ficam.
 * Índices por unidade, feitos uma vez e esquecidos só quando o texto da unidade muda

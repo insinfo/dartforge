@@ -33,12 +33,12 @@ impl BuildClient<ProcessChannel> {
 }
 
 /// How long the host waits for each message from the Dart executor (the VM
-/// or the native one) before considering it hung: `DARTFORGE_BUILD_PRAZO` in
+/// or the native one) before considering it hung: `DARTFORGE_BUILD_TIMEOUT` in
 /// seconds (`0` disables it), 600 s by default — slack for the SDK summary and
 /// the resolution of the first builder on a loaded machine; the `build.*`
 /// queries in the middle of an action restart the count.
 pub fn executor_timeout() -> Option<std::time::Duration> {
-    let s = match std::env::var("DARTFORGE_BUILD_PRAZO") {
+    let s = match std::env::var("DARTFORGE_BUILD_TIMEOUT") {
         Ok(v) => v.trim().parse::<f64>().ok().filter(|s| s.is_finite() && *s >= 0.0).unwrap_or(600.0),
         Err(_) => 600.0,
     };

@@ -1422,11 +1422,11 @@ struct LoopList {
     write: bool,
 }
 
-/// `DARTFORGE_SEM_VERSIONAR_TIPADAS=1` at compile time turns off the
+/// `DARTFORGE_NO_TYPED_VERSIONING=1` at compile time turns off the
 /// versioning of typed-list loops (`typed_loop`), to measure
 /// before and after (it goes into the key of the source SDK, like the other
-/// `DARTFORGE_SEM_…`).
+/// `DARTFORGE_NO_…`).
 fn versioning_disabled() -> bool {
     static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *OFF.get_or_init(|| std::env::var_os("DARTFORGE_SEM_VERSIONAR_TIPADAS").is_some_and(|v| !v.is_empty() && v != "0"))
+    *OFF.get_or_init(|| std::env::var_os("DARTFORGE_NO_TYPED_VERSIONING").is_some_and(|v| !v.is_empty() && v != "0"))
 }

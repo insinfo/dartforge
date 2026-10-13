@@ -37,7 +37,7 @@ reais (§3.11).
 ## 1. Ferramentas
 
 * `dartforge-parity placar [--lote N] [--detalhes]` — o placar. Com
-  `DARTFORGE_PARIDADE_AMOSTRAS=100000`, `--detalhes` lista **todas** as
+  `DARTFORGE_PARITY_SAMPLES=100000`, `--detalhes` lista **todas** as
   divergências (base dos agrupamentos abaixo).
 * `crates/parity/examples/sonda_arquivos.rs` (novo) — compara arquivo a
   arquivo, diagnóstico a diagnóstico (`=` acerto, `~` mensagem, `-` FN, `+`

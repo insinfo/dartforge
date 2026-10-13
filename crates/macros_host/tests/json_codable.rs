@@ -17,7 +17,7 @@
 //! * [`vm_runs_the_macro_and_matches_the_cfe`] (`#[ignore]`) — the
 //!   materialization executor: the same API on a Dart 3.6.2 VM
 //!   (DARTFORGE_DART_SDK) with the case's `pub get`.
-//!   `DARTFORGE_GRAVAR_SESSAO=1` records the session again.
+//!   `DARTFORGE_RECORD_SESSION=1` records the session again.
 use dartforge_elements::load::load_lenient_generated;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_elements::unit_cache::AnalyzedUnitCache;
@@ -192,7 +192,7 @@ fn vm_runs_the_macro_and_matches_the_cfe() {
     let channel = RecordingChannel { inner: vm.into_channel(), session: Vec::new() };
     let mut executor = DfexecExecutor::new(channel);
     let texts = apply(&c, &sdk, &mut executor);
-    if std::env::var_os("DARTFORGE_GRAVAR_SESSAO").is_some() {
+    if std::env::var_os("DARTFORGE_RECORD_SESSION").is_some() {
         let s = session_to_text(&executor.channel().session);
         std::fs::write(c.dir.join("esperado/sessao.dfexec"), s).unwrap();
     }
@@ -204,12 +204,12 @@ fn vm_runs_the_macro_and_matches_the_cfe() {
 /// and the assembled augmentation is CFE 3.6.2's, byte for byte.
 ///
 /// Requires a `dartforge` with the `native` feature in
-/// `DARTFORGE_COMPILADOR_NATIVO` (its `compile-native` compiles the
+/// `DARTFORGE_NATIVE_COMPILER` (its `compile-native` compiles the
 /// executor) and the `pub get` of each case.
 #[test]
-#[ignore = "requires DARTFORGE_COMPILADOR_NATIVO (dartforge with the nativo feature), the SDK and the pub get of corpus/macros"]
+#[ignore = "requires DARTFORGE_NATIVE_COMPILER (dartforge with the nativo feature), the SDK and the pub get of corpus/macros"]
 fn native_executor_matches_the_cfe() {
-    let compiler = PathBuf::from(std::env::var_os("DARTFORGE_COMPILADOR_NATIVO").expect("DARTFORGE_COMPILADOR_NATIVO"));
+    let compiler = PathBuf::from(std::env::var_os("DARTFORGE_NATIVE_COMPILER").expect("DARTFORGE_NATIVE_COMPILER"));
     let sdk = sdk().expect("SDK (DARTFORGE_SDK_LIB)");
     let mut checked = 0;
     for name in ["410_json_codable", "411_pedido_independente", "412_argumento_posicional", "413_argumentos_nomeados"] {

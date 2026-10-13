@@ -37,7 +37,7 @@ use std::time::{Duration, Instant, SystemTime};
 /// Environment variable of the native executor: `0` turns it off where it
 /// would be the default (`dartforge build`); any other value also turns it on
 /// in the compilers.
-pub const ENV_VAR: &str = "DARTFORGE_BUILD_NATIVO";
+pub const ENV_VAR: &str = "DARTFORGE_BUILD_NATIVE";
 
 /// Who compiles, and where.
 #[derive(Debug, Clone)]
@@ -262,14 +262,14 @@ impl NativeExecutor {
         // The bootstrap lives in the project that uses builders: compiling it
         // does not go through the engine (which would compile this executor
         // again).
-        cmd.env("DARTFORGE_BUILD_COMPILANDO_EXECUTOR", "1");
+        cmd.env("DARTFORGE_BUILD_COMPILING_EXECUTOR", "1");
         // Without the HIR optimizer (inlining): the executor is a huge program
         // (the whole `analyzer`) that runs once per session, and inlining
         // more than doubles the IR (1.34 GB versus 0.58 GB on
         // json_serializable) and the compilation memory (12 GB, killed by the
         // OOM killer). Recompiling the builders with heavy optimization is
         // what BUILD-RUST.md §4 rules out.
-        cmd.env("DARTFORGE_OTIMIZAR_HIR", "0");
+        cmd.env("DARTFORGE_OPTIMIZE_HIR", "0");
         cmd.arg("compile-native")
             .arg(&main)
             .arg("-o")

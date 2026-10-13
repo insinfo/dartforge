@@ -58,7 +58,7 @@ O que muda, em uma frase por eixo:
 9. **Some:** `enum Value`, `Heap::slots` e os seis vetores por slot, `TaggedValue` no heap,
    `ClasseDoSlot`/`Contexto::classes`, os cabeçalhos de endereço fixo (`CabecalhoDeLista`,
    `CabecalhoTipado`, `CabecalhoDeClosure`), 35 externs de acesso à representação e o caminho sem
-   SDK da fonte (`DARTFORGE_SDK_DA_FONTE=0`, `lower/sdk_por_nome.rs`, `colecoes.rs` legado e
+   SDK da fonte (`DARTFORGE_SDK_FROM_SOURCE=0`, `lower/sdk_por_nome.rs`, `colecoes.rs` legado e
    cerca de 75 externs).
 
 A divisão em pacotes (§4) é: **P0** fundação (contrato em ~1 dia, implementação em paralelo),
@@ -249,7 +249,7 @@ O `tls.rs` depende do `Box` de forma ainda mais forte: `tomar_bytes_tipados` (76
 * **Barreira:** `get_mut` (4421-4437), `definir_campo` (3836), `campos_de_objeto` (4076),
   `dartforge_remember` (`RT/nucleo.rs:459`) e, no código gerado, `emitir_barreira`
   (`EN/llvm/mod.rs:2707-2728`: estado `== VELHO` → `dartforge_remember`).
-* **Verificação:** `DARTFORGE_GC_VERIFICAR=1` confere cada coleta menor por uma travessia completa
+* **Verificação:** `DARTFORGE_GC_VERIFY=1` confere cada coleta menor por uma travessia completa
   (4598-4638); `--gc-stress` é `DARTFORGE_GC_STRESS` (`RT/nucleo.rs:140`), sem TLAB, zerando mortos.
 * **Corpo de fora** (`FORA`, `trocar_campos` 4020-4046): objeto cujo número de campos mudou (erro
   que ganha rastro, recarga J03) guarda os campos num corpo do `malloc`; `com_fora` solta os mortos.
@@ -348,7 +348,7 @@ io, developer, mirrors. Sem sobreposição: `typed_data_patch.dart`, `internal_p
   `ID_BASE_DE_FORMA + k` (`EN/context.rs:94`, `EN/lower/registros.rs:1-12`), campos todos `Ref`.
 * Catálogo `EN/nativos.rs`: 534 natives (495 `Runtime`, 38 `Pendente`, 1 `Embutido`), 90
   intrínsecos (`INTRINSECOS`, 81-172), `RETORNO_REF` só `Double_parse` (77).
-* O caminho sem SDK da fonte (`DARTFORGE_SDK_DA_FONTE=0`, `EN/sdk_modulo.rs:122-128`) ainda
+* O caminho sem SDK da fonte (`DARTFORGE_SDK_FROM_SOURCE=0`, `EN/sdk_modulo.rs:122-128`) ainda
   existe: `lower/sdk_por_nome.rs` (congelado; com o SDK ligado só encaminha ao despacho por
   seletor) e os externs `dartforge_string_*`/`list_*`/`map_*`/`set_*` de `RT/strings.rs` e
   `RT/colecoes.rs`. É usado por `EN/tests/contract.rs:36` e `crates/jit/tests/sessao_persistente.rs:148`.
@@ -686,7 +686,7 @@ referências e não têm barreira.
 * **`permanentes` e `constantes`** (hoje nem raízes nem purgadas, §1.5): passam a ser purgadas pelo
   bit de marca como as demais; quem precisa que a constante viva a mantém por um global (o getter
   já grava no global, `EN/lower/constantes.rs:486-505`).
-* **Verificação** (`DARTFORGE_GC_VERIFICAR`): a travessia completa passa a respeitar `FORMA` e a
+* **Verificação** (`DARTFORGE_GC_VERIFY`): a travessia completa passa a respeitar `FORMA` e a
   conferir que todo elemento jovem de uma `REFS` lembrada com `CARTOES` está num cartão sujo.
 * **Gatilhos:** os de hoje. Como strings, listas e caixas passam a contar blocos (e não
   `size_of::<Value>() + capacidade`), `LIMITE_JOVEM` e `CONTAGEM_JOVEM` devem ser remedidos (P0),
@@ -844,7 +844,7 @@ O grafo da mensagem (`RT/portas.rs:44-88`) deixa de espelhar o `Value` e passa a
   (`EN/lower/textos.rs:121-188`) e de cabeçalho tipado (`EN/lower/tipados.rs:517-568`); o cache de
   literal no ponto de uso no AOT; a ABI de pares `(bits, tag)` de `AllocList`/`AllocRecord`/
   `AllocEnv`/`AllocCell` (os valores vão como palavras); 35 externs de acesso (§3.7).
-* **Some** o caminho sem SDK da fonte: `DARTFORGE_SDK_DA_FONTE=0`, `EN/lower/sdk_por_nome.rs`
+* **Some** o caminho sem SDK da fonte: `DARTFORGE_SDK_FROM_SOURCE=0`, `EN/lower/sdk_por_nome.rs`
   (a decisão 7.1.1 do proprietário já o previa), os ramos `!sdk_da_fonte` do lowering e os externs
   legados de `RT/strings.rs` e `RT/colecoes.rs`. `Value::Map`, `Value::Set`, `Value::RegExp` e
   `Value::Match` só existem nele.
@@ -1359,7 +1359,7 @@ ganchos do emissor.
     `cargo check` do workspace aponta o que sobrou.
 
 **Pronto quando:** `cargo test -p dartforge-runtime` verde (o módulo `heap` inteiro e os testes
-novos, também com `DARTFORGE_GC_VERIFICAR=1`); o workspace compila depois do corte; o IR de um
+novos, também com `DARTFORGE_GC_VERIFY=1`); o workspace compila depois do corte; o IR de um
 programa com string, lista, closure e `double` passa no verificador do LLVM.
 
 ### 4.3 P1 — Strings (fase B)
@@ -1533,7 +1533,7 @@ emissor sem o legado; os testes e a documentação.
 4. `excecoes.rs`, `saida.rs` (impressão e `toString` de tudo pelo cid), `compat_jit.rs`,
    `eventos.rs`, `finalizadores.rs`, `nativos_sistema.rs`, `nativos_desenvolvedor.rs`.
 5. Receber os natives de §4.9 (`Object_*`, `WeakReference_*`, `WeakProperty_*`).
-6. Emissor: apagar `lower/sdk_por_nome.rs`, `sdk_da_fonte_pedido`/`DARTFORGE_SDK_DA_FONTE`
+6. Emissor: apagar `lower/sdk_por_nome.rs`, `sdk_da_fonte_pedido`/`DARTFORGE_SDK_FROM_SOURCE`
    (`EN/sdk_modulo.rs:122-128`) e os ramos `!sdk_da_fonte` (`expressoes.rs:1161-1311`,
    `atribuicao.rs:703,721,896`, `padroes.rs:474,491`, `membros.rs:525,534`, `chamadas.rs:50,139,
    223,592,618`; os de `literais.rs:53-121` são de P3); com P0, `AllocMap`/`AllocSet` da HIR; os externs
@@ -1913,13 +1913,13 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     `crates/cli/tests/reload_state.rs` perdeu a variante sem SDK e ganhou
     `cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas` (§5.2 item 9, fixtures
     `reload_espaco_v1..4.dart`, saída conferida na VM); os testes da CLI não passam mais
-    `DARTFORGE_SDK_DA_FONTE`. Os programas 90–99 estão em `corpus/native` (o 92 é um diretório
+    `DARTFORGE_SDK_FROM_SOURCE`. Os programas 90–99 estão em `corpus/native` (o 92 é um diretório
     com duas bibliotecas).
 48. **Pedidos da P5:** à **P0** — (a) tirar `pub mod sdk_por_nome;` e `pub mod nsm;` de
     `lower/mod.rs` (a P5 então apaga os dois arquivos); (b) em `sdk_fonte.rs`,
     `gerar_encaminhador_nsm`, encaixotar os valores (`coagir(v, Type::Ref)`) antes do
     `AllocEnv`: `dartforge_forward_nsm` lê todas as capturas como `Ref`; (c) tirar
-    `Context::sdk_da_fonte`, `sdk_da_fonte_pedido`/`DARTFORGE_SDK_DA_FONTE` e o `bool` de
+    `Context::sdk_da_fonte`, `sdk_da_fonte_pedido`/`DARTFORGE_SDK_FROM_SOURCE` e o `bool` de
     `emitir_ir_com`/`compilar_com`, com os ramos que sobram em `closures.rs`, `comandos.rs`,
     `constantes.rs`, `fn_builder.rs`, `intrinsecos.rs`, `literais.rs`, `mod.rs`, `registros.rs`,
     `sdk_fonte.rs`, `simd.rs` e `tipados.rs` (de cada dono); (d) tirar `AllocMap`/`AllocSet` da
@@ -2049,15 +2049,15 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
 62. **`--gc-stress` sem custo quadrático.** Uma completa a cada 8 coletas custa o heap vivo
     inteiro a cada 8 alocações: com os novos programas (e todo valor sendo bloco) o 99 passava
     de 6 min. No estresse, a completa vem a cada `max(8, trabalho da última completa / 64)`
-    coletas (`TRABALHO_POR_MENOR_NO_ESTRESSE`), e a verificação (`DARTFORGE_GC_VERIFICAR`)
+    coletas (`TRABALHO_POR_MENOR_NO_ESTRESSE`), e a verificação (`DARTFORGE_GC_VERIFY`)
     com o mesmo espaçamento; a menor continua antes de toda alocação. A mensagem do
     verificador passou a dar cid, estado, flags e posição do pai.
 63. **Handle sem conferência no mapa de páginas (desvio de §3.2, "pânico N4").** Medido, o
     runtime passava 65% do tempo de `Set<String>.add` em `bloco_vivo`/`bloco_de` (o mapa de
     páginas, a `Pagina`, o índice do bloco) a cada leitura de cabeçalho. Agora a conferência
     completa, com as mensagens N4 de handle inválido, vale com `validar_handles`: no
-    `--gc-stress`, com `DARTFORGE_GC_VERIFICAR=1`, nos testes (`cfg(test)`/`debug_assertions`)
-    ou com `DARTFORGE_VALIDAR_HANDLES=1`. Fora disso um handle de objeto é o bloco (a
+    `--gc-stress`, com `DARTFORGE_GC_VERIFY=1`, nos testes (`cfg(test)`/`debug_assertions`)
+    ou com `DARTFORGE_VALIDATE_HANDLES=1`. Fora disso um handle de objeto é o bloco (a
     invariante do código gerado e do runtime) e só o estado `LIVRE` é conferido, na leitura do
     cabeçalho que se faz de todo modo ("já coletado" continua); um escalar usado como handle
     derruba o processo por acesso inválido em vez da mensagem. `Heap::bloco_do_espaco` é o
@@ -2103,12 +2103,12 @@ Máquina Windows 11 (ambiente do scratchpad `agente-http/env.sh`), `--release`:
 1. `cargo build --release -p dartforge-cli --features native`.
 2. `cargo test --release -p dartforge-runtime -p dartforge-emit-native -p dartforge-jit -p dartforge-cli`
    (inclui `tests/hot_reload.rs`, `reload_state.rs`, `io_regression.rs`, `jit_program.rs`).
-3. Módulo `heap` com `DARTFORGE_GC_VERIFICAR=1`.
+3. Módulo `heap` com `DARTFORGE_GC_VERIFY=1`.
 4. `env -u HOME cargo run --release -p dartforge-differential -- --nativo --corpus corpus/native`
    (82 programas de hoje + 90–99).
 5. O mesmo com `--jit` e `--jit-aot`.
 6. O mesmo com `--nativo --gc-stress --limite-exec 60`, uma vez sem e uma com
-   `DARTFORGE_GC_VERIFICAR=1`.
+   `DARTFORGE_GC_VERIFY=1`.
 7. `--nativo --corpus corpus/js` (235 programas) e `--nativo --producao` (o `aot --optimize`).
 8. `bench/performance/*.dart`, `bench/simd` e `bench/http/servidor.dart` com a saída igual à da VM.
 9. Recarga: um programa que guarda strings, listas compactas e gerais, closures, `double` em
@@ -2128,7 +2128,7 @@ Máquina Windows 11 (ambiente do scratchpad `agente-http/env.sh`), `--release`:
 | 96 | `96_listas_formas_e_cartoes.dart` | `List<int>`/`<double>`/`<bool>` compactas e a descompactação, `List<Object?>`, crescimento, `List.filled`/`generate`/`unmodifiable`/`of`, erros de lista fixa e imutável, `sublist`, `sort`; uma lista de 100 mil elementos velha recebendo objetos novos em pontos espalhados entre coletas (cartões) |
 | 97 | `97_mapas_conjuntos_grandes.dart` | `Map<String, int>` e `Set<int>` com 200 mil entradas, remoção e reinserção, iteração com modificação (erro), `const` mapas e conjuntos, `Map.unmodifiable` |
 | 98 | `98_tipadas_visoes_externas.dart` | listas tipadas de todos os tipos, visões e visões não modificáveis, `ByteData` com endian, `sublistView`, listas maiores que 16 KiB, SIMD em lista; `asTypedList` sobre `malloc` de `dart:ffi` (`DynamicLibrary.process()`, onde houver) |
-| 99 | `99_pressao_de_coleta.dart` | milhões de strings, listas e caixas curtas e longas, estruturas que sobrevivem e morrem por rodada, gravação velho→jovem em listas, mapas e closures; roda com `--gc-stress` e `DARTFORGE_GC_VERIFICAR=1` dentro de `--limite-exec 60` |
+| 99 | `99_pressao_de_coleta.dart` | milhões de strings, listas e caixas curtas e longas, estruturas que sobrevivem e morrem por rodada, gravação velho→jovem em listas, mapas e closures; roda com `--gc-stress` e `DARTFORGE_GC_VERIFY=1` dentro de `--limite-exec 60` |
 
 ### 5.4 Medições
 
@@ -2160,7 +2160,7 @@ alocação e coleta ~21%, classe do receptor ~12%, `malloc` 7–11% e consultas 
 | # | Risco | Mitigação |
 |---|---|---|
 | 1 | **Tudo quebra junto**: nada roda até a integração, e o primeiro defeito aparece tarde | contrato congelado (§3) e árvore sempre compilando (§4.1); P0 testa o coletor sozinho (§4.2, passo 9); cada pacote escreve testes de unidade da sua vista; a integração segue §5.2 na ordem, do teste de unidade ao corpus |
-| 2 | **Barreira faltando** em gravação nova do runtime (quem escreve por `palavras_mut` num objeto publicado) | toda gravação de `Ref` por `gravar_ref`/`definir_campo`/`gravar_celula`; `palavras_mut` só em `BRUTO` ou antes de publicar (revisão por busca); `DARTFORGE_GC_VERIFICAR` com cartões; programa 99 |
+| 2 | **Barreira faltando** em gravação nova do runtime (quem escreve por `palavras_mut` num objeto publicado) | toda gravação de `Ref` por `gravar_ref`/`definir_campo`/`gravar_celula`; `palavras_mut` só em `BRUTO` ou antes de publicar (revisão por busca); `DARTFORGE_GC_VERIFY` com cartões; programa 99 |
 | 3 | **Estático tocado pelo coletor** (o mapa de marcas de um endereço fora do heap) | `PERMANENTE` conferido antes de qualquer acesso ao mapa (§2.8); teste de unidade; seção só leitura (gravar num estático derruba o processo em vez de corromper) |
 | 4 | **Literal duplicado entre módulos** (`identical` falso) | `linkonce_odr` + comdat pela chave do conteúdo; programa 92 com duas bibliotecas; conferido no `aot --optimize` (o `/opt:safeicf` não funde objetos com endereço tomado) |
 | 5 | **Estático em memória que some** (geração do JIT liberada, J02) | sem estáticos nos módulos do programa no JIT (§2.11); a DLL do SDK fica carregada o processo inteiro |

@@ -35,9 +35,9 @@ def servidores(saida):
     s = {}
     for modo, cli, extra, amb in [
         ("A0", df, [], {}), ("A1", df, ["--excecoes", "tabelas"], {}),
-        ("B1", jit, ["--excecoes", "tabelas"], {"DARTFORGE_RAIZES": "mapas"}),
+        ("B1", jit, ["--excecoes", "tabelas"], {"DARTFORGE_ROOTS": "mapas"}),
         ("ARC", df, ["--memoria", "arc"], {}),
-        ("ARCP", df, ["--memoria", "arc"], {"DARTFORGE_ARC_PREPARADO": "1"}),
+        ("ARCP", df, ["--memoria", "arc"], {"DARTFORGE_ARC_PREPARED": "1"}),
     ]:
         if cli:
             nome = f"dartforge-{modo}"

@@ -79,7 +79,7 @@ jobs:
           $env:DARTFORGE_BIN = "$env:DIST\bin\dartforge.exe"
           # A ligação de antes do N15 (driver do Clang, link.exe e a CRT do
           # Visual C++), na mesma build: a diferença medida é só a ligação.
-          $env:DARTFORGE_LIGAR_COM_CLANG = '1'
+          $env:DARTFORGE_LINK_WITH_CLANG = '1'
           New-Item -ItemType Directory -Force relatorios | Out-Null
           foreach ($r in @(@('io', '--nativo --corpus corpus/native --jobs 2'),
                            @('io-gc-stress', '--nativo --corpus corpus/native --gc-stress --jobs 2 --limite-exec 120'),
@@ -158,7 +158,7 @@ jobs:
           Set-Content (Join-Path $d 'main.dart') "import 'dart:isolate';`nFuture<void> main(List<String> a) async {`n  print('oi `${a.join(',')}');`n  print(await Isolate.run(() => [1, 2, 3].map((x) => x * x).toList()));`n}`n"
           $esperado = "oi x,y`n[1, 4, 9]"
           Push-Location $d
-          $env:DARTFORGE_SDK_DA_FONTE = '1'
+          $env:DARTFORGE_SDK_FROM_SOURCE = '1'
           foreach ($perfil in @(@('dev'), @('prod', '--optimize'), @('dbg', '--depuracao'))) {
             $bandeiras = @($perfil | Select-Object -Skip 1)
             & "$dist\bin\dartforge.exe" aot main.dart "$($perfil[0]).exe" @bandeiras
@@ -171,7 +171,7 @@ jobs:
             Write-Host "$($perfil[0]): ok, sem vcruntime140"
           }
           if (!(Test-Path (Join-Path $d 'dbg.pdb'))) { throw 'o perfil de depuração não gerou o PDB (J05)' }
-          Remove-Item env:DARTFORGE_SDK_DA_FONTE
+          Remove-Item env:DARTFORGE_SDK_FROM_SOURCE
           Pop-Location
 
           # O corpus nativo contra a VM, ligado pela distribuição.
@@ -295,7 +295,7 @@ jobs:
           esperado=$'oi x,y\n[1, 4, 9]'
           for perfil in "dev" "prod --optimize" "dbg --depuracao"; do
             set -- $perfil
-            (cd "$d" && "${ambiente[@]}" DARTFORGE_SDK_DA_FONTE=1 "$dist/bin/dartforge" aot main.dart "$@") || { echo "::error::aot $perfil falhou"; exit 1; }
+            (cd "$d" && "${ambiente[@]}" DARTFORGE_SDK_FROM_SOURCE=1 "$dist/bin/dartforge" aot main.dart "$@") || { echo "::error::aot $perfil falhou"; exit 1; }
             [ "$("$d/$1" x y)" = "$esperado" ] || { echo "::error::$1: saída inesperada"; exit 1; }
             echo "$1: ok"
           done

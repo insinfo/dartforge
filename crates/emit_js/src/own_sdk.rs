@@ -1377,7 +1377,7 @@ pub fn emit_sdk_module(ctx: &Ctx) -> (String, BTreeSet<String>) {
     }
     // `core.Object` first: all the others extend it, including the runtime's.
     let ordered = crate::module::order_classes(ctx, &classes);
-    let trace = std::env::var("DARTFORGE_SDK_RASTRO").is_ok();
+    let trace = std::env::var("DARTFORGE_SDK_TRACE").is_ok();
     for c in ordered {
         if trace {
             eprintln!("[sdk] class {}::{}", ctx.program.library(ctx.program.class(c).library).uri, ctx.class_name(c));

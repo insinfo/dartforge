@@ -454,7 +454,7 @@ de um `is`/`as`/`catch`, um argumento de tipo, uma substituição. Então
 * regra que fica vazia sai também: sem ela, o `_isSubtype` dá o mesmo
   `false` (regra ausente).
 
-`DARTFORGE_JSPROD_REGRAS=0` desliga.
+`DARTFORGE_JSPROD_RULES=0` desliga.
 
 | projeto | antes | depois |
 | --- | ---: | ---: |
@@ -499,7 +499,7 @@ A regra (`emit_js_production/src/nomeados.rs`, `Ctx::nomeado`):
 
 Efeito visível: o `toString` de um tipo de função com nomeados mostra a
 chave curta. Nenhum programa do corpus imprime um.
-`DARTFORGE_JSPROD_NOMEADOS=0` desliga.
+`DARTFORGE_JSPROD_NAMED=0` desliga.
 
 | projeto | antes | depois |
 | --- | ---: | ---: |
@@ -604,7 +604,7 @@ como chave de JSON ou nome de coluna), os nomes das constantes de `enum`
   estáticas herda).
 
 `DARTFORGE_JSPROD_STRINGS=todas` volta à regra antiga, e
-`DARTFORGE_JSPROD_PROPS_POR=a,b` diz por que cada nome fica.
+`DARTFORGE_JSPROD_PROPS_WHY=a,b` diz por que cada nome fica.
 
 ### 9.2 Membros de biblioteca como variáveis
 
@@ -624,7 +624,7 @@ local, quando:
 * `x` tem uma escrita `N.x = …`, não é *getter* de `defineLazy`, e nenhuma
   função atribuída a ele lê `this` (nem há `delete N.x`).
 
-`DARTFORGE_JSPROD_ACHATAR=0` desliga.
+`DARTFORGE_JSPROD_FLATTEN=0` desliga.
 
 ### 9.3 Receita com o nome simples
 
@@ -637,7 +637,7 @@ ele (mostra `Padding`, como antes), e ele marca a receita para o verificador
 continuam `rótulo|Nome`. Os nomes que o emissor escrevia à mão
 (`core|List` e `async|Future` do `JS_GET_NAME`, `core|Object*`,
 `async|StreamIterator`, `_interceptors|LegacyJavaScriptObject`) passam por
-`Ctx::receita_de`. `DARTFORGE_JSPROD_RECEITA_CURTA=0` desliga.
+`Ctx::receita_de`. `DARTFORGE_JSPROD_SHORT_RECIPE=0` desliga.
 
 ### 9.4 *Strings* de dados com forma de identificador também deduplicadas
 
@@ -663,7 +663,7 @@ Entram na tabela só as classes que uma mensagem pode mostrar
 (`regras::mostraveis`): as citadas fora das chaves das regras e fora das
 listas do `addRtiResources`, mais a primeira de cada lista. Uma classe que só
 aparece como supertipo nas regras nunca vira objeto rti.
-`DARTFORGE_JSPROD_RECEITA_CURTA=0` volta à receita `rótulo|Nome`.
+`DARTFORGE_JSPROD_SHORT_RECIPE=0` volta à receita `rótulo|Nome`.
 
 A tabela custava 130 KB no `new_sali` como objeto JSON. Agora é uma
 *string* só, com os nomes separados por espaço na ordem dos ids (vazio o que
@@ -705,7 +705,7 @@ ficavam por extenso. A deduplicação continua sem tocar nessas *strings*.
 construtor Dart, vira `t$P(C.nome = function(…) {…}, C);`, com
 `t$P = function(f, c) { f.prototype = c.prototype; }` declarada uma vez
 (`formas.rs`, depois do achatamento). A atribuição acontece antes da chamada,
-como antes. `DARTFORGE_JSPROD_FORMAS=0` desliga.
+como antes. `DARTFORGE_JSPROD_SHAPES=0` desliga.
 
 ### 9.9 Receitas fechadas do programa avaliadas uma vez
 
@@ -715,7 +715,7 @@ usada duas vezes ou mais vira uma variável `t$T…`, declarada logo depois do
 SDK: `_Universe.eval` devolve o objeto canônico do universo, então avaliar
 uma vez dá o mesmo objeto, e cada uso fica uma variável em vez de uma
 chamada. O SDK fica como está: código dele roda durante a carga, antes da
-declaração. Também em `formas.rs`; `DARTFORGE_JSPROD_RECEITAS_FIXAS=0`
+declaração. Também em `formas.rs`; `DARTFORGE_JSPROD_FIXED_RECIPES=0`
 desliga. A troca do protótipo (§9.8) passou a ser duas trocas pequenas, para
 compor com as de dentro da função.
 

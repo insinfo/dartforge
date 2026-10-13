@@ -55,7 +55,7 @@ impl SemanticAnalyzer {
     }
 
     /// Changes the semantic session budget (MiB of retained source; `0` turns
-    /// retention off). The default comes from `DARTFORGE_LSP_SESSAO_MIB`.
+    /// retention off). The default comes from `DARTFORGE_LSP_SESSION_MIB`.
     ///
     /// ```
     /// use dartforge_lsp::SemanticAnalyzer;

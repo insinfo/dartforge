@@ -12,7 +12,7 @@ use std::sync::Arc;
 /// bootstrap: that program does not go through the engine (the bootstrap
 /// lives in the project that uses builders, and the engine would compile the
 /// executor again).
-const COMPILING_EXECUTOR: &str = "DARTFORGE_BUILD_COMPILANDO_EXECUTOR";
+const COMPILING_EXECUTOR: &str = "DARTFORGE_BUILD_COMPILING_EXECUTOR";
 
 /// Hooks the Dart builder executor into `engine`: through the VM when asked
 /// (`--dart`/`DARTFORGE_BUILD_DART`, the compatibility path), otherwise the
@@ -20,8 +20,8 @@ const COMPILING_EXECUTOR: &str = "DARTFORGE_BUILD_COMPILANDO_EXECUTOR";
 /// this same executable, without `dart` or `build_runner`. `default`: the
 /// native one applies without being asked (`dartforge build`); in the
 /// compilers (`compile-js`, `compile-native`, `run`), only with
-/// `DARTFORGE_BUILD_NATIVO=1`, because the executor's first compilation costs
-/// minutes. `DARTFORGE_BUILD_NATIVO=0` always turns it off (the fallback
+/// `DARTFORGE_BUILD_NATIVE=1`, because the executor's first compilation costs
+/// minutes. `DARTFORGE_BUILD_NATIVE=0` always turns it off (the fallback
 /// remains). Without the `native` feature, only the VM.
 pub fn attach_executor(engine: &mut Engine, dart: Option<PathBuf>, sdk: Option<PathBuf>, cfg_path: &Path, default: bool) {
     if let Some(d) = dart {
@@ -137,7 +137,7 @@ pub fn with_generator<R>(
 /// `dartforge build [<input.dart>] [--raiz <dir>] [--packages <cfg>] [--plano]
 /// [--comparar] [--release] [--estrito] [--trabalhadores N]
 /// [--escrever-cache <dir>] [--dart <exe>] [--estado]`. With `--estado` (or
-/// `DARTFORGE_BUILD_ESTADO=1`) the engine's state is saved in
+/// `DARTFORGE_BUILD_STATE=1`) the engine's state is saved in
 /// `.dart_tool/dartforge/build/state` and reused by the next process;
 /// without asking, nothing goes to disk (governing rule 6). With `--dart` (or
 /// `DARTFORGE_BUILD_DART`) the builders without a native generator run on the

@@ -55,7 +55,7 @@ fn main() {
         h.update(&text);
         h.update(&[0]);
     }
-    println!("cargo::rustc-env=DARTFORGE_EMISSOR_HASH={}", h.finalize().to_hex());
+    println!("cargo::rustc-env=DARTFORGE_EMITTER_HASH={}", h.finalize().to_hex());
     precompile_runtime();
 }
 
@@ -83,16 +83,16 @@ const ABORT: &[&str] = &["--config", "profile.release.panic=\"abort\""];
 /// lock of the outer build), and publishes, for the binary, the directory and their
 /// names. The name carries the blake3 of the runtime source, of `Cargo.lock`,
 /// of the target and of the variant: a runtime of another version is never confused with
-/// this compiler's. `DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1` skips the
+/// this compiler's. `DARTFORGE_RUNTIME_NO_PRECOMPILE=1` skips the
 /// compilation (for `cargo check`/`clippy`, which do not produce executables).
 fn precompile_runtime() {
-    println!("cargo::rerun-if-env-changed=DARTFORGE_RUNTIME_SEM_PRECOMPILAR");
+    println!("cargo::rerun-if-env-changed=DARTFORGE_RUNTIME_NO_PRECOMPILE");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace = root.join("../..");
     let exit = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     let target = std::env::var("TARGET").expect("TARGET");
     let windows = target.contains("windows");
-    let skip = std::env::var("DARTFORGE_RUNTIME_SEM_PRECOMPILAR").is_ok_and(|v| v == "1");
+    let skip = std::env::var("DARTFORGE_RUNTIME_NO_PRECOMPILE").is_ok_and(|v| v == "1");
     // macOS: the C code of the dependencies (zlib, `ring`) targets the same minimum that
     // `ld64.lld` declares in the executable (`linker_macos.rs`); without this,
     // `cc` uses the one from the machine's SDK (26.x), and the program could call what
@@ -121,9 +121,9 @@ fn precompile_runtime() {
     let cargo_file = if windows { "dartforge_runtime_static.lib" } else { "libdartforge_runtime_static.a" };
     let ext = if windows { "lib" } else { "a" };
     for (variant, feature, prefix, profile) in [
-        ("PRINCIPAL", "aot", "dartforge_runtime_", ABORT),
+        ("MAIN", "aot", "dartforge_runtime_", ABORT),
         ("DLL", "dll", "dartforge_rtdll_", &[][..]),
-        ("PRODUCAO", "dll", "dartforge_rtprod_", ABORT),
+        ("PRODUCTION", "dll", "dartforge_rtprod_", ABORT),
     ] {
         let mut h = blake3::Hasher::new();
         h.update(b"dartforge-runtime-cargo\0");
@@ -203,5 +203,5 @@ fn precompile_runtime() {
         std::fs::copy(&produced, &tmp).unwrap_or_else(|e| panic!("copiar {}: {e}", produced.display()));
         std::fs::rename(&tmp, &lib).expect("publish the precompiled runtime");
     }
-    println!("cargo::rustc-env=DARTFORGE_RUNTIME_DIR_DO_BUILD={}", exit.display());
+    println!("cargo::rustc-env=DARTFORGE_RUNTIME_BUILD_DIR={}", exit.display());
 }

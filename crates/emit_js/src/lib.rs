@@ -427,10 +427,10 @@ fn package_config(
         .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok())
 }
 
-/// `DARTFORGE_GERADOS_PKGS=a,b` restricts generation to those packages — useful
+/// `DARTFORGE_GENERATED_PKGS=a,b` restricts generation to those packages — useful
 /// for comparing against the disk without changing anything else.
 fn package_filter() -> Option<std::collections::HashSet<String>> {
-    std::env::var("DARTFORGE_GERADOS_PKGS")
+    std::env::var("DARTFORGE_GENERATED_PKGS")
         .ok()
         .map(|v| v.split(',').map(|s| s.trim().to_string()).collect())
 }
@@ -558,16 +558,16 @@ pub fn compile_with_options<R>(
     let mut interner = Interner::new();
     // In-memory generated sources. With `generator` (the build engine, wired in
     // by `compile-js` when the project uses `build_runner`), generation comes from
-    // it. `DARTFORGE_GERADOS` stays for one cycle as a synonym:
+    // it. `DARTFORGE_GENERATED` stays for one cycle as a synonym:
     // `build_runner` = support only (what `build_runner` already wrote — this is
     // how we verify that reading from memory gives the same JS as reading from
     // disk), `ng` = the engine (the default when there is a generator), `nenhum` =
     // off.
-    let mode = std::env::var("DARTFORGE_GERADOS").ok();
+    let mode = std::env::var("DARTFORGE_GENERATED").ok();
     let generated = match (mode.as_deref(), generator) {
         (Some("nenhum"), _) => None,
         (Some("ng"), None) => {
-            return Err("DARTFORGE_GERADOS=ng requires the build engine: the project does not use build_runner".into());
+            return Err("DARTFORGE_GENERATED=ng requires the build engine: the project does not use build_runner".into());
         }
         (Some("ng") | None, Some(g)) => {
             // Phase 1: load the project without the generated sources, only so
@@ -598,7 +598,7 @@ pub fn compile_with_options<R>(
     };
     if let Some(g) = &generated {
         rel.generated_sources = g.len();
-        if std::env::var("DARTFORGE_GERADOS_DEBUG").is_ok() {
+        if std::env::var("DARTFORGE_GENERATED_DEBUG").is_ok() {
             let mut v: Vec<String> = g.paths().map(|p| p.display().to_string()).collect();
             v.sort();
             eprintln!("generation: {} sources", v.len());
@@ -634,7 +634,7 @@ pub fn compile_with_options<R>(
     }
     // Macros (docs/MACROS-PROTOCOLO.md): only if the program declares some
     // `macro` class — without a pending application we do not start an executor.
-    // By default the Dart VM runs our API; with `DARTFORGE_MACROS_NATIVO` (a
+    // By default the Dart VM runs our API; with `DARTFORGE_MACROS_NATIVE` (a
     // `dartforge` built with the `native` feature) the executor is the native one
     // (D4). The host reloads the augmentation straight from memory.
     let program = if dartforge_macros_host::has_macros(&program) {
@@ -663,7 +663,7 @@ pub fn compile_with_options<R>(
                 .or_else(|| dartforge_elements::config::PackageConfig::discover(entry));
             // Native executor (D4): the bootstrap compiled by `compile-native` of
             // the given `dartforge`, with no Dart VM.
-            match std::env::var_os("DARTFORGE_MACROS_NATIVO") {
+            match std::env::var_os("DARTFORGE_MACROS_NATIVE") {
                 Some(compiler) => {
                     let native = dartforge_macros_host::native::NativeConfig {
                         compiler: std::path::PathBuf::from(compiler),
@@ -736,12 +736,12 @@ pub fn compile_with_options<R>(
     rel.body_warnings = body_diags.len();
     let warnings = outline_diags.len() + body_diags.len();
     if warnings > 0 {
-        let limit = std::env::var("DARTFORGE_AVISOS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
+        let limit = std::env::var("DARTFORGE_WARNINGS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
         for d in outline_diags.iter().chain(body_diags.iter()).take(limit) {
             eprintln!("warning: {d}");
         }
-        eprintln!("({warnings} type warning(s); DARTFORGE_AVISOS=N shows more)");
-        if std::env::var("DARTFORGE_AVISOS_RESUMO").is_ok() {
+        eprintln!("({warnings} type warning(s); DARTFORGE_WARNINGS=N shows more)");
+        if std::env::var("DARTFORGE_WARNINGS_SUMMARY").is_ok() {
             // Most frequent messages (without the position).
             let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
             for d in outline_diags.iter().chain(body_diags.iter()) {

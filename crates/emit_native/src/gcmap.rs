@@ -567,11 +567,11 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
 
 /// Whether the object generated on this host goes through the converter: in ELF always
 /// (mandatory, [`convert_elf`]); in COFF except for the measurement
-/// `DARTFORGE_SEM_MAPA_COMPACTO=1`; in Mach-O never.
+/// `DARTFORGE_NO_COMPACT_MAP=1`; in Mach-O never.
 pub fn convert_here() -> bool {
     match crate::target::target_os() {
         crate::target::Os::Linux => true,
-        crate::target::Os::Windows => !std::env::var_os("DARTFORGE_SEM_MAPA_COMPACTO").is_some_and(|v| !v.is_empty() && v != "0"),
+        crate::target::Os::Windows => !std::env::var_os("DARTFORGE_NO_COMPACT_MAP").is_some_and(|v| !v.is_empty() && v != "0"),
         crate::target::Os::MacOs => false,
     }
 }

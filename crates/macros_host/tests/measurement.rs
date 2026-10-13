@@ -177,7 +177,7 @@ fn host_measurement() {
         std::fs::write(&models, text.replacen("  final int? numero;\n", "  final int? numero;\n  final bool? novo;\n", 1)).unwrap();
     });
 
-    let n: Vec<usize> = std::env::var("DARTFORGE_MEDICAO_N")
+    let n: Vec<usize> = std::env::var("DARTFORGE_MEASUREMENT_N")
         .ok()
         .map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect())
         .unwrap_or_else(|| vec![8, 32]);

@@ -27,7 +27,7 @@ Dois caminhos produzem **o mesmo texto, byte a byte**:
   VM Dart provisoriamente e recarrega o texto em memória como
   `<biblioteca>.macro.dart` (`elements/src/gerado.rs`). O executor nativo D4
   (`macros_host::nativo`, `dartforge macros --nativo`,
-  `DARTFORGE_MACROS_NATIVO`) produz o mesmo texto sem VM (MACROS-PROTOCOLO.md
+  `DARTFORGE_MACROS_NATIVE`) produz o mesmo texto sem VM (MACROS-PROTOCOLO.md
   §3);
 * **na toolchain oficial**, um *builder* do `build_runner` roda **a mesma
   macro** na VM oficial, com a **nossa** API de macros (`packages/macros`, Dart
@@ -176,7 +176,7 @@ anotação original no compilador. O caso independente `411_pedido_independente`
 exercita essa execução no `compile-js` e no `dartforge-jsprod`; sua fonte
 original é usada pelos quatro executores do harness, enquanto o builder do
 fixture é comparado separadamente ao CFE byte a byte. O JS usa uma VM Dart
-como executor padrão; o executor nativo D4 existe (`DARTFORGE_MACROS_NATIVO`)
+como executor padrão; o executor nativo D4 existe (`DARTFORGE_MACROS_NATIVE`)
 e a integração no `dev` segue pendente.
 
 **Erro e formas materializadas (B07)**: uma macro que lança exceção faz a

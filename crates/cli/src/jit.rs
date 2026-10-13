@@ -388,7 +388,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
                     // The child also starts from tracing; it carries over the
                     // explicit selection to keep the same SDK variant in the cache.
                     command.arg("run")
-                        .arg(format!("--memoria={}", std::env::var("DARTFORGE_MEMORIA").unwrap_or_else(|_| "tracing".into())))
+                        .arg(format!("--memoria={}", std::env::var("DARTFORGE_MEMORY").unwrap_or_else(|_| "tracing".into())))
                         .arg("--ir").arg(&file);
                     if timings {
                         command.arg("--timings");

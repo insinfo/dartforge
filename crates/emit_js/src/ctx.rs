@@ -131,7 +131,7 @@ pub struct Ctx<'a> {
     /// The short ids of the classes in SDK-mode recipes
     /// ([`crate::recipe_ids`]), computed on first use.
     recipe_ids: std::cell::OnceCell<Vec<String>>,
-    /// `DARTFORGE_JSPROD_RECEITA_CURTA=0` keeps the library in every recipe.
+    /// `DARTFORGE_JSPROD_SHORT_RECIPE=0` keeps the library in every recipe.
     short_recipe: bool,
     /// Per unit, the nodes that are the target of a compound assignment or of
     /// `++`/`--` ([`Ctx::is_write_target`]).
@@ -148,7 +148,7 @@ pub struct Ctx<'a> {
     /// the context.
     pub errors: RefCell<Vec<dartforge_diagnostics::Diagnostic>>,
     /// Check of the emitter's types against the common inference
-    /// (`DARTFORGE_JS_CONFERIR_TIPOS`, see `crate::type_check`); `None` when
+    /// (`DARTFORGE_JS_CHECK_TYPES`, see `crate::type_check`); `None` when
     /// it is off.
     pub type_check: Option<RefCell<crate::type_check::TypeCheck>>,
     /// SDK mode (`crate::own_sdk`): the `dart:` libraries are compiled
@@ -249,7 +249,7 @@ impl<'a> Ctx<'a> {
             member_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
             recipe_ids: std::cell::OnceCell::new(),
-            short_recipe: std::env::var("DARTFORGE_JSPROD_RECEITA_CURTA").map_or(true, |v| v != "0"),
+            short_recipe: std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0"),
             write_targets: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
             errors: RefCell::new(Vec::new()),

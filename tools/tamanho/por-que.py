@@ -11,11 +11,11 @@ Uso:
         mantêm vivos (o fecho do que o par puxou).
 
 O relatório sai da compilação de produção com
-`DARTFORGE_POR_QUE=<relatorio.tsv>` (docs/NATIVO-PODA-DE-TABELAS.md §3.10):
+`DARTFORGE_WHY=<relatorio.tsv>` (docs/NATIVO-PODA-DE-TABELAS.md §3.10):
 uma linha por símbolo vivo, com a causa da primeira vez em que ele entrou —
 `raiz`, `ref` (citado por `pai`) ou `tabela` (par da tabela `pai` pelo
 `seletor`, que a função `chamador` chamou primeiro). O mapa é o de
-`DARTFORGE_MAPA_DA_LIGACAO=1`.
+`DARTFORGE_LINK_MAP=1`.
 """
 import argparse
 import collections

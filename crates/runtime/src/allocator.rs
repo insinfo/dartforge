@@ -22,7 +22,7 @@
 //   most [`ALLOC_LIMIT_PER_CLASS`] bytes per class; the isolate's thread drains it
 //   when it ends ([`flush_allocation_cache`]). The `dart:io` threads (events,
 //   processes) use `System` directly;
-// * `DARTFORGE_ALOCADOR_SEM_CACHE=1` leaves the lists disabled (measurement and
+// * `DARTFORGE_ALLOCATOR_NO_CACHE=1` leaves the lists disabled (measurement and
 //   diagnosis).
 //
 // Only the executable (the crate's `aot` and `dll` features) installs the
@@ -119,10 +119,10 @@ fn put_in_list(c: usize, p: *mut u8) -> bool {
 }
 
 /// Enables the free lists on the current thread (an isolate's), unless
-/// `DARTFORGE_ALOCADOR_SEM_CACHE=1`.
+/// `DARTFORGE_ALLOCATOR_NO_CACHE=1`.
 pub fn enable_allocation_cache() {
     let disabled =
-        std::env::var_os("DARTFORGE_ALOCADOR_SEM_CACHE").is_some_and(|v| !v.is_empty() && v != "0");
+        std::env::var_os("DARTFORGE_ALLOCATOR_NO_CACHE").is_some_and(|v| !v.is_empty() && v != "0");
     let _ = ALLOCATION_CACHE.try_with(|k| k.enabled_flag.set(!disabled));
 }
 

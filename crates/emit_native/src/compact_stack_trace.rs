@@ -450,10 +450,10 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
 }
 
 /// Whether the stack trace table of the object generated on this host goes through the
-/// converter: in COFF and ELF, except for the `DARTFORGE_RASTRO_CRU=1` measurement; in
+/// converter: in COFF and ELF, except for the `DARTFORGE_STACK_TRACE_RAW=1` measurement; in
 /// Mach-O never.
 pub fn convert_here() -> bool {
-    crate::target::target_os() != crate::target::Os::MacOs && !std::env::var_os("DARTFORGE_RASTRO_CRU").is_some_and(|v| !v.is_empty() && v != "0")
+    crate::target::target_os() != crate::target::Os::MacOs && !std::env::var_os("DARTFORGE_STACK_TRACE_RAW").is_some_and(|v| !v.is_empty() && v != "0")
 }
 
 /// The converter for the object format. Returns whether it converted.

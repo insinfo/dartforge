@@ -96,10 +96,10 @@ pub fn init_native_target() -> Result<(), String> {
 /// register where they already are (`use-registers-for-deopt-values`; the map says
 /// which, with the `Register` location): without it, LLVM's default, each one is
 /// written to a slot before every collecting call — which the shadow stack does not
-/// pay. `DARTFORGE_MAPAS_REGISTRADORES=0` goes back to the slot (measurement).
+/// pay. `DARTFORGE_REGISTER_MAPS=0` goes back to the slot (measurement).
 pub fn roots_in_registers() -> bool {
     static SIM: OnceLock<bool> = OnceLock::new();
-    *SIM.get_or_init(|| std::env::var("DARTFORGE_MAPAS_REGISTRADORES").map_or(true, |v| v.trim() != "0"))
+    *SIM.get_or_init(|| std::env::var("DARTFORGE_REGISTER_MAPS").map_or(true, |v| v.trim() != "0"))
 }
 
 /// The code generator options that dartforge passes to LLVM (the embedded one, and
@@ -221,10 +221,10 @@ pub fn generate(name: &str, ir: &str, options: &Options) -> Result<Vec<u8>, Stri
     // would be optimized again in the LTO with the statepoints already in place,
     // and the optimizer does not know their roots: the executable loses roots.
     let pass_at_linker = options.format == Format::Bitcode;
-    // `DARTFORGE_PIPELINE_OBJETO` replaces the pipeline of the optimized object
+    // `DARTFORGE_OBJECT_PIPELINE` replaces the pipeline of the optimized object
     // (time and size measurement: `default<O1>`, `default<Os>`;
     // docs/NATIVO-PRODUCAO-GRANDE.md).
-    let chosen = std::env::var("DARTFORGE_PIPELINE_OBJETO").ok().filter(|p| !p.is_empty());
+    let chosen = std::env::var("DARTFORGE_OBJECT_PIPELINE").ok().filter(|p| !p.is_empty());
     let pipeline = match (options.format, options.optimize) {
         (Format::Bitcode, _) => "lto-pre-link<O2>",
         (Format::Object, true) => chosen.as_deref().unwrap_or("default<O2>"),
@@ -401,23 +401,23 @@ pub fn generate_from_bitcode(name: &str, bitcode: &[u8], cpu: Option<&'static st
     Ok((llvm_machine.emit_object(&module).map_err(|e| dump_if_requested(name, "object", &module, e))?, with_maps))
 }
 
-/// `DARTFORGE_CONFERIR_RS4GC=1`: the root checker after
+/// `DARTFORGE_CHECK_RS4GC=1`: the root checker after
 /// `rewrite-statepoints-for-gc` ([`check_rs4gc`],
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.4) on the module text. Expensive
 /// (prints the whole module): enabled in the maps-mode tests.
 fn check_after_rs4gc(name: &str, module: &IrModule<'_>) -> Result<(), String> {
-    if !std::env::var("DARTFORGE_CONFERIR_RS4GC").is_ok_and(|v| v == "1") {
+    if !std::env::var("DARTFORGE_CHECK_RS4GC").is_ok_and(|v| v == "1") {
         return Ok(());
     }
     check_rs4gc::check(&module.text()).map_err(|e| dump_if_requested(name, "rs4gc", module, format!("{name}: {e}")))
 }
 
-/// `DARTFORGE_DESPEJAR_MODULO=<trecho>`: the module whose name contains the chunk
+/// `DARTFORGE_DUMP_MODULE=<trecho>`: the module whose name contains the chunk
 /// goes to the temporary directory right before the code generator
 /// (`generator-<name>.ll`) — for the failure where LLVM brings the process down after
 /// printing the error ("ran out of registers").
 fn dump_before_generator(name: &str, module: &IrModule<'_>) {
-    if let Ok(chunk) = std::env::var("DARTFORGE_DESPEJAR_MODULO")
+    if let Ok(chunk) = std::env::var("DARTFORGE_DUMP_MODULE")
         && !chunk.is_empty()
         && name.contains(&chunk)
     {

@@ -34,7 +34,7 @@ const USAGE: &str = "usage:
       (dartforge-jsprod, single pruned file) — the report then compares
       VM × our development × our production (docs/JS-PRODUCAO.md)
       --jit runs the native backend through the ORCv2 JIT (dartforge-executar-ir, next
-      to this binary or in DARTFORGE_EXECUTAR_IR) instead of AOT; --jit-aot
+      to this binary or in DARTFORGE_RUN_IR) instead of AOT; --jit-aot
       also runs the AOT of the SAME IR, lists every program where the two
       diverge (JIT≠AOT) and measures the time of each profile (docs/JIT.md)
       --matriz FILE appends to FILE (TSV) the state of each program in the
@@ -49,7 +49,7 @@ const USAGE: &str = "usage:
   dartforge-differential determinismo [--nativo [--executar]] [--producao] [--filtro TEXT] [--trabalhadores 1,4,8]
       runs the same corpus with each number of workers and requires an
       identical report. With --nativo it compares the LLVM IR emitted for each
-      program, without Clang, linking or running (DARTFORGE_IR_PARALELO_MAX limits
+      program, without Clang, linking or running (DARTFORGE_IR_PARALLEL_MAX limits
       the concurrent emissions; default 2); --executar goes back to compiling and
       running everything and comparing the report (and the IR, with DARTFORGE_KEEP_IR=1)";
 
@@ -405,16 +405,16 @@ fn main() {
             if let Some(file) = &matrix {
                 // The four native combinations (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
                 // §7.1): the roots mode and the exceptions mode come from the
-                // environment, which the emitter reads (`DARTFORGE_RAIZES`,
-                // `DARTFORGE_EXCECOES`); the default (shadow stack, checks)
+                // environment, which the emitter reads (`DARTFORGE_ROOTS`,
+                // `DARTFORGE_EXCEPTIONS`); the default (shadow stack, checks)
                 // does not enter the name. The profile names are values of the
                 // TSV read by `scripts/matriz.py` and stay as they are.
                 let suffix = {
                     let mut m = String::new();
-                    if std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas") {
+                    if std::env::var("DARTFORGE_ROOTS").is_ok_and(|v| v == "mapas") {
                         m.push_str("-mapas");
                     }
-                    if std::env::var("DARTFORGE_EXCECOES").is_ok_and(|v| v == "tabelas") {
+                    if std::env::var("DARTFORGE_EXCEPTIONS").is_ok_and(|v| v == "tabelas") {
                         m.push_str("-tabelas");
                     }
                     m

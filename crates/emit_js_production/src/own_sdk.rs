@@ -159,7 +159,7 @@ fn dynamic_names(texts: &[(String, String)]) -> HashSet<String> {
     out
 }
 
-/// `DARTFORGE_JSPROD_POR=name`: each function (of the program or of the SDK)
+/// `DARTFORGE_JSPROD_WHY=name`: each function (of the program or of the SDK)
 /// with that name, whether it is live, its owner class and that class's
 /// level, and whether the selector is live for it.
 fn diagnose(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World, target: &str) {
@@ -221,8 +221,8 @@ fn fixed_point(
     let mut roots = roots(a, &input);
     let opm = dartforge_world::Options { include_sdk: true, without_asserts: !op.asserts };
     let constants = dartforge_world::Constants::new(input, !op.asserts);
-    let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_RODADAS").ok().and_then(|v| v.parse().ok()).unwrap_or(40).max(1);
-    let trace = std::env::var("DARTFORGE_JSPROD_RASTRO").is_ok();
+    let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_ROUNDS").ok().and_then(|v| v.parse().ok()).unwrap_or(40).max(1);
+    let trace = std::env::var("DARTFORGE_JSPROD_TRACE").is_ok();
     // The engine stays alive between rounds: each one only adds roots.
     let mut computation = dartforge_world::Computation::new(input, opm);
     for round in 1..=max_rounds {
@@ -230,8 +230,8 @@ fn fixed_point(
         computation.seed(&roots);
         let world = computation.world();
         report.world_time += t.elapsed();
-        // `DARTFORGE_JSPROD_NOMEADOS=0` keeps the source names.
-        let named_args = if std::env::var("DARTFORGE_JSPROD_NOMEADOS").map_or(true, |v| v != "0") { crate::named_args::compute(a, &world) } else { None };
+        // `DARTFORGE_JSPROD_NAMED=0` keeps the source names.
+        let named_args = if std::env::var("DARTFORGE_JSPROD_NAMED").map_or(true, |v| v != "0") { crate::named_args::compute(a, &world) } else { None };
         let ad = filter::Adapter { world: &world, program: a.program, stub: op.stub, signatures, constants: Some(&constants), named_args: named_args.as_ref(), omit_checks: op.omit_checks };
         let t = Instant::now();
         let mut e = a.emit_with_sdk(Some(&ad))?;
@@ -247,8 +247,8 @@ fn fixed_point(
         report.verify_time += t.elapsed();
         report.rounds += 1;
         report.no_element = missing.no_element.clone();
-        // `DARTFORGE_JSPROD_DESPEJO=file`: the round's text (diagnostics).
-        if let Ok(p) = std::env::var("DARTFORGE_JSPROD_DESPEJO") {
+        // `DARTFORGE_JSPROD_DUMP=file`: the round's text (diagnostics).
+        if let Ok(p) = std::env::var("DARTFORGE_JSPROD_DUMP") {
             let _ = std::fs::write(p, texts.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("\n"));
         }
         if trace {
@@ -261,7 +261,7 @@ fn fixed_point(
             report.stats = world.stats.clone();
             report.js_names = world.js_names.clone();
             report.named_args = named_args.clone();
-            if let Ok(target) = std::env::var("DARTFORGE_JSPROD_POR") {
+            if let Ok(target) = std::env::var("DARTFORGE_JSPROD_WHY") {
                 diagnose(a, &world, &target);
             }
             return Ok(Some(e));
@@ -303,7 +303,7 @@ pub fn emit(a: &dartforge_emit_js::Analysis<'_>, op: Options) -> Result<(Emitted
         strip_unused(&mut e);
         return Ok((e, Some(report)));
     };
-    if std::env::var("DARTFORGE_JSPROD_ASSINATURAS").is_ok_and(|v| v == "todas") {
+    if std::env::var("DARTFORGE_JSPROD_SIGNATURES").is_ok_and(|v| v == "todas") {
         return Ok((first, Some(report)));
     }
     let texts = |e: &EmittedWithSdk| {
@@ -516,7 +516,7 @@ pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::propertie
     // The SDK end marker separates, for property renaming, the runtime's
     // *strings* from the program's (`minify::SDK_END_MARKER`); it only exists
     // when that renaming is going to run, and compression deletes it.
-    let names_ok = std::env::var("DARTFORGE_JSPROD_NOMES").map_or(true, |v| v != "0");
+    let names_ok = std::env::var("DARTFORGE_JSPROD_NAMES").map_or(true, |v| v != "0");
     let props = names_ok && std::env::var("DARTFORGE_JSPROD_PROPS").map_or(true, |v| v != "0");
     let marker = if op.minify && props && names.is_some() { format!("\"{}\";\n", minify::SDK_END_MARKER) } else { String::new() };
     let sdk = format!("{}const t$R = r => {RTI_PREFIX}r, true);\n(function () {{\n{}}})();\n{marker}", e.bootstrap, e.sdk);
@@ -524,17 +524,17 @@ pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::propertie
     let preamble = if op.stub { bundle::STUB_PREAMBLE } else { "" };
     let js = bundle::assemble(&sdk, &modules, &entry, preamble);
     // rti rules only for the supertypes that some recipe cites
-    // (`rti_rules.rs`); `DARTFORGE_JSPROD_REGRAS=0` turns it off.
-    let js = if std::env::var("DARTFORGE_JSPROD_REGRAS").map_or(true, |v| v != "0") { crate::rti_rules::prune(&js) } else { js };
+    // (`rti_rules.rs`); `DARTFORGE_JSPROD_RULES=0` turns it off.
+    let js = if std::env::var("DARTFORGE_JSPROD_RULES").map_or(true, |v| v != "0") { crate::rti_rules::prune(&js) } else { js };
     // After pruning the rules: the table is not a citation.
     let js = match rti {
-        Some(r) if std::env::var("DARTFORGE_JSPROD_RECEITA_CURTA").map_or(true, |v| v != "0") => name_table(&js, r),
+        Some(r) if std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0") => name_table(&js, r),
         _ => js,
     };
     let js = alias_recipes(&js);
     let js = drop_unused_private_names(&js);
     let before_compaction = js.len();
-    // Identifiers by scope and whitespace (oxc); `DARTFORGE_JSPROD_NOMES=0`
+    // Identifiers by scope and whitespace (oxc); `DARTFORGE_JSPROD_NAMES=0`
     // stays with whitespace compaction only, and `DARTFORGE_JSPROD_PROPS=0`
     // turns off property renaming (`names_ok` and `props`, above).
     let js = if op.minify && props && names.is_some() {

@@ -56,7 +56,7 @@ const REGION_GRANULARITY: usize = 4096;
 /// free list: fewer, if contiguity ends earlier).
 pub(crate) const TLAB_BLOCKS: usize = 256;
 
-// ─── Poison and quarantine (`DARTFORGE_GC_VENENO`) ─────────────────────────
+// ─── Poison and quarantine (`DARTFORGE_GC_POISON`) ─────────────────────────
 
 /// The state of a poisoned block: the first byte of the poison pattern.
 /// No valid state uses it; handle validation rejects it.
@@ -66,7 +66,7 @@ pub(crate) const POISON_STATE: u8 = 0xDE;
 const POISON_WORD: u64 = 0xDFDF_DFDF_DFDF_DFDE;
 
 /// The quarantine of dead blocks (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-/// §7.5): with `DARTFORGE_GC_VENENO=1` (or `=<n>` blocks), each block that
+/// §7.5): with `DARTFORGE_GC_POISON=1` (or `=<n>` blocks), each block that
 /// dies is filled with the poison pattern and only goes back to the free list after
 /// `n` others (1 000 by default) have died after it. A use after
 /// free then reads the poison and fails handle validation, instead of reading a
@@ -82,7 +82,7 @@ struct Quarantine {
 
 impl Quarantine {
     fn from_env() -> Option<Self> {
-        let v = std::env::var("DARTFORGE_GC_VENENO").ok()?;
+        let v = std::env::var("DARTFORGE_GC_POISON").ok()?;
         let capacity = match v.trim() {
             "" | "0" => return None,
             "1" => 1000,
@@ -1010,7 +1010,7 @@ pub struct ObjectSpace {
     handed_out: usize,
     /// Objects of the space marked by the collection in progress.
     pub(crate) marked_set: usize,
-    /// The quarantine of the dead (`DARTFORGE_GC_VENENO`); `None` without it.
+    /// The quarantine of the dead (`DARTFORGE_GC_POISON`); `None` without it.
     quarantine: Option<Quarantine>,
     /// Where the pages of [`PAGE`] bytes come from.
     reserve: PageReserve,
@@ -1681,7 +1681,7 @@ impl ObjectSpace {
             }
             let size = p.size();
             let mut live_in_page = 0;
-            // The dead in quarantine (`DARTFORGE_GC_VENENO`): they are not live,
+            // The dead in quarantine (`DARTFORGE_GC_POISON`): they are not live,
             // but they do not go back to the free list either, and they hold the page.
             let mut pinned_in_page = 0;
             let mut free_ptr: *mut u8 = std::ptr::null_mut();
@@ -1859,7 +1859,7 @@ impl ObjectSpace {
         self.large_ones.bytes
     }
 
-    /// The memory breakdown of the space (`DARTFORGE_GC_MEMORIA=1`): per size
+    /// The memory breakdown of the space (`DARTFORGE_GC_MEMORY=1`): per size
     /// class, the pages, the blocks and the occupied ones (the live ones of the last full
     /// collection plus those handed out since then); the empty pages, those of the
     /// reserve, the live and cached large regions, the out-of-line bodies and the
@@ -1949,7 +1949,7 @@ impl ObjectSpace {
 }
 
 /// The resident memory and the peak of the process, and the committed bytes of the
-/// process heap (the Rust allocator's), in bytes (`DARTFORGE_GC_MEMORIA=1`).
+/// process heap (the Rust allocator's), in bytes (`DARTFORGE_GC_MEMORY=1`).
 pub(crate) fn process_memory() -> (usize, usize, usize) {
     #[cfg(windows)]
     {
