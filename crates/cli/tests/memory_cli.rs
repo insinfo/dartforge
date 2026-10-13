@@ -54,7 +54,7 @@ fn invalid_value_is_rejected_before_loading_the_source() {
 fn aot_only_enables_arc_with_an_explicit_option() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let source = root.join("tests/fixtures/memory_cli.dart");
-    let dir = root.join(format!("../../target/memoria-cli-{}", std::process::id()));
+    let dir = root.join(format!("../../target/memory-cli-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     for arc in [false, true] {
         let exe = dir.join(format!(
@@ -103,9 +103,9 @@ fn jit_and_reload_select_the_policy_and_keep_the_program_arguments() {
         check(
             run.output().unwrap(),
             if arc {
-                "1\n--memoria=arc\n"
+                "1\n--memory=arc\n"
             } else {
-                "0\n--memoria=arc\n"
+                "0\n--memory=arc\n"
             },
         );
         for restart in [false, true] {
