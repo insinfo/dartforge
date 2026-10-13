@@ -158,6 +158,8 @@ pub fn bootstrap(script: &ScriptDeBuilders, package_config: &Path) -> String {
             imports.push(import);
         }
     }
+    // Generated Dart source: its text is kept byte for byte (it is hashed
+    // into the kernel cache key).
     let mut s = String::from(
         "// Gerado pelo DartForge: bootstrap do executor de builders (dfexec/1, serviço build.*).\n\
          // ignore_for_file: directives_ordering, no_leading_underscores_for_library_prefixes\n\

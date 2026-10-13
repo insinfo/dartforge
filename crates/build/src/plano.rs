@@ -554,8 +554,9 @@ pub struct Fase {
 impl Fase {
     /// `InBuildPhase.identity`: what changes the phase other than options.
     pub fn identity(&self, plan: &Plano, graph: &GrafoPacotes) -> String {
-        // The labels are hashed into the action fingerprints and the keys of
-        // the saved state: changing them invalidates existing caches.
+        // The labels (kept as they are) are hashed into the action
+        // fingerprints and the keys of the saved state: changing them
+        // invalidates existing caches.
         format!(
             "{}#{} {} {} gen={} fontes={} opcional={} oculta={} pos={} ext={:?} entradas_pos={:?} gatilho={}",
             plan.aplicacoes[self.aplicacao].chave,
