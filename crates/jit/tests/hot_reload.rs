@@ -365,7 +365,7 @@ define i64 @df_fn_2() { ret i64 99 }\n";
     assert_eq!(next_offset.call(&session).unwrap(), 22);
 }
 
-/// O emissor atual nomeia globais como `dfg.<library>.<class>.<field>`;
+/// O emissor atual nomeia globais como `dfg.<biblioteca>.<classe>.<campo>`;
 /// a IR antiga usava `dfg_`. O valor e o indicador precisam atravessar a
 /// recarga usando os nomes que o compilador realmente publica.
 #[test]

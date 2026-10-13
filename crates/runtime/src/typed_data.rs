@@ -51,7 +51,7 @@ fn typed_view(h: i64) -> Option<crate::tipadas::TypedRef> {
     HEAP.with(|heap| heap.borrow().tipada(h))
 }
 
-/// Lança `RangeError.range(value, 0, max, "length")` — o que a VM lança
+/// Lança `RangeError.range(valor, 0, max, "length")` — o que a VM lança
 /// para um comprimento inválido na criação de uma lista tipada.
 fn throw_length(value: i64, max: i64) {
     throw_range_err(value, 0, max, "length");
@@ -120,7 +120,7 @@ pub extern "C" fn dartforge_nativo_TypedDataBase_length(this: i64) -> i64 {
 }
 
 /// O comprimento em elementos de `h` se ela é uma lista tipada do `tipo`
-/// dado (interna, externa ou visão) e, para `write_side != 0`, modificável;
+/// dado (interna, externa ou visão) e, para `escrita != 0`, modificável;
 /// senão 0. Caminho lento: o código gerado lê o comprimento em linha
 /// (`@df.tipada_len`, `llvm/tipados_ir.rs`); fica para o preenchimento
 /// ([`dartforge_typed_fill_int`]) e até o corte (§3.7).

@@ -93,7 +93,7 @@ fn key_part(t: i64, s: &mut String) -> Result<(), String> {
     Ok(())
 }
 
-/// A chave (`lower/ffi.rs::signature_key`) da assinatura nativa `ns`.
+/// A chave (`lower/ffi.rs::chave_da_assinatura`) da assinatura nativa `ns`.
 fn signature_key(ns: i64) -> Result<String, String> {
     let (ret, pos) = RTI.with(|u| match u.borrow().tipo(ns) {
         Type::Function { generics: 0, ret, pos, n_required, named } if named.is_empty() && *n_required == pos.len() => Ok((*ret, pos.clone())),

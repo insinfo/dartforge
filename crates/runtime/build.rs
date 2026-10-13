@@ -42,7 +42,7 @@ const FRAGMENTOS: &[&str] = &[
     // As portas Rust → Dart e a personalidade das exceções por tabelas.
     "excecoes_tabelas",
     "rastro",
-    // `DARTFORGE_EFEITOS=check`: a conferência da tabela de efeitos.
+    // `DARTFORGE_EFEITOS=conferir`: a conferência da tabela de efeitos.
     "efeitos_conferir",
     "saida",
     "strings",
@@ -499,7 +499,7 @@ mod testes_ownership {
 /// `#[unsafe(no_mangle)]` dos fragmentos: uma extern nova sem linha, uma
 /// linha de uma extern que saiu, um nome repetido ou uma marca fora de `0`/`1`
 /// derrubam o build — uma extern sem marca seria tratada no escuro.
-/// `roda_dart = 1` exige `collection = 1` e `throws = 1`.
+/// `roda_dart = 1` exige `coleta = 1` e `lanca = 1`.
 fn effects_table(manifest: &std::path::Path, names: &[String]) -> String {
     let file_path = manifest.join("efeitos.tsv");
     println!("cargo::rerun-if-changed={}", file_path.display());

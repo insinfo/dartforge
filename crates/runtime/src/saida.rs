@@ -447,7 +447,7 @@ fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
             output.push('.');
         }
     } else if name == "TypeError" {
-        // Com a mensagem (o `as` do RTI, `types.rs`), o `toString` da VM é a
+        // Com a mensagem (o `as` do RTI, `tipos.rs`), o `toString` da VM é a
         // mensagem.
         match text(0) {
             Some(t) => output.push_string(&t),

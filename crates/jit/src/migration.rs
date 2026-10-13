@@ -1,7 +1,7 @@
 //! Migração das instâncias vivas numa recarga estrutural (J03).
 //!
 //! O emissor nativo escreve no IR o layout dos objetos de cada classe do
-//! programa (`; df.fields <id> <base> name:flags:tipo,…`, com `a` anulável e
+//! programa (`; df.campos <id> <base> nome:flags:tipo,…`, com `a` anulável e
 //! `l` late; `base` são os campos antes dos declarados, os de enum). Quando
 //! uma classe muda de campos, a recarga não precisa mais ser recusada: cada
 //! objeto vivo dela passa ao layout novo **pelo nome** do campo, na

@@ -387,7 +387,7 @@ impl ParsedModule {
 
     /// Globais de dados declaradas sem definição neste módulo.
     ///
-    /// A pré-verificação de funções não cobre `@name = external global ...`.
+    /// A pré-verificação de funções não cobre `@nome = external global ...`.
     /// Uma referência de dado ausente também pode falhar na materialização do
     /// ORC depois de uma promoção já ter removido o módulo antigo.
     pub(crate) fn external_globals(&self) -> Vec<String> {
@@ -989,7 +989,7 @@ impl Lljit {
             if register.is_null() || deregister.is_null() {
                 return Err("a biblioteca do SDK não exporta o registro do rastro (dartforge_registrar_rastro)".to_owned());
             }
-            // SAFETY: como acima (`trace.rs` do runtime).
+            // SAFETY: como acima (`rastro.rs` do runtime).
             unsafe {
                 let layer = &*self.layer;
                 *layer.trace.lock().unwrap_or_else(|e| e.into_inner()) = Some((
@@ -1405,7 +1405,7 @@ pub(crate) fn set_script_in_library(dll: &std::path::Path, file_path: &[u8]) -> 
 // O programa roda numa thread própria enquanto o observador compila a
 // geração nova; a publicação (as células, os estáticos, os registros) roda
 // na thread do programa, no ponto seguro do isolado principal — entre dois
-// eventos do laço (`dartforge_pedir_no_ponto_seguro`, `ports.rs`), ou com o
+// eventos do laço (`dartforge_pedir_no_ponto_seguro`, `portas.rs`), ou com o
 // programa parado. Tudo o que atravessa a fronteira é endereço: a tarefa de
 // publicação é dona dos seus dados e não empresta nada da sessão.
 
@@ -1500,7 +1500,7 @@ impl ReloadRuntime {
     }
 
     /// `dartforge_definir_migracao`: o plano da publicação em curso, que
-    /// cada isolado aplica ao seu heap ao publicar (`migration.rs`).
+    /// cada isolado aplica ao seu heap ao publicar (`migracao.rs`).
     pub(crate) fn set_migration(&self, data: &[i64]) {
         if self.migrate == 0 {
             return;
@@ -1523,7 +1523,7 @@ impl ReloadRuntime {
             response: std::sync::Mutex::new(None),
             sig_num: std::sync::Condvar::new(),
         };
-        // SAFETY: `request_fn` é `dartforge_pedir_no_ponto_seguro` (`ports.rs`),
+        // SAFETY: `request_fn` é `dartforge_pedir_no_ponto_seguro` (`portas.rs`),
         // com esta assinatura; o pedido vive até a resposta abaixo.
         let accepted = unsafe {
             let request_fn: extern "C" fn(extern "C" fn(usize, i32), usize) -> i32 = std::mem::transmute(self.request_fn);
@@ -1561,14 +1561,14 @@ impl ReloadRuntime {
     /// Para os demais isolados no ponto seguro deles (chamada na thread do
     /// isolado principal, no ponto seguro dele) e devolve a parada.
     pub(crate) fn stop_isolates(&self) -> usize {
-        // SAFETY: `stop` é `dartforge_parar_isolados` (`ports.rs`).
+        // SAFETY: `stop` é `dartforge_parar_isolados` (`portas.rs`).
         unsafe { std::mem::transmute::<usize, extern "C" fn() -> usize>(self.stop)() }
     }
 
     /// Libera a parada: cada isolado refaz os registros da geração nova.
     pub(crate) fn release_isolates(&self, stopped_flag: usize, area: Option<u64>, register: Option<u64>, rti: Option<u64>) {
         let e = |x: Option<u64>| x.map_or(0, |v| v as usize);
-        // SAFETY: `free` é `dartforge_liberar_isolados` (`ports.rs`), e
+        // SAFETY: `free` é `dartforge_liberar_isolados` (`portas.rs`), e
         // `stopped_flag` veio de `stop_isolates`, uma vez.
         unsafe {
             std::mem::transmute::<usize, extern "C" fn(usize, usize, usize, usize)>(self.free)(stopped_flag, e(area), e(register), e(rti));
@@ -2041,7 +2041,7 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
 
 // ─── Raízes por mapas no JIT (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.8) ───
 //
-// Com `DARTFORGE_RAIZES=maps`, a sessão:
+// Com `DARTFORGE_RAIZES=mapas`, a sessão:
 //
 // * gera código com otimização mínima (`CodeGenLevelLess`): o `-O0` usa o
 //   FastISel, que tem defeitos conhecidos com `gc.relocate` (§3.4);
@@ -2065,7 +2065,7 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
 // ([`Lljit::use_local_registry`]) ou o da biblioteca do SDK da fonte
 // ([`Lljit::use_library_registry`]).
 
-/// `DARTFORGE_RAIZES=maps` neste processo (o emissor lê a mesma variável,
+/// `DARTFORGE_RAIZES=mapas` neste processo (o emissor lê a mesma variável,
 /// `dartforge_emit_native::target::roots_by_maps`).
 pub(crate) fn roots_by_maps() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();

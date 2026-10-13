@@ -14,7 +14,7 @@
 //! ```
 //!
 //! A publicação só roda com nenhum quadro Dart do isolado na pilha: entre dois
-//! eventos do laço (`dartforge_pedir_no_ponto_seguro`, `ports.rs`), que é onde
+//! eventos do laço (`dartforge_pedir_no_ponto_seguro`, `portas.rs`), que é onde
 //! a VM também comita uma recarga. Com o programa parado (o `main` terminou,
 //! ou ainda não começou), ela roda na thread do programa entre dois comandos —
 //! o estado do runtime (heap, estáticos, registros) é por thread, e a thread é

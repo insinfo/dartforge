@@ -7,7 +7,7 @@
 // gerado entrega na entrada a preparação de um isolado
 // (`df.preparar_isolado`: os registros das bibliotecas, a RTI e o
 // embedder) e a função que chama uma closure; `Isolate.spawn` copia a
-// entrada e a mensagem para grafos (`ports.rs`), cria a thread, e nela
+// entrada e a mensagem para grafos (`portas.rs`), cria a thread, e nela
 // prepara o isolado, manda a mensagem de pronto (`[porta de controle,
 // [pausa, término]]`) e roda a entrada como a primeira mensagem
 // (`_startIsolate`). Constantes canônicas e tear-offs de topo atravessam

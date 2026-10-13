@@ -285,7 +285,7 @@ mod windows_processes {
             line.extend(wide(a));
         }
         line.push(0);
-        // O bloco de ambiente: `NOME=value\0…\0` (vazio: dois NULs).
+        // O bloco de ambiente: `NOME=valor\0…\0` (vazio: dois NULs).
         let block = env.map(|v| {
             let mut b = Vec::new();
             for x in v {

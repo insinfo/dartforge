@@ -382,7 +382,7 @@ fn locale_name() -> IoResult<String> {
     Ok(String::from_utf16_lossy(&b[..(n as usize).saturating_sub(1)]))
 }
 
-/// As variáveis de ambiente como `NOME=value` (as que não são UTF-8 válido
+/// As variáveis de ambiente como `NOME=valor` (as que não são UTF-8 válido
 /// ficam de fora, como na VM; no Windows, também as que começam com `=`).
 fn environment_variables() -> Vec<String> {
     let mut out = Vec::new();

@@ -1209,7 +1209,7 @@ fn check_contract(
         }
     }
     // Uma classe descrita pelo nome dos campos nas duas versões migra
-    // (`migration.rs`); só a contagem não diz o que corresponde a quê.
+    // (`migracao.rs`); só a contagem não diz o que corresponde a quê.
     for (class, fields) in previous_layouts.iter().filter(|(c, _)| !migrated.contains(c)) {
         if let Some((_, new_ones)) = layouts
             .iter()

@@ -34,7 +34,7 @@ enum Type {
     /// `T?` (normalizado: `T` não é anulável nem topo).
     Nullable(i64),
     FutureOr(i64),
-    /// `R Function<X…>(pos…, [opc…], {named…})`: `n_required` dos
+    /// `R Function<X…>(pos…, [opc…], {nomeados…})`: `n_required` dos
     /// posicionais são obrigatórios; os nomeados vêm ordenados pelo nome.
     Function {
         generics: usize,
@@ -206,7 +206,7 @@ thread_local! {
     /// a mesma chave e as mesmas respostas de `memo_and`, mas num estático de
     /// thread sem destrutor nem `RefCell`. O acerto dispensa o acesso ao
     /// universo, o `borrow` e as consultas de `test_without_value` — o que pesa
-    /// nas duas conferências de covariância de cada `map[k] = v`. Esquecida
+    /// nas duas conferências de covariância de cada `mapa[k] = v`. Esquecida
     /// junto com as memórias do universo ([`Universe::forget_memos`]).
     static FAST_MEMO: std::cell::UnsafeCell<[[i64; 3]; FAST_MEMO_N]> =
         const { std::cell::UnsafeCell::new([[0, -1, 0]; FAST_MEMO_N]) };
@@ -529,7 +529,7 @@ impl Universe {
         }
     }
 
-    /// Os argumentos do supertipo `target` de `class<args>` (a própria classe
+    /// Os argumentos do supertipo `target` de `classe<args>` (a própria classe
     /// ou uma das regras dela).
     fn as_supertype(&mut self, class: i64, args: &[i64], target: i64) -> Option<Vec<i64>> {
         if class == target {
@@ -1079,8 +1079,8 @@ pub(crate) fn copied_list_type(origin: i64, concrete_class: Option<i64>) -> Opti
 // --- ABI do código gerado ------------------------------------------------
 
 /// Os registros da RTI do programa numa tabela (`lower/rti.rs`): uma linha
-/// por registro — `C<id> <pairâmetros> <name>` (o nome da classe),
-/// `R<id> <recipe>` (uma regra de supertipo) e `F<shape> <id>` (a classe de
+/// por registro — `C<id> <parâmetros> <nome>` (o nome da classe),
+/// `R<id> <receita>` (uma regra de supertipo) e `F<forma> <id>` (a classe de
 /// uma forma do runtime) —, lidos na ordem. A tabela grande vem comprimida
 /// (`tabela_rti`).
 ///

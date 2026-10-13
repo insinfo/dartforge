@@ -18,7 +18,7 @@
 // passa: `int` (`Smi` ou `_Mint`: o `hashCode` do `HashIntegerOp` da VM) e
 // `String` (o `StringHasher` da VM, guardado no cabeçalho da string; a
 // igualdade por unidades). Como `int` e `String` não têm subclasses,
-// `key == input` é conhecido para toda entrada, com uma exceção:
+// `chave == entrada` é conhecido para toda entrada, com uma exceção:
 // `int == double` compara números (`1 == 1.0`); esse encontro devolve "não
 // sei". "Não sei" (outra chave, tabela que precisa crescer, forma
 // inesperada) não muda nada, e o Dart refaz a operação pelo caminho do SDK.
@@ -93,7 +93,7 @@ impl Index {
     #[inline(always)]
     fn do_read(self, i: usize) -> u32 {
         debug_assert!(i < self.size);
-        // SAFETY: `i < size` (a sonda mascara pelo tamanho).
+        // SAFETY: `i < tamanho` (a sonda mascara pelo tamanho).
         unsafe { *self.p.add(i) }
     }
 
@@ -330,7 +330,7 @@ fn hash_key(k: i64) -> Option<(HashKey, i64)> {
     Some((HashKey::Texto(k), i64::from(raw_string_hash(k, u))))
 }
 
-/// `key == input` (o `==` de `int` ou de `String`), com a entrada `Ref`.
+/// `chave == entrada` (o `==` de `int` ou de `String`), com a entrada `Ref`.
 #[inline(always)]
 fn compare_key(key: HashKey, input: i64) -> Comparison {
     use crate::layout::{cid, is_object, smi};
@@ -424,7 +424,7 @@ fn probe(ix: Index, data: Data, mask: i64, key: HashKey, hash: i64, step: usize)
     Some(Probe::Missing { point: first_removed.unwrap_or(i), pattern })
 }
 
-/// `map[key] = value` sobre a tabela já resolvida: o novo `_usedData` (o
+/// `mapa[chave] = valor` sobre a tabela já resolvida: o novo `_usedData` (o
 /// mesmo, se a chave já estava), ou -1 quando o Dart tem de fazer a operação
 /// (chave de outro tipo, `int` diante de `double`, tabela cheia: o `_rehash`
 /// é do Dart).
@@ -474,7 +474,7 @@ fn set_add(ix: Index, data: Data, mask: i64, used_count: i64, key: i64) -> i64 {
     }
 }
 
-/// `_Map[key] = value` para chave `int`/`String`: devolve o novo
+/// `_Map[chave] = valor` para chave `int`/`String`: devolve o novo
 /// `_usedData` (o mesmo, se a chave já estava), ou -1 quando o Dart tem de
 /// fazer a operação (chave de outro tipo, `int` diante de `double`, tabela
 /// cheia: o `_rehash` é do Dart).
@@ -541,7 +541,7 @@ fn entries(pair_list: i64) -> Option<Data> {
     Data::de(pair_list, false).or_else(|| Data::from_growable(pair_list))
 }
 
-/// O lote do `_Map` (docs/NATIVO-PLANO.md §13.2, itens 2 e 3): `map[k] = v`
+/// O lote do `_Map` (docs/NATIVO-PLANO.md §13.2, itens 2 e 3): `mapa[k] = v`
 /// para cada par `(pair_list[i], pair_list[i + 1])`, `i` de `de` até `until` de 2 em 2,
 /// na ordem, como o `_set` faria. Com `skip_removed`, o par cuja chave é a
 /// própria lista (`_HashBase._isDeleted` do `_data` velho) é pulado. Para no

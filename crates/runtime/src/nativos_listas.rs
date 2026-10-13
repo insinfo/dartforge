@@ -6,7 +6,7 @@
 // `_GrowableList` guarda (comprimento, `_List`) como a VM, e os natives
 // `GrowableList_*` são as operações da VM sobre esses dois campos. A vista
 // está em `listas.rs` (`Heap::lista_*`); aqui ficam só a conferência de
-// índice, os erros da VM e o tipo reificado (`types.rs`). A classe nunca muda
+// índice, os erros da VM e o tipo reificado (`tipos.rs`). A classe nunca muda
 // depois de criada: fixar ou tornar imutável é copiar (§2.16).
 //
 // Os erros: a biblioteca `dart:_internal` da sobreposição
@@ -456,7 +456,7 @@ mod tests_runtime_type {
     }
 }
 
-/// Uma `_List` com os elementos da tabela `data` (`lower/literals.rs`): os
+/// Uma `_List` com os elementos da tabela `data` (`lower/literais.rs`): os
 /// literais de coleção grandes de escalares constantes chegam como dados, e
 /// não como uma instrução por elemento. Cada elemento: `n` (null), `t`/`f`
 /// (bool), `i` + 8 bytes (int, little-endian), `s` + 4 bytes de tamanho +
@@ -713,7 +713,7 @@ unsafe fn list_literal(words: *const i64, n: i64, cid: i64, shape: i64, owned: b
 
 /// O `add` de uma `_GrowableList` com o `Ref` `v` (o caminho do código gerado
 /// quando o armazenamento está cheio ou não guarda `v` sem caixa;
-/// `lower/intrinsecos.rs`, `lower/literals.rs`): cresce para
+/// `lower/intrinsecos.rs`, `lower/literais.rs`): cresce para
 /// `(capacidade * 2) | 3` se preciso e grava (descompactando, se for o caso).
 /// Devolve `list`. Não lança; pode coletar (`list` e `v` são operandos,
 /// enraizados pelo código gerado).

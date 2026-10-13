@@ -1,14 +1,14 @@
 // A conferência da tabela de efeitos das externs (`crates/runtime/efeitos.tsv`,
 // docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8).
 //
-// Com `DARTFORGE_EFEITOS=check` na compilação, o código gerado chama
+// Com `DARTFORGE_EFEITOS=conferir` na compilação, o código gerado chama
 // `dartforge_efeitos_antes(name, marks)` antes e `dartforge_efeitos_depois()`
-// depois de cada extern que a tabela marca `collection = 0` (bit 0 das marcas) ou
-// `throws = 0` (bit 1). Aqui a marca é posta à prova:
+// depois de cada extern que a tabela marca `coleta = 0` (bit 0 das marcas) ou
+// `lanca = 0` (bit 1). Aqui a marca é posta à prova:
 //
-// * `collection = 0`: uma coleta enquanto a extern roda encerra o processo
+// * `coleta = 0`: uma coleta enquanto a extern roda encerra o processo
 //   (`heap::forbid_collection`), dizendo o nome dela;
-// * `throws = 0`: se a extern entrou sem exceção pendente e saiu com uma, o
+// * `lanca = 0`: se a extern entrou sem exceção pendente e saiu com uma, o
 //   processo é encerrado, dizendo o nome dela.
 //
 // A marca otimista errada é o defeito mais perigoso do emissor (uma raiz que

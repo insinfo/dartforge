@@ -1,4 +1,4 @@
-//! `dartforge-execute_fn-ir <program.ll> [--timings] [-- <arguments do main>]`
+//! `dartforge-executar-ir <programa.ll> [--timings] [-- <argumentos do main>]`
 //! — executa um LLVM IR do
 //! backend nativo pelo JIT ORCv2, num processo só dele.
 //!

@@ -171,7 +171,7 @@ fn dart_string_from_bytes(b: &[u8]) -> i64 {
 }
 
 /// Uma lista tipada interna do `tipo` com os bytes (o comprimento em
-/// elementos é `bytes.len() / size`).
+/// elementos é `bytes.len() / tamanho`).
 fn dart_typed_from_bytes(tipo: u8, bytes: &[u8]) -> i64 {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();

@@ -181,7 +181,7 @@ fn link_static(prefix: &Path) -> Result<(), String> {
 
 /// Confere, antes de emitir qualquer diretiva, que os arquivos das
 /// bibliotecas dos [`COMPONENTES`] existem no modo pedido: pelo código de
-/// saída do `llvm-config <mode> --libfiles` (e não pelo texto da mensagem)
+/// saída do `llvm-config <modo> --libfiles` (e não pelo texto da mensagem)
 /// e pela presença de cada arquivo listado.
 fn require_files(prefix: &Path, mode: &str) -> Result<(), String> {
     let mut args = vec![mode, "--libfiles"];
@@ -219,10 +219,10 @@ const FALLBACK_PREFIX: &str = if cfg!(windows) {
     "/usr/lib/llvm-22"
 };
 
-/// A biblioteca compartilhada `lib<name>` do sistema, quando o `.a` que o
-/// pacote do LLVM declara não existe aqui: `lib<name>.so` se o pacote de
+/// A biblioteca compartilhada `lib<nome>` do sistema, quando o `.a` que o
+/// pacote do LLVM declara não existe aqui: `lib<nome>.so` se o pacote de
 /// desenvolvimento estiver instalado, senão a versão de execução
-/// (`lib<name>.so.1`) pelo nome literal.
+/// (`lib<nome>.so.1`) pelo nome literal.
 fn shared_system_library(name: &str) -> Option<String> {
     let dirs = ["/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib64", "/usr/lib", "/usr/local/lib", "/lib/x86_64-linux-gnu"];
     for dir in dirs {

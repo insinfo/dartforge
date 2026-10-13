@@ -31,7 +31,7 @@ pub extern "C" fn dartforge_nativo_Integer_mulFromInteger(this: i64, other_one: 
     other_one.wrapping_mul(this)
 }
 
-/// `Integer_truncDivFromInteger`: `other_one ~/ this`. `MIN ~/ -1` é `MIN`
+/// `Integer_truncDivFromInteger`: `outro ~/ this`. `MIN ~/ -1` é `MIN`
 /// (`Integer::ArithmeticOp`, kTRUNCDIV). `this == 0` não chega aqui.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_truncDivFromInteger(this: i64, other_one: i64) -> i64 {
@@ -100,7 +100,7 @@ fn shift(value: i64, amount: i64, tipo: u8) -> i64 {
     }
 }
 
-/// `Integer_shlFromInteger`: `other_one << this`.
+/// `Integer_shlFromInteger`: `outro << this`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_shlFromInteger(this: i64, other_one: i64) -> i64 {
     shift(other_one, this, 0)
@@ -124,7 +124,7 @@ pub extern "C" fn dartforge_nativo_Integer_greaterThanFromInteger(this: i64, oth
     u8::from(other_one > this)
 }
 
-/// `Integer_equalToInteger`: `this == other_one`.
+/// `Integer_equalToInteger`: `this == outro`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_equalToInteger(this: i64, other_one: i64) -> u8 {
     u8::from(this == other_one)
@@ -192,7 +192,7 @@ pub extern "C" fn dartforge_nativo_Double_equal(this: f64, other_one: f64) -> u8
     u8::from(this == other_one)
 }
 
-/// `Double_equalToInteger`: `this == other_one.toDouble()`.
+/// `Double_equalToInteger`: `this == outro.toDouble()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_equalToInteger(this: f64, other_one: i64) -> u8 {
     u8::from(this == other_one as f64)

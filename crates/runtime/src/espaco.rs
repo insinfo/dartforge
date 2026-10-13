@@ -18,7 +18,7 @@
 //!
 //! O coletor percorre o corpo pelo **formato** em `flags` (§2.3), sem olhar a
 //! classe: `INSTANCIA` pelo mapa de referências, `BRUTO` nada, `REFS` as palavras
-//! `1..=word 0`. As `REFS` grandes têm **cartões** (1 bit por 32 elementos,
+//! `1..=palavra 0`. As `REFS` grandes têm **cartões** (1 bit por 32 elementos,
 //! depois do último elemento): a coleta menor percorre de um lembrado só os
 //! elementos dos cartões sujos. Um bloco com **anexo** (`ATTACHMENT`) guarda em `b+16`
 //! um ponteiro nativo, solto quando o dono morre.
@@ -447,13 +447,13 @@ pub(crate) struct Page {
     /// Palavras do corpo de cada bloco (a da classe; na região grande, a real).
     words: usize,
     blocks: usize,
-    /// O inverso de `bytes_do_bloco(words) / 8` (ímpar, ou potência de 2
+    /// O inverso de `bytes_do_bloco(palavras) / 8` (ímpar, ou potência de 2
     /// vezes ímpar: ver `ix`) módulo 2³²: o índice de um bloco sai de uma
     /// multiplicação, e um deslocamento que não é múltiplo do tamanho dá um
     /// índice além de `blocks` (o teste de divisibilidade exata, *Hacker's
     /// Delight* 10-17).
     inverse: u32,
-    /// `bytes_do_bloco(words) / 8` = `odd << offset`.
+    /// `bytes_do_bloco(palavras) / 8` = `impar << deslocamento`.
     offset: u32,
     /// Página sem objeto vivo guardada para reuso (em
     /// [`ObjectSpace::empties_list`]): o conteúdo é lixo dos mortos até ela ser

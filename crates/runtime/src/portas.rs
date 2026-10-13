@@ -19,7 +19,7 @@
 //   menos o que aponta para dentro de si ou para fora do heap (lista tipada,
 //   visão, anexo), que o destino refaz.
 // * A fila do isolado guarda (porta, grafo, chegada). O laço de eventos
-//   (`events.rs`) atende timers e mensagens pela ordem de chegada — na VM o
+//   (`eventos.rs`) atende timers e mensagens pela ordem de chegada — na VM o
 //   timer também é uma mensagem —, e esvazia as microtarefas depois de
 //   cada uma.
 // * O despacho chama o `_RawReceivePort._despachar` da sobreposição (o
@@ -52,7 +52,7 @@ enum GValue {
     /// nascia sem tipo (`runtimeType` `Function`) e o `as Stream
     /// Function(Stream, dynamic)` do `StreamIsolate` do new_sali/backend
     /// falhava no isolado novo (docs/NATIVO-PROJETOS-REAIS.md, C11). Os ids
-    /// de tipo são do processo (`types.rs`).
+    /// de tipo são do processo (`tipos.rs`).
     TearOff { code: i64, typed_one: i64, abi: i64, metadata: u32 },
 }
 
@@ -285,7 +285,7 @@ fn copy_to_graph(root: i64, share: bool) -> Result<Graph, IllegalMessage> {
         });
         let (mut no, meta) = r?;
         let meta = match types.as_mut() {
-            // O metadado é `1 + tipo` (0 = sem tipo, `types.rs`).
+            // O metadado é `1 + tipo` (0 = sem tipo, `tipos.rs`).
             Some(t) if meta != 0 => 1 + t.export(meta - 1),
             _ => meta,
         };
@@ -1219,7 +1219,7 @@ thread_local! {
 }
 
 /// Raízes globais do runtime para as portas (ids negativos fora da faixa
-/// dos timers de `events.rs`).
+/// dos timers de `eventos.rs`).
 const DISPATCHER_ROOT: i64 = -0x7000_0000_0000;
 const MESSAGE_ROOT: i64 = -0x7000_0000_0001;
 
@@ -1412,7 +1412,7 @@ struct WriteBarrier {
 
 /// O pedido de parada, num isolado que não é o principal.
 extern "C" fn parar_neste_isolado(datum: usize, execute_fn: i32) {
-    // SAFETY: `datum` é um `Arc<WriteBarrier>` entregue por `dartforge_parar_isolados`
+    // SAFETY: `datum` é um `Arc<Barreira>` entregue por `dartforge_parar_isolados`
     // (uma referência por pedido, devolvida aqui).
     let barrier = unsafe { std::sync::Arc::from_raw(datum as *const WriteBarrier) };
     let mut estado = barrier.estado.lock().unwrap_or_else(|e| e.into_inner());

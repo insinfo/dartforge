@@ -342,7 +342,7 @@ pub extern "C" fn dartforge_nativo_StringBase_createFromCodePoints(list: i64, st
 }
 
 /// `_StringBase._joinReplaceAllResult(base, matches, length, oneByte)`: as
-/// fatias de `base` (um `Smi` negativo `-(início << 11 | size)`, ou o par
+/// fatias de `base` (um `Smi` negativo `-(início << 11 | tamanho)`, ou o par
 /// início, fim) e as substituições, na ordem (`string_patch.dart`). Uma
 /// medição, uma alocação e as cópias dos blocos.
 #[unsafe(no_mangle)]
@@ -497,7 +497,7 @@ pub extern "C" fn dartforge_nativo_DartForge_sb_escrever_se_texto(accumulator: i
 }
 
 /// Acrescenta o ponto de código `code` ao acumulador (`writeCharCode`
-/// da sobreposição, que já conferiu `0 <= code <= 0x10FFFF`): uma
+/// da sobreposição, que já conferiu `0 <= codigo <= 0x10FFFF`): uma
 /// unidade, ou o par de surrogates acima de 0xFFFF, como a VM.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_sb_escrever_codigo(accumulator: i64, code: i64) {

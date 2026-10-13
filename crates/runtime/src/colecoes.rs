@@ -5,7 +5,7 @@
 // `_iteration_*`, `_generic_len`) saiu; fica só o que o getter de `const [...]`
 // chama.
 
-/// A constante canônica de coleção (`lower/constants.rs`, o getter de
+/// A constante canônica de coleção (`lower/constantes.rs`, o getter de
 /// `const [...]`): uma lista vira uma `_ImmutableList` **nova** com os mesmos
 /// elementos e o mesmo `E` (a classe não muda depois de publicada,
 /// docs/NATIVO-ESPACO-UNIFICADO.md §2.16); quem chama usa o valor devolvido.

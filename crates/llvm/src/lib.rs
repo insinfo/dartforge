@@ -374,7 +374,7 @@ pub const MARCA_DE_GC: &str = "gc \"statepoint-example\"";
 /// O objeto nativo de uma parte do **ThinLTO distribuído**
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4 e Etapa 3): `bitcode` é o
 /// módulo **depois** da importação e da otimização do backend do ThinLTO
-/// (`clang -x ir part.o -fthinlto-index=… -emit-llvm -c`). Aqui só entra o
+/// (`clang -x ir parte.o -fthinlto-index=… -emit-llvm -c`). Aqui só entra o
 /// que o `lld-link` não sabe rodar: o `rewrite-statepoints-for-gc`, no fim
 /// de toda a otimização — o inlining entre o programa e o SDK já aconteceu
 /// —, o verificador e a geração de código (nunca a do `-O0`).
@@ -418,9 +418,9 @@ fn check_after_rs4gc(name: &str, modulo: &IrModule<'_>) -> Result<(), String> {
     conferir_rs4gc::check(&modulo.text()).map_err(|e| dump_if_requested(name, "rs4gc", modulo, format!("{name}: {e}")))
 }
 
-/// `DARTFORGE_DESPEJAR_MODULO=<chunk>`: o módulo cujo nome contém o trecho
+/// `DARTFORGE_DESPEJAR_MODULO=<trecho>`: o módulo cujo nome contém o trecho
 /// vai para o diretório temporário logo antes do gerador de código
-/// (`gerador-<name>.ll`) — para a falha em que o LLVM derruba o processo
+/// (`gerador-<nome>.ll`) — para a falha em que o LLVM derruba o processo
 /// depois de imprimir o erro ("ran out of registers").
 fn dump_before_generator(name: &str, modulo: &IrModule<'_>) {
     if let Ok(chunk) = std::env::var("DARTFORGE_DESPEJAR_MODULO")
@@ -435,7 +435,7 @@ fn dump_before_generator(name: &str, modulo: &IrModule<'_>) {
 }
 
 /// Com `DARTFORGE_KEEP_IR`, o módulo de uma falha (do conferidor, do gerador
-/// de código) vai para o diretório temporário, `<stage>-<name>.ll`, para o
+/// de código) vai para o diretório temporário, `<etapa>-<nome>.ll`, para o
 /// diagnóstico. Devolve o erro.
 fn dump_if_requested(name: &str, stage: &str, modulo: &IrModule<'_>, error: String) -> String {
     if std::env::var_os("DARTFORGE_KEEP_IR").is_some() {

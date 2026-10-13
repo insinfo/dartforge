@@ -1,18 +1,18 @@
 // O rastro no formato da VM (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
 // §13.14): a tabela endereço → (função, linha, coluna) que cada imagem
-// compilada com `--trace=simbolico` registra na partida, os endereços de
+// compilada com `--rastro=simbolico` registra na partida, os endereços de
 // retorno guardados no `throw` e a simbolização, feita só quando o texto é
 // pedido (`toString`, a exceção não capturada).
 //
-// A entrada da tabela (`emit_native/src/llvm/trace.rs`) tem 12 bytes: o
+// A entrada da tabela (`emit_native/src/llvm/rastro.rs`) tem 12 bytes: o
 // rótulo e o registro da função, cada um como deslocamento a partir do
 // próprio campo, e uma palavra. Os dois bits baixos do campo do registro (o
 // registro é alinhado em 4) dizem a espécie: 0, um ponto de chamada (a
-// palavra é `line << 12 | column`; as entradas com o mesmo rótulo são os
+// palavra é `linha << 12 | coluna`; as entradas com o mesmo rótulo são os
 // quadros embutidos, de dentro para fora); 1, a identidade de uma função
 // pela entrada uniforme das closures dela (a palavra é o token); 2, o
 // `await` de cada estado de um corpo `async`, na ordem; 3, o elo de uma
-// closure com quem espera (`posição << 2 | direct << 1 | célula`). O
+// closure com quem espera (`posição << 2 | direto << 1 | célula`). O
 // registro da função é o deslocamento até a url, um byte de marcas e o
 // nome, os textos terminados em zero.
 //
@@ -48,7 +48,7 @@ static TRACE_INDEX: std::sync::RwLock<(usize, TraceIndex)> =
 /// geração 0.
 static TRACE_GENERATION: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
 /// Os campos do `dart:async` que a cadeia de quem espera lê:
-/// `(id da class, "Class.field", posição)`.
+/// `(id da classe, "Classe.campo", posição)`.
 static TRACE_FIELDS: std::sync::Mutex<Vec<(i64, String, usize)>> = std::sync::Mutex::new(Vec::new());
 
 /// Quantos quadros o rastro guarda (os pares ficam em campos de um objeto,
@@ -202,7 +202,7 @@ thread_local! {
 }
 
 /// O registro da tabela do rastro de uma imagem: o módulo compilado com
-/// `--trace=simbolico` chama isto na partida com o começo e o fim da seção
+/// `--rastro=simbolico` chama isto na partida com o começo e o fim da seção
 /// (`dfpcl`; as sentinelas `.dfpcl$a`/`$z` no COFF). Idempotente por seção;
 /// não aloca no heap do coletor nem lança.
 ///
@@ -238,7 +238,7 @@ pub extern "C" fn dartforge_desregistrar_rastro(start: *const u8) {
 }
 
 /// A posição de um campo do `dart:async` que a cadeia de quem espera lê
-/// (`"Class.field"`, `n` bytes em `name`). Idempotente; não aloca no heap
+/// (`"Classe.campo"`, `n` bytes em `name`). Idempotente; não aloca no heap
 /// do coletor nem lança.
 ///
 /// # Safety
@@ -816,7 +816,7 @@ unsafe fn trace_varint(p: &mut usize, end: usize) -> Option<u64> {
         if *p >= end {
             return None;
         }
-        // SAFETY: `*p < end`.
+        // SAFETY: `*p < fim`.
         let b = unsafe { (*p as *const u8).read() };
         *p += 1;
         if s < 64 {
@@ -929,7 +929,7 @@ fn with_trace_index<R>(f: impl FnOnce(&TraceIndex) -> R) -> R {
 /// `r` é um registro de função de uma seção registrada.
 #[allow(unsafe_code)]
 unsafe fn trace_record(r: usize) -> (String, String, u8) {
-    // SAFETY: o formato do registro (`llvm/trace.rs`): `i32` até a url, o
+    // SAFETY: o formato do registro (`llvm/rastro.rs`): `i32` até a url, o
     // byte das marcas, o nome; os textos terminados em zero.
     unsafe {
         let until_url = (r as *const i32).read_unaligned();

@@ -130,7 +130,7 @@ pub extern "C" fn dartforge_gc_global_root(id: i64, handle: i64) {
 }
 /// Marca um valor canônico (constante, valor de enum, global `const`) como
 /// permanente e imutável: uma mensagem no mesmo isolado o passa pela
-/// identidade (`ports.rs`). O valor já é raiz global de quem chama.
+/// identidade (`portas.rs`). O valor já é raiz global de quem chama.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_marcar_permanente(handle: i64) {
     HEAP.with(|heap| heap.borrow_mut().mark_permanent(handle));
@@ -407,7 +407,7 @@ fn migrate_area(old_value: &GlobalsArea, new_area: &mut GlobalsArea) {
     });
 }
 
-/// Raízes por mapas de pilha (`--roots=maps`): o módulo com funções
+/// Raízes por mapas de pilha (`--raizes=mapas`): o módulo com funções
 /// descritas por mapa registra, na partida, a imagem em que foi ligado
 /// (`crate::heap::register_stack_map`; idempotente por imagem). Não
 /// aloca no heap do coletor nem lança.

@@ -23,7 +23,7 @@
 // ocupa um global de raiz do heap (`set_global_root`) com id NEGATIVO — os
 // globais do programa usam os ids não negativos.
 //
-// Estado por thread (um isolado por thread; P8 junta tudo em `isolate.rs`).
+// Estado por thread (um isolado por thread; P8 junta tudo em `isolado.rs`).
 
 struct LoopTimer {
     /// A closure que dispara o timer (`_Timer._disparar` com o receptor).
@@ -134,7 +134,7 @@ pub extern "C" fn dartforge_nativo_DartForge_Timer_cancelar(id: i64) {
 /// código gerado que chama uma closure sem argumentos.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_laco_de_eventos(call: extern "C" fn(i64) -> i64) {
-    // No laço, o isolado atende pedidos no ponto seguro (`ports.rs`).
+    // No laço, o isolado atende pedidos no ponto seguro (`portas.rs`).
     register_live_isolate();
     loop {
         if dartforge_exception_pending() != 0 {
@@ -156,7 +156,7 @@ pub extern "C" fn dartforge_laco_de_eventos(call: extern "C" fn(i64) -> i64) {
             continue;
         }
         // 2. Os pedidos no ponto seguro (a publicação de uma recarga do JIT,
-        //    `ports.rs`) e as mensagens de controle (`isolados.rs`), entre
+        //    `portas.rs`) e as mensagens de controle (`isolados.rs`), entre
         //    um evento e outro; pausado, o isolado só atende os dois.
         serve_safepoints();
         if !serve_control() {
@@ -167,7 +167,7 @@ pub extern "C" fn dartforge_laco_de_eventos(call: extern "C" fn(i64) -> i64) {
             continue;
         }
         // 3. O próximo evento: o timer de menor (prazo, id) ou a mensagem
-        //    mais antiga da fila do isolado (`ports.rs`), pela ordem de
+        //    mais antiga da fila do isolado (`portas.rs`), pela ordem de
         //    chegada — na VM o timer também chega como mensagem. Sem nenhum
         //    dos dois, o isolado espera enquanto tiver porta viva.
         let next_offset = EVENTS.with(|e| {

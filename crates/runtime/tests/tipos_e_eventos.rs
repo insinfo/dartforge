@@ -1,5 +1,5 @@
-//! O universo de tipos (RTI, `src/types.rs`) e o laço de eventos
-//! (`src/events.rs`), pela ABI que o código gerado usa.
+//! O universo de tipos (RTI, `src/tipos.rs`) e o laço de eventos
+//! (`src/eventos.rs`), pela ABI que o código gerado usa.
 //!
 //! Cada teste roda numa thread própria: o estado do runtime é por thread (um
 //! isolado por thread).

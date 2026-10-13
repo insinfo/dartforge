@@ -978,7 +978,7 @@ pub fn string_static(t: TextoRef<'_>) -> Option<Ref> {
 }
 
 impl Heap {
-    /// A forma canônica de uma constante (o getter de `const`, `constants.rs`):
+    /// A forma canônica de uma constante (o getter de `const`, `constantes.rs`):
     /// uma string vira o literal canônico com o mesmo conteúdo (o estático da
     /// imagem ou o internado); o resto volta como está.
     pub fn canonical_constant(&mut self, h: Ref) -> Ref {

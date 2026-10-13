@@ -1,14 +1,14 @@
 // Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): as
 // portas Rust → Dart e a personalidade do desenrolamento.
 //
-// No modo `--excecoes=tables` uma função Dart que lança sem tratador local
+// No modo `--excecoes=tabelas` uma função Dart que lança sem tratador local
 // não retorna com a exceção pendente: ela desenrola a pilha
 // (`@df.throw`, gerado em IR) até o `landingpad` de quem a pega. Duas regras
 // seguram o runtime de pé:
 //
 // * **nenhum quadro Rust fica no caminho de um desenrolamento**: toda
 //   chamada do runtime a código Dart passa por uma *porta* gerada
-//   (`@df.port.<r|v><n>`), que pega qualquer desenrolamento, restaura o topo
+//   (`@df.porta.<r|v><n>`), que pega qualquer desenrolamento, restaura o topo
 //   da pilha-sombra e volta com a exceção **pendente** — o protocolo que o
 //   runtime já espera de uma função Dart que lançou;
 // * **a exceção em si continua onde sempre esteve**: a pendência do runtime
@@ -40,7 +40,7 @@ static PORTAS_DART: [std::sync::atomic::AtomicUsize; 16] = [
 ];
 
 /// `dartforge_registrar_portas(tabela, n)`: a entrada do programa compilado
-/// com `--excecoes=tables` entrega as portas antes de qualquer código Dart
+/// com `--excecoes=tabelas` entrega as portas antes de qualquer código Dart
 /// rodar.
 ///
 /// # Safety
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn dartforge_registrar_portas(tabela: *const usize, n: i64
     }
 }
 
-/// O programa foi compilado com `--excecoes=tables` (a entrada registrou as
+/// O programa foi compilado com `--excecoes=tabelas` (a entrada registrou as
 /// portas, ou tentou: a sabotagem `sem_porta` volta antes de registrar).
 static TABLES_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -572,7 +572,7 @@ unsafe fn seh_personality(rec: *mut u8, frame: *mut u8, dispatch: *mut u8) -> i3
     abort_unwinding("RtlUnwindEx voltou")
 }
 
-/// A personalidade das funções geradas com `--excecoes=tables`
+/// A personalidade das funções geradas com `--excecoes=tabelas`
 /// (`personality ptr @dartforge_personalidade` no IR). Só o Windows x86-64
 /// tem o modo; nos outros alvos o emissor o recusa e ninguém referencia este
 /// símbolo.

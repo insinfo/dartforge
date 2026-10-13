@@ -14,7 +14,7 @@
 // compartilhados entre portas (`DescriptorInfoMultiple`).
 //
 // Os timers do Dart não passam por aqui: o laço de eventos do isolado os
-// atende (`events.rs`), e a sobreposição de `dart:async` não usa o
+// atende (`eventos.rs`), e a sobreposição de `dart:async` não usa o
 // `_EventHandler` para eles.
 
 /// `MessageFlags` de `eventhandler.h`.
@@ -964,7 +964,7 @@ pub extern "C" fn dartforge_nativo_EventHandler_SendData(sender: i64, port: i64,
     let port = native_field(port);
     if sender == 0 {
         // Os timers da VM passam por aqui; os do nativo, não
-        // (`events.rs`).
+        // (`eventos.rs`).
         return;
     }
     let p = native_field(sender);

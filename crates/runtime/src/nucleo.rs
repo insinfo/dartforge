@@ -115,7 +115,7 @@ pub fn finalizar_programa() -> i32 {
         });
         return 255;
     }
-    // `DARTFORGE_GC_STATS=1` escreve as estatísticas; `=require` também, e
+    // `DARTFORGE_GC_STATS=1` escreve as estatísticas; `=exigir` também, e
     // devolve 70 se a execução não exercitou o coletor: nenhuma coleta, ou
     // uma imagem com raízes por mapas e nenhuma raiz lida de mapa
     // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.5, a prova de que coletou:
@@ -452,7 +452,7 @@ pub extern "C" fn dartforge_lembrar(h: i64) {
     heap_without_borrow(|heap| heap.remember_object(h));
 }
 
-/// Liga o ARC (`--memory=arc`, docs/ARC-IMPLEMENTACAO.md): a entrada do
+/// Liga o ARC (`--memoria=arc`, docs/ARC-IMPLEMENTACAO.md): a entrada do
 /// programa compilado assim chama esta função antes de todo código Dart. O
 /// sufixo é a versão da ABI de memória (docs/ARC-CICLOS-ESPECIFICACAO.md §24):
 /// um runtime sem ela não liga com o programa.

@@ -18,7 +18,7 @@
 // (`native_sdk/mirrors/mirrors_patch.dart`).
 //
 // O compilador registra, na tabela da RTI (`lower/rti.rs`), uma linha
-// `B<id> <uri> <name>` por classe: a biblioteca que a declara e o nome
+// `B<id> <uri> <nome>` por classe: a biblioteca que a declara e o nome
 // declarado (não o visível: `_Smi` continua `_Smi`).
 
 thread_local! {

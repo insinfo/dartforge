@@ -141,7 +141,7 @@ pub unsafe extern "C" fn dartforge_registrar_metodos(cid: i64, pair_list: *const
 }
 
 /// Registra a tabela de métodos da classe `cid` pela função que a devolve
-/// (`df.mt.<library>.<Class>`, `{cid, n, [hash, input]…}`), se ainda
+/// (`df.mt.<biblioteca>.<Classe>`, `{cid, n, [hash, input]…}`), se ainda
 /// não registrada.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_registrar_tabela(cid: i64, f: extern "C" fn() -> *const i64) {
@@ -440,7 +440,7 @@ pub extern "C" fn dartforge_encaminhar_nsm(recv: i64, code: i64, name: i64, env:
     r
 }
 
-/// A entrada de `recv.<selector>`, pelo cache do ponto de chamada
+/// A entrada de `recv.<seletor>`, pelo cache do ponto de chamada
 /// (`cache[0]` = id de classe + 1, `cache[1]` = entrada).
 ///
 /// # Safety

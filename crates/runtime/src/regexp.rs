@@ -12,7 +12,7 @@
 //
 // O `_RegExp` da sobreposição (`native_sdk/core/regexp_patch.dart`) compila
 // o padrão uma vez (`DartForge_regexp_compilar`) num `_ProgramaDeRegExp` (cid
-// 16, `BRUTO`+`ATTACHMENT`: o `Box<ReProgram>` solto pelo coletor quando o
+// 16, `BRUTO`+`ATTACHMENT`: o `Box<ProgramaRe>` solto pelo coletor quando o
 // `_RegExp` morre, docs/NATIVO-ESPACO-UNIFICADO.md §4.3) e pede cada
 // casamento (`DartForge_regexp_executar`); as posições do último casamento
 // são lidas por `DartForge_regexp_captura`.
@@ -661,7 +661,7 @@ fn hex_re(c: u32) -> Option<u32> {
     char::from_u32(c)?.to_digit(16)
 }
 
-/// Resolve `\k<name>` e confere as referências.
+/// Resolve `\k<nome>` e confere as referências.
 fn resolve_re_names(no: &mut ReNode, names: &[(String, usize)]) -> ReResult<()> {
     match no {
         ReNode::NamedBack(n) => {
@@ -1110,7 +1110,7 @@ thread_local! {
 /// Solta o programa de um `_ProgramaDeRegExp` morto (chamado pelo coletor).
 ///
 /// # Safety
-/// `p` saiu de `Box::into_raw` de um `Box<ReProgram>` em [`new_re_program`]
+/// `p` saiu de `Box::into_raw` de um `Box<ProgramaRe>` em [`new_re_program`]
 /// e é solto uma vez só.
 unsafe fn release_re_program(p: *mut u8) {
     // SAFETY: contrato acima.

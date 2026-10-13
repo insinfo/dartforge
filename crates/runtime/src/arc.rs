@@ -1054,7 +1054,7 @@ mod tests_mod {
         a.finish_construction(h);
     }
 
-    /// `u.field = v`: o destino ganha a ocorrência.
+    /// `u.campo = v`: o destino ganha a ocorrência.
     fn enable(a: &mut EstadoDoArc, g: &mut Graph, u: Ref, v: Ref) {
         a.retain_ref(v).unwrap();
         g.0.entry(u).or_default().push(v);

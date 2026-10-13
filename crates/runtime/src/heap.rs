@@ -118,7 +118,7 @@ const YOUNG_COUNT: usize = 256 * 1024;
 /// No `--gc-stress`, uma coleta completa a cada tantas (as demais, menores:
 /// é nelas que uma barreira faltando apareceria) …
 const MINORS_PER_FULL_UNDER_STRESS: u64 = 8;
-/// … ou, com muito dado vivo, a cada `work / WORK_PER_MINOR_UNDER_STRESS`
+/// … ou, com muito dado vivo, a cada `trabalho / TRABALHO_POR_MENOR_NO_ESTRESSE`
 /// (o trabalho de marcação da última completa: objetos e palavras de
 /// referência visitados): a completa custa o heap vivo inteiro, e uma a cada 8
 /// alocações tornava o estresse quadrático (o programa 99, ~1 s sem estresse,
@@ -257,7 +257,7 @@ pub struct Context {
     pub n_areas: std::cell::Cell<usize>,
     /// O pedido de interrupção do isolado (deslocamento 32): a porta de
     /// controle o liga, de outra thread, quando chega uma mensagem de controle
-    /// (`ports.rs`). O código gerado o lê, atômico, no começo de cada volta
+    /// (`portas.rs`). O código gerado o lê, atômico, no começo de cada volta
     /// de laço (o ponto seguro da J01).
     pub interrupt: std::sync::atomic::AtomicU8,
     /// O cabeçalho de [`EMPTY_OBJECT`] (deslocamento 40): a leitura em
@@ -400,7 +400,7 @@ const FRAME_ORDERED: u64 = 1 << 62;
 /// cresce para baixo: cada quadro anterior está num endereço maior. Um
 /// anterior abaixo do atual é um quadro morto, de uma função que já saiu —
 /// o topo que um desenrolamento deixou de restaurar (o pouso de
-/// `--excecoes=tables` sem o `store` do topo, a sabotagem `pouso_sem_topo`
+/// `--excecoes=tabelas` sem o `store` do topo, a sabotagem `pouso_sem_topo`
 /// do §14.7) e que um quadro novo encadeou. Ler os slots dele seria ler
 /// lixo; o processo encerra com o código 3. A conferência só vale entre dois
 /// quadros com [`FRAME_ORDERED`]: com inlining (o código otimizado, o SDK),
@@ -436,7 +436,7 @@ fn visit_frames(mut f: impl FnMut(i64)) {
 // ---------------------------------------------------------------------------
 // Raízes por mapas de pilha (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8).
 //
-// Com `--root_list=maps` os valores vivos através de uma chamada não vão para a
+// Com `--raizes=mapas` os valores vivos através de uma chamada não vão para a
 // pilha-sombra: o LLVM (`rewrite-statepoints-for-gc`) os deixa num registrador
 // preservado ou num slot do quadro nativo e descreve, para cada chamada, onde
 // estão — a seção `.llvm_stackmaps` do objeto (`.llvm_st` na imagem). Na
@@ -605,7 +605,7 @@ pub fn sabotage(name: &str) -> bool {
         .any(|s| s == name)
 }
 
-/// `DARTFORGE_GC_PERCURSO=check` (§3.6, E2.5): cada coleta confere que
+/// `DARTFORGE_GC_PERCURSO=conferir` (§3.6, E2.5): cada coleta confere que
 /// o percurso por mapas visitou as raízes que o build de conferência
 /// (`DARTFORGE_RAIZES_CONFERIR=1` na compilação) gravou na pilha-sombra, e
 /// uma anomalia do percurso aborta em vez de só encerrá-lo.
@@ -1015,7 +1015,7 @@ fn visit_frame(
 }
 
 /// Uma anomalia do percurso (SP que não cresce, fora da pilha): encerra o
-/// percurso; com `DARTFORGE_GC_PERCURSO=check`, aborta.
+/// percurso; com `DARTFORGE_GC_PERCURSO=conferir`, aborta.
 fn walk_anomaly(reason: &str) {
     if checked_walk() {
         map_rejected(&format!("anomalia no percurso da pilha: {reason}"));
@@ -1329,7 +1329,7 @@ fn visit_check_slots(mut f: impl FnMut(i64)) {
     }
 }
 
-/// `DARTFORGE_GC_PERCURSO=check`: toda raiz que o build de conferência
+/// `DARTFORGE_GC_PERCURSO=conferir`: toda raiz que o build de conferência
 /// gravou na pilha-sombra tem de estar entre as que o percurso por mapas
 /// visitou (`from_maps`). Uma que falte é raiz que o mapa perdeu.
 #[allow(unsafe_code)]
@@ -1359,7 +1359,7 @@ fn check_walk(from_maps: &[i64]) {
 /// O heap de um isolado: o espaço de objetos (todo valor do runtime é um bloco
 /// dele, docs/NATIVO-ESPACO-UNIFICADO.md), as raízes, as tabelas laterais por
 /// handle e a coleta.
-/// A coleta agendada por semente (`DARTFORGE_GC_AGENDA=<seed>,<rate>`,
+/// A coleta agendada por semente (`DARTFORGE_GC_AGENDA=<semente>,<taxa>`,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.5): uma coleta em uma de cada
 /// `rate` alocações, sorteadas por um gerador fixo a partir da semente. A
 /// mesma semente e o mesmo programa coletam nos mesmos pontos: acha o defeito
@@ -1545,7 +1545,7 @@ pub struct Heap {
     /// As ações de `Finalizer` cujo valor morreu, à espera do laço de
     /// eventos (raízes até lá).
     pub ready_finalizations: std::collections::VecDeque<i64>,
-    /// O ARC (`--memory=arc`, docs/ARC-IMPLEMENTACAO.md): ligado pelo
+    /// O ARC (`--memoria=arc`, docs/ARC-IMPLEMENTACAO.md): ligado pelo
     /// programa na entrada (`dartforge_memoria_arc_v1`); `None` é o coletor
     /// por rastreamento de sempre.
     arc: Option<Box<HeapArc>>,
@@ -2787,7 +2787,7 @@ impl Heap {
                         marked_objects += 1;
                         self.visit_attachment_edges(current, &mut |action| visit_ref(action, &mut next_offset, &mut stack));
                         // O corpo pelo formato (§2.8): `BRUTO` não tem
-                        // referências; `REFS`, as palavras `1..=word 0`;
+                        // referências; `REFS`, as palavras `1..=palavra 0`;
                         // `INSTANCIA`, os campos que o mapa diz referência. O
                         // que esta coleta não percorre (velho na menor, já
                         // marcado) nem entra na pilha; o primeiro que falta
@@ -2847,7 +2847,7 @@ impl Heap {
 
     /// As posições de referência forte do objeto `h`, pela forma do corpo, as
     /// mesmas que a marcação percorre (§2.8): `REFS`, as palavras
-    /// `1..=word 0`; `INSTANCIA`, os campos do mapa (e do mapa estendido);
+    /// `1..=palavra 0`; `INSTANCIA`, os campos do mapa (e do mapa estendido);
     /// `BRUTO`, nenhuma. Um estático ou um bloco livre não tem arestas aqui (o
     /// estático é imortal no ARC, docs/ARC-CICLOS-ESPECIFICACAO.md §19.1).
     fn ref_positions(&self, h: i64, f: &mut dyn FnMut(*mut i64)) {
@@ -3619,7 +3619,7 @@ impl Heap {
         let b = self.refs_block(h);
         let (c, w) = self.body_and_words(b);
         assert!(word >= 1 && word < w, "palavra {word} fora do corpo REFS de {w} palavras");
-        // SAFETY: `word < w`.
+        // SAFETY: `palavra < w`.
         let old = unsafe { std::mem::replace(&mut *fields_of(c).add(word), v) };
         if self.arc.is_some() {
             self.arc_swapped(b, h, old, v);
@@ -4537,15 +4537,15 @@ mod fixed_root_tests {
 pub static LAYOUT_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 thread_local! {
-    /// `DARTFORGE_EFEITOS=check` (`efeitos_conferir.rs`): as externs em
-    /// execução nesta thread que a tabela de efeitos marca `collection = 0`. Com
+    /// `DARTFORGE_EFEITOS=conferir` (`efeitos_conferir.rs`): as externs em
+    /// execução nesta thread que a tabela de efeitos marca `coleta = 0`. Com
     /// alguma, uma coleta é a marca errada — o defeito de um mapa de raízes
     /// errado, só que do nosso lado — e encerra o processo dizendo qual.
     static COLLECTION_FORBIDDEN: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Proíbe a coleta até o [`allow_collection`] casado: a extern `name` está
-/// marcada `collection = 0`.
+/// marcada `coleta = 0`.
 pub fn forbid_collection(name: String) {
     COLLECTION_FORBIDDEN.with(|p| p.borrow_mut().push(name));
 }
@@ -4557,7 +4557,7 @@ pub fn allow_collection() {
     });
 }
 
-/// Encerra o processo se uma extern marcada `collection = 0` está em execução.
+/// Encerra o processo se uma extern marcada `coleta = 0` está em execução.
 fn check_collection_allowed() {
     let culprit = COLLECTION_FORBIDDEN.with(|p| p.borrow().last().cloned());
     if let Some(name) = culprit {
