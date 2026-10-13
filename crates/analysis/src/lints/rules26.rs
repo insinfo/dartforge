@@ -1,21 +1,21 @@
-//! O vigésimo sexto lote de regras de lint
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`), pela
-//! semântica da unidade:
+//! The twenty-sixth batch of lint rules
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the 3.6.2
+//! emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`),
+//! through the unit's semantics:
 //!
-//! * `unnecessary_statements`: a expressão sem efeito claro numa instrução
-//!   de expressão, na inicialização e nas atualizações de um `for` de
-//!   expressões, e a seção de cascata que é um acesso de tipo função. O
-//!   getter escrito (não sintético) não conta; `??`, `||` e `&&` olham só o
-//!   lado direito; o condicional, os dois ramos.
-//! * `unnecessary_parenthesis`: os parênteses em volta de uma expressão,
-//!   pelo pai que o analyzer daria a eles (o `MethodInvocation` quando são o
-//!   alvo de uma chamada de método, a `NamedExpression` de um argumento
-//!   nomeado ou de um campo de registro, o `ArgumentList` de anotação, de
-//!   constante de enum e de `super(…)`/`this(…)`), com todas as exceções do
-//!   emissor na ordem dele.
+//! * `unnecessary_statements`: an expression without a clear effect in an
+//!   expression statement, in the initialization and the updaters of an
+//!   expression `for`, and a cascade section that is a function-typed access.
+//!   A written (non-synthetic) getter does not count; `??`, `||` and `&&` only
+//!   look at the right side; a conditional, at both branches.
+//! * `unnecessary_parenthesis`: the parentheses around an expression, by the
+//!   parent the analyzer would give them (the `MethodInvocation` when they are
+//!   the target of a method call, the `NamedExpression` of a named argument
+//!   or of a record field, the `ArgumentList` of an annotation, of an enum
+//!   constant and of `super(…)`/`this(…)`), with all the emitter's exceptions
+//!   in its order.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::walk::Node;
 use super::codigos_g as c;
@@ -31,8 +31,8 @@ use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::Type;
 use std::collections::HashMap;
 
-/// O elemento resolvido é um `GetterElement` escrito (não sintético).
-fn getter_escrito(s: &super::Semantics<'_>, e: ExprId) -> bool {
+/// The resolved element is a written (non-synthetic) `GetterElement`.
+fn is_written_getter(s: &super::Semantics<'_>, e: ExprId) -> bool {
     let f = match s.body.get_resolved(e) {
         Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) => *f,
         Some(Resolved::ExtensionMember { member, .. }) => *member,
@@ -42,9 +42,9 @@ fn getter_escrito(s: &super::Semantics<'_>, e: ExprId) -> bool {
     g.kind == FunctionKind::Getter && !matches!(g.node, FunctionRef::None)
 }
 
-/// `_ReportNoClearEffectVisitor`: relata `e` (ou as partes dele) quando não
-/// tem efeito claro.
-fn sem_efeito(s: &super::Semantics<'_>, a: &Ast, e: ExprId, out: &mut Vec<Span>) {
+/// `_ReportNoClearEffectVisitor`: reports `e` (or its parts) when it has no
+/// clear effect.
+fn no_clear_effect(s: &super::Semantics<'_>, a: &Ast, e: ExprId, out: &mut Vec<Span>) {
     match &a.expr(e).kind {
         ExprKind::As { .. }
         | ExprKind::Assign { .. }
@@ -56,371 +56,371 @@ fn sem_efeito(s: &super::Semantics<'_>, a: &Ast, e: ExprId, out: &mut Vec<Span>)
         | ExprKind::Rethrow
         | ExprKind::Throw(_) => {}
         ExprKind::Unary { op: UnaryOp::PostfixInc | UnaryOp::PostfixDec | UnaryOp::NullAssert | UnaryOp::PrefixInc | UnaryOp::PrefixDec, .. } => {}
-        ExprKind::Binary { op: BinaryOp::IfNull | BinaryOp::Or | BinaryOp::And, right, .. } => sem_efeito(s, a, *right, out),
+        ExprKind::Binary { op: BinaryOp::IfNull | BinaryOp::Or | BinaryOp::And, right, .. } => no_clear_effect(s, a, *right, out),
         ExprKind::Conditional { then, else_, .. } => {
-            sem_efeito(s, a, *then, out);
-            sem_efeito(s, a, *else_, out);
+            no_clear_effect(s, a, *then, out);
+            no_clear_effect(s, a, *else_, out);
         }
-        ExprKind::Identifier(_) | ExprKind::Property { .. } if getter_escrito(s, e) => {}
+        ExprKind::Identifier(_) | ExprKind::Property { .. } if is_written_getter(s, e) => {}
         _ => out.push(a.expr(e).span),
     }
 }
 
-/// O pai de um nó de parênteses como o analyzer o vê.
+/// The parent of a parenthesized node as the analyzer sees it.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Pai {
-    Parenteses,
-    Interpolacao,
-    /// Argumento posicional de um `ArgumentList` com `n` argumentos.
-    Argumento { n: usize },
-    /// A `NamedExpression` de um argumento nomeado.
-    Nomeado,
-    /// A `NamedExpression` de um campo de registro.
-    CampoNomeado,
-    CondicaoDoIf,
-    CondicaoDoIfElemento,
-    CondicaoDoWhile,
-    CondicaoDoDo,
-    SwitchInstrucao,
-    SwitchExpressao,
-    PadraoConstante,
-    Espalhamento,
-    /// `VariableDeclaration`, com o tipo do elemento.
-    Variavel(Option<dartforge_types::table::TypeId>),
-    /// `PropertyAccess` cujo alvo são os parênteses.
-    AcessoDePropriedade(ExprId),
-    /// `MethodInvocation` (a chamada e o acesso ao nome).
-    InvocacaoDeMetodo { chamada: ExprId, nome: ExprId },
-    Indice,
-    PosfixoExclamacao,
-    Posfixo,
-    Prefixo,
-    Binario,
-    Condicional { entao: bool },
-    ChaveDeMapa,
-    Cascata,
-    InvocacaoDeFuncao { args_de_tipo: bool },
-    Como,
-    E,
-    Atribuicao,
-    Retorno,
+enum ParenParent {
+    Parens,
+    Interpolation,
+    /// Positional argument of an `ArgumentList` with `n` arguments.
+    Argument { n: usize },
+    /// The `NamedExpression` of a named argument.
+    Named,
+    /// The `NamedExpression` of a record field.
+    NamedField,
+    IfCondition,
+    IfElementCondition,
+    WhileCondition,
+    DoCondition,
+    SwitchStatement,
+    SwitchExpression,
+    ConstantPattern,
+    Spread,
+    /// `VariableDeclaration`, with the element's type.
+    Variable(Option<dartforge_types::table::TypeId>),
+    /// `PropertyAccess` whose target is the parentheses.
+    PropertyAccess(ExprId),
+    /// `MethodInvocation` (the call and the name access).
+    MethodInvocation { call_expr: ExprId, name_expr: ExprId },
+    Index,
+    BangPostfix,
+    Postfix,
+    Prefix,
+    Binary,
+    Conditional { then_branch: bool },
+    MapKey,
+    Cascade,
+    FunctionInvocation { has_type_args: bool },
+    As,
+    Is,
+    Assignment,
+    Return,
     Yield,
-    InicializadorDeCampo,
-    CorpoDeExpressao,
-    InstrucaoDeExpressao,
-    OutraExpressao,
-    Outro,
+    FieldInitializer,
+    ExpressionBody,
+    ExpressionStatement,
+    OtherExpression,
+    Other,
 }
 
-impl Pai {
-    /// O pai é uma `Expression` no analyzer.
-    fn e_expressao(self) -> bool {
+impl ParenParent {
+    /// The parent is an `Expression` in the analyzer.
+    fn is_expression(self) -> bool {
         matches!(
             self,
-            Pai::Parenteses
-                | Pai::Nomeado
-                | Pai::CampoNomeado
-                | Pai::SwitchExpressao
-                | Pai::AcessoDePropriedade(_)
-                | Pai::InvocacaoDeMetodo { .. }
-                | Pai::Indice
-                | Pai::PosfixoExclamacao
-                | Pai::Posfixo
-                | Pai::Prefixo
-                | Pai::Binario
-                | Pai::Condicional { .. }
-                | Pai::Cascata
-                | Pai::InvocacaoDeFuncao { .. }
-                | Pai::Como
-                | Pai::E
-                | Pai::Atribuicao
-                | Pai::OutraExpressao
+            ParenParent::Parens
+                | ParenParent::Named
+                | ParenParent::NamedField
+                | ParenParent::SwitchExpression
+                | ParenParent::PropertyAccess(_)
+                | ParenParent::MethodInvocation { .. }
+                | ParenParent::Index
+                | ParenParent::BangPostfix
+                | ParenParent::Postfix
+                | ParenParent::Prefix
+                | ParenParent::Binary
+                | ParenParent::Conditional { .. }
+                | ParenParent::Cascade
+                | ParenParent::FunctionInvocation { .. }
+                | ParenParent::As
+                | ParenParent::Is
+                | ParenParent::Assignment
+                | ParenParent::OtherExpression
         )
     }
 }
 
-/// O papel de `eu` num elemento de coleção; `direto`: o elemento é filho
-/// do literal (o pai é a `Expression` do literal) e não de um
-/// `IfElement`/`ForElement`.
-fn papel_na_colecao(s: &super::Semantics<'_>, x: &CollectionElement, eu: ExprId, direto: bool) -> Option<Pai> {
+/// The role of `me` in a collection element; `direct`: the element is a
+/// child of the literal (the parent is the literal's `Expression`) and not of
+/// an `IfElement`/`ForElement`.
+fn collection_role(s: &super::Semantics<'_>, x: &CollectionElement, me: ExprId, direct: bool) -> Option<ParenParent> {
     match x {
-        CollectionElement::Expression(e) if *e == eu => Some(if direto { Pai::OutraExpressao } else { Pai::Outro }),
-        CollectionElement::NullAwareExpression(e) if *e == eu => Some(Pai::Outro),
-        CollectionElement::MapEntry { key, .. } if *key == eu => Some(Pai::ChaveDeMapa),
-        CollectionElement::MapEntry { value, .. } if *value == eu => Some(Pai::Outro),
-        CollectionElement::Spread { value, .. } if *value == eu => Some(Pai::Espalhamento),
+        CollectionElement::Expression(e) if *e == me => Some(if direct { ParenParent::OtherExpression } else { ParenParent::Other }),
+        CollectionElement::NullAwareExpression(e) if *e == me => Some(ParenParent::Other),
+        CollectionElement::MapEntry { key, .. } if *key == me => Some(ParenParent::MapKey),
+        CollectionElement::MapEntry { value, .. } if *value == me => Some(ParenParent::Other),
+        CollectionElement::Spread { value, .. } if *value == me => Some(ParenParent::Spread),
         CollectionElement::If { condition, guard, then, else_, .. } => {
-            if *condition == eu {
-                return Some(Pai::CondicaoDoIfElemento);
+            if *condition == me {
+                return Some(ParenParent::IfElementCondition);
             }
-            if *guard == Some(eu) {
-                return Some(Pai::Outro);
+            if *guard == Some(me) {
+                return Some(ParenParent::Other);
             }
-            papel_na_colecao(s, then, eu, false).or_else(|| else_.as_deref().and_then(|x| papel_na_colecao(s, x, eu, false)))
+            collection_role(s, then, me, false).or_else(|| else_.as_deref().and_then(|x| collection_role(s, x, me, false)))
         }
         CollectionElement::For { init, condition, updates, body, .. } => {
             match init {
                 Some(ForInit::Variables(l)) => {
-                    if let Some(v) = l.variables.iter().find(|v| v.initializer == Some(eu)) {
-                        return Some(Pai::Variavel(s.body.tipo_local(v.name.span.start)));
+                    if let Some(v) = l.variables.iter().find(|v| v.initializer == Some(me)) {
+                        return Some(ParenParent::Variable(s.body.tipo_local(v.name.span.start)));
                     }
                 }
-                Some(ForInit::Expression(e)) if *e == eu => return Some(Pai::Outro),
-                Some(ForInit::Pattern { value, .. }) if *value == eu => return Some(Pai::Outro),
+                Some(ForInit::Expression(e)) if *e == me => return Some(ParenParent::Other),
+                Some(ForInit::Pattern { value, .. }) if *value == me => return Some(ParenParent::Other),
                 _ => {}
             }
-            if *condition == Some(eu) || updates.contains(&eu) {
-                return Some(Pai::Outro);
+            if *condition == Some(me) || updates.contains(&me) {
+                return Some(ParenParent::Other);
             }
-            papel_na_colecao(s, body, eu, false)
+            collection_role(s, body, me, false)
         }
         CollectionElement::ForIn { iterable, body, .. } => {
-            if *iterable == eu {
-                return Some(Pai::Outro);
+            if *iterable == me {
+                return Some(ParenParent::Other);
             }
-            papel_na_colecao(s, body, eu, false)
+            collection_role(s, body, me, false)
         }
         _ => None,
     }
 }
 
-/// O papel de `eu` numa lista de argumentos.
-fn papel_nos_argumentos(args: &ast::Arguments, eu: ExprId) -> Pai {
-    match args.args.iter().find(|x| x.value == eu) {
-        Some(x) if x.name.is_some() => Pai::Nomeado,
-        Some(_) => Pai::Argumento { n: args.args.len() },
-        None => Pai::Outro,
+/// The role of `me` in an argument list.
+fn argument_role(args: &ast::Arguments, me: ExprId) -> ParenParent {
+    match args.args.iter().find(|x| x.value == me) {
+        Some(x) if x.name.is_some() => ParenParent::Named,
+        Some(_) => ParenParent::Argument { n: args.args.len() },
+        None => ParenParent::Other,
     }
 }
 
-/// Os argumentos das anotações e das constantes de enum pelo intervalo
-/// (os nós `Node::Annotation`/`Node::EnumArguments` do passeio).
-fn argumentos_por_intervalo(a: &Ast) -> HashMap<(usize, usize), &ast::Arguments> {
+/// The arguments of the annotations and of the enum constants by range (the
+/// walk's `Node::Annotation`/`Node::EnumArguments` nodes).
+fn arguments_by_range(a: &Ast) -> HashMap<(usize, usize), &ast::Arguments> {
     let mut m = HashMap::new();
-    fn anotacoes<'a>(xs: &'a [ast::Annotation], m: &mut HashMap<(usize, usize), &'a ast::Arguments>) {
+    fn add_annotations<'a>(xs: &'a [ast::Annotation], m: &mut HashMap<(usize, usize), &'a ast::Arguments>) {
         for x in xs {
             if let Some(args) = &x.arguments {
                 m.insert((x.span.start, x.span.end), args);
             }
         }
     }
-    fn parametros<'a>(ps: &'a [ast::Parameter], m: &mut HashMap<(usize, usize), &'a ast::Arguments>) {
+    fn add_params<'a>(ps: &'a [ast::Parameter], m: &mut HashMap<(usize, usize), &'a ast::Arguments>) {
         for p in ps {
-            anotacoes(&p.metadata, m);
-            if let Some(internos) = &p.function_parameters {
-                parametros(internos, m);
+            add_annotations(&p.metadata, m);
+            if let Some(inner) = &p.function_parameters {
+                add_params(inner, m);
             }
         }
     }
     for d in a.decls.iter() {
-        anotacoes(&d.metadata, &mut m);
+        add_annotations(&d.metadata, &mut m);
         match &d.kind {
             DeclKind::Enum(x) => {
                 for k in x.constants.iter() {
-                    anotacoes(&k.metadata, &mut m);
+                    add_annotations(&k.metadata, &mut m);
                     if let Some(args) = &k.arguments {
                         m.insert((k.span.start, k.span.end), args);
                     }
                 }
             }
-            DeclKind::ExtensionType(x) => anotacoes(&x.representation_metadata, &mut m),
+            DeclKind::ExtensionType(x) => add_annotations(&x.representation_metadata, &mut m),
             _ => {}
         }
     }
     for x in a.members.iter() {
-        anotacoes(&x.metadata, &mut m);
+        add_annotations(&x.metadata, &mut m);
         if let MemberKind::Constructor(k) = &x.kind {
-            parametros(&k.parameters, &mut m);
+            add_params(&k.parameters, &mut m);
         }
     }
     for f in a.functions.iter() {
-        parametros(f.parameters.as_deref().unwrap_or(&[]), &mut m);
+        add_params(f.parameters.as_deref().unwrap_or(&[]), &mut m);
     }
     for t in a.types.iter() {
         if let ast::TypeKind::Function { parameters, .. } = &t.kind {
-            parametros(parameters, &mut m);
+            add_params(parameters, &mut m);
         }
     }
     m
 }
 
-/// O pai (do analyzer) dos parênteses `eu`.
-fn pai_de(s: &super::Semantics<'_>, a: &Ast, pais: &NodeParents, por_intervalo: &HashMap<(usize, usize), &ast::Arguments>, eu: ExprId) -> Pai {
-    let Some(no) = pais.expr.get(&eu).copied() else { return Pai::Outro };
-    match no {
+/// The (analyzer) parent of the parentheses `me`.
+fn parent_of(s: &super::Semantics<'_>, a: &Ast, parents: &NodeParents, by_range: &HashMap<(usize, usize), &ast::Arguments>, me: ExprId) -> ParenParent {
+    let Some(node) = parents.expr.get(&me).copied() else { return ParenParent::Other };
+    match node {
         Node::Expr(p) => match &a.expr(p).kind {
-            ExprKind::Parenthesized(_) => Pai::Parenteses,
-            ExprKind::String(_) => Pai::Interpolacao,
+            ExprKind::Parenthesized(_) => ParenParent::Parens,
+            ExprKind::String(_) => ParenParent::Interpolation,
             ExprKind::Call { target, arguments } => {
-                if *target == eu {
-                    Pai::InvocacaoDeFuncao { args_de_tipo: !arguments.type_args.is_empty() }
+                if *target == me {
+                    ParenParent::FunctionInvocation { has_type_args: !arguments.type_args.is_empty() }
                 } else {
-                    papel_nos_argumentos(arguments, eu)
+                    argument_role(arguments, me)
                 }
             }
-            ExprKind::InstanceCreation { arguments, .. } => papel_nos_argumentos(arguments, eu),
+            ExprKind::InstanceCreation { arguments, .. } => argument_role(arguments, me),
             ExprKind::Property { .. } => {
-                // O alvo de `(x).m(…)` é o do `MethodInvocation`.
-                if let Some(Node::Expr(ch)) = pais.expr.get(&p).copied()
+                // The target of `(x).m(…)` is the `MethodInvocation`'s.
+                if let Some(Node::Expr(ch)) = parents.expr.get(&p).copied()
                     && matches!(&a.expr(ch).kind, ExprKind::Call { target, .. } if *target == p)
                     && is_method_invocation(s, a, p)
                 {
-                    Pai::InvocacaoDeMetodo { chamada: ch, nome: p }
+                    ParenParent::MethodInvocation { call_expr: ch, name_expr: p }
                 } else {
-                    Pai::AcessoDePropriedade(p)
+                    ParenParent::PropertyAccess(p)
                 }
             }
-            ExprKind::Index { .. } => Pai::Indice,
-            ExprKind::Unary { op: UnaryOp::NullAssert, .. } => Pai::PosfixoExclamacao,
-            ExprKind::Unary { op: UnaryOp::PostfixInc | UnaryOp::PostfixDec, .. } => Pai::Posfixo,
-            ExprKind::Unary { .. } => Pai::Prefixo,
-            ExprKind::Binary { .. } => Pai::Binario,
-            ExprKind::Conditional { then, .. } => Pai::Condicional { entao: *then == eu },
-            ExprKind::Is { .. } => Pai::E,
-            ExprKind::As { .. } => Pai::Como,
-            ExprKind::Assign { .. } => Pai::Atribuicao,
-            ExprKind::Cascade { .. } => Pai::Cascata,
+            ExprKind::Index { .. } => ParenParent::Index,
+            ExprKind::Unary { op: UnaryOp::NullAssert, .. } => ParenParent::BangPostfix,
+            ExprKind::Unary { op: UnaryOp::PostfixInc | UnaryOp::PostfixDec, .. } => ParenParent::Postfix,
+            ExprKind::Unary { .. } => ParenParent::Prefix,
+            ExprKind::Binary { .. } => ParenParent::Binary,
+            ExprKind::Conditional { then, .. } => ParenParent::Conditional { then_branch: *then == me },
+            ExprKind::Is { .. } => ParenParent::Is,
+            ExprKind::As { .. } => ParenParent::As,
+            ExprKind::Assign { .. } => ParenParent::Assignment,
+            ExprKind::Cascade { .. } => ParenParent::Cascade,
             ExprKind::Switch { value, .. } => {
-                if *value == eu {
-                    Pai::SwitchExpressao
+                if *value == me {
+                    ParenParent::SwitchExpression
                 } else {
-                    // O corpo e a guarda de um caso.
-                    Pai::Outro
+                    // The body and the guard of a case.
+                    ParenParent::Other
                 }
             }
-            ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => elements.iter().find_map(|x| papel_na_colecao(s, x, eu, true)).unwrap_or(Pai::Outro),
+            ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => elements.iter().find_map(|x| collection_role(s, x, me, true)).unwrap_or(ParenParent::Other),
             ExprKind::Record { named, .. } => {
-                if named.iter().any(|(_, x)| *x == eu) {
-                    Pai::CampoNomeado
+                if named.iter().any(|(_, x)| *x == me) {
+                    ParenParent::NamedField
                 } else {
-                    Pai::OutraExpressao
+                    ParenParent::OtherExpression
                 }
             }
-            ExprKind::TypeArguments { .. } => match pais.expr.get(&p).copied() {
-                Some(Node::Expr(ch)) if matches!(&a.expr(ch).kind, ExprKind::Call { target, .. } if *target == p) => Pai::InvocacaoDeFuncao { args_de_tipo: true },
-                _ => Pai::OutraExpressao,
+            ExprKind::TypeArguments { .. } => match parents.expr.get(&p).copied() {
+                Some(Node::Expr(ch)) if matches!(&a.expr(ch).kind, ExprKind::Call { target, .. } if *target == p) => ParenParent::FunctionInvocation { has_type_args: true },
+                _ => ParenParent::OtherExpression,
             },
-            _ => Pai::OutraExpressao,
+            _ => ParenParent::OtherExpression,
         },
         Node::Stmt(st) => match &a.stmt(st).kind {
-            StmtKind::Expression(_) => Pai::InstrucaoDeExpressao,
-            StmtKind::Return(_) => Pai::Retorno,
-            StmtKind::Yield { .. } => Pai::Yield,
-            StmtKind::If { condition, .. } if *condition == eu => Pai::CondicaoDoIf,
-            StmtKind::While { condition, .. } if *condition == eu => Pai::CondicaoDoWhile,
-            StmtKind::DoWhile { condition, .. } if *condition == eu => Pai::CondicaoDoDo,
-            StmtKind::Switch { value, .. } if *value == eu => Pai::SwitchInstrucao,
-            StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => match l.variables.iter().find(|v| v.initializer == Some(eu)) {
-                Some(v) => Pai::Variavel(s.body.tipo_local(v.name.span.start)),
-                None => Pai::Outro,
+            StmtKind::Expression(_) => ParenParent::ExpressionStatement,
+            StmtKind::Return(_) => ParenParent::Return,
+            StmtKind::Yield { .. } => ParenParent::Yield,
+            StmtKind::If { condition, .. } if *condition == me => ParenParent::IfCondition,
+            StmtKind::While { condition, .. } if *condition == me => ParenParent::WhileCondition,
+            StmtKind::DoWhile { condition, .. } if *condition == me => ParenParent::DoCondition,
+            StmtKind::Switch { value, .. } if *value == me => ParenParent::SwitchStatement,
+            StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => match l.variables.iter().find(|v| v.initializer == Some(me)) {
+                Some(v) => ParenParent::Variable(s.body.tipo_local(v.name.span.start)),
+                None => ParenParent::Other,
             },
-            _ => Pai::Outro,
+            _ => ParenParent::Other,
         },
         Node::Function(f) => match a.function(f).body {
-            FunctionBody::Expression(x) if x == eu => Pai::CorpoDeExpressao,
-            _ => Pai::Outro,
+            FunctionBody::Expression(x) if x == me => ParenParent::ExpressionBody,
+            _ => ParenParent::Other,
         },
         Node::Member(m) => match &a.member(m).kind {
             MemberKind::Constructor(k) => {
                 for i in k.initializers.iter() {
                     match i {
-                        Initializer::Field { value, .. } if *value == eu => return Pai::InicializadorDeCampo,
-                        Initializer::Super { arguments, .. } | Initializer::Redirect { arguments, .. } if arguments.args.iter().any(|x| x.value == eu) => {
-                            return papel_nos_argumentos(arguments, eu);
+                        Initializer::Field { value, .. } if *value == me => return ParenParent::FieldInitializer,
+                        Initializer::Super { arguments, .. } | Initializer::Redirect { arguments, .. } if arguments.args.iter().any(|x| x.value == me) => {
+                            return argument_role(arguments, me);
                         }
                         _ => {}
                     }
                 }
-                Pai::Outro
+                ParenParent::Other
             }
-            MemberKind::Field(l) => match l.variables.iter().position(|v| v.initializer == Some(eu)) {
-                Some(index) => Pai::Variavel(declared_variable_type(s, VariableRef::Field { unit: s.unit, member: m, index })),
-                None => Pai::Outro,
+            MemberKind::Field(l) => match l.variables.iter().position(|v| v.initializer == Some(me)) {
+                Some(index) => ParenParent::Variable(declared_variable_type(s, VariableRef::Field { unit: s.unit, member: m, index })),
+                None => ParenParent::Other,
             },
-            _ => Pai::Outro,
+            _ => ParenParent::Other,
         },
         Node::Decl(d) => match &a.decl(d).kind {
-            DeclKind::Variables(l) => match l.variables.iter().position(|v| v.initializer == Some(eu)) {
-                Some(index) => Pai::Variavel(declared_variable_type(s, VariableRef::TopLevel { unit: s.unit, decl: d, index })),
-                None => Pai::Outro,
+            DeclKind::Variables(l) => match l.variables.iter().position(|v| v.initializer == Some(me)) {
+                Some(index) => ParenParent::Variable(declared_variable_type(s, VariableRef::TopLevel { unit: s.unit, decl: d, index })),
+                None => ParenParent::Other,
             },
-            _ => Pai::Outro,
+            _ => ParenParent::Other,
         },
         Node::Pattern(p) => match &a.pattern(p).kind {
-            PatternKind::Constant(_) => Pai::PadraoConstante,
-            _ => Pai::Outro,
+            PatternKind::Constant(_) => ParenParent::ConstantPattern,
+            _ => ParenParent::Other,
         },
-        Node::Annotation(sp) | Node::EnumArguments(sp) => match por_intervalo.get(&(sp.start, sp.end)) {
-            Some(args) => papel_nos_argumentos(args, eu),
-            None => Pai::Outro,
+        Node::Annotation(sp) | Node::EnumArguments(sp) => match by_range.get(&(sp.start, sp.end)) {
+            Some(args) => argument_role(args, me),
+            None => ParenParent::Other,
         },
     }
 }
 
 /// `containsNullAwareInvocationInChain`.
-fn cadeia_null_aware(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> bool {
+fn null_aware_chain(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> bool {
     match &a.expr(e).kind {
-        // `PropertyAccess` (o `a.b` simples é `PrefixedIdentifier`).
+        // `PropertyAccess` (the simple `a.b` is a `PrefixedIdentifier`).
         ExprKind::Property { target, null_aware, .. } => {
             if *null_aware {
                 return true;
             }
-            !matches!(a.expr(*target).kind, ExprKind::Identifier(_)) && cadeia_null_aware(s, a, *target)
+            !matches!(a.expr(*target).kind, ExprKind::Identifier(_)) && null_aware_chain(s, a, *target)
         }
         ExprKind::Call { target, .. } if is_method_invocation(s, a, *target) => match &a.expr(*target).kind {
-            ExprKind::Property { target: t, null_aware, .. } => *null_aware || cadeia_null_aware(s, a, *t),
+            ExprKind::Property { target: t, null_aware, .. } => *null_aware || null_aware_chain(s, a, *t),
             _ => false,
         },
-        ExprKind::Index { target, null_aware, .. } => *null_aware || cadeia_null_aware(s, a, *target),
+        ExprKind::Index { target, null_aware, .. } => *null_aware || null_aware_chain(s, a, *target),
         _ => false,
     }
 }
 
 /// `directlyContainsWhitespace`.
-fn tem_espaco(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> bool {
+fn has_space(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> bool {
     match &a.expr(e).kind {
         ExprKind::As { .. } | ExprKind::Assign { .. } | ExprKind::Await(_) | ExprKind::Binary { .. } | ExprKind::Is { .. } => true,
         ExprKind::InstanceCreation { keyword, .. } => keyword.is_some(),
         ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } => *const_,
         ExprKind::Call { target, .. } if is_method_invocation(s, a, *target) => match &a.expr(*target).kind {
-            ExprKind::Property { target: t, .. } => tem_espaco(s, a, *t),
+            ExprKind::Property { target: t, .. } => has_space(s, a, *t),
             _ => false,
         },
-        ExprKind::Property { target, .. } => tem_espaco(s, a, *target),
+        ExprKind::Property { target, .. } => has_space(s, a, *target),
         _ => false,
     }
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let table = s.table;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `unnecessary_statements`.
-    if ligada("unnecessary_statements") {
-        let mut achados: Vec<Span> = Vec::new();
+    if enabled("unnecessary_statements") {
+        let mut findings: Vec<Span> = Vec::new();
         for st in a.stmts.iter() {
             match &st.kind {
-                StmtKind::Expression(e) => sem_efeito(s, a, *e, &mut achados),
-                // `ForPartsWithExpression`: a inicialização e as atualizações.
+                StmtKind::Expression(e) => no_clear_effect(s, a, *e, &mut findings),
+                // `ForPartsWithExpression`: the initialization and the updaters.
                 StmtKind::For { init, updates, .. } if matches!(init, None | Some(ForInit::Expression(_))) => {
                     if let Some(ForInit::Expression(e)) = init {
-                        sem_efeito(s, a, *e, &mut achados);
+                        no_clear_effect(s, a, *e, &mut findings);
                     }
                     for x in updates.iter() {
-                        sem_efeito(s, a, *x, &mut achados);
+                        no_clear_effect(s, a, *x, &mut findings);
                     }
                 }
                 _ => {}
             }
         }
-        // A seção de cascata `..x` que é um `PropertyAccess` de tipo função
-        // (o nó começa no `..`/`?..`).
+        // The cascade section `..x` that is a function-typed `PropertyAccess`
+        // (the node starts at the `..`/`?..`).
         for e in a.exprs.iter() {
             let ExprKind::Cascade { sections, null_aware, .. } = &e.kind else { continue };
             for (i, sec) in sections.iter().enumerate() {
@@ -431,127 +431,127 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     continue;
                 }
                 let sp = a.expr(*sec).span;
-                let pontos = if i == 0 && *null_aware { 3 } else { 2 };
-                achados.push(Span { start: sp.start.saturating_sub(pontos), end: sp.end });
+                let dots = if i == 0 && *null_aware { 3 } else { 2 };
+                findings.push(Span { start: sp.start.saturating_sub(dots), end: sp.end });
             }
         }
-        for sp in achados {
-            relatar(&c::UNNECESSARY_STATEMENTS, sp, &[]);
+        for sp in findings {
+            report(&c::UNNECESSARY_STATEMENTS, sp, &[]);
         }
     }
 
     // `unnecessary_parenthesis`.
-    if ligada("unnecessary_parenthesis") {
-        let e_parenteses = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Parenthesized(_));
-        let pais = unit_parents(u, &e_parenteses);
-        let por_intervalo = argumentos_por_intervalo(a);
-        let e_registro = |t: Option<dartforge_types::table::TypeId>| t.is_some_and(|t| matches!(table.get(t), Type::Record { .. }));
+    if enabled("unnecessary_parenthesis") {
+        let is_parens = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Parenthesized(_));
+        let parents = unit_parents(u, &is_parens);
+        let by_range = arguments_by_range(a);
+        let is_record = |t: Option<dartforge_types::table::TypeId>| t.is_some_and(|t| matches!(table.get(t), Type::Record { .. }));
         for (k, e) in a.exprs.iter().enumerate() {
-            let no = ExprId(k as u32);
+            let node = ExprId(k as u32);
             let ExprKind::Parenthesized(x) = &e.kind else { continue };
             let x = *x;
-            let pai = pai_de(s, a, &pais, &por_intervalo, no);
-            if matches!(pai, Pai::PadraoConstante | Pai::Espalhamento) {
+            let parent = parent_of(s, a, &parents, &by_range, node);
+            if matches!(parent, ParenParent::ConstantPattern | ParenParent::Spread) {
                 continue;
             }
-            let literal_de_registro = matches!(a.expr(x).kind, ExprKind::Record { .. });
-            if let Pai::Variavel(t) = pai
-                && e_registro(t)
-                && !literal_de_registro
+            let is_record_literal = matches!(a.expr(x).kind, ExprKind::Record { .. });
+            if let ParenParent::Variable(t) = parent
+                && is_record(t)
+                && !is_record_literal
             {
                 continue;
             }
-            // O `staticParameterElement` do argumento (posicional ou nomeado).
-            if matches!(pai, Pai::Argumento { .. } | Pai::Nomeado) && e_registro(s.body.tipos_de_parametros.get(&no).copied()) && !literal_de_registro {
+            // The argument's `staticParameterElement` (positional or named).
+            if matches!(parent, ParenParent::Argument { .. } | ParenParent::Named) && is_record(s.body.tipos_de_parametros.get(&node).copied()) && !is_record_literal {
                 continue;
             }
-            // Já entre delimitadores: sempre relata.
+            // Already between delimiters: always reports.
             if matches!(
-                pai,
-                Pai::Parenteses
-                    | Pai::Interpolacao
-                    | Pai::Argumento { n: 1 }
-                    | Pai::CondicaoDoIf
-                    | Pai::CondicaoDoIfElemento
-                    | Pai::CondicaoDoWhile
-                    | Pai::CondicaoDoDo
-                    | Pai::SwitchInstrucao
-                    | Pai::SwitchExpressao
+                parent,
+                ParenParent::Parens
+                    | ParenParent::Interpolation
+                    | ParenParent::Argument { n: 1 }
+                    | ParenParent::IfCondition
+                    | ParenParent::IfElementCondition
+                    | ParenParent::WhileCondition
+                    | ParenParent::DoCondition
+                    | ParenParent::SwitchStatement
+                    | ParenParent::SwitchExpression
             ) {
-                relatar(&c::UNNECESSARY_PARENTHESIS, e.span, &[]);
+                report(&c::UNNECESSARY_PARENTHESIS, e.span, &[]);
                 continue;
             }
-            let interno = &a.expr(x).kind;
-            if matches!(interno, ExprKind::Conditional { .. }) {
+            let inner_kind = &a.expr(x).kind;
+            if matches!(inner_kind, ExprKind::Conditional { .. }) {
                 continue;
             }
-            // O `TypeLiteral` (`List<int>`).
-            if let ExprKind::TypeArguments { target, .. } = interno
+            // The `TypeLiteral` (`List<int>`).
+            if let ExprKind::TypeArguments { target, .. } = inner_kind
                 && matches!(s.body.get_resolved(*target), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))))
             {
                 continue;
             }
-            if matches!(interno, ExprKind::Identifier(_)) || cadeia_null_aware(s, a, x) {
-                let extensao_anulavel = |nome: ExprId| match s.body.get_resolved(nome) {
+            if matches!(inner_kind, ExprKind::Identifier(_)) || null_aware_chain(s, a, x) {
+                let is_nullable_extension = |name_expr: ExprId| match s.body.get_resolved(name_expr) {
                     Some(Resolved::ExtensionMember { extension, .. }) => s.outline.extensions.get(extension.0 as usize).is_some_and(|d| is_nullable(table, d.on)),
                     _ => false,
                 };
-                match pai {
-                    Pai::AcessoDePropriedade(p) => {
+                match parent {
+                    ParenParent::PropertyAccess(p) => {
                         let ExprKind::Property { name, .. } = &a.expr(p).kind else { continue };
                         let n = interner.resolve(name.sym);
-                        if n == "hashCode" || n == "runtimeType" || extensao_anulavel(p) {
+                        if n == "hashCode" || n == "runtimeType" || is_nullable_extension(p) {
                             continue;
                         }
                     }
-                    Pai::InvocacaoDeMetodo { nome, .. } => {
-                        let ExprKind::Property { name, .. } = &a.expr(nome).kind else { continue };
+                    ParenParent::MethodInvocation { name_expr, .. } => {
+                        let ExprKind::Property { name, .. } = &a.expr(name_expr).kind else { continue };
                         let n = interner.resolve(name.sym);
-                        if n == "noSuchMethod" || n == "toString" || extensao_anulavel(nome) {
+                        if n == "noSuchMethod" || n == "toString" || is_nullable_extension(name_expr) {
                             continue;
                         }
                     }
-                    Pai::PosfixoExclamacao => continue,
+                    ParenParent::BangPostfix => continue,
                     _ => {
-                        if matches!(interno, ExprKind::Index { null_aware: true, .. }) && matches!(pai, Pai::Condicional { entao: true } | Pai::ChaveDeMapa) {
+                        if matches!(inner_kind, ExprKind::Index { null_aware: true, .. }) && matches!(parent, ParenParent::Conditional { then_branch: true } | ParenParent::MapKey) {
                             continue;
                         }
                     }
                 }
-                relatar(&c::UNNECESSARY_PARENTHESIS, e.span, &[]);
+                report(&c::UNNECESSARY_PARENTHESIS, e.span, &[]);
                 continue;
             }
-            if matches!(interno, ExprKind::FunctionExpression(_)) && matches!(pai, Pai::InvocacaoDeMetodo { .. } | Pai::AcessoDePropriedade(_) | Pai::Binario | Pai::Indice) {
+            if matches!(inner_kind, ExprKind::FunctionExpression(_)) && matches!(parent, ParenParent::MethodInvocation { .. } | ParenParent::PropertyAccess(_) | ParenParent::Binary | ParenParent::Index) {
                 continue;
             }
-            // `ConstructorReference`: o tear-off de construtor.
-            let referencia_de_construtor = !matches!(interno, ExprKind::Call { .. } | ExprKind::InstanceCreation { .. }) && matches!(s.body.get_resolved(x), Some(Resolved::Constructor(_)));
-            if referencia_de_construtor && !matches!(pai, Pai::InvocacaoDeFuncao { args_de_tipo: true }) {
-                relatar(&c::UNNECESSARY_PARENTHESIS, e.span, &[]);
+            // `ConstructorReference`: a constructor tear-off.
+            let constructor_reference = !matches!(inner_kind, ExprKind::Call { .. } | ExprKind::InstanceCreation { .. }) && matches!(s.body.get_resolved(x), Some(Resolved::Constructor(_)));
+            if constructor_reference && !matches!(parent, ParenParent::FunctionInvocation { has_type_args: true }) {
+                report(&c::UNNECESSARY_PARENTHESIS, e.span, &[]);
                 continue;
             }
-            let ancestrais: &[Node] = pais.ancestors.get(&no).map(|v| &v[..]).unwrap_or(&[]);
-            // `a..b = (c..d)`: a cascata, ou a cascata antes da instrução.
-            if matches!(interno, ExprKind::Cascade { .. }) {
+            let ancestors: &[Node] = parents.ancestors.get(&node).map(|v| &v[..]).unwrap_or(&[]);
+            // `a..b = (c..d)`: the cascade, or the cascade before the statement.
+            if matches!(inner_kind, ExprKind::Cascade { .. }) {
                 continue;
             }
-            let mut em_cascata = false;
-            for n in ancestrais.iter().rev() {
+            let mut in_cascade = false;
+            for n in ancestors.iter().rev() {
                 match n {
                     Node::Stmt(_) => break,
                     Node::Expr(p) if matches!(a.expr(*p).kind, ExprKind::Cascade { .. }) => {
-                        em_cascata = true;
+                        in_cascade = true;
                         break;
                     }
                     _ => {}
                 }
             }
-            if em_cascata {
+            if in_cascade {
                 continue;
             }
-            // `isBareInConstructorFieldInitializer` e uma closure dentro.
+            // `isBareInConstructorFieldInitializer` and a closure inside.
             let mut nu = false;
-            for n in ancestrais.iter().rev() {
+            for n in ancestors.iter().rev() {
                 match n {
                     Node::Function(_) => break,
                     Node::Expr(p) => {
@@ -573,56 +573,56 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if nu && a.exprs.iter().any(|y| matches!(y.kind, ExprKind::FunctionExpression(_)) && y.span.start >= e.span.start && y.span.end <= e.span.end) {
                 continue;
             }
-            if matches!(interno, ExprKind::Binary { op: BinaryOp::Eq | BinaryOp::NotEq, .. })
-                && matches!(pai, Pai::Atribuicao | Pai::Variavel(_) | Pai::Retorno | Pai::Yield | Pai::InicializadorDeCampo)
+            if matches!(inner_kind, ExprKind::Binary { op: BinaryOp::Eq | BinaryOp::NotEq, .. })
+                && matches!(parent, ParenParent::Assignment | ParenParent::Variable(_) | ParenParent::Return | ParenParent::Yield | ParenParent::FieldInitializer)
             {
                 continue;
             }
-            if pai == Pai::InstrucaoDeExpressao && matches!(interno, ExprKind::Switch { .. }) {
+            if parent == ParenParent::ExpressionStatement && matches!(inner_kind, ExprKind::Switch { .. }) {
                 continue;
             }
-            let e_argumento = matches!(pai, Pai::Argumento { .. } | Pai::Nomeado);
-            if tem_espaco(s, a, x)
-                && !matches!(pai, Pai::Atribuicao | Pai::InicializadorDeCampo | Pai::Variavel(_) | Pai::CorpoDeExpressao | Pai::Retorno | Pai::Yield)
-                && !e_argumento
+            let is_argument = matches!(parent, ParenParent::Argument { .. } | ParenParent::Named);
+            if has_space(s, a, x)
+                && !matches!(parent, ParenParent::Assignment | ParenParent::FieldInitializer | ParenParent::Variable(_) | ParenParent::ExpressionBody | ParenParent::Return | ParenParent::Yield)
+                && !is_argument
             {
                 continue;
             }
-            if pai.e_expressao() {
-                if matches!(pai, Pai::Binario | Pai::Condicional { .. } | Pai::Cascata | Pai::Como | Pai::E) {
+            if parent.is_expression() {
+                if matches!(parent, ParenParent::Binary | ParenParent::Conditional { .. } | ParenParent::Cascade | ParenParent::As | ParenParent::Is) {
                     continue;
                 }
-                // `PrefixedIdentifier`: `a.b` de identificador simples.
-                let identificador_prefixado = matches!(interno, ExprKind::Property { target, null_aware: false, .. } if matches!(a.expr(*target).kind, ExprKind::Identifier(_)));
-                if matches!(pai, Pai::InvocacaoDeFuncao { .. }) && !identificador_prefixado {
+                // `PrefixedIdentifier`: `a.b` of a simple identifier.
+                let prefixed_identifier = matches!(inner_kind, ExprKind::Property { target, null_aware: false, .. } if matches!(a.expr(*target).kind, ExprKind::Identifier(_)));
+                if matches!(parent, ParenParent::FunctionInvocation { .. }) && !prefixed_identifier {
                     continue;
                 }
-                let no_do_pai = match pai {
-                    Pai::InvocacaoDeMetodo { chamada, .. } => Some(chamada),
-                    Pai::AcessoDePropriedade(p) => Some(p),
+                let parent_node = match parent {
+                    ParenParent::MethodInvocation { call_expr, .. } => Some(call_expr),
+                    ParenParent::PropertyAccess(p) => Some(p),
                     _ => None,
                 };
-                if let Some(np) = no_do_pai {
-                    let avo_prefixo = matches!(pais.expr.get(&np).copied(), Some(Node::Expr(g)) if matches!(a.expr(g).kind, ExprKind::Unary { op: UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot | UnaryOp::PrefixInc | UnaryOp::PrefixDec, .. }));
-                    if avo_prefixo && tem_espaco(s, a, x) {
+                if let Some(np) = parent_node {
+                    let grandparent_prefix = matches!(parents.expr.get(&np).copied(), Some(Node::Expr(g)) if matches!(a.expr(g).kind, ExprKind::Unary { op: UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot | UnaryOp::PrefixInc | UnaryOp::PrefixDec, .. }));
+                    if grandparent_prefix && has_space(s, a, x) {
                         continue;
                     }
-                    if matches!(interno, ExprKind::Unary { .. }) {
+                    if matches!(inner_kind, ExprKind::Unary { .. }) {
                         continue;
                     }
                 }
-                // `({1, 2}).forEach(print);`: sem os parênteses vira bloco.
-                if matches!(interno, ExprKind::SetOrMap { .. }) {
-                    let instrucao = ancestrais.iter().rev().find_map(|n| match n {
+                // `({1, 2}).forEach(print);`: without the parentheses it becomes a block.
+                if matches!(inner_kind, ExprKind::SetOrMap { .. }) {
+                    let stmt = ancestors.iter().rev().find_map(|n| match n {
                         Node::Stmt(st) if matches!(a.stmt(*st).kind, StmtKind::Expression(_)) => Some(*st),
                         _ => None,
                     });
-                    if instrucao.is_some_and(|st| a.stmt(st).span.start == e.span.start) {
+                    if stmt.is_some_and(|st| a.stmt(st).span.start == e.span.start) {
                         continue;
                     }
                 }
             }
-            relatar(&c::UNNECESSARY_PARENTHESIS, e.span, &[]);
+            report(&c::UNNECESSARY_PARENTHESIS, e.span, &[]);
         }
     }
 
