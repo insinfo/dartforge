@@ -1,77 +1,84 @@
-//! `dartforge-differential [opções]` — relatório do corpus.
-//! `dartforge-differential contrato [-o docs/CONTRATO-DDC.md]` — gera o documento do contrato.
+//! `dartforge-differential [options]` — corpus report.
+//! `dartforge-differential contrato [-o docs/CONTRATO-DDC.md]` — generates the contract document.
+//!
+//! Some lines this binary prints are parsed by CI (`.github/actions/harness`,
+//! `.github/workflows/*.yml`): `(N programas em X s)`, the
+//! `determinismo…: ` verdicts and, on stderr in determinism mode, the lines
+//! with `trabalhador`, `linha N:`, `  a: `/`  b: ` and `aviso`. Those stay in
+//! Portuguese, byte for byte, until the CI scripts are migrated with them.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use dartforge_differential::{
-    Ambiente, IrPrograma, Limitador, Opcoes, Programa, contrato, corpus, dartforge_nativo_ir, diferencas_ir, em_paralelo,
-    emitir_ir_corpus, executar_corpus, listar, relatorio, relatorio_ir,
+    Environment, Limiter, Options, Program, ProgramIr, contract, corpus, dartforge_native_ir, emit_corpus_ir, format_ir_report,
+    format_report, in_parallel, ir_differences, list, run_corpus,
 };
 
-const USO: &str = "uso:
-  dartforge-differential [--nativo [--gc-stress] [--otimizar]] [--producao] [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--limite-exec SEG] [--silencioso]
-      roda dart run × [ddc+node ou nativo] × dartforge em cada programa e imprime o relatório
-      (dois SDKs de oráculo: DARTFORGE_DART_SDK, o piso 3.6.2, e DARTFORGE_DART_SDK_3_13;
-      cada programa vai para o menor SDK que cobre o `// requer-dart: x.y` e o `// @dart=x.y`
-      dele, e o DartForge recebe --versao-linguagem igual; `// erro-de-compilacao` marca
-      programa negativo; `PENDENTES` no diretório do corpus lista o que ainda falha por
-      recurso não implementado — docs/VERSOES-LINGUAGEM.md §5)
-      (--gc-stress: o executável nativo roda com DARTFORGE_GC_STRESS=1, coleta antes de
-      toda alocação — um programa só passa se passar também assim; docs/NATIVO-PLANO.md G7)
-      (--otimizar: o executável nativo é o de produção, `aot --optimize` — LTO e a poda
-      das tabelas de métodos; docs/NATIVO-PODA-DE-TABELAS.md)
-      (código 0 se todos batem; 1 se algum falha)
-      --fragmento K/N roda só o fragmento K de N do corpus (índice % N == K-1;
-      vale em todos os modos — é como o CI divide o corpus nativo entre máquinas)
-      --producao acrescenta o quarto executor: o perfil de produção
-      (dartforge-jsprod, arquivo único e podado) — o relatório passa a comparar
-      VM × nosso desenvolvimento × nossa produção (docs/JS-PRODUCAO.md)
-      --jit executa o backend nativo pelo JIT ORCv2 (dartforge-executar-ir, ao
-      lado deste binário ou em DARTFORGE_EXECUTAR_IR) em vez do AOT; --jit-aot
-      executa também o AOT do MESMO IR, lista todo programa em que os dois
-      divergem (JIT≠AOT) e mede o tempo de cada perfil (docs/JIT.md)
-      --matriz ARQUIVO acrescenta ao ARQUIVO (TSV) o estado de cada programa no
-      perfil — suportado, recusado, divergente, não medido; o perfil é
-      `--perfil NOME`, senão aot, aot-gc-stress, jit ou js-dev (e js-prod com
-      --producao). scripts/matriz.py junta os arquivos em docs/MATRIZ.md (V02)
-  dartforge-differential contrato [--corpus DIR] [-o ARQUIVO]
-      compila cada programa com o dartdevc e escreve docs/CONTRATO-DDC.md
-  dartforge-differential verificar [--corpus DIR] [--filtro TEXTO]
-      só os oráculos: cada programa tem de rodar no dart run e bater com ddc+node
-  dartforge-differential determinismo [--nativo [--executar]] [--producao] [--filtro TEXTO] [--trabalhadores 1,4,8]
-      roda o mesmo corpus com cada número de trabalhadores e exige relatório
-      idêntico. Com --nativo compara o LLVM IR emitido de cada programa, sem
-      Clang, ligação nem execução (DARTFORGE_IR_PARALELO_MAX limita as emissões
-      simultâneas; padrão 2); --executar volta a compilar e executar tudo e
-      comparar o relatório (e o IR, com DARTFORGE_KEEP_IR=1)";
+const USAGE: &str = "usage:
+  dartforge-differential [--nativo [--gc-stress] [--otimizar]] [--producao] [--corpus DIR] [--filtro TEXT] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEC] [--limite-exec SEC] [--silencioso]
+      runs dart run × [ddc+node or native] × dartforge on each program and prints the report
+      (two oracle SDKs: DARTFORGE_DART_SDK, the 3.6.2 floor, and DARTFORGE_DART_SDK_3_13;
+      each program goes to the smallest SDK that covers its `// requer-dart: x.y` and
+      `// @dart=x.y`, and DartForge receives the same --versao-linguagem; `// erro-de-compilacao`
+      marks a negative program; `PENDENTES` in the corpus directory lists what still fails
+      because of an unimplemented feature — docs/VERSOES-LINGUAGEM.md §5)
+      (--gc-stress: the native executable runs with DARTFORGE_GC_STRESS=1, collecting before
+      every allocation — a program only passes if it also passes this way; docs/NATIVO-PLANO.md G7)
+      (--otimizar: the native executable is the production one, `aot --optimize` — LTO and
+      method-table pruning; docs/NATIVO-PODA-DE-TABELAS.md)
+      (exit code 0 if all match; 1 if any fails)
+      --fragmento K/N runs only shard K of N of the corpus (index % N == K-1;
+      works in every mode — it is how CI splits the native corpus across machines)
+      --producao adds the fourth executor: the production profile
+      (dartforge-jsprod, single pruned file) — the report then compares
+      VM × our development × our production (docs/JS-PRODUCAO.md)
+      --jit runs the native backend through the ORCv2 JIT (dartforge-executar-ir, next
+      to this binary or in DARTFORGE_EXECUTAR_IR) instead of AOT; --jit-aot
+      also runs the AOT of the SAME IR, lists every program where the two
+      diverge (JIT≠AOT) and measures the time of each profile (docs/JIT.md)
+      --matriz FILE appends to FILE (TSV) the state of each program in the
+      profile — suportado, recusado, divergente, não medido (supported, rejected,
+      divergent, not measured); the profile is `--perfil NAME`, otherwise aot,
+      aot-gc-stress, jit or js-dev (and js-prod with --producao). scripts/matriz.py
+      merges the files into docs/MATRIZ.md (V02)
+  dartforge-differential contrato [--corpus DIR] [-o FILE]
+      compiles each program with dartdevc and writes docs/CONTRATO-DDC.md
+  dartforge-differential verificar [--corpus DIR] [--filtro TEXT]
+      only the oracles: each program must run under dart run and match ddc+node
+  dartforge-differential determinismo [--nativo [--executar]] [--producao] [--filtro TEXT] [--trabalhadores 1,4,8]
+      runs the same corpus with each number of workers and requires an
+      identical report. With --nativo it compares the LLVM IR emitted for each
+      program, without Clang, linking or running (DARTFORGE_IR_PARALELO_MAX limits
+      the concurrent emissions; default 2); --executar goes back to compiling and
+      running everything and comparing the report (and the IR, with DARTFORGE_KEEP_IR=1)";
 
-/// Resumo de todo o LLVM IR emitido, para comparar execuções.
+/// Digest of all the emitted LLVM IR, to compare runs.
 ///
-/// O `.ll` de cada programa fica em `<saída>/.df_tmp/*.ll` quando
-/// `DARTFORGE_KEEP_IR` está definido. Ordena por caminho antes de somar, senão
-/// a ordem de leitura do diretório entraria no resumo e o teste acusaria
-/// diferença onde não há.
-fn digest_ir(raiz: &std::path::Path) -> u64 {
-    let mut arquivos: Vec<PathBuf> = Vec::new();
-    fn juntar(dir: &std::path::Path, acc: &mut Vec<PathBuf>) {
-        let Ok(entradas) = std::fs::read_dir(dir) else { return };
-        for e in entradas.flatten() {
+/// Each program's `.ll` stays in `<output>/.df_tmp/*.ll` when
+/// `DARTFORGE_KEEP_IR` is set. Sorts by path before hashing, otherwise the
+/// directory read order would enter the digest and the test would report a
+/// difference where there is none.
+fn digest_ir(root: &std::path::Path) -> u64 {
+    let mut files: Vec<PathBuf> = Vec::new();
+    fn collect(dir: &std::path::Path, acc: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
             let p = e.path();
             if p.is_dir() {
-                juntar(&p, acc);
+                collect(&p, acc);
             } else if p.extension().is_some_and(|x| x == "ll") {
                 acc.push(p);
             }
         }
     }
-    juntar(raiz, &mut arquivos);
-    arquivos.sort();
+    collect(root, &mut files);
+    files.sort();
     let mut h: u64 = 0xcbf29ce484222325;
-    for a in &arquivos {
-        let nome = a.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let conteudo = std::fs::read(a).unwrap_or_default();
-        for b in nome.as_bytes().iter().chain(conteudo.iter()) {
+    for a in &files {
+        let name = a.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let contents = std::fs::read(a).unwrap_or_default();
+        for b in name.as_bytes().iter().chain(contents.iter()) {
             h ^= u64::from(*b);
             h = h.wrapping_mul(0x100000001b3);
         }
@@ -79,7 +86,9 @@ fn digest_ir(raiz: &std::path::Path) -> u64 {
     h
 }
 
-fn imprimir_primeira_diferenca(a: &str, b: &str) {
+/// Prints the first differing line of `a` and `b` on stderr. The `linha N:`,
+/// `a: ` and `b: ` lines are picked up by CI (see the module docs).
+fn print_first_difference(a: &str, b: &str) {
     let mut la = a.lines();
     let mut lb = b.lines();
     let mut n = 1;
@@ -88,62 +97,65 @@ fn imprimir_primeira_diferenca(a: &str, b: &str) {
             (Some(x), Some(y)) if x == y => n += 1,
             (x, y) => {
                 eprintln!("  linha {n}:");
-                eprintln!("    a: {}", x.unwrap_or("(fim)"));
-                eprintln!("    b: {}", y.unwrap_or("(fim)"));
+                eprintln!("    a: {}", x.unwrap_or("(end)"));
+                eprintln!("    b: {}", y.unwrap_or("(end)"));
                 return;
             }
         }
     }
 }
 
-/// Determinismo do backend nativo sem executar (PESQUISA-OTIMIZACAO §11): com
-/// cada número de trabalhadores, emite o LLVM IR de todos os programas e exige
-/// o mesmo resumo (ou o mesmo erro) programa a programa. O IR é a entrada da
-/// chave do cache de objeto: se ele muda com a ordem de conclusão, o cache
-/// erra e o Clang roda à toa. O executável é função do IR, da
-/// versão do Clang e da `.lib` do runtime; o que pode mudar com a ordem de
-/// conclusão é o nosso código, e ele aparece inteiro no IR. A correção do
-/// executável é assunto do `--nativo` sem `determinismo` (ESTADO.md §3.2).
-fn determinismo_ir(amb: &Ambiente, programas: &[Programa], trabalhadores: &[usize]) {
-    let limite = Limitador::do_ambiente();
+/// Determinism of the native backend without running (PESQUISA-OTIMIZACAO
+/// §11): with each number of workers, emits the LLVM IR of all programs and
+/// requires the same digest (or the same error) program by program. The IR is
+/// the input of the object cache key: if it changes with the completion order,
+/// the cache misses and Clang runs for nothing. The executable is a function
+/// of the IR, of the Clang version and of the runtime `.lib`; what can change
+/// with the completion order is our code, and it shows up entirely in the IR.
+/// The executable's correctness is the business of `--nativo` without
+/// `determinismo` (ESTADO.md §3.2).
+fn ir_determinism(env: &Environment, programs: &[Program], workers: &[usize]) {
+    let limiter = Limiter::from_env();
     eprintln!(
-        "modo IR: só a emissão (sem Clang, ligação nem execução), no máximo {} emissão(ões) simultânea(s)",
-        limite.max()
+        "IR mode: emission only (no Clang, linking or running), at most {} concurrent emission(s)",
+        limiter.max()
     );
-    let mut referencia: Option<(usize, Vec<IrPrograma>)> = None;
-    let mut primeira: Option<(String, usize)> = None;
-    for n in trabalhadores {
-        let inicio = std::time::Instant::now();
-        let atual = emitir_ir_corpus(programas, *n, &limite);
-        let seg = inicio.elapsed().as_secs_f64();
-        match &referencia {
+    let mut reference: Option<(usize, Vec<ProgramIr>)> = None;
+    let mut first: Option<(String, usize)> = None;
+    for n in workers {
+        let start = std::time::Instant::now();
+        let current = emit_corpus_ir(programs, *n, &limiter);
+        let sec = start.elapsed().as_secs_f64();
+        // The `trabalhador(es)` lines are picked up by CI (see the module docs).
+        match &reference {
             None => {
-                eprintln!("{n} trabalhador(es): referência ({} programas, {seg:.1} s)", programas.len());
-                referencia = Some((*n, atual));
+                eprintln!("{n} trabalhador(es): referência ({} programas, {sec:.1} s)", programs.len());
+                reference = Some((*n, current));
             }
             Some((n0, r0)) => {
-                let dif = diferencas_ir(r0, &atual);
-                if dif.is_empty() {
-                    eprintln!("{n} trabalhador(es): idêntico a {n0} ({seg:.1} s)");
+                let diff = ir_differences(r0, &current);
+                if diff.is_empty() {
+                    eprintln!("{n} trabalhador(es): idêntico a {n0} ({sec:.1} s)");
                     continue;
                 }
-                eprintln!("{n} trabalhador(es): LLVM IR DIFERENTE de {n0} em {} programa(s) ({seg:.1} s):", dif.len());
-                for d in &dif {
+                eprintln!("{n} trabalhador(es): LLVM IR DIFERENTE de {n0} em {} programa(s) ({sec:.1} s):", diff.len());
+                for d in &diff {
                     eprintln!("  {d}");
                 }
-                if primeira.is_none() {
-                    primeira = r0.iter().zip(&atual).find(|(x, y)| x != y).map(|(x, _)| (x.nome.clone(), *n));
+                if first.is_none() {
+                    first = r0.iter().zip(&current).find(|(x, y)| x != y).map(|(x, _)| (x.name.clone(), *n));
                 }
             }
         }
     }
-    let Some((_, r0)) = referencia else { return };
-    print!("{}", relatorio_ir(&r0));
-    match primeira {
-        None => println!("determinismo (IR): idêntico com {trabalhadores:?} trabalhadores"),
-        Some((nome, n)) => {
-            if let Some(p) = programas.iter().find(|p| p.nome == nome) {
-                investigar_divergencia(amb, p, n, &limite);
+    let Some((_, r0)) = reference else { return };
+    print!("{}", format_ir_report(&r0));
+    // The verdict lines are parsed by CI (see the module docs).
+    match first {
+        None => println!("determinismo (IR): idêntico com {workers:?} trabalhadores"),
+        Some((name, n)) => {
+            if let Some(p) = programs.iter().find(|p| p.name == name) {
+                investigate_divergence(env, p, n, &limiter);
             }
             println!("determinismo (IR): FALHOU");
             std::process::exit(1);
@@ -151,87 +163,89 @@ fn determinismo_ir(amb: &Ambiente, programas: &[Programa], trabalhadores: &[usiz
     }
 }
 
-/// Para o primeiro programa divergente: emite-o sozinho e depois `n` vezes em
-/// paralelo, grava os dois textos em `target/diferencial/determinismo/` e
-/// mostra a primeira linha diferente. Se a diferença não se reproduz com o
-/// programa isolado, ela depende do resto do corpus (estado compartilhado
-/// entre emissões), e isso também é dito.
-fn investigar_divergencia(amb: &Ambiente, programa: &Programa, n: usize, limite: &Limitador) {
-    let dir = amb.trabalho.join("determinismo");
+/// For the first divergent program: emits it alone and then `n` times in
+/// parallel, writes both texts to `target/diferencial/determinismo/` and
+/// shows the first differing line. If the difference does not reproduce with
+/// the program in isolation, it depends on the rest of the corpus (state
+/// shared between emissions), and that is said too.
+fn investigate_divergence(env: &Environment, program: &Program, n: usize, limiter: &Limiter) {
+    // On-disk directory name: kept as is.
+    let dir = env.work_dir.join("determinismo");
     let _ = std::fs::create_dir_all(&dir);
-    let texto = |r: Result<String, String>| r.unwrap_or_else(|e| format!("ERRO: {e}\n"));
-    let sozinho = texto(limite.com(|| dartforge_nativo_ir(programa)));
-    let copias = vec![programa.clone(); n.max(1)];
-    let concorrentes = em_paralelo(&copias, n, |p| texto(limite.com(|| dartforge_nativo_ir(p))), |_| {});
-    let outro = concorrentes.iter().find(|t| **t != sozinho).unwrap_or(&concorrentes[0]);
-    let (a, b) = (dir.join(format!("{}.1.ll", programa.nome)), dir.join(format!("{}.{n}.ll", programa.nome)));
-    let _ = std::fs::write(&a, &sozinho);
-    let _ = std::fs::write(&b, outro);
-    eprintln!("{}: emitido sozinho em {} e {n}× em paralelo em {}", programa.nome, a.display(), b.display());
-    if *outro == sozinho {
-        eprintln!("  idênticos isolados: a diferença depende do resto do corpus");
+    let text = |r: Result<String, String>| r.unwrap_or_else(|e| format!("ERROR: {e}\n"));
+    let alone = text(limiter.run(|| dartforge_native_ir(program)));
+    let copies = vec![program.clone(); n.max(1)];
+    let concurrent = in_parallel(&copies, n, |p| text(limiter.run(|| dartforge_native_ir(p))), |_| {});
+    let other = concurrent.iter().find(|t| **t != alone).unwrap_or(&concurrent[0]);
+    let (a, b) = (dir.join(format!("{}.1.ll", program.name)), dir.join(format!("{}.{n}.ll", program.name)));
+    let _ = std::fs::write(&a, &alone);
+    let _ = std::fs::write(&b, other);
+    eprintln!("{}: emitted alone into {} and {n}× in parallel into {}", program.name, a.display(), b.display());
+    if *other == alone {
+        eprintln!("  identical in isolation: the difference depends on the rest of the corpus");
     } else {
-        imprimir_primeira_diferenca(&sozinho, outro);
+        print_first_difference(&alone, other);
     }
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut amb = Ambiente::detectar();
-    let mut corpus = amb.raiz.join("corpus/js");
-    let mut filtro: Option<String> = None;
-    let mut fragmento: Option<(usize, usize)> = None;
-    let mut op = Opcoes::default();
-    let mut saida_doc = amb.raiz.join("docs/CONTRATO-DDC.md");
-    let mut silencioso = false;
-    let mut modo = "relatorio";
-    let mut trabalhadores: Vec<usize> = vec![1, 4, 8];
-    let mut executar = false;
-    let mut matriz: Option<PathBuf> = None;
-    let mut perfil: Option<String> = None;
+    let mut env = Environment::detect();
+    let mut corpus = env.root.join("corpus/js");
+    let mut filter: Option<String> = None;
+    let mut shard: Option<(usize, usize)> = None;
+    let mut op = Options::default();
+    let mut doc_output = env.root.join("docs/CONTRATO-DDC.md");
+    let mut quiet = false;
+    let mut mode = "report";
+    let mut workers: Vec<usize> = vec![1, 4, 8];
+    let mut execute = false;
+    let mut matrix: Option<PathBuf> = None;
+    let mut profile: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "contrato" | "verificar" | "determinismo" => modo = match args[i].as_str() {
-                "contrato" => "contrato",
-                "verificar" => "verificar",
-                _ => "determinismo",
+            "contrato" | "verificar" | "determinismo" => mode = match args[i].as_str() {
+                "contrato" => "contract",
+                "verificar" => "verify",
+                _ => "determinism",
             },
             "--trabalhadores" => {
                 i += 1;
-                trabalhadores = args[i]
+                workers = args[i]
                     .split(',')
                     .map(|n| n.trim().parse().expect("--trabalhadores 1,4,8"))
                     .collect();
             }
             "--corpus" => {
                 i += 1;
-                // Absoluto: o `dartforge` e o `dart run` rodam no diretório do
-                // programa, e um caminho relativo à raiz não o acharia lá.
+                // Absolute: `dartforge` and `dart run` run in the program's
+                // directory, and a path relative to the root would not be
+                // found from there.
                 corpus = std::path::absolute(&args[i]).unwrap_or_else(|_| PathBuf::from(&args[i]));
             }
             "--filtro" => {
                 i += 1;
-                filtro = Some(args[i].clone());
+                filter = Some(args[i].clone());
             }
             "--fragmento" => {
                 i += 1;
-                fragmento = Some(corpus::ler_fragmento(&args[i]).unwrap_or_else(|e| {
+                shard = Some(corpus::parse_shard(&args[i]).unwrap_or_else(|e| {
                     eprintln!("{e}");
                     std::process::exit(2)
                 }));
             }
             "--matriz" => {
                 i += 1;
-                matriz = Some(PathBuf::from(&args[i]));
+                matrix = Some(PathBuf::from(&args[i]));
             }
             "--perfil" => {
                 i += 1;
-                perfil = Some(args[i].clone());
+                profile = Some(args[i].clone());
             }
             "-o" => {
                 i += 1;
-                saida_doc = PathBuf::from(&args[i]);
+                doc_output = PathBuf::from(&args[i]);
             }
             "--jobs" => {
                 i += 1;
@@ -239,100 +253,103 @@ fn main() {
             }
             "--limite" => {
                 i += 1;
-                amb.limite = Duration::from_secs(args[i].parse().expect("--limite SEG"));
+                env.timeout = Duration::from_secs(args[i].parse().expect("--limite SEC"));
             }
             "--limite-exec" => {
                 i += 1;
-                amb.limite_nativo =
-                    Duration::from_secs(args[i].parse().expect("--limite-exec SEG"));
+                env.native_timeout =
+                    Duration::from_secs(args[i].parse().expect("--limite-exec SEC"));
             }
-            "--sem-forge" => op.com_forge = false,
-            "--nativo" => op.nativo = true,
-            // JIT: o mesmo modo nativo (VM como referência), executado pelo
-            // dartforge-executar-ir; --jit-aot também liga o AOT do mesmo IR.
-            "--jit" => (op.nativo, op.jit) = (true, true),
-            "--jit-aot" => (op.nativo, op.jit, op.jit_aot) = (true, true, true),
-            "--gc-stress" => amb.gc_stress = true,
-            "--otimizar" => amb.otimizar = true,
-            "--executar" => executar = true,
-            "--producao" => op.com_producao = true,
-            "--sem-cache" => amb.usar_cache = false,
-            "--silencioso" => silencioso = true,
+            "--sem-forge" => op.with_forge = false,
+            "--nativo" => op.native = true,
+            // JIT: the same native mode (VM as the reference), run by
+            // dartforge-executar-ir; --jit-aot also links the AOT of the same IR.
+            "--jit" => (op.native, op.jit) = (true, true),
+            "--jit-aot" => (op.native, op.jit, op.jit_aot) = (true, true, true),
+            "--gc-stress" => env.gc_stress = true,
+            "--otimizar" => env.optimize = true,
+            "--executar" => execute = true,
+            "--producao" => op.with_production = true,
+            "--sem-cache" => env.use_cache = false,
+            "--silencioso" => quiet = true,
             "-h" | "--help" => {
-                println!("{USO}");
+                println!("{USAGE}");
                 return;
             }
-            outro => {
-                eprintln!("argumento desconhecido: {outro}\n{USO}");
+            other => {
+                eprintln!("unknown argument: {other}\n{USAGE}");
                 std::process::exit(2);
             }
         }
         i += 1;
     }
-    // No modo nativo cada programa vira um processo que aloca no heap proprio;
-    // seis em paralelo ja tomaram a memoria da maquina inteira. Enquanto o
-    // backend nativo nao esta estavel, o padrao e dois — quem quiser mais passa
-    // `--jobs` explicitamente e assume o risco.
-    // O mesmo vale para o perfil de produção do JS: cada programa vira um
-    // processo `dartforge-jsprod`, que carrega o SDK e classifica os 7 MB do
-    // `dart_sdk.js`. A máquina tem 7,7 GB e é compartilhada.
-    if (op.nativo || op.com_producao) && op.threads == 0 {
+    // In native mode each program becomes a process that allocates on its own
+    // heap; six in parallel have already taken the whole machine's memory.
+    // While the native backend is not stable, the default is two — whoever
+    // wants more passes `--jobs` explicitly and takes the risk.
+    // The same goes for the JS production profile: each program becomes a
+    // `dartforge-jsprod` process, which loads the SDK and classifies the 7 MB
+    // of `dart_sdk.js`. The machine has 7.7 GB and is shared.
+    if (op.native || op.with_production) && op.threads == 0 {
         op.threads = 2;
     }
-    let mut programas = listar(&corpus, filtro.as_deref());
-    if let Some((k, n)) = fragmento {
-        programas = corpus::fragmento(programas, k, n);
-        eprintln!("fragmento {k}/{n}: {} programas", programas.len());
+    let mut programs = list(&corpus, filter.as_deref());
+    if let Some((k, n)) = shard {
+        programs = corpus::shard(programs, k, n);
+        eprintln!("shard {k}/{n}: {} programs", programs.len());
     }
-    if programas.is_empty() {
-        eprintln!("nenhum programa em {}", corpus.display());
+    if programs.is_empty() {
+        eprintln!("no programs in {}", corpus.display());
         std::process::exit(2);
     }
-    match modo {
-        "contrato" => {
-            let doc = contrato::gerar(&amb, &programas);
-            std::fs::write(&saida_doc, doc).expect("escrever o documento");
-            println!("{} programas → {}", programas.len(), saida_doc.display());
+    match mode {
+        "contract" => {
+            let doc = contract::generate(&env, &programs);
+            std::fs::write(&doc_output, doc).expect("write the document");
+            println!("{} programs → {}", programs.len(), doc_output.display());
         }
-        "determinismo" if op.nativo && !executar => determinismo_ir(&amb, &programas, &trabalhadores),
-        "determinismo" => {
-            // Sem `--nativo`, ou com `--executar`: o relatório inteiro.
-            // O teste de determinismo do mold (PESQUISA-OTIMIZACAO §11): mesma
-            // entrada e mesma configuração têm de dar a mesma saída com
-            // qualquer número de trabalhadores. Aqui isso vale para o relatório
-            // e, no modo nativo, para o LLVM IR emitido — se a ordem de
-            // conclusão mudar o IR, o cache de objeto por hash erra e o Clang
-            // roda à toa, que é justamente o que domina o tempo de compilação.
-            // O `.ll` so sobrevive com DARTFORGE_KEEP_IR definido, e a variavel
-            // tem de vir do ambiente: `set_var` e `unsafe` desde a edicao 2024
-            // (outra thread pode estar lendo o ambiente) e o workspace nega
-            // `unsafe_code`. Sem ela, a comparacao do IR e pulada e dito aqui.
-            let comparar_ir = op.nativo && std::env::var_os("DARTFORGE_KEEP_IR").is_some();
-            if op.nativo && !comparar_ir {
+        "determinism" if op.native && !execute => ir_determinism(&env, &programs, &workers),
+        "determinism" => {
+            // Without `--nativo`, or with `--executar`: the whole report.
+            // mold's determinism test (PESQUISA-OTIMIZACAO §11): the same
+            // input and the same configuration must give the same output with
+            // any number of workers. Here that applies to the report and, in
+            // native mode, to the emitted LLVM IR — if the completion order
+            // changes the IR, the hash-keyed object cache misses and Clang
+            // runs for nothing, which is precisely what dominates compile time.
+            // The `.ll` only survives with DARTFORGE_KEEP_IR set, and the
+            // variable has to come from the environment: `set_var` is `unsafe`
+            // since the 2024 edition (another thread may be reading the
+            // environment) and the workspace denies `unsafe_code`. Without it,
+            // the IR comparison is skipped and that is said here.
+            let compare_ir = op.native && std::env::var_os("DARTFORGE_KEEP_IR").is_some();
+            if op.native && !compare_ir {
+                // Picked up by CI (`aviso`; see the module docs).
                 eprintln!("aviso: defina DARTFORGE_KEEP_IR=1 para comparar tambem o LLVM IR emitido");
             }
-            let mut referencia: Option<(usize, String, u64)> = None;
-            let mut igual = true;
-            for n in &trabalhadores {
+            let mut reference: Option<(usize, String, u64)> = None;
+            let mut same = true;
+            for n in &workers {
                 op.threads = *n;
-                let resultados = executar_corpus(&amb, &programas, op, |_| {});
-                let texto = relatorio(&resultados);
-                let ir = if comparar_ir { digest_ir(&amb.trabalho.join("nativo")) } else { 0 };
-                match &referencia {
+                let results = run_corpus(&env, &programs, op, |_| {});
+                let text = format_report(&results);
+                let ir = if compare_ir { digest_ir(&env.work_dir.join("nativo")) } else { 0 };
+                // The `trabalhador(es)` lines are picked up by CI (see the module docs).
+                match &reference {
                     None => {
-                        eprintln!("{n} trabalhador(es): referência ({} programas)", programas.len());
-                        referencia = Some((*n, texto, ir));
+                        eprintln!("{n} trabalhador(es): referência ({} programas)", programs.len());
+                        reference = Some((*n, text, ir));
                     }
                     Some((n0, t0, ir0)) => {
-                        let rel_ok = *t0 == texto;
+                        let report_ok = *t0 == text;
                         let ir_ok = *ir0 == ir;
-                        if rel_ok && ir_ok {
+                        if report_ok && ir_ok {
                             eprintln!("{n} trabalhador(es): idêntico a {n0}");
                         } else {
-                            igual = false;
-                            if !rel_ok {
+                            same = false;
+                            if !report_ok {
                                 eprintln!("{n} trabalhador(es): RELATÓRIO DIFERENTE de {n0}");
-                                imprimir_primeira_diferenca(t0, &texto);
+                                print_first_difference(t0, &text);
                             }
                             if !ir_ok {
                                 eprintln!("{n} trabalhador(es): LLVM IR DIFERENTE de {n0} ({ir0:016x} != {ir:016x})");
@@ -341,53 +358,58 @@ fn main() {
                     }
                 }
             }
-            if igual {
-                println!("determinismo: saída idêntica com {trabalhadores:?} trabalhadores");
+            // The verdict lines are parsed by CI (see the module docs).
+            if same {
+                println!("determinismo: saída idêntica com {workers:?} trabalhadores");
             } else {
                 println!("determinismo: FALHOU");
                 std::process::exit(1);
             }
         }
         _ => {
-            if modo == "verificar" {
-                op.com_forge = false;
+            if mode == "verify" {
+                op.with_forge = false;
             }
-            if op.com_forge {
-                match &amb.dartforge_bin {
+            if op.with_forge {
+                match &env.dartforge_bin {
                     Some(b) => eprintln!("dartforge: {}", b.display()),
-                    None => eprintln!("dartforge: binário não encontrado; usando `cargo run -p dartforge-cli`"),
+                    None => eprintln!("dartforge: binary not found; using `cargo run -p dartforge-cli`"),
                 }
             }
-            let inicio = std::time::Instant::now();
-            let resultados = executar_corpus(&amb, &programas, op, |r| {
-                if silencioso {
+            let start = std::time::Instant::now();
+            let results = run_corpus(&env, &programs, op, |r| {
+                if quiet {
                     return;
                 }
-                let estado = if r.programa.pendente && r.forge.is_some() {
-                    if r.ok() { "PASSOU" } else { "PEND" }
-                } else if r.producao.is_some() {
-                    if r.ok() { "ok" } else if r.forge_vs_referencia().is_some() { "FALHA" } else { "PROD!" }
+                // The same status tags as the report (`report.rs`).
+                let status = if r.program.pending && r.forge.is_some() {
+                    if r.ok() { "PASSED" } else { "PEND" }
+                } else if r.production.is_some() {
+                    if r.ok() { "ok" } else if r.forge_vs_reference().is_some() { "FALHA" } else { "PROD!" }
                 } else if r.forge.is_some() {
                     if r.ok() { "ok" } else { "FALHA" }
-                } else if r.dart.codigo != 0 {
+                } else if r.dart.code != 0 {
                     "DART!"
-                } else if r.nativo {
+                } else if r.native {
                     "DART"
-                } else if r.ddc_vs_dart().is_none() == r.programa.diverge_ddc.is_none() {
+                } else if r.ddc_vs_dart().is_none() == r.program.diverge_ddc.is_none() {
                     "ok"
                 } else {
                     "DDC≠VM"
                 };
-                eprintln!("  {estado:<6} {}", r.programa.nome);
+                eprintln!("  {status:<6} {}", r.program.name);
             });
-            print!("{}", relatorio(&resultados));
-            println!("({} programas em {:.1} s)", resultados.len(), inicio.elapsed().as_secs_f64());
-            if let Some(arquivo) = &matriz {
-                // As quatro combinações do nativo (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-                // §7.1): o modo de raízes e o de exceções vêm do ambiente, que o
-                // emissor lê (`DARTFORGE_RAIZES`, `DARTFORGE_EXCECOES`); o padrão
-                // (sombra, checagem) não entra no nome.
-                let modo = {
+            print!("{}", format_report(&results));
+            // Parsed by CI (see the module docs).
+            println!("({} programas em {:.1} s)", results.len(), start.elapsed().as_secs_f64());
+            if let Some(file) = &matrix {
+                // The four native combinations (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+                // §7.1): the roots mode and the exceptions mode come from the
+                // environment, which the emitter reads (`DARTFORGE_RAIZES`,
+                // `DARTFORGE_EXCECOES`); the default (shadow stack, checks)
+                // does not enter the name. The profile names are values of the
+                // TSV read by `scripts/matriz.py` and stay as they are.
+                let suffix = {
                     let mut m = String::new();
                     if std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas") {
                         m.push_str("-mapas");
@@ -397,30 +419,30 @@ fn main() {
                     }
                     m
                 };
-                let nome = perfil.clone().unwrap_or_else(|| match (op.nativo, op.jit, amb.gc_stress) {
-                    (true, true, _) => format!("jit{modo}"),
-                    (true, false, true) => format!("aot{modo}-gc-stress"),
-                    (true, false, false) if amb.otimizar => format!("aot{modo}-otimizado"),
-                    (true, false, false) => format!("aot{modo}"),
+                let name = profile.clone().unwrap_or_else(|| match (op.native, op.jit, env.gc_stress) {
+                    (true, true, _) => format!("jit{suffix}"),
+                    (true, false, true) => format!("aot{suffix}-gc-stress"),
+                    (true, false, false) if env.optimize => format!("aot{suffix}-otimizado"),
+                    (true, false, false) => format!("aot{suffix}"),
                     (false, ..) => "js-dev".to_string(),
                 });
-                let linhas = dartforge_differential::matriz::tsv(&resultados, &nome);
+                let lines = dartforge_differential::matrix::tsv(&results, &name);
                 let mut f = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
-                    .open(arquivo)
-                    .unwrap_or_else(|e| panic!("{}: {e}", arquivo.display()));
-                std::io::Write::write_all(&mut f, linhas.as_bytes()).expect("escrever a matriz");
+                    .open(file)
+                    .unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+                std::io::Write::write_all(&mut f, lines.as_bytes()).expect("write the matrix");
             }
-            let todos_ok = if op.com_forge {
-                // Pendente (`PENDENTES`) tem de falhar; os demais, passar.
-                resultados.iter().all(|r| r.ok() != r.programa.pendente)
-            } else if op.nativo {
-                resultados.iter().all(|r| r.dart.codigo == 0)
+            let all_ok = if op.with_forge {
+                // A pending program (`PENDENTES`) must fail; the others, pass.
+                results.iter().all(|r| r.ok() != r.program.pending)
+            } else if op.native {
+                results.iter().all(|r| r.dart.code == 0)
             } else {
-                resultados.iter().all(|r| r.dart.codigo == 0 && (r.ddc_vs_dart().is_none() != r.programa.diverge_ddc.is_some()))
+                results.iter().all(|r| r.dart.code == 0 && (r.ddc_vs_dart().is_none() != r.program.diverge_ddc.is_some()))
             };
-            if !todos_ok {
+            if !all_ok {
                 std::process::exit(1);
             }
         }

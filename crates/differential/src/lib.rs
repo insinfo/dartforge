@@ -1,258 +1,261 @@
-//! Harness diferencial: `dart run` (semântica) × `dartdevc`+Node (contrato) × DartForge.
+//! Differential harness: `dart run` (semantics) × `dartdevc`+Node (contract) × DartForge.
 //!
-//! Corpus em `corpus/js/`: um programa por arquivo (`NN_tema.dart`) ou por diretório
-//! com `main.dart`. Ver `docs/EMISSAO-DDC.md` e `docs/CONTRATO-DDC.md`.
+//! Corpus in `corpus/js/`: one program per file (`NN_theme.dart`) or per
+//! directory with `main.dart`. See `docs/EMISSAO-DDC.md` and
+//! `docs/CONTRATO-DDC.md`.
 
-pub mod contrato;
+pub mod contract;
 pub mod corpus;
-pub mod matriz;
-pub mod oraculos;
-pub mod processo;
-pub mod relatorio;
+pub mod matrix;
+pub mod oracles;
+pub mod process;
+pub mod report;
 
-pub use corpus::{Programa, listar};
-pub use oraculos::{Ambiente, dartforge, dartforge_jit, dartforge_nativo, dartforge_nativo_ir, dartforge_producao, oraculo_dart, oraculo_ddc};
-pub use processo::Saida;
-pub use relatorio::{AotDoMesmoIr, Divergencia, ExecucaoJit, IrPrograma, Resultado, comparar, diferencas_ir, relatorio, relatorio_ir};
+pub use corpus::{Program, list};
+pub use oracles::{Environment, dart_oracle, dartforge, dartforge_jit, dartforge_native, dartforge_native_ir, dartforge_production, ddc_oracle};
+pub use process::Output;
+pub use report::{AotFromSameIr, Divergence, JitRun, ProgramIr, ProgramResult, compare, format_ir_report, format_report, ir_differences};
 
 use dartforge_emit_native::resumo::ResumoIr;
 use std::sync::{Condvar, Mutex};
 
-/// O que executar para cada programa.
+/// What to run for each program.
 #[derive(Debug, Clone, Copy)]
-pub struct Opcoes {
-    /// Executar também o DartForge (senão só os dois oráculos).
-    pub com_forge: bool,
-    /// Número de threads; 0 = núcleos disponíveis.
+pub struct Options {
+    /// Also run DartForge (otherwise only the two oracles).
+    pub with_forge: bool,
+    /// Number of threads; 0 = available cores.
     pub threads: usize,
-    /// Executar no modo nativo AOT (comparando contra o oráculo Dart VM).
-    pub nativo: bool,
-    /// Executar também o **perfil de produção** do backend JavaScript
-    /// (`dartforge-jsprod`): arquivo único, `dart_sdk.js` podado pelo mundo
-    /// fechado. Ver `docs/JS-PRODUCAO.md`. Independente de `nativo`: os dois
-    /// executores são backends diferentes do mesmo programa.
-    pub com_producao: bool,
-    /// Executar o backend nativo pelo **JIT** (`dartforge-executar-ir`) em vez
-    /// do AOT. Implica `nativo`: a referência continua sendo a VM.
+    /// Run in native AOT mode (comparing against the Dart VM oracle).
+    pub native: bool,
+    /// Also run the JavaScript backend's **production profile**
+    /// (`dartforge-jsprod`): a single file, `dart_sdk.js` pruned by the closed
+    /// world. See `docs/JS-PRODUCAO.md`. Independent of `native`: the two
+    /// executors are different backends of the same program.
+    pub with_production: bool,
+    /// Run the native backend through the **JIT** (`dartforge-executar-ir`)
+    /// instead of AOT. Implies `native`: the reference is still the VM.
     pub jit: bool,
-    /// Com `jit`: ligar e executar também o AOT do **mesmo** IR, exigir os dois
-    /// iguais programa a programa e medir os tempos (`--jit-aot`).
+    /// With `jit`: also link and run the AOT of the **same** IR, require both
+    /// to be equal program by program and measure the times (`--jit-aot`).
     pub jit_aot: bool,
 }
 
-impl Default for Opcoes {
+impl Default for Options {
     fn default() -> Self {
-        Opcoes { com_forge: true, threads: 0, nativo: false, com_producao: false, jit: false, jit_aot: false }
+        Options { with_forge: true, threads: 0, native: false, with_production: false, jit: false, jit_aot: false }
     }
 }
 
-/// Executa um programa nos executores pedidos.
-pub fn executar_programa(amb: &Ambiente, programa: &Programa, op: Opcoes) -> Resultado {
-    let dart = oraculo_dart(amb, programa);
-    // O perfil de produção do JS é independente do backend escolhido: é um
-    // quarto executor do mesmo programa, e pode rodar ao lado do nativo.
-    let producao = op.com_producao.then(|| dartforge_producao(amb, programa, &amb.dir_saida("producao", programa)));
-    if op.nativo {
-        // No modo nativo não há contrato do DDC para comparar; a referência é
-        // sempre a VM (ver `Resultado::referencia`).
-        let ddc = Saida { stdout: String::new(), stderr: String::new(), codigo: 0 };
+/// Runs a program on the requested executors.
+pub fn run_program(env: &Environment, program: &Program, op: Options) -> ProgramResult {
+    let dart = dart_oracle(env, program);
+    // The JS production profile is independent of the chosen backend: it is a
+    // fourth executor of the same program, and it can run alongside native.
+    // The executor names passed to `output_dir` are directories on disk.
+    let production = op.with_production.then(|| dartforge_production(env, program, &env.output_dir("producao", program)));
+    if op.native {
+        // In native mode there is no DDC contract to compare; the reference
+        // is always the VM (see `ProgramResult::reference`).
+        let ddc = Output { stdout: String::new(), stderr: String::new(), code: 0 };
         if op.jit {
-            let (forge, jit) = if op.com_forge {
-                let (s, j) = dartforge_jit(amb, programa, &amb.dir_saida("jit", programa), op.jit_aot);
+            let (forge, jit) = if op.with_forge {
+                let (s, j) = dartforge_jit(env, program, &env.output_dir("jit", program), op.jit_aot);
                 (Some(s), Some(j))
             } else {
                 (None, None)
             };
-            return Resultado { programa: programa.clone(), dart, ddc, forge, nativo: true, producao, jit };
+            return ProgramResult { program: program.clone(), dart, ddc, forge, native: true, production, jit };
         }
-        let forge = op.com_forge.then(|| dartforge_nativo(amb, programa, &amb.dir_saida("nativo", programa)));
-        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: true, producao, jit: None }
+        let forge = op.with_forge.then(|| dartforge_native(env, program, &env.output_dir("nativo", program)));
+        ProgramResult { program: program.clone(), dart, ddc, forge, native: true, production, jit: None }
     } else {
-        let ddc = oraculo_ddc(amb, programa, &amb.dir_saida("ddc", programa));
-        let forge = op.com_forge.then(|| dartforge(amb, programa, &amb.dir_saida("forge", programa)));
-        Resultado { programa: programa.clone(), dart, ddc, forge, nativo: false, producao, jit: None }
+        let ddc = ddc_oracle(env, program, &env.output_dir("ddc", program));
+        let forge = op.with_forge.then(|| dartforge(env, program, &env.output_dir("forge", program)));
+        ProgramResult { program: program.clone(), dart, ddc, forge, native: false, production, jit: None }
     }
 }
 
-/// Aplica `f` a cada programa com `threads` trabalhadores (0 = núcleos
-/// disponíveis) puxando de uma fila compartilhada, e devolve os resultados na
-/// **ordem do corpus**, qualquer que tenha sido a ordem de conclusão.
-/// `progresso` é chamado no fim de cada programa (para imprimir andamento).
-pub fn em_paralelo<T: Send>(
-    programas: &[Programa],
+/// Applies `f` to each program with `threads` workers (0 = available cores)
+/// pulling from a shared queue, and returns the results in **corpus order**,
+/// whatever the completion order was. `progress` is called at the end of each
+/// program (to print progress).
+pub fn in_parallel<T: Send>(
+    programs: &[Program],
     threads: usize,
-    f: impl Fn(&Programa) -> T + Sync,
-    progresso: impl Fn(&T) + Sync,
+    f: impl Fn(&Program) -> T + Sync,
+    progress: impl Fn(&T) + Sync,
 ) -> Vec<T> {
     let n = if threads == 0 { std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4) } else { threads };
-    let n = n.max(1).min(programas.len().max(1));
-    let proximo = Mutex::new(0usize);
-    let resultados: Mutex<Vec<Option<T>>> = Mutex::new((0..programas.len()).map(|_| None).collect());
+    let n = n.max(1).min(programs.len().max(1));
+    let next = Mutex::new(0usize);
+    let results: Mutex<Vec<Option<T>>> = Mutex::new((0..programs.len()).map(|_| None).collect());
     std::thread::scope(|s| {
         for _ in 0..n {
             s.spawn(|| {
                 loop {
                     let i = {
-                        let mut g = proximo.lock().unwrap();
+                        let mut g = next.lock().unwrap();
                         let i = *g;
                         *g += 1;
                         i
                     };
-                    if i >= programas.len() {
+                    if i >= programs.len() {
                         break;
                     }
-                    let r = f(&programas[i]);
-                    progresso(&r);
-                    resultados.lock().unwrap()[i] = Some(r);
+                    let r = f(&programs[i]);
+                    progress(&r);
+                    results.lock().unwrap()[i] = Some(r);
                 }
             });
         }
     });
-    resultados.into_inner().unwrap().into_iter().map(|r| r.expect("todo programa executado")).collect()
+    results.into_inner().unwrap().into_iter().map(|r| r.expect("every program was run")).collect()
 }
 
-/// Executa o corpus inteiro com `std::thread` (fila compartilhada), preservando a ordem.
-/// `progresso` é chamado no fim de cada programa (para imprimir andamento).
-pub fn executar_corpus(amb: &Ambiente, programas: &[Programa], op: Opcoes, progresso: impl Fn(&Resultado) + Sync) -> Vec<Resultado> {
-    em_paralelo(programas, op.threads, |p| executar_programa(amb, p, op), progresso)
+/// Runs the whole corpus with `std::thread` (shared queue), preserving the order.
+/// `progress` is called at the end of each program (to print progress).
+pub fn run_corpus(env: &Environment, programs: &[Program], op: Options, progress: impl Fn(&ProgramResult) + Sync) -> Vec<ProgramResult> {
+    in_parallel(programs, op.threads, |p| run_program(env, p, op), progress)
 }
 
-/// Emissões simultâneas quando `DARTFORGE_IR_PARALELO_MAX` não diz outra coisa.
+/// Concurrent emissions when `DARTFORGE_IR_PARALELO_MAX` does not say otherwise.
 ///
-/// Cada emissão carrega o SDK, analisa e baixa o programa dentro do processo
-/// do harness. Hoje isso é barato (medido em `ESTADO.md` §3.2: o corpus
-/// inteiro em menos de meio segundo, pico de 10 MB com oito ao mesmo tempo),
-/// porque a seção `vm` do `libraries.json` só declara `dart:cli` e o
-/// `include` de `vm_common` ainda não é seguido. Quando for, cada emissão
-/// passa a analisar o SDK inteiro — no JS isso custa centenas de MB (§1.3) —,
-/// e oito ao mesmo tempo não cabem na máquina de 7,7 GB compartilhada. O
-/// teste de determinismo não precisa de oito emissões *físicas*: precisa de
-/// oito trabalhadores disputando a fila, para a ordem de conclusão mudar — e
-/// ela continua mudando com o limite, porque quem pega a vaga seguinte é
-/// decidido pelo escalonador.
-pub const EMISSOES_SIMULTANEAS_PADRAO: usize = 2;
+/// Each emission loads the SDK, analyzes and lowers the program inside the
+/// harness process. Today that is cheap (measured in `ESTADO.md` §3.2: the
+/// whole corpus in under half a second, a peak of 10 MB with eight at the
+/// same time), because the `vm` section of `libraries.json` only declares
+/// `dart:cli` and the `include` of `vm_common` is not followed yet. When it
+/// is, each emission starts analyzing the whole SDK — in JS that costs
+/// hundreds of MB (§1.3) —, and eight at the same time do not fit in the
+/// shared 7.7 GB machine. The determinism test does not need eight *physical*
+/// emissions: it needs eight workers competing for the queue, so that the
+/// completion order changes — and it still changes with the limit, because who
+/// takes the next slot is decided by the scheduler.
+pub const DEFAULT_CONCURRENT_EMISSIONS: usize = 2;
 
-/// Semáforo contado: no máximo `max` trechos protegidos rodando ao mesmo tempo,
-/// qualquer que seja o número de trabalhadores.
+/// Counting semaphore: at most `max` protected sections running at the same
+/// time, whatever the number of workers.
 #[derive(Debug)]
-pub struct Limitador {
+pub struct Limiter {
     max: usize,
-    livres: Mutex<usize>,
-    vaga: Condvar,
+    free: Mutex<usize>,
+    slot: Condvar,
 }
 
-impl Limitador {
-    pub fn novo(max: usize) -> Limitador {
+impl Limiter {
+    pub fn new(max: usize) -> Limiter {
         let max = max.max(1);
-        Limitador { max, livres: Mutex::new(max), vaga: Condvar::new() }
+        Limiter { max, free: Mutex::new(max), slot: Condvar::new() }
     }
 
-    /// `DARTFORGE_IR_PARALELO_MAX` quando é um número positivo, senão
-    /// [`EMISSOES_SIMULTANEAS_PADRAO`].
-    pub fn do_ambiente() -> Limitador {
+    /// `DARTFORGE_IR_PARALELO_MAX` when it is a positive number, otherwise
+    /// [`DEFAULT_CONCURRENT_EMISSIONS`].
+    pub fn from_env() -> Limiter {
         let max = std::env::var("DARTFORGE_IR_PARALELO_MAX")
             .ok()
             .and_then(|v| v.trim().parse::<usize>().ok())
             .filter(|n| *n > 0)
-            .unwrap_or(EMISSOES_SIMULTANEAS_PADRAO);
-        Limitador::novo(max)
+            .unwrap_or(DEFAULT_CONCURRENT_EMISSIONS);
+        Limiter::new(max)
     }
 
     pub fn max(&self) -> usize {
         self.max
     }
 
-    /// Executa `f` ocupando uma vaga; espera se não houver. A vaga volta mesmo
-    /// que `f` entre em pânico.
-    pub fn com<T>(&self, f: impl FnOnce() -> T) -> T {
-        struct Vaga<'a>(&'a Limitador);
-        impl Drop for Vaga<'_> {
+    /// Runs `f` holding a slot; waits if there is none. The slot is returned
+    /// even if `f` panics.
+    pub fn run<T>(&self, f: impl FnOnce() -> T) -> T {
+        struct SlotGuard<'a>(&'a Limiter);
+        impl Drop for SlotGuard<'_> {
             fn drop(&mut self) {
-                *self.0.livres.lock().unwrap_or_else(|e| e.into_inner()) += 1;
-                self.0.vaga.notify_one();
+                *self.0.free.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+                self.0.slot.notify_one();
             }
         }
         {
-            let mut livres = self.livres.lock().unwrap();
-            while *livres == 0 {
-                livres = self.vaga.wait(livres).unwrap();
+            let mut free = self.free.lock().unwrap();
+            while *free == 0 {
+                free = self.slot.wait(free).unwrap();
             }
-            *livres -= 1;
+            *free -= 1;
         }
-        let _vaga = Vaga(self);
+        let _slot = SlotGuard(self);
         f()
     }
 }
 
-/// Emite o LLVM IR de cada programa (sem Clang, ligação nem execução) e
-/// guarda só o resumo: o texto é descartado ainda dentro da vaga do
-/// `limite`, para a memória dele não se somar à da emissão seguinte.
-pub fn emitir_ir_corpus(programas: &[Programa], threads: usize, limite: &Limitador) -> Vec<IrPrograma> {
-    em_paralelo(
-        programas,
+/// Emits the LLVM IR of each program (without Clang, linking or running) and
+/// keeps only the summary: the text is discarded while still inside the
+/// `limiter`'s slot, so that its memory does not add up with the next
+/// emission's.
+pub fn emit_corpus_ir(programs: &[Program], threads: usize, limiter: &Limiter) -> Vec<ProgramIr> {
+    in_parallel(
+        programs,
         threads,
-        |p| IrPrograma {
-            nome: p.nome.clone(),
-            resultado: limite.com(|| dartforge_nativo_ir(p).map(|texto| ResumoIr::de(&texto))),
+        |p| ProgramIr {
+            name: p.name.clone(),
+            result: limiter.run(|| dartforge_native_ir(p).map(|text| ResumoIr::de(&text))),
         },
         |_| {},
     )
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
-    fn programas(n: usize) -> Vec<Programa> {
-        (0..n).map(|i| Programa::teste(&format!("p{i}"))).collect()
+    fn programs(n: usize) -> Vec<Program> {
+        (0..n).map(|i| Program::test(&format!("p{i}"))).collect()
     }
 
     #[test]
-    fn em_paralelo_preserva_a_ordem() {
-        let ps = programas(24);
-        let esperado: Vec<String> = ps.iter().map(|p| p.nome.clone()).collect();
+    fn in_parallel_preserves_order() {
+        let ps = programs(24);
+        let expected: Vec<String> = ps.iter().map(|p| p.name.clone()).collect();
         for threads in [1, 4, 8] {
-            let chamados = AtomicUsize::new(0);
-            // Os primeiros demoram mais: com vários trabalhadores, a ordem de
-            // conclusão fica diferente da ordem do corpus.
-            let r = em_paralelo(
+            let called = AtomicUsize::new(0);
+            // The first ones take longer: with several workers, the completion
+            // order differs from the corpus order.
+            let r = in_parallel(
                 &ps,
                 threads,
                 |p| {
-                    let i: u64 = p.nome[1..].parse().unwrap();
+                    let i: u64 = p.name[1..].parse().unwrap();
                     std::thread::sleep(Duration::from_millis(24 - i));
-                    p.nome.clone()
+                    p.name.clone()
                 },
                 |_| {
-                    chamados.fetch_add(1, Ordering::SeqCst);
+                    called.fetch_add(1, Ordering::SeqCst);
                 },
             );
-            assert_eq!(r, esperado, "{threads} trabalhadores");
-            assert_eq!(chamados.load(Ordering::SeqCst), ps.len());
+            assert_eq!(r, expected, "{threads} workers");
+            assert_eq!(called.load(Ordering::SeqCst), ps.len());
         }
     }
 
     #[test]
-    fn limitador_respeita_o_maximo() {
-        let limite = Limitador::novo(2);
-        let dentro = AtomicUsize::new(0);
-        let pico = AtomicUsize::new(0);
-        em_paralelo(
-            &programas(16),
+    fn limiter_respects_the_maximum() {
+        let limiter = Limiter::new(2);
+        let inside = AtomicUsize::new(0);
+        let peak = AtomicUsize::new(0);
+        in_parallel(
+            &programs(16),
             8,
             |_| {
-                limite.com(|| {
-                    let agora = dentro.fetch_add(1, Ordering::SeqCst) + 1;
-                    pico.fetch_max(agora, Ordering::SeqCst);
+                limiter.run(|| {
+                    let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(now, Ordering::SeqCst);
                     std::thread::sleep(Duration::from_millis(5));
-                    dentro.fetch_sub(1, Ordering::SeqCst);
+                    inside.fetch_sub(1, Ordering::SeqCst);
                 })
             },
             |_| {},
         );
-        let pico = pico.load(Ordering::SeqCst);
-        assert!((1..=2).contains(&pico), "pico de {pico} dentro do limitador de 2");
+        let peak = peak.load(Ordering::SeqCst);
+        assert!((1..=2).contains(&peak), "peak of {peak} inside the limiter of 2");
     }
 }
