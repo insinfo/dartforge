@@ -1,32 +1,34 @@
-//! Cache de unidades já analisadas, para uma sessão residente (`dartforge dev`).
+//! Cache of already analyzed units, for a resident session
+//! (`dartforge dev`).
 //!
-//! Entre duas compilações a maior parte dos arquivos não mudou: no
-//! `new_sali/core` são 2.423 unidades (SDK incluído) e uma edição toca uma.
-//! Guardando `(source, AST, CompilationUnit)` por caminho, a compilação
-//! seguinte reanalisa só o que foi invalidado.
+//! Between two compilations most files did not change: in `new_sali/core`
+//! there are 2,423 units (SDK included) and one edit touches one. By keeping
+//! `(source, AST, CompilationUnit)` per path, the next compilation reanalyzes
+//! only what was invalidated.
 //!
-//! **Quem decide o que mudou é o chamador**, não o carregador: perguntar ao
-//! sistema de arquivos a cada unidade custava um `stat` por arquivo dentro da
-//! carga (2.423 no `new_sali`, 7–20 s de relógio no Windows com antivírus).
-//! A sessão chama [`CacheUnidades::alterados`] — que faz a varredura **em
-//! paralelo** — ou [`CacheUnidades::invalidar`] quando já sabe o arquivo.
+//! **The caller decides what changed**, not the loader: asking the file
+//! system for every unit cost one `stat` per file inside the load (2,423 in
+//! `new_sali`, 7–20 s of wall clock on Windows with an antivirus). The
+//! session calls [`CacheUnidades::alterados`] — which does the scan **in
+//! parallel** — or [`CacheUnidades::invalidar`] when it already knows the
+//! file.
 //!
-//! Condição de uso: o mesmo [`dartforge_intern::Interner`] das análises
-//! anteriores, porque os nós guardam `SymbolId` daquela arena.
+//! Condition of use: the same [`dartforge_intern::Interner`] as the previous
+//! analyses, because the nodes keep `SymbolId`s from that arena.
 use crate::model::{Program, Unit, UnitRole};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Identidade barata de um arquivo: o que o `mtime` e o tamanho dizem.
+/// Cheap identity of a file: what the `mtime` and the size say.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Marca {
-    /// Modificação em nanossegundos desde a época (0 quando indisponível).
+    /// Modification time in nanoseconds since the epoch (0 when unavailable).
     pub mtime_ns: u128,
     pub tamanho: u64,
 }
 
 impl Marca {
-    /// Lê a marca de um caminho; `None` se o arquivo não existe.
+    /// Reads the stamp of a path; `None` if the file does not exist.
     pub fn ler(path: &Path) -> Option<Marca> {
         let md = std::fs::metadata(path).ok()?;
         let mtime_ns = md
@@ -39,13 +41,13 @@ impl Marca {
     }
 }
 
-/// Unidades guardadas entre compilações, por caminho.
+/// Units kept between compilations, by path.
 #[derive(Default)]
 pub struct CacheUnidades {
     unidades: HashMap<PathBuf, Unit>,
-    /// Marca do arquivo quando a unidade foi analisada.
+    /// The file's stamp when the unit was analyzed.
     marks: HashMap<PathBuf, Marca>,
-    /// Unidades reaproveitadas na carga corrente.
+    /// Units reused in the current load.
     pub reaproveitadas: usize,
 }
 
@@ -62,7 +64,7 @@ impl CacheUnidades {
         self.unidades.is_empty()
     }
 
-    /// Esquece uma unidade (arquivo editado ou apagado).
+    /// Forgets a unit (edited or deleted file).
     pub fn invalidar(&mut self, path: &Path) {
         self.unidades.remove(path);
         self.marks.remove(path);
@@ -73,22 +75,22 @@ impl CacheUnidades {
         self.marks.clear();
     }
 
-    /// Bytes de fonte retidos — a parcela que cresce com o projeto, não com
-    /// o número de edições (o exemplo `medir` vigia isso).
+    /// Source bytes retained — the share that grows with the project, not with
+    /// the number of edits (the `medir` example watches this).
     pub fn bytes_fonte(&self) -> usize {
         self.unidades.values().map(|u| u.source.len()).sum()
     }
 
-    /// Zera os contadores da carga (o carregador chama ao começar).
+    /// Resets the load counters (the loader calls this when starting).
     pub fn start_load(&mut self) {
         self.reaproveitadas = 0;
     }
 
-    /// Caminhos guardados cujo arquivo mudou (ou sumiu) desde a análise.
+    /// Kept paths whose file changed (or disappeared) since the analysis.
     ///
-    /// É a varredura do observador do `dartforge dev`: um `stat` por unidade,
-    /// **em paralelo** (no Windows cada `stat` passa pelo antivírus e em série
-    /// custaria segundos), sem ler conteúdo.
+    /// It is the `dartforge dev` watcher's scan: one `stat` per unit, **in
+    /// parallel** (on Windows each `stat` goes through the antivirus and in
+    /// series would cost seconds), without reading content.
     pub fn alterados(&self) -> Vec<PathBuf> {
         let caminhos: Vec<(&PathBuf, Marca)> = self.marks.iter().map(|(p, m)| (p, *m)).collect();
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
@@ -121,18 +123,18 @@ impl CacheUnidades {
         batches.into_iter().flatten().collect()
     }
 
-    /// Caminhos guardados (o que a sessão observa).
+    /// Kept paths (what the session watches).
     pub fn caminhos(&self) -> Vec<PathBuf> {
         self.unidades.keys().cloned().collect()
     }
 
-    /// Se há unidade guardada para `path` (sem tocar no disco).
+    /// Whether there is a kept unit for `path` (without touching the disk).
     pub fn contem(&self, path: &Path) -> bool {
         self.unidades.contains_key(path)
     }
 
-    /// Retira a unidade de `path`, se houver. Não confere o disco: o que foi
-    /// invalidado já saiu daqui.
+    /// Takes out the unit of `path`, if any. Does not check the disk: what was
+    /// invalidated has already left.
     pub(crate) fn take(&mut self, path: &Path) -> Option<Unit> {
         let u = self.unidades.remove(path);
         if u.is_some() {
@@ -141,16 +143,16 @@ impl CacheUnidades {
         u
     }
 
-    /// Registra a marca de um arquivo recém-lido (um `stat`, no ato da
-    /// leitura — é a única consulta ao disco que a carga faz por arquivo novo).
+    /// Records the stamp of a freshly read file (one `stat`, at read time — it
+    /// is the only disk query the load makes per new file).
     pub(crate) fn annotate_marker(&mut self, path: &Path) {
         if let Some(m) = Marca::ler(path) {
             self.marks.insert(path.to_path_buf(), m);
         }
     }
 
-    /// Recolhe as unidades de um [`Program`] que não serve mais — inclusive as
-    /// do SDK, que também não mudam entre edições.
+    /// Collects the units of a [`Program`] that is no longer used — including
+    /// those of the SDK, which do not change between edits either.
     pub fn recolher(&mut self, program: Program) {
         let Program { units, .. } = program;
         for u in units {
@@ -160,9 +162,9 @@ impl CacheUnidades {
     }
 }
 
-/// Papel e URI esperados de uma unidade reaproveitada, conferidos pelo
-/// carregador antes de aceitá-la (o mesmo arquivo pode entrar como parte de
-/// outra biblioteca depois de uma edição de diretivas).
+/// Role and URI expected of a reused unit, checked by the loader before
+/// accepting it (the same file may come in as a part of another library
+/// after a directive edit).
 pub(crate) fn serve(u: &Unit, uri: &str, role: UnitRole) -> bool {
     u.uri == uri && u.role == role
 }

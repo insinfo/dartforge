@@ -1,64 +1,68 @@
-//! Interning de nomes: identificadores repetidos colapsam num índice de 4 bytes.
+//! Name interning: repeated identifiers collapse into a 4-byte index.
 //!
-//! A meta de memória exige colapsar identificadores repetidos na camada
-//! semântica em vez de uma `String` por ocorrência. Hoje o AST empresta `&'a str`
-//! da fonte em 54 pontos (`crates/syntax`), então nada sobrevive entre revisões
-//! e nenhum cache por unidade é possível: o empréstimo amarra o modelo ao texto
-//! de uma revisão específica.
+//! The memory goal requires collapsing repeated identifiers in the semantic
+//! layer instead of one `String` per occurrence. Today the AST borrows
+//! `&'a str` from the source in 54 places (`crates/syntax`), so nothing
+//! survives between revisions and no per-unit cache is possible: the borrow
+//! ties the model to the text of one specific revision.
 //!
-//! Este crate é a peça que quebra esse empréstimo. O desenho:
+//! This crate is the piece that breaks that borrow. The design:
 //!
-//! * [`SymbolId`] é `Copy`, 4 bytes, e não aponta para revisão alguma;
-//! * [`Interner`] é a arena de nomes de **uma revisão**: interna uma vez por
-//!   nome distinto, resolve por índice, e informa [`Interner::payload_bytes`]
-//!   para a verificação de `live_bytes` do modelo antes/depois;
-//! * entre revisões, só o `SymbolId` atravessa; a arena velha cai com a revisão
-//!   velha, e o descarte é determinístico como qualquer `drop`.
+//! * [`SymbolId`] is `Copy`, 4 bytes, and points to no revision;
+//! * [`Interner`] is the name arena of **one revision**: it interns each
+//!   distinct name once, resolves by index, and reports
+//!   [`Interner::payload_bytes`] for the model's before/after `live_bytes`
+//!   check;
+//! * between revisions, only the `SymbolId` crosses over; the old arena goes
+//!   away with the old revision, and the disposal is as deterministic as any
+//!   `drop`.
 //!
-//! O que ainda falta (fronteira registrada, não esquecida): trocar os 54 pontos
-//! de `&'a str` no AST por `SymbolId` exige enfiar um `Interner` no lexer/parser
-//! e mudar todos os consumidores — semântica, HIR, codegen. Este crate entrega a
-//! facilidade e os testes; a migração dos consumidores é o passo seguinte e tem
-//! verificação própria (item 4 da meta).
+//! What is still missing (a recorded boundary, not a forgotten one):
+//! replacing the 54 `&'a str` places in the AST with `SymbolId` requires
+//! threading an `Interner` through the lexer/parser and changing every
+//! consumer — semantics, HIR, codegen. This crate delivers the facility and
+//! the tests; migrating the consumers is the next step and has its own
+//! verification (item 4 of the goal).
 use std::collections::HashMap;
 
-/// Identificador interno de um nome distinto: 4 bytes, `Copy`, sem empréstimo.
+/// Interned identifier of a distinct name: 4 bytes, `Copy`, no borrowing.
 ///
-/// Só é significativo dentro do [`Interner`] que o produziu. Comparar IDs de
-/// arenas diferentes é erro lógico — por isso não há ordem total entre arenas,
-/// apenas igualdade dentro do mesmo espaço de nomes por construção.
+/// It is only meaningful inside the [`Interner`] that produced it. Comparing
+/// IDs from different arenas is a logic error — that is why there is no
+/// total order across arenas, only equality within the same namespace by
+/// construction.
 ///
-/// Guardado como `NonZeroU32` (índice + 1) para que `Option<SymbolId>` e
-/// `Option<Name>` custem o mesmo que o valor sem `Option`: a árvore tem
-/// milhares de nomes opcionais (argumento nomeado, construtor nomeado,
-/// parâmetro sem nome), e o nicho economiza 8 bytes em cada um.
+/// Stored as a `NonZeroU32` (index + 1) so that `Option<SymbolId>` and
+/// `Option<Name>` cost the same as the value without `Option`: the tree has
+/// thousands of optional names (named argument, named constructor, unnamed
+/// parameter), and the niche saves 8 bytes on each one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct SymbolId(std::num::NonZeroU32);
 
 impl SymbolId {
-    /// Devolve o índice numérico bruto do símbolo dentro da sua arena
-    /// (a partir de zero).
+    /// Returns the symbol's raw numeric index inside its arena (zero-based).
     pub const fn as_u32(self) -> u32 {
         self.0.get() - 1
     }
 
-    /// Constrói a partir do índice na arena; só o [`Interner`] chama.
+    /// Builds from the index in the arena; only the [`Interner`] calls this.
     const fn from_index(index: u32) -> Self {
-        // `index + 1` nunca é zero enquanto a arena couber em `u32`.
+        // `index + 1` is never zero while the arena fits in `u32`.
         match std::num::NonZeroU32::new(index.wrapping_add(1)) {
             Some(n) => SymbolId(n),
-            None => panic!("arena de nomes esgotou o espaço de u32"),
+            None => panic!("name arena exhausted the u32 space"),
         }
     }
 }
 
-/// Arena de nomes de uma revisão: cada texto distinto vive exatamente uma vez.
+/// Name arena of one revision: each distinct text lives exactly once.
 ///
-/// Internar o mesmo texto duas vezes devolve o mesmo [`SymbolId`] sem alocar de
-/// novo; é assim que N ocorrências de um identificador custam uma `Box<str>` em
-/// vez de N. A estimativa de [`Interner::payload_bytes`] soma os bytes das
-/// caixas retidas, sem medir capacidade ociosa do mapa nem overhead do alocador
-/// — o mesmo contrato de honestidade do cache de macros.
+/// Interning the same text twice returns the same [`SymbolId`] without
+/// allocating again; that is how N occurrences of an identifier cost one
+/// `Box<str>` instead of N. The [`Interner::payload_bytes`] estimate adds up
+/// the bytes of the retained boxes, without measuring the map's idle
+/// capacity or the allocator's overhead — the same honesty contract as the
+/// macro cache.
 #[derive(Debug, Default)]
 pub struct Interner {
     ids: HashMap<Box<str>, SymbolId>,
@@ -67,12 +71,13 @@ pub struct Interner {
 }
 
 impl Interner {
-    /// Consulta se um texto já foi internado nesta arena sem interná-lo novamente.
-    pub fn lookup(&self, texto: &str) -> Option<SymbolId> {
-        self.ids.get(texto).copied()
+    /// Checks whether a text was already interned in this arena without
+    /// interning it again.
+    pub fn lookup(&self, text: &str) -> Option<SymbolId> {
+        self.ids.get(text).copied()
     }
 
-    /// Cria uma arena vazia, sem alocar.
+    /// Creates an empty arena, without allocating.
     ///
     /// ```
     /// let arena = dartforge_intern::Interner::new();
@@ -82,36 +87,37 @@ impl Interner {
         Self::default()
     }
 
-    /// Interna o texto e devolve seu índice estável nesta arena.
+    /// Interns the text and returns its stable index in this arena.
     ///
-    /// Texto repetido não aloca: o índice existente volta direto do mapa.
+    /// Repeated text does not allocate: the existing index comes straight back
+    /// from the map.
     ///
     /// ```
     /// let mut arena = dartforge_intern::Interner::new();
-    /// let a = arena.intern("somar");
-    /// assert_eq!(arena.intern("somar"), a);
-    /// assert_eq!(arena.resolve(a), "somar");
+    /// let a = arena.intern("add");
+    /// assert_eq!(arena.intern("add"), a);
+    /// assert_eq!(arena.resolve(a), "add");
     /// ```
-    pub fn intern(&mut self, texto: &str) -> SymbolId {
-        if let Some(id) = self.ids.get(texto) {
+    pub fn intern(&mut self, text: &str) -> SymbolId {
+        if let Some(id) = self.ids.get(text) {
             return *id;
         }
         let id = SymbolId::from_index(self.textos.len() as u32);
-        let guardado: Box<str> = texto.into();
-        self.payload_bytes = self.payload_bytes.saturating_add(guardado.len());
-        self.textos.push(guardado.clone());
-        self.ids.insert(guardado, id);
+        let stored: Box<str> = text.into();
+        self.payload_bytes = self.payload_bytes.saturating_add(stored.len());
+        self.textos.push(stored.clone());
+        self.ids.insert(stored, id);
         id
     }
 
-    /// Resolve um índice produzido por [`Interner::intern`] nesta arena.
+    /// Resolves an index produced by [`Interner::intern`] in this arena.
     ///
     /// # Panics
     ///
-    /// Entra em `panic` quando o índice não pertence a esta arena — inclusive
-    /// quando veio de outra revisão. Atravessar a fronteira de revisão com texto
-    /// em vez de [`SymbolId`] é exatamente o empréstimo que este crate existe
-    /// para eliminar, então a confusão falha alto em vez de ler lixo.
+    /// Panics when the index does not belong to this arena — including when it
+    /// came from another revision. Crossing the revision boundary with text
+    /// instead of a [`SymbolId`] is exactly the borrow this crate exists to
+    /// eliminate, so the mix-up fails loudly instead of reading garbage.
     ///
     /// ```
     /// let mut arena = dartforge_intern::Interner::new();
@@ -122,28 +128,29 @@ impl Interner {
         &self.textos[id.as_u32() as usize]
     }
 
-    /// Nomes distintos retidos por esta arena.
+    /// Distinct names retained by this arena.
     pub fn len(&self) -> usize {
         self.textos.len()
     }
 
-    /// Textos na ordem dos índices (`textos()[id.as_u32()]`), para
-    /// reconstruir uma arena com os mesmos ids (cache do SDK).
+    /// Texts in index order (`textos()[id.as_u32()]`), to rebuild an arena with
+    /// the same ids (SDK cache).
     pub fn textos(&self) -> impl Iterator<Item = &str> {
         self.textos.iter().map(|t| &**t)
     }
 
-    /// Verdadeiro quando nenhum nome foi internado.
+    /// True when no name was interned.
     pub fn is_empty(&self) -> bool {
         self.textos.is_empty()
     }
 
-    /// Bytes textuais retidos; somas saturadas impedem orçamento contornado.
+    /// Retained text bytes; saturating sums prevent a bypassed budget.
     pub fn payload_bytes(&self) -> usize {
         self.payload_bytes
     }
 
-    /// Esvazia a arena e zera os bytes retidos; IDs antigos não valem mais.
+    /// Empties the arena and resets the retained bytes; old IDs are no longer
+    /// valid.
     pub fn clear(&mut self) {
         self.ids.clear();
         self.textos.clear();
@@ -155,35 +162,35 @@ impl Interner {
 mod tests {
     use super::*;
 
-    /// Repetição colapsa: N ocorrências, uma caixa, um índice.
+    /// Repetition collapses: N occurrences, one box, one index.
     #[test]
-    fn repeticao_colapsa_num_indice() {
+    fn repetition_collapses_into_one_index() {
         let mut arena = Interner::new();
-        let primeiro = arena.intern("contator");
+        let first = arena.intern("counter");
         for _ in 0..100 {
-            assert_eq!(arena.intern("contator"), primeiro);
+            assert_eq!(arena.intern("counter"), first);
         }
         assert_eq!(arena.len(), 1);
-        assert_eq!(arena.payload_bytes(), "contator".len());
-        assert_eq!(arena.resolve(primeiro), "contator");
+        assert_eq!(arena.payload_bytes(), "counter".len());
+        assert_eq!(arena.resolve(first), "counter");
     }
 
-    /// Nomes vizinhos não se confundem, inclusive com prefixos comuns.
+    /// Neighboring names are not confused, including with common prefixes.
     #[test]
-    fn distintos_tem_indices_distintos() {
+    fn distinct_names_have_distinct_indices() {
         let mut arena = Interner::new();
-        let soma = arena.intern("soma");
-        let somar = arena.intern("somar");
-        let outra_soma = arena.intern("soma");
-        assert_ne!(soma, somar);
-        assert_eq!(soma, outra_soma);
+        let sum = arena.intern("sum");
+        let add = arena.intern("add");
+        let other_sum = arena.intern("sum");
+        assert_ne!(sum, add);
+        assert_eq!(sum, other_sum);
         assert_eq!(arena.len(), 2);
-        assert_eq!(arena.resolve(somar), "somar");
+        assert_eq!(arena.resolve(add), "add");
     }
 
-    /// `clear` descarta tudo e a arena volta a medir zero.
+    /// `clear` drops everything and the arena measures zero again.
     #[test]
-    fn limpar_descarta_os_nomes() {
+    fn clear_drops_the_names() {
         let mut arena = Interner::new();
         arena.intern("a");
         arena.intern("bb");
@@ -194,13 +201,13 @@ mod tests {
         assert_eq!(arena.resolve(id), "a");
     }
 
-    /// Índice de outra arena falha alto em vez de resolver errado.
+    /// An index from another arena fails loudly instead of resolving wrongly.
     #[test]
     #[should_panic]
-    fn indice_de_outra_arena_falha() {
-        let mut velha = Interner::new();
-        let id = velha.intern("x");
-        let nova = Interner::new();
-        let _ = nova.resolve(id);
+    fn index_from_another_arena_fails() {
+        let mut old = Interner::new();
+        let id = old.intern("x");
+        let new_arena = Interner::new();
+        let _ = new_arena.resolve(id);
     }
 }

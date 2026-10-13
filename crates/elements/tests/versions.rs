@@ -1,7 +1,7 @@
-//! Versão de linguagem por biblioteca (`docs/VERSOES-LINGUAGEM.md` §2): o
-//! marcador `// @dart = x.y` vale mais que o `languageVersion` do pacote, que
-//! vale mais que a versão corrente; partes seguem a biblioteca; `dart:*` fica
-//! no piso.
+//! Language version per library (`docs/VERSOES-LINGUAGEM.md` §2): the
+//! `// @dart = x.y` marker wins over the package's `languageVersion`, which
+//! wins over the current version; parts follow the library; `dart:*` stays
+//! at the floor.
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::model::Program;
 use dartforge_elements::sdk::SdkLayout;
@@ -81,7 +81,8 @@ fn marker_wins_over_package() {
         ] }"#,
     )
     .unwrap();
-    // `bin/` pertence ao pacote pela raiz; `lib/` pela URI `package:`.
+    // `bin/` belongs to the package through the root; `lib/` through the
+    // `package:` URI.
     fs::write(
         proj.join("bin/main.dart"),
         "import 'package:app/a.dart';\nimport 'package:app/b.dart';\nvoid main() {}",
@@ -90,7 +91,7 @@ fn marker_wins_over_package() {
     fs::write(proj.join("lib/a.dart"), "int a = 1;").unwrap();
     fs::write(
         proj.join("lib/b.dart"),
-        "// licença\n// @dart = 3.6\nint b = 1;",
+        "// license\n// @dart = 3.6\nint b = 1;",
     )
     .unwrap();
     let (p, d) = load_lenient(
@@ -127,13 +128,14 @@ fn part_with_different_version_is_error() {
     .unwrap();
     let (p, d) = load_lenient(&main, &sdk, None, &mut Interner::new());
     assert_eq!(version_of(&p, "main.dart"), v(3, 10));
-    // `q.dart` sem marcador fica na corrente (3.13), diferente da biblioteca.
+    // `q.dart` without a marker stays at the current version (3.13), unlike
+    // the library.
     assert_eq!(d.len(), 1, "{d:?}");
     assert!(
         d[0].message.contains("q.dart")
             && d[0]
                 .message
-                .contains("a parte está na versão de linguagem 3.13"),
+                .contains("the part is at language version 3.13"),
         "{}",
         d[0].message
     );

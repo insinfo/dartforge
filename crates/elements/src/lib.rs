@@ -1,10 +1,10 @@
-//! Modelo de elementos e carregamento do grafo de bibliotecas (trilha completa).
+//! Element model and loading of the library graph (complete track).
 //!
-//! Segunda fase da meta governante (docs/FRONTEND-ARQUITETURA.md §3): a partir
-//! de uma entrada, carrega o fecho transitivo de bibliotecas — projeto,
-//! pacotes via `package_config.json` e SDK via `libraries.json` com patches —
-//! e constrói o outline: namespaces, elementos e hierarquia por nome. Corpos
-//! não são analisados aqui.
+//! Second phase of the governing goal (docs/FRONTEND-ARQUITETURA.md §3):
+//! starting from an entry point, loads the transitive closure of libraries —
+//! project, packages via `package_config.json` and the SDK via
+//! `libraries.json` with patches — and builds the outline: namespaces,
+//! elements and the hierarchy by name. Bodies are not analyzed here.
 #![allow(clippy::too_many_arguments, clippy::collapsible_if)]
 
 pub mod augmentation;

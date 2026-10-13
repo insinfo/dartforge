@@ -1,10 +1,10 @@
-//! Contabilidade de memória e tempo para medir o custo real da compilação.
+//! Memory and time accounting to measure the real cost of compilation.
 //!
-//! O objetivo é responder "quanto trabalho foi feito", não apenas "quanto tempo
-//! passou". Um alocador contador informa bytes vivos e pico de bytes vivos do
-//! processo; os contadores de fase informam quantas unidades foram relidas,
-//! reanalisadas e reemitidas. Sem esses números qualquer afirmação de
-//! desempenho incremental seria não verificável.
+//! The goal is to answer "how much work was done", not just "how much time
+//! passed". A counting allocator reports the process's live bytes and peak
+//! live bytes; the phase counters report how many units were reread,
+//! reanalyzed and re-emitted. Without these numbers any incremental
+//! performance claim would be unverifiable.
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -12,21 +12,23 @@ static LIVE: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 
-/// Alocador que delega ao sistema e mantém bytes vivos, pico e número de alocações.
+/// Allocator that delegates to the system and keeps live bytes, peak and the
+/// number of allocations.
 ///
-/// Instale-o no binário de medição com `#[global_allocator]`. O custo é de dois
-/// inteiros atômicos por alocação, suficiente para comparar variantes do próprio
-/// compilador, mas não deve ser usado em builds de produção.
+/// Install it in the measuring binary with `#[global_allocator]`. The cost is
+/// two atomic integers per allocation, enough to compare variants of the
+/// compiler itself, but it must not be used in production builds.
 ///
 /// ```
 /// # use dartforge_instrument::CountingAllocator;
 /// // #[global_allocator]
-/// static ALOCADOR: CountingAllocator = CountingAllocator;
-/// let _ = &ALOCADOR;
+/// static ALLOCATOR: CountingAllocator = CountingAllocator;
+/// let _ = &ALLOCATOR;
 /// ```
 pub struct CountingAllocator;
 
-/// Atualiza o pico com o maior valor já observado, sem travar o alocador.
+/// Updates the peak with the largest value seen so far, without locking the
+/// allocator.
 fn record(live: usize) {
     let mut peak = PEAK.load(Ordering::Relaxed);
     while live > peak {
@@ -37,10 +39,12 @@ fn record(live: usize) {
     }
 }
 
-// SAFETY: cada método apenas delega a `System`, que cumpre o contrato de
-// GlobalAlloc, e atualiza contadores atômicos que não afetam os ponteiros.
+// SAFETY: each method only delegates to `System`, which fulfills the
+// GlobalAlloc contract, and updates atomic counters that do not affect the
+// pointers.
 unsafe impl GlobalAlloc for CountingAllocator {
-    /// Delega ao sistema e soma o tamanho pedido quando a alocação tem sucesso.
+    /// Delegates to the system and adds the requested size when the allocation
+    /// succeeds.
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let pointer = unsafe { System.alloc(layout) };
         if !pointer.is_null() {
@@ -49,12 +53,14 @@ unsafe impl GlobalAlloc for CountingAllocator {
         }
         pointer
     }
-    /// Devolve ao sistema e subtrai exatamente o tamanho registrado na alocação.
+    /// Returns to the system and subtracts exactly the size recorded at
+    /// allocation.
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
         LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
         unsafe { System.dealloc(pointer, layout) }
     }
-    /// Delega ao sistema e ajusta a diferença de tamanho em uma única operação.
+    /// Delegates to the system and adjusts the size difference in a single
+    /// operation.
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         let result = unsafe { System.realloc(pointer, layout, new_size) };
         if !result.is_null() {
@@ -70,19 +76,21 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 }
 
-/// Bytes atualmente vivos segundo o alocador contador.
+/// Bytes currently live according to the counting allocator.
 pub fn live_bytes() -> usize {
     LIVE.load(Ordering::Relaxed)
 }
-/// Maior valor de bytes vivos observado desde o último `reset_peak`.
+/// Largest live byte count observed since the last `reset_peak`.
 pub fn peak_bytes() -> usize {
     PEAK.load(Ordering::Relaxed)
 }
-/// Número de alocações e realocações bem-sucedidas desde o início do processo.
+/// Number of successful allocations and reallocations since the process
+/// started.
 pub fn allocation_count() -> usize {
     ALLOCATIONS.load(Ordering::Relaxed)
 }
-/// Reinicia o pico para o valor vivo atual antes de medir uma nova operação.
+/// Resets the peak to the current live value before measuring a new
+/// operation.
 pub fn reset_peak() {
     PEAK.store(LIVE.load(Ordering::Relaxed), Ordering::Relaxed);
 }
@@ -91,13 +99,14 @@ pub fn reset_peak() {
 mod tests {
     use super::*;
 
-    // Os contadores só existem quando o alocador está instalado. O binário de
-    // teste precisa instalá-lo por conta própria: fora dele, o crate é apenas a
-    // definição do alocador e os contadores permanecem zerados.
+    // The counters only exist when the allocator is installed. The test binary
+    // has to install it itself: outside it, the crate is just the allocator's
+    // definition and the counters stay at zero.
     #[global_allocator]
-    static ALOCADOR: CountingAllocator = CountingAllocator;
+    static ALLOCATOR: CountingAllocator = CountingAllocator;
 
-    /// O pico acompanha uma alocação grande e volta a acompanhar o vivo após reset.
+    /// The peak follows a large allocation and follows the live value again
+    /// after a reset.
     #[test]
     fn peak_tracks_allocations_and_reset_returns_to_live() {
         reset_peak();

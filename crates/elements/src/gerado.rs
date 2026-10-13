@@ -1,39 +1,41 @@
-//! Fontes Dart geradas, mantidas em memória.
+//! Generated Dart sources, kept in memory.
 //!
-//! Um projeto ngdart importa `foo.template.dart`, que não existe no disco: o
-//! `build_runner` o escreve em `.dart_tool/build/generated`. Aqui essas fontes
-//! passam a viver em memória, indexadas pelo caminho **natural** — o caminho ao
-//! lado do arquivo que as originou, `lib/src/x/foo.template.dart` — que é
-//! exatamente o que `resolve_package_uri` devolve para a URI importada. Assim
-//! nada muda na resolução nem no mapeamento de volta para `package:`: só a
-//! leitura consulta esta tabela antes do disco.
+//! An ngdart project imports `foo.template.dart`, which does not exist on
+//! disk: `build_runner` writes it to `.dart_tool/build/generated`. Here those
+//! sources live in memory, indexed by the **natural** path — the path next
+//! to the file that produced them, `lib/src/x/foo.template.dart` — which is
+//! exactly what `resolve_package_uri` returns for the imported URI. That way
+//! nothing changes in resolution or in the mapping back to `package:`: only
+//! reading consults this table before the disk.
 //!
-//! Uma geração é imutável e trocada inteira de uma vez. Isso é o que garante
-//! que o navegador nunca veja estado intermediário: ou a geração fechou sem
-//! erro e o módulo JS sai coerente com ela, ou a anterior continua valendo.
+//! A generation is immutable and replaced whole at once. That is what
+//! guarantees the browser never sees an intermediate state: either the
+//! generation closed without errors and the JS module comes out consistent
+//! with it, or the previous one stays in effect.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Uma fonte Dart produzida por um gerador.
+/// A Dart source produced by a generator.
 #[derive(Debug, Clone)]
 pub struct GeneratedSource {
     pub conteudo: Arc<str>,
-    /// Arquivos que a produziram (`.dart`, `.html`, `.css`): é por eles que o
-    /// observador do `serve` sabe o que invalidar.
+    /// Files that produced it (`.dart`, `.html`, `.css`): through them the
+    /// `serve` watcher knows what to invalidate.
     pub entradas: Arc<[PathBuf]>,
     pub gerador: &'static str,
 }
 
-/// Conjunto imutável de fontes geradas.
+/// Immutable set of generated sources.
 #[derive(Debug, Default)]
 pub struct Geracao {
     pub id: u64,
     sources: HashMap<PathBuf, GeneratedSource>,
 }
 
-/// Normaliza o caminho para servir de chave: lexical (sem tocar no disco, que
-/// o arquivo não existe) e sem o prefixo verbatim do Windows.
+/// Normalizes the path to serve as a key: lexically (without touching the
+/// disk, since the file does not exist) and without Windows' verbatim
+/// prefix.
 pub fn chave(caminho: &Path) -> PathBuf {
     crate::config::sem_verbatim(crate::load::normalize(caminho))
 }
@@ -64,7 +66,8 @@ impl Geracao {
     }
 }
 
-/// Acumula uma geração. Só vira `Geracao` se fechar sem erro.
+/// Accumulates a generation. It only becomes a `Geracao` if it closes
+/// without errors.
 #[derive(Default)]
 pub struct Construtor {
     sources: HashMap<PathBuf, GeneratedSource>,
@@ -97,8 +100,8 @@ impl Construtor {
         self.errors.push(message);
     }
 
-    /// Fecha a geração. Com qualquer erro nada é publicado — quem chamou segue
-    /// com a geração anterior.
+    /// Closes the generation. With any error nothing is published — the caller
+    /// keeps the previous generation.
     pub fn concluir(self, id: u64) -> Result<Arc<Geracao>, Vec<String>> {
         if !self.errors.is_empty() {
             return Err(self.errors);
@@ -107,14 +110,14 @@ impl Construtor {
     }
 }
 
-/// Geração montada a partir do que o `build_runner` já escreveu em
-/// `.dart_tool/build/generated`, mapeando cada arquivo para o seu caminho
-/// natural ao lado da fonte.
+/// Generation built from what `build_runner` already wrote to
+/// `.dart_tool/build/generated`, mapping each file to its natural path next
+/// to the source.
 ///
-/// Serve para verificar o encanamento separado do gerador: com a mesma
-/// entrada, compilar lendo daqui tem de dar byte a byte o mesmo JS de
-/// compilar lendo do disco. Quando o gerador Angular em Rust entrar, só muda
-/// quem produz as strings.
+/// Used to verify the generator's separate plumbing: with the same input,
+/// compiling while reading from here must give byte for byte the same JS as
+/// compiling while reading from disk. When the Angular generator in Rust
+/// arrives, only who produces the strings changes.
 pub fn do_build_runner(
     cfg: &crate::config::PackageConfig,
     suffixes: &[&str],
@@ -155,7 +158,7 @@ pub fn do_build_runner(
                 };
                 match std::fs::read_to_string(&p) {
                     Ok(text) => c.por(destination, text, "build_runner", vec![p]),
-                    Err(e) => c.erro(format!("não foi possível ler {}: {e}", p.display())),
+                    Err(e) => c.erro(format!("could not read {}: {e}", p.display())),
                 }
             }
         }
@@ -171,7 +174,7 @@ impl OrEmpty for Result<Arc<Geracao>, Vec<String>> {
     fn unwrap_or_default_arc(self) -> Arc<Geracao> {
         self.unwrap_or_else(|e| {
             for m in e {
-                eprintln!("aviso: {m}");
+                eprintln!("warning: {m}");
             }
             Arc::new(Geracao::default())
         })
@@ -191,14 +194,14 @@ mod testes {
         };
         assert!(g.contem(Path::new("/p/lib/foo.template.dart")));
         assert_eq!(g.obter(Path::new("/p/lib/foo.template.dart")).unwrap().conteudo.as_ref(), "// x");
-        assert!(!g.contem(Path::new("/p/lib/outro.dart")));
+        assert!(!g.contem(Path::new("/p/lib/other.dart")));
     }
 
     #[test]
     fn error_aborts_generation() {
         let mut c = Construtor::nova();
         c.por(PathBuf::from("/p/lib/foo.template.dart"), "// x", "teste", vec![]);
-        c.erro("template quebrado".into());
+        c.erro("broken template".into());
         assert!(c.concluir(2).is_err());
     }
 }

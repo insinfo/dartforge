@@ -1,28 +1,28 @@
-//! O leiaute da distribuição do dartforge: tudo o que o compilador precisa
-//! em tempo de execução, ao lado do próprio executável — quem usa o
-//! dartforge não instala Rust, LLVM nem o SDK do Dart.
+//! The layout of the dartforge distribution: everything the compiler needs
+//! at run time, next to the executable itself — dartforge users do not
+//! install Rust, LLVM or the Dart SDK.
 //!
 //! ```text
-//! <raiz>/bin/dartforge[.exe]
-//! <raiz>/lib/dartforge-distribuicao.json   mark e versão da distribuição
-//! <raiz>/lib/dart-sdk/lib/…                as bibliotecas do SDK do Dart (source)
-//! <raiz>/lib/native_sdk/…                  a sobreposição do backend nativo
-//! <raiz>/lib/runtime/…                     o runtime pré-compilado (staticlib)
-//! <raiz>/lib/llvm/bin/…                    o ligador do LLVM (e o Clang, sem o gerador embutido)
-//! <raiz>/lib/sysroot/<triple>/…            o que a ligação exige do sistema
+//! <root>/bin/dartforge[.exe]
+//! <root>/lib/dartforge-distribuicao.json   distribution marker and version
+//! <root>/lib/dart-sdk/lib/…                the Dart SDK libraries (source)
+//! <root>/lib/native_sdk/…                  the native backend overlay
+//! <root>/lib/runtime/…                     the precompiled runtime (staticlib)
+//! <root>/lib/llvm/bin/…                    the LLVM linker (and Clang, without the embedded generator)
+//! <root>/lib/sysroot/<triple>/…            what linking needs from the system
 //! ```
 //!
-//! Numa árvore de desenvolvimento não há marca, e cada consulta cai nas
-//! variáveis de ambiente e no repositório (ver quem chama).
+//! In a development tree there is no marker, and each query falls back to
+//! the environment variables and the repository (see the callers).
 
 use std::path::{Path, PathBuf};
 
-/// O nome do arquivo que marca a raiz de uma distribuição.
+/// The name of the file that marks the root of a distribution.
 pub const MARCA: &str = "dartforge-distribuicao.json";
 
-/// A raiz da distribuição do executável em execução: `DARTFORGE_HOME`, ou o
-/// diretório acima do `bin/` do executável quando `lib/` tem a [`MARCA`].
-/// `None` numa árvore de desenvolvimento.
+/// The distribution root of the running executable: `DARTFORGE_HOME`, or
+/// the directory above the executable's `bin/` when `lib/` has the
+/// [`MARCA`]. `None` in a development tree.
 pub fn raiz() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("DARTFORGE_HOME").filter(|d| !d.is_empty()) {
         return Some(PathBuf::from(d));
@@ -33,32 +33,31 @@ pub fn raiz() -> Option<PathBuf> {
     raiz.join("lib").join(MARCA).is_file().then(|| raiz.to_path_buf())
 }
 
-/// `<raiz>/lib/<rel>`, se a distribuição existe e o caminho também.
+/// `<root>/lib/<rel>`, if the distribution exists and so does the path.
 pub fn em_lib(rel: &str) -> Option<PathBuf> {
     let p = raiz()?.join("lib").join(rel);
     p.exists().then_some(p)
 }
 
-/// As bibliotecas do SDK do Dart que a distribuição leva.
+/// The Dart SDK libraries the distribution carries.
 pub fn sdk_do_dart() -> Option<PathBuf> {
     em_lib("dart-sdk/lib").filter(|p| p.join("libraries.json").is_file())
 }
 
-/// A sobreposição do backend nativo (`native_sdk/`).
+/// The native backend overlay (`native_sdk/`).
 pub fn sobreposicao_nativa() -> Option<PathBuf> {
     em_lib("native_sdk").filter(|p| p.join("libraries.json").is_file())
 }
 
-/// Um executável do LLVM da distribuição (`clang`, `ld.lld`…), com a
-/// extensão do sistema.
+/// An LLVM executable of the distribution (`clang`, `ld.lld`…), with the
+/// system's extension.
 pub fn ferramenta_llvm(nome: &str) -> Option<PathBuf> {
     let file = if cfg!(windows) { format!("{nome}.exe") } else { nome.to_string() };
     em_lib(&format!("llvm/bin/{file}")).filter(|p| p.is_file())
 }
 
-/// O diretório de cache do usuário para o dartforge: `%LOCALAPPDATA%` no
-/// Windows, `~/Library/Caches` no macOS, `$XDG_CACHE_HOME` ou `~/.cache`
-/// nos demais.
+/// The user's cache directory for dartforge: `%LOCALAPPDATA%` on Windows,
+/// `~/Library/Caches` on macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere.
 pub fn cache_do_usuario() -> Option<PathBuf> {
     let base = if cfg!(windows) {
         std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
