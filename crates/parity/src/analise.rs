@@ -659,7 +659,7 @@ impl Motor {
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::externos::inicializadores(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::a_context::check(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::BEST_PRACTICES, dartforge_analysis::a_doc::check(*u).into_iter().map(|d| (i, d))));
-                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::c2_syntactic::verificar(*u, &interner).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::c2_syntactic::check(*u, &interner).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::UNICODE_TEXT, dartforge_analysis::phases::bidi_text(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::TODO_FINDER, dartforge_analysis::todos::check(u.fonte).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::LANGUAGE_VERSION, dartforge_analysis::language_version::check(*u).into_iter().map(|d| (i, d))));
