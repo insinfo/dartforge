@@ -197,9 +197,9 @@ fn generate_dart_sdk_js(root: &Path, sdk: &Path, destination: &Path) {
     if destination.is_file() || !sdk.join("version").is_file() {
         return;
     }
-    eprintln!("{} missing; generating it with scripts/gerar-dart-sdk.ps1…", destination.display());
+    eprintln!("{} missing; generating it with scripts/generate-dart-sdk.ps1…", destination.display());
     let args = vec![
-        root.join("scripts/gerar-dart-sdk.ps1").to_string_lossy().into_owned(),
+        root.join("scripts/generate-dart-sdk.ps1").to_string_lossy().into_owned(),
         "-Sdk".into(),
         sdk.to_string_lossy().into_owned(),
         "-Saida".into(),

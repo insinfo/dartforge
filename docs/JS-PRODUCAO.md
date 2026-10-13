@@ -375,7 +375,7 @@ Custo medido:
 que o mundo diz morto vira `dart_podado("uri::C.m")`, que escreve
 `DARTFORGE-PODADO:` no stderr e sai com 97. É uma chamada a código podado
 pega na execução, com o nome.
-`scripts/verificar-poda-js.ps1` compila sem poda, com poda e em stub, e
+`scripts/verify-js-pruning.ps1` compila sem poda, com poda e em stub, e
 compara as três execuções.
 
 **Diagnóstico:**
@@ -825,7 +825,7 @@ DartForge produção:        214/214 ok
 Mesmo `stdout` da VM, byte a byte, nos dois perfis.
 
 Tamanho e tempo contra o `dart compile js -O4` do SDK 3.6.2
-(`pwsh scripts/medir-js-producao.ps1`):
+(`pwsh scripts/measure-js-production.ps1`):
 
 | programa | dart2js | jsprod | razão | dart2js | jsprod |
 | --- | ---: | ---: | ---: | ---: | ---: |

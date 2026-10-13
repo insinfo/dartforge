@@ -23,7 +23,7 @@ toolchain oficial em [`MACROS-COMPATIBILIDADE.md`](MACROS-COMPATIBILIDADE.md).
 * **Oráculo**: a VM 3.6.2 (saída do programa) e o texto de augmentation que o
   CFE 3.6.2 gera, **byte a byte**. O texto é o que o CFE grava na tabela de
   fontes do `.dill` (`buildMergedAugmentationLibraries`, URI
-  `dart-macro+<biblioteca>`), extraído por `scripts/oraculo_augmentation.dart`
+  `dart-macro+<biblioteca>`), extraído por `scripts/oracle_augmentation.dart`
   (`dart compile kernel --enable-experiment=macros` e depois o script).
 * **Divergências spec × CFE 3.6.2** (vale o CFE, D9), todas medidas:
   * sem embrulho de corpo nem `augmented()`;

@@ -323,7 +323,7 @@ corrigido lá e vale este.
   piso, 3.6.2) e `DARTFORGE_DART_SDK_3_13` (padrão
   `E:/DartSDKs/3.13.4/dart-sdk`). Cada SDK tem o seu `dart`, o seu
   `dartdevc` e o **seu** `dart_sdk.js` (`runtime/ddc/dart_sdk.js` e
-  `runtime/ddc/3.13.4/dart_sdk.js`, gerados por `gerar-dart-sdk.ps1 -Sdk …
+  `runtime/ddc/3.13.4/dart_sdk.js`, gerados por `generate-dart-sdk.ps1 -Sdk …
   -Saida …`). O cache dos oráculos do piso mantém os rótulos de sempre; os do
   3.13.4 levam a versão.
 * Cabeçalhos do programa: `// @dart=x.y` (o marcador oficial, vale para os

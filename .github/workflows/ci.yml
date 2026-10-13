@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - run: sh scripts/sem-trailer-ia.sh --historico HEAD
+      - run: sh scripts/no-ai-trailer.sh --historico HEAD
 
   windows:
     name: test (Windows)
@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Medidor de desempenho preserva falhas e amostras
-        run: python scripts/test_medir_modos_desempenho.py
+        run: python scripts/test_measure_performance_modes.py
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
@@ -99,12 +99,12 @@ jobs:
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test reload_state
       - name: Getters e setters de campos locais (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_local_fields --features embedded-llvm
+        run: python scripts/prove-arc-aot.py arc_local_fields --features embedded-llvm
       - name: Seleção explícita de memória na CLI (AOT, JIT e reload)
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test memory_cli -- --include-ignored
       - name: Retorno Owned pela fronteira nativa (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_native_port_owned --features embedded-llvm
+        run: python scripts/prove-arc-aot.py arc_native_port_owned --features embedded-llvm
       - name: Artefatos da fronteira nativa Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -119,7 +119,7 @@ jobs:
             target/prova-porta-nativa-owned/evidencia.json
       - name: Retorno Owned do corpo Dart da fonte (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_source_return --features embedded-llvm
+        run: python scripts/prove-arc-aot.py arc_source_return --features embedded-llvm
       - name: Artefatos do retorno da fonte Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -135,7 +135,7 @@ jobs:
             target/prova-retorno-da-fonte/evidencia.json
       - name: Instâncias zeradas Owned e registro de métodos (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_zeroed_instance --features embedded-llvm
+        run: python scripts/prove-arc-aot.py arc_zeroed_instance --features embedded-llvm
       - name: Artefatos das instâncias zeradas Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -150,7 +150,7 @@ jobs:
             target/prova-instancia-zerada/evidencia.json
       - name: Campos tipados da fonte Dart (ARC opt-in e tracing padrão)
         shell: pwsh
-        run: python scripts/provar-campos-tipados-aot.py --dartforge target/release/dartforge.exe --saida target/prova-campos-tipados
+        run: python scripts/prove-typed-fields-aot.py --dartforge target/release/dartforge.exe --saida target/prova-campos-tipados
       - name: Artefatos dos campos tipados Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -176,7 +176,7 @@ jobs:
             target/prova-campos-locais/evidencia.json
       - name: Alocação e inicialização de campos Owned (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_field_allocation --features embedded-llvm
+        run: python scripts/prove-arc-aot.py arc_field_allocation --features embedded-llvm
       - name: Artefatos da alocação Owned Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -191,7 +191,7 @@ jobs:
             target/prova-alocacao-campos/evidencia.json
       - name: Keepalive de campos com heap real (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_field_keepalive --features embedded-llvm
+        run: python scripts/prove-arc-aot.py arc_field_keepalive --features embedded-llvm
       - name: Artefatos do keepalive de campos Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -206,7 +206,7 @@ jobs:
             target/prova-keepalive-campos/evidencia.json
       - name: Keepalive pending com heap real (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_keepalive_pending --features embedded-llvm
+        run: python scripts/prove-arc-aot.py arc_keepalive_pending --features embedded-llvm
       - name: Artefatos do keepalive pending Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -221,7 +221,7 @@ jobs:
             target/prova-keepalive-pending/evidencia.json
       - name: Cleanup de laços com heap real (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_loop_cleanup --features embedded-llvm
+        run: python scripts/prove-arc-aot.py arc_loop_cleanup --features embedded-llvm
       - name: Artefatos do cleanup de laços Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -269,7 +269,7 @@ jobs:
       - name: descoberta de macros pelo build_runner
         if: success() || failure()
         shell: pwsh
-        run: ./scripts/testar-macros-builder.ps1
+        run: ./scripts/test-macros-builder.ps1
       - name: montagem Dart das augmentations
         if: success() || failure()
         shell: pwsh
@@ -362,7 +362,7 @@ jobs:
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test memory_cli -- --include-ignored
       - name: Retorno Owned pela fronteira nativa (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_native_port_owned --features embedded-llvm
+        run: python3 scripts/prove-arc-aot.py arc_native_port_owned --features embedded-llvm
       - name: Artefatos da fronteira nativa Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -377,7 +377,7 @@ jobs:
             target/prova-porta-nativa-owned/evidencia.json
       - name: Retorno Owned do corpo Dart da fonte (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_source_return --features embedded-llvm
+        run: python3 scripts/prove-arc-aot.py arc_source_return --features embedded-llvm
       - name: Artefatos do retorno da fonte Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -393,7 +393,7 @@ jobs:
             target/prova-retorno-da-fonte/evidencia.json
       - name: Instâncias zeradas Owned e registro de métodos (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_zeroed_instance --features embedded-llvm
+        run: python3 scripts/prove-arc-aot.py arc_zeroed_instance --features embedded-llvm
       - name: Artefatos das instâncias zeradas Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -408,7 +408,7 @@ jobs:
             target/prova-instancia-zerada/evidencia.json
       - name: Campos tipados da fonte Dart (ARC opt-in e tracing padrão)
         shell: bash
-        run: python3 scripts/provar-campos-tipados-aot.py --dartforge target/release/dartforge --saida target/prova-campos-tipados
+        run: python3 scripts/prove-typed-fields-aot.py --dartforge target/release/dartforge --saida target/prova-campos-tipados
       - name: Artefatos dos campos tipados Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -422,7 +422,7 @@ jobs:
             target/prova-campos-tipados/evidencia.json
       - name: Getters e setters de campos locais (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_local_fields --features embedded-llvm
+        run: python3 scripts/prove-arc-aot.py arc_local_fields --features embedded-llvm
       - name: Artefatos dos campos locais Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -437,7 +437,7 @@ jobs:
             target/prova-campos-locais/evidencia.json
       - name: Alocação e inicialização de campos Owned (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_field_allocation --features embedded-llvm
+        run: python3 scripts/prove-arc-aot.py arc_field_allocation --features embedded-llvm
       - name: Artefatos da alocação Owned Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -452,7 +452,7 @@ jobs:
             target/prova-alocacao-campos/evidencia.json
       - name: Keepalive de campos com heap real (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_field_keepalive --features embedded-llvm
+        run: python3 scripts/prove-arc-aot.py arc_field_keepalive --features embedded-llvm
       - name: Artefatos do keepalive de campos Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -467,7 +467,7 @@ jobs:
             target/prova-keepalive-campos/evidencia.json
       - name: Keepalive pending com heap real (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_keepalive_pending --features embedded-llvm
+        run: python3 scripts/prove-arc-aot.py arc_keepalive_pending --features embedded-llvm
       - name: Artefatos do keepalive pending Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -482,7 +482,7 @@ jobs:
             target/prova-keepalive-pending/evidencia.json
       - name: Cleanup de laços com heap real (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_loop_cleanup --features embedded-llvm
+        run: python3 scripts/prove-arc-aot.py arc_loop_cleanup --features embedded-llvm
       - name: Artefatos do cleanup de laços Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

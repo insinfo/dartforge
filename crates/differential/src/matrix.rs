@@ -18,7 +18,7 @@
 //!   (missing tool, timeout), so nothing is claimed.
 //!
 //! The file is TSV (`program  profile  state  detail`), one line per pair;
-//! `scripts/matriz.py` merges the ones of each corpus, profile and system into
+//! `scripts/matrix.py` merges the ones of each corpus, profile and system into
 //! `docs/MATRIZ.md`. The state names, the profile names and the details are
 //! read by that script and end up in that Portuguese document, so they stay
 //! in Portuguese.
@@ -38,7 +38,7 @@ pub enum State {
 }
 
 impl State {
-    /// The name written to the TSV (parsed by `scripts/matriz.py`).
+    /// The name written to the TSV (parsed by `scripts/matrix.py`).
     pub fn name(self) -> &'static str {
         match self {
             State::Supported => "suportado",

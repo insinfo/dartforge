@@ -1,6 +1,6 @@
 //! Byte-for-byte comparison and the text report.
 //!
-//! Several report lines are parsed by CI (`scripts/ci-placar.ps1`,
+//! Several report lines are parsed by CI (`scripts/ci-scoreboard.ps1`,
 //! `.github/actions/harness/action.yml`, `.github/workflows/*.yml`): the
 //! status tags `DART!` and `FALHA`, the scoreboard lines (`DartForge …: N/M
 //! ok`, `Pendentes (PENDENTES): …`, `DDC×VM: …`), the failure-group headings

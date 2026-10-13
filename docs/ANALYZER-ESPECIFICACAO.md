@@ -26787,7 +26787,7 @@ Cada caso vira um teste em `crates/parity/tests/` no molde da sonda
 * **Pronto quando:** (1) os 19 casos passam com a lista exata de diagnósticos; (2) o placar não perde
   acerto em nenhum código publicado; (3) as amostras de `aug.txt` dos seis códigos acima viram acerto ou
   ficam explicadas por outro achado; (4) nenhum diagnóstico novo nos pacotes do pub-cache
-  (`scripts/paridade-pub-cache.py`).
+  (`scripts/parity-pub-cache.py`).
 
 #### T4 — Plano de implementação detalhado
 
@@ -27873,7 +27873,7 @@ gerador do catálogo foi executado (compilado sozinho com `rustc`, porque não d
 os casos novos foram rodados nos dois oráculos vivos.
 
 - **Casos dirigidos no repositório.** A pasta dos casos saiu de `E:\dftemp` e está em
-  `corpus\especificacao` (script `scripts/caminho_dos_casos.py` trocou as citações deste documento).
+  `corpus\especificacao` (script `scripts/cases_path.py` trocou as citações deste documento).
 - **Casos novos, c24 a c30** (`corpus\especificacao\t2\v`, rodados no 3.6.2 e no 3.13.4), que fecham
   pontos "não verificado" de 1.2 e 1.3:
   - c24: `non_exhaustive_switch_statement` mudou como o de expressão (`isn't exhaustively matched …

@@ -1,6 +1,6 @@
 # Placar do pub: os exemplos e os menores testes de 82 pacotes populares
 # (corpus/pub/pubspec.yaml, versões fixas) compilados pelo `dartforge aot` e
-# comparados com a VM (`dart --enable-asserts`), por scripts/pub-placar.py.
+# comparados com a VM (`dart --enable-asserts`), por scripts/pub-scoreboard.py.
 #
 # Um job compila o dartforge uma vez e monta a distribuição (`dartforge
 # empacotar`); os shards só a baixam e dividem os ~272 programas. O placar
@@ -76,7 +76,7 @@ jobs:
         env:
           FILTRO: ${{ inputs.filtro }}
         run: |
-          python3 scripts/pub-placar.py \
+          python3 scripts/pub-scoreboard.py \
             --dartforge "$RUNNER_TEMP/dartforge/bin/dartforge" --dart dart \
             --shard ${{ matrix.i }}/8 --trabalho "$RUNNER_TEMP/placar" \
             --tempo-compilacao 900 --tempo-execucao 120 --filtro "$FILTRO"

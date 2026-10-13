@@ -1,6 +1,6 @@
 // experimentos: macros
 // O texto que o CFE 3.6.2 gera para o `@JsonCodable` do package:json 0.20.4
-// (extraído do .dill por scripts/oraculo_augmentation.dart), escrito à mão.
+// (extraído do .dill por scripts/oracle_augmentation.dart), escrito à mão.
 // O CFE aplica cada fase numa biblioteca de augmentation própria — as
 // declarações da fase 2 antes das definições da fase 3 —, e o texto fundido
 // que ele mostra só vale como um arquivo na forma nova (`part of`, 405).

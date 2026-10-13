@@ -32,7 +32,7 @@ Os mesmos cinco núcleos foram escritos em Dart, Go, Swift e TypeScript
   depende da formatação nem da ordem das chaves.
 
 ```
-python3 scripts/comparar-linguagens.py target/comparativo [ferramenta...]
+python3 scripts/compare-languages.py target/comparativo [ferramenta...]
 ```
 
 | ferramenta | versão | opções |
@@ -66,7 +66,7 @@ protocolo de `bench/http/servidor.dart`):
   (Go, Swift).
 
 ```
-python3 scripts/comparar-http.py target/comparativo-http [servidor...]
+python3 scripts/compare-http.py target/comparativo-http [servidor...]
 ```
 
 ### Ressalvas

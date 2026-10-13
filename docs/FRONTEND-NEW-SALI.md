@@ -8,16 +8,16 @@ Alvo: `C:/MyDartProjects/new_sali/frontend` (ngdart 8.0.0-dev.4, `dart:html`,
 
     work/bin/dartforge.exe compile-js C:/MyDartProjects/new_sali/frontend/web/main.dart \
         -o work/fe/out --packages C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json
-    pwsh scripts/servir.ps1 -Dir work/fe/out -Web C:/MyDartProjects/new_sali/frontend/web -Fluxo
+    pwsh scripts/serve.ps1 -Dir work/fe/out -Web C:/MyDartProjects/new_sali/frontend/web -Fluxo
 
 Estado: **616 módulos emitidos, `node --check` 616/616**, os 11 passos do fluxo
 abaixo percorridos no Edge headless **sem nenhuma exceção não tratada**, e duas
 divergências de comportamento em relação ao `dartdevc` (fila no fim).
 
-## O verificador de fluxo (`scripts/servir.ps1 -Fluxo` → `scripts/fluxo.mjs`)
+## O verificador de fluxo (`scripts/serve.ps1 -Fluxo` → `scripts/flow.mjs`)
 
-`servir.ps1` continua servindo o diretório e despejando o DOM (`-Headless`);
-com `-Fluxo` ele delega ao `scripts/fluxo.mjs` (Node, sem dependências — o
+`serve.ps1` continua servindo o diretório e despejando o DOM (`-Headless`);
+com `-Fluxo` ele delega ao `scripts/flow.mjs` (Node, sem dependências — o
 Node 22+ tem `WebSocket` global), que:
 
 * serve o diretório emitido com **fallback de SPA** apenas para navegações
@@ -46,8 +46,8 @@ Modos de comparação:
 | `dartdevc` oficial | `--build <…/.dart_tool/build/generated>` | a saída do `build_web_compilers` do próprio projeto (um módulo DDC por biblioteca + `require.js` + `main.dart.bootstrap.js`), como no `webdev serve` |
 | `dartdevc` módulo único | `--ddc` | `dartdevc --modules=es6` do programa inteiro num arquivo só |
 
-    node scripts/fluxo.mjs --dir work/fe/out --web …/frontend/web --json work/fe/fluxo.json
-    node scripts/fluxo.mjs --dir work/fe/ddc --web …/frontend/web \
+    node scripts/flow.mjs --dir work/fe/out --web …/frontend/web --json work/fe/fluxo.json
+    node scripts/flow.mjs --dir work/fe/ddc --web …/frontend/web \
         --build …/frontend/.dart_tool/build/generated --rotulo "dartdevc oficial"
 
 ## Fluxo verificado (2026-09-22)

@@ -1,5 +1,5 @@
 // Comparativo entre linguagens (RELATORIO-COMPARATIVO-NATIVO.md): os mesmos
-// cinco núcleos em cada uma; `scripts/comparar-linguagens.py` compila e mede.
+// cinco núcleos em cada uma; `scripts/compare-languages.py` compila e mede.
 import Foundation
 
 final class No {

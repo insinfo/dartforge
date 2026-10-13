@@ -4,7 +4,7 @@
 //! `@JsonCodable` of `package:json` 0.20.4 **unchanged**, and the assembly —
 //! the text comes out byte for byte equal to what CFE 3.6.2 generates
 //! (`corpus/macros/*/esperado/*.augmentation.dart`, extracted from the
-//! `.dill` by `scripts/oraculo_augmentation.dart`).
+//! `.dill` by `scripts/oracle_augmentation.dart`).
 //!
 //! Two tests:
 //!

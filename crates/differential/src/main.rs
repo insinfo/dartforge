@@ -40,7 +40,7 @@ const USAGE: &str = "usage:
       --matriz FILE appends to FILE (TSV) the state of each program in the
       profile — suportado, recusado, divergente, não medido (supported, rejected,
       divergent, not measured); the profile is `--perfil NAME`, otherwise aot,
-      aot-gc-stress, jit or js-dev (and js-prod with --producao). scripts/matriz.py
+      aot-gc-stress, jit or js-dev (and js-prod with --producao). scripts/matrix.py
       merges the files into docs/MATRIZ.md (V02)
   dartforge-differential contrato [--corpus DIR] [-o FILE]
       compiles each program with dartdevc and writes docs/CONTRATO-DDC.md
@@ -408,7 +408,7 @@ fn main() {
                 // environment, which the emitter reads (`DARTFORGE_ROOTS`,
                 // `DARTFORGE_EXCEPTIONS`); the default (shadow stack, checks)
                 // does not enter the name. The profile names are values of the
-                // TSV read by `scripts/matriz.py` and stay as they are.
+                // TSV read by `scripts/matrix.py` and stay as they are.
                 let suffix = {
                     let mut m = String::new();
                     if std::env::var("DARTFORGE_ROOTS").is_ok_and(|v| v == "mapas") {

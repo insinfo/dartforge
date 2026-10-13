@@ -3,7 +3,7 @@
 Decisão de 2026-09-22, sob a regra "funcionar primeiro": o DartForge emite
 **módulos ES6 no mesmo contrato que o DDC emite**, e liga contra o
 `dart:*` oficial compilado pelo DDC (`runtime/ddc/dart_sdk.js`, gerado por
-`scripts/gerar-dart-sdk.ps1` a partir do `ddc_platform.dill` do SDK 3.6.2).
+`scripts/generate-dart-sdk.ps1` a partir do `ddc_platform.dill` do SDK 3.6.2).
 Verificado: o `hello.js` que o `dartdevc` produz roda no Node 24 contra
 esse arquivo e imprime o mesmo que `dart run`.
 

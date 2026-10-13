@@ -141,7 +141,7 @@ Machine: Intel Core i3-1215U, 7.7 GB RAM, Windows 11; Dart SDK 3.6.2 (stable) an
 Rust is pinned in `rust-toolchain.toml`. The Dart 3.6.2 SDK is the oracle and provides the SDK
 `lib/`; Node 24 runs the JavaScript output.
 
-    pwsh scripts/gerar-dart-sdk.ps1           # dart_sdk.js (once)
+    pwsh scripts/generate-dart-sdk.ps1           # dart_sdk.js (once)
     cargo build --release -p dartforge-cli
     cargo run --release -p dartforge-cli -- compile-js examples/hello/main.dart -o dist/hello
     cargo run --release -p dartforge-cli -- dev <entry.dart> -o <out> --packages <cfg>

@@ -138,7 +138,7 @@ como o `limitless_ui` do `example`, e os `hosted` ngdart/ngcompiler, cujos
 consultas `FonteBiblioteca` de uma rodada ficam só nas bibliotecas que as do
 pacote alcançam por `import`/`export`: editar a aplicação não acorda a rodada
 de uma dependência. Conferido contra o `build_runner` oficial
-(`corpus/ngdart_dependente`, oráculo por `scripts/corpus-ngdart-dependente.sh`):
+(`corpus/ngdart_dependente`, oráculo por `scripts/corpus-ngdart-dependent.sh`):
 os 5 `.template.dart` da aplicação e da dependência iguais, e incremental = do
 zero depois de editar o HTML e um `@Input` da dependência e o `.dart` da
 aplicação (`ng_dependencia_pelo_motor_igual_ao_oraculo`). Na mesma rodada de
@@ -185,7 +185,7 @@ Atendido, público, sem mudar a saída (new_sali: 162 gerados, 166 iguais,
 
    **Atualização (B05, 2026-09-27)**: oráculo por forma e por opção
    (`crates/ng_generator/tests/sass_formas`, gravado pelo `sass_builder` 2.2.1
-   de verdade com `scripts/sass-formas.sh`). Ele achou onze formas em que o
+   de verdade com `scripts/sass-forms.sh`). Ele achou onze formas em que o
    `compressed` "verificado" saía diferente do oficial (cor com nome e
    hexadecimal, números, BOM, módulos, ordem de listas aninhadas, `@media`
    com lista, propriedade customizada, variável local); corrigidas ou

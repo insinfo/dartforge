@@ -14,7 +14,7 @@ description: >
 
 inputs:
   gerar-dart-sdk-js:
-    description: Gerar runtime/ddc/dart_sdk.js com scripts/gerar-dart-sdk.ps1
+    description: Gerar runtime/ddc/dart_sdk.js com scripts/generate-dart-sdk.ps1
     default: 'false'
   sdk-313:
     description: Instalar também o SDK 3.13.4 e exportar DARTFORGE_DART_SDK_3_13
@@ -47,7 +47,7 @@ runs:
     - name: Gerar runtime/ddc/dart_sdk.js
       if: inputs.gerar-dart-sdk-js == 'true'
       shell: pwsh
-      run: pwsh scripts/gerar-dart-sdk.ps1 -Sdk $env:DARTFORGE_DART_SDK
+      run: pwsh scripts/generate-dart-sdk.ps1 -Sdk $env:DARTFORGE_DART_SDK
 
     - name: SDK 3.13.4 (cache)
       if: inputs.sdk-313 == 'true'

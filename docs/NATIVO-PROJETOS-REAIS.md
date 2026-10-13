@@ -556,7 +556,7 @@ a entrada o chama como `void`. Corpus: `corpus/native/135`.
 * `EN/cache_objeto.rs`: o teto do cache de objetos subiu de 256 MB para
   2 GB — as ~60 partes do backend (~600 MB) não cabiam, e a segunda
   compilação nunca achava as partes podadas pelo teto.
-* `scripts/pub-placar.py`: cada programa (a compilação do dartforge e os
+* `scripts/pub-scoreboard.py`: cada programa (a compilação do dartforge e os
   filhos dela, o executável, a VM) roda num grupo de processos próprio com
   `RLIMIT_DATA` (`--memoria-compilacao 6000`, `--memoria-execucao 3000`
   MB) e o grupo inteiro morre no tempo-limite; estouro de memória vira o

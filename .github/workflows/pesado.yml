@@ -249,7 +249,7 @@ jobs:
               } catch { Start-Sleep -Seconds 1 }
             }
             if (-not $pronto) { throw 'servidor da galeria não iniciou' }
-            node scripts/sondar-limitless-ui.mjs 'http://127.0.0.1:8081/'
+            node scripts/probe-limitless-ui.mjs 'http://127.0.0.1:8081/'
             if ($LASTEXITCODE -ne 0) { throw 'startup da galeria falhou; veja o diagnóstico CDP acima' }
             pwsh scripts/limitless-ui.ps1 -E2e -Producao
             if ($LASTEXITCODE -ne 0) { throw "E2E falhou (código $LASTEXITCODE)" }
@@ -304,37 +304,37 @@ jobs:
           args: --corpus corpus/macros --producao --jobs 4
           sdk-313: 'true'
           pub-get: corpus/macros
-          preparar: ./scripts/preparar-macros-410.ps1
+          preparar: ./scripts/prepare-macros-410.ps1
       - name: Macro com argumento posicional (CFE byte a byte)
         shell: pwsh
-        run: ./scripts/testar-macros-412.ps1
+        run: ./scripts/test-macros-412.ps1
       - name: Macro com argumento nomeado (CFE byte a byte)
         shell: pwsh
-        run: ./scripts/testar-macros-413.ps1
+        run: ./scripts/test-macros-413.ps1
       - name: Macro em função de topo (CFE byte a byte)
         shell: pwsh
-        run: ./scripts/testar-macros-414.ps1
+        run: ./scripts/test-macros-414.ps1
       - name: Macro em variável de topo (CFE byte a byte)
         shell: pwsh
-        run: ./scripts/testar-macros-415.ps1
+        run: ./scripts/test-macros-415.ps1
       - name: Macro na definição de função (CFE byte a byte)
         shell: pwsh
-        run: ./scripts/testar-macros-416.ps1
+        run: ./scripts/test-macros-416.ps1
       - name: Macro na definição de método (CFE byte a byte)
         shell: pwsh
-        run: ./scripts/testar-macros-418.ps1
+        run: ./scripts/test-macros-418.ps1
       - name: Macro na definição de construtor (CFE byte a byte)
         shell: pwsh
-        run: ./scripts/testar-macros-419.ps1
+        run: ./scripts/test-macros-419.ps1
       - name: Macro na fase de tipos (CFE byte a byte)
         shell: pwsh
-        run: ./scripts/testar-macros-420.ps1
+        run: ./scripts/test-macros-420.ps1
       - name: Macro aplicada em part (CFE byte a byte)
         shell: pwsh
-        run: ./scripts/testar-macros-421.ps1
+        run: ./scripts/test-macros-421.ps1
       - name: Macro aplicada à biblioteca (CFE byte a byte)
         shell: pwsh
-        run: ./scripts/testar-macros-422.ps1
+        run: ./scripts/test-macros-422.ps1
 
   macros-aot-sonda:
     name: sonda AOT do executor de macros
@@ -359,7 +359,7 @@ jobs:
         run: cargo build --locked --release -p dartforge-cli --features native
       - name: Primeiro erro do bootstrap dfexec/1
         shell: pwsh
-        run: ./scripts/sondar-macros-aot.ps1
+        run: ./scripts/probe-macros-aot.ps1
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sonda-macros-aot
@@ -467,7 +467,7 @@ jobs:
           # O LLVM de desenvolvimento (LLVM-C.dll e as bibliotecas do
           # llvm-sys) para o harness com o gerador embutido.
           jit: 'true'
-          preparar: ./scripts/harness-com-gerador.ps1
+          preparar: ./scripts/harness-with-generator.ps1
           aceitar-placar-parcial: 'true'
 
       # O corpus comum não liga esta porta: quatro testes que exigem coleta,
@@ -534,8 +534,8 @@ jobs:
           $rels = @($todos | Where-Object { $_.FullName -notmatch 'relatorio-nativo-(gc-stress|A1|B0|B1)' })
           $estresse = $todos | Where-Object { $_.FullName -match 'relatorio-nativo-gc-stress' } | Select-Object -First 1
           New-Item -ItemType Directory -Force placar | Out-Null
-          $md = & ./scripts/ci-placar.ps1 -Relatorio $rels -Titulo "Nativo — corpus inteiro ($($rels.Count) de $env:N fragmentos)" -Esperados ([int]$env:N)
-          $uma = & ./scripts/ci-placar.ps1 -Relatorio $rels -Linha -Esperados ([int]$env:N)
+          $md = & ./scripts/ci-scoreboard.ps1 -Relatorio $rels -Titulo "Nativo — corpus inteiro ($($rels.Count) de $env:N fragmentos)" -Esperados ([int]$env:N)
+          $uma = & ./scripts/ci-scoreboard.ps1 -Relatorio $rels -Linha -Esperados ([int]$env:N)
           # Tempo de cada fragmento, para dimensionar N (ver ESTADO.md §3.2).
           $tempos = foreach ($f in Get-ChildItem fragmentos -Recurse -Filter placar.md | Where-Object { $_.FullName -notmatch 'relatorio-nativo-(gc-stress|A1|B0|B1)' } | Sort-Object FullName) {
             $t = (Get-Content $f -Encoding utf8) -join ' '
@@ -893,7 +893,7 @@ jobs:
   # sintética de ~300 bibliotecas (projetos sem builders) não podem ficar mais
   # lentos que no main. Compila os dois (commit e main) e mede em 5 rodadas
   # alternadas; reprova se a mediana do commit passar a do main + 3%
-  # (scripts/custo-zero.ps1). O portão estrutural (nenhum motor construído,
+  # (scripts/zero-cost.ps1). O portão estrutural (nenhum motor construído,
   # alocações iguais por edição) é o crates/dev/tests/zero_cost.rs, no ci.yml.
   custo-zero:
     name: custo zero (tempo)
@@ -944,4 +944,4 @@ jobs:
         shell: pwsh
         run: |
           $env:DARTFORGE_DART_SDK_JS = Join-Path $PWD 'runtime/ddc/dart_sdk.js'
-          pwsh scripts/custo-zero.ps1 -Atual bin-atual -Base bin-base -Rodadas 5 -Tolerancia 0.10
+          pwsh scripts/zero-cost.ps1 -Atual bin-atual -Base bin-base -Rodadas 5 -Tolerancia 0.10

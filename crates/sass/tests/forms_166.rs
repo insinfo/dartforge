@@ -1,7 +1,7 @@
 //! The compatibility mode with dart-sass 1.66.0
 //! (`DartSassVersion::V1_66_0`) against the real dart-sass 1.66.0, shape by
 //! shape and in both styles (`tests/formas_166`, oracle recorded by
-//! `scripts/sass-formas-166.sh`); and the same shapes in the default mode
+//! `scripts/sass-forms-166.sh`); and the same shapes in the default mode
 //! against dart-sass 1.102.0 (`esperado_102/`), so that the differences
 //! between the versions are checked from both sides.
 //!

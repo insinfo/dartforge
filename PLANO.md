@@ -818,7 +818,7 @@ existente é removida antes de a nova trilha a cobrir.
    expressões em 26 ms, +4,4 MB.
 4. (**decisão 2026-09-22**) O `dart:*` em JavaScript vem primeiro do
    `dart_sdk.js` que o `dartdevc` do próprio SDK gera do
-   `ddc_platform.dill` (`scripts/gerar-dart-sdk.ps1`; verificado no Node
+   `ddc_platform.dill` (`scripts/generate-dart-sdk.ps1`; verificado no Node
    24). A emissão do DartForge segue o **contrato de módulos do DDC**, e o
    `dartdevc` é o oráculo do contrato construto a construto. Compilar o SDK
    pela nossa fonte continua sendo o passo 4, com o mesmo contrato.
@@ -1653,7 +1653,7 @@ cache (`sem_edicao`) 0,39 ms e 124 alocações. São números do harness, não
 comparação com `webdev` — a comparação continua bloqueada até o teste de platô
 do LSP existir.
 
-Medição do LSP em 2026-09-22 (`scripts/medir-lsp.ps1`, `docs/LSP.md`):
+Medição do LSP em 2026-09-22 (`scripts/measure-lsp.ps1`, `docs/LSP.md`):
 mesma sequência nos dois servidores sobre o `new_sali` (1.258 `didOpen` +
 200 edições, RSS a cada 50 mensagens) — DartForge: pico 21,3 MiB, platô
 19,0 MiB, 2,5 s, 1.460 quadros com diagnóstico por abertura e edição;

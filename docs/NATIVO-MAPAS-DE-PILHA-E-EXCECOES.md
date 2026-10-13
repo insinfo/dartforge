@@ -2177,7 +2177,7 @@ B1 deixa de ser candidato a padrão.
 
 **Revisão de 2026-10-08: o tempo de execução, que a decisão não mediu.** Sem exceção lançada, o modo
 tabelas tira a conferência depois de cada chamada Dart, e não pode ser mais lento que A0. A medida que
-faltava (`scripts/medir-modos-desempenho.py`, o `bench/performance` em produção, 7 execuções alternadas)
+faltava (`scripts/measure-performance-modes.py`, o `bench/performance` em produção, 7 execuções alternadas)
 deu A1/A0 = 1,013 de média geométrica, com `chamadas/formas` 1,23× e `colecoes/lista_add` 1,30×. Era
 defeito do passe, não do modelo: na entrada uniforme `$ent` (closure, método por seletor), o caminho da
 exceção e o normal se juntam num bloco que reconfere a pendência (`phi`, `p = pendente`, `c = p != 0`,
@@ -2189,7 +2189,7 @@ reconferência pelo lado da exceção (vindo do tratador, a pendência está lig
 inteira, refeita, vem logo abaixo.
 
 **A medida inteira** (2026-10-08, depois do `$ent` e da forma por `"deopt"` do §14.12;
-`scripts/medir-modos-desempenho.py --repeticoes 7 --afinidade 0x4`: os 32 núcleos do `bench/performance`
+`scripts/measure-performance-modes.py --repeticoes 7 --afinidade 0x4`: os 32 núcleos do `bench/performance`
 em produção, todos os modos recompilados, 7 execuções alternadas presas a um núcleo P; razões sobre A0):
 
 | modo | média geométrica | melhores | piores (ms) |
@@ -2729,7 +2729,7 @@ Defeitos achados ao rodar, todos consertados:
   otimização da ligação. A detecção das funções `gc` no bitcode pergunta ao módulo lido (o Clang
   codifica o nome da estratégia, e a procura nos bytes falhava).
 
-**Medidas do §8** (`scripts/medir-mapas.sh`, `bench/performance`, produção `aot --optimize`). A0 vai
+**Medidas do §8** (`scripts/measure-maps.sh`, `bench/performance`, produção `aot --optimize`). A0 vai
 pela LTO completa do ligador e B0 pelo ThinLTO distribuído; para isolar o modo de raízes, A0 também foi
 medido pelo distribuído (`DISTRIBUIDA=1`, `DARTFORGE_LTO_DISTRIBUTED=1`):
 
@@ -2776,7 +2776,7 @@ sem ignorados nem filtrados (777 s): casos e sabotagens, coleta agendada,
 folha incorreta detectada e percurso contra a pilha-sombra.
 
 **O defeito da forma do §14.8.** A medida do tempo de execução que faltava ao §14.11 (o
-`bench/performance` em produção, `scripts/medir-modos-desempenho.py`) deu B0/A0 = 0,996 de média, com
+`bench/performance` em produção, `scripts/measure-performance-modes.py`) deu B0/A0 = 0,996 de média, com
 `chamadas/formas` 1,43× e `chamadas/fib` 1,24×. Sem exceção lançada e sem coleta, o código com mapas
 não pode ser mais lento que o com pilha-sombra. Duas causas:
 

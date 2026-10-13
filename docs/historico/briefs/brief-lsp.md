@@ -107,7 +107,7 @@ rápida, medido, não chutado.
    platô e retorno ao nível inicial após fechar. É o
    `plato_documentos.rs` de hoje, elevado ao servidor inteiro.
 2. **RSS do processo no `new_sali`**: script PowerShell em
-   `scripts/medir-lsp.ps1` que inicia `dartforge-lsp`, envia `initialize`,
+   `scripts/measure-lsp.ps1` que inicia `dartforge-lsp`, envia `initialize`,
    abre os 1.258 arquivos, faz 200 edições distribuídas, e lê o RSS via
    `Get-Process` a cada 50 mensagens. Registrar pico e platô em
    `docs/LSP.md`. O mesmo script, com a flag `-dart`, roda o LSP do Dart
@@ -155,7 +155,7 @@ rápida, medido, não chutado.
 * `cargo fmt`, `cargo clippy -p dartforge-lsp --all-targets` limpos,
   `cargo test -p dartforge-lsp` verde; a saída de D.2 colada na resposta.
 * **Commit ao fim de cada bloco verificado** (só os seus arquivos:
-  `crates/lsp`, `editors/vscode`, `scripts/medir-lsp.ps1`, `docs/LSP.md`;
+  `crates/lsp`, `editors/vscode`, `scripts/measure-lsp.ps1`, `docs/LSP.md`;
   mensagem em português; sem push) — instrução do proprietário para não
   perder trabalho. No PLANO.md, atualize só o "Estado em 2026-09-21" dos
   itens 6 e 9 e a linha de medição do item 10.

@@ -168,7 +168,7 @@ fn main() {
     }
     let first = live[0] as f64 / MB;
     let last = *live.last().unwrap() as f64 / MB;
-    // `scripts/custo-zero.ps1` reads the average from this line with the
+    // `scripts/zero-cost.ps1` reads the average from this line with the
     // regex `m\S*dia (\d+(?:\.\d+)?) ms/edi`, against binaries of older
     // commits too: the line keeps its original wording.
     println!(

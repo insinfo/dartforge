@@ -150,7 +150,7 @@ impl Scoreboard {
 
     /// Per-code table (alphabetical order), with the total line.
     ///
-    /// The `código` column header is matched by `scripts/comparar-placares.py`.
+    /// The `código` column header is matched by `scripts/compare-scoreboards.py`.
     pub fn table(&self, title: &str) -> String {
         let mut s = String::new();
         let t = self.total();

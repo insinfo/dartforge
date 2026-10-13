@@ -507,7 +507,7 @@ lá é 97% do arquivo.
    inteiro com o mesmo `stdout` da VM, byte a byte.
 2. Os testes do crate (`identidade.rs` garante que sem o modo SDK nada muda).
 3. `limitless_ui/example` e `new_sali/frontend` no navegador, pelo
-   `scripts/fluxo.mjs`/`sondar-limitless-ui.mjs` do repositório.
+   `scripts/flow.mjs`/`probe-limitless-ui.mjs` do repositório.
 4. Tamanhos antes/depois contra o dart2js (bruto), na mesma tabela de
    §1.1.
 5. Determinismo: duas montagens iguais dão o mesmo arquivo (teste de
@@ -530,7 +530,7 @@ próprio.
 | o mesmo com `--sdk-ddc` | 238/238 |
 | testes de `emit_js_production`, `mundo`, `emit_js`, `elements`, `types` | verdes |
 | `limitless_ui/example` em produção, suíte `ui_test/e2e` (Puppeteer) | **26/26** |
-| `new_sali/frontend` em produção, `scripts/fluxo.mjs` | 11 passos, 0 com erro, igual ao `dart2js -O4` |
+| `new_sali/frontend` em produção, `scripts/flow.mjs` | 11 passos, 0 com erro, igual ao `dart2js -O4` |
 
 ### 12.2 Tamanhos
 

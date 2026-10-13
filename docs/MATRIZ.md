@@ -1,7 +1,7 @@
 # Matriz de suporte por programa, perfil e sistema
 
-Gerada por `scripts/matriz.sh` (que roda o `dartforge-differential --matriz`
-em cada corpus e perfil) e `scripts/matriz.py`; não edite à mão. Data da
+Gerada por `scripts/matrix.sh` (que roda o `dartforge-differential --matriz`
+em cada corpus e perfil) e `scripts/matrix.py`; não edite à mão. Data da
 geração: 2026-09-27.
 
 Cada par (programa, perfil) tem **um** estado, contra a referência do

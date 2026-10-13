@@ -181,8 +181,8 @@ runs:
           $corpo = $linhas -join "`n"
           $uma = ($texto | Where-Object { $_ -match '^determinismo( \(IR\))?: ' } | Select-Object -First 1)
         } else {
-          $corpo = & "$env:GITHUB_WORKSPACE/scripts/ci-placar.ps1" -Relatorio $rel -Titulo $env:TITULO
-          $uma = & "$env:GITHUB_WORKSPACE/scripts/ci-placar.ps1" -Relatorio $rel -Linha
+          $corpo = & "$env:GITHUB_WORKSPACE/scripts/ci-scoreboard.ps1" -Relatorio $rel -Titulo $env:TITULO
+          $uma = & "$env:GITHUB_WORKSPACE/scripts/ci-scoreboard.ps1" -Relatorio $rel -Linha
         }
         $corpo += "`n`nCódigo de saída do harness: $env:CODIGO. Tempo do harness no runner: $env:TEMPO. Memória livre mínima: $env:MEMORIA.`n"
         Set-Content -Path $md -Value $corpo -Encoding utf8

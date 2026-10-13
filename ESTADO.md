@@ -63,7 +63,7 @@ constantes (`unormdata` ×2, 1,3 MB mesmo com o outliner).
 
 | medida | antes | depois |
 | --- | ---: | ---: |
-| rodadas separadas (`medir-modos-desempenho.py`, 3 repetições) | 1,231 | 1,094 |
+| rodadas separadas (`measure-performance-modes.py`, 3 repetições) | 1,231 | 1,094 |
 | base, novo e Dart alternados no mesmo laço (máquina com carga ~15–19) | 1,161 | 0,999 |
 
 Por programa (alternado): chamadas 0,91 → 0,77; coleções 0,64 → 0,64; JSON
@@ -129,7 +129,7 @@ incompletos**.
   o `llvm-sys` do JIT local deixa de ter o impedimento anterior (ainda não
   experimentado). Com JIT, o linker do pacote exige o SDK 26.5: os `.tbd`
   do SDK 27 trazem `arm64e.x1`, que o LLVM 22 não reconhece.
-* `python3` do sistema é 3.9: `scripts/provar-arc-aot.py` deixou de usar
+* `python3` do sistema é 3.9: `scripts/prove-arc-aot.py` deixou de usar
   `write_text(newline=)`.
 
 ### CI e regressões corrigidas
@@ -398,7 +398,7 @@ Exceções por tabelas (`--excecoes=tabelas`) com a preparação publicada:
   para os phis das saídas.
 
 O corpus fica com 125 de 126 iguais também nesse modo
-(`scripts/corpus-nativo.sh tabelas`).
+(`scripts/native-corpus.sh tabelas`).
 
 Rastro simbólico (`--rastro=simbolico`) com a preparação:
 `dartforge_stack_trace_enter` (borrow, sem retenção: o desenrolamento só lê o
@@ -411,7 +411,7 @@ casa no macOS, independente do ARC.
 
 ### Desempenho no macOS arm64 (`aot --optimize`, 3 repetições alternadas)
 
-`scripts/medir-modos-desempenho.py` ganhou o modo `ARCP` (a preparação
+`scripts/measure-performance-modes.py` ganhou o modo `ARCP` (a preparação
 publicada) e roda fora do Windows. Primeira medida neste Mac
 (`target/bench-arcp/`): ARC/A0 15,5 e ARCP/A0 18,2 na média geométrica,
 contra 2,0 da última medida no Windows (55beeb34). A causa principal era
@@ -472,7 +472,7 @@ leituras de campo `final` emprestadas sem retain; depois §§27–34 e o gate AR
 | emissor, unitários incluindo ignorados | 480 + 110 doctests (473 + 7 ignorados com tabelas) |
 | quatro programas de prova com programa e SDK preparados (`DARTFORGE_ARC_PREPARED=1`), com/sem `conferir`, `DARTFORGE_ARC_CHECK=1`, normal/GC stress | 16 execuções, saída igual ao Dart (`p6-*`) |
 | os mesmos em tracing e ARC legado, com `conferir`, normal/GC stress | 16 execuções, saída igual ao Dart (`r6-*`) |
-| provas AOT do CI (`provar-arc-aot.py`, 8 exemplos) | todas `sucesso` (`prova6-*.log`) |
+| provas AOT do CI (`prove-arc-aot.py`, 8 exemplos) | todas `sucesso` (`prova6-*.log`) |
 | corpus nativo com programa e SDK preparados, `DARTFORGE_ARC_CHECK=1` | 125 de 126 iguais ao Dart (`corpus3-prep/resumo.tsv`) |
 | corpus nativo preparado com `--excecoes=tabelas` | 125 de 126 iguais (`corpus-tabelas/resumo.tsv`) |
 | quatro programas de prova, preparado com `--excecoes=tabelas`, `DARTFORGE_ARC_CHECK=1`, normal/GC stress | 8 execuções iguais ao Dart (`p7/`) |
@@ -486,7 +486,7 @@ leituras de campo `final` emprestadas sem retain; depois §§27–34 e o gate AR
 | listas compactas/gerais, tipadas, visões, `ByteData`, strings pela CLI, tracing e ARC, normal/GC stress | 4 execuções, saída igual ao Dart (`prova-ajudantes/`) |
 | efeitos rebaixados, exceções, records, nomeados, `is`, com `DARTFORGE_EFFECTS=conferir`, tracing/ARC, normal/GC stress | 12 execuções (três programas), saída igual ao Dart |
 | `memory_cli` (nativo), incluindo ignorados | 2 passaram (`arc-lote3-memoria-cli.log`) |
-| `provar-arc-aot.py arc_native_port_owned --debug` | 24 execuções, `sucesso` (`prova-porta-nativa-owned/evidencia.json`) |
+| `prove-arc-aot.py arc_native_port_owned --debug` | 24 execuções, `sucesso` (`prova-porta-nativa-owned/evidencia.json`) |
 | `memory_cli` (nativo, sem JIT), incluindo ignorados | 2 passaram (`memoria-cli.log`) |
 | interpolação/lista/`runtimeType` pela CLI, tracing e ARC, GC stress | saída igual ao `dart run` 3.6.2 |
 
@@ -597,7 +597,7 @@ ARC levou aproximadamente 2 vezes o tempo do padrão no agregado. Não existe
 medição posterior comprovando melhora; rodadas distintas não isolam mudanças.
 
 Na retomada, concluir a bateria do emissor incluindo ignorados e executar
-`python scripts/provar-arc-aot.py arc_native_port_owned --debug`. Repetir
+`python scripts/prove-arc-aot.py arc_native_port_owned --debug`. Repetir
 `arc_audit_pipeline --memoria=arc --sdk-no-grupo --inventario-externs` em
 `bench/performance/numerico.dart` e resolver o próximo erro observado, sem
 afrouxar ownership, certificação ou guardas. Fechar preparação do SDK e
@@ -790,7 +790,7 @@ CI 38057171425: Windows, Linux e mensagens passaram; macOS está nos testes
 emit_native com ignorados. Alteração local para preservar essa rodada.
 
 Preparação compartilhada de tipos/raízes validada também em AOT real:
-python scripts/provar-arc-aot.py arc_source_return --debug passou as
+python scripts/prove-arc-aot.py arc_source_return --debug passou as
 16 execuções ARC/tracing × O0/O2 da revisão 5cb4e56d, sem mudanças nos fontes.
 Quatro positivas e 12 controles por trap conferem sobrevivência/morte do Mint
 na cadeia identidade(identidade(valor)); retirar retain, drop do retorno ou
@@ -1416,7 +1416,7 @@ em laços. Regressões de fonte, LLVM e substituição escalar passaram;
 250 testes da biblioteca e 52 exemplos públicos aprovados, sete ignorados
 da biblioteca permanecem fora desta rodada local.
 
-Prova nativa reproduzível: scripts/provar-campos-tipados-aot.py recebe uma
+Prova nativa reproduzível: scripts/prove-typed-fields-aot.py recebe uma
 CLI recompilada e executa a fixture campos_tipados_arc.dart em tracing
 sem --memoria e ARC explícito, com/sem otimização. Gera também uma variante
 com padding até CAMPOS_EM_LINHA=4096: double/bool/Ref ficam na extensão.
@@ -1548,7 +1548,7 @@ Evidência congelada em bench/results/2026-10-10-cleanup-laco-windows:
 modificações locais, hashes SHA-256 e blobs das fontes novas; não atribui
 as fontes modificadas durante a prova à revisão base.
 
-scripts/provar-arc-aot.py reúne campos, pending e laços, com saída positiva
+scripts/prove-arc-aot.py reúne campos, pending e laços, com saída positiva
 exata 1 LF e controles exigindo trap de instrução, rejeitando erro de carga,
 abort e falha de geração. Registra comandos, saídas, versões e hashes;
 temporários ficam em target e são removidos ao encerrar. As três matrizes
@@ -3942,7 +3942,7 @@ Rodada ainda ativa: não equivale ao fechamento de macOS/SDK fonte JIT.
 Seis casos de interop têm oráculo Dart indisponível, não prova diferencial.
 As alterações posteriores a 54b5c836 não estão nessa rodada.
 
-O relatório Linux expôs falha de preparação do oráculo DDC: gerar-dart-sdk.ps1
+O relatório Linux expôs falha de preparação do oráculo DDC: generate-dart-sdk.ps1
 usava dart.exe em Unix. O script agora seleciona dart em Unix/dart.exe em
 Windows e recusa código de saída não zero antes de inspecionar o artefato.
 Geração real com SDK 3.6.2 no Windows produziu 7.087.858 bytes e passou node
@@ -4512,7 +4512,7 @@ Como medir nesta máquina: `DARTFORGE_PARITY_SAMPLES=100000 dartforge-parity pla
 `pubspec.*`, `analysis_options.yaml`), rodar `dart pub get` lá (os `package_config.json` dos originais
 apontam para o Windows) e `dartforge-parity projetos --oraculo --corpus <pasta com projetos.json>`
 (`--mutacoes 30 --regravar` para as mutações); os pacotes do pub-cache pelo
-`scripts/paridade-pub-cache.py` (`PUB_CACHE=~/tools/dart/pub-cache`). `DARTFORGE_ORACLE_3_6` aponta
+`scripts/parity-pub-cache.py` (`PUB_CACHE=~/tools/dart/pub-cache`). `DARTFORGE_ORACLE_3_6` aponta
 o SDK 3.6.2. Achados: FP nos projetos reais por anotação de FFI por alias de `typedef`, constante
 privada usada só em `case`, anotação de diretiva, falso `top_level_cycle` de campos `late`; FP de
 arquivo único (partes sem a biblioteca no lote, padrão de `super.x` sem corpos da superclasse); `/x.dart`
@@ -4553,7 +4553,7 @@ parser; o estilo "alto" (padrão do `dart format` a partir do SDK 3.7).
 
 ### Nativo: modos de raízes e exceções contra o padrão
 
-`scripts/medir-modos-desempenho.py` (`bench/performance` em produção, 32 núcleos, 7 execuções alternadas,
+`scripts/measure-performance-modes.py` (`bench/performance` em produção, 32 núcleos, 7 execuções alternadas,
 média geométrica contra A0 = pilha-sombra + checagem):
 
 | modo | antes da forma por `"deopt"` |
@@ -4767,7 +4767,7 @@ como na tabela (o `resumo.py` voltou a contar lista vazia contra lista vazia no 
 **JS de produção (2026-10-06, `518e5388`).**
 * `this` repetido como local (§8.4 de `JS-PRODUCAO-TAMANHO.md`): `new_sali` 12.361.194 → 12.082.759
   bytes, `limitless_ui` 6.946.316 → 6.693.718; corpus `--producao` 238/238, `limitless_ui` 26/26 no e2e,
-  `new_sali` com o `fluxo.mjs` nos 11 passos sem erro.
+  `new_sali` com o `flow.mjs` nos 11 passos sem erro.
 * `@pragma('dart2js:as:trust')`/`tryInline`: avaliados e **sem efeito no nosso contrato**. Os
   `as:trust` do SDK estão só nas bibliotecas do runtime do `dart2js` (`js_runtime`, `js_shared`), que
   não compilamos; o `tryInline` é dica a um *inliner* que o emissor no contrato do DDC não tem.
@@ -4909,8 +4909,8 @@ com o código.
 
 ### Ferramentas desta rodada
 
-* `scripts/comparar-placares.py` (dois placares, código a código) e
-  `scripts/remover-funcao.py`.
+* `scripts/compare-scoreboards.py` (dois placares, código a código) e
+  `scripts/remove-function.py`.
 * Oráculos em `E:\dftemp`: `cmp.py` (corpus contra `dartforge analyze`), `oraculo_lsp.py`,
   `oraculo_multi.py`, `oraculo_diag.py` (publicações de diagnóstico), `lsp\dif_metodo.py`
   (diferenças por amostra de um método do oráculo do LSP).
@@ -5018,7 +5018,7 @@ nunca casam, receptor `Never`, classe abstrata instanciada, retornos
 (`return;`, closures, `yield`), parâmetro de tipo em estático, variável não
 anulável sem inicializador. Importação condicional pela URI principal, como
 o analyzer. **Publicados: 50 → 159 códigos**, 0 erro emitido no corpus e
-nos 209 pacotes do pub-cache (`scripts/paridade-pub-cache.py`). O LSP já
+nos 209 pacotes do pub-cache (`scripts/parity-pub-cache.py`). O LSP já
 rodava `types` (L01); os códigos novos chegam ao editor pela mesma regra.
 
 ## Analisador: A01–A04 (2026-09-27)
@@ -5275,7 +5275,7 @@ de `E:/DartSDKs/llvm` para `E:/llvm` (`.cargo/config.toml`, `jit/build.rs`,
 **Suíte local inteira verde** (`cargo test --workspace`), com o ambiente
 que o CI prepara: `scripts/env.ps1` (põe o `bin` do LLVM no `PATH` — sem
 ele, os testes do JIT caem com `STATUS_DLL_NOT_FOUND` ao carregar
-`LLVM-C.dll`), `scripts/gerar-dart-sdk.ps1` (`runtime/ddc/dart_sdk.js`, que
+`LLVM-C.dll`), `scripts/generate-dart-sdk.ps1` (`runtime/ddc/dart_sdk.js`, que
 os testes de `dev` e `emit_js` leem) e `dart pub get` em `corpus/ngdart`.
 
 ## Continuação no SSD (2026-09-24)
@@ -5796,7 +5796,7 @@ local contra o `main` 6583c2b, mínimo de 3 por programa nos 223 do
 
 Emite **módulos ES6 no contrato do DDC** e liga contra o `dart:*` oficial
 (`runtime/ddc/dart_sdk.js`, gerado de `ddc_platform.dill` por
-`scripts/gerar-dart-sdk.ps1`). O `dartdevc` é o oráculo do contrato.
+`scripts/generate-dart-sdk.ps1`). O `dartdevc` é o oráculo do contrato.
 
 * **Corpus diferencial: 213/213.** Cada programa é executado em `dart run
   --enable-asserts`, em `dartdevc`+Node e no DartForge+Node; stdout e
@@ -5821,7 +5821,7 @@ Emite **módulos ES6 no contrato do DDC** e liga contra o `dart:*` oficial
   headless os **11 passos do fluxo** (carga, carrossel, erro do IdP,
   submeter login, rotas públicas, guarda de rota, callback OIDC, sessão
   forjada) ficaram **idênticos à saída oficial do `build_web_compilers`**,
-  inclusive as 7 chamadas HTTP que a aplicação faz. `scripts/servir.ps1
+  inclusive as 7 chamadas HTTP que a aplicação faz. `scripts/serve.ps1
   -Fluxo` (dirige o Edge por CDP, separa erro da aplicação de erro de
   ambiente).
 
@@ -5862,7 +5862,7 @@ estudada e o que ele ainda não faz estão em `docs/JS-PRODUCAO.md`.
   que o backend nativo trouxe e que o perfil de produção passa.
 
 Contra o oficial (`dart compile js -O4`, SDK 3.6.2), amostra do corpus por
-`pwsh scripts/medir-js-producao.ps1`:
+`pwsh scripts/measure-js-production.ps1`:
 
 | programa | dart2js | jsprod | dart2js | jsprod |
 | --- | ---: | ---: | ---: | ---: |
@@ -5905,7 +5905,7 @@ Validação:
 
 * corpus 238/238 iguais à VM, com o SDK próprio e com `--sdk-ddc`;
 * `limitless_ui` 26/26 no e2e;
-* `new_sali/frontend` com 11 passos sem erro no `fluxo.mjs`.
+* `new_sali/frontend` com 11 passos sem erro no `flow.mjs`.
 
 Tamanhos em bytes, com o mundo incremental, o renomeio de propriedades,
 as receitas curtas, os `assert` desligados e a compressão do `oxc`
@@ -6194,9 +6194,9 @@ antes de toda alocação.
   programa — se a ordem de conclusão mudar o IR, o cache de objeto por hash
   erra e o Clang roda à toa. Verificado idêntico com 1, 4 e 8; no nativo,
   no corpus inteiro e sem precisar de `DARTFORGE_KEEP_IR` (§3.2).
-* `scripts/` — `gerar-dart-sdk.ps1`, `servir.ps1`/`fluxo.mjs` (Edge por
+* `scripts/` — `generate-dart-sdk.ps1`, `serve.ps1`/`flow.mjs` (Edge por
   CDP), `limitless-ui.ps1` (`-Preparar`/`-Montar`/`-Servir`/`-E2e`),
-  `medir-lsp.ps1`.
+  `measure-lsp.ps1`.
 * Cache do outline do SDK em `target/dartforge/sdk-<hash>.bin` (5 ms para
   ler, contra ~105 ms de reanálise).
 * **CI no GitHub Actions** (§3.0): `ci.yml` (rápido, todo push) e
@@ -6229,7 +6229,7 @@ antes de toda alocação.
   auto-refresh do webdev. Protocolo versionado em JSON (`ola`,
   `recarregar`, `erro`), separado do transporte. Verificado no
   `new_sali/frontend` com Edge headless por CDP
-  (`scripts/verificar-recarga.mjs`): editar um componente recarrega o
+  (`scripts/verify-reload.mjs`): editar um componente recarrega o
   navegador em **1,5 s**, contra **1m20s** do `build_runner` para a mesma
   edição.
 * Fontes geradas em memória (`crates/elements/src/gerado.rs`): os
@@ -6356,7 +6356,7 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   fluxo antigo lia do `.dart_tool/build/generated` (caminho fora do pub
   cache, então módulo próprio) e o motor publica no caminho natural, como os
   demais gerados do pacote.
-* **Latência de edição no `new_sali/frontend`** (`scripts/medir-geracao.ps1`,
+* **Latência de edição no `new_sali/frontend`** (`scripts/measure-generation.ps1`,
   sessão viva, 3 repetições aplicadas e revertidas, apoio = o
   `.dart_tool/build/generated` que já existe, máquina carregada):
 
@@ -6395,7 +6395,7 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   **35 × 34 ms** (0,971). O ruído entre rodadas do mesmo binário chegou a 14%
   (11,1–12,7 s): a mediana de 5 cabe nos 3%, mas por pouco; se o portão
   oscilar, a tolerância sobe com a medição registrada aqui. Local no
-  `new_sali/core` (`scripts/medir-custo-zero.ps1`, média do platô de 20
+  `new_sali/core` (`scripts/measure-zero-cost.ps1`, média do platô de 20
   edições de corpo, 5 rodadas alternadas, máquina carregada por outros
   agentes): base **536 ms** × atual **465 ms** de mediana (0,87; faixas
   419–714 e 393–613 ms) — sem piora; os 227 ms do §1.3 são de máquina
@@ -6542,7 +6542,7 @@ requisições de ponta a ponta (login OIDC, token, 31 rotas de API) iguais à
 VM — as 3 restantes são o texto do stack trace num JSON de erro e linhas
 de auditoria do mesmo banco. Treze causas corrigidas (C1–C14 do documento),
 com os programas `corpus/native/120`–`128`. O placar do pub roda no CI
-(`scripts/pub-placar.py`, `.github/workflows/pub-placar.yml`).
+(`scripts/pub-scoreboard.py`, `.github/workflows/pub-placar.yml`).
 
 **Estado atual.** O SDK da fonte é o padrão e o corpus nativo passa por
 ele (`docs/NATIVO-PLANO.md` §7.10 e §7.13, que registram 225/225, e JIT × AOT
@@ -6741,7 +6741,7 @@ no `main`; até lá, `-Frente`.
 ### Na máquina local
 
 ```powershell
-pwsh scripts/gerar-dart-sdk.ps1              # dart_sdk.js (3 s, uma vez)
+pwsh scripts/generate-dart-sdk.ps1              # dart_sdk.js (3 s, uma vez)
 cargo build --release -p dartforge-cli -p dartforge-differential
 cargo run --release -p dartforge-differential # 214/214
 
@@ -6749,7 +6749,7 @@ cargo run --release -p dartforge-differential # 214/214
 cargo run --release -p dartforge-cli -- compile-js `
   C:/MyDartProjects/new_sali/frontend/web/main.dart -o saida `
   --packages C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json
-pwsh scripts/servir.ps1 -Dir saida -Web C:/MyDartProjects/new_sali/frontend/web -Fluxo
+pwsh scripts/serve.ps1 -Dir saida -Web C:/MyDartProjects/new_sali/frontend/web -Fluxo
 
 # sessão residente
 cargo run --release -p dartforge-cli -- dev <entrada.dart> -o saida --packages <cfg>
@@ -6762,9 +6762,9 @@ vários agentes chegou a **38 GB** (21 GB em `debug/deps`, 8 GB de
 compilação incremental), tudo recriável e nada de código. Rode
 
 ```powershell
-pwsh scripts/limpar.ps1            # relata o que ocupa espaço
-pwsh scripts/limpar.ps1 -Limpar    # apaga o lixo seguro (debug, target-*, incremental)
-pwsh scripts/limpar.ps1 -Limpar -Tudo  # também release e o cache de oráculos
+pwsh scripts/clean.ps1            # relata o que ocupa espaço
+pwsh scripts/clean.ps1 -Limpar    # apaga o lixo seguro (debug, target-*, incremental)
+pwsh scripts/clean.ps1 -Limpar -Tudo  # também release e o cache de oráculos
 ```
 
 Custo de recriar: `target/debug` ~10 min, `target/diferencial` (cache dos
@@ -6782,13 +6782,13 @@ depois de integrar o trabalho é parte da limpeza.
 **Regra dos temporários: no SSD E:, nunca no C:.** O C: tem pouco espaço e o
 `%TEMP%` chegou a 10,5 GB de sobras. Temporários grandes vão para
 `target/tmp-*` ou `target/scratch-*` do repositório (os scripts de
-navegador, `medir-lsp.ps1`, `verificar-poda-js.ps1` e `ci.ps1 -Placar`
+navegador, `measure-lsp.ps1`, `verify-js-pruning.ps1` e `ci.ps1 -Placar`
 gravam lá); agentes e sessões longas definem antes
 `$env:TEMP='<repo>\target\tmp-<frente>'; $env:TMP=$env:TEMP` e apagam a
 pasta no fim. Todo teste ou comando que cria um temporário o apaga também
 no caminho de erro, pânico ou tempo esgotado (`tempfile::tempdir`, ou um
 guarda com `Drop` como `OutputDir` em `crates/jit/tests/execucao.rs` e
-`DiretorioGeracoes` no `dartforge reload`). `limpar.ps1 -Limpar` apaga
+`DiretorioGeracoes` no `dartforge reload`). `clean.ps1 -Limpar` apaga
 `target/tmp-*`, `target/scratch-*` e as sobras antigas no `%TEMP%`
 (`dartforge-*`, `dfserve*`, `df-recarga`, `lsp-stdout-*`).
 

@@ -44,7 +44,7 @@ reais (§3.11).
   FP), num grupo do corpus ou, com `--livre <dir>`, contra o `dart analyze`
   3.6.2 rodado na hora sobre um diretório de rascunho. Todo caso mínimo deste
   plano foi conferido assim antes de virar regra.
-* `scripts/paridade-pub-cache.py` (novo) — prepara os pacotes do pub-cache
+* `scripts/parity-pub-cache.py` (novo) — prepara os pacotes do pub-cache
   como projetos reais (a última versão de cada, sem Flutter, linguagem ≥ 2.12;
   `lib/` copiado; um `package_config` com todos) e o registro para
   `dartforge-parity projetos --oraculo --corpus <dir>/corpus`. Nesta
@@ -271,7 +271,7 @@ Fica fora desta rodada (docs/PENDENCIAS.md A02), com a especificação acima.
 Regra de sempre (`crates/analysis/verificados.txt`): entra o código sem
 nenhum FP, posição ou mensagem errada no corpus **e** nos projetos reais. Os
 três projetos do proprietário não existem nesta máquina; os projetos reais
-aqui são os 209 pacotes do pub-cache (`scripts/paridade-pub-cache.py`). Todo
+aqui são os 209 pacotes do pub-cache (`scripts/parity-pub-cache.py`). Todo
 candidato do placar com 0 emissão errada nos 209 pacotes entra.
 
 ### 3.12 LSP

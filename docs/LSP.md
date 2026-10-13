@@ -965,7 +965,7 @@ pendente.
 
 ## Medição D.2 — mesmo projeto, mesma sequência
 
-Comando: `scripts/medir-lsp.ps1` (sem flag: DartForge; com `-Dart`: o LSP
+Comando: `scripts/measure-lsp.ps1` (sem flag: DartForge; com `-Dart`: o LSP
 do Dart). Sequência idêntica: `initialize`, 1.258 `didOpen`, 200 edições
 incrementais distribuídas, `shutdown` + `exit`; RSS via `Get-Process` a
 cada 50 mensagens. Projeto `C:/MyDartProjects/new_sali` (ngdart + angel3,

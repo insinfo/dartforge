@@ -8,7 +8,7 @@
 //! `dwds/lib/src/handlers/socket_connections.dart`); the protocol is in
 //! [`crate::ws`].
 //!
-//! The serving rules are those that `scripts/fluxo.mjs` already validated
+//! The serving rules are those that `scripts/flow.mjs` already validated
 //! against the real application: fallback to `index.html` **only on
 //! navigation** (the browser sends `Accept: text/html`), so that an API
 //! `fetch` keeps receiving 404, which is what the application would see in

@@ -60,7 +60,7 @@ jobs:
     resource_class: small
     steps:
       - checkout
-      - run: sh scripts/sem-trailer-ia.sh --historico HEAD
+      - run: sh scripts/no-ai-trailer.sh --historico HEAD
 
   analisador:
     executor: rust

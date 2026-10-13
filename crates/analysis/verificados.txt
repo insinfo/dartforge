@@ -69,7 +69,7 @@ subtype_of_base_or_final_is_not_base_final_or_sealed
 
 # 2026-10-01, parity round (docs/ANALISADOR-PARIDADE-PLANO.md; placar
 # 17.428/23.030): no wrong output in the corpus and 0 FP, wrong position or
-# wrong message in the 209 pub-cache packages (scripts/paridade-pub-cache.py).
+# wrong message in the 209 pub-cache packages (scripts/parity-pub-cache.py).
 # The owner's three projects do not exist on this machine: check with
 # `projetos` there before the next cut.
 abstract_super_member_reference

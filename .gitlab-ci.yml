@@ -56,7 +56,7 @@ mensagens:
     - apk add --no-cache git > /dev/null
   script:
     - git fetch --unshallow 2>/dev/null || true
-    - sh scripts/sem-trailer-ia.sh --historico HEAD
+    - sh scripts/no-ai-trailer.sh --historico HEAD
 
 analisador:
   stage: test

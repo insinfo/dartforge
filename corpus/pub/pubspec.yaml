@@ -1,4 +1,4 @@
-# Pacotes do placar do backend nativo sobre o pub (scripts/pub-placar.py,
+# Pacotes do placar do backend nativo sobre o pub (scripts/pub-scoreboard.py,
 # docs/NATIVO-PROJETOS-REAIS.md §0). Versões fixas: as resolvidas no
 # levantamento de 2026-09-30 (Dart 3.6.2).
 name: pub_placar

@@ -1,6 +1,6 @@
 //! Native Sass (`sass::compile_with`) against the real `sass_builder` 2.2.1,
 //! shape by shape and in both styles (`tests/sass_formas`, oracle recorded by
-//! `scripts/sass-formas.sh` with the dart-sass 1.102.0 of the lock).
+//! `scripts/sass-forms.sh` with the dart-sass 1.102.0 of the lock).
 //!
 //! Criterion: for each shape and style, the native compiler returns
 //! **exactly** the bytes the builder wrote. A shape that the official one

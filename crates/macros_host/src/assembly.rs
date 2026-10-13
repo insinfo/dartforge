@@ -3,7 +3,7 @@
 //!
 //! The criterion is **byte for byte** with the text that CFE 3.6.2 generates
 //! (the oracle is the text it writes into the `.dill`, extracted by
-//! `scripts/oraculo_augmentation.dart`): the spec's declared goal
+//! `scripts/oracle_augmentation.dart`): the spec's declared goal
 //! (`:290-294`) is that different tools produce the same library. The
 //! algorithm follows the first generation's `buildAugmentationLibrary`, which
 //! is what the CFE runs:

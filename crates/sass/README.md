@@ -76,6 +76,6 @@ calculation grammar beyond interpolation, `meta.apply`/`get-mixin` (1.69) and sy
 1.66 refused and the port accepts (trailing comma, lone `%`, nesting in plain CSS).
 
 Checking: `tests/forms_166.rs` compares each shape in `tests/formas_166/fontes` with the
-real dart-sass 1.66.0 and 1.102.0 (`scripts/sass-formas-166.sh` records the oracles in
+real dart-sass 1.66.0 and 1.102.0 (`scripts/sass-forms-166.sh` records the oracles in
 `esperado/` and `esperado_102/`). In ngcomponents 3.0.0-dev.1, the 70 `.scss.css` files come
 out equal to those of `build_runner` with sass 1.66.0.

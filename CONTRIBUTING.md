@@ -47,7 +47,7 @@ The rule is enforced in two places:
 * a local hook, once per clone: `git config core.hooksPath scripts/hooks` (rejects the commit);
 * CI: the `mensagens` job of `ci.yml` fails when any commit in the history breaks the rule.
 
-The checker is `scripts/sem-trailer-ia.sh`.
+The checker is `scripts/no-ai-trailer.sh`.
 
 ## References
 

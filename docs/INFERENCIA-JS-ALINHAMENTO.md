@@ -77,13 +77,13 @@ acrescenta antes uma linha `#totais`.
         tools/oraculo_tipos/oraculo.dart $PWD/corpus/js /tmp/arquivos.txt /tmp/oraculo.tsv
 
     # 3. juiz: quem acerta, por categoria
-    node scripts/conferir-tipos-js.mjs /tmp/div.tsv /tmp/oraculo.tsv --exemplos 3
+    node scripts/check-js-types.mjs /tmp/div.tsv /tmp/oraculo.tsv --exemplos 3
 
 `emitir_corpus` grava um arquivo por programa (todos os módulos em ordem):
 `diff -r` entre duas execuções mostra qualquer mudança na emissão. Com
 `EMITIR_CORPUS_EXECUTAVEL=1` também escreve cada programa pronto para o Node
 (`dart_sdk.js` de `DARTFORGE_DART_SDK_JS`, gerado por
-`scripts/gerar-dart-sdk.ps1`).
+`scripts/generate-dart-sdk.ps1`).
 
 ## 2. Normalizações (representação, não semântica)
 

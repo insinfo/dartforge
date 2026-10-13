@@ -4519,7 +4519,7 @@ SDK: contra o esperado gravado) e reprova qualquer diferença de byte.
 esperados; a comparação roda o `dartforge` ao lado do executável, normaliza o caminho do projeto para
 `<raiz>` e o separador de caminho dos dois lados (o CI é Windows e Linux), e relata a primeira linha
 diferente por caso e formato, mais o código de saída quando há `ESPERADO.codigo`. As sondas `s1`–`s7` foram
-copiadas por `scripts/copiar_sondas_saida.py`. O `ESPERADO.codigo` sai na primeira regravação com
+copiadas por `scripts/copy_output_probes.py`. O `ESPERADO.codigo` sai na primeira regravação com
 `--gravar`. O passo entrou no job `analise` do `pesado.yml`.
 
 ## III.2 Etapa 2 — Supressões
@@ -5044,7 +5044,7 @@ todas as regras da 3.6.2 que têm emissor estão escritas; as diferenças conhec
 cabeçalho do arquivo dela. Na árvore (`crates/analysis/src/lints/`): `regras14.rs` (`dangling_library_doc_comments`,
 `unintended_html_in_doc_comment`, `file_names`, `valid_regexps` pelo porte do analisador de expressão
 regular da VM em `regexp_vm.rs` com as tabelas Unicode de `regexp_unicode_g.rs`, geradas por
-`scripts/gerar-regexp-unicode.py`, `library_annotations`, `no_wildcard_variable_uses`,
+`scripts/generate-regexp-unicode.py`, `library_annotations`, `no_wildcard_variable_uses`,
 `type_literal_in_constant_pattern`, `avoid_types_as_parameter_names` pelo `resolveNameInScope` de
 `escopo.rs`, `depend_on_referenced_packages`); `regras15.rs` (`implicit_call_tearoffs`,
 `prefer_iterable_whereType`, `null_check_on_nullable_type_parameter`); `regras16.rs`

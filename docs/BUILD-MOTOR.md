@@ -113,7 +113,7 @@ no lock, o `build_config` decide também os triggers.
 * **Oráculo** — `corpus/builders/perfil_2_4` (2.4.15) e
   `corpus/builders_novos/perfil_2_16` (2.16.1, fora de `corpus/builders`
   porque exige Dart ≥ 3.11 no `pub get`), `oraculos/<configuração>/`,
-  gerados por `scripts/corpus-perfis.py`; teste `tests/perfis.rs`.
+  gerados por `scripts/corpus-profiles.py`; teste `tests/perfis.rs`.
 
 ## 3. Grafo de saídas (`grafo.rs`)
 
