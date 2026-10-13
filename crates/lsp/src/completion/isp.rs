@@ -294,7 +294,7 @@ pub(super) fn run(
     // through the summary, outside of here).
     let mut summarized = Vec::new();
     if !isp.operations.is_empty()
-        && !request_prefix.is_empty()
+        && !(request_prefix.is_empty() && matcher_prefix.is_empty())
         && let Some(candidates) = not_imported
     {
         let key = |c: &std::path::Path| dartforge_elements::generated::key(c);

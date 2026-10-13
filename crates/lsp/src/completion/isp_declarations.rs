@@ -299,10 +299,10 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// A field (`FieldSuggestion`): an enum constant becomes `Enum.value`.
     pub(super) fn item_field(&mut self, v: VariableId, ty: Option<TypeId>, reference: Option<ClassId>, score: f64) {
+        let ty = ty.or_else(|| self.query.ensure_variable_type(v)).unwrap_or(self.query.core.dynamic_);
         let p = &self.query.program;
         let ve = p.variable(v);
         let enum_constant = ve.class.is_some_and(|c| p.class(c).enum_constants.contains(&v));
-        let ty = ty.or_else(|| self.query.variable_type(v)).unwrap_or(self.query.core.dynamic_);
         let before = self.collector.items.len();
         match ve.getter {
             Some(g) => {
@@ -1936,6 +1936,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// (`Element::Function`) or the synthetic getter of a variable
     /// (`Element::Variable`).
     pub(super) fn suggest_top_property(&mut self, el: Element, imp: Option<&Import>) {
+        if let Element::Variable(v) = el {
+            self.query.ensure_variable_type(v);
+        }
         let p = &self.query.program;
         let (name, getter, without_setter, constant, ret) = match el {
             Element::Variable(v) => {
@@ -2027,7 +2030,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let Some(context) = self.context_type else { return };
-        let ty = self.query.variable_type(v).unwrap_or(self.query.core.dynamic_);
+        let ty = self.query.ensure_variable_type(v).unwrap_or(self.query.core.dynamic_);
         if !self.subtype(ty, context) {
             return;
         }
@@ -2202,6 +2205,17 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
+    /// `addConstructorNamesForType` of a class: its named constructors (only
+    /// the `const` ones in a constant context).
+    pub(super) fn dh_class_constructor_names(&mut self, c: ClassId) {
+        let constant = self.fl().constant;
+        for (n, f) in self.query.program.class(c).constructors() {
+            if !self.query.name(n).is_empty() && !(constant && !self.query.program.function(f).const_) {
+                self.suggest_constructor(f, true, None, false);
+            }
+        }
+    }
+
     /// `addStaticMembersOfElement`.
     pub(super) fn static_dh(&mut self, el: Element) {
         use dartforge_elements::model::ClassKind as K;
@@ -2250,7 +2264,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 if let Some(s) = self.match_score(&format!("{e}.{name}")) {
                     // `includeEnumName: false` → `suggestField(…, 0.0)`.
                     let before = self.collector.items.len();
-                    let ty = self.query.variable_type(v);
+                    let ty = self.query.ensure_variable_type(v);
                     match self.query.program.variable(v).getter {
                         Some(g) => {
                             let t = ty.unwrap_or(self.query.core.dynamic_);

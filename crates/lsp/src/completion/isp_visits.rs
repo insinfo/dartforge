@@ -2803,7 +2803,23 @@ impl<'a, 'c> Isp<'a, 'c> {
         let name_end = name.map_or(self.end(n), |m| self.end(m));
         if (cascade && self.offset == self.span_tok(op).start + 1) || (self.offset >= self.span_tok(op).end && self.offset <= name_end) {
             let target = self.children(n).first().copied().filter(|&a| Some(a) != name);
-            let ty = target.and_then(|a| self.real_expr(a)).and_then(|e| self.static_type(e));
+            // A class or import prefix as the target has no `staticType` in the
+            // analyzer (`Uri.decodeComponent(…)` lists no `Type` members), and
+            // `A.n(…)` that invokes a constructor is an `InstanceCreationExpression`
+            // (`AstRewriter.methodInvocation`: the class has a constructor with the
+            // name written in the real text): its name lists the constructors.
+            let target_element = target.and_then(|a| self.real_expr(a)).and_then(|e| self.resolved(e));
+            let type_or_prefix = matches!(target_element, Some(Resolved::Prefix(_) | Resolved::Element(Element::Class(_) | Element::Typedef(_) | Element::Extension(_) | Element::Prefix(..))));
+            if !cascade
+                && let Some(Resolved::Element(Element::Class(c))) = target_element
+                && let Some(m) = name
+                && self.query.names.lookup(&self.source[self.start(m)..self.end(m)]).is_some_and(|s| self.query.program.class(c).constructors.contains_key(&s))
+            {
+                self.dh(Flags::default());
+                self.dh_class_constructor_names(c);
+                return;
+            }
+            let ty = target.and_then(|a| self.real_expr(a)).and_then(|e| self.static_type(e)).filter(|_| !type_or_prefix);
             if let Some(t) = ty {
                 self.to_member_access(n, t, false);
             }

@@ -559,3 +559,37 @@ fn statics_and_constructors_after_class_name_mid_name() {
     let names = labels(&completion(&mut p, "lib/b.dart", &text));
     assert!(names.iter().any(|n| n == "contar()"), "{names:?}");
 }
+
+#[test]
+fn class_name_call_targets_like_the_resolved_tree() {
+    // `A.▮vazio()` invokes a constructor: an `InstanceCreationExpression` in
+    // the analyzer, whose name lists only the constructors; `A.▮contar()` is a
+    // static call whose class target has no static type (no `Type` members).
+    let mut p = Project::new("completar-alvo-classe");
+    let text = format!("{CLASSES}void f() {{\n  var x = A.▮vazio();\n}}\n");
+    assert_eq!(labels(&completion(&mut p, "lib/a.dart", &text)), vec!["vazio()"]);
+    let text = format!("{CLASSES}void f() {{\n  A.▮contar();\n}}\n");
+    assert_eq!(labels(&completion(&mut p, "lib/b.dart", &text)), vec!["vazio()", "contar()"]);
+}
+
+#[test]
+fn prefixed_constants_ranked_by_their_inferred_types() {
+    // In a fresh session the constants of `chars.dart` were not inferred yet;
+    // their types come on demand, so the `int` context ranks `plus` first.
+    let mut p = Project::new("completar-tipo-sob-demanda");
+    p.write("lib/chars.dart", "const letter = 'a';\nconst plus = 0x2b;\n");
+    let r = completion(&mut p, "lib/a.dart", "import 'chars.dart' as chars;\nint f() => chars.▮;\n");
+    let sort = |label: &str| item(&r, label)["sortText"].as_str().unwrap().to_string();
+    assert!(sort("plus") < sort("letter"), "{r}");
+    assert_eq!(item(&r, "plus")["detail"], "int");
+}
+
+#[test]
+fn not_imported_types_in_a_declaration_name() {
+    // `int Ran▮ge()`: the name position offers types, the not-imported ones
+    // included (the prefix is the matcher's).
+    let mut p = Project::new("completar-nome-declaracao");
+    p.restart(json!({"capabilities": {"workspace": {"applyEdit": true}}}));
+    let r = completion(&mut p, "lib/a.dart", "class C {\n  int Ran▮ge() => 0;\n}\n");
+    assert_eq!(item(&r, "Random")["data"]["importUris"], json!(["dart:math"]), "{r}");
+}

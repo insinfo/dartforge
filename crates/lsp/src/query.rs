@@ -186,6 +186,27 @@ impl Query {
         data.declared_type.or(data.inferred)
     }
 
+    /// [`Query::variable_type`], inferring on demand the type of a variable
+    /// without a written type that the inference has not reached yet (a
+    /// top-level variable or field of a library whose bodies were not
+    /// inferred): the analyzer's element model has the type of every
+    /// variable, and completion ranks by it (`chars.▮` in a fresh session).
+    pub fn ensure_variable_type(&mut self, variable: VariableId) -> Option<TypeId> {
+        if let Some(t) = self.variable_type(variable) {
+            return Some(t);
+        }
+        let unit = match self.program.variable(variable).node {
+            dartforge_elements::model::VariableRef::TopLevel { unit, .. }
+            | dartforge_elements::model::VariableRef::Field { unit, .. }
+            | dartforge_elements::model::VariableRef::EnumConstant { unit, .. }
+            | dartforge_elements::model::VariableRef::Representation { unit, .. } => unit,
+            dartforge_elements::model::VariableRef::None => return None,
+        };
+        let bodies = [dartforge_types::BodyRef::Variable(variable)];
+        let _ = dartforge_types::infer_bodies(&self.program, &self.names, &mut self.table, &self.core, &mut self.outline, unit, &bodies, false, None, false);
+        self.variable_type(variable)
+    }
+
     /// Detail of a function (`(int x, {String? name}) → void`) from the
     /// signature `signature` (already substituted by the receiver, when there is
     /// one) and the names of the declared parameters.
