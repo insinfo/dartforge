@@ -56,7 +56,11 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 Some(p) => {
                     let t = infer_free(inf, cx, *condition);
                     cx.push_scope();
-                    patterns::case(inf, cx, *p, t, *guard, Some(*condition))
+                    // Not a case of an enclosing `switch`.
+                    let outer_scrutinee = cx.switch_scrutinee.take();
+                    let r = patterns::case(inf, cx, *p, t, *guard, Some(*condition));
+                    cx.switch_scrutinee = outer_scrutinee;
+                    r
                 }
                 None => expr::checked_condition(inf, cx, *condition),
             };

@@ -995,10 +995,15 @@ pub(crate) fn the_case(
         None => {
             let the_key = new_key(inf, cx, t);
             let version = target.and_then(|id| cx.flow.version(id));
-            if cx.switch_scrutinee.is_some() {
-                if let Some(e) = scrutinee {
-                    cx.switch_scrutinee = Some(Some((e, the_key, version)));
-                }
+            // Only the `switch`'s own cases: an `if (x case p)` in a case's body
+            // matches another reference and must not take the scrutinee's place.
+            let own_case = match cx.switch_scrutinee {
+                Some(None) => true,
+                Some(Some((e0, _, _))) => scrutinee == Some(e0),
+                None => false,
+            };
+            if own_case && let Some(e) = scrutinee {
+                cx.switch_scrutinee = Some(Some((e, the_key, version)));
             }
             (the_key, version)
         }

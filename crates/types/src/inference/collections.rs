@@ -785,7 +785,10 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
                 Some(p) => {
                     let t = infer_free(inf, cx, *condition);
                     cx.push_scope();
+                    // Not a case of an enclosing `switch`.
+                    let outer_scrutinee = cx.switch_scrutinee.take();
                     let r = super::patterns::case(inf, cx, *p, t, *guard, Some(*condition));
+                    cx.switch_scrutinee = outer_scrutinee;
                     r
                 }
                 None => expr::checked_condition(inf, cx, *condition),

@@ -338,6 +338,14 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "import 'doc_ext_e.dart';\nclass D {\n  /// [expandIt]\n  void m() {}\n}\n",
         &[("unused_import", 1, 8, 16)],
     ),
+    // An `if (… case …)` in a case's body does not replace the `switch`'s
+    // scrutinee: `case null` keeps promoting it for the later cases (sass;
+    // 2026-10-13).
+    (
+        "caso_aninhado.dart",
+        "int? peek() => null;\nvoid f() {\n  switch (peek()) {\n    case null:\n      return;\n    case 1:\n      if (peek() case int(isEven: true) || 3) {\n        print(0);\n      }\n    case >= 3 && <= 9:\n      print(1);\n  }\n  switch (peek()) {\n    case 1:\n      print([if (peek() case 4) 1]);\n    case > 3:\n      print(2);\n  }\n}\n",
+        &[("unchecked_use_of_nullable_value", 16, 10, 1)],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",
