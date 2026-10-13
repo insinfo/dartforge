@@ -445,6 +445,28 @@ pub fn check(u: Unit<'_>) -> Vec<Diagnostic> {
         references_with_new(contents, base, &mut out);
         previous_empty = contents.is_empty();
     }
+    // The `/** … */` comments: each line without the leading `*`, for the
+    // references with `new` (the directives and code blocks are only read in
+    // `///` comments here).
+    for c in dartforge_frontend::comments::Comments::scan(source).all() {
+        let text = &source[c.start..c.end];
+        if !text.starts_with("/**") || text.starts_with("/***") || text == "/**/" {
+            continue;
+        }
+        let inner_end = if text.ends_with("*/") { c.end - 2 } else { c.end };
+        let mut line_start = c.start + 3;
+        for line in source[line_start..inner_end].split_inclusive('\n') {
+            let base_line = line_start;
+            line_start += line.len();
+            let body = line.trim_end_matches(['\n', '\r']);
+            let lead = body.len() - body.trim_start().len();
+            let (skip, rest) = match body[lead..].strip_prefix('*') {
+                Some(r) if base_line != c.start + 3 => (lead + 1, r),
+                _ => (0, body),
+            };
+            references_with_new(rest, base_line + skip, &mut out);
+        }
+    }
     out
 }
 
@@ -457,6 +479,18 @@ mod tests {
         let p = dartforge_frontend::parser::parse(source, &mut names);
         let u = Unit { ast: &p.ast, unit: &p.unit, source };
         check(u).into_iter().map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end - d.span.start)).collect()
+    }
+
+    /// `[new A.b]` in a `/** … */` comment, on one line and on the next ones
+    /// (checked against `dart analyze` 3.6.2, 2026-10-13).
+    #[test]
+    fn new_in_a_block_comment_reference() {
+        let source = "/** [m] xxx [new B.c] */\nclass A {}\n/**\n * See [new A].\n */\nclass B {}\n";
+        let new_ = |at: &str| source.find(at).unwrap() + 1;
+        assert_eq!(
+            reports(source),
+            vec![("deprecated_new_in_comment_reference", new_("[new B"), 3), ("deprecated_new_in_comment_reference", new_("[new A"), 3)]
+        );
     }
 
     /// The live-oracle example in A.R4-2 (the arity and named-argument
