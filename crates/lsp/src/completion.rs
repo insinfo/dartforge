@@ -55,7 +55,7 @@ mod isp_keywords;
 mod isp_visits;
 
 /// Identifier that takes the place of the name under the cursor in the analysis.
-const SENTINEL: &str = "dartforge__completar";
+const SENTINEL: &str = "dartforge__complete";
 
 /// Closings tried after the sentinel, in order of preference.
 const CLOSURES: &[&str] = &["", ";", ")", ");", "))", "));", ")));", "]", "];", "});"];

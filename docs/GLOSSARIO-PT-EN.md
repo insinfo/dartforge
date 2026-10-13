@@ -268,3 +268,5 @@ outras já em inglês ficam.
 | teste `ng_edicao_dart_em_cada_arquivo_igual_ao_do_zero` (`--skip ng_edicao_dart_em_cada_arquivo` no `ci.yml`) | `ng_dart_edit_in_each_file_equals_from_scratch` (`--skip ng_dart_edit_in_each_file`) |
 | motivos `pós-processador…` e aviso `estado do motor não gravado` do motor de build | `post-processor…` e `engine state not saved` |
 | `dartforge-dev`: testes `custo_zero`, `plato`; exemplos `medir`, `medir_geracao` | `zero_cost`, `plateau`; `measure`, `measure_generation` (a linha `média … ms/edição` que o `custo-zero.ps1` lê fica) |
+| `lsp::especies_g::ESPECIES` (gerado por `scripts/gerar-especies-de-acao.py`) | `lsp::action_kinds_g::KINDS` |
+| método de teste `dartforge/dormir`, sentinela `dartforge__completar`, arquivo sintético `.dartforge_conhecidos.dart` | `dartforge/sleep`, `dartforge__complete`, `.dartforge_known.dart` |

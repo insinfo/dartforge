@@ -42,7 +42,7 @@ mod fuzzy_matcher;
 mod call_hierarchy;
 mod inlay_hints;
 mod write_type;
-mod especies_g;
+mod action_kinds_g;
 mod structure;
 mod fix_all;
 mod organize_imports;

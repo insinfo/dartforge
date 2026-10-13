@@ -125,7 +125,7 @@ const MAX_CANCELLATIONS: usize = 4096;
 /// checking for cancellation, so the acceptance test can exercise both forms
 /// of cancellation (queued and running) without depending on a slow
 /// analysis. Real clients never send this method.
-const SLEEP_METHOD: &str = "dartforge/dormir";
+const SLEEP_METHOD: &str = "dartforge/sleep";
 
 /// The text of a file on disk and its line table.
 type TextWithLines = std::sync::Arc<(String, crate::utf16::LineTable)>;

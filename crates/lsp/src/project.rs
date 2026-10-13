@@ -216,7 +216,7 @@ pub(crate) fn load_project(
 /// The synthetic file of the wide load: imports every SDK library and every
 /// `lib/` file of the packages, so that they enter the program (the
 /// analyzer's `knownFiles` after the first non-local search, §11.2).
-const KNOWN: &str = ".dartforge_conhecidos.dart";
+const KNOWN: &str = ".dartforge_known.dart";
 
 /// `(name, lib/ folder)` of the packages in `root`'s `package_config.json`.
 pub(crate) fn packages_with_name(root: &Path) -> Vec<(String, PathBuf)> {

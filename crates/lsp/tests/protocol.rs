@@ -363,7 +363,7 @@ fn cancellation() {
     // thread is still sleeping, and the cancellation holds either way because
     // `pump` applies the cancels of the whole queue before executing.
     session.send(&json!({
-        "jsonrpc": "2.0", "id": 2, "method": "dartforge/dormir",
+        "jsonrpc": "2.0", "id": 2, "method": "dartforge/sleep",
         "params": {"ms": 1500},
     }));
     session.send(&json!({"jsonrpc": "2.0", "id": 3, "method": "shutdown"}));

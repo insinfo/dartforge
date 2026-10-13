@@ -935,7 +935,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// fields, methods, each group in declaration order.
     pub(super) fn declared_members(&self, c: Option<ClassId>, x: Option<ExtensionId>) -> (Vec<FunctionElementId>, Vec<VariableId>, Vec<FunctionElementId>) {
         let p = &self.query.program;
-        let (inst, est, fields, constants): (Vec<FunctionElementId>, Vec<FunctionElementId>, Vec<VariableId>, Vec<VariableId>) = match (c, x) {
+        let (inst, statics, fields, constants): (Vec<FunctionElementId>, Vec<FunctionElementId>, Vec<VariableId>, Vec<VariableId>) = match (c, x) {
             (Some(c), _) => {
                 let cl = p.class(c);
                 (cl.instance_members.values().copied().collect(), cl.static_members.values().copied().collect(), cl.fields.clone(), cl.enum_constants.clone())
@@ -946,7 +946,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             _ => return (Vec::new(), Vec::new(), Vec::new()),
         };
-        let mut all: Vec<FunctionElementId> = inst.into_iter().chain(est).collect();
+        let mut all: Vec<FunctionElementId> = inst.into_iter().chain(statics).collect();
         all.sort();
         all.dedup();
         let accessors = all.iter().copied().filter(|&f| matches!(p.function(f).kind, FunctionKind::Getter | FunctionKind::Setter)).collect();

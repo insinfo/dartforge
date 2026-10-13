@@ -1583,8 +1583,8 @@ impl Context<'_> {
         // `default` comes in.
         let inaccessible = |parts: &[P]| {
             parts.iter().any(|q| match q {
-                P::EnumValue { enumeration: enumeracao, value } => {
-                    let c = prog.class(*enumeracao);
+                P::EnumValue { enumeration, value } => {
+                    let c = prog.class(*enumeration);
                     (self.p.name(c.name).starts_with('_') || self.p.name(prog.variable(*value).name).starts_with('_')) && c.library != lib
                 }
                 _ => false,
@@ -1604,9 +1604,9 @@ impl Context<'_> {
             for q in parts {
                 match q {
                     P::Text(t) => pattern.push_str(t),
-                    P::EnumValue { enumeration: enumeracao, value } => {
-                        let name = self.p.name(prog.class(*enumeracao).name).to_string();
-                        pattern.push_str(&writer.reference_of(dartforge_elements::model::Element::Class(*enumeracao), &name));
+                    P::EnumValue { enumeration, value } => {
+                        let name = self.p.name(prog.class(*enumeration).name).to_string();
+                        pattern.push_str(&writer.reference_of(dartforge_elements::model::Element::Class(*enumeration), &name));
                         pattern.push('.');
                         pattern.push_str(self.p.name(prog.variable(*value).name));
                     }

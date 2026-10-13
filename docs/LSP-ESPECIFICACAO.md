@@ -7520,7 +7520,7 @@ fixes ausentes (`Add missing switch cases`, `Add required argument`).
 
 **Estado em 2026-10-05 (escrito, não compilado).** Itens 1 a 3 do plano abaixo:
 
-* prioridade e mensagem de toda espécie pela tabela gerada `crates/lsp/src/especies_g.rs`
+* prioridade e mensagem de toda espécie pela tabela gerada `crates/lsp/src/action_kinds_g.rs`
   (`scripts/gerar-especies-de-acao.py`, a partir de 13.7.2 e da tabela de `DartAssistKind`);
 * "Fix all in file" genérico (`acoes::corrigir_em_todo_o_arquivo`): reaplica o produtor de cada
   correção isolada aos diagnósticos irmãos, com a detecção de conflito e a contagem do

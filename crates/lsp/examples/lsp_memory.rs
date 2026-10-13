@@ -6,7 +6,7 @@
 //! incremental edit to each and closes everything, printing source bytes,
 //! live bytes with everything retained, peak, allocations and time. It is the
 //! counterpart of the front-end measurement (`dartforge-frontend --example
-//! memoria_frontend`), except that here the cost includes transport, documents
+//! memory_frontend`), except that here the cost includes transport, documents
 //! and published diagnostics — what an editor does with the project open.
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;

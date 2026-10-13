@@ -139,7 +139,7 @@ impl Typed {
         let p = Arc::clone(&shared);
         // Deep bodies recurse deeply: a dedicated stack, as in `analyze`.
         std::thread::Builder::new()
-            .name("dartforge-lsp-tipado".into())
+            .name("dartforge-lsp-typed".into())
             .stack_size(1 << 30)
             .spawn(move || work(&p, &sdk_lib, &tx, wake))
             .ok()?;

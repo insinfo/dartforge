@@ -144,9 +144,9 @@ pub struct LinkedGroup {
 }
 
 /// The Dart kind by id (`dart.fix.…`, `dart.assist.…`): the priority and the
-/// message (docs/LSP-ESPECIFICACAO.md §13.7.2, generated in `especies_g.rs`).
+/// message (docs/LSP-ESPECIFICACAO.md §13.7.2, generated in `action_kinds_g.rs`).
 pub(crate) fn dart_kind(id: &str) -> Option<(u16, &'static str)> {
-    let t = crate::especies_g::ESPECIES;
+    let t = crate::action_kinds_g::KINDS;
     t.binary_search_by(|(i, _, _)| (*i).cmp(id)).ok().map(|k| (t[k].1, t[k].2))
 }
 
@@ -592,7 +592,7 @@ pub(crate) fn import(
                 if c.path == file {
                     continue;
                 }
-                let Some((declarante, kind)) = known.exported_entry(&c.path, name, &resolver, documents) else { continue };
+                let Some((declarer, kind)) = known.exported_entry(&c.path, name, &resolver, documents) else { continue };
                 if !kinds.contains(&kind) || by_show.contains(&c.uri) || c.uri.ends_with(".template.dart") {
                     continue;
                 }
@@ -600,7 +600,7 @@ pub(crate) fn import(
                     "quickfix.import.librarySdk"
                 } else if crate::known_libraries::path_lib_src(&c.path) {
                     "quickfix.import.libraryProject3"
-                } else if declarante != c.path {
+                } else if declarer != c.path {
                     "quickfix.import.libraryProject2"
                 } else {
                     "quickfix.import.libraryProject1"

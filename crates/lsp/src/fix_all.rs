@@ -188,15 +188,15 @@ pub(crate) fn merge(mut edits: Vec<Ed>) -> Vec<Ed> {
     let mut i = 0;
     while i + 1 < edits.len() {
         let (a, b) = (edits[i].clone(), edits[i + 1].clone());
-        let (end_a, fim_b) = (a.0 + a.1, b.0 + b.1);
-        if fim_b < a.0 {
+        let (end_a, end_b) = (a.0 + a.1, b.0 + b.1);
+        if end_b < a.0 {
             i += 1;
             continue;
         }
         let start = a.0.min(b.0);
-        let end = (end_a as i64).max(fim_b as i64 - delta(&a)).max(start as i64) as usize;
+        let end = (end_a as i64).max(end_b as i64 - delta(&a)).max(start as i64) as usize;
         let prefix = if b.0 > a.0 { a.2.get(..b.0 - a.0).unwrap_or("") } else { "" };
-        let suffix = if fim_b < a.0 + a.2.len() { a.2.get(fim_b - a.0..).unwrap_or("") } else { "" };
+        let suffix = if end_b < a.0 + a.2.len() { a.2.get(end_b - a.0..).unwrap_or("") } else { "" };
         edits[i] = (start, end - start, format!("{prefix}{}{suffix}", b.2));
         edits.remove(i + 1);
     }
