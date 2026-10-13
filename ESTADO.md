@@ -1,5 +1,135 @@
 # Estado do DartForge — 2026-10-13
 
+## Fechamento de 2026-10-13 (macOS arm64)
+
+Dia de migração do código para o inglês e de rodadas paralelas em todas as
+frentes, cada uma validada localmente (o CI não foi acompanhado, por decisão do
+dono). As seções seguintes têm os detalhes de cada rodada.
+
+### O que entrou hoje
+
+| frente | onde estava | onde ficou |
+| --- | --- | --- |
+| Migração para o inglês | código em português | código Rust, CLI, variáveis, features, scripts, workflows, protocolos, ABI, pacotes Dart, `native_sdk`, `tools`, `bench` e as pastas do corpus em inglês (fases 1–4; `docs/GLOSSARIO-PT-EN.md`) |
+| Analisador: placar | 22.965/23.012, FN 47, mensagem errada 10 | **23.001/23.012**, FN 11, mensagem errada 5, FP 0 |
+| Analisador: pub-cache (209 pacotes) | FP 35, FN 40 | **FP 0, FN 6**; `verified.txt` 477 → 485 códigos |
+| Analisador: CPU no `new_sali/backend` | ~14 s | **~5 s** (`dart analyze`: 21,7 s frio, 2,6 s com cache) |
+| LSP: oráculo | references/implementation 96% | **100%**; definition 100%; completar top-5 100% |
+| LSP: memória do servidor (`new_sali`) | 240–640 MiB | **27–31 MiB** (análise tipada num processo filho) |
+| Nativo A0: `bench/performance` nosso/Dart (ciclos) | 0,963 | **~0,88** (duas rodadas; carga alta, ±5%) |
+| JS produção: `limitless_ui` bruto / gzip | 4,10 / 1,16 MB | **3,54 / 1,02 MB** (`dart2js -O4`: 3,71 / 0,98) |
+| JS produção: `new_sali` bruto / gzip | 8,42 / 2,28 MB | **7,60 / 2,07 MB** (`dart2js -O4`: 7,62 / 2,02) |
+| JS produção: corpus bruto | 33,1 MB | **16,0 MB** (`dart2js -O4`: 9,8 MB) |
+| JS: `limitless_ui` no Chrome | 2/47 rotas, e2e 1/15 | **47/47 rotas, e2e 15/15** nos dois perfis |
+| Corpus diferencial JS | 238 | **241/241** nos dois perfis; `corpus/modern` 26/26 |
+| JS de desenvolvimento contra o DDC | não medido no macOS | início a frio 20× mais rápido, ~10× menos memória, app pronto 3–4× antes (`docs/DEV-VS-DDC.md`) |
+
+### O que falta, por frente (ordem de prioridade)
+
+* **JS de produção** (`docs/JS-PRODUCAO-TAMANHO.md` §14): ganhar do `dart2js
+  -O4` no gzip (1,037× no `limitless_ui`, 1,024× no `new_sali`) — tipo do
+  tearoff na chamada do `bind` no lugar das assinaturas (~14 KB gzip), JSON
+  das regras rti (8,5 contra 5,3 KB), tabela `t$N` (7,7 KB), ids implícitos nos
+  `addRtiResources` (7,3 KB), nomes do topo sem valor (6,5 KB); o piso de 46 KB
+  do `print('hi')` (`_Universe`/`_Parser` vivos pelo `str()` dinâmico).
+* **JS de desenvolvimento** (`docs/DEV-VS-DDC.md`): a edição de corpo dispara o
+  motor de build inteiro (2,8 s de 4,2 s no `new_sali`; os templates deviam
+  depender só do hash de API); o outline do programa é refeito a cada edição;
+  servidor sem cache HTTP (`no-store`, cada recarga baixa 51–93 MB); projeto
+  recém-clonado ainda precisa de um `build_runner build` (Sass e saídas do
+  ngdart); closures 1,65× mais lentas que no DDC.
+* **Nativo** (`docs/PLANO-TAMANHO-DESEMPENHO.md` §6): árvores (~2× o Dart) e
+  lista ligada (4×) limitadas pelo mutador e pelo cabeçalho de 16 bytes;
+  medir `DARTFORGE_ROOTS_IN_CALLEE=1` com a máquina parada; `List.[]=`
+  covariante por faixa de ids; mapa de `String` e interpolação; tamanho do
+  `__text` (precisa do `new_sali/backend` nesta máquina). ARC: cabeçalho maior
+  só no ARC (decisão do dono, não iniciado), poda do SDK no preparado, unwind
+  das funções do SDK sob GC stress no modo de mapas.
+* **Analisador** (`docs/ANALISADOR-PARIDADE-PLANO.md` §10–§11): recursos
+  3.13/augmentations (~8 FN), exibição de `Null?`/`Never Function(Never)`/
+  `Comparable<Object?>`, membros de extensão em referências de documentação
+  (6 FN do pub-cache); carga sem os corpos das dependências e inferência dos
+  corpos (~45% do perfil).
+* **LSP**: incremental I5–I6 — o patch `wip/analysis-outline-incremental.patch`
+  (aplica limpo sobre o HEAD de hoje; não validado) traz a leitura das
+  dependências sem os corpos e a análise só dos arquivos afetados por uma
+  edição, com o modo `analyze_project --files N` para conferir; pico do
+  processo filho (639 MiB no `new_sali/frontend`: nós de expressão e escopos).
+* **Migração, resto da fase 4**: nomes de programas e subpastas dentro do
+  corpus (`corpus/js/*_interpolacao`, grupos `linguagem`/`pacotes`/`sonda`,
+  `oraculos/`, `esperado/`, `perfil_*`; exigem regravar oráculos), classes
+  internas do runtime (`_Contexto`, `_Celula`, `_AcumuladorDeTexto`,
+  `_ProgramaDeRegExp` em `runtime/src/layout.rs`), variáveis e mensagens
+  internas dos scripts, fontes Go/TS/Swift do comparativo, fixtures em
+  português nos testes Rust. Os comandos citados nas seções antigas deste
+  arquivo usam os nomes de antes da migração (mapa no glossário).
+
+## Comparação com o DDC oficial no macOS (2026-10-13)
+
+`dartforge serve` contra `webdev serve` (Dart 3.6.2, webdev 3.7.1, Chrome 155
+headless; máquina muito carregada, carga 25–220, então a CPU é a medida mais
+confiável). Script `scripts/compare-dev-ddc.mjs`; relatório completo em
+`docs/DEV-VS-DDC.md`.
+
+| medida | DartForge | webdev (DDC) |
+| --- | ---: | ---: |
+| início a frio, `limitless_ui` / `new_sali` | **4,9 s / 19,4 s** | 103 s / 340 s |
+| edição de corpo, `limitless_ui` (relógio / CPU) | 5,3 s / **1,44 s** | 5,3 s / 4,91 s |
+| edição de API pública, `limitless_ui` | **10,6 s / 3,5 s** | 40,5 s / 40,9 s |
+| edição de template, `limitless_ui` | **4,0 s / 1,34 s** | 7,0 s / 4,32 s |
+| memória, `limitless_ui` (soma dos processos) | **476–587 MB**, estável, 1 processo | 2,9 → 7,1 GB, crescendo, 22 processos |
+| memória, `new_sali` | **0,75–1,06 GB** | 4,9–7,0 GB |
+| JS com gzip, `limitless_ui` / `new_sali` | **4,17 / 7,84 MB** | 5,24 / 9,94 MB |
+| app pronto no Chrome, `limitless_ui` / `new_sali` | **666 / 1.063 ms** | 2.863 / 4.171 ms |
+| `bench/performance` no Node (mediana) | ≈1,0× | 1,0× |
+
+O JS bruto é ~10% maior no nosso, mas comprime 20% melhor. A recarga do webdev
+não funciona no `new_sali` (404 em `/login`); a nossa funciona. Saída idêntica à
+do DDC nos núcleos de benchmark; closures 1,65× e listas encadeadas 1,3× mais
+lentas no nosso, `fib` 0,38× e `shapes` 0,50×.
+
+## Analisador: velocidade do motor (2026-10-13, noite, macOS)
+
+O `new_sali/backend` caiu de ~14 s para **~5 s** de CPU e o `openssl_bindings`
+do pub-cache de 63 s para 5 s, com placar (23.001/23.012, FP 0), saída do
+`analyze`, projetos reais e pub-cache idênticos (commit `0b7f6faa`). Saiu o
+trabalho quadrático por biblioteca: tabelas dos corpos alocadas na primeira
+escrita, índice de elementos por unidade, biblioteca e declaração
+(`Program::index`), interfaces, variáveis inferidas e promoção de campos
+divididas entre as passadas (`SharedInference`), `is_shadowed` por índice
+montado uma vez por árvore, e leituras de `package_config`/`pubspec` uma vez.
+*Footprint* 685 → 603 MiB. `DARTFORGE_ENGINE_TIMES=1` mostra o tempo por
+fase; exemplo `analyze_project`. `dartforge-parity output` sem argumento volta
+a achar `corpus/analyze-output`. Detalhes em
+`docs/ANALISADOR-PARIDADE-PLANO.md` §11.
+
+## Nativo A0: coletor (2026-10-13, tarde, macOS arm64)
+
+Commits `0d74c459`, `21d27ab2`, `9f55b545`; `docs/PLANO-TAMANHO-DESEMPENHO.md`
+§6 e `NATIVO-ESPACO-UNIFICADO.md` §2.8.1.
+* **Envelhecimento no coletor geracional:** o objeto só é promovido na segunda
+  coleta menor que sobrevive (estados `SURVIVOR`/`SURVIVOR_B` alternados; a
+  barreira os conta como jovens); faixas livres reordenadas quando fragmentam;
+  pausa adaptativa quando a estrutura fica viva; `DARTFORGE_GC_AGING=0`
+  desliga. A coleta completa promove tudo e o ARC não envelhece.
+* **Slots mortos da pilha-sombra zerados** antes de cada ponto de coleta
+  (`roots::dead_slots`). Nas árvores, os objetos marcados caem de 4,54 para
+  1,76 milhão e as coletas completas de 29 para 3.
+
+Ciclos do processo (carga 9–190), `bench/performance` nosso/Dart contra a base
+desta rodada: **0,928 → 0,886** (temporários 0,92 → 0,65; coleções 0,57 →
+0,52; objetos que escapam 2,06 → 2,03). Tamanhos iguais.
+
+## JS: classe e construtor numa chamada, rodada 5 (2026-10-13, fim da tarde)
+
+`C = t$C(class …, function …)`: a definição da classe e o construtor padrão
+numa chamada, com o nome da classe uma vez em vez de três
+(`DARTFORGE_JSPROD_CLASS_CONSTRUCTOR=0` desliga). `limitless_ui` 3,537 MB (gz
+1,021) contra 3,708 / 0,984 do `dart2js -O4` (0,954× bruto, 1,037× gzip);
+`new_sali` 7,602 / 2,068 contra 7,616 / 2,019 (0,998× bruto — passou a ser
+menor — e 1,024× gzip). Ablação do gzip que falta por construção no
+`docs/JS-PRODUCAO-TAMANHO.md` §14.
+
 ## Nativo A0: velocidade (2026-10-13, macOS arm64)
 
 Commits `d52fc252`, `61b2f129`, `98ac0751`, `143bface`, `1fef8307`,
@@ -141,6 +271,33 @@ lido), a completion marca itens deprecated como o Dart, e o clippy do crate
 caiu de 147 para 17 avisos. Para baixar o pico do filho: escopos materializados
 (~45 MiB, 672 mil entradas) e tamanho dos nós de expressão (141 MiB), em
 `crates/elements` e `crates/frontend`. Pendentes: I5–I6 (motor).
+
+## JS: nomes compartilhados e o piso, rodada 4 (2026-10-13, tarde, macOS)
+
+O renomeio de propriedades dá o mesmo nome curto a membros de classes que
+nunca coabitam numa cadeia de supertipos, como os nomes por posição de campo do
+`dart2js` (−44 KB gzip no `limitless_ui`, −70 KB no `new_sali`). Operadores
+vivos por seletor (acabou o "operador sempre vivo"), remendos do SDK que tiram
+`allMatches` e o rti de *records* do piso, *polyfill* do DOM só com
+`dart:html`, classe sem parâmetros de tipo próprios sem `_ti`. A produção
+omite os nomes dos campos `late` como o `dart2js -O2` (decisão do dono); o
+diferencial compara a produção contra a referência com essa troca declarada e
+nomeia o programa (o desenvolvimento segue idêntico à VM). Correções: constante
+de enum por atalho de ponto (`modern/330`) e o teste `identity.rs`. Cada passo
+tem um `DARTFORGE_JSPROD_*=0`.
+
+| alvo (bruto / gzip) | antes | depois | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| `print('hi')` | 52,0 KB | **46,3 KB** | 5,1 KB |
+| corpus (240) | 17,06 / 5,66 MB | **15,99 / 5,33 MB** | 9,76 / 3,17 MB |
+| mediana nosso/dart2js | 1,64× / 1,72× | **1,51× / 1,58×** | — |
+| `limitless_ui` | 3,727 / 1,099 MB | **3,547 / 1,026 MB** | 3,708 / 0,984 MB |
+| `new_sali` | 7,854 / 2,189 MB | **7,627 / 2,082 MB** | 7,616 / 2,019 MB |
+
+Corpus diferencial 241/241 e `corpus/modern` 26/26 nos dois perfis;
+`limitless_ui` e2e 15/15 e 47 rotas limpas nos dois perfis; `new_sali` carrega
+sem erro. Medido e descartado: tirar `dart.fn` e assinaturas (teto de 5,2 KB
+gzip no `limitless_ui`) — `docs/JS-PRODUCAO-TAMANHO.md` §13.
 
 ## JS: o piso do runtime, rodada 3 (2026-10-13, macOS)
 

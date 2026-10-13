@@ -1,0 +1,437 @@
+diff --git a/crates/elements/src/load.rs b/crates/elements/src/load.rs
+index 89257af5..0313610e 100644
+--- a/crates/elements/src/load.rs
++++ b/crates/elements/src/load.rs
+@@ -59,6 +59,37 @@ pub fn string_lit_value(lit: &ast::StringLit) -> Option<String> {
+     Some(out)
+ }
+ 
++thread_local! {
++    /// The files whose declaration bodies the loads of this thread read
++    /// ([`with_bodies_only_for`]), by [`crate::generated::key`].
++    static BODIES_ONLY_FOR: std::cell::RefCell<Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>> = const { std::cell::RefCell::new(None) };
++}
++
++/// Runs `f` with the loads of this thread reading every file outside `files`
++/// (keys from [`crate::generated::key`]) without the declarations' block
++/// bodies ([`dartforge_frontend::parser::parse_lexed_outline`]); the SDK comes
++/// from its cache as usual. It is the load of an analysis that reports only on
++/// `files`: the bodies of the other files are never inferred, and they were
++/// most of the program's tree (the dependencies). Loads with a unit cache (a
++/// resident session) are not affected.
++pub fn with_bodies_only_for<R>(files: std::sync::Arc<std::collections::HashSet<PathBuf>>, f: impl FnOnce() -> R) -> R {
++    struct Restore(Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>);
++    impl Drop for Restore {
++        fn drop(&mut self) {
++            let previous = self.0.take();
++            BODIES_ONLY_FOR.with(|b| *b.borrow_mut() = previous);
++        }
++    }
++    let previous = BODIES_ONLY_FOR.with(|b| b.borrow_mut().replace(files));
++    let _restore = Restore(previous);
++    f()
++}
++
++/// The file is read without bodies ([`with_bodies_only_for`]).
++fn without_bodies(path: &Path) -> bool {
++    BODIES_ONLY_FOR.with(|b| b.borrow().as_ref().is_some_and(|files| !files.contains(&crate::generated::key(path))))
++}
++
+ /// Loads a program and accumulates diagnostics without aborting, returning
+ /// the `Program` and a `Vec<Diagnostic>`.
+ pub fn load_lenient(
+@@ -1045,7 +1076,8 @@ fn load_unit(
+         program.libraries[lib_id.0 as usize].features = features;
+     }
+     let t = std::time::Instant::now();
+-    let parsed = dartforge_frontend::parser::parse_lexed_with(&source, tokens, interner, features);
++    let skip_bodies = units.is_none() && without_bodies(path);
++    let parsed = dartforge_frontend::parser::parse_lexed_outline(&source, tokens, interner, features, skip_bodies);
+     program.times.parse += t.elapsed();
+     for mut d in parsed.diagnostics {
+         d.message = format!("{}:{}: {}", path.display(), d.span.start, d.message);
+diff --git a/crates/frontend/src/parser/declarations.rs b/crates/frontend/src/parser/declarations.rs
+index 53864d41..f93aedb6 100644
+--- a/crates/frontend/src/parser/declarations.rs
++++ b/crates/frontend/src/parser/declarations.rs
+@@ -2548,7 +2548,7 @@ impl<'s, 'i> Parser<'s, 'i> {
+                 self.parse_formal_parameters()?
+             };
+             let body_start = self.pos;
+-            let (modifier, body) = self.parse_function_body()?;
++            let (modifier, body) = self.parse_declaration_body()?;
+             self.check_external_body(mods.external, false, body_start, &body, external_top_level);
+             self.check_empty_body(&body, Self::allows_abstract(mods, modifier, top_level));
+             self.check_abstract_in_extension(mods, top_level, name.span, &body);
+@@ -2672,7 +2672,7 @@ impl<'s, 'i> Parser<'s, 'i> {
+             }
+         };
+         let body_start = self.pos;
+-        let (modifier, body) = self.parse_function_body()?;
++        let (modifier, body) = self.parse_declaration_body()?;
+         self.check_external_body(mods.external, false, body_start, &body, external_top_level);
+         self.check_empty_body(&body, Self::allows_abstract(mods, modifier, top_level));
+         self.check_abstract_in_extension(mods, top_level, name.span, &body);
+@@ -3307,7 +3307,7 @@ impl<'s, 'i> Parser<'s, 'i> {
+             }
+         }
+         let before = self.pos;
+-        let (modifier, body) = self.parse_function_body()?;
++        let (modifier, body) = self.parse_declaration_body()?;
+         // `async`, `async*`, `sync*` before the body: the analyzer reports at the
+         // `async`/`sync`, with the whole modifier in the text. The body (`=>`/`{`)
+         // is judged during elaboration, which knows whether it is `const`.
+@@ -3429,7 +3429,7 @@ impl<'s, 'i> Parser<'s, 'i> {
+                 }
+             }
+             let body_start = self.pos;
+-            let (modifier, body) = self.parse_function_body()?;
++            let (modifier, body) = self.parse_declaration_body()?;
+             // `_checkForInvalidModifierOnBody` (`error_verifier.dart:4044-4053`): a
+             // constructor (generative or factory) with `async`, `async*` or `sync*`, at
+             // the modifier's first token; the argument is its text (`async` also for
+@@ -3838,6 +3838,16 @@ impl<'s, 'i> Parser<'s, 'i> {
+         Ok((modifier, body?))
+     }
+ 
++    /// [`Parser::parse_function_body`] of a declaration (top-level function,
++    /// method, accessor, constructor): with [`Parser::skip_bodies`], a block
++    /// body is skipped.
++    fn parse_declaration_body(&mut self) -> PResult<(AsyncModifier, FunctionBody)> {
++        self.declaration_body = true;
++        let r = self.parse_function_body();
++        self.declaration_body = false;
++        r
++    }
++
+     /// `async`, `async*`, `sync*` (contextual identifiers; `*` is a separate
+     /// token) or nothing.
+     fn parse_async_modifier(&mut self) -> AsyncModifier {
+@@ -3859,6 +3869,19 @@ impl<'s, 'i> Parser<'s, 'i> {
+ 
+     /// The body proper, after the modifier.
+     fn parse_body_after_modifier(&mut self, expect_semicolon: bool) -> PResult<FunctionBody> {
++        let declaration = std::mem::take(&mut self.declaration_body);
++        if declaration
++            && self.skip_bodies
++            && self.at_op(Op::LBrace)
++            && let Some(close) = self.matching_close(self.pos)
++            && matches!(self.tokens[close].kind, Kind::Op(Op::RBrace))
++        {
++            let start = self.span();
++            self.pos = close + 1;
++            let span = Span { start: start.start, end: self.tokens[close].span.end };
++            let block = self.ast.push_stmt(crate::ast::Stmt { span, kind: crate::ast::StmtKind::Block(Box::default()) });
++            return Ok(FunctionBody::Block(block));
++        }
+         if self.at_op(Op::LBrace) {
+             return Ok(FunctionBody::Block(self.parse_body_block()?));
+         }
+diff --git a/crates/frontend/src/parser/mod.rs b/crates/frontend/src/parser/mod.rs
+index 958fd321..c3d3059c 100644
+--- a/crates/frontend/src/parser/mod.rs
++++ b/crates/frontend/src/parser/mod.rs
+@@ -280,6 +280,33 @@ pub fn parse_lexed_with(
+     tokens: Result<Vec<Token>, Diagnostic>,
+     interner: &mut Interner,
+     features: LibraryFeatures,
++) -> Parsed {
++    parse_lexed_outline(source, tokens, interner, features, false)
++}
++
++/// Like [`parse_lexed_with`]; with `skip_bodies`, the block bodies `{ … }` of
++/// the declarations (top-level functions, methods, accessors, constructors)
++/// are not read: each becomes an empty block over the same range. It is the
++/// read of a dependency's file, whose bodies the analysis of another package
++/// never infers (what it needs from them — signatures, initializers,
++/// constructor initializer lists, `=>` bodies, metadata — is read as usual).
++/// A unit with scanner recovery (an unclosed group) is read whole.
++///
++/// ```
++/// let mut names = dartforge_intern::Interner::new();
++/// let source = "int f() { return 1 + 2; }";
++/// let tokens = dartforge_frontend::lexer::lex(source);
++/// let features = dartforge_frontend::LibraryFeatures::current();
++/// let p = dartforge_frontend::parser::parse_lexed_outline(source, tokens, &mut names, features, true);
++/// assert!(p.diagnostics.is_empty());
++/// assert!(p.ast.exprs.is_empty());
++/// ```
++pub fn parse_lexed_outline(
++    source: &str,
++    tokens: Result<Vec<Token>, Diagnostic>,
++    interner: &mut Interner,
++    features: LibraryFeatures,
++    skip_bodies: bool,
+ ) -> Parsed {
+     let tokens = match tokens {
+         Ok(tokens) => tokens,
+@@ -311,6 +338,7 @@ pub fn parse_lexed_with(
+         parser.synthetic_closers = closers.clone();
+         parser.features = features;
+         parser.mode_313 = mode_313;
++        parser.skip_bodies = skip_bodies && closers.is_empty() && from_scanner.is_empty();
+         parser.diagnostics.extend(from_scanner.iter().cloned());
+         let unit = parser.parse_compilation_unit();
+         let redo = !mode_313 && parser.diverged_313 && parser.new_syntax;
+@@ -432,6 +460,11 @@ pub struct Parser<'s, 'i> {
+     /// second read of a unit that ended up with the 3.13 reference
+     /// ([`Self::diverged_313`]).
+     pub(crate) mode_313: bool,
++    /// Declaration block bodies are skipped ([`parse_lexed_outline`]).
++    pub(crate) skip_bodies: bool,
++    /// The body about to be read is a declaration's (set by the declaration
++    /// rules, taken by the body rule).
++    pub(crate) declaration_body: bool,
+     /// The read outside [`Self::mode_313`] went through a construct where the
+     /// trees diverge: if the unit ends up with the 3.13 reference, it is read
+     /// again in 3.13 mode.
+@@ -512,6 +545,8 @@ impl<'s, 'i> Parser<'s, 'i> {
+             synthetic_name: None,
+             new_syntax: false,
+             mode_313: false,
++            skip_bodies: false,
++            declaration_body: false,
+             diverged_313: false,
+             in_list: false,
+             only_3_6: Vec::new(),
+diff --git a/crates/lsp/src/typed.rs b/crates/lsp/src/typed.rs
+index 9a6b747d..b8a5d3f3 100644
+--- a/crates/lsp/src/typed.rs
++++ b/crates/lsp/src/typed.rs
+@@ -639,11 +639,11 @@ fn folder_packages(folders: &[PathBuf]) -> Vec<PathBuf> {
+ /// The files `affected` by a change in `changed`: they and, through the
+ /// directives (`import`, `export`, `part`, `part of`), those that depend on
+ /// them, transitively (those that Dart's driver reanalyzes and republishes).
+-fn affected(files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analysis::FileAnalysis>, changed: &BTreeSet<PathBuf>, packages: Option<&dartforge_elements::PackageConfig>) -> BTreeSet<PathBuf> {
++fn affected<'t>(files: impl Iterator<Item = (&'t PathBuf, &'t str)>, changed: &BTreeSet<PathBuf>, packages: Option<&dartforge_elements::PackageConfig>) -> BTreeSet<PathBuf> {
+     let mut dependents: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+-    for (path, a) in files {
++    for (path, text) in files {
+         let mut names = dartforge_intern::Interner::new();
+-        let analyzed = dartforge_frontend::parser::parse(&a.text, &mut names);
++        let analyzed = dartforge_frontend::parser::parse(text, &mut names);
+         let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
+         for d in &analyzed.unit.directives {
+             use dartforge_frontend::ast::DirectiveKind as K;
+@@ -706,7 +706,35 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) ->
+     if open.is_empty() && of_package.is_empty() {
+         return excluded_output;
+     }
+-    let mut files: Vec<PathBuf> = of_package.clone();
++    let package_config = root.join(".dart_tool").join("package_config.json");
++    let package_config = package_config.is_file().then_some(package_config);
++    let packages = package_config.as_deref().and_then(|c| dartforge_elements::PackageConfig::load(c).ok());
++    // The files not open to publish: all of them on the first analysis;
++    // afterwards those affected by the changed files (they and their
++    // dependents through the directives, read from the open texts or the
++    // disk).
++    let publish: BTreeSet<PathBuf> = if all {
++        of_package.iter().map(|a| key(a)).collect()
++    } else {
++        let sources: Vec<(PathBuf, String)> = of_package
++            .iter()
++            .filter_map(|a| {
++                let k = key(a);
++                let text = match texts.get(&k) {
++                    Some(t) => t.to_string(),
++                    None => std::fs::read_to_string(a).ok()?,
++                };
++                Some((k, text))
++            })
++            .collect();
++        affected(sources.iter().map(|(k, t)| (k, t.as_str())), changed, packages.as_ref())
++    };
++    // The batch: the files published (I5, docs/LSP-ESPECIFICACAO.md §16.10).
++    // The rest of the package is loaded like a dependency, without its
++    // bodies: the diagnostics of a file do not depend on the bodies of the
++    // other libraries, so a batch with only the affected files publishes
++    // what the whole package's analysis would.
++    let mut files: Vec<PathBuf> = of_package.iter().filter(|a| publish.contains(&key(a))).cloned().collect();
+     for (_, _, path, text) in open {
+         // A part comes in through its owning library (the engine does not import parts).
+         if is_part(text)
+@@ -718,24 +746,22 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) ->
+     }
+     files.sort_by_key(|a| key(a));
+     files.dedup_by_key(|a| key(a));
+-    let package_config = root.join(".dart_tool").join("package_config.json");
+-    let package_config = package_config.is_file().then_some(package_config);
+-    let packages = package_config.as_deref().and_then(|c| dartforge_elements::PackageConfig::load(c).ok());
+     let texts: HashMap<PathBuf, String> = texts.iter().map(|(k, t)| (k.clone(), t.to_string())).collect();
+-    let Some(analysis) = engine.analyze_with(root, &files, package_config.as_deref(), &texts, cancelled)
+-    else {
+-        return Vec::new();
++    // Nothing affected (a change outside the package's files): no analysis,
++    // only the YAML files below.
++    let analysis = if files.is_empty() {
++        dartforge_parity::analysis::AnalysisResult::default()
++    } else {
++        let Some(analysis) = engine.analyze_with(root, &files, package_config.as_deref(), &texts, cancelled) else {
++            return Vec::new();
++        };
++        analysis
+     };
+     crate::memory::log(&format!("after the engine ({} files kept)", analysis.files.len()));
+     let mut syntactic = SyntacticAnalyzer::new();
+     let mut output = Vec::new();
+     // The files not open to publish.
+     let open_keys: BTreeSet<PathBuf> = open.iter().map(|(_, _, c, _)| key(c)).collect();
+-    let publish: BTreeSet<PathBuf> = if all {
+-        of_package.iter().map(|a| key(a)).collect()
+-    } else {
+-        affected(&analysis.files, changed, packages.as_ref())
+-    };
+     let mut targets: Vec<(String, Option<i32>, PathBuf, &str)> = open.iter().map(|(u, v, c, t)| (u.clone(), Some(*v), c.clone(), &**t)).collect();
+     for a in &of_package {
+         let k = key(a);
+diff --git a/crates/parity/examples/analyze_project.rs b/crates/parity/examples/analyze_project.rs
+index 6157118b..6d7af5e0 100644
+--- a/crates/parity/examples/analyze_project.rs
++++ b/crates/parity/examples/analyze_project.rs
+@@ -2,7 +2,7 @@
+ //! stick of the analysis's speed and memory on real projects.
+ //!
+ //! ```text
+-//! cargo run --release -p dartforge-parity --example analyze_project -- <package root> [repetitions]
++//! cargo run --release -p dartforge-parity --example analyze_project -- <package root> [repetitions] [--files N]
+ //! ```
+ //!
+ //! Analyzes every `.dart` of the package (outside the `analysis_options.yaml`
+@@ -11,6 +11,12 @@
+ //! allocator's peak. `DARTFORGE_ENGINE_TIMES=1` adds the time of each engine
+ //! phase (on standard error). Measure the CPU time with `/usr/bin/time -l`:
+ //! with a loaded machine the wall time is not comparable.
++//!
++//! With `--files N`, after the whole analysis, `N` files spread over the
++//! package are analyzed one at a time (a batch of one, the rest of the
++//! package loaded as outline, as the LSP does after an edit): each must give
++//! the same diagnostics as in the whole analysis, and the time of each is
++//! printed.
+ #[global_allocator]
+ static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
+ 
+@@ -19,10 +25,22 @@ use std::collections::HashMap;
+ use std::path::PathBuf;
+ use std::time::Instant;
+ 
++fn mib(b: usize) -> f64 {
++    b as f64 / (1024.0 * 1024.0)
++}
++
+ fn main() {
+-    let args: Vec<String> = std::env::args().skip(1).collect();
++    let mut args: Vec<String> = std::env::args().skip(1).collect();
++    let singles: usize = match args.iter().position(|a| a == "--files") {
++        Some(i) => {
++            let n = args.get(i + 1).and_then(|n| n.parse().ok()).unwrap_or(10);
++            args.drain(i..(i + 2).min(args.len()));
++            n
++        }
++        None => 0,
++    };
+     let Some(root) = args.first().map(PathBuf::from) else {
+-        eprintln!("usage: analyze_project <package root> [repetitions]");
++        eprintln!("usage: analyze_project <package root> [repetitions] [--files N]");
+         std::process::exit(2);
+     };
+     let reps: usize = args.get(1).and_then(|r| r.parse().ok()).unwrap_or(1);
+@@ -35,7 +53,8 @@ fn main() {
+     let h = std::thread::Builder::new()
+         .stack_size(1 << 30)
+         .spawn(move || {
+-            for rep in 0..reps {
++            let mut whole = None;
++            for rep in 0..reps.max(1) {
+                 dartforge_instrument::reset_peak();
+                 let base = dartforge_instrument::live_bytes();
+                 let t = Instant::now();
+@@ -49,8 +68,44 @@ fn main() {
+                     files.len(),
+                     diags,
+                     t.elapsed().as_secs_f64(),
+-                    (dartforge_instrument::peak_bytes().saturating_sub(base)) as f64 / (1024.0 * 1024.0)
++                    mib(dartforge_instrument::peak_bytes().saturating_sub(base))
+                 );
++                whole = Some(r);
++            }
++            let whole = whole.expect("one run");
++            let mut different = 0;
++            for f in files.iter().step_by((files.len() / singles.max(1)).max(1)).take(singles) {
++                dartforge_instrument::reset_peak();
++                let base = dartforge_instrument::live_bytes();
++                let t = Instant::now();
++                let r = engine
++                    .analyze_with(&root, std::slice::from_ref(f), packages.as_deref(), &HashMap::new(), &|| false)
++                    .expect("not cancelled");
++                let elapsed = t.elapsed().as_secs_f64();
++                let k = dartforge_parity::analysis::key(f);
++                let one = r.files.get(&k).map(|a| a.diags.clone()).unwrap_or_default();
++                let all = whole.files.get(&k).map(|a| a.diags.clone()).unwrap_or_default();
++                let same = one == all;
++                different += usize::from(!same);
++                println!(
++                    "  {}: {:.2} s, peak {:.1} MiB, {} diagnostics{}",
++                    f.strip_prefix(&root).unwrap_or(f).display(),
++                    elapsed,
++                    mib(dartforge_instrument::peak_bytes().saturating_sub(base)),
++                    one.len(),
++                    if same { String::new() } else { format!(" DIFFERENT from the whole analysis ({})", all.len()) }
++                );
++                if !same {
++                    for d in one.iter().filter(|d| !all.contains(d)) {
++                        println!("    only alone: {:?} {}", d.code.map(|c| c.info().name), d.message);
++                    }
++                    for d in all.iter().filter(|d| !one.contains(d)) {
++                        println!("    only whole: {:?} {}", d.code.map(|c| c.info().name), d.message);
++                    }
++                }
++            }
++            if singles > 0 {
++                println!("single files different from the whole analysis: {different}");
+             }
+         })
+         .expect("thread");
+diff --git a/crates/parity/src/analysis.rs b/crates/parity/src/analysis.rs
+index b49ad1b6..e0072372 100644
+--- a/crates/parity/src/analysis.rs
++++ b/crates/parity/src/analysis.rs
+@@ -492,6 +492,8 @@ impl Engine {
+             })
+             .collect();
+         let package_config = packages.and_then(|p| dartforge_elements::PackageConfig::load(p).ok());
++        // The libraries outside the batch that own a part in it.
++        let mut owning_libraries: Vec<PathBuf> = Vec::new();
+         for (i, a, text) in &read {
+             let (i, a, text) = (*i, *a, text.clone());
+             // A part whose library is not known (the `part of` does not point
+@@ -508,6 +510,7 @@ impl Engine {
+             if part
+                 && let Some(lib) = library_outside_batch(a, &text, root, &read, package_config.as_ref(), texts)
+             {
++                owning_libraries.push(lib.clone());
+                 let rel = lib.strip_prefix(root).unwrap_or(&lib).to_string_lossy().replace('\\', "/").replace(' ', "%20");
+                 imports.push_str(&format!("import '{rel}' as _dfb{i};\n"));
+                 own.insert(key(a), text);
+@@ -545,15 +548,13 @@ impl Engine {
+         let generation = c.finish(1).ok();
+         let cache = dartforge_elements::SdkCache::open_or_build(&self.sdk, "dartdevc").ok().map(|(c, _)| c);
+         let mut interner = dartforge_intern::Interner::new();
+-        let (program, load_diags) = dartforge_elements::load::load_lenient_generated(
+-            &entry,
+-            &self.sdk,
+-            packages,
+-            &mut interner,
+-            cache,
+-            None,
+-            generation,
+-        );
++        // Only the batch's files (and the libraries of its parts) are read with
++        // their declarations' block bodies: nothing of the other files is
++        // reported, and their bodies are never inferred.
++        let with_bodies: HashSet<PathBuf> = own.iter().cloned().chain(owning_libraries.iter().map(|p| key(p))).collect();
++        let (program, load_diags) = dartforge_elements::load::with_bodies_only_for(std::sync::Arc::new(with_bodies), || {
++            dartforge_elements::load::load_lenient_generated(&entry, &self.sdk, packages, &mut interner, cache, None, generation)
++        });
+         if cancelled() {
+             return None;
+         }
