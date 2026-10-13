@@ -197,7 +197,7 @@ pub extern "C" fn dartforge_api_post_integer(port: i64, value: i64) -> bool {
 struct CObjectArena {
     objects: Vec<Box<[u64; COBJECT_SIZE / 8]>>,
     textos: Vec<CString>,
-    listas: Vec<Vec<*mut u8>>,
+    lists: Vec<Vec<*mut u8>>,
     bytes: Vec<Vec<u8>>,
 }
 
@@ -244,7 +244,7 @@ impl CObjectArena {
                     let p = self.new(KARRAY);
                     *(p.add(8) as *mut isize) = children.len() as isize;
                     *(p.add(16) as *mut *const *mut u8) = children.as_ptr();
-                    self.listas.push(children);
+                    self.lists.push(children);
                     p
                 }
                 Portable::Bytes(b) | Portable::Typed(_, b) => {

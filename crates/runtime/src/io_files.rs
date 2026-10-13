@@ -203,7 +203,7 @@ fn dart_fixed_list(value_list: &[i64]) -> i64 {
         for (i, &v) in value_list.iter().enumerate() {
             h.set_root(frame, i, v);
         }
-        let l = h.new_list(crate::layout::cid::LIST, value_list.len(), crate::listas::Element::General);
+        let l = h.new_list(crate::layout::cid::LIST, value_list.len(), crate::lists::Element::General);
         // A palavra 0 do corpo é o comprimento; os elementos, as seguintes.
         if !value_list.is_empty() {
             h.write_refs(l, 1, value_list);

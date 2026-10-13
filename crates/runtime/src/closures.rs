@@ -1,5 +1,5 @@
 // Runtime nativo: células, contextos e closures (espaço unificado, P2:
-// docs/NATIVO-ESPACO-UNIFICADO.md §2.5 e `caixas.rs`).
+// docs/NATIVO-ESPACO-UNIFICADO.md §2.5 e `boxes.rs`).
 //
 // O código gerado cria e lê células, contextos e closures em linha
 // (`llvm/caixas_ir.rs`). As funções abaixo ficam para a ABI: as de criação
@@ -261,7 +261,7 @@ mod function_apply_tests {
     #[test]
     fn function_apply_forwards_named_descriptor_to_uniform_entry() {
         use crate::heap::Value;
-        use crate::listas::Element;
+        use crate::lists::Element;
         let function = dartforge_tearoff(entry as usize as i64);
         with_roots(&[function], || {
             let c = HEAP.with(|heap| heap.borrow_mut().allocate_str("c"));

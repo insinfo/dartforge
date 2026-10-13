@@ -118,7 +118,7 @@ fn concat_lists(a: i64, b: i64) -> Option<i64> {
         heap.root(frame, b);
         let (len_a, len_b) = (heap.list_len(a), heap.list_len(b));
         let (shape_a, shape_b) = (heap.list_shape(a), heap.list_shape(b));
-        let shape = if shape_a == shape_b { shape_a } else { crate::listas::Element::General };
+        let shape = if shape_a == shape_b { shape_a } else { crate::lists::Element::General };
         let new_area = heap.new_growable(len_a + len_b, len_a + len_b, shape);
         heap.root(frame, new_area);
         for i in 0..len_a {

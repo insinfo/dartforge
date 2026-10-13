@@ -379,7 +379,7 @@ pub extern "C" fn dartforge_arc_lista_ref_v1(list: i64, ix: i64) -> i64 {
 #[cfg(test)]
 mod tests_owned_ref_list {
     use super::*;
-    use crate::{layout::{cid, smi}, listas::Element, heap::Value};
+    use crate::{layout::{cid, smi}, lists::Element, heap::Value};
 
     #[test]
     fn append_borrows_receiver_and_preserves_roots_across_growth_and_decompaction() {

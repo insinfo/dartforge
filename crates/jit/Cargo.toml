@@ -31,4 +31,4 @@ dartforge-emit-native = { path = "../emit_native" }
 # `abort` do runtime encerrem a execução e não quem a pediu (testes, harness).
 [[bin]]
 name = "dartforge-executar-ir"
-path = "src/bin/executar_ir.rs"
+path = "src/bin/run_ir.rs"

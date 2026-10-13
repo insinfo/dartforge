@@ -988,8 +988,8 @@ pub(crate) fn list_accepts_scalar(meta: i64, code: i64) -> bool {
 /// `[]=`/`add` do SDK (a covariância confere o valor contra o `E`
 /// reificado), e os 8 bytes dos bits bastam; senão a geral. Só lê o
 /// universo.
-pub(crate) fn type_list_shape(meta: i64) -> crate::listas::Element {
-    use crate::listas::Element;
+pub(crate) fn type_list_shape(meta: i64) -> crate::lists::Element {
+    use crate::lists::Element;
     RTI.with(|u| {
         let u = u.borrow();
         let Some(Type::Interface(_, args)) = u.get_value(meta) else { return Element::General };
@@ -1014,7 +1014,7 @@ pub(crate) fn type_list_shape(meta: i64) -> crate::listas::Element {
 /// Põe a lista `h` na forma do tipo reificado dela (N14,
 /// [`type_list_shape`]): chamado sempre que o metadado de uma lista
 /// é gravado. A troca é do armazenamento (`Heap::list_adjust_shape`,
-/// `listas.rs`, §2.15), que converte no lugar os elementos que já existem,
+/// `lists.rs`, §2.15), que converte no lugar os elementos que já existem,
 /// sem alocar; uma lista que ainda não cabe na forma compacta fica geral.
 /// Nada disso é observável.
 pub(crate) fn adjust_list_shape(heap: &mut Heap, h: i64) {
@@ -1022,7 +1022,7 @@ pub(crate) fn adjust_list_shape(heap: &mut Heap, h: i64) {
         return;
     }
     let meta = heap.metadata(h);
-    let shape = if meta == 0 { crate::listas::Element::General } else { type_list_shape(meta - 1) };
+    let shape = if meta == 0 { crate::lists::Element::General } else { type_list_shape(meta - 1) };
     if heap.list_shape(h) != shape {
         // A troca pode alocar (as caixas da forma geral, §2.16): a lista
         // fica enraizada enquanto isso (quem chama nem sempre a enraizou).

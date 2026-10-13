@@ -258,7 +258,7 @@ fn int_list(value_list: Vec<i64>) -> i64 {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let n = value_list.len();
-        let l = heap.new_growable(n, n, crate::listas::Element::Int);
+        let l = heap.new_growable(n, n, crate::lists::Element::Int);
         for (i, v) in value_list.into_iter().enumerate() {
             heap.list_set(l, i, crate::heap::Value::Int(v));
         }
@@ -313,7 +313,7 @@ type Chunk = (Option<bool>, Texto);
 /// Lista expansível com os pedaços, na ordem, alocando cada um já com a lista
 /// enraizada (G6: uma coleta no meio vê os pedaços anteriores pela lista).
 fn chunk_list(items: Vec<Chunk>) -> i64 {
-    let list = HEAP.with(|h| h.borrow_mut().new_growable(0, 0, crate::listas::Element::General));
+    let list = HEAP.with(|h| h.borrow_mut().new_growable(0, 0, crate::lists::Element::General));
     with_roots(&[list], || {
         for (before, text) in items {
             HEAP.with(|h| {

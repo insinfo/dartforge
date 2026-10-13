@@ -317,7 +317,7 @@ mod tests_control_owner {
 /// `IsolateMessageHandler::HandleLibMessage`: `[0, tipo, …]`.
 fn handle_control_message(msg: i64) {
     use crate::heap::Value;
-    // A mensagem é uma lista do núcleo (`listas.rs`): os elementos sem caixa,
+    // A mensagem é uma lista do núcleo (`lists.rs`): os elementos sem caixa,
     // na forma do armazenamento.
     let items: Vec<Value> = HEAP.with(|h| {
         let h = h.borrow();

@@ -69,7 +69,7 @@ enum GNode {
     Refs { cid: i32, word0: i64, refs: Vec<GValue> },
     /// Uma `_List`/`_ImmutableList` compacta (`BRUTO` com `ELEMENTO`): os
     /// elementos crus (`i64`, bits de `f64` ou 0/1).
-    Compact { cid: i32, shape: crate::listas::Element, elements: Vec<i64> },
+    Compact { cid: i32, shape: crate::lists::Element, elements: Vec<i64> },
     /// Um corpo `BRUTO` sem ponteiro para dentro de si nem para fora do heap
     /// (`_Mint`, `_Double`, SIMD): as palavras e os `flags`, copiados crus.
     Bruto { cid: i32, flags: u8, words: Box<[i64]> },
@@ -192,7 +192,7 @@ fn accumulator_units(heap: &Heap, h: i64) -> Vec<u16> {
 
 /// Os elementos de uma `_List`/`_ImmutableList` como nó do grafo, pela forma.
 fn fixed_list_node(heap: &Heap, h: i64, class: i32, v: &mut dyn FnMut(i64) -> GValue) -> GNode {
-    use crate::listas::{Element, RefElements};
+    use crate::lists::{Element, RefElements};
     match heap.list_elements(h) {
         RefElements::General(e) => GNode::Refs { cid: class, word0: e.len() as i64, refs: e.iter().map(|&x| v(x)).collect() },
         RefElements::Int(e) => GNode::Compact { cid: class, shape: Element::Int, elements: e.to_vec() },
@@ -475,7 +475,7 @@ impl Graph {
         }
         fn no(g: &Graph, n: &GNode, visiting: &mut Vec<bool>) -> Portable {
             use crate::layout::cid;
-            use crate::listas::Element;
+            use crate::lists::Element;
             match n {
                 GNode::Texto(t) => Portable::Str(t.para_string()),
                 GNode::Bruto { cid: cid::MINT, words, .. } => Portable::Int(words.first().copied().unwrap_or(0)),
@@ -574,7 +574,7 @@ fn allocate_node(heap: &mut Heap, no: &GNode) -> Option<i64> {
         }
         GNode::Refs { cid: c, word0, refs } => {
             if cid::is_fixed_list(*c) {
-                heap.new_list(*c, refs.len(), crate::listas::Element::General)
+                heap.new_list(*c, refs.len(), crate::lists::Element::General)
             } else if *c == cid::RECORD {
                 heap.new_record(&vec![0; refs.len()])
             } else {
@@ -911,7 +911,7 @@ mod tests_owners_materialization {
             let frame = h.push_owning_frame(1);
             let text = h.allocate_str("aliases na fila");
             h.set_root(frame, 0, text);
-            let list = h.new_list(crate::layout::cid::LIST, 2, crate::listas::Element::General);
+            let list = h.new_list(crate::layout::cid::LIST, 2, crate::lists::Element::General);
             h.write_refs(list, 1, &[text, text]);
             h.set_root(frame, 0, list);
             let dispatcher = h.new_closure(123, (0, false), 0, 0);

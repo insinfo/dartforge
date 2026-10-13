@@ -92,11 +92,11 @@ pub const FORA: u8 = crate::layout::flags::FORA;
 // como o do Immix).
 
 // O espaço de objetos (páginas, classes de tamanho, regiões grandes, mapa de
-// marcas, cartões, anexos) mora em `crate::espaco`. [`LARGEST_CLASS`] e
+// marcas, cartões, anexos) mora em `crate::space`. [`LARGEST_CLASS`] e
 // [`TLAB_N`] contam palavras do corpo (docs/NATIVO-ESPACO-UNIFICADO.md §2.6): a
 // TLAB de `w` palavras é `Context::tlab[w]`, `w` em `1..=TLAB_N`.
-pub use crate::espaco::{ObjectSpace, block_size};
-use crate::espaco::{
+pub use crate::space::{ObjectSpace, block_size};
+use crate::space::{
     TLAB_BLOCKS, allocation_bytes, fields_of, body, is_reference, shape, marked, mark_block, mark_reference,
     new_out_of_line_body, body_refs, release_out_of_line_body,
 };
@@ -1876,7 +1876,7 @@ impl Heap {
         object
     }
     /// O tear-off canônico já registrado da função de topo `code` (a tabela
-    /// `tearoffs`, raiz), se existe (`caixas.rs`, P2).
+    /// `tearoffs`, raiz), se existe (`boxes.rs`, P2).
     pub fn registered_tearoff(&self, code: i64) -> Option<Ref> {
         self.tearoffs.get(&code).copied()
     }
@@ -2409,7 +2409,7 @@ impl Heap {
         match self.objects.block_of(handle) {
             // SAFETY: bloco de uma página do espaço.
             #[allow(unsafe_code)]
-            Some(b) if unsafe { (*b).estado } == crate::espaco::POISON_STATE => {
+            Some(b) if unsafe { (*b).estado } == crate::space::POISON_STATE => {
                 panic!("bug do compilador: handle já coletado (raiz faltando; bloco envenenado, DARTFORGE_GC_VENENO)\nhandle {handle}")
             }
             // SAFETY: bloco de uma página do espaço.
@@ -2803,7 +2803,7 @@ impl Heap {
                                     visit_ref(*p.add(i), &mut next_offset, &mut stack);
                                 }
                                 if !minor && (*b).flags & flags_do_bloco::CARTOES != 0 {
-                                    crate::espaco::clear_cards(b, n);
+                                    crate::space::clear_cards(b, n);
                                 }
                             }
                             current = next_offset;
@@ -3277,7 +3277,7 @@ impl Heap {
             self.stats.estimated_bytes / 1024,
             self.byte_threshold / 1024
         );
-        let (rss, peak, system_heap) = crate::espaco::process_memory();
+        let (rss, peak, system_heap) = crate::space::process_memory();
         let _ = writeln!(
             s,
             "[memória] processo: residente {} KiB, pico {} KiB, heap do sistema confirmado {} KiB",
@@ -3349,7 +3349,7 @@ impl Heap {
 // ---------------------------------------------------------------------------
 // A API do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.2): todo valor
 // do runtime é um bloco do espaço de objetos; as vistas por tipo estão em
-// `textos.rs`, `caixas.rs`, `listas.rs` e `tipadas.rs`.
+// `textos.rs`, `boxes.rs`, `lists.rs` e `tipadas.rs`.
 // ---------------------------------------------------------------------------
 
 /// Um valor sem representação de heap decidida (o que era a `TaggedValue`) nas
@@ -3594,7 +3594,7 @@ impl Heap {
             if (*b).flags & flags_do_bloco::CARTOES != 0 {
                 let len = body_refs(b, self.objects.body_words(b));
                 if i < len {
-                    crate::espaco::dirty_card(b, len, i);
+                    crate::space::dirty_card(b, len, i);
                 }
             }
         }
@@ -3628,7 +3628,7 @@ impl Heap {
     }
     /// Copia `v` para as palavras `word..` do corpo `REFS` de `h`, com uma
     /// barreira só: num velho com cartões, suja os cartões da faixa inteira (a
-    /// descompactação no lugar e o preenchimento de `listas.rs` contam com isso)
+    /// descompactação no lugar e o preenchimento de `lists.rs` contam com isso)
     /// e o lembra se algum valor é jovem.
     #[allow(unsafe_code)]
     pub fn write_refs(&mut self, h: Ref, word: usize, v: &[Ref]) {
@@ -3662,7 +3662,7 @@ impl Heap {
                 let (de, until) = ((word - 1).min(len), (word - 1 + v.len()).min(len));
                 let mut i = de;
                 while i < until {
-                    crate::espaco::dirty_card(b, len, i);
+                    crate::space::dirty_card(b, len, i);
                     i = (i / crate::layout::ELEMENTOS_POR_CARTAO + 1) * crate::layout::ELEMENTOS_POR_CARTAO;
                 }
             }
@@ -3681,7 +3681,7 @@ impl Heap {
             let e = (*b).estado;
             if (e == VELHO || e == REMEMBERED) && shape(b) == flags_do_bloco::REFS && (*b).flags & flags_do_bloco::CARTOES != 0 {
                 let len = body_refs(b, self.objects.body_words(b));
-                crate::espaco::dirty_all_cards(b, len);
+                crate::space::dirty_all_cards(b, len);
             }
         }
         self.objects.remember(b);
@@ -3700,7 +3700,7 @@ impl Heap {
             if shape(b) == flags_do_bloco::REFS && (*b).flags & flags_do_bloco::CARTOES != 0 {
                 let len = body_refs(b, self.objects.body_words(b));
                 if i < len {
-                    crate::espaco::dirty_card(b, len, i);
+                    crate::space::dirty_card(b, len, i);
                 }
             }
         }
@@ -5081,8 +5081,8 @@ fn arc_failure(e: crate::arc::ArcError) -> ! {
 
 /// A geometria da página do bloco `h` para a tabela de metadados do ARC
 /// (`arc::Geometry`); `None` fora do espaço (o metadado vai para a reserva).
-fn arc_geometry(espaco: &ObjectSpace, h: Ref) -> Option<crate::arc::Geometry> {
-    espaco.geometry(h).map(|(first, size, blocks)| crate::arc::Geometry { first, size, blocks })
+fn arc_geometry(space: &ObjectSpace, h: Ref) -> Option<crate::arc::Geometry> {
+    space.geometry(h).map(|(first, size, blocks)| crate::arc::Geometry { first, size, blocks })
 }
 
 /// ARC puro, no laço da drenagem (depois do passo 4, em que todo jovem que
@@ -5091,12 +5091,12 @@ fn arc_geometry(espaco: &ObjectSpace, h: Ref) -> Option<crate::arc::Geometry> {
 /// metadados `take_dead` já tirou. O estático (`PERMANENTE`) não é do
 /// espaço e nunca morre.
 #[allow(unsafe_code)]
-fn died_in_drain(espaco: &ObjectSpace, validate: bool, estado: &crate::arc::EstadoDoArc, h: Ref) -> bool {
+fn died_in_drain(space: &ObjectSpace, validate: bool, estado: &crate::arc::EstadoDoArc, h: Ref) -> bool {
     if !is_object(h) {
         return false;
     }
     let in_space = if validate {
-        espaco.block_of(h).is_some()
+        space.block_of(h).is_some()
     } else {
         // SAFETY: um handle de objeto é um bloco ou um estático (o contrato
         // de `space_block` sem a validação).
@@ -5141,9 +5141,9 @@ impl Heap {
 
     /// O objeto do espaço `h` ainda sem metadados ganha registro (RC zero,
     /// vivo) antes da primeira ocorrência contada.
-    fn arc_register_if_needed(espaco: &ObjectSpace, arc: &mut HeapArc, h: Ref) {
+    fn arc_register_if_needed(space: &ObjectSpace, arc: &mut HeapArc, h: Ref) {
         if smi::e_handle(h) && arc.estado.meta(h).is_none() {
-            arc.estado.register_live_at(h, arc_geometry(espaco, h));
+            arc.estado.register_live_at(h, arc_geometry(space, h));
         }
     }
 
@@ -5786,9 +5786,9 @@ impl Heap {
             // rodada (milhões, nas árvores que caem de uma vez) custava mais
             // que a cascata.
             let validate = self.validate_handles;
-            let espaco = &self.objects;
+            let space = &self.objects;
             let estado = &arc.estado;
-            let dead = |h: &Ref| died_in_drain(espaco, validate, estado, *h);
+            let dead = |h: &Ref| died_in_drain(space, validate, estado, *h);
             self.weak_refs.retain(|holder, target| {
                 if dead(target) {
                     *target = 0;
@@ -6577,24 +6577,24 @@ mod arc_no_heap {
             heap.arc.as_mut().unwrap().pure = pure;
             heap.stress = true;
             let frame = heap.push_owning_frame(1);
-            let l = heap.new_growable(1, 1, crate::listas::Element::Int);
+            let l = heap.new_growable(1, 1, crate::lists::Element::Int);
             heap.set_root(frame, 0, l);
             heap.list_set(l, 0, Value::Int(i64::MAX));
             heap.list_push(l, Value::Double(2.5));
             heap.collect();
-            assert_eq!(heap.list_shape(l), crate::listas::Element::General);
+            assert_eq!(heap.list_shape(l), crate::lists::Element::General);
             assert!(matches!(heap.list_get(l, 0), Value::Ref(r) if matches!(heap.value(r), Value::Int(i64::MAX))));
             assert!(matches!(heap.list_get(l, 1), Value::Ref(r) if matches!(heap.value(r), Value::Double(x) if x == 2.5)));
             assert_eq!(heap.frames.len(), 1, "nenhum quadro temporário pode permanecer aberto");
             let data = heap.list_data(l);
-            let caixas = heap.words(data)[1..3].to_vec();
-            for &r in &caixas {
+            let boxes = heap.words(data)[1..3].to_vec();
+            for &r in &boxes {
                 assert_eq!(heap.arc.as_ref().unwrap().estado.meta(r).unwrap().rc, 1);
             }
             heap.pop_frame(frame);
             heap.collect();
             assert!(!alive(&heap, l) && !alive(&heap, data));
-            assert!(caixas.iter().all(|&r| !alive(&heap, r)));
+            assert!(boxes.iter().all(|&r| !alive(&heap, r)));
         }
     }
 

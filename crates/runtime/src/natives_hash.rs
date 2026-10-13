@@ -181,7 +181,7 @@ impl Data {
         if (e == estado::VELHO || e == estado::REMEMBERED) && young_child(v) {
             if c.flags & flags::CARTOES != 0 {
                 // SAFETY: bloco `REFS` com `CARTOES` de `len` elementos, `i < len`.
-                unsafe { crate::espaco::dirty_card((self.h - DESLOCAMENTO_DO_HANDLE) as *mut Header, self.len, i) };
+                unsafe { crate::space::dirty_card((self.h - DESLOCAMENTO_DO_HANDLE) as *mut Header, self.len, i) };
             }
             if e == estado::VELHO {
                 dartforge_lembrar(self.h);
@@ -600,5 +600,5 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_preencher(ix: i64, da
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_hash_novos_dados(n: i64) -> i64 {
     let n = usize::try_from(n).unwrap_or(0);
-    HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::LIST, n, crate::listas::Element::General))
+    HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::LIST, n, crate::lists::Element::General))
 }

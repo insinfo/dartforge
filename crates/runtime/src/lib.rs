@@ -22,12 +22,12 @@ pub mod heap;
 /// O contrato de layout dos blocos (docs/NATIVO-ESPACO-UNIFICADO.md §3.1).
 pub mod layout;
 /// O espaço de objetos (páginas, classes de tamanho, regiões grandes, varredura).
-pub mod espaco;
+pub mod space;
 /// As vistas por pacote do espaço unificado (§3.3): strings, caixas, listas e
 /// listas tipadas, cada uma um `impl Heap` sobre a API de `heap`.
 pub mod textos;
-pub mod caixas;
-pub mod listas;
+pub mod boxes;
+pub mod lists;
 pub mod tipadas;
 
 /// O harness do runtime, compilado como módulo: tudo o que o executável AOT
@@ -96,17 +96,17 @@ pub const RUNTIME_MAIN: &str = concat!(
     "mod layout {\n",
     include_str!("layout.rs"),
     "\n}\n",
-    "mod espaco {\n",
-    include_str!("espaco.rs"),
+    "mod space {\n",
+    include_str!("space.rs"),
     "\n}\n",
     "mod textos {\n",
     include_str!("textos.rs"),
     "\n}\n",
-    "mod caixas {\n",
-    include_str!("caixas.rs"),
+    "mod boxes {\n",
+    include_str!("boxes.rs"),
     "\n}\n",
-    "mod listas {\n",
-    include_str!("listas.rs"),
+    "mod lists {\n",
+    include_str!("lists.rs"),
     "\n}\n",
     "mod tipadas {\n",
     include_str!("tipadas.rs"),

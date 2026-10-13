@@ -663,14 +663,14 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_processar(
     pos: i64,
 ) -> i64 {
     let Some(f) = object_filter(this) else { return 0 };
-    let listas = [b0, b1, b2, b3];
+    let lists = [b0, b1, b2, b3];
     // O processamento trabalha direto sobre os bytes dos anéis e das
     // posições (§2.14: o coletor não move, e nada aqui chama o Dart nem aloca
     // no heap), sem cópia.
     // SAFETY: as cinco listas são distintas (os `_ExternalBuffer` e a lista
     // das posições do `_SecureFilterImpl`) e vivas (argumentos enraizados pelo
     // código gerado) durante toda a chamada.
-    let mut rings: [&mut [u8]; 4] = std::array::from_fn(|i| unsafe { typed_bytes_mut_of(listas[i]) });
+    let mut rings: [&mut [u8]; 4] = std::array::from_fn(|i| unsafe { typed_bytes_mut_of(lists[i]) });
     // SAFETY: como acima.
     let bytes_pos = unsafe { typed_bytes_mut_of(pos) };
     if bytes_pos.len() < 64 {

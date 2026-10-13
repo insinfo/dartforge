@@ -23,7 +23,7 @@
 // compilação (`unsafe_code = "deny"` do workspace).
 #![allow(unsafe_code)]
 
-pub mod conferir_rs4gc;
+pub mod check_rs4gc;
 
 use llvm_sys::bit_writer::LLVMWriteBitcodeToMemoryBuffer;
 use llvm_sys::core::{
@@ -408,14 +408,14 @@ pub fn gerar_de_bitcode(name: &str, bitcode: &[u8], cpu: Option<&'static str>) -
 }
 
 /// `DARTFORGE_CONFERIR_RS4GC=1`: o conferidor das raízes depois do
-/// `rewrite-statepoints-for-gc` ([`conferir_rs4gc`],
+/// `rewrite-statepoints-for-gc` ([`check_rs4gc`],
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.4) sobre o texto do módulo.
 /// Caro (imprime o módulo inteiro): ligado nos testes do modo mapas.
 fn check_after_rs4gc(name: &str, modulo: &IrModule<'_>) -> Result<(), String> {
     if !std::env::var("DARTFORGE_CONFERIR_RS4GC").is_ok_and(|v| v == "1") {
         return Ok(());
     }
-    conferir_rs4gc::check(&modulo.text()).map_err(|e| dump_if_requested(name, "rs4gc", modulo, format!("{name}: {e}")))
+    check_rs4gc::check(&modulo.text()).map_err(|e| dump_if_requested(name, "rs4gc", modulo, format!("{name}: {e}")))
 }
 
 /// `DARTFORGE_DESPEJAR_MODULO=<trecho>`: o módulo cujo nome contém o trecho

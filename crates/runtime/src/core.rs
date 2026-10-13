@@ -777,10 +777,10 @@ mod tests_owners_record_and_concat {
             let (frame, a, b) = HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 let frame = h.push_owning_frame(2);
-                let a = h.new_list(crate::layout::cid::LIST, 1, crate::listas::Element::Int);
+                let a = h.new_list(crate::layout::cid::LIST, 1, crate::lists::Element::Int);
                 h.set_root(frame, 0, a);
                 h.list_set(a, 0, crate::heap::Value::Int(i64::MAX));
-                let b = h.new_list(crate::layout::cid::LIST, 1, crate::listas::Element::Double);
+                let b = h.new_list(crate::layout::cid::LIST, 1, crate::lists::Element::Double);
                 h.set_root(frame, 1, b);
                 h.list_set(b, 0, crate::heap::Value::Double(2.5));
                 (frame, a, b)
@@ -793,13 +793,13 @@ mod tests_owners_record_and_concat {
                 h.collect();
                 assert!(!h.is_live_object(a) && !h.is_live_object(b));
                 let data = h.list_data(out);
-                let caixas = h.words(data)[1..3].to_vec();
-                assert!(matches!(h.value(caixas[0]), crate::heap::Value::Int(i64::MAX)));
-                assert!(matches!(h.value(caixas[1]), crate::heap::Value::Double(x) if x == 2.5));
+                let boxes = h.words(data)[1..3].to_vec();
+                assert!(matches!(h.value(boxes[0]), crate::heap::Value::Int(i64::MAX)));
+                assert!(matches!(h.value(boxes[1]), crate::heap::Value::Double(x) if x == 2.5));
                 h.pop_frame(frame);
                 h.collect();
                 assert!(!h.is_live_object(out) && !h.is_live_object(data));
-                assert!(caixas.iter().all(|&r| !h.is_live_object(r)));
+                assert!(boxes.iter().all(|&r| !h.is_live_object(r)));
             });
         });
     }
@@ -870,7 +870,7 @@ pub extern "C" fn dartforge_nativo_ClassID_getID(o: i64) -> i64 {
 }
 
 /// `identical(a, b)` (`Identical_comparison`; o lowering o faz em linha por
-/// `@df.identical_one`, `lower/caixas.rs`).
+/// `@df.identical_one`, `lower/boxes.rs`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Identical_comparison(a: i64, b: i64) -> u8 {
     dartforge_identical(a, b)
@@ -880,7 +880,7 @@ pub extern "C" fn dartforge_nativo_Identical_comparison(a: i64, b: i64) -> u8 {
 /// um campo só (`AllocEnv [receiver_obj]`, `lower/closures.rs`). Uma closure de
 /// ambiente direto ou com outro contexto não tem receptor (só é igual a si
 /// mesma).
-fn tearoff_receiver(heap: &Heap, c: &crate::caixas::ClosureRef) -> Option<i64> {
+fn tearoff_receiver(heap: &Heap, c: &crate::boxes::ClosureRef) -> Option<i64> {
     let (ctx, is_ref_kind) = c.contexto;
     if !is_ref_kind || !crate::heap::is_object(ctx) || heap.class(ctx) != crate::layout::cid::CONTEXTO {
         return None;
@@ -945,7 +945,7 @@ pub extern "C" fn dartforge_nativo_DartForge_record_shape(this: i64) -> i64 {
 /// `_ImmutableList` vazia.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_record_fieldNames(_this: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::IMMUTABLE_LIST, 0, crate::listas::Element::General))
+    HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::IMMUTABLE_LIST, 0, crate::lists::Element::General))
 }
 
 /// `_Record._fieldAt(i)`: o campo (já em posição `Ref`), ou null fora da forma.

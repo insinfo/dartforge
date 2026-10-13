@@ -440,7 +440,7 @@ pub extern "C" fn dartforge_nativo_DartForge_verdadeiro() -> u8 {
 /// `_Smi.hashCode`/`_Mint.hashCode`: o `HashIntegerOp` da VM — o produto de 96
 /// bits de `this` (sem sinal) por `0x2d51`, as três palavras de 32 bits
 /// combinadas por xor, cortado a 30 bits. O lowering o faz em linha
-/// (`lower/caixas.rs`); fica para a chamada.
+/// (`lower/boxes.rs`); fica para a chamada.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_int_hashCode(this: i64) -> i64 {
     let p = u128::from(this as u64) * 0x2d51;

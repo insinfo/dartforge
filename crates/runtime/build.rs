@@ -34,83 +34,83 @@ use std::path::PathBuf;
 /// Os fragmentos do runtime, na ordem de concatenação. Acrescentar um
 /// fragmento é acrescentar o nome aqui (e o arquivo em `src/`).
 const FRAGMENTOS: &[&str] = &[
-    "nucleo",
-    "gc_raizes",
+    "core",
+    "gc_roots",
     "arc_abi",
-    "arc_portas_nativas",
-    "excecoes",
+    "arc_native_ports",
+    "exceptions",
     // As portas Rust → Dart e a personalidade das exceções por tabelas.
-    "excecoes_tabelas",
-    "rastro",
+    "exceptions_tables",
+    "stack_trace",
     // `DARTFORGE_EFEITOS=conferir`: a conferência da tabela de efeitos.
-    "efeitos_conferir",
-    "saida",
+    "effects_check",
+    "output",
     "strings",
-    "colecoes",
+    "collections",
     "closures",
     // δ (P5b): os natives do SDK da fonte (crates/emit_native/src/nativos.rs).
-    "nativos_numeros",
-    "nativos_strings",
+    "natives_numbers",
+    "natives_strings",
     // O caminho rápido do `_Map`/`_Set` padrão para chaves `int` e `String`.
-    "nativos_hash",
+    "natives_hash",
     // Relógio, fuso horário e entropia.
-    "nativos_sistema",
+    "natives_system",
     // O motor de expressões regulares do `RegExp`.
     "regexp",
     // P2 (α): operadores sobre dynamic/num (tapa-buraco até P5).
-    "despacho",
+    "dispatch",
     // δ (P5c): tabelas de métodos e busca por seletor do SDK da fonte.
-    "seletores",
-    "nativos_listas",
+    "selectors",
+    "natives_lists",
     // As listas tipadas do `typed_data_patch.dart` da VM.
     "typed_data",
     // Os tipos SIMD (`Float32x4`, `Int32x4`, `Float64x2`).
     "simd",
     // P6: o laço de eventos (microtarefas e timers).
-    "eventos",
+    "events",
     // Portas e a fila de mensagens do isolado.
-    "portas",
+    "ports",
     // Os isolados (`Isolate.spawn`, a porta de controle).
-    "isolados",
+    "isolates",
     // O dart:ffi (bibliotecas dinâmicas, memória nativa, trampolins de chamada).
     "ffi",
     "ffi_callbacks",
     // A API nativa de portas (Dart_PostCObject…) e os dados da API DL.
     "ffi_api_nativa",
     // Finalizer e NativeFinalizer sobre os anexos do coletor.
-    "finalizadores",
+    "finalizers",
     // O `dart:io` da VM: arquivos, diretórios, o IOService e a plataforma.
-    "io_arquivos",
-    "io_diretorios",
-    "io_servico",
-    "io_plataforma",
+    "io_files",
+    "io_directories",
+    "io_service",
+    "io_platform",
     // O manipulador de eventos, os soquetes e os processos.
-    "io_eventos",
-    "io_soquetes",
-    "io_soquetes_unix",
+    "io_events",
+    "io_sockets",
+    "io_sockets_unix",
     // A observação de arquivos (`FileSystemEntity.watch`).
     "io_observador",
-    "io_processos",
+    "io_processes",
     // O mesmo no Windows: a porta de conclusão, o Winsock e os processos.
     "io_windows_eventos",
-    "io_windows_soquetes",
-    "io_windows_processos",
+    "io_windows_sockets",
+    "io_windows_processes",
     // A TLS do `dart:io` (`SecureSocket`, `SecurityContext`), sobre o rustls.
     "tls",
     // Os formatos de chave e certificado do `SecurityContext` (PKCS#12,
     // chaves cifradas).
-    "tls_formatos",
+    "tls_formats",
     // Os filtros zlib/gzip do `dart:io` (`ZLibEncoder`, `GZipCodec`).
     "zlib",
     // O que um programa vê na VM JIT e o AOT não dá, para os builders: o
     // subconjunto de `dart:mirrors` (`reflectClass`) e o package config.
     "compat_jit",
     // `dart:developer` e a timeline no perfil de produção.
-    "nativos_desenvolvedor",
+    "natives_developer",
     // RTI: tipos em tempo de execução.
-    "tipos",
+    "types",
     // O alocador global do executável, com listas livres por thread (N17).
-    "alocador",
+    "allocator",
 ];
 
 fn main() {
@@ -553,7 +553,7 @@ fn effects_table(manifest: &std::path::Path, names: &[String]) -> String {
 /// espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.1–§3.3) acrescenta o
 /// contrato de layout, o espaço de objetos e as vistas por pacote; a forma
 /// comprimida da tabela da RTI (`tabela_rti`) serve ao compilador e ao runtime.
-const MODULOS: &[&str] = &["heap", "hash", "arc", "layout", "espaco", "textos", "caixas", "listas", "tipadas", "tabela_rti"];
+const MODULOS: &[&str] = &["heap", "hash", "arc", "layout", "space", "textos", "boxes", "lists", "tipadas", "tabela_rti"];
 
 /// Todo `src/*.rs` é `lib.rs`, um dos [`MODULOS`] ou um fragmento listado.
 fn check_list(src: &std::path::Path) {

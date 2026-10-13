@@ -5,7 +5,7 @@
 // espaço de objetos com cid fixo (docs/NATIVO-ESPACO-UNIFICADO.md §2.5): a
 // `_GrowableList` guarda (comprimento, `_List`) como a VM, e os natives
 // `GrowableList_*` são as operações da VM sobre esses dois campos. A vista
-// está em `listas.rs` (`Heap::lista_*`); aqui ficam só a conferência de
+// está em `lists.rs` (`Heap::lista_*`); aqui ficam só a conferência de
 // índice, os erros da VM e o tipo reificado (`tipos.rs`). A classe nunca muda
 // depois de criada: fixar ou tornar imutável é copiar (§2.16).
 //
@@ -118,7 +118,7 @@ pub extern "C" fn dartforge_nativo_DartForge_json_empilhar(stack: i64, v: i64) -
         let mut heap = heap.borrow_mut();
         let serve = heap.e_lista(stack)
             && heap.class(stack) == crate::layout::cid::GROWABLE_LIST
-            && heap.list_shape(stack) == crate::listas::Element::General;
+            && heap.list_shape(stack) == crate::lists::Element::General;
         if !serve {
             return -1;
         }
@@ -219,7 +219,7 @@ pub extern "C" fn dartforge_nativo_DartForge_json_fechar_lista(stack: i64, start
     let list = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         // A pilha e o modelo enraizados: os valores são alcançados pela pilha.
-        let list = heap.list_with_roots(&[stack, model], |heap| heap.new_growable(n, n, crate::listas::Element::General));
+        let list = heap.list_with_roots(&[stack, model], |heap| heap.new_growable(n, n, crate::lists::Element::General));
         let tipo = heap.metadata(model);
         heap.set_metadata(list, tipo);
         if n > 0 {
@@ -240,7 +240,7 @@ pub extern "C" fn dartforge_nativo_DartForge_json_fechar_lista(stack: i64, start
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_List_allocate(length: i64, tuple: i64) -> i64 {
     let n = HEAP.with(|heap| heap.borrow().int_of(length)).unwrap_or(0).max(0) as usize;
-    let h = HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::LIST, n, crate::listas::Element::General));
+    let h = HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::LIST, n, crate::lists::Element::General));
     type_tuple_list(h, tuple, crate::layout::cid::LIST);
     h
 }
@@ -361,7 +361,7 @@ pub extern "C" fn dartforge_nativo_GrowableList_setData(this: i64, data: i64) {
         let mut heap = heap.borrow_mut();
         let shape = heap.list_shape(this);
         heap.list_set_data(this, data);
-        if shape != crate::listas::Element::General && heap.list_capacity(this) > 0 {
+        if shape != crate::lists::Element::General && heap.list_capacity(this) > 0 {
             heap.list_adjust_shape(this, shape);
         }
     });
@@ -511,7 +511,7 @@ pub unsafe extern "C" fn dartforge_lista_de_tabela_g(data: *const u8, len: i64, 
             _ => panic!("bug do compilador: tabela de coleção com o marcador {tag}"),
         });
     }
-    let h = HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::LIST, items.len(), crate::listas::Element::General));
+    let h = HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::LIST, items.len(), crate::lists::Element::General));
     // A lista fica enraizada enquanto os textos e os getters alocam.
     with_roots(&[h], || {
         for (k, item) in items.into_iter().enumerate() {
@@ -587,7 +587,7 @@ pub unsafe extern "C" fn dartforge_lista_de_tabela(data: *const u8, len: i64) ->
             };
             items.push(v);
         }
-        let h = heap.new_list(crate::layout::cid::LIST, items.len(), crate::listas::Element::General);
+        let h = heap.new_list(crate::layout::cid::LIST, items.len(), crate::lists::Element::General);
         // As caixas de `int` fora do `Smi` alocam: `list_set` enraíza `h`.
         for (k, v) in items.into_iter().enumerate() {
             heap.list_set(h, k, v);
@@ -649,7 +649,7 @@ pub unsafe extern "C" fn dartforge_arc_lista_nova_owned_v1(words: *const i64, n:
 }
 
 unsafe fn list_literal(words: *const i64, n: i64, cid: i64, shape: i64, owned: bool) -> i64 {
-    use crate::listas::Element;
+    use crate::lists::Element;
     let n = usize::try_from(n).unwrap_or(0);
     // SAFETY: garantido por quem chama (o `alloca` do código gerado).
     let p: &[i64] = if n == 0 { &[] } else { unsafe { std::slice::from_raw_parts(words, n) } };
