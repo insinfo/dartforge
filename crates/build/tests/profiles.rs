@@ -1,7 +1,7 @@
 //! Version profiles of the build engine (DF-BUILD-011) against the oracle of
 //! the official `build_runner` of each version: `corpus/builders/perfil_2_4`
 //! (`build_runner` 2.4.15, `build_config` 1.1.2, Dart 3.6.2) and
-//! `corpus/builders_novos/perfil_2_16` (`build_runner` 2.16.1, `build_config`
+//! `corpus/builders_new/perfil_2_16` (`build_runner` 2.16.1, `build_config`
 //! 1.3.3, Dart 3.13.4). Each case has one oracle per configuration
 //! (`oraculos/<name>/manifesto.json`, with the official tool's command-line
 //! arguments): default, `--release`, `--define`, `--config alt` and
@@ -40,7 +40,7 @@ fn case_2_4() -> PathBuf {
 }
 
 fn case_2_16() -> PathBuf {
-    corpus().join("builders_novos/perfil_2_16")
+    corpus().join("builders_new/perfil_2_16")
 }
 
 fn dart() -> PathBuf {
