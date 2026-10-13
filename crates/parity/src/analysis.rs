@@ -984,6 +984,13 @@ impl Engine {
                 non_nullable.insert((ui, v.name.span.start), !nullable);
             }
             let found = dartforge_analysis::initialization::uninitialized_finals_with(&units, &interner, &|u, s| non_nullable.get(&(u, s)).copied());
+            // An extension type without a primary constructor: 3.6.2 reports the
+            // synthetic representation (`'<empty>'`); 3.13.4 has no such field.
+            let found = found.into_iter().filter(|(i, d)| {
+                !(program.reference(ids[*i]) == dartforge_diagnostics::AnalyzerReference::V3_13
+                    && d.code == Some(dartforge_diagnostics::codes::compile_time_error::FINAL_NOT_INITIALIZED_CONSTRUCTOR_1)
+                    && d.message.contains("'<empty>'"))
+            });
             attributed.extend(with_phase(phase::ERROR_VERIFIER, found.into_iter().map(|(i, d)| (ids[i], d))));
         }
         // Invalid overrides, in the classes where the `verify()` of the

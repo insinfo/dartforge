@@ -246,8 +246,14 @@ pub fn uninitialized_finals_with(units: &[Unit<'_>], names: &Interner, non_nulla
                             let rep = x.representation_name.sym;
                             let initializes = k.parameters.iter().any(|p| p.this_ && p.name.is_some_and(|n| n.sym == rep))
                                 || k.initializers.iter().any(|y| matches!(y, Initializer::Field { name, .. } if name.sym == rep));
-                            if !initializes && !names.resolve(rep).is_empty() {
-                                let name = names.resolve(rep).to_string();
+                            if !initializes {
+                                // The synthetic representation (missing primary
+                                // constructor or field) has an empty name, which the
+                                // message writes as `<empty>`.
+                                let name = match names.resolve(rep) {
+                                    "" => "<empty>".to_string(),
+                                    r => r.to_string(),
+                                };
                                 out.push((i, Diagnostic::with_code(c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_1, k.class_name.span, [name])));
                             }
                             continue;

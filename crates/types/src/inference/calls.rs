@@ -1252,6 +1252,33 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             for arg in args.args.iter() {
                 infer_free(inf, cx, arg.value);
             }
+            // Without a constructor the creation still has the named type
+            // (`constructorName.type.type`: the written arguments, or the
+            // instantiation to bounds); through an alias, the alias's expansion,
+            // displayed with the alias (`T<dynamic>` for `typedef T<X> = FutureOr<X>`).
+            let (params, alias) = match rt {
+                TypeRef::Alias(_, _, td) => (inf.outline.typedefs[td.0 as usize].type_params.to_vec(), Some(td)),
+                _ => (inf.outline.classes[c.0 as usize].type_params.to_vec(), None),
+            };
+            let targs: Option<Vec<TypeId>> = if args.type_args.is_empty() {
+                Some(inf.instantiate_to_bounds(&params))
+            } else if args.type_args.len() == params.len() {
+                Some(args.type_args.iter().map(|&t| inf.type_argument_type(cx, t)).collect())
+            } else {
+                None
+            };
+            if let Some(targs) = targs {
+                let t = match alias {
+                    None => inf.table.intern(Type::Interface { class: c, args: targs.into_boxed_slice(), nullable: false }),
+                    Some(td) => {
+                        let target_ty = inf.outline.typedefs[td.0 as usize].target_type;
+                        let map = inf.map(&params, &targs);
+                        let expanded = inf.subst(target_ty, &map);
+                        inf.table.decorate(expanded, crate::table::DisplayDecoration::Alias { typedef: td, args: targs.into_boxed_slice() })
+                    }
+                };
+                return (t, false);
+            }
             return (inf.table.invalid(inf.core.dynamic_), false);
         }
     }

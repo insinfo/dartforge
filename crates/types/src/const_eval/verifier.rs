@@ -769,6 +769,29 @@ impl Verifier<'_, '_> {
         }
     }
 
+    /// `_validateConstructorInitializers`: every initializer of a `const`
+    /// constructor is potentially constant (`INVALID_CONSTANT` at each node
+    /// that is not).
+    fn potentially_constant_initializers(&mut self, k: &ast::Constructor) {
+        let cx = Ctx { lexical: None, ..self.cx() };
+        for init in k.initializers.iter() {
+            let exprs: Vec<ExprId> = match init {
+                ast::Initializer::Field { value, .. } => vec![*value],
+                ast::Initializer::Assert { condition, message, .. } => std::iter::once(*condition).chain(*message).collect(),
+                ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => {
+                    arguments.args.iter().map(|x| x.value).collect()
+                }
+            };
+            for x in exprs {
+                let mut nodes = Vec::new();
+                super::potential::collect_into(self.m, &cx, x, true, false, &mut nodes);
+                for n in nodes {
+                    self.report(c::INVALID_CONSTANT, n, Vec::new());
+                }
+            }
+        }
+    }
+
     fn constructor(&mut self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) {
         self.constructor_rules(a, mid, k);
         if k.const_ {
@@ -793,28 +816,19 @@ impl Verifier<'_, '_> {
                 };
                 self.report(c::RECURSIVE_CONSTANT_CONSTRUCTOR, span, Vec::new());
             }
-            // `_validateConstructorInitializers`: potentially constant.
-            let cx = Ctx { lexical: None, ..self.cx() };
-            for init in k.initializers.iter() {
-                let exprs: Vec<ExprId> = match init {
-                    ast::Initializer::Field { value, .. } => vec![*value],
-                    ast::Initializer::Assert { condition, message, .. } => std::iter::once(*condition).chain(*message).collect(),
-                    ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => {
-                        arguments.args.iter().map(|x| x.value).collect()
-                    }
-                };
-                for x in exprs {
-                    let mut nodes = Vec::new();
-                    super::potential::collect_into(self.m, &cx, x, true, false, &mut nodes);
-                    for n in nodes {
-                        self.report(c::INVALID_CONSTANT, n, Vec::new());
-                    }
-                }
-            }
+            self.potentially_constant_initializers(k);
             if !k.factory {
                 let primary = self.is_primary(a, mid, k);
                 self.field_initializers(a, mid, primary);
             }
+        }
+        // The `this : …` part of a `const` extension type's primary constructor
+        // (3.13): its initializers belong to that `const` constructor.
+        if !k.const_
+            && k.primary_body_part
+            && a.decls.iter().any(|d| matches!(&d.kind, ast::DeclKind::ExtensionType(x) if x.const_ && x.members.contains(&mid)))
+        {
+            self.potentially_constant_initializers(k);
         }
         self.default_values(a, &k.parameters);
         for init in k.initializers.iter() {
