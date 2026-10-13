@@ -1,7 +1,7 @@
 //! Prova AOT de retorno Guarda, cleanup e unwind entre duas funções Dart.
-//! O argumento final `automatico` acrescenta um propagador cujo invoke,
+//! O argumento final `automatic` acrescenta um propagador cujo invoke,
 //! pouso, fechamento léxico e cleanup são gerados pela preparação ARC.
-//! O argumento adicional `misto` dá ao caller um catch preparado e outro
+//! O argumento adicional `mixed` dá ao caller um catch preparado e outro
 //! invoke automático, exercitando o seletor catch no perfil de cleanup Unix.
 //! Não observa morte final nem certifica o restante do pipeline ARC.
 
@@ -10,12 +10,12 @@ use std::{collections::HashMap, path::PathBuf};
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = args.next().as_deref() != Some("tracing");
-    let lancar = args.next().as_deref() == Some("erro");
-    let automatico = args.next().as_deref() == Some("automatico");
-    let misto = args.next().as_deref() == Some("misto");
-    if misto && !automatico {
+    let throw = args.next().as_deref() == Some("erro");
+    let automatic = args.next().as_deref() == Some("automatico");
+    let mixed = args.next().as_deref() == Some("misto");
+    if mixed && !automatic {
         return Err("misto exige preparação automática".into());
     }
     let val = |v| Operand::Val(ValueId(v));
@@ -24,14 +24,14 @@ fn main() -> Result<(), String> {
         args,
         ret_ty,
     };
-    let mut modulo = Module::new();
-    modulo.memoria_arc = arc;
-    modulo.excecoes_por_tabelas = true;
-    modulo.entry_symbol = Some("prova_guardas".into());
-    modulo.functions.push(Function {
+    let mut module = Module::new();
+    module.arc_memory = arc;
+    module.excecoes_por_tabelas = true;
+    module.entry_symbol = Some("prova_guardas".into());
+    module.functions.push(Function {
         symbol: "prova_guardas".into(),
         name: "prova_guardas".into(),
-        depuracao: None,
+        debug_info: None,
         params: vec![],
         return_ty: Type::Void,
         blocks: vec![
@@ -55,7 +55,7 @@ fn main() -> Result<(), String> {
                     (
                         ValueId(1),
                         Instruction::CallStatic {
-                            symbol: if automatico {
+                            symbol: if automatic {
                                 "propagador"
                             } else {
                                 "retorno_guardado"
@@ -137,10 +137,10 @@ fn main() -> Result<(), String> {
             },
         ],
     });
-    modulo.functions.push(Function {
+    module.functions.push(Function {
         symbol: "retorno_guardado".into(),
         name: "retorno_guardado".into(),
-        depuracao: None,
+        debug_info: None,
         params: vec![
             (ValueId(0), "x".into(), Type::Ref),
             (ValueId(2), "rastro".into(), Type::Ref),
@@ -148,7 +148,7 @@ fn main() -> Result<(), String> {
         return_ty: Type::Ref,
         blocks: vec![BasicBlock {
             id: BlockId(0),
-            instructions: if lancar {
+            instructions: if throw {
                 vec![(
                     ValueId(1),
                     runtime(
@@ -164,24 +164,24 @@ fn main() -> Result<(), String> {
             terminator: Terminator::Return(Some(val(0))),
         }],
     });
-    let mut caller = PlanoFuncaoDart::default();
-    caller.tabelas.invocacoes.insert(ValueId(1), BlockId(1));
-    caller.tabelas.pousos.insert(BlockId(1));
-    let mut callee = PlanoFuncaoDart::default();
-    callee.tokens.retorno = RetornoTokens::Owned;
+    let mut caller = DartFunctionPlan::default();
+    caller.tables.invocations.insert(ValueId(1), BlockId(1));
+    caller.tables.landing_pads.insert(BlockId(1));
+    let mut callee = DartFunctionPlan::default();
+    callee.tokens.ret = TokenReturn::Owned;
     callee
-        .tabelas
-        .saidas
-        .insert(BlockId(0), SaidaPorExcecao::Guarda);
-    let mut planos = HashMap::from([
+        .tables
+        .exits
+        .insert(BlockId(0), ExceptionExit::Guard);
+    let mut plans = HashMap::from([
         ("prova_guardas".into(), caller),
         ("retorno_guardado".into(), callee),
     ]);
-    if automatico {
-        modulo.functions.push(Function {
+    if automatic {
+        module.functions.push(Function {
             symbol: "propagador".into(),
             name: "propagador".into(),
-            depuracao: None,
+            debug_info: None,
             params: vec![
                 (ValueId(0), "x".into(), Type::Ref),
                 (ValueId(3), "rastro".into(), Type::Ref),
@@ -208,22 +208,22 @@ fn main() -> Result<(), String> {
                 terminator: Terminator::Return(Some(val(2))),
             }],
         });
-        let mut propagador = PlanoFuncaoDart::default();
-        propagador.tokens.retorno = RetornoTokens::Owned;
-        propagador
-            .escopos
-            .antes
-            .insert(ValueId(2), vec![AlteracaoEscopo::Abrir(7)]);
-        propagador
-            .escopos
-            .saidas
-            .insert(BlockId(0), vec![AlteracaoEscopo::Fechar(7)]);
-        planos.insert("propagador".into(), propagador);
+        let mut propagator = DartFunctionPlan::default();
+        propagator.tokens.ret = TokenReturn::Owned;
+        propagator
+            .scopes
+            .before
+            .insert(ValueId(2), vec![ScopeChange::Open(7)]);
+        propagator
+            .scopes
+            .exits
+            .insert(BlockId(0), vec![ScopeChange::Close(7)]);
+        plans.insert("propagador".into(), propagator);
     }
-    if misto {
+    if mixed {
         // O catch inicial permanece explícito. O segundo invoke, sem catch,
         // faz a mesma função receber também Retoma no protótipo Unix.
-        modulo.functions[0]
+        module.functions[0]
             .blocks
             .iter_mut()
             .find(|b| b.id == BlockId(4))
@@ -241,7 +241,7 @@ fn main() -> Result<(), String> {
     }
     // Verifica identidade antes do clear; depois libera o owner original,
     // coleta e lê a cópia Owned, sem depender da raiz de pendência.
-    let catch = modulo.functions[0]
+    let catch = module.functions[0]
         .blocks
         .iter_mut()
         .find(|b| b.id == BlockId(1))
@@ -299,7 +299,7 @@ fn main() -> Result<(), String> {
         then_block: BlockId(6),
         else_block: BlockId(12),
     };
-    modulo.functions[0].blocks.extend([
+    module.functions[0].blocks.extend([
         BasicBlock {
             id: BlockId(12),
             instructions: vec![],
@@ -397,56 +397,56 @@ fn main() -> Result<(), String> {
             terminator: Terminator::Return(None),
         },
     ]);
-    let inseridos = if automatico && arc {
+    let inserted = if automatic && arc {
         // O harness fornece o CFG inicial de catch/saídas, como o passe de
         // exceções do compilador. A entrada integrada importa esse inventário
         // e publica o CFG final, inclusive os invokes criados no propagador.
-        modulo.tabelas = modulo
+        module.tables = module
             .functions
             .iter()
-            .map(|f| planos[&f.symbol].tabelas.clone())
+            .map(|f| plans[&f.symbol].tables.clone())
             .collect();
-        for plano in planos.values_mut() {
-            plano.tabelas = TabelasDaFuncao::default();
+        for plan in plans.values_mut() {
+            plan.tables = FunctionTables::default();
         }
-        preparar_arc_modulo_tabelado(&mut modulo, &mut planos)?
-    } else if automatico {
-        preparar_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
+        prepare_arc_tabled_module(&mut module, &mut plans)?
+    } else if automatic {
+        prepare_arc_dart_functions(&mut module.functions, &mut plans)?
     } else {
-        inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
+        insert_arc_dart_functions(&mut module.functions, &mut plans)?
     };
-    let esperado = if misto {
+    let expected = if mixed {
         (1, 17)
-    } else if automatico {
+    } else if automatic {
         (1, 13)
     } else {
         (1, 16)
     };
-    if inseridos != esperado {
+    if inserted != expected {
         return Err(format!(
-            "inserção esperada {esperado:?}, encontrada {inseridos:?}"
+            "inserção esperada {expected:?}, encontrada {inserted:?}"
         ));
     }
-    if !(automatico && arc) {
-        modulo.tabelas = modulo
+    if !(automatic && arc) {
+        module.tables = module
             .functions
             .iter()
-            .map(|f| planos[&f.symbol].tabelas.clone())
+            .map(|f| plans[&f.symbol].tables.clone())
             .collect();
     }
-    let erros = dartforge_emit_native::lower::verificador::verificar(&modulo);
-    if !erros.is_empty() {
-        return Err(erros.join("\n"));
+    let errors = dartforge_emit_native::lower::verifier::verify(&module);
+    if !errors.is_empty() {
+        return Err(errors.join("\n"));
     }
-    let mut ir = LlvmEmitter::new(&modulo).emit_all();
+    let mut ir = LlvmEmitter::new(&module).emit_all();
     ir.push_str("\ndeclare void @dartforge_print_handle(i64)\n");
-    if let Some(dir) = saida.parent() {
+    if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
+    std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     driver::compile_and_link(
         &ir,
-        &saida,
+        &exit,
         &driver::NativeDriverOptions {
             optimize: true,
             ..Default::default()

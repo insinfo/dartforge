@@ -8,14 +8,14 @@
 //!   heap —, o `Completer` (`_makeAsyncAwaitCompleter`), a closure do corpo
 //!   (registrada na zona por `_envolverCorpo`) e começa o corpo de forma
 //!   síncrona (`_asyncStartSync`), devolvendo `completer.future`;
-//! * **o corpo `f$async(env, código, resultado)`**, uma closure com o
+//! * **o corpo `f$async(env, código, result)`**, uma closure com o
 //!   quadro no ambiente. O bloco de entrada lê o quadro e salta pelo
-//!   `estado` guardado nele: 0 é o começo; cada `await` é um estado.
+//!   `state` guardado nele: 0 é o começo; cada `await` é um estado.
 //!
 //! **`await e`.** Grava o estado `k` no quadro, chama `_asyncAwait(e,
-//! corpo)` e **retorna**; o bloco de retomada `R_k` só é alcançado pelo
+//! corpo)` e **returns**; o block de resumption `R_k` só é alcançado pelo
 //! `switch` da entrada, quando o `Future` completa e chama o corpo de novo.
-//! Com `código == 1` (`_ERRO`) o `resultado` é um `_ErroAssincrono`: o erro é
+//! Com `código == 1` (`_ERRO`) o `result` é um `_ErroAssincrono`: o erro é
 //! lançado ali, no ponto do `await`, com o rastro dele, e segue o caminho de
 //! exceção pendente de sempre — os `try`/`catch`/`finally` que envolvem o
 //! `await` são os do lowering (o mesmo `exception_target` de antes da
@@ -41,7 +41,7 @@
 //! tupla de tipos, parâmetros…, locais…, temporários…]`.
 
 use super::fn_builder::FnBuilder;
-use super::locais::{Local, Modo};
+use super::locals::{Local, Modo};
 use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, FunctionBody};
@@ -49,24 +49,24 @@ use dartforge_intern::SymbolId;
 use std::collections::{HashMap, HashSet};
 
 /// Id de classe do quadro de uma função `async` (abaixo das formas de
-/// record, `context::ID_BASE_DE_FORMA`).
+/// record, `context::SHAPE_BASE_ID`).
 pub const ID_QUADRO_ASYNC: u32 = 0x3FFF_FF00;
 
-const Q_ESTADO: usize = 0;
+const Q_STATE: usize = 0;
 const Q_COMPLETER: usize = 1;
-const Q_CORPO: usize = 2;
+const Q_BODY: usize = 2;
 const Q_THIS: usize = 3;
-const Q_AMBIENTE: usize = 4;
-const Q_TUPLA: usize = 5;
+const Q_ENV: usize = 4;
+const Q_TUPLE: usize = 5;
 const Q_PARAMS: usize = 6;
 
 /// De onde sai o tipo de retorno de um corpo `async`/`sync*`/`async*`: o
 /// tipo (declarado, ou o estático de uma closure) ou a anotação de uma
 /// função local.
 #[derive(Clone, Copy)]
-pub enum RetornoAsync {
+pub enum AsyncReturn {
     Tipo(dartforge_types::table::TypeId),
-    Anotacao(ast::TypeId),
+    Annotation(ast::TypeId),
 }
 
 /// O tipo de corpo suspenso: `async`, `sync*` ou `async*`.
@@ -81,7 +81,7 @@ pub enum RetornoAsync {
 /// | `sync*` | `_SyncStarIterable` | `yield`, `yield*` (devolve `true`) | devolve `false` | sai do corpo |
 /// | `async*` | o stream do controlador | `await`, `yield`, `yield*` | `_asyncStarReturn` | `_asyncStarErro` |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TipoCorpo {
+pub enum BodyType {
     Async,
     SyncStar,
     AsyncStar,
@@ -92,44 +92,44 @@ pub enum TipoCorpo {
 ///
 /// # Panics
 /// Com `AsyncModifier::None`, que não é corpo suspenso.
-pub fn tipo_do_corpo(m: ast::AsyncModifier) -> TipoCorpo {
+pub fn body_type(m: ast::AsyncModifier) -> BodyType {
     match m {
-        ast::AsyncModifier::Async => TipoCorpo::Async,
-        ast::AsyncModifier::SyncStar => TipoCorpo::SyncStar,
-        ast::AsyncModifier::AsyncStar => TipoCorpo::AsyncStar,
+        ast::AsyncModifier::Async => BodyType::Async,
+        ast::AsyncModifier::SyncStar => BodyType::SyncStar,
+        ast::AsyncModifier::AsyncStar => BodyType::AsyncStar,
         ast::AsyncModifier::None => panic!("corpo síncrono não é suspenso"),
     }
 }
 
 /// O estado do lowering do corpo de uma função `async`, `sync*` ou `async*`.
 #[derive(Debug, Clone)]
-pub struct EstadoAsync {
-    pub tipo: TipoCorpo,
+pub struct AsyncState {
+    pub ty: BodyType,
     /// `sync*`: o iterador que chama o corpo (um parâmetro; nulo nos outros).
-    pub iterador: Operand,
-    pub quadro: Operand,
+    pub iterator: Operand,
+    pub frame: Operand,
     /// A closure do corpo registrada na zona (a que `_asyncAwait` recebe).
-    pub corpo: Operand,
+    pub body: Operand,
     /// O `Completer` (`async`) ou o controlador do stream (`async*`).
     pub completer: Operand,
-    pub codigo: Operand,
-    pub resultado: Operand,
+    pub code: Operand,
+    pub result: Operand,
     /// `(k, R_k)`: o bloco de retomada de cada estado.
-    pub retomadas: Vec<(i64, BlockId)>,
+    pub resumptions: Vec<(i64, BlockId)>,
     /// `(A, R_k)`: o bloco que suspende e a retomada dele.
-    pub suspensoes: Vec<(BlockId, BlockId)>,
+    pub suspensions: Vec<(BlockId, BlockId)>,
     /// O próximo `Return` é cru (suspensão ou o fim do tratador do topo):
     /// não passa por `_asyncReturn`.
-    pub retorno_cru: bool,
+    pub raw_return: bool,
     /// O rastro simbólico (§13.14): a posição de cada `await`, pelo estado.
-    pub esperas: Vec<(i64, (u32, u32))>,
+    pub waits: Vec<(i64, (u32, u32))>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// Função de topo `nome` do `dart:async` (os apoios do `async_patch`).
-    pub fn apoio_async(&self, nome: &str) -> Option<usize> {
+    /// Função de topo `name` do `dart:async` (os apoios do `async_patch`).
+    pub fn async_support(&self, name_str: &str) -> Option<usize> {
         let lib = self.ctx.program.libraries.iter().position(|l| l.uri == "dart:async")?;
-        let sym = self.ctx.interner.lookup(nome)?;
+        let sym = self.ctx.interner.lookup(name_str)?;
         let b = self.ctx.program.lookup(dartforge_elements::model::LibraryId(lib as u32), sym)?;
         match b.getter? {
             dartforge_elements::model::Element::Function(f) => Some(f.0 as usize),
@@ -137,34 +137,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Chama o apoio `nome` do `dart:async` com os argumentos já avaliados.
-    pub(super) fn chamar_apoio(&mut self, nome: &str, args: Vec<Operand>, span: Span) -> Operand {
-        let Some(fid) = self.apoio_async(nome) else {
-            return self.nao_suportado(&format!("apoio `{nome}` do dart:async ausente"), span);
+    /// Chama o apoio `name` do `dart:async` com os argumentos já avaliados.
+    pub(super) fn call_support(&mut self, name_str: &str, args: Vec<Operand>, span: Span) -> Operand {
+        let Some(fid) = self.async_support(name_str) else {
+            return self.unsupported(&format!("apoio `{name_str}` do dart:async ausente"), span);
         };
-        let avaliados: Vec<super::membros::Avaliado> = args.into_iter().map(|a| (None, a)).collect();
-        let args = self.casar_args(fid, &avaliados);
-        self.chamar_direto(fid, None, args)
+        let evaluated: Vec<super::members::Evaluated> = args.into_iter().map(|a| (None, a)).collect();
+        let args = self.match_args(fid, &evaluated);
+        self.call_direct(fid, None, args)
     }
 
-    /// [`FnBuilder::chamar_apoio`] no caminho do `return`: o desvio de
+    /// [`FnBuilder::call_support`] no caminho do `return`: o desvio de
     /// exceção dele, sem tratador, é um retorno cru — senão voltaria a
-    /// `retorno_async`, que chamaria o apoio de novo.
-    fn chamar_apoio_cru(&mut self, nome: &str, args: Vec<Operand>) -> Operand {
-        let antes = self.async_estado.as_ref().is_some_and(|e| e.retorno_cru);
-        if let Some(e) = self.async_estado.as_mut() {
-            e.retorno_cru = true;
+    /// `async_return`, que chamaria o apoio de novo.
+    fn call_support_raw(&mut self, name_str: &str, args: Vec<Operand>) -> Operand {
+        let before = self.async_state.as_ref().is_some_and(|e| e.raw_return);
+        if let Some(e) = self.async_state.as_mut() {
+            e.raw_return = true;
         }
-        let r = self.chamar_apoio(nome, args, Span { start: 0, end: 0 });
-        if let Some(e) = self.async_estado.as_mut() {
-            e.retorno_cru = antes;
+        let r = self.call_support(name_str, args, Span { start: 0, end: 0 });
+        if let Some(e) = self.async_state.as_mut() {
+            e.raw_return = before;
         }
         r
     }
 
     /// A referência fica explícita na HIR para a preparação de ownership.
     /// Os bits escalares conservam a conversão da representação `ty`.
-    fn ler_posicao(&mut self, obj: Operand, idx: usize, ty: Type) -> Operand {
+    fn read_position(&mut self, obj: Operand, idx: usize, ty: Type) -> Operand {
         if ty == Type::Ref {
             return self.emit(Instruction::GetField { object: obj, index: idx }, Type::Ref);
         }
@@ -176,12 +176,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::I64,
         );
-        self.bits_para(bits, ty)
+        self.bits_to(bits, ty)
     }
 
     /// `dartforge_object_set` com a tag da representação do valor (E1).
-    fn gravar_posicao(&mut self, obj: Operand, idx: usize, val: Operand) {
-        let (bits, is_ref) = self.para_bits(val);
+    fn store_position(&mut self, obj: Operand, idx: usize, val: Operand) {
+        let (bits, is_ref) = self.to_bits(val);
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_object_set".to_string(),
@@ -200,29 +200,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Os locais visíveis no stub, em ordem determinística: os ligados ao
     /// ambiente da closure (pela posição) e os demais — os parâmetros — pelo
     /// offset da declaração.
-    fn locais_do_stub(&self) -> (Vec<(SymbolId, Local)>, Vec<(SymbolId, Local)>) {
-        let mut ambiente = Vec::new();
-        let mut outros = Vec::new();
-        let mut vistos = HashSet::new();
-        for escopo in self.escopos.iter().rev() {
-            let mut nomes: Vec<(&SymbolId, &Local)> = escopo.iter().collect();
-            nomes.sort_by_key(|(s, l)| (l.offset, self.ctx.symbol_name(**s).to_string()));
-            for (s, l) in nomes {
-                if !vistos.insert(*s) {
+    fn stub_locals(&self) -> (Vec<(SymbolId, Local)>, Vec<(SymbolId, Local)>) {
+        let mut env = Vec::new();
+        let mut others = Vec::new();
+        let mut seen_set = HashSet::new();
+        for scope in self.scopes.iter().rev() {
+            let mut names: Vec<(&SymbolId, &Local)> = scope.iter().collect();
+            names.sort_by_key(|(s, l)| (l.offset, self.ctx.symbol_name(**s).to_string()));
+            for (s, l) in names {
+                if !seen_set.insert(*s) {
                     continue;
                 }
-                match l.modo {
-                    Modo::Ambiente { .. } => ambiente.push((*s, l.clone())),
-                    _ => outros.push((*s, l.clone())),
+                match l.mode {
+                    Modo::Environment { .. } => env.push((*s, l.clone())),
+                    _ => others.push((*s, l.clone())),
                 }
             }
         }
-        ambiente.sort_by_key(|(_, l)| match l.modo {
-            Modo::Ambiente { indice, .. } => indice,
+        env.sort_by_key(|(_, l)| match l.mode {
+            Modo::Environment { index: idx_value, .. } => idx_value,
             _ => 0,
         });
-        outros.sort_by_key(|(s, l)| (l.offset, self.ctx.symbol_name(*s).to_string()));
-        (ambiente, outros)
+        others.sort_by_key(|(s, l)| (l.offset, self.ctx.symbol_name(*s).to_string()));
+        (env, others)
     }
 
     /// O corpo de uma função `async`, `sync*` ou `async*`: este builder é o
@@ -230,138 +230,138 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `<símbolo>$async` e a entrada uniforme dele. Termina o stub.
     /// O tipo do valor/elemento pela anotação de retorno de uma função local
     /// (`Future<T> f() async`, `Iterable<T> g() sync*`, `FutureOr<T>`).
-    fn valor_da_anotacao_async(&self, ast: &ast::Ast, a: ast::TypeId, tipo: TipoCorpo) -> Option<super::rti::Receita> {
+    fn async_annotation_value(&self, ast: &ast::Ast, a: ast::TypeId, ty: BodyType) -> Option<super::rti::Recipe> {
         let ast::TypeKind::Named { name, args } = &ast.ty(a).kind else { return None };
-        let nome = self.ctx.symbol_name(name.last()?.sym);
-        let esperado = match tipo {
-            TipoCorpo::Async => nome == "Future" || nome == "FutureOr",
-            TipoCorpo::SyncStar => nome == "Iterable",
-            TipoCorpo::AsyncStar => nome == "Stream",
+        let name_str = self.ctx.symbol_name(name.last()?.sym);
+        let expected = match ty {
+            BodyType::Async => name_str == "Future" || name_str == "FutureOr",
+            BodyType::SyncStar => name_str == "Iterable",
+            BodyType::AsyncStar => name_str == "Stream",
         };
-        if !esperado {
+        if !expected {
             return None;
         }
-        self.receita_da_anotacao(ast.ty(*args.first()?))
+        self.annotation_recipe(ast.ty(*args.first()?))
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn lower_corpo_async(
+    pub fn lower_async_body(
         &mut self,
         ast: &ast::Ast,
         params: &[ast::Parameter],
-        corpo: &FunctionBody,
+        fn_body: &FunctionBody,
         span: Span,
-        retorno: Option<RetornoAsync>,
-        tipo: TipoCorpo,
+        ret: Option<AsyncReturn>,
+        ty: BodyType,
     ) {
-        let (capturas, parametros) = self.locais_do_stub();
-        let simbolo_corpo = format!("{}$async", self.func.symbol);
-        let legivel = self.func.name.clone();
+        let (captures, parameters) = self.stub_locals();
+        let body_symbol = format!("{}$async", self.func.symbol);
+        let readable = self.func.name.clone();
 
         // --- corpo ------------------------------------------------------
-        let mut b = FnBuilder::new(self.ctx, self.unit_id, simbolo_corpo.clone(), legivel.clone(), Type::Ref);
+        let mut b = FnBuilder::new(self.ctx, self.unit_id, body_symbol.clone(), readable.clone(), Type::Ref);
         let env = Operand::Val(b.add_param("env".to_string(), Type::Ref));
-        let iterador = if tipo == TipoCorpo::SyncStar {
+        let iterator = if ty == BodyType::SyncStar {
             Operand::Val(b.add_param("iterador".to_string(), Type::Ref))
         } else {
             Operand::Constant(Constant::Null)
         };
-        let codigo = Operand::Val(b.add_param("codigo".to_string(), Type::Ref));
-        let resultado = Operand::Val(b.add_param("resultado".to_string(), Type::Ref));
-        let quadro = b.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
-        let estado = b.ler_posicao(quadro.clone(), Q_ESTADO, Type::I64);
-        let completer = b.ler_posicao(quadro.clone(), Q_COMPLETER, Type::Ref);
-        let fechamento = b.ler_posicao(quadro.clone(), Q_CORPO, Type::Ref);
+        let code = Operand::Val(b.add_param("codigo".to_string(), Type::Ref));
+        let result = Operand::Val(b.add_param("resultado".to_string(), Type::Ref));
+        let frame = b.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
+        let state = b.read_position(frame.clone(), Q_STATE, Type::I64);
+        let completer = b.read_position(frame.clone(), Q_COMPLETER, Type::Ref);
+        let closer = b.read_position(frame.clone(), Q_BODY, Type::Ref);
         if self.this_param.is_some() {
-            let t = b.ler_posicao(quadro.clone(), Q_THIS, Type::Ref);
+            let t = b.read_position(frame.clone(), Q_THIS, Type::Ref);
             b.this_param = Some(t);
-            b.this_finalizavel = self.this_finalizavel;
+            b.finalizable_this = self.finalizable_this;
             b.enclosing_class = self.enclosing_class;
         }
-        if !capturas.is_empty() {
-            let de_fora = b.ler_posicao(quadro.clone(), Q_AMBIENTE, Type::Ref);
-            for (sym, l) in &capturas {
-                if let Modo::Ambiente { indice, celula, .. } = l.modo {
-                    b.ligar_ambiente(*sym, de_fora.clone(), indice, celula, l.ty, l);
+        if !captures.is_empty() {
+            let from_outside = b.read_position(frame.clone(), Q_ENV, Type::Ref);
+            for (sym, l) in &captures {
+                if let Modo::Environment { index: idx_value, cell, .. } = l.mode {
+                    b.bind_env(*sym, from_outside.clone(), idx_value, cell, l.ty, l);
                 }
             }
         }
         // RTI: as variáveis de tipo do stub (a tupla mora no quadro).
-        b.params_de_tipo_da_funcao = self.params_de_tipo_da_funcao.clone();
-        b.params_locais = self.params_locais.clone();
-        b.extensao_do_this = self.extensao_do_this;
-        b.tipo_ext_do_this = self.tipo_ext_do_this;
-        b.classe_do_membro = self.classe_do_membro;
-        b.classe_por_tupla = self.classe_por_tupla;
-        if self.tupla_de_tipos.is_some() {
-            let t = b.ler_posicao(quadro.clone(), Q_TUPLA, Type::I64);
-            b.tupla_de_tipos = Some(t);
+        b.function_type_params = self.function_type_params.clone();
+        b.local_params = self.local_params.clone();
+        b.this_extension = self.this_extension;
+        b.this_ext_type = self.this_ext_type;
+        b.member_class = self.member_class;
+        b.class_by_tuple = self.class_by_tuple;
+        if self.type_tuple.is_some() {
+            let t = b.read_position(frame.clone(), Q_TUPLE, Type::I64);
+            b.type_tuple = Some(t);
         }
-        b.async_estado = Some(Box::new(EstadoAsync {
-            tipo,
-            iterador,
-            quadro: quadro.clone(),
-            corpo: fechamento,
+        b.async_state = Some(Box::new(AsyncState {
+            ty,
+            iterator,
+            frame: frame.clone(),
+            body: closer,
             completer: completer.clone(),
-            codigo,
-            resultado,
-            retomadas: Vec::new(),
-            suspensoes: Vec::new(),
-            retorno_cru: false,
-            esperas: Vec::new(),
+            code,
+            result,
+            resumptions: Vec::new(),
+            suspensions: Vec::new(),
+            raw_return: false,
+            waits: Vec::new(),
         }));
         // O rastro simbólico (§13.14): o stub fica fora do rastro (a VM tem
         // um quadro só para a função), e o corpo `async` retomado começa a
         // cadeia de quem espera pelo quadro, que ele empurra na pilha do
         // rastro.
-        if self.ctx.rastro {
-            self.rastro.marcas |= crate::hir::marcas_do_rastro::OCULTA;
-            b.rastro.token = self.rastro.token;
-            if matches!(tipo, TipoCorpo::Async | TipoCorpo::AsyncStar) {
-                b.rastro.marcas |= crate::hir::marcas_do_rastro::CORPO_ASYNC;
-                if tipo == TipoCorpo::AsyncStar {
-                    b.rastro.marcas |= crate::hir::marcas_do_rastro::GERADOR_ASYNC;
+        if self.ctx.stack_trace {
+            self.stack_trace.marks |= crate::hir::stack_trace_marks::HIDDEN;
+            b.stack_trace.token = self.stack_trace.token;
+            if matches!(ty, BodyType::Async | BodyType::AsyncStar) {
+                b.stack_trace.marks |= crate::hir::stack_trace_marks::ASYNC_BODY;
+                if ty == BodyType::AsyncStar {
+                    b.stack_trace.marks |= crate::hir::stack_trace_marks::ASYNC_GENERATOR;
                 }
-                b.rastro.pilha = Some((0, quadro.clone()));
+                b.stack_trace.stack = Some((0, frame.clone()));
             }
         }
-        let entrada = b.current_block;
-        let inicio = b.new_block();
-        b.set_block(inicio);
+        let entry = b.current_block;
+        let start = b.new_block();
+        b.set_block(start);
         // Os `alloca` do corpo viram posições do quadro: sem funções locais
         // diretas (o endereço de um local não sobreviveria à troca).
-        b.sem_diretas = true;
-        b.preparar_capturas(
+        b.without_directs = true;
+        b.prepare_captures(
             ast,
-            super::captura::Raiz {
-                parametros: params,
-                corpo: Some(corpo),
-                inicializadores: &[],
+            super::capture::Root {
+                parameters: params,
+                body: Some(fn_body),
+                initializers: &[],
             },
         );
-        b.abrir_escopo();
-        for (k, (sym, l)) in parametros.iter().enumerate() {
-            let v = b.ler_posicao(quadro.clone(), Q_PARAMS + k, l.ty);
+        b.open_scope();
+        for (k, (sym, l)) in parameters.iter().enumerate() {
+            let v = b.read_position(frame.clone(), Q_PARAMS + k, l.ty);
             match l.offset {
-                Some(off) => b.declarar_variavel(*sym, off, l.ty, v),
-                None => b.declarar_local_com_valor(*sym, l.ty, v),
+                Some(off) => b.declare_variable(*sym, off, l.ty, v),
+                None => b.declare_local_with_value(*sym, l.ty, v),
             }
             // A representação do quadro não substitui o tipo da declaração.
-            b.atribuir_tipo_semantico(*sym, l.tipo_estatico);
+            b.assign_semantic_type(*sym, l.static_type);
         }
         // O tratador do topo: exceção que ninguém no corpo pegou completa o
         // `Future` com erro (`async`) ou vai ao stream (`async*`). No
         // `sync*` ela sai do corpo, e o `moveNext` a trata.
-        let topo = b.new_block();
-        if tipo != TipoCorpo::SyncStar {
-            b.exception_targets.push(topo);
+        let top = b.new_block();
+        if ty != BodyType::SyncStar {
+            b.exception_targets.push(top);
         }
         // `async*`: o corpo só começa quando alguém escuta, e começa
         // cancelado se a inscrição já foi cancelada (`asyncStarBody(true)`).
-        if tipo == TipoCorpo::AsyncStar {
-            b.sair_se_cancelado();
+        if ty == BodyType::AsyncStar {
+            b.exit_if_cancelled();
         }
-        match corpo {
+        match fn_body {
             FunctionBody::Block(s) => b.lower_stmt(ast, *s),
             FunctionBody::Expression(e) => {
                 let r = b.lower_expr(ast, *e);
@@ -372,17 +372,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !b.is_terminated() {
             b.terminate(Terminator::Return(None));
         }
-        if tipo != TipoCorpo::SyncStar {
+        if ty != BodyType::SyncStar {
             b.exception_targets.pop();
         }
         // O tratador do topo não tem tratador: nada nele volta a
         // `_asyncReturn` (um retorno de exceção aqui é cru).
-        if let Some(e) = b.async_estado.as_mut() {
-            e.retorno_cru = true;
+        if let Some(e) = b.async_state.as_mut() {
+            e.raw_return = true;
         }
-        b.set_block(topo);
-        let erro = b.excecao_pendente();
-        let rastro = b.rastro_pendente();
+        b.set_block(top);
+        let error = b.pending_exception();
+        let stack_trace = b.pending_stack_trace();
         b.emit(
             Instruction::CallRuntime {
                 name: "dartforge_exception_clear".to_string(),
@@ -391,131 +391,131 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
-        match tipo {
-            TipoCorpo::Async => {
-                b.chamar_apoio("_asyncRethrow", vec![erro, rastro, completer], span);
+        match ty {
+            BodyType::Async => {
+                b.call_support("_asyncRethrow", vec![error, stack_trace, completer], span);
             }
-            TipoCorpo::AsyncStar => {
-                b.chamar_apoio("_asyncStarErro", vec![completer, erro, rastro], span);
+            BodyType::AsyncStar => {
+                b.call_support("_asyncStarErro", vec![completer, error, stack_trace], span);
             }
             // Sem tratador do topo: o bloco não é alcançado.
-            TipoCorpo::SyncStar => {}
+            BodyType::SyncStar => {}
         }
-        b.terminar_cru(Operand::Constant(Constant::Null));
+        b.terminate_raw(Operand::Constant(Constant::Null));
 
         // O salto pelo estado, no fim do bloco de entrada.
-        let est = b.async_estado.take().expect("estado async");
-        let idx0 = b.func.blocks.iter().position(|x| x.id == entrada).expect("entrada");
+        let st = b.async_state.take().expect("estado async");
+        let idx0 = b.func.blocks.iter().position(|x| x.id == entry).expect("entrada");
         b.func.blocks[idx0].terminator = Terminator::Switch {
-            val: estado,
-            default: inicio,
-            cases: est.retomadas.clone(),
+            val: state,
+            default: start,
+            cases: st.resumptions.clone(),
         };
-        b.terminated_blocks.insert(entrada);
+        b.terminated_blocks.insert(entry);
 
         // As duas passadas: locais e temporários que atravessam um `await`
         // vão para o quadro.
-        let mut prox = b.next_value;
-        let base_locais = Q_PARAMS + parametros.len();
-        let n_locais = converter_allocas(&mut b.func, &quadro, base_locais, &mut prox);
-        let n_temp = guardar_vivos(&mut b.func, &quadro, base_locais + n_locais, &est.suspensoes, entrada, &mut prox);
-        b.next_value = prox;
-        let tamanho = base_locais + n_locais + n_temp;
+        let mut next = b.next_value;
+        let locals_base = Q_PARAMS + parameters.len();
+        let n_locals = convert_allocas(&mut b.func, &frame, locals_base, &mut next);
+        let n_temp = save_live(&mut b.func, &frame, locals_base + n_locals, &st.suspensions, entry, &mut next);
+        b.next_value = next;
+        let size = locals_base + n_locals + n_temp;
         // O nome do corpo leva a impressão digital dele: um quadro suspenso
         // num `await` guarda o estado e as posições deste corpo, e numa
         // recarga do JIT só pode retomar num corpo idêntico. Um corpo que
         // mudou tem outro nome, e os quadros vivos seguem no código em que
         // começaram (como os quadros ativos na VM).
-        let simbolo_corpo = format!(
-            "{simbolo_corpo}$q{:08x}",
-            (super::closures::hash_nome(&format!("{tamanho}|{:?}", b.func.blocks)) as u64) as u32
+        let body_symbol = format!(
+            "{body_symbol}$q{:08x}",
+            (super::closures::hash_name(&format!("{size}|{:?}", b.func.blocks)) as u64) as u32
         );
-        b.func.symbol = simbolo_corpo.clone();
-        if self.ctx.rastro && matches!(tipo, TipoCorpo::Async | TipoCorpo::AsyncStar) {
-            let n = est.retomadas.iter().map(|(k, _)| *k).max().unwrap_or(0).max(0) as usize;
-            let mut esperas = vec![(0u32, 0u32); n];
-            for (k, p) in &est.esperas {
-                if let Some(x) = usize::try_from(*k).ok().and_then(|k| k.checked_sub(1)).and_then(|i| esperas.get_mut(i)) {
+        b.func.symbol = body_symbol.clone();
+        if self.ctx.stack_trace && matches!(ty, BodyType::Async | BodyType::AsyncStar) {
+            let n = st.resumptions.iter().map(|(k, _)| *k).max().unwrap_or(0).max(0) as usize;
+            let mut waits = vec![(0u32, 0u32); n];
+            for (k, p) in &st.waits {
+                if let Some(x) = usize::try_from(*k).ok().and_then(|k| k.checked_sub(1)).and_then(|i| waits.get_mut(i)) {
                     *x = *p;
                 }
             }
-            b.rastro.corpo_async = Some(crate::hir::CorpoAsyncDoRastro { entrada: format!("{simbolo_corpo}$ent"), esperas });
+            b.stack_trace.async_body = Some(crate::hir::TraceAsyncBody { entry: format!("{body_symbol}$ent"), waits });
         }
-        if self.ctx.memoria_arc {
+        if self.ctx.arc_memory {
             // Corpo Dart chamado pela entrada: o retorno Ref é Owned.
-            b.retornos_ref_dart.insert(simbolo_corpo.clone());
+            b.dart_ref_returns.insert(body_symbol.clone());
         }
-        self.absorver(b);
+        self.absorb(b);
 
         // --- entrada uniforme do corpo: ([iterador,] código, resultado) --
         let mut infos = Vec::new();
-        if tipo == TipoCorpo::SyncStar {
-            infos.push(super::closures::ParamEntrada {
-                nome: Some("iterador".to_string()),
+        if ty == BodyType::SyncStar {
+            infos.push(super::closures::EntryParam {
+                name: Some("iterador".to_string()),
                 kind: ast::ParameterKind::Required,
                 required: true,
-                padrao: super::closures::Padrao::Nenhum,
+                pattern: super::closures::Padrao::Nenhum,
             });
         }
         infos.extend([
-            super::closures::ParamEntrada {
-                nome: Some("codigo".to_string()),
+            super::closures::EntryParam {
+                name: Some("codigo".to_string()),
                 kind: ast::ParameterKind::Required,
                 required: true,
-                padrao: super::closures::Padrao::Nenhum,
+                pattern: super::closures::Padrao::Nenhum,
             },
-            super::closures::ParamEntrada {
-                nome: Some("resultado".to_string()),
+            super::closures::EntryParam {
+                name: Some("resultado".to_string()),
                 kind: ast::ParameterKind::Required,
                 required: true,
-                padrao: super::closures::Padrao::Nenhum,
+                pattern: super::closures::Padrao::Nenhum,
             },
         ]);
-        let simbolo_ent = format!("{simbolo_corpo}$ent");
-        let mut e = FnBuilder::new(self.ctx, self.unit_id, simbolo_ent.clone(), legivel, Type::Ref);
+        let symbol_ent = format!("{body_symbol}$ent");
+        let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), readable, Type::Ref);
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
-        let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
-        let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
-        e.declarar_retorno_uniforme_arc();
-        let env_e = e.contexto_da_closure(clo);
-        if let Some(vals) = e.desempacotar(&infos, args, desc) {
-            let mut todos = vec![env_e];
-            todos.extend(vals);
+        let args = Operand::Val(e.add_param_vector(DartEntryVector::Argumentos));
+        let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
+        e.declare_arc_uniform_return();
+        let env_e = e.closure_context(clo);
+        if let Some(vals) = e.unpack(&infos, args, desc) {
+            let mut all = vec![env_e];
+            all.extend(vals);
             let r = e.emit_call_with_check(
                 Instruction::CallStatic {
-                    symbol: simbolo_corpo,
-                    args: todos,
+                    symbol: body_symbol,
+                    args: all,
                     ret_ty: Type::Ref,
                 },
                 Type::Ref,
             );
             e.terminate(Terminator::Return(Some(r)));
         }
-        self.absorver(e);
+        self.absorb(e);
 
         // --- o stub -----------------------------------------------------
-        let mut campos: Vec<Operand> = vec![Operand::Constant(Constant::Int(0)); tamanho];
-        campos[Q_COMPLETER] = Operand::Constant(Constant::Null);
-        campos[Q_CORPO] = Operand::Constant(Constant::Null);
-        campos[Q_THIS] = self.this_param.clone().map_or(Operand::Constant(Constant::Null), |t| self.coagir(t, Type::Ref));
-        campos[Q_AMBIENTE] = capturas
+        let mut fields: Vec<Operand> = vec![Operand::Constant(Constant::Int(0)); size];
+        fields[Q_COMPLETER] = Operand::Constant(Constant::Null);
+        fields[Q_BODY] = Operand::Constant(Constant::Null);
+        fields[Q_THIS] = self.this_param.clone().map_or(Operand::Constant(Constant::Null), |t| self.coerce(t, Type::Ref));
+        fields[Q_ENV] = captures
             .iter()
-            .find_map(|(_, l)| match &l.modo {
-                Modo::Ambiente { env, .. } => Some(env.clone()),
+            .find_map(|(_, l)| match &l.mode {
+                Modo::Environment { env, .. } => Some(env.clone()),
                 _ => None,
             })
             .unwrap_or(Operand::Constant(Constant::Null));
-        if let Some(t) = self.tupla_de_tipos.clone() {
-            campos[Q_TUPLA] = t;
+        if let Some(t) = self.type_tuple.clone() {
+            fields[Q_TUPLE] = t;
         }
-        for (k, (_, l)) in parametros.iter().enumerate() {
-            let v = self.ler_local(l);
-            campos[Q_PARAMS + k] = v;
+        for (k, (_, l)) in parameters.iter().enumerate() {
+            let v = self.read_local(l);
+            fields[Q_PARAMS + k] = v;
         }
-        let quadro_s = self.emit(
+        let frame_s = self.emit(
             Instruction::AllocObject {
                 class_id: ID_QUADRO_ASYNC,
-                fields: campos,
+                fields: fields,
             },
             Type::Ref,
         );
@@ -524,69 +524,69 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // "future value type": `Future<T>`/`FutureOr<T>` dão `T`); para os
         // geradores, o tipo do elemento (§9 "element type"). O resto,
         // `dynamic`.
-        let classe_esperada = match tipo {
-            TipoCorpo::Async => self.ctx.core.future_class,
-            TipoCorpo::SyncStar => self.ctx.core.iterable_class,
-            TipoCorpo::AsyncStar => self.ctx.core.stream_class,
+        let expected_class = match ty {
+            BodyType::Async => self.ctx.core.future_class,
+            BodyType::SyncStar => self.ctx.core.iterable_class,
+            BodyType::AsyncStar => self.ctx.core.stream_class,
         };
-        let valor: Option<super::rti::Receita> = match retorno {
-            Some(RetornoAsync::Tipo(t)) => match self.ctx.table.get(t) {
-                dartforge_types::table::Type::Interface { class, args, .. } if Some(*class) == classe_esperada => {
-                    args.first().map(|a| self.receita_de_tipo(*a))
+        let val_ref: Option<super::rti::Recipe> = match ret {
+            Some(AsyncReturn::Tipo(t)) => match self.ctx.table.get(t) {
+                dartforge_types::table::Type::Interface { class, args, .. } if Some(*class) == expected_class => {
+                    args.first().map(|a| self.type_recipe(*a))
                 }
-                dartforge_types::table::Type::FutureOr { arg, .. } if tipo == TipoCorpo::Async => {
-                    Some(self.receita_de_tipo(*arg))
+                dartforge_types::table::Type::FutureOr { arg, .. } if ty == BodyType::Async => {
+                    Some(self.type_recipe(*arg))
                 }
                 _ => None,
             },
-            Some(RetornoAsync::Anotacao(a)) => self.valor_da_anotacao_async(ast, a, tipo),
+            Some(AsyncReturn::Annotation(a)) => self.async_annotation_value(ast, a, ty),
             None => None,
         };
-        let armar_tupla = |b: &mut Self| {
-            let salvo = b.tupla_armada.take();
-            if let Some(v) = &valor {
-                let t = b.rti_da_receita(&super::rti::Receita { texto: format!("L<{}>", v.texto), variaveis: v.variaveis });
-                b.tupla_armada = Some(t);
+        let arm_tuple = |b: &mut Self| {
+            let saved = b.armed_tuple.take();
+            if let Some(v) = &val_ref {
+                let t = b.recipe_rti(&super::rti::Recipe { text: format!("L<{}>", v.text), variables: v.variables });
+                b.armed_tuple = Some(t);
             }
-            salvo
+            saved
         };
-        match tipo {
-            TipoCorpo::Async => {
-                let salvo = armar_tupla(self);
-                let completer_s = self.chamar_apoio("_makeAsyncAwaitCompleter", Vec::new(), span);
-                self.tupla_armada = salvo;
-                let completer_s = self.coagir(completer_s, Type::Ref);
-                self.gravar_posicao(quadro_s.clone(), Q_COMPLETER, completer_s.clone());
-                let corpo_s = self.fechar_corpo(quadro_s.clone(), simbolo_ent, span);
-                let r = self.chamar_apoio("_asyncStartSync", vec![corpo_s, completer_s], span);
+        match ty {
+            BodyType::Async => {
+                let saved = arm_tuple(self);
+                let completer_s = self.call_support("_makeAsyncAwaitCompleter", Vec::new(), span);
+                self.armed_tuple = saved;
+                let completer_s = self.coerce(completer_s, Type::Ref);
+                self.store_position(frame_s.clone(), Q_COMPLETER, completer_s.clone());
+                let body_s = self.close_body(frame_s.clone(), symbol_ent, span);
+                let r = self.call_support("_asyncStartSync", vec![body_s, completer_s], span);
                 self.terminate(Terminator::Return(Some(r)));
             }
-            TipoCorpo::AsyncStar => {
-                let salvo = armar_tupla(self);
-                let controlador = self.chamar_apoio("_makeAsyncStarController", Vec::new(), span);
-                self.tupla_armada = salvo;
-                let controlador = self.coagir(controlador, Type::Ref);
-                self.gravar_posicao(quadro_s.clone(), Q_COMPLETER, controlador.clone());
-                let corpo_s = self.fechar_corpo(quadro_s.clone(), simbolo_ent, span);
-                let r = self.chamar_apoio("_asyncStarStart", vec![controlador, corpo_s], span);
+            BodyType::AsyncStar => {
+                let saved = arm_tuple(self);
+                let controller = self.call_support("_makeAsyncStarController", Vec::new(), span);
+                self.armed_tuple = saved;
+                let controller = self.coerce(controller, Type::Ref);
+                self.store_position(frame_s.clone(), Q_COMPLETER, controller.clone());
+                let body_s = self.close_body(frame_s.clone(), symbol_ent, span);
+                let r = self.call_support("_asyncStarStart", vec![controller, body_s], span);
                 self.terminate(Terminator::Return(Some(r)));
             }
-            TipoCorpo::SyncStar => {
+            BodyType::SyncStar => {
                 // O quadro do stub é o modelo: cada `iterator` começa o corpo
-                // num quadro novo, com os parâmetros dele (`$novo`).
-                let simbolo_novo = format!("{simbolo_ent}$novo");
-                self.funcao_novo_quadro(&simbolo_novo, &simbolo_ent, &parametros, tamanho);
-                let env_s = self.emit(Instruction::AllocEnv { values: vec![quadro_s] }, Type::Ref);
-                let novo = self.emit(
+                // num quadro novo, com os parâmetros dele (`$new`).
+                let new_symbol = format!("{symbol_ent}$novo");
+                self.new_frame_function(&new_symbol, &symbol_ent, &parameters, size);
+                let env_s = self.emit(Instruction::AllocEnv { values: vec![frame_s] }, Type::Ref);
+                let new = self.emit(
                     Instruction::AllocClosure {
-                        code_symbol: format!("{simbolo_novo}$ent"),
+                        code_symbol: format!("{new_symbol}$ent"),
                         env: env_s,
                     },
                     Type::Ref,
                 );
-                let salvo = armar_tupla(self);
-                let r = self.chamar_apoio("_makeSyncStarIterable", vec![novo], span);
-                self.tupla_armada = salvo;
+                let saved = arm_tuple(self);
+                let r = self.call_support("_makeSyncStarIterable", vec![new], span);
+                self.armed_tuple = saved;
                 self.terminate(Terminator::Return(Some(r)));
             }
         }
@@ -594,158 +594,158 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// A closure do corpo sobre o quadro, registrada na zona
     /// (`_envolverCorpo`) e guardada no quadro.
-    fn fechar_corpo(&mut self, quadro: Operand, simbolo_ent: String, span: Span) -> Operand {
-        let env = self.emit(Instruction::AllocEnv { values: vec![quadro.clone()] }, Type::Ref);
+    fn close_body(&mut self, frame: Operand, symbol_ent: String, span: Span) -> Operand {
+        let env = self.emit(Instruction::AllocEnv { values: vec![frame.clone()] }, Type::Ref);
         let clo = self.emit(
             Instruction::AllocClosure {
-                code_symbol: simbolo_ent,
+                code_symbol: symbol_ent,
                 env,
             },
             Type::Ref,
         );
-        let corpo = self.chamar_apoio("_envolverCorpo", vec![clo], span);
-        let corpo = self.coagir(corpo, Type::Ref);
-        self.gravar_posicao(quadro, Q_CORPO, corpo.clone());
-        corpo
+        let fn_body = self.call_support("_envolverCorpo", vec![clo], span);
+        let fn_body = self.coerce(fn_body, Type::Ref);
+        self.store_position(frame, Q_BODY, fn_body.clone());
+        fn_body
     }
 
-    /// `sync*`: a closure sem argumentos `simbolo_novo` (a entrada uniforme
-    /// `<simbolo_novo>$ent`), que copia do quadro modelo (o ambiente dela)
+    /// `sync*`: a closure sem argumentos `new_symbol` (a entrada uniforme
+    /// `<new_symbol>$ent`), que copia do quadro modelo (o ambiente dela)
     /// `this`, as capturas, a tupla de tipos e os parâmetros para um quadro
     /// novo e devolve a closure do corpo sobre ele — o `_stateAtStart._clone()`
     /// da VM.
-    fn funcao_novo_quadro(
+    fn new_frame_function(
         &mut self,
-        simbolo_novo: &str,
-        simbolo_corpo_ent: &str,
-        parametros: &[(SymbolId, Local)],
-        tamanho: usize,
+        new_symbol: &str,
+        body_symbol_ent: &str,
+        parameters: &[(SymbolId, Local)],
+        size: usize,
     ) {
-        let legivel = self.func.name.clone();
-        let mut e = FnBuilder::new(self.ctx, self.unit_id, format!("{simbolo_novo}$ent"), legivel, Type::Ref);
+        let readable = self.func.name.clone();
+        let mut e = FnBuilder::new(self.ctx, self.unit_id, format!("{new_symbol}$ent"), readable, Type::Ref);
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
-        let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
-        let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
-        e.declarar_retorno_uniforme_arc();
-        let env = e.contexto_da_closure(clo);
-        if e.desempacotar(&[], args, desc).is_some() {
-            let modelo = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
-            let mut campos: Vec<Operand> = vec![Operand::Constant(Constant::Int(0)); tamanho];
-            campos[Q_COMPLETER] = Operand::Constant(Constant::Null);
-            campos[Q_CORPO] = Operand::Constant(Constant::Null);
-            campos[Q_THIS] = e.ler_posicao(modelo.clone(), Q_THIS, Type::Ref);
-            campos[Q_AMBIENTE] = e.ler_posicao(modelo.clone(), Q_AMBIENTE, Type::Ref);
-            if self.tupla_de_tipos.is_some() {
-                campos[Q_TUPLA] = e.ler_posicao(modelo.clone(), Q_TUPLA, Type::I64);
+        let args = Operand::Val(e.add_param_vector(DartEntryVector::Argumentos));
+        let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
+        e.declare_arc_uniform_return();
+        let env = e.closure_context(clo);
+        if e.unpack(&[], args, desc).is_some() {
+            let model = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
+            let mut fields: Vec<Operand> = vec![Operand::Constant(Constant::Int(0)); size];
+            fields[Q_COMPLETER] = Operand::Constant(Constant::Null);
+            fields[Q_BODY] = Operand::Constant(Constant::Null);
+            fields[Q_THIS] = e.read_position(model.clone(), Q_THIS, Type::Ref);
+            fields[Q_ENV] = e.read_position(model.clone(), Q_ENV, Type::Ref);
+            if self.type_tuple.is_some() {
+                fields[Q_TUPLE] = e.read_position(model.clone(), Q_TUPLE, Type::I64);
             }
-            for (k, (_, l)) in parametros.iter().enumerate() {
-                campos[Q_PARAMS + k] = e.ler_posicao(modelo.clone(), Q_PARAMS + k, l.ty);
+            for (k, (_, l)) in parameters.iter().enumerate() {
+                fields[Q_PARAMS + k] = e.read_position(model.clone(), Q_PARAMS + k, l.ty);
             }
-            let quadro = e.emit(
+            let frame = e.emit(
                 Instruction::AllocObject {
                     class_id: ID_QUADRO_ASYNC,
-                    fields: campos,
+                    fields: fields,
                 },
                 Type::Ref,
             );
-            let env_q = e.emit(Instruction::AllocEnv { values: vec![quadro] }, Type::Ref);
-            let corpo = e.emit(
+            let env_q = e.emit(Instruction::AllocEnv { values: vec![frame] }, Type::Ref);
+            let fn_body = e.emit(
                 Instruction::AllocClosure {
-                    code_symbol: simbolo_corpo_ent.to_string(),
+                    code_symbol: body_symbol_ent.to_string(),
                     env: env_q,
                 },
                 Type::Ref,
             );
-            e.terminate(Terminator::Return(Some(corpo)));
+            e.terminate(Terminator::Return(Some(fn_body)));
         }
-        self.absorver(e);
+        self.absorb(e);
     }
 
     /// `async*`: termina o corpo (pelos `finally`) se o valor da retomada diz
     /// que a inscrição foi cancelada.
-    fn sair_se_cancelado(&mut self) {
-        let resultado = self.async_estado.as_ref().expect("corpo async*").resultado.clone();
-        let cancelado = self.coagir(resultado, Type::I1);
-        let sair = self.new_block();
-        let seguir = self.new_block();
+    fn exit_if_cancelled(&mut self) {
+        let result = self.async_state.as_ref().expect("corpo async*").result.clone();
+        let cancelled = self.coerce(result, Type::I1);
+        let exit = self.new_block();
+        let follow = self.new_block();
         self.terminate(Terminator::CondBranch {
-            cond: cancelado,
-            then_block: sair,
-            else_block: seguir,
+            cond: cancelled,
+            then_block: exit,
+            else_block: follow,
         });
-        self.set_block(sair);
+        self.set_block(exit);
         self.route_return(None);
-        self.set_block(seguir);
+        self.set_block(follow);
     }
 
     /// `yield e` e `yield* e` (especificação §18.16, §18.17) num corpo
     /// `sync*` ou `async*`.
     pub fn lower_yield(&mut self, ast: &ast::Ast, star: bool, e: ast::ExprId, span: Span) {
-        let tipo = self.async_estado.as_ref().map(|e| e.tipo);
-        if !matches!(tipo, Some(TipoCorpo::SyncStar | TipoCorpo::AsyncStar)) {
-            self.nao_suportado("yield fora de gerador", span);
+        let ty = self.async_state.as_ref().map(|e| e.ty);
+        if !matches!(ty, Some(BodyType::SyncStar | BodyType::AsyncStar)) {
+            self.unsupported("yield fora de gerador", span);
             return;
         }
         let v = self.lower_expr(ast, e);
         let v = if matches!(self.operand_type(&v), Type::Void) {
             Operand::Constant(Constant::Null)
         } else {
-            self.coagir(v, Type::Ref)
+            self.coerce(v, Type::Ref)
         };
         if self.is_terminated() {
             return;
         }
-        let est = self.async_estado.as_ref().expect("corpo gerador");
-        let (quadro, iterador, controlador) = (est.quadro.clone(), est.iterador.clone(), est.completer.clone());
-        let k = est.retomadas.len() as i64 + 1;
-        if tipo == Some(TipoCorpo::SyncStar) {
-            let apoio = if star { "_syncStarYieldStar" } else { "_syncStarYield" };
-            self.chamar_apoio(apoio, vec![iterador, v], span);
+        let st = self.async_state.as_ref().expect("corpo gerador");
+        let (frame, iterator, controller) = (st.frame.clone(), st.iterator.clone(), st.completer.clone());
+        let k = st.resumptions.len() as i64 + 1;
+        if ty == Some(BodyType::SyncStar) {
+            let support = if star { "_syncStarYieldStar" } else { "_syncStarYield" };
+            self.call_support(support, vec![iterator, v], span);
             if self.is_terminated() {
                 return;
             }
-            self.gravar_posicao(quadro, Q_ESTADO, Operand::Constant(Constant::Int(k)));
-            let suspende = self.current_block;
-            self.terminar_cru(Operand::Constant(Constant::Bool(true)));
-            let retomada = self.registrar_retomada(k, suspende);
+            self.store_position(frame, Q_STATE, Operand::Constant(Constant::Int(k)));
+            let suspends = self.current_block;
+            self.terminate_raw(Operand::Constant(Constant::Bool(true)));
+            let resumption = self.register_resumption(k, suspends);
             // A exceção do iterador de um `yield*` volta lançada aqui.
-            let est = self.async_estado.as_ref().expect("corpo sync*");
-            let (codigo, resultado) = (est.codigo.clone(), est.resultado.clone());
-            self.set_block(retomada);
-            self.lancar_se_erro(codigo, resultado, span);
+            let st = self.async_state.as_ref().expect("corpo sync*");
+            let (code, result) = (st.code.clone(), st.result.clone());
+            self.set_block(resumption);
+            self.throw_if_error(code, result, span);
         } else {
-            let apoio = if star { "_asyncStarAddStream" } else { "_asyncStarAdd" };
-            let parar = self.chamar_apoio(apoio, vec![controlador, v], span);
+            let support = if star { "_asyncStarAddStream" } else { "_asyncStarAdd" };
+            let stop = self.call_support(support, vec![controller, v], span);
             if self.is_terminated() {
                 return;
             }
-            let parar = self.coagir(parar, Type::I1);
-            let sair = self.new_block();
-            let suspender = self.new_block();
+            let stop = self.coerce(stop, Type::I1);
+            let exit = self.new_block();
+            let suspend = self.new_block();
             self.terminate(Terminator::CondBranch {
-                cond: parar,
-                then_block: sair,
-                else_block: suspender,
+                cond: stop,
+                then_block: exit,
+                else_block: suspend,
             });
-            self.set_block(sair);
+            self.set_block(exit);
             self.route_return(None);
-            self.set_block(suspender);
+            self.set_block(suspend);
             // A posição do `yield` (a do comando): a do quadro do gerador
             // suspenso aqui, no rastro.
-            let posicao = self.posicao.unwrap_or((0, 0));
-            if let Some(e) = self.async_estado.as_mut() {
-                e.esperas.push((k, posicao));
+            let position = self.position.unwrap_or((0, 0));
+            if let Some(e) = self.async_state.as_mut() {
+                e.waits.push((k, position));
             }
-            self.gravar_posicao(quadro, Q_ESTADO, Operand::Constant(Constant::Int(k)));
-            let suspende = self.current_block;
-            self.terminar_cru(Operand::Constant(Constant::Null));
-            let retomada = self.registrar_retomada(k, suspende);
-            self.set_block(retomada);
-            self.sair_se_cancelado();
+            self.store_position(frame, Q_STATE, Operand::Constant(Constant::Int(k)));
+            let suspends = self.current_block;
+            self.terminate_raw(Operand::Constant(Constant::Null));
+            let resumption = self.register_resumption(k, suspends);
+            self.set_block(resumption);
+            self.exit_if_cancelled();
         }
     }
 
-    /// `await for (alvo in s) corpo` (especificação §18.6.3), baixado como o
+    /// `await for (alvo in s) body` (especificação §18.6.3), baixado como o
     /// kernel da VM o desaçucara (`native_sdk/async/async_patch.dart`):
     /// `StreamIterator`, `while (await it.moveNext())`, e o `finally` que
     /// cancela a inscrição se ela ainda existe — por `break`, `return` ou
@@ -758,187 +758,187 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         body: ast::StmtId,
         span: Span,
     ) {
-        if !self.async_estado.as_ref().is_some_and(|e| e.tipo != TipoCorpo::SyncStar) {
-            self.nao_suportado("await for fora de função async", span);
+        if !self.async_state.as_ref().is_some_and(|e| e.ty != BodyType::SyncStar) {
+            self.unsupported("await for fora de função async", span);
             return;
         }
         let s = self.lower_expr(ast, iterable);
-        let s = self.coagir(s, Type::Ref);
-        let it = self.chamar_apoio("_awaitForIterador", vec![s], span);
-        let it = self.coagir(it, Type::Ref);
+        let s = self.coerce(s, Type::Ref);
+        let it = self.call_support("_awaitForIterador", vec![s], span);
+        let it = self.coerce(it, Type::Ref);
         if self.is_terminated() {
             return;
         }
-        let rotulos = std::mem::take(&mut self.pending_labels);
+        let labels = std::mem::take(&mut self.pending_labels);
         let it_c = it.clone();
-        let mut laco = |b: &mut Self| {
-            let cabeca = b.new_block();
-            let corpo = b.new_block();
-            let fim = b.new_block();
-            for &r in &rotulos {
-                b.labeled_break_targets.insert(r, fim);
-                b.labeled_continue_targets.insert(r, cabeca);
+        let mut loop_fn = |b: &mut Self| {
+            let head = b.new_block();
+            let fn_body = b.new_block();
+            let end = b.new_block();
+            for &r in &labels {
+                b.labeled_break_targets.insert(r, end);
+                b.labeled_continue_targets.insert(r, head);
             }
-            b.terminate(Terminator::Branch(cabeca));
-            b.set_block(cabeca);
-            let proximo = b.chamar_por_seletor(it_c.clone(), "c:moveNext".to_string(), &[]);
-            let ok = b.await_valor(proximo, span);
-            let ok = b.coagir(ok, Type::I1);
-            b.terminate(Terminator::CondBranch { cond: ok, then_block: corpo, else_block: fim });
-            b.set_block(corpo);
-            b.emitir_ponto_seguro();
-            b.break_targets.push(fim);
-            b.continue_targets.push(cabeca);
-            b.abrir_escopo();
-            let x = b.chamar_por_seletor(it_c.clone(), "g:current".to_string(), &[]);
-            b.ligar_alvo_de_for_in(ast, target, x, iterable, span);
+            b.terminate(Terminator::Branch(head));
+            b.set_block(head);
+            let next_item = b.call_by_selector(it_c.clone(), "c:moveNext".to_string(), &[]);
+            let ok = b.await_value(next_item, span);
+            let ok = b.coerce(ok, Type::I1);
+            b.terminate(Terminator::CondBranch { cond: ok, then_block: fn_body, else_block: end });
+            b.set_block(fn_body);
+            b.emit_safepoint();
+            b.break_targets.push(end);
+            b.continue_targets.push(head);
+            b.open_scope();
+            let x = b.call_by_selector(it_c.clone(), "g:current".to_string(), &[]);
+            b.bind_for_in_target(ast, target, x, iterable, span);
             b.lower_stmt(ast, body);
-            b.fechar_escopo();
-            b.terminate(Terminator::Branch(cabeca));
+            b.close_scope();
+            b.terminate(Terminator::Branch(head));
             b.break_targets.pop();
             b.continue_targets.pop();
-            for &r in &rotulos {
+            for &r in &labels {
                 b.labeled_break_targets.remove(&r);
                 b.labeled_continue_targets.remove(&r);
             }
-            b.set_block(fim);
+            b.set_block(end);
         };
-        let mut cancelar = |b: &mut Self| {
-            let ativo = b.chamar_apoio("_awaitForAtivo", vec![it.clone()], span);
-            let ativo = b.coagir(ativo, Type::I1);
-            let sim = b.new_block();
-            let depois = b.new_block();
-            b.terminate(Terminator::CondBranch { cond: ativo, then_block: sim, else_block: depois });
-            b.set_block(sim);
-            let f = b.chamar_por_seletor(it.clone(), "c:cancel".to_string(), &[]);
-            b.await_valor(f, span);
-            b.terminate(Terminator::Branch(depois));
-            b.set_block(depois);
+        let mut cancel = |b: &mut Self| {
+            let active = b.call_support("_awaitForAtivo", vec![it.clone()], span);
+            let active = b.coerce(active, Type::I1);
+            let yes = b.new_block();
+            let after = b.new_block();
+            b.terminate(Terminator::CondBranch { cond: active, then_block: yes, else_block: after });
+            b.set_block(yes);
+            let f = b.call_by_selector(it.clone(), "c:cancel".to_string(), &[]);
+            b.await_value(f, span);
+            b.terminate(Terminator::Branch(after));
+            b.set_block(after);
         };
-        self.lower_try_com(ast, &mut laco, &[], Some(&mut cancelar));
+        self.lower_try_with(ast, &mut loop_fn, &[], Some(&mut cancel));
     }
 
-    /// Cria o bloco de retomada do estado `k`, suspenso em `suspende`.
-    fn registrar_retomada(&mut self, k: i64, suspende: BlockId) -> BlockId {
-        let retomada = self.new_block();
-        let est = self.async_estado.as_mut().expect("corpo suspenso");
-        est.retomadas.push((k, retomada));
-        est.suspensoes.push((suspende, retomada));
-        retomada
+    /// Cria o bloco de retomada do estado `k`, suspenso em `suspends`.
+    fn register_resumption(&mut self, k: i64, suspends: BlockId) -> BlockId {
+        let resumption = self.new_block();
+        let st = self.async_state.as_mut().expect("corpo suspenso");
+        st.resumptions.push((k, resumption));
+        st.suspensions.push((suspends, resumption));
+        resumption
     }
 
     /// Na retomada: com `código == _ERRO`, lança o `_ErroAssincrono` do
-    /// `resultado` ali; senão segue. Devolve o bloco que desvia para o
+    /// `result` ali; senão segue. Devolve o bloco que desvia para o
     /// caminho sem erro (o único predecessor dele).
-    fn lancar_se_erro(&mut self, codigo: Operand, resultado: Operand, span: Span) -> BlockId {
+    fn throw_if_error(&mut self, code: Operand, result: Operand, span: Span) -> BlockId {
         // `código` chega como `int` numa posição `Ref` (Smi).
-        let c = self.coagir(codigo, Type::I64);
-        let e_erro = self.emit(
+        let c = self.coerce(code, Type::I64);
+        let is_error = self.emit(
             Instruction::ICmp(ICmpOp::Eq, c, Operand::Constant(Constant::Int(1))),
             Type::I1,
         );
-        let b_erro = self.new_block();
+        let b_error = self.new_block();
         let b_ok = self.new_block();
-        let origem = self.current_block;
+        let origin = self.current_block;
         self.terminate(Terminator::CondBranch {
-            cond: e_erro,
-            then_block: b_erro,
+            cond: is_error,
+            then_block: b_error,
             else_block: b_ok,
         });
-        self.set_block(b_erro);
-        self.lancar_erro_assincrono(resultado, span);
+        self.set_block(b_error);
+        self.throw_async_error(result, span);
         self.set_block(b_ok);
-        origem
+        origin
     }
 
     /// `Return` que não passa por `_asyncReturn`.
-    fn terminar_cru(&mut self, v: Operand) {
-        let antes = self.async_estado.as_ref().is_some_and(|e| e.retorno_cru);
-        if let Some(e) = self.async_estado.as_mut() {
-            e.retorno_cru = true;
+    fn terminate_raw(&mut self, v: Operand) {
+        let before = self.async_state.as_ref().is_some_and(|e| e.raw_return);
+        if let Some(e) = self.async_state.as_mut() {
+            e.raw_return = true;
         }
         self.terminate(Terminator::Return(Some(v)));
-        if let Some(e) = self.async_estado.as_mut() {
-            e.retorno_cru = antes;
+        if let Some(e) = self.async_state.as_mut() {
+            e.raw_return = before;
         }
     }
 
     /// O `return` de um corpo `async` (chamado por `terminate`): `_asyncReturn(v,
-    /// completer)` e o retorno cru. Uma exceção de `_asyncReturn` (o `as T`
+    /// completer)` e o ret cru. Uma exceção de `_asyncReturn` (o `as T`
     /// do valor) vai ao tratador do topo.
-    pub fn retorno_async(&mut self, v: Option<Operand>) {
-        let est = self.async_estado.as_ref().expect("corpo async");
-        let completer = est.completer.clone();
-        match est.tipo {
-            TipoCorpo::Async => {}
-            TipoCorpo::SyncStar => {
-                self.terminar_cru(Operand::Constant(Constant::Bool(false)));
+    pub fn async_return(&mut self, v: Option<Operand>) {
+        let st = self.async_state.as_ref().expect("corpo async");
+        let completer = st.completer.clone();
+        match st.ty {
+            BodyType::Async => {}
+            BodyType::SyncStar => {
+                self.terminate_raw(Operand::Constant(Constant::Bool(false)));
                 return;
             }
-            TipoCorpo::AsyncStar => {
-                self.chamar_apoio_cru("_asyncStarReturn", vec![completer]);
-                self.terminar_cru(Operand::Constant(Constant::Null));
+            BodyType::AsyncStar => {
+                self.call_support_raw("_asyncStarReturn", vec![completer]);
+                self.terminate_raw(Operand::Constant(Constant::Null));
                 return;
             }
         }
         let v = match v {
-            Some(v) if !matches!(self.operand_type(&v), Type::Void) => self.coagir(v, Type::Ref),
+            Some(v) if !matches!(self.operand_type(&v), Type::Void) => self.coerce(v, Type::Ref),
             _ => Operand::Constant(Constant::Null),
         };
-        self.chamar_apoio_cru("_asyncReturn", vec![v, completer]);
-        self.terminar_cru(Operand::Constant(Constant::Null));
+        self.call_support_raw("_asyncReturn", vec![v, completer]);
+        self.terminate_raw(Operand::Constant(Constant::Null));
     }
 
     /// `await e` (especificação §17.34): suspende até o `Future` completar.
     pub fn lower_await(&mut self, ast: &ast::Ast, e: ast::ExprId, span: Span) -> Operand {
-        if !self.async_estado.as_ref().is_some_and(|e| e.tipo != TipoCorpo::SyncStar) {
-            return self.nao_suportado("await fora de função async", span);
+        if !self.async_state.as_ref().is_some_and(|e| e.ty != BodyType::SyncStar) {
+            return self.unsupported("await fora de função async", span);
         }
         let v = self.lower_expr(ast, e);
-        self.await_valor(v, span)
+        self.await_value(v, span)
     }
 
     /// `await` de um valor já avaliado (o de `lower_await`, e os do
     /// `await for`).
-    pub fn await_valor(&mut self, v: Operand, span: Span) -> Operand {
-        if !self.async_estado.as_ref().is_some_and(|e| e.tipo != TipoCorpo::SyncStar) {
-            return self.nao_suportado("await fora de função async", span);
+    pub fn await_value(&mut self, v: Operand, span: Span) -> Operand {
+        if !self.async_state.as_ref().is_some_and(|e| e.ty != BodyType::SyncStar) {
+            return self.unsupported("await fora de função async", span);
         }
         let v = if matches!(self.operand_type(&v), Type::Void) {
             Operand::Constant(Constant::Null)
         } else {
-            self.coagir(v, Type::Ref)
+            self.coerce(v, Type::Ref)
         };
         if self.is_terminated() {
             return Operand::Constant(Constant::Null);
         }
-        let est = self.async_estado.as_ref().expect("corpo async");
-        let (quadro, corpo) = (est.quadro.clone(), est.corpo.clone());
-        let k = est.retomadas.len() as i64 + 1;
+        let st = self.async_state.as_ref().expect("corpo async");
+        let (frame, fn_body) = (st.frame.clone(), st.body.clone());
+        let k = st.resumptions.len() as i64 + 1;
         // A posição do `await` (o `fileOffset` dele): a do quadro de quem
         // espera aqui, no rastro.
-        let posicao = self.posicao.unwrap_or((0, 0));
-        if let Some(e) = self.async_estado.as_mut() {
-            e.esperas.push((k, posicao));
+        let position = self.position.unwrap_or((0, 0));
+        if let Some(e) = self.async_state.as_mut() {
+            e.waits.push((k, position));
         }
-        self.gravar_posicao(quadro, Q_ESTADO, Operand::Constant(Constant::Int(k)));
-        self.chamar_apoio("_asyncAwait", vec![v, corpo], span);
-        let suspende = self.current_block;
-        self.terminar_cru(Operand::Constant(Constant::Null));
-        let retomada = self.registrar_retomada(k, suspende);
-        let est = self.async_estado.as_ref().expect("corpo async");
-        let (codigo, resultado) = (est.codigo.clone(), est.resultado.clone());
-        self.set_block(retomada);
-        let origem = self.lancar_se_erro(codigo, resultado.clone(), span);
-        // O valor retomado é o parâmetro `resultado`, que cada entrada do
+        self.store_position(frame, Q_STATE, Operand::Constant(Constant::Int(k)));
+        self.call_support("_asyncAwait", vec![v, fn_body], span);
+        let suspends = self.current_block;
+        self.terminate_raw(Operand::Constant(Constant::Null));
+        let resumption = self.register_resumption(k, suspends);
+        let st = self.async_state.as_ref().expect("corpo async");
+        let (code, result) = (st.code.clone(), st.result.clone());
+        self.set_block(resumption);
+        let origin = self.throw_if_error(code, result.clone(), span);
+        // O valor retomado é o parâmetro `result`, que cada entrada do
         // corpo troca: sai dele uma definição SSA própria, aqui, para que a
-        // passada 2 (`guardar_vivos`) o leve ao quadro quando ele atravessa
+        // passada 2 (`save_live`) o leve ao quadro quando ele atravessa
         // outro ponto de suspensão (`[await a, await b]`, `f(await a, await
         // b)`, `await a + await b`, `'${await a}${await b}'`…). Os
         // parâmetros do corpo ficam de fora daquela passada.
         self.emit(
             Instruction::Phi {
-                incoming: vec![(origem, resultado)],
+                incoming: vec![(origin, result)],
                 ty: Type::Ref,
             },
             Type::Ref,
@@ -947,20 +947,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Lança, no ponto do `await`, o erro de um `_ErroAssincrono` com o
     /// rastro dele.
-    fn lancar_erro_assincrono(&mut self, valor: Operand, span: Span) {
-        let campos = self.campos_do_erro_assincrono();
-        let Some((ve, vr)) = campos else {
-            self.nao_suportado("classe `_ErroAssincrono` do async_patch ausente", span);
+    fn throw_async_error(&mut self, val_ref: Operand, span: Span) {
+        let fields = self.async_error_fields();
+        let Some((ve, vr)) = fields else {
+            self.unsupported("classe `_ErroAssincrono` do async_patch ausente", span);
             return;
         };
-        let erro = self.ler_campo(valor.clone(), ve, span);
-        let rastro = self.ler_campo(valor, vr, span);
-        self.emitir_lancamento(erro, Some(rastro));
-        self.desviar_para_tratador();
+        let error = self.read_field(val_ref.clone(), ve, span);
+        let stack_trace = self.read_field(val_ref, vr, span);
+        self.emit_throw_value(error, Some(stack_trace));
+        self.branch_to_handler();
     }
 
-    /// Os campos `erro` e `rastro` de `_ErroAssincrono`.
-    fn campos_do_erro_assincrono(
+    /// Os campos `error` e `stack_trace` de `_ErroAssincrono`.
+    fn async_error_fields(
         &self,
     ) -> Option<(dartforge_elements::model::VariableId, dartforge_elements::model::VariableId)> {
         let lib = self.ctx.program.libraries.iter().position(|l| l.uri == "dart:async")?;
@@ -969,20 +969,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let dartforge_elements::model::Element::Class(c) = b.getter? else {
             return None;
         };
-        let classe = &self.ctx.program.classes[c.0 as usize];
-        let campo = |n: &str| {
-            classe
+        let class = &self.ctx.program.classes[c.0 as usize];
+        let field = |n: &str| {
+            class
                 .fields
                 .iter()
                 .copied()
                 .find(|v| self.ctx.symbol_name(self.ctx.program.variables[v.0 as usize].name) == n)
         };
-        Some((campo("erro")?, campo("rastro")?))
+        Some((field("erro")?, field("rastro")?))
     }
 
     /// Depois de deixar uma exceção pendente: o desvio de `emit_throw_op`
     /// (tratador corrente, `finally` ou saída).
-    fn desviar_para_tratador(&mut self) {
+    fn branch_to_handler(&mut self) {
         let curr_b = self.current_block;
         if let Some(&exc_target) = self.exception_targets.last() {
             self.terminate(Terminator::Branch(exc_target));
@@ -1004,58 +1004,58 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 // As passadas sobre a HIR do corpo.
 
 /// O tipo que o emissor dá a cada valor (o de `LlvmEmitter`).
-fn tipos_da_funcao(func: &Function) -> HashMap<ValueId, Type> {
+fn function_types(func: &Function) -> HashMap<ValueId, Type> {
     let mut t = HashMap::new();
     for (v, _, ty) in &func.params {
         t.insert(*v, *ty);
     }
     for b in &func.blocks {
         for (v, inst, ty) in &b.instructions {
-            t.insert(*v, crate::llvm::LlvmEmitter::tipo_do_resultado(inst, *ty));
+            t.insert(*v, crate::llvm::LlvmEmitter::result_type(inst, *ty));
         }
     }
     t
 }
 
-fn novo_valor(prox: &mut u32) -> ValueId {
-    let v = ValueId(*prox);
-    *prox += 1;
+fn new_value(next: &mut u32) -> ValueId {
+    let v = ValueId(*next);
+    *next += 1;
     v
 }
 
-/// Instruções que leem a posição `slot` do quadro para o valor `destino`
+/// Instruções que leem a posição `slot` do quadro para o valor `dest`
 /// na representação `ty`.
-fn ler_do_quadro(quadro: &Operand, slot: usize, ty: Type, destino: ValueId, prox: &mut u32) -> Vec<(ValueId, Instruction, Type)> {
+fn read_from_frame(frame: &Operand, slot: usize, ty: Type, dest: ValueId, next: &mut u32) -> Vec<(ValueId, Instruction, Type)> {
     let get = |ret: Type| Instruction::CallRuntime {
         name: "dartforge_object_get".to_string(),
-        args: vec![(quadro.clone(), Type::Ref), (Operand::Constant(Constant::Int(slot as i64)), Type::I64)],
+        args: vec![(frame.clone(), Type::Ref), (Operand::Constant(Constant::Int(slot as i64)), Type::I64)],
         ret_ty: ret,
     };
     match ty {
         // A restauração de locais e SSA usa a mesma representação explícita
         // das leituras do cabeçalho. Só a preparação ARC escolhe o empréstimo
         // auditado; tracing conserva seu acesso físico pelo emissor.
-        Type::Ref => vec![(destino, Instruction::GetField { object: quadro.clone(), index: slot }, Type::Ref)],
-        Type::I64 => vec![(destino, get(ty), ty)],
+        Type::Ref => vec![(dest, Instruction::GetField { object: frame.clone(), index: slot }, Type::Ref)],
+        Type::I64 => vec![(dest, get(ty), ty)],
         Type::F64 => {
-            let t = novo_valor(prox);
+            let t = new_value(next);
             vec![
                 (t, get(Type::I64), Type::I64),
-                (destino, Instruction::Bitcast { op: Operand::Val(t), to: Type::F64 }, Type::F64),
+                (dest, Instruction::Bitcast { op: Operand::Val(t), to: Type::F64 }, Type::F64),
             ]
         }
         Type::I1 => {
-            let t = novo_valor(prox);
+            let t = new_value(next);
             vec![
                 (t, get(Type::I64), Type::I64),
-                (destino, Instruction::ICmp(ICmpOp::Ne, Operand::Val(t), Operand::Constant(Constant::Int(0))), Type::I1),
+                (dest, Instruction::ICmp(ICmpOp::Ne, Operand::Val(t), Operand::Constant(Constant::Int(0))), Type::I1),
             ]
         }
         Type::I8 => {
-            let t = novo_valor(prox);
+            let t = new_value(next);
             vec![
                 (t, get(Type::I64), Type::I64),
-                (destino, Instruction::Trunc { op: Operand::Val(t), from: Type::I64, to: Type::I8 }, Type::I8),
+                (dest, Instruction::Trunc { op: Operand::Val(t), from: Type::I64, to: Type::I8 }, Type::I8),
             ]
         }
         Type::Void | Type::Ptr => Vec::new(),
@@ -1066,80 +1066,80 @@ fn ler_do_quadro(quadro: &Operand, slot: usize, ty: Type, destino: ValueId, prox
 }
 
 #[cfg(test)]
-mod testes_restauracao_ref {
+mod ref_restoration_tests {
     use super::*;
     use crate::optimize::arc::*;
 
     #[test]
-    fn ref_restaurada_do_quadro_recebe_keepalive_antes_de_mutar_o_filho() {
-        let mut prox = 2;
-        let mut instrucoes = ler_do_quadro(&Operand::Val(ValueId(0)), 40, Type::Ref, ValueId(1), &mut prox);
-        instrucoes.push((ValueId(2), Instruction::SetField {
+    fn ref_restored_from_frame_gets_keepalive_before_mutating_child() {
+        let mut next = 2;
+        let mut instructions = read_from_frame(&Operand::Val(ValueId(0)), 40, Type::Ref, ValueId(1), &mut next);
+        instructions.push((ValueId(2), Instruction::SetField {
             object: Operand::Val(ValueId(1)), index: 2, value: Operand::Constant(Constant::Int(42)),
         }, Type::Void));
-        let f = Function { symbol: "restaurar".into(), name: "restaurar".into(), depuracao: None,
+        let f = Function { symbol: "restaurar".into(), name: "restaurar".into(), debug_info: None,
             params: vec![(ValueId(0), "quadro".into(), Type::Ref)], return_ty: Type::Ref,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: instrucoes,
+            blocks: vec![BasicBlock { id: BlockId(0), instructions: instructions,
                 terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] };
         let mut m = Module::new();
-        m.memoria_arc = true;
+        m.arc_memory = true;
         m.functions.push(f.clone());
-        m.layouts_campos_arc.insert(123, vec![Type::Ref, Type::I64, Type::I64]);
+        m.arc_field_layouts.insert(123, vec![Type::Ref, Type::I64, Type::I64]);
         m.classes.push(ClassDef { id: 123, name: "Filho".into(), field_count: 3,
             vtable: vec![], to_string_symbol: None });
-        let mut p = PlanoFuncaoDart::default();
-        p.tokens.retorno = RetornoTokens::Owned;
-        let mut planos = HashMap::from([("restaurar".into(), p)]);
-        assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (1, 0));
-        let leitor = m.functions[0].blocks.iter().flat_map(|b| &b.instructions).find_map(|(v, i, _)|
+        let mut p = DartFunctionPlan::default();
+        p.tokens.ret = TokenReturn::Owned;
+        let mut plans = HashMap::from([("restaurar".into(), p)]);
+        assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (1, 0));
+        let reader = m.functions[0].blocks.iter().flat_map(|b| &b.instructions).find_map(|(v, i, _)|
             matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_ler_campo_ref_v1").then_some(*v)).unwrap();
-        assert_eq!(planos["restaurar"].classes[&leitor], Ownership::Borrowed {
-            owner: OrigemOwner::Valor(ValueId(0)), escopo: 0,
+        assert_eq!(plans["restaurar"].classes[&reader], Ownership::Borrowed {
+            owner: OwnerOrigin::Value(ValueId(0)), scope: 0,
         });
-        assert_eq!(planos["restaurar"].classes[&ValueId(1)], Ownership::Owned);
+        assert_eq!(plans["restaurar"].classes[&ValueId(1)], Ownership::Owned);
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
         assert!(ir.contains("i64 %v0, i64 40)"));
         assert!(ir.find("call void @dartforge_arc_retain").unwrap()
             < ir.find("call void @dartforge_arc_gravar_campo_escalar_conferido_v1").unwrap());
-        assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+        assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
         // O mesmo acesso tipado é emitível em tracing; os tokens ARC surgem
         // somente na preparação explicitamente selecionada acima.
         let mut tracing = Module::new();
         tracing.functions.push(f);
-        let mut sem_planos = HashMap::new();
-        let antes = format!("{tracing:?}");
-        assert_eq!(preparar_arc_modulo_dart(&mut tracing, &mut sem_planos).unwrap(), (0, 0));
-        assert_eq!(format!("{tracing:?}"), antes);
+        let mut without_plans = HashMap::new();
+        let before = format!("{tracing:?}");
+        assert_eq!(prepare_arc_dart_module(&mut tracing, &mut without_plans).unwrap(), (0, 0));
+        assert_eq!(format!("{tracing:?}"), before);
         let ir = crate::llvm::LlvmEmitter::new(&tracing).emit_all();
         assert!(!ir.contains("call i64 @dartforge_arc_ler_campo_ref_v1"));
     }
 }
 
-/// Instruções que gravam `valor` (na representação `ty`) na posição `slot`.
-fn gravar_no_quadro(quadro: &Operand, slot: usize, valor: Operand, ty: Type, prox: &mut u32) -> Vec<(ValueId, Instruction, Type)> {
-    let mut saida = Vec::new();
+/// Instruções que gravam `value` (na representação `ty`) na posição `slot`.
+fn store_in_frame(frame: &Operand, slot: usize, val_ref: Operand, ty: Type, next: &mut u32) -> Vec<(ValueId, Instruction, Type)> {
+    let mut exit = Vec::new();
     let (bits, is_ref) = match ty {
-        Type::Ref => (valor, 1),
-        Type::I64 => (valor, 0),
+        Type::Ref => (val_ref, 1),
+        Type::I64 => (val_ref, 0),
         Type::F64 => {
-            let t = novo_valor(prox);
-            saida.push((t, Instruction::Bitcast { op: valor, to: Type::I64 }, Type::I64));
+            let t = new_value(next);
+            exit.push((t, Instruction::Bitcast { op: val_ref, to: Type::I64 }, Type::I64));
             (Operand::Val(t), 0)
         }
         Type::I1 | Type::I8 => {
-            let t = novo_valor(prox);
-            saida.push((t, Instruction::ZExt { op: valor, from: ty, to: Type::I64 }, Type::I64));
+            let t = new_value(next);
+            exit.push((t, Instruction::ZExt { op: val_ref, from: ty, to: Type::I64 }, Type::I64));
             (Operand::Val(t), 0)
         }
-        Type::Void | Type::Ptr => return saida,
+        Type::Void | Type::Ptr => return exit,
         Type::V4F32 | Type::V4I32 | Type::V2F64 => unreachable!("vetor SIMD sem caixa num quadro assíncrono"),
     };
-    saida.push((
-        novo_valor(prox),
+    exit.push((
+        new_value(next),
         Instruction::CallRuntime {
             name: "dartforge_object_set".to_string(),
             args: vec![
-                (quadro.clone(), Type::Ref),
+                (frame.clone(), Type::Ref),
                 (Operand::Constant(Constant::Int(slot as i64)), Type::I64),
                 (bits, Type::I64),
                 (Operand::Constant(Constant::Int(is_ref)), Type::I8),
@@ -1148,57 +1148,57 @@ fn gravar_no_quadro(quadro: &Operand, slot: usize, valor: Operand, ty: Type, pro
         },
         Type::Void,
     ));
-    saida
+    exit
 }
 
 /// Passada 1: cada `alloca` vira uma posição do quadro a partir de `base`.
 /// Devolve quantas posições usou.
-fn converter_allocas(func: &mut Function, quadro: &Operand, base: usize, prox: &mut u32) -> usize {
-    let mut posicao: HashMap<ValueId, (usize, Type)> = HashMap::new();
+fn convert_allocas(func: &mut Function, frame: &Operand, base: usize, next: &mut u32) -> usize {
+    let mut position: HashMap<ValueId, (usize, Type)> = HashMap::new();
     for b in &func.blocks {
         for (v, inst, _) in &b.instructions {
             if let Instruction::Alloca(t) = inst {
-                let s = base + posicao.len();
-                posicao.insert(*v, (s, *t));
+                let s = base + position.len();
+                position.insert(*v, (s, *t));
             }
         }
     }
-    if posicao.is_empty() {
+    if position.is_empty() {
         return 0;
     }
-    let tipos = tipos_da_funcao(func);
-    let tipo_de = |op: &Operand| match op {
-        Operand::Val(v) => tipos.get(v).copied().unwrap_or(Type::I64),
+    let types = function_types(func);
+    let type_of = |op: &Operand| match op {
+        Operand::Val(v) => types.get(v).copied().unwrap_or(Type::I64),
         Operand::Constant(Constant::Int(_)) => Type::I64,
         Operand::Constant(Constant::Double(_)) => Type::F64,
         Operand::Constant(Constant::Bool(_)) => Type::I1,
         Operand::Constant(_) => Type::Ref,
     };
     for b in &mut func.blocks {
-        let antigas = std::mem::take(&mut b.instructions);
-        for (v, inst, ty) in antigas {
+        let old_ones = std::mem::take(&mut b.instructions);
+        for (v, inst, ty) in old_ones {
             match &inst {
-                Instruction::Alloca(_) if posicao.contains_key(&v) => {}
-                Instruction::Load { ptr: Operand::Val(p), ty: t } if posicao.contains_key(p) => {
-                    let (s, _) = posicao[p];
-                    b.instructions.extend(ler_do_quadro(quadro, s, *t, v, prox));
+                Instruction::Alloca(_) if position.contains_key(&v) => {}
+                Instruction::Load { ptr: Operand::Val(p), ty: t } if position.contains_key(p) => {
+                    let (s, _) = position[p];
+                    b.instructions.extend(read_from_frame(frame, s, *t, v, next));
                 }
-                Instruction::Store { ptr: Operand::Val(p), val } if posicao.contains_key(p) => {
-                    let (s, t) = posicao[p];
+                Instruction::Store { ptr: Operand::Val(p), val } if position.contains_key(p) => {
+                    let (s, t) = position[p];
                     // O valor chega na representação do local (R6, já
                     // coagido pelo lowering); só a largura pode diferir.
-                    let ty_gravar = if t == Type::Ref { Type::Ref } else { tipo_de(val) };
-                    b.instructions.extend(gravar_no_quadro(quadro, s, val.clone(), ty_gravar, prox));
+                    let ty_gravar = if t == Type::Ref { Type::Ref } else { type_of(val) };
+                    b.instructions.extend(store_in_frame(frame, s, val.clone(), ty_gravar, next));
                 }
                 _ => b.instructions.push((v, inst, ty)),
             }
         }
     }
-    posicao.len()
+    position.len()
 }
 
 /// Os valores lidos por uma instrução.
-pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
+pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
     let mut u = Vec::new();
     let mut op = |o: &Operand| {
         if let Operand::Val(v) = o {
@@ -1206,7 +1206,7 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
         }
     };
     match inst {
-        Instruction::Const(_) | Instruction::Alloca(_) | Instruction::LoadGlobal { .. } | Instruction::TearOff { .. } | Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) => {}
+        Instruction::Const(_) | Instruction::Alloca(_) | Instruction::LoadGlobal { .. } | Instruction::TearOff { .. } | Instruction::ConstArray(_) | Instruction::FunctionTable(_) => {}
         Instruction::Add(a, b)
         | Instruction::Sub(a, b)
         | Instruction::Mul(a, b)
@@ -1246,18 +1246,18 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
         Instruction::AllocList { elements } | Instruction::AllocRecord { elements } => {
             elements.iter().for_each(|(a, _)| op(a))
         }
-        Instruction::ArcLoadStrong { slot: SlotForte::Quadro { quadro, .. } } => op(quadro),
-        Instruction::ArcLoadStrong { slot: SlotForte::Global { .. } } => {},
-        Instruction::ArcStoreStrong { slot: SlotForte::Global { .. }, value, .. } => op(value),
-        Instruction::ArcStoreStrong { slot: SlotForte::Quadro { quadro, .. }, value, .. } => {
-            op(quadro);
+        Instruction::ArcLoadStrong { slot: StrongSlot::Quadro { frame, .. } } => op(frame),
+        Instruction::ArcLoadStrong { slot: StrongSlot::Global { .. } } => {},
+        Instruction::ArcStoreStrong { slot: StrongSlot::Global { .. }, value, .. } => op(value),
+        Instruction::ArcStoreStrong { slot: StrongSlot::Quadro { frame, .. }, value, .. } => {
+            op(frame);
             op(value);
         }
         Instruction::AllocCell { value } => op(value),
         Instruction::AllocEnv { values } => values.iter().for_each(&mut op),
-        Instruction::JuntarTextos { partes } => partes.iter().for_each(&mut op),
-        Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTipada { env, .. } => op(env),
-        Instruction::ChamadaTipada { alvo, args, .. } => {
+        Instruction::ConcatStrings { parts } => parts.iter().for_each(&mut op),
+        Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTyped { env, .. } => op(env),
+        Instruction::TypedCall { alvo, args, .. } => {
             op(alvo);
             args.iter().for_each(|(a, _)| op(a));
         }
@@ -1291,10 +1291,10 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
             op(receiver);
             args.iter().for_each(&mut op);
         }
-        Instruction::CallClosure { closure, args, tupla_tipos, .. } => {
+        Instruction::CallClosure { closure, args, tuple_types, .. } => {
             op(closure);
             args.iter().for_each(&mut op);
-            op(tupla_tipos);
+            op(tuple_types);
         }
         Instruction::CallRuntime { args, .. } => args.iter().for_each(|(a, _)| op(a)),
         Instruction::IsClass { object, .. } => op(object),
@@ -1304,55 +1304,55 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
             op(base);
             op(index);
         }
-        Instruction::CallSeletor { recv, args, tupla_tipos, .. } => {
+        Instruction::CallSelector { recv, args, tuple_types, .. } => {
             op(recv);
             args.iter().for_each(&mut op);
-            op(tupla_tipos);
+            op(tuple_types);
         }
-        Instruction::CallClosureRepasse { closure, args, desc, .. } => {
+        Instruction::CallClosureForward { closure, args, desc, .. } => {
             op(closure);
             op(args);
             op(desc);
         }
-        Instruction::CallSeletorRepasse { recv, args, desc, .. } => {
+        Instruction::CallSelectorForward { recv, args, desc, .. } => {
             op(recv);
             op(args);
             op(desc);
         }
-        Instruction::ChamadaNativa { alvo, args, .. } => {
+        Instruction::NativeCall { alvo, args, .. } => {
             op(alvo);
             args.iter().for_each(|(a, _)| op(a));
         }
-        Instruction::CargaNativa { endereco, indice, .. } => {
-            op(endereco);
-            op(indice);
+        Instruction::NativeLoad { address, index: idx_value, .. } => {
+            op(address);
+            op(idx_value);
         }
-        Instruction::GravacaoNativa { endereco, indice, valor, .. } => {
-            op(endereco);
-            op(indice);
-            op(valor);
+        Instruction::NativeWrite { address, index: idx_value, value: val_ref, .. } => {
+            op(address);
+            op(idx_value);
+            op(val_ref);
         }
-        Instruction::ChamadaNativaComposta { alvo, args, destino, .. } => {
+        Instruction::CompositeNativeCall { alvo, args, dest, .. } => {
             op(alvo);
             args.iter().for_each(|(a, _)| op(a));
-            destino.iter().for_each(&mut op);
+            dest.iter().for_each(&mut op);
         }
         Instruction::Simd { args, .. } => args.iter().for_each(&mut op),
     }
     u
 }
 
-/// Troca cada uso de `de` por `para` numa instrução (sem os `phi`).
-fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId>) {
+/// Troca cada uso de `de` por `to` numa instrução (sem os `phi`).
+fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId>) {
     let t = |o: &mut Operand| {
         if let Operand::Val(v) = o
-            && let Some(n) = troca(*v)
+            && let Some(n) = swap(*v)
         {
             *v = n;
         }
     };
     match inst {
-        Instruction::Const(_) | Instruction::Alloca(_) | Instruction::LoadGlobal { .. } | Instruction::TearOff { .. } | Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) | Instruction::Phi { .. } => {}
+        Instruction::Const(_) | Instruction::Alloca(_) | Instruction::LoadGlobal { .. } | Instruction::TearOff { .. } | Instruction::ConstArray(_) | Instruction::FunctionTable(_) | Instruction::Phi { .. } => {}
         Instruction::Add(a, b)
         | Instruction::Sub(a, b)
         | Instruction::Mul(a, b)
@@ -1392,18 +1392,18 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
         Instruction::AllocList { elements } | Instruction::AllocRecord { elements } => {
             elements.iter_mut().for_each(|(a, _)| t(a))
         }
-        Instruction::ArcLoadStrong { slot: SlotForte::Quadro { quadro, .. } } => t(quadro),
-        Instruction::ArcLoadStrong { slot: SlotForte::Global { .. } } => {},
-        Instruction::ArcStoreStrong { slot: SlotForte::Global { .. }, value, .. } => t(value),
-        Instruction::ArcStoreStrong { slot: SlotForte::Quadro { quadro, .. }, value, .. } => {
-            t(quadro);
+        Instruction::ArcLoadStrong { slot: StrongSlot::Quadro { frame, .. } } => t(frame),
+        Instruction::ArcLoadStrong { slot: StrongSlot::Global { .. } } => {},
+        Instruction::ArcStoreStrong { slot: StrongSlot::Global { .. }, value, .. } => t(value),
+        Instruction::ArcStoreStrong { slot: StrongSlot::Quadro { frame, .. }, value, .. } => {
+            t(frame);
             t(value);
         }
         Instruction::AllocCell { value } => t(value),
         Instruction::AllocEnv { values } => values.iter_mut().for_each(t),
-        Instruction::JuntarTextos { partes } => partes.iter_mut().for_each(t),
-        Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTipada { env, .. } => t(env),
-        Instruction::ChamadaTipada { alvo, args, .. } => {
+        Instruction::ConcatStrings { parts } => parts.iter_mut().for_each(t),
+        Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTyped { env, .. } => t(env),
+        Instruction::TypedCall { alvo, args, .. } => {
             t(alvo);
             args.iter_mut().for_each(|(a, _)| t(a));
         }
@@ -1437,10 +1437,10 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
             t(receiver);
             args.iter_mut().for_each(t);
         }
-        Instruction::CallClosure { closure, args, tupla_tipos, .. } => {
+        Instruction::CallClosure { closure, args, tuple_types, .. } => {
             t(closure);
             args.iter_mut().for_each(t);
-            t(tupla_tipos);
+            t(tuple_types);
         }
         Instruction::CallRuntime { args, .. } => args.iter_mut().for_each(|(a, _)| t(a)),
         Instruction::IsClass { object, .. } => t(object),
@@ -1449,44 +1449,44 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
             t(base);
             t(index);
         }
-        Instruction::CallSeletor { recv, args, tupla_tipos, .. } => {
+        Instruction::CallSelector { recv, args, tuple_types, .. } => {
             t(recv);
             args.iter_mut().for_each(t);
-            t(tupla_tipos);
+            t(tuple_types);
         }
-        Instruction::CallClosureRepasse { closure, args, desc, .. } => {
+        Instruction::CallClosureForward { closure, args, desc, .. } => {
             t(closure);
             t(args);
             t(desc);
         }
-        Instruction::CallSeletorRepasse { recv, args, desc, .. } => {
+        Instruction::CallSelectorForward { recv, args, desc, .. } => {
             t(recv);
             t(args);
             t(desc);
         }
-        Instruction::ChamadaNativa { alvo, args, .. } => {
+        Instruction::NativeCall { alvo, args, .. } => {
             t(alvo);
             args.iter_mut().for_each(|(a, _)| t(a));
         }
-        Instruction::CargaNativa { endereco, indice, .. } => {
-            t(endereco);
-            t(indice);
+        Instruction::NativeLoad { address, index: idx_value, .. } => {
+            t(address);
+            t(idx_value);
         }
-        Instruction::GravacaoNativa { endereco, indice, valor, .. } => {
-            t(endereco);
-            t(indice);
-            t(valor);
+        Instruction::NativeWrite { address, index: idx_value, value: val_ref, .. } => {
+            t(address);
+            t(idx_value);
+            t(val_ref);
         }
-        Instruction::ChamadaNativaComposta { alvo, args, destino, .. } => {
+        Instruction::CompositeNativeCall { alvo, args, dest, .. } => {
             t(alvo);
             args.iter_mut().for_each(|(a, _)| t(a));
-            if let Some(d) = destino { t(d) }
+            if let Some(d) = dest { t(d) }
         }
         Instruction::Simd { args, .. } => args.iter_mut().for_each(t),
     }
 }
 
-pub(crate) fn usos_do_terminador(term: &Terminator) -> Vec<ValueId> {
+pub(crate) fn terminator_uses(term: &Terminator) -> Vec<ValueId> {
     let op = |o: &Operand| match o {
         Operand::Val(v) => Some(*v),
         _ => None,
@@ -1499,10 +1499,10 @@ pub(crate) fn usos_do_terminador(term: &Terminator) -> Vec<ValueId> {
     }
 }
 
-fn trocar_no_terminador(term: &mut Terminator, troca: &dyn Fn(ValueId) -> Option<ValueId>) {
+fn replace_in_terminator(term: &mut Terminator, swap: &dyn Fn(ValueId) -> Option<ValueId>) {
     let t = |o: &mut Operand| {
         if let Operand::Val(v) = o
-            && let Some(n) = troca(*v)
+            && let Some(n) = swap(*v)
         {
             *v = n;
         }
@@ -1515,7 +1515,7 @@ fn trocar_no_terminador(term: &mut Terminator, troca: &dyn Fn(ValueId) -> Option
     }
 }
 
-pub(crate) fn sucessores(term: &Terminator) -> Vec<BlockId> {
+pub(crate) fn successors(term: &Terminator) -> Vec<BlockId> {
     match term {
         Terminator::Branch(b) => vec![*b],
         Terminator::CondBranch { then_block, else_block, .. } => vec![*then_block, *else_block],
@@ -1531,102 +1531,102 @@ pub(crate) fn sucessores(term: &Terminator) -> Vec<BlockId> {
 /// Passada 2: os valores SSA vivos na entrada de uma retomada vão para o
 /// quadro a partir de `base` (gravados depois da definição, relidos antes de
 /// cada uso). Devolve quantas posições usou.
-fn guardar_vivos(
+fn save_live(
     func: &mut Function,
-    quadro: &Operand,
+    frame: &Operand,
     base: usize,
-    suspensoes: &[(BlockId, BlockId)],
-    entrada: BlockId,
-    prox: &mut u32,
+    suspensions: &[(BlockId, BlockId)],
+    entry: BlockId,
+    next: &mut u32,
 ) -> usize {
-    if suspensoes.is_empty() {
+    if suspensions.is_empty() {
         return 0;
     }
     let idx: HashMap<BlockId, usize> = func.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
     let n = func.blocks.len();
     let mut defs: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
-    let mut usos: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
+    let mut uses: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
     // Usos de `phi` atribuídos ao fim do bloco de origem.
-    let mut usos_fim: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
+    let mut end_uses: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
     for (i, b) in func.blocks.iter().enumerate() {
         for (v, inst, _) in &b.instructions {
             if let Instruction::Phi { incoming, .. } = inst {
-                for (origem, o) in incoming {
-                    if let (Operand::Val(x), Some(&j)) = (o, idx.get(origem)) {
-                        usos_fim[j].insert(*x);
+                for (origin, o) in incoming {
+                    if let (Operand::Val(x), Some(&j)) = (o, idx.get(origin)) {
+                        end_uses[j].insert(*x);
                     }
                 }
             } else {
-                for u in usos_de(inst) {
+                for u in uses_of(inst) {
                     if !defs[i].contains(&u) {
-                        usos[i].insert(u);
+                        uses[i].insert(u);
                     }
                 }
             }
             defs[i].insert(*v);
         }
-        for u in usos_do_terminador(&b.terminator) {
+        for u in terminator_uses(&b.terminator) {
             if !defs[i].contains(&u) {
-                usos[i].insert(u);
+                uses[i].insert(u);
             }
         }
     }
     let mut succ: Vec<Vec<usize>> = func
         .blocks
         .iter()
-        .map(|b| sucessores(&b.terminator).iter().filter_map(|s| idx.get(s).copied()).collect())
+        .map(|b| successors(&b.terminator).iter().filter_map(|s| idx.get(s).copied()).collect())
         .collect();
-    for (a, r) in suspensoes {
+    for (a, r) in suspensions {
         if let (Some(&ia), Some(&ir)) = (idx.get(a), idx.get(r)) {
             succ[ia].push(ir);
         }
     }
-    let mut vivo_in: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
-    let mut mudou = true;
-    while mudou {
-        mudou = false;
+    let mut live_in: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
+    let mut changed = true;
+    while changed {
+        changed = false;
         for i in (0..n).rev() {
-            let mut out: HashSet<ValueId> = usos_fim[i].clone();
+            let mut out: HashSet<ValueId> = end_uses[i].clone();
             for &s in &succ[i] {
-                out.extend(vivo_in[s].iter().copied());
+                out.extend(live_in[s].iter().copied());
             }
-            let mut inn: HashSet<ValueId> = usos[i].clone();
+            let mut inn: HashSet<ValueId> = uses[i].clone();
             for x in out {
                 if !defs[i].contains(&x) {
                     inn.insert(x);
                 }
             }
-            if inn.len() != vivo_in[i].len() {
-                vivo_in[i] = inn;
-                mudou = true;
+            if inn.len() != live_in[i].len() {
+                live_in[i] = inn;
+                changed = true;
             }
         }
     }
     let params: HashSet<ValueId> = func.params.iter().map(|p| p.0).collect();
-    let da_entrada = idx.get(&entrada).map(|&i| defs[i].clone()).unwrap_or_default();
-    let mut guardar: Vec<ValueId> = suspensoes
+    let from_entry = idx.get(&entry).map(|&i| defs[i].clone()).unwrap_or_default();
+    let mut save: Vec<ValueId> = suspensions
         .iter()
         .filter_map(|(_, r)| idx.get(r))
-        .flat_map(|&i| vivo_in[i].iter().copied())
-        .filter(|v| !params.contains(v) && !da_entrada.contains(v))
+        .flat_map(|&i| live_in[i].iter().copied())
+        .filter(|v| !params.contains(v) && !from_entry.contains(v))
         .collect();
-    let tipos = tipos_da_funcao(func);
-    guardar.retain(|v| !matches!(tipos.get(v), Some(Type::Void | Type::Ptr) | None));
-    guardar.sort_by_key(|v| v.0);
-    guardar.dedup();
-    if guardar.is_empty() {
+    let types = function_types(func);
+    save.retain(|v| !matches!(types.get(v), Some(Type::Void | Type::Ptr) | None));
+    save.sort_by_key(|v| v.0);
+    save.dedup();
+    if save.is_empty() {
         return 0;
     }
-    let posicao: HashMap<ValueId, (usize, Type)> = guardar
+    let position: HashMap<ValueId, (usize, Type)> = save
         .iter()
         .enumerate()
-        .map(|(k, v)| (*v, (base + k, tipos[v])))
+        .map(|(k, v)| (*v, (base + k, types[v])))
         .collect();
 
     // A guarda de pendência no fim de um bloco (chamada, leitura da
     // pendência, comparação e desvio): a forma que a preparação ARC
     // reconhece. Nada entra entre a chamada e o desvio.
-    fn guarda(b: &BasicBlock) -> Option<(usize, BlockId)> {
+    fn guard(b: &BasicBlock) -> Option<(usize, BlockId)> {
         let n = b.instructions.len();
         let Terminator::CondBranch { cond: Operand::Val(c), else_block, .. } = &b.terminator else { return None };
         let [(p, Instruction::CallRuntime { name, .. }, _), (ic, Instruction::ICmp(ICmpOp::Ne, Operand::Val(pv), _), _)] =
@@ -1635,119 +1635,119 @@ fn guardar_vivos(
     }
     // Gravações do resultado de uma chamada guardada: vão para a aresta de
     // sucesso (bloco novo), depois da guarda.
-    let mut nas_arestas: Vec<(BlockId, BlockId, Vec<(ValueId, Instruction, Type)>)> = Vec::new();
+    let mut on_edges: Vec<(BlockId, BlockId, Vec<(ValueId, Instruction, Type)>)> = Vec::new();
     for b in &mut func.blocks {
-        let guardada = guarda(b);
+        let saved = guard(b);
         // Releituras no fim do bloco para as entradas de `phi` dos sucessores
         // são feitas numa segunda volta (abaixo).
-        let antigas = std::mem::take(&mut b.instructions);
-        let n_phis = antigas.iter().take_while(|(_, i, _)| matches!(i, Instruction::Phi { .. })).count();
-        let mut novas: Vec<(ValueId, Instruction, Type)> = Vec::with_capacity(antigas.len());
-        let mut depois_dos_phis: Vec<(ValueId, Instruction, Type)> = Vec::new();
-        for (k, (v, mut inst, ty)) in antigas.into_iter().enumerate() {
+        let old_ones = std::mem::take(&mut b.instructions);
+        let n_phis = old_ones.iter().take_while(|(_, i, _)| matches!(i, Instruction::Phi { .. })).count();
+        let mut new_ones: Vec<(ValueId, Instruction, Type)> = Vec::with_capacity(old_ones.len());
+        let mut after_phis: Vec<(ValueId, Instruction, Type)> = Vec::new();
+        for (k, (v, mut inst, ty)) in old_ones.into_iter().enumerate() {
             if !matches!(inst, Instruction::Phi { .. }) {
                 // Releitura de cada valor guardado que a instrução usa.
-                let mut trocas: HashMap<ValueId, ValueId> = HashMap::new();
-                for u in usos_de(&inst) {
-                    if let Some(&(s, t)) = posicao.get(&u)
-                        && !trocas.contains_key(&u)
+                let mut swaps: HashMap<ValueId, ValueId> = HashMap::new();
+                for u in uses_of(&inst) {
+                    if let Some(&(s, t)) = position.get(&u)
+                        && !swaps.contains_key(&u)
                     {
-                        let nv = novo_valor(prox);
-                        novas.extend(ler_do_quadro(quadro, s, t, nv, prox));
-                        trocas.insert(u, nv);
+                        let nv = new_value(next);
+                        new_ones.extend(read_from_frame(frame, s, t, nv, next));
+                        swaps.insert(u, nv);
                     }
                 }
-                if !trocas.is_empty() {
-                    trocar_usos(&mut inst, &|x| trocas.get(&x).copied());
+                if !swaps.is_empty() {
+                    replace_uses(&mut inst, &|x| swaps.get(&x).copied());
                 }
             }
-            let e_phi = matches!(inst, Instruction::Phi { .. });
-            novas.push((v, inst, ty));
-            if let Some(&(s, t)) = posicao.get(&v) {
-                let grava = gravar_no_quadro(quadro, s, Operand::Val(v), t, prox);
-                if e_phi {
-                    depois_dos_phis.extend(grava);
-                } else if let Some((indice, sucesso)) = guardada
-                    && indice == k
+            let is_phi = matches!(inst, Instruction::Phi { .. });
+            new_ones.push((v, inst, ty));
+            if let Some(&(s, t)) = position.get(&v) {
+                let writes = store_in_frame(frame, s, Operand::Val(v), t, next);
+                if is_phi {
+                    after_phis.extend(writes);
+                } else if let Some((idx_value, success)) = saved
+                    && idx_value == k
                 {
-                    nas_arestas.push((b.id, sucesso, grava));
+                    on_edges.push((b.id, success, writes));
                 } else {
-                    novas.extend(grava);
+                    new_ones.extend(writes);
                 }
             }
             if k + 1 == n_phis {
-                novas.append(&mut depois_dos_phis);
+                new_ones.append(&mut after_phis);
             }
         }
-        novas.append(&mut depois_dos_phis);
+        new_ones.append(&mut after_phis);
         // O terminador.
-        let mut trocas: HashMap<ValueId, ValueId> = HashMap::new();
-        for u in usos_do_terminador(&b.terminator) {
-            if let Some(&(s, t)) = posicao.get(&u)
-                && !trocas.contains_key(&u)
+        let mut swaps: HashMap<ValueId, ValueId> = HashMap::new();
+        for u in terminator_uses(&b.terminator) {
+            if let Some(&(s, t)) = position.get(&u)
+                && !swaps.contains_key(&u)
             {
-                let nv = novo_valor(prox);
-                novas.extend(ler_do_quadro(quadro, s, t, nv, prox));
-                trocas.insert(u, nv);
+                let nv = new_value(next);
+                new_ones.extend(read_from_frame(frame, s, t, nv, next));
+                swaps.insert(u, nv);
             }
         }
-        if !trocas.is_empty() {
-            trocar_no_terminador(&mut b.terminator, &|x| trocas.get(&x).copied());
+        if !swaps.is_empty() {
+            replace_in_terminator(&mut b.terminator, &|x| swaps.get(&x).copied());
         }
-        b.instructions = novas;
+        b.instructions = new_ones;
     }
-    let mut proximo_bloco = func.blocks.iter().map(|b| b.id.0).max().map_or(0, |m| m + 1);
-    for (origem, sucesso, grava) in nas_arestas {
-        let aresta = BlockId(proximo_bloco);
-        proximo_bloco += 1;
+    let mut next_block = func.blocks.iter().map(|b| b.id.0).max().map_or(0, |m| m + 1);
+    for (origin, success, writes) in on_edges {
+        let edge = BlockId(next_block);
+        next_block += 1;
         for b in &mut func.blocks {
-            if b.id == origem
+            if b.id == origin
                 && let Terminator::CondBranch { else_block, .. } = &mut b.terminator
             {
-                *else_block = aresta;
+                *else_block = edge;
             }
-            if b.id == sucesso {
+            if b.id == success {
                 for (_, inst, _) in &mut b.instructions {
                     if let Instruction::Phi { incoming, .. } = inst {
-                        for (de, _) in incoming.iter_mut().filter(|(de, _)| *de == origem) {
-                            *de = aresta;
+                        for (de, _) in incoming.iter_mut().filter(|(de, _)| *de == origin) {
+                            *de = edge;
                         }
                     }
                 }
             }
         }
-        func.blocks.push(BasicBlock { id: aresta, instructions: grava, terminator: Terminator::Branch(sucesso) });
+        func.blocks.push(BasicBlock { id: edge, instructions: writes, terminator: Terminator::Branch(success) });
     }
     // Entradas de `phi` com valor guardado: releitura no fim do bloco de
     // origem (antes do terminador dele; antes da chamada guardada, que não
     // grava no quadro).
-    let mut releituras: Vec<(BlockId, ValueId, ValueId)> = Vec::new(); // (origem, antigo, novo)
+    let mut rereads: Vec<(BlockId, ValueId, ValueId)> = Vec::new(); // (origem, antigo, novo)
     for b in &mut func.blocks {
         for (_, inst, _) in &mut b.instructions {
             if let Instruction::Phi { incoming, .. } = inst {
-                for (origem, o) in incoming.iter_mut() {
+                for (origin, o) in incoming.iter_mut() {
                     if let Operand::Val(x) = o
-                        && posicao.contains_key(x)
+                        && position.contains_key(x)
                     {
-                        let nv = novo_valor(prox);
-                        releituras.push((*origem, *x, nv));
+                        let nv = new_value(next);
+                        rereads.push((*origin, *x, nv));
                         *x = nv;
                     }
                 }
             }
         }
     }
-    for (origem, antigo, novo) in releituras {
-        if let Some(b) = func.blocks.iter_mut().find(|b| b.id == origem) {
-            let (s, t) = posicao[&antigo];
-            let leitura = ler_do_quadro(quadro, s, t, novo, prox);
-            match guarda(b) {
-                Some((indice, _)) => {
-                    b.instructions.splice(indice..indice, leitura);
+    for (origin, old, new) in rereads {
+        if let Some(b) = func.blocks.iter_mut().find(|b| b.id == origin) {
+            let (s, t) = position[&old];
+            let read = read_from_frame(frame, s, t, new, next);
+            match guard(b) {
+                Some((idx_value, _)) => {
+                    b.instructions.splice(idx_value..idx_value, read);
                 }
-                None => b.instructions.extend(leitura),
+                None => b.instructions.extend(read),
             }
         }
     }
-    guardar.len()
+    save.len()
 }

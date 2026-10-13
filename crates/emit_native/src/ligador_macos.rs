@@ -6,7 +6,7 @@
 //! `xcrun`), de onde vêm os *stubs* `.tbd` das bibliotecas do sistema
 //! (`libSystem` e os frameworks `CoreFoundation` e `Security`), e as versões
 //! de plataforma. Aqui os `.tbd` são **gerados pelo dartforge**
-//! ([`BIBLIOTECAS_DO_SISTEMA`], [`gerar`]), como as bibliotecas de importação
+//! ([`SYSTEM_LIBRARIES`], [`gerar`]), como as bibliotecas de importação
 //! do Windows (`ligador_windows.rs`): nada do SDK da Apple é copiado nem
 //! redistribuído — a licença dele (Xcode and Apple SDKs Agreement) não
 //! permite. Um `.tbd` é texto (YAML, formato TAPI v4): o caminho de instalação
@@ -43,7 +43,7 @@ impl Arquitetura {
     }
 
     /// O nome no `-arch` do `ld64.lld`.
-    const fn nome(self) -> &'static str {
+    const fn name(self) -> &'static str {
         match self {
             Arquitetura::Arm64 => "arm64",
             Arquitetura::X86_64 => "x86_64",
@@ -51,7 +51,7 @@ impl Arquitetura {
     }
 
     /// A versão mínima do macOS: a do `rustc` para o alvo.
-    const fn minimo(self) -> &'static str {
+    const fn minimum(self) -> &'static str {
         match self {
             Arquitetura::Arm64 => "11.0",
             Arquitetura::X86_64 => "10.12",
@@ -65,15 +65,15 @@ pub fn triple_do_sysroot() -> &'static str {
 }
 
 /// Uma biblioteca do sistema e os nomes que a ligação pede a ela.
-pub struct BibliotecaDoSistema {
+pub struct SystemLibrary {
     /// O `.tbd`, relativo ao sysroot: o nome com que o `ld64.lld` o procura
     /// (`-lSystem` → `usr/lib/libSystem.tbd`; `-framework X` →
     /// `System/Library/Frameworks/X.framework/X.tbd`).
-    pub arquivo: &'static str,
+    pub file: &'static str,
     /// O caminho de instalação, gravado no executável (`LC_LOAD_DYLIB`).
     pub install_name: &'static str,
     /// Os nomes (com o `_` do Mach-O) nas duas arquiteturas.
-    pub simbolos: &'static [&'static str],
+    pub symbols: &'static [&'static str],
     /// Os que só o arm64 usa.
     pub so_arm64: &'static [&'static str],
     /// Os que só o x86-64 usa: as variantes com sufixo que os cabeçalhos do
@@ -92,14 +92,14 @@ pub struct BibliotecaDoSistema {
 /// programa pode puxar delas: o Rust compila um crate em poucos objetos, e
 /// puxar um nome traz o objeto inteiro com tudo o que ele cita (daí o
 /// `security_framework` quase inteiro). Os testes
-/// `runtime_so_usa_simbolos_da_lista` e `simbolos_existem_no_sdk` conferem,
+/// `runtime_only_uses_listed_symbols` e `symbols_exist_in_sdk` conferem,
 /// no runner do macOS (arm64), que nada falta e que cada nome existe no SDK;
 /// as variantes do x86-64 (`so_x86_64`) não têm runner que as confira.
-pub const BIBLIOTECAS_DO_SISTEMA: &[BibliotecaDoSistema] = &[
-    BibliotecaDoSistema {
-        arquivo: "usr/lib/libSystem.tbd",
+pub const SYSTEM_LIBRARIES: &[SystemLibrary] = &[
+    SystemLibrary {
+        file: "usr/lib/libSystem.tbd",
         install_name: "/usr/lib/libSystem.B.dylib",
-        simbolos: &[
+        symbols: &[
             // A partida, o `dyld` e a TLS.
             "__NSGetArgc",
             "__NSGetArgv",
@@ -432,10 +432,10 @@ pub const BIBLIOTECAS_DO_SISTEMA: &[BibliotecaDoSistema] = &[
     // O `Platform.localeName` (io_plataforma.rs) e o `CFRunLoop` do FSEvents
     // (io_observador.rs; as funções do FSEvents vêm do `CoreServices` pelo
     // `dlsym`).
-    BibliotecaDoSistema {
-        arquivo: "System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd",
+    SystemLibrary {
+        file: "System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd",
         install_name: "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
-        simbolos: &[
+        symbols: &[
             "_CFAbsoluteTimeGetCurrent",
             "_CFArrayCreate",
             "_CFArrayGetCount",
@@ -491,10 +491,10 @@ pub const BIBLIOTECAS_DO_SISTEMA: &[BibliotecaDoSistema] = &[
         so_x86_64: &[],
     },
     // O chaveiro do sistema: as raízes da TLS (`tls.rs`, `rustls-native-certs`).
-    BibliotecaDoSistema {
-        arquivo: "System/Library/Frameworks/Security.framework/Security.tbd",
+    SystemLibrary {
+        file: "System/Library/Frameworks/Security.framework/Security.tbd",
         install_name: "/System/Library/Frameworks/Security.framework/Versions/A/Security",
-        simbolos: &[
+        symbols: &[
             "_SecCertificateCopyData",
             "_SecCopyErrorMessageString",
             "_SecTrustSettingsCopyCertificates",
@@ -755,12 +755,12 @@ pub const BIBLIOTECAS_DO_SISTEMA: &[BibliotecaDoSistema] = &[
 ];
 
 /// As bibliotecas do sistema, no formato do `ld64.lld`.
-const BIBLIOTECAS: &[&str] = &["-lSystem", "-framework", "CoreFoundation", "-framework", "Security"];
+const LIBRARIES: &[&str] = &["-lSystem", "-framework", "CoreFoundation", "-framework", "Security"];
 
 /// O arquivo com a versão do SDK (o `-platform_version`) dos sysroots que
 /// copiavam os `.tbd` do SDK; nos gerados ele não existe, e a versão é a
 /// mínima.
-const ARQUIVO_VERSAO: &str = "versao-do-sdk";
+const VERSION_FILE: &str = "versao-do-sdk";
 
 /// O `.tbd` (TAPI v4) de `b` para `arch`.
 ///
@@ -771,43 +771,43 @@ const ARQUIVO_VERSAO: &str = "versao-do-sdk";
 /// assert!(texto.contains("install-name:    '/usr/lib/libSystem.B.dylib'"));
 /// assert!(texto.contains("'_malloc'"));
 /// ```
-pub fn tbd(b: &BibliotecaDoSistema, arch: Arquitetura) -> String {
-    let alvo = format!("{}-macos", arch.nome());
-    let proprios = match arch {
+pub fn tbd(b: &SystemLibrary, arch: Arquitetura) -> String {
+    let alvo = format!("{}-macos", arch.name());
+    let own_set = match arch {
         Arquitetura::Arm64 => b.so_arm64,
         Arquitetura::X86_64 => b.so_x86_64,
     };
-    let mut nomes: Vec<&str> = b.simbolos.iter().chain(proprios).copied().collect();
-    nomes.sort_unstable();
-    let lista: Vec<String> = nomes.iter().map(|n| format!("'{n}'")).collect();
+    let mut names: Vec<&str> = b.symbols.iter().chain(own_set).copied().collect();
+    names.sort_unstable();
+    let list: Vec<String> = names.iter().map(|n| format!("'{n}'")).collect();
     format!(
         "--- !tapi-tbd\ntbd-version:     4\ntargets:         [ {alvo} ]\ninstall-name:    '{}'\nexports:\n  - targets:     [ {alvo} ]\n    symbols:     [ {} ]\n...\n",
         b.install_name,
-        lista.join(",\n                   ")
+        list.join(",\n                   ")
     )
 }
 
-/// Gera em `dir` os `.tbd` de [`BIBLIOTECAS_DO_SISTEMA`] para `arch`.
+/// Gera em `dir` os `.tbd` de [`SYSTEM_LIBRARIES`] para `arch`.
 ///
 /// # Erros
 ///
 /// Falha de escrita no diretório.
 pub fn gerar(dir: &Path, arch: Arquitetura) -> Result<(), String> {
-    for b in BIBLIOTECAS_DO_SISTEMA {
-        let caminho = dir.join(b.arquivo);
-        if let Some(p) = caminho.parent() {
+    for b in SYSTEM_LIBRARIES {
+        let path = dir.join(b.file);
+        if let Some(p) = path.parent() {
             std::fs::create_dir_all(p).map_err(|e| format!("{}: {e}", p.display()))?;
         }
-        std::fs::write(&caminho, tbd(b, arch)).map_err(|e| format!("{}: {e}", caminho.display()))?;
+        std::fs::write(&path, tbd(b, arch)).map_err(|e| format!("{}: {e}", path.display()))?;
     }
     Ok(())
 }
 
 /// A impressão digital do conteúdo gerado, para o diretório no cache.
-fn impressao(arch: Arquitetura) -> String {
+fn printing(arch: Arquitetura) -> String {
     let mut h = blake3::Hasher::new();
-    for b in BIBLIOTECAS_DO_SISTEMA {
-        h.update(b.arquivo.as_bytes());
+    for b in SYSTEM_LIBRARIES {
+        h.update(b.file.as_bytes());
         h.update(tbd(b, arch).as_bytes());
     }
     h.finalize().to_hex()[..16].to_string()
@@ -816,8 +816,8 @@ fn impressao(arch: Arquitetura) -> String {
 /// O sysroot de ligação com os `.tbd`, e a versão do SDK (vazia: a mínima).
 #[derive(Debug, Clone)]
 pub struct SysrootMacos {
-    raiz: PathBuf,
-    versao: String,
+    root: PathBuf,
+    version: String,
 }
 
 impl SysrootMacos {
@@ -826,29 +826,29 @@ impl SysrootMacos {
     /// # Erros
     ///
     /// A geração falhou (ver [`gerar`]).
-    pub fn localizar() -> Result<&'static SysrootMacos, String> {
+    pub fn locate() -> Result<&'static SysrootMacos, String> {
         static S: std::sync::OnceLock<Result<SysrootMacos, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
             let arch = Arquitetura::do_hospedeiro();
             if let Some(dir) = dartforge_elements::distribuicao::em_lib(&format!("sysroot/{}", arch.triple_do_sysroot()))
-                && dir.join(BIBLIOTECAS_DO_SISTEMA[0].arquivo).is_file()
+                && dir.join(SYSTEM_LIBRARIES[0].file).is_file()
             {
-                let versao = std::fs::read_to_string(dir.join(ARQUIVO_VERSAO)).unwrap_or_default().trim().to_string();
-                return Ok(SysrootMacos { raiz: dir, versao });
+                let version = std::fs::read_to_string(dir.join(VERSION_FILE)).unwrap_or_default().trim().to_string();
+                return Ok(SysrootMacos { root: dir, version });
             }
-            let raiz = crate::cache::dir_cache_nativo().join("ligacao-macos");
-            let chave = format!("{}-{}", arch.nome(), impressao(arch));
-            let dir = raiz.join(&chave);
+            let root = crate::cache::native_cache_dir().join("ligacao-macos");
+            let key = format!("{}-{}", arch.name(), printing(arch));
+            let dir = root.join(&key);
             if dir.join("pronto").is_file() {
-                return Ok(SysrootMacos { raiz: dir, versao: String::new() });
+                return Ok(SysrootMacos { root: dir, version: String::new() });
             }
-            let tmp = raiz.join(format!("{chave}.tmp.{}", std::process::id()));
+            let tmp = root.join(format!("{key}.tmp.{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&tmp);
             gerar(&tmp, arch)?;
             std::fs::write(tmp.join("pronto"), b"").map_err(|e| e.to_string())?;
             if std::fs::rename(&tmp, &dir).is_err() {
-                // O destino existe. Com `pronto`, outro processo venceu a
-                // corrida: vale o dele. Sem `pronto`, é resto de uma geração
+                // O destino existe. Com `ready`, outro processo venceu a
+                // corrida: vale o dele. Sem `ready`, é resto de uma geração
                 // interrompida ou de uma versão anterior sem a marca (o CI
                 // restaura o `target/` de um cache): sai, e a nossa entra.
                 if !dir.join("pronto").is_file() {
@@ -860,7 +860,7 @@ impl SysrootMacos {
                 }
                 let _ = std::fs::remove_dir_all(&tmp);
             }
-            Ok(SysrootMacos { raiz: dir, versao: String::new() })
+            Ok(SysrootMacos { root: dir, version: String::new() })
         })
         .as_ref()
         .map_err(Clone::clone)
@@ -868,31 +868,31 @@ impl SysrootMacos {
 }
 
 /// O que se liga.
-pub enum Produto<'a> {
+pub enum Product<'a> {
     /// Um executável.
-    Executavel,
+    Executable,
     /// Uma biblioteca dinâmica com o `install_name` dado, exportando (e
     /// trazendo das `staticlib`) os símbolos dados.
-    Dinamica { install_name: &'a str, exportados: &'a [String] },
+    Dynamic { install_name: &'a str, exported: &'a [String] },
 }
 
 /// Uma ligação pelo `ld64.lld`.
-pub struct Ligacao<'a> {
-    pub produto: Produto<'a>,
+pub struct Linkage<'a> {
+    pub product: Product<'a>,
     /// Objetos e bibliotecas do programa, na ordem.
-    pub entradas: Vec<PathBuf>,
+    pub entries: Vec<PathBuf>,
     /// Procurar as bibliotecas dinâmicas ao lado do executável.
-    pub rpath_executavel: bool,
+    pub executable_rpath: bool,
     /// LTO dos bitcodes de entrada (produção).
     pub lto: bool,
     /// A CPU-alvo da geração de código da LTO (`--cpu`, o nome do LLVM);
     /// `None`, a base.
     pub cpu: Option<&'static str>,
     /// Tirar o que nada alcança (`-dead_strip`) e os símbolos locais (produção).
-    pub podar: bool,
+    pub prune: bool,
     /// Manter o mapa de depuração mesmo podando (J05).
-    pub manter_depuracao: bool,
-    pub saida: &'a Path,
+    pub keep_debug_info: bool,
+    pub exit: &'a Path,
 }
 
 /// O `ld64.lld`: o da distribuição, o ao lado do Clang, ou o do `PATH`.
@@ -900,8 +900,8 @@ pub fn ld64_lld(clang: &Path) -> PathBuf {
     if let Some(l) = dartforge_elements::distribuicao::ferramenta_llvm("ld64.lld") {
         return l;
     }
-    let ao_lado = clang.with_file_name("ld64.lld");
-    if ao_lado.is_file() { ao_lado } else { PathBuf::from("ld64.lld") }
+    let alongside = clang.with_file_name("ld64.lld");
+    if alongside.is_file() { alongside } else { PathBuf::from("ld64.lld") }
 }
 
 /// Liga com o `ld64.lld` e os `.tbd` do sysroot.
@@ -910,35 +910,35 @@ pub fn ld64_lld(clang: &Path) -> PathBuf {
 ///
 /// O `ld64.lld` não executou ou recusou a ligação (a mensagem leva o que ele
 /// disse).
-pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), String> {
+pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), String> {
     let arch = Arquitetura::do_hospedeiro();
-    let minimo =
-        std::env::var("MACOSX_DEPLOYMENT_TARGET").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| arch.minimo().to_string());
-    let versao_sdk = if sysroot.versao.is_empty() { minimo.clone() } else { sysroot.versao.clone() };
+    let minimum =
+        std::env::var("MACOSX_DEPLOYMENT_TARGET").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| arch.minimum().to_string());
+    let sdk_version = if sysroot.version.is_empty() { minimum.clone() } else { sysroot.version.clone() };
     let mut cmd = Command::new(ld);
-    cmd.args(["-arch", arch.nome(), "-platform_version", "macos", &minimo, &versao_sdk]);
-    cmd.arg("-syslibroot").arg(&sysroot.raiz);
-    match &l.produto {
-        Produto::Executavel => {
+    cmd.args(["-arch", arch.name(), "-platform_version", "macos", &minimum, &sdk_version]);
+    cmd.arg("-syslibroot").arg(&sysroot.root);
+    match &l.product {
+        Product::Executable => {
             cmd.args(["-execute", "-dynamic"]);
         }
-        Produto::Dinamica { install_name, exportados } => {
+        Product::Dynamic { install_name, exported } => {
             cmd.args(["-dylib", "-install_name", install_name]);
             let mut rsp = String::new();
-            for n in exportados.iter() {
+            for n in exported.iter() {
                 rsp.push_str(&format!("-u _{n}\n"));
             }
-            let arquivo = l.saida.with_extension("rsp");
-            std::fs::write(&arquivo, rsp).map_err(|e| format!("{}: {e}", arquivo.display()))?;
-            cmd.arg(format!("@{}", arquivo.display()));
+            let file = l.exit.with_extension("rsp");
+            std::fs::write(&file, rsp).map_err(|e| format!("{}: {e}", file.display()))?;
+            cmd.arg(format!("@{}", file.display()));
         }
     }
-    cmd.arg("-o").arg(l.saida);
-    if l.rpath_executavel {
+    cmd.arg("-o").arg(l.exit);
+    if l.executable_rpath {
         cmd.args(["-rpath", "@executable_path"]);
     }
     if l.lto {
-        cmd.arg(format!("--lto-O{}", crate::driver::nivel_da_lto()));
+        cmd.arg(format!("--lto-O{}", crate::driver::lto_level()));
         // Raízes por mapas: o `ld64.lld` não separa os índices do ThinLTO
         // (sem `--thinlto-index-only`), então o passe dos mapas roda na LTO
         // dele, no fim da otimização de cada módulo — depois do inlining
@@ -947,24 +947,24 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
         // sai no formato do LLVM e o `.no_dead_strip` de cada módulo o
         // guarda do `-dead_strip` (`llvm/mod.rs`).
         if crate::alvo::raizes_por_mapas().unwrap_or(false) {
-            let nivel = crate::driver::nivel_da_lto().max(1);
+            let level = crate::driver::lto_level().max(1);
             // As raízes ficam no slot (o padrão do LLVM), não no registrador
             // preservado como no gerador embutido: aqui o RS4GC roda dentro
             // da LTO do ligador, sem a limpeza dos endereços estáticos do
             // `"deopt"` (`dartforge_llvm`, `tirar_estaticos_do_deopt`), e
             // com eles em registrador o gerador de código pode falhar
             // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12).
-            cmd.arg(format!("--lto-newpm-passes=lto<O{nivel}>,rewrite-statepoints-for-gc,verify"));
+            cmd.arg(format!("--lto-newpm-passes=lto<O{level}>,rewrite-statepoints-for-gc,verify"));
         }
-        cmd.arg(format!("--thinlto-jobs={}", crate::driver::tarefas_de_geracao()));
-        // O outliner (`driver::outliner_na_ligacao`) é opção global do LLVM,
+        cmd.arg(format!("--thinlto-jobs={}", crate::driver::generation_tasks()));
+        // O outliner (`driver::outliner_at_link`) é opção global do LLVM,
         // que a chave do cache do ThinLTO não vê: os módulos gerados com ele
         // ficam num cache à parte.
-        let outliner = crate::driver::outliner_na_ligacao();
+        let outliner = crate::driver::outliner_at_link();
         if outliner {
             cmd.arg("-mllvm").arg("-enable-machine-outliner=always");
         }
-        if let Some(d) = crate::driver::cache_do_thinlto() {
+        if let Some(d) = crate::driver::thinlto_cache() {
             let d = if outliner { d.join("outliner") } else { d };
             if std::fs::create_dir_all(&d).is_ok() {
                 cmd.arg("-cache_path_lto").arg(d);
@@ -982,14 +982,14 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
             }
         }
     }
-    if l.podar {
+    if l.prune {
         cmd.arg("-dead_strip");
         // Sem `--icf=safe` (que o `ld64.lld` tem, como o `ld.lld` e o
         // `lld-link`): não foi verificado num Mac que ele trate como tomado
         // todo endereço de um objeto sem `__llvm_addrsig` (os do Rust), e
         // o `==` de tear-offs depende disso (`ligador_windows.rs`).
         // `-S` tira o mapa de depuração (J05); `-x`, os símbolos locais.
-        if !crate::ligador::manter_simbolos() && !l.manter_depuracao {
+        if !crate::ligador::keep_symbols() && !l.keep_debug_info {
             cmd.args(["-S", "-x"]);
         }
         // O executável de produção não exporta nada: ninguém o carrega nem
@@ -1001,66 +1001,66 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
         // que o dyld refaz a cada carga: 6,5 MB do `new_sali/backend`.
         // Os símbolos não exportados viram locais e o `-x` os tira; com
         // `DARTFORGE_MANTER_SIMBOLOS=1` ficam, para o perfil.
-        if matches!(l.produto, Produto::Executavel) {
+        if matches!(l.product, Product::Executable) {
             cmd.arg("-no_exported_symbols");
         }
     }
-    if l.podar
-        && let Some(m) = crate::ligador::mapa_da_ligacao(l.saida)
+    if l.prune
+        && let Some(m) = crate::ligador::link_map(l.exit)
     {
         cmd.arg("-map").arg(m);
     }
-    cmd.args(&l.entradas);
-    cmd.args(BIBLIOTECAS);
-    let saida = cmd.output().map_err(|e| format!("falha ao executar {}: {e}", ld.display()))?;
-    if !saida.status.success() {
-        let texto = String::from_utf8_lossy(&saida.stderr);
+    cmd.args(&l.entries);
+    cmd.args(LIBRARIES);
+    let exit = cmd.output().map_err(|e| format!("falha ao executar {}: {e}", ld.display()))?;
+    if !exit.status.success() {
+        let text = String::from_utf8_lossy(&exit.stderr);
         // Os erros (e as linhas `>>>` que os explicam) antes dos avisos: com
         // muitos objetos, os avisos de versão mínima escondiam o erro.
-        let (erros, avisos): (Vec<&str>, Vec<&str>) =
-            texto.lines().filter(|l| !l.trim().is_empty()).partition(|l| !l.contains("warning:"));
-        let n_avisos = 40usize.saturating_sub(erros.len());
-        let linhas: Vec<&str> = erros.into_iter().chain(avisos.into_iter().take(n_avisos)).collect();
-        return Err(format!("o ld64.lld falhou na ligação ({}):\n{}", saida.status, linhas.join("\n")));
+        let (errors, avisos): (Vec<&str>, Vec<&str>) =
+            text.lines().filter(|l| !l.trim().is_empty()).partition(|l| !l.contains("warning:"));
+        let n_warnings = 40usize.saturating_sub(errors.len());
+        let lines: Vec<&str> = errors.into_iter().chain(avisos.into_iter().take(n_warnings)).collect();
+        return Err(format!("o ld64.lld falhou na ligação ({}):\n{}", exit.status, lines.join("\n")));
     }
     Ok(())
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn nenhum_simbolo_repetido() {
+    fn no_repeated_symbol() {
         for arch in [Arquitetura::Arm64, Arquitetura::X86_64] {
-            let mut todos: Vec<&str> = Vec::new();
-            for b in BIBLIOTECAS_DO_SISTEMA {
-                todos.extend(b.simbolos);
-                todos.extend(if arch == Arquitetura::Arm64 { b.so_arm64 } else { b.so_x86_64 });
+            let mut all: Vec<&str> = Vec::new();
+            for b in SYSTEM_LIBRARIES {
+                all.extend(b.symbols);
+                all.extend(if arch == Arquitetura::Arm64 { b.so_arm64 } else { b.so_x86_64 });
             }
-            let total = todos.len();
-            todos.sort_unstable();
-            todos.dedup();
-            assert_eq!(todos.len(), total, "{arch:?}");
+            let total = all.len();
+            all.sort_unstable();
+            all.dedup();
+            assert_eq!(all.len(), total, "{arch:?}");
         }
     }
 
     #[test]
-    fn tbd_por_arquitetura() {
-        let arm = tbd(&BIBLIOTECAS_DO_SISTEMA[0], Arquitetura::Arm64);
-        let x86 = tbd(&BIBLIOTECAS_DO_SISTEMA[0], Arquitetura::X86_64);
+    fn tbd_by_architecture() {
+        let arm = tbd(&SYSTEM_LIBRARIES[0], Arquitetura::Arm64);
+        let x86 = tbd(&SYSTEM_LIBRARIES[0], Arquitetura::X86_64);
         assert!(arm.contains("targets:         [ arm64-macos ]") && arm.contains("'_stat'") && !arm.contains("INODE64"));
         assert!(x86.contains("targets:         [ x86_64-macos ]") && x86.contains("'_stat$INODE64'") && !x86.contains("'_stat'"));
         assert!(arm.ends_with("...\n"));
     }
 
     #[test]
-    fn gerar_escreve_cada_biblioteca() {
+    fn generate_writes_each_library() {
         let dir = tempfile::tempdir().unwrap();
         gerar(dir.path(), Arquitetura::Arm64).unwrap();
-        for b in BIBLIOTECAS_DO_SISTEMA {
-            let texto = std::fs::read_to_string(dir.path().join(b.arquivo)).unwrap();
-            assert!(texto.contains(b.install_name));
+        for b in SYSTEM_LIBRARIES {
+            let text = std::fs::read_to_string(dir.path().join(b.file)).unwrap();
+            assert!(text.contains(b.install_name));
         }
     }
 
@@ -1068,86 +1068,86 @@ mod testes {
     /// que não são documentos dele mesmo (o `ld64.lld` procura uma
     /// reexportação pelo caminho de instalação dentro do `-syslibroot`).
     #[cfg(target_os = "macos")]
-    fn reexportacoes_externas(texto: &str) -> Vec<String> {
-        let proprios: Vec<&str> = texto
+    fn external_reexports(text: &str) -> Vec<String> {
+        let own_set: Vec<&str> = text
             .lines()
             .filter_map(|l| l.trim().strip_prefix("install-name:"))
             .map(|v| v.trim().trim_matches(|c| c == '\'' || c == '"'))
             .collect();
-        let mut saida = Vec::new();
-        for pedaco in texto.split(['\'', '"', ' ', ',', '[', ']', '\n']) {
-            let caminho = pedaco.trim();
-            if !(caminho.starts_with("/usr/lib/") || caminho.starts_with("/System/Library/")) || proprios.contains(&caminho) {
+        let mut exit = Vec::new();
+        for chunk in text.split(['\'', '"', ' ', ',', '[', ']', '\n']) {
+            let path = chunk.trim();
+            if !(path.starts_with("/usr/lib/") || path.starts_with("/System/Library/")) || own_set.contains(&path) {
                 continue;
             }
-            let rel = caminho.trim_start_matches('/');
+            let rel = path.trim_start_matches('/');
             let tbd = match rel.strip_suffix(".dylib") {
                 Some(base) => format!("{base}.tbd"),
                 None => format!("{rel}.tbd"),
             };
-            if !saida.contains(&tbd) {
-                saida.push(tbd);
+            if !exit.contains(&tbd) {
+                exit.push(tbd);
             }
         }
-        saida
+        exit
     }
 
     /// Os nomes que um `.tbd` do SDK e os que ele reexporta de outros
     /// arquivos citam (todas as palavras: basta para conferir existência).
     #[cfg(target_os = "macos")]
-    fn nomes_no_sdk(raiz: &Path, arquivo: &str) -> std::collections::HashSet<String> {
-        let mut nomes = std::collections::HashSet::new();
-        let mut pendentes = vec![arquivo.to_string()];
-        let mut vistos = std::collections::HashSet::new();
-        while let Some(rel) = pendentes.pop() {
-            if !vistos.insert(rel.clone()) {
+    fn names_in_sdk(root: &Path, file: &str) -> std::collections::HashSet<String> {
+        let mut names = std::collections::HashSet::new();
+        let mut pending_set = vec![file.to_string()];
+        let mut seen_set = std::collections::HashSet::new();
+        while let Some(rel) = pending_set.pop() {
+            if !seen_set.insert(rel.clone()) {
                 continue;
             }
-            let Ok(texto) = std::fs::read_to_string(raiz.join(&rel)) else { continue };
-            nomes.extend(texto.split(['\'', '"', ' ', ',', '[', ']', '\n']).map(|p| p.trim().to_string()));
-            pendentes.extend(reexportacoes_externas(&texto));
+            let Ok(text) = std::fs::read_to_string(root.join(&rel)) else { continue };
+            names.extend(text.split(['\'', '"', ' ', ',', '[', ']', '\n']).map(|p| p.trim().to_string()));
+            pending_set.extend(external_reexports(&text));
         }
-        nomes
+        names
     }
 
     /// Cada nome gerado existe no `.tbd` do SDK da mesma biblioteca (o
     /// runner do macOS, com o Xcode ou as Command Line Tools).
     #[cfg(target_os = "macos")]
     #[test]
-    fn simbolos_existem_no_sdk() {
-        let raiz = crate::alvo::raiz_do_sdk_macos().expect("SDK do macOS (xcrun)");
-        let mut faltam = Vec::new();
-        for b in BIBLIOTECAS_DO_SISTEMA {
-            let nomes = nomes_no_sdk(raiz, b.arquivo);
-            assert!(nomes.contains(b.install_name), "{}: install-name {} fora do SDK", b.arquivo, b.install_name);
-            let proprios = if Arquitetura::do_hospedeiro() == Arquitetura::Arm64 { b.so_arm64 } else { b.so_x86_64 };
-            for n in b.simbolos.iter().chain(proprios) {
-                if !nomes.contains(*n) {
-                    faltam.push(format!("{}: {n}", b.arquivo));
+    fn symbols_exist_in_sdk() {
+        let root = crate::alvo::macos_sdk_root().expect("SDK do macOS (xcrun)");
+        let mut missing_set = Vec::new();
+        for b in SYSTEM_LIBRARIES {
+            let names = names_in_sdk(root, b.file);
+            assert!(names.contains(b.install_name), "{}: install-name {} fora do SDK", b.file, b.install_name);
+            let own_set = if Arquitetura::do_hospedeiro() == Arquitetura::Arm64 { b.so_arm64 } else { b.so_x86_64 };
+            for n in b.symbols.iter().chain(own_set) {
+                if !names.contains(*n) {
+                    missing_set.push(format!("{}: {n}", b.file));
                 }
             }
         }
-        assert!(faltam.is_empty(), "não exportados pelo SDK: {faltam:#?}");
+        assert!(missing_set.is_empty(), "não exportados pelo SDK: {missing_set:#?}");
     }
 
     /// As duas `staticlib` do runtime ligam só com os `.tbd` gerados, com
     /// tudo o que um programa pode puxar delas: cada nome que o código gerado
-    /// chama (`dartforge_runtime::simbolos::NOMES`, como a biblioteca do SDK
+    /// chama (`dartforge_runtime::symbols::NAMES`, como a biblioteca do SDK
     /// da fonte em `sdk_modulo.rs`) é exigido com `-u`. A `aot` (com o `main`)
     /// vira executável e a `dll`, biblioteca dinâmica; o `dartforge_entry` do
     /// código gerado vem de um objeto C. Um nome fora de
-    /// [`BIBLIOTECAS_DO_SISTEMA`] faz o `ld64.lld` recusar a ligação, e a
+    /// [`SYSTEM_LIBRARIES`] faz o `ld64.lld` recusar a ligação, e a
     /// mensagem dele lista todos (`--error-limit=0`). (O `nm` da Apple não lê
     /// o bitcode do LLVM do dartforge que vai nas `staticlib`; e o
     /// `-all_load` exigiria até o que nenhum programa liga, como o
     /// SecureTransport do `security_framework`.)
     #[cfg(target_os = "macos")]
     #[test]
-    fn runtime_so_usa_simbolos_da_lista() {
+    fn runtime_only_uses_listed_symbols() {
         let clang = crate::driver::NativeDriverOptions::default().clang;
         let dir = tempfile::tempdir().unwrap();
         gerar(&dir.path().join("sysroot"), Arquitetura::do_hospedeiro()).unwrap();
-        let sysroot = SysrootMacos { raiz: dir.path().join("sysroot"), versao: String::new() };
+        let sysroot = SysrootMacos { root: dir.path().join("sysroot"), version: String::new() };
         let c = dir.path().join("entrada.c");
         std::fs::write(&c, "void dartforge_entry(void) {}\n").unwrap();
         let obj = dir.path().join("entrada.o");
@@ -1155,29 +1155,29 @@ mod testes {
         assert!(status.success(), "o Clang não compilou {}", c.display());
         let exe = dir.path().join("programa");
         let dylib = dir.path().join("libteste.dylib");
-        let casos = [
-            (crate::cache::RuntimeCache::get_or_compile(), Produto::Executavel, &exe),
+        let cases = [
+            (crate::cache::RuntimeCache::get_or_compile(), Product::Executable, &exe),
             (
                 crate::cache::RuntimeCache::para_dll(),
-                Produto::Dinamica { install_name: "@rpath/libteste.dylib", exportados: &[] },
+                Product::Dynamic { install_name: "@rpath/libteste.dylib", exported: &[] },
                 &dylib,
             ),
         ];
-        for (lib, produto, saida) in casos {
+        for (lib, product, exit) in cases {
             let lib = lib.expect("runtime pré-compilado").lib_path;
-            let mut entradas = vec![PathBuf::from("--error-limit=0"), obj.clone()];
+            let mut entries = vec![PathBuf::from("--error-limit=0"), obj.clone()];
             for n in dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main") {
-                entradas.push(PathBuf::from("-u"));
-                entradas.push(PathBuf::from(format!("_{n}")));
+                entries.push(PathBuf::from("-u"));
+                entries.push(PathBuf::from(format!("_{n}")));
             }
-            entradas.push(lib);
-            let l = Ligacao { produto, entradas, rpath_executavel: false, lto: false, cpu: None, podar: false, manter_depuracao: false, saida };
-            if let Err(e) = ligar(&ld64_lld(&clang), &sysroot, &l) {
+            entries.push(lib);
+            let l = Linkage { product, entries, executable_rpath: false, lto: false, cpu: None, prune: false, keep_debug_info: false, exit };
+            if let Err(e) = link(&ld64_lld(&clang), &sysroot, &l) {
                 panic!("o runtime usa nomes fora de BIBLIOTECAS_DO_SISTEMA:\n{e}");
             }
         }
         // O executável roda (só o `dartforge_entry` vazio).
-        let saida = Command::new(&exe).output().expect("executar o programa");
-        assert!(saida.status.code().is_some(), "o programa terminou por sinal: {saida:?}");
+        let exit = Command::new(&exe).output().expect("executar o programa");
+        assert!(exit.status.code().is_some(), "o programa terminou por sinal: {exit:?}");
     }
 }

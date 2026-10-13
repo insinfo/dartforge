@@ -19,12 +19,12 @@ pub struct FinallyScope {
     pub prof_break: usize,
     pub prof_continue: usize,
     /// Rótulos que já existiam quando o `try` começou (os de fora).
-    pub rotulos_break: std::collections::HashSet<SymbolId>,
-    pub rotulos_continue: std::collections::HashSet<SymbolId>,
+    pub break_labels: std::collections::HashSet<SymbolId>,
+    pub continue_labels: std::collections::HashSet<SymbolId>,
     /// Saltos (`break`/`continue`, com o rótulo) que atravessam este
     /// `finally`: o de índice `k` entra com a razão `5 + k` e, no fim do
     /// `finally`, continua o salto.
-    pub saltos: Vec<(bool, Option<SymbolId>)>,
+    pub jumps: Vec<(bool, Option<SymbolId>)>,
 }
 
 pub struct FnBuilder<'a, 'c> {
@@ -36,39 +36,39 @@ pub struct FnBuilder<'a, 'c> {
     pub next_block: u32,
     pub locals: HashMap<LocalId, Operand>,
     /// Escopos léxicos dos locais, do mais externo (parâmetros) ao corrente (R6).
-    pub(super) escopos: Vec<super::locais::EscopoLocal>,
+    pub(super) scopes: Vec<super::locals::LocalScope>,
     /// Identidade monotônica dos escopos, independente da profundidade.
-    pub(super) proximo_escopo: u32,
+    pub(super) next_scope: u32,
     /// Inicializadores `late` que o lowering já está expandindo. Uma leitura
     /// recursiva deve consultar a célula no runtime, não expandir o AST de
     /// novo durante a compilação.
-    pub late_inicializadores_em_lowering: std::collections::HashSet<usize>,
+    pub late_initializers_in_lowering: std::collections::HashSet<usize>,
     /// Quantos `alloca` já estão no começo do bloco de entrada.
     pub n_allocas: usize,
     pub value_types: HashMap<ValueId, Type>,
     /// Fatos dos parâmetros declarados, incluindo funções absorvidas.
-    pub parametros_escalares_dart: HashMap<String, std::collections::HashSet<ValueId>>,
+    pub dart_scalar_parameters: HashMap<String, std::collections::HashSet<ValueId>>,
     /// IDs de RTI com origem nativa explícita, incluindo funções absorvidas.
-    pub parametros_rti_dart: HashMap<String, std::collections::HashSet<ValueId>>,
+    pub dart_rti_parameters: HashMap<String, std::collections::HashSet<ValueId>>,
     /// Vetores nativos com papel declarado pela ABI do produtor.
-    pub parametros_vetores_dart: HashMap<String, HashMap<ValueId, VetorEntradaDart>>,
-    pub retornos_uniformes_arc: std::collections::HashSet<String>,
+    pub dart_vector_parameters: HashMap<String, HashMap<ValueId, DartEntryVector>>,
+    pub arc_uniform_returns: std::collections::HashSet<String>,
     /// Corpos Dart construídos aqui à parte (closures) cujo retorno Ref segue
-    /// a convenção Owned das funções Dart (`Module::retornos_ref_dart`).
-    pub retornos_ref_dart: std::collections::HashSet<String>,
+    /// a convenção Owned das funções Dart (`Module::dart_ref_returns`).
+    pub dart_ref_returns: std::collections::HashSet<String>,
     /// Caches de IDs nativos RTI declarados pelo lowering, com flag implícita `$ok`.
     /// Todas as escritas e representações exigem conferência antes de produzir contratos.
-    pub caches_rti_arc: std::collections::HashSet<String>,
+    pub arc_rti_caches: std::collections::HashSet<String>,
     /// Definições compartilháveis declaradas nominalmente pelo produtor ARC.
     /// Não certifica equivalência das cópias nem dependências da emissão.
-    pub funcoes_compartilhadas_arc: std::collections::HashSet<String>,
-    pub funcoes_locais_diretas_arc: std::collections::HashSet<String>,
+    pub arc_shared_functions: std::collections::HashSet<String>,
+    pub arc_direct_local_functions: std::collections::HashSet<String>,
     pub break_targets: Vec<BlockId>,
     pub continue_targets: Vec<BlockId>,
     pub this_param: Option<Operand>,
     /// Obrigação do receptor estático. None exige prova; só há obrigação
     /// de captura quando this_param representa uma captura efetiva.
-    pub this_finalizavel: Option<bool>,
+    pub finalizable_this: Option<bool>,
     pub enclosing_class: Option<dartforge_elements::model::ClassId>,
     pub exception_targets: Vec<BlockId>,
     pub finally_scopes: Vec<FinallyScope>,
@@ -79,178 +79,178 @@ pub struct FnBuilder<'a, 'c> {
     pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
     pub pending_labels: Vec<SymbolId>,
     /// O tipo estático do valor função que a chamada em curso vai chamar
-    /// (`lower_chamada`, lido por `chamar_valor_funcao`).
-    pub tipo_chamado: Option<dartforge_types::TypeId>,
-    /// A expressão da chamada em curso (`lower_chamada`), de onde
-    /// `chamar_valor_funcao` tira os argumentos de tipo que passa a uma
+    /// (`lower_call`, lido por `call_function_value`).
+    pub callee_type: Option<dartforge_types::TypeId>,
+    /// A expressão da chamada em curso (`lower_call`), de onde
+    /// `call_function_value` tira os argumentos de tipo que passa a uma
     /// closure genérica (escritos, ou os inferidos pelo tipo estático).
-    pub chamada_corrente: Option<ExprId>,
+    pub current_call: Option<ExprId>,
     pub current_cascade_target: Option<Operand>,
     /// Um receptor já avaliado: quando `lower_expr` chega à expressão, usa o
     /// valor em vez de avaliá-la de novo (a atribuição `a?.b = v` avalia `a`
     /// antes, para testar o null).
-    pub receptor_pronto: Option<(ExprId, Operand)>,
+    pub receiver_ready: Option<(ExprId, Operand)>,
     /// A atribuição `?.`/`?[` cujo teste de null já foi feito (o alvo).
-    pub null_aware_tratado: Option<ExprId>,
+    pub handled_null_aware: Option<ExprId>,
     /// Diagnósticos de construto não suportado (N1).
-    pub erros: Vec<String>,
+    pub errors: Vec<String>,
     /// Cadeia `?.` em curso: bloco de saída com null e as entradas do phi
     /// (N3). `None` fora de cadeia.
-    pub cadeia_nula: Option<(BlockId, Vec<(BlockId, Operand)>)>,
+    pub null_chain: Option<(BlockId, Vec<(BlockId, Operand)>)>,
     /// O próximo `lower_expr` é o alvo de um elo da cadeia corrente.
-    pub continuar_cadeia: bool,
+    pub continue_chain: bool,
     /// Valor lido antes de uma atribuição composta (resultado de `x++`).
-    pub valor_antigo: Option<Operand>,
+    pub old_value: Option<Operand>,
     // --- P1 (closures, α) ---
     /// Offsets das declarações desta função que moram numa célula (captura.rs).
-    pub celulas: std::collections::HashSet<usize>,
+    pub cells: std::collections::HashSet<usize>,
     /// Closures anônimas já criadas nesta função (nome do corpo).
     pub n_closures: u32,
     /// Nomes de corpos de funções locais já usados nesta função.
-    pub nomes_locais: std::collections::HashSet<String>,
+    pub local_names: std::collections::HashSet<String>,
     /// Entradas de tear-off já geradas por esta função.
-    pub entradas_feitas: std::collections::HashSet<String>,
+    pub done_entries: std::collections::HashSet<String>,
     // --- P3 (const canônico, α) ---
     /// Globais criados por esta função (as constantes canônicas).
-    pub globais_extras: Vec<(u32, Type, String)>,
+    pub extra_globals: Vec<(u32, Type, String)>,
     /// A expressão constante que o getter canônico corrente avalia (não é
     /// canonizada de novo dentro dele).
-    pub constante_em_curso: Option<ExprId>,
+    pub constant_in_progress: Option<ExprId>,
     /// Dentro de um contexto constante (inicializador `const`, valor padrão,
     /// argumentos de um `const C(…)`): `C(…)`, `[…]` e `{…}` são constantes.
-    pub em_contexto_const: bool,
-    /// A chave de valor (`constantes.rs`) de cada local `const` visível.
-    pub chaves_de_const_locais: HashMap<SymbolId, (String, ExprId)>,
+    pub in_const_context: bool,
+    /// A chave de valor (`constants.rs`) de cada local `const` visível.
+    pub local_const_keys: HashMap<SymbolId, (String, ExprId)>,
     /// O padrão corrente é de casamento (`case`, `if-case`): um nome solto
     /// nele é um padrão constante, não uma variável nova.
-    pub padrao_refutavel: bool,
+    pub refutable_pattern: bool,
     /// O teste de tipo corrente é o de um `as` (confere só a classe).
-    pub cast_so_pela_classe: bool,
+    pub cast_by_class_only: bool,
     // --- P5c (SDK da fonte, δ) ---
-    /// Esta função é um adaptador da tabela de métodos (`sdk_fonte.rs`): o
+    /// Esta função é um adaptador da tabela de métodos (`sdk_source.rs`): o
     /// membro que ele adapta é chamado direto, nunca pelo seletor de novo.
-    pub em_adaptador: bool,
-    /// Entrada tipada (`$tc`/`$ts`, `entrada_tipada.rs`): a aridade e os
+    pub in_adapter: bool,
+    /// Entrada tipada (`$tc`/`$ts`, `typed_entry.rs`): a aridade e os
     /// nomes já foram garantidos pelo chamador estático, e o
-    /// `desempacotar` não os confere de novo.
-    pub aridade_garantida: bool,
+    /// `unpack` não os confere de novo.
+    pub guaranteed_arity: bool,
     /// Os tipos dos parâmetros da invocação cujos argumentos são avaliados
-    /// a seguir (a lista de argumentos pelo endereço): o `avaliar_args`
+    /// a seguir (a lista de argumentos pelo endereço): o `evaluate_args`
     /// confere cada argumento `dynamic` logo depois de avaliá-lo, como o
-    /// cast implícito que o CFE põe em volta dele (`entrada_tipada.rs`).
-    pub tipos_dos_args: Option<(usize, super::entrada_tipada::TiposDaInvocacao)>,
+    /// cast implícito que o CFE põe em volta dele (`typed_entry.rs`).
+    pub arg_types: Option<(usize, super::typed_entry::InvocationTypes)>,
     /// Valores de argumento cujo tipo o chamador estático garante (tipo
     /// estático conhecido e não `dynamic`, ou conferido pelo cast
     /// implícito): só com todos assim a chamada usa a entrada tipada; o
     /// resto fica com a que confere tudo (`c:`).
-    pub args_conferidos: std::collections::HashSet<ValueId>,
-    // --- funções locais diretas (`funcoes_diretas.rs`) ---
-    /// As funções locais que `captura.rs` decidiu diretas nesta função.
-    pub diretas_permitidas: std::collections::HashSet<dartforge_frontend::ast::FunctionId>,
+    pub checked_args: std::collections::HashSet<ValueId>,
+    // --- funções locais diretas (`direct_functions.rs`) ---
+    /// As funções locais que `capture.rs` decidiu diretas nesta função.
+    pub allowed_directs: std::collections::HashSet<dartforge_frontend::ast::FunctionId>,
     /// Offsets das declarações desta função gravadas em algum ponto.
-    pub atribuidos: std::collections::HashSet<usize>,
+    pub assigned: std::collections::HashSet<usize>,
     /// Offsets das variáveis de fora que chegam a esta função direta pelo
     /// endereço (repassadas pelo endereço a outra direta).
-    pub ponteiros: std::collections::HashSet<usize>,
+    pub pointers: std::collections::HashSet<usize>,
     /// As funções diretas visíveis, pelo offset do nome.
-    pub funcoes_diretas: HashMap<usize, super::funcoes_diretas::Direta>,
+    pub direct_functions: HashMap<usize, super::direct_functions::Direct>,
     /// Sem funções diretas (corpo `async`/gerador: os `alloca` viram
     /// posições do quadro, e o endereço deles não serve).
-    pub sem_diretas: bool,
+    pub without_directs: bool,
     /// O endereço dos elementos da lista tipada cujo comprimento
-    /// `comprimento_rapido` acabou de ler (a lista e o endereço): o acesso
-    /// que ele guarda usa o mesmo, sem ler de novo (`tipados.rs`).
-    pub dados_tipados: Option<(Operand, Operand)>,
+    /// `fast_length` acabou de ler (a lista e o endereço): o acesso
+    /// que ele guarda usa o mesmo, sem ler de novo (`typed_items.rs`).
+    pub typed_data: Option<(Operand, Operand)>,
     /// O cache do cabeçalho de lista tipada lida de campo, por tipo de
     /// elemento: os dois locais (handle, cabeçalho) que todos os acessos da
-    /// função compartilham (`tipados.rs`, `cabecalho_tipado`).
-    pub caches_de_cabecalho: std::collections::HashMap<i64, (Operand, Operand)>,
+    /// função compartilham (`typed_items.rs`, `cabecalho_tipado`).
+    pub header_caches: std::collections::HashMap<i64, (Operand, Operand)>,
     /// Os valores lidos de uma variável global pelo getter dela
-    /// (`membros.rs`, `ler_global`): relidos a cada acesso, como um campo,
+    /// (`members.rs`, `read_global`): relidos a cada acesso, como um campo,
     /// então também passam pelo cache de cabeçalho.
-    pub lidos_de_global: std::collections::HashSet<ValueId>,
+    pub read_from_global: std::collections::HashSet<ValueId>,
     // --- P6 (async, `async_sm.rs`) ---
     /// Corpo de uma função `async` em curso: o quadro, as retomadas.
-    pub async_estado: Option<Box<super::async_sm::EstadoAsync>>,
+    pub async_state: Option<Box<super::async_sm::AsyncState>>,
     // --- RTI (`rti.rs`) ---
     /// Os parâmetros de tipo da função corrente (`M<i>`), pelo nome.
-    pub params_de_tipo_da_funcao: Vec<SymbolId>,
+    pub function_type_params: Vec<SymbolId>,
     /// Os parâmetros de tipo das closures genéricas em volta (a função local
     /// `T f<T>()`, a expressão `<T>(x) => …`) e a própria: nome, parâmetro e
     /// posição na tupla (`M<i>`), depois dos de quem as criou
     /// (`closures.rs`, `lower_closure`). O mais interno vem por último.
-    pub params_locais: Vec<(SymbolId, dartforge_types::table::TypeParamId, usize)>,
+    pub local_params: Vec<(SymbolId, dartforge_types::table::TypeParamId, usize)>,
     /// Os parâmetros de tipo da classe vêm na tupla (fábrica de classe
     /// genérica: não há `this`).
-    pub classe_por_tupla: bool,
+    pub class_by_tuple: bool,
     /// A tupla de argumentos de tipo da função corrente (`I64`), se há.
-    pub tupla_de_tipos: Option<Operand>,
-    /// O tipo estático da criação que `instanciar` vai baixar (`C<T…>`).
+    pub type_tuple: Option<Operand>,
+    /// O tipo estático da criação que `instantiate` vai baixar (`C<T…>`).
     /// A classe concreta da próxima criação, quando o construtor escolhido é o
     /// da superclasse que uma aplicação de mixin encaminha
-    /// (`membros::construtor_de`).
-    pub classe_concreta: Option<dartforge_elements::model::ClassId>,
-    pub tipo_da_criacao: Option<dartforge_types::table::TypeId>,
+    /// (`members::constructor_of`).
+    pub concrete_class: Option<dartforge_elements::model::ClassId>,
+    pub creation_type: Option<dartforge_types::table::TypeId>,
     /// A tupla de argumentos de tipo da chamada genérica corrente, que
-    /// `chamar_direto` acrescenta quando o alvo tem parâmetros de tipo.
-    pub tupla_armada: Option<Operand>,
+    /// `call_direct` acrescenta quando o alvo tem parâmetros de tipo.
+    pub armed_tuple: Option<Operand>,
     /// O tipo estático de `this` num membro de extensão (o `on`): o
     /// receptor implícito de outra chamada de extensão.
-    pub extensao_do_this: Option<(dartforge_elements::model::ExtensionId, dartforge_types::table::TypeId)>,
+    pub this_extension: Option<(dartforge_elements::model::ExtensionId, dartforge_types::table::TypeId)>,
     /// Num membro de instância de tipo de extensão: o tipo e o tipo estático
     /// de `this` (`E<T…>`, não apagado) — o receptor implícito dos membros
-    /// dele (`tipos_de_extensao.rs`).
-    pub tipo_ext_do_this: Option<(dartforge_elements::model::ClassId, dartforge_types::table::TypeId)>,
+    /// dele (`extension_types.rs`).
+    pub this_ext_type: Option<(dartforge_elements::model::ClassId, dartforge_types::table::TypeId)>,
     /// O valor de um `return;` (e do fim do corpo): a representação, no
     /// construtor generativo de tipo de extensão.
-    pub retorno_do_construtor: Option<Operand>,
+    pub constructor_return: Option<Operand>,
     /// A tupla dos argumentos de tipo escritos no padrão de objeto de tipo
-    /// de extensão genérico em curso (`padroes.rs`).
-    pub tupla_do_padrao_te: Option<Operand>,
+    /// de extensão genérico em curso (`patterns.rs`).
+    pub pattern_tuple_te: Option<Operand>,
     /// N13: as listas do núcleo cujo comprimento e dados são fixos nas
-    /// voltas em emissão (`comandos::Contado::Lista`), pelo endereço do
+    /// voltas em emissão (`statements::Counted::Lista`), pelo endereço do
     /// local.
-    pub listas_fixas: Vec<ListaFixa>,
-    /// A lista fixa do acesso indexado em emissão (`tipados.rs`).
-    pub fixa_do_acesso: Option<ListaFixa>,
+    pub fixed_lists: Vec<FixedList>,
+    /// A lista fixa do acesso indexado em emissão (`typed_items.rs`).
+    pub access_fixed: Option<FixedList>,
     /// As listas tipadas das voltas rápidas em emissão
-    /// (`comandos::Contado::Tipadas`): o contador do laço está provado
+    /// (`statements::Counted::TypedSet`): o contador do laço está provado
     /// dentro dos limites delas, e os dados e o comprimento foram lidos
     /// antes das voltas.
-    pub tipadas_provadas: Vec<TipadaProvada>,
-    /// A lista tipada provada do acesso indexado em emissão (`tipados.rs`).
-    pub provada_do_acesso: Option<TipadaProvada>,
+    pub proven_typed: Vec<ProvenTyped>,
+    /// A lista tipada provada do acesso indexado em emissão (`typed_items.rs`).
+    pub access_proven: Option<ProvenTyped>,
     /// A classe que declara a função corrente (também num membro
     /// estático): os estáticos dela estão no escopo léxico.
-    pub classe_do_membro: Option<dartforge_elements::model::ClassId>,
+    pub member_class: Option<dartforge_elements::model::ClassId>,
     /// Quantos `Pointer.fromFunction` a função já baixou: com o símbolo, o
     /// sítio de cada um (o trampolim é um por sítio, como na VM).
-    pub sitios_de_callback: u32,
-    /// J05: `(linha, coluna)` do comando que está sendo baixado, com a
+    pub callback_sites: u32,
+    /// J05: `(line, column)` do comando que está sendo baixado, com a
     /// depuração ligada; cada instrução emitida a registra.
-    pub posicao: Option<(u32, u32)>,
+    pub position: Option<(u32, u32)>,
     /// O que o rastro simbólico precisa da função além das posições (§13.14).
-    pub rastro: RastroDaFuncao,
+    pub stack_trace: FunctionStackTrace,
 }
 
 /// O que o rastro no formato da VM precisa de uma função além das posições
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14), passado à
-/// [`crate::hir::DepuracaoDaFuncao`] quando a função é entregue
-/// ([`FnBuilder::fechar_rastro`]).
+/// [`crate::hir::FunctionDebugInfo`] quando a função é entregue
+/// ([`FnBuilder::close_stack_trace`]).
 #[derive(Debug, Clone, Default)]
-pub struct RastroDaFuncao {
+pub struct FunctionStackTrace {
     /// A posição do token da função.
     pub token: Option<(u32, u32)>,
-    /// [`crate::hir::marcas_do_rastro`].
-    pub marcas: u8,
-    pub corpo_async: Option<crate::hir::CorpoAsyncDoRastro>,
-    pub entrada_de_closure: Option<String>,
-    pub elo: Option<crate::hir::EloDeEspera>,
-    /// A pilha do rastro (`dartforge_rastro_entrar(tipo, valor)` na entrada e
+    /// [`crate::hir::stack_trace_marks`].
+    pub marks: u8,
+    pub async_body: Option<crate::hir::TraceAsyncBody>,
+    pub closure_entry: Option<String>,
+    pub chain_link: Option<crate::hir::WaitLink>,
+    /// A pilha do rastro (`dartforge_rastro_entrar(ty, value)` na entrada e
     /// `dartforge_rastro_sair` em cada saída): o quadro de um corpo `async`
     /// (tipo 0) e o ouvinte de `_FutureListener.handleValue` (tipo 1), que o
     /// runtime casa com os quadros da pilha de máquina.
-    pub pilha: Option<(i64, Operand)>,
+    pub stack: Option<(i64, Operand)>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -266,12 +266,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Locais passam por alloca/store/load como i64, entao um bool guardado
     /// numa variavel volta como i64 0/1; comparar com zero recupera o i1 sem
     /// supor nada sobre a largura de origem.
-    pub fn para_bool(&mut self, op: Operand) -> Operand {
+    pub fn to_bool(&mut self, op: Operand) -> Operand {
         match self.operand_type(&op) {
             Type::I1 => return op,
             // Um `bool` encaixotado não é "diferente de zero": o handle da
             // caixa de `false` também é. Volta pelo `Unbox` (R3).
-            Type::Ref => return self.coagir(op, Type::I1),
+            Type::Ref => return self.coerce(op, Type::I1),
             _ => {}
         }
         self.emit(
@@ -282,7 +282,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Representação do tipo estático de uma expressão, quando ele é
     /// conhecido e não é `dynamic`.
-    pub fn repr_da_expressao(&self, e: ExprId) -> Option<Type> {
+    pub fn expression_repr(&self, e: ExprId) -> Option<Type> {
         let t = self.ctx.get_type(self.unit_id, e)?;
         if t == self.ctx.core.dynamic_ || self.ctx.is_void(t) {
             return None;
@@ -301,7 +301,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let func = Function {
             symbol,
             name,
-            depuracao: None,
+            debug_info: None,
             params: Vec::new(),
             return_ty,
             blocks: vec![BasicBlock {
@@ -319,23 +319,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             next_value: 0,
             next_block: 1,
             locals: HashMap::new(),
-            escopos: vec![super::locais::EscopoLocal::novo(0)],
-            proximo_escopo: 1,
-            late_inicializadores_em_lowering: std::collections::HashSet::new(),
+            scopes: vec![super::locals::LocalScope::new(0)],
+            next_scope: 1,
+            late_initializers_in_lowering: std::collections::HashSet::new(),
             n_allocas: 0,
             value_types: HashMap::new(),
-            parametros_escalares_dart: HashMap::new(),
-            parametros_rti_dart: HashMap::new(),
-            parametros_vetores_dart: HashMap::new(),
-            retornos_uniformes_arc: Default::default(),
-            retornos_ref_dart: Default::default(),
-            caches_rti_arc: Default::default(),
-            funcoes_compartilhadas_arc: Default::default(),
-            funcoes_locais_diretas_arc: Default::default(),
+            dart_scalar_parameters: HashMap::new(),
+            dart_rti_parameters: HashMap::new(),
+            dart_vector_parameters: HashMap::new(),
+            arc_uniform_returns: Default::default(),
+            dart_ref_returns: Default::default(),
+            arc_rti_caches: Default::default(),
+            arc_shared_functions: Default::default(),
+            arc_direct_local_functions: Default::default(),
             break_targets: Vec::new(),
             continue_targets: Vec::new(),
             this_param: None,
-            this_finalizavel: None,
+            finalizable_this: None,
             enclosing_class: None,
             exception_targets: Vec::new(),
             finally_scopes: Vec::new(),
@@ -345,128 +345,128 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             labeled_break_targets: HashMap::new(),
             labeled_continue_targets: HashMap::new(),
             pending_labels: Vec::new(),
-            tipo_chamado: None,
-            chamada_corrente: None,
+            callee_type: None,
+            current_call: None,
             current_cascade_target: None,
-            receptor_pronto: None,
-            null_aware_tratado: None,
-            erros: Vec::new(),
-            cadeia_nula: None,
-            continuar_cadeia: false,
-            valor_antigo: None,
-            celulas: std::collections::HashSet::new(),
+            receiver_ready: None,
+            handled_null_aware: None,
+            errors: Vec::new(),
+            null_chain: None,
+            continue_chain: false,
+            old_value: None,
+            cells: std::collections::HashSet::new(),
             n_closures: 0,
-            nomes_locais: std::collections::HashSet::new(),
-            entradas_feitas: std::collections::HashSet::new(),
-            globais_extras: Vec::new(),
-            constante_em_curso: None,
-            em_contexto_const: false,
-            chaves_de_const_locais: HashMap::new(),
-            padrao_refutavel: false,
-            cast_so_pela_classe: false,
-            em_adaptador: false,
-            aridade_garantida: false,
-            tipos_dos_args: None,
-            args_conferidos: std::collections::HashSet::new(),
-            diretas_permitidas: std::collections::HashSet::new(),
-            atribuidos: std::collections::HashSet::new(),
-            ponteiros: std::collections::HashSet::new(),
-            funcoes_diretas: HashMap::new(),
-            sem_diretas: false,
-            dados_tipados: None,
-            caches_de_cabecalho: std::collections::HashMap::new(),
-            lidos_de_global: std::collections::HashSet::new(),
-            async_estado: None,
-            params_de_tipo_da_funcao: Vec::new(),
-            params_locais: Vec::new(),
-            classe_por_tupla: false,
-            tupla_de_tipos: None,
-            classe_concreta: None,
-            tipo_da_criacao: None,
-            tupla_armada: None,
-            extensao_do_this: None,
-            tipo_ext_do_this: None,
-            retorno_do_construtor: None,
-            tupla_do_padrao_te: None,
-            listas_fixas: Vec::new(),
-            fixa_do_acesso: None,
-            tipadas_provadas: Vec::new(),
-            provada_do_acesso: None,
-            classe_do_membro: None,
-            sitios_de_callback: 0,
-            posicao: None,
-            rastro: RastroDaFuncao::default(),
+            local_names: std::collections::HashSet::new(),
+            done_entries: std::collections::HashSet::new(),
+            extra_globals: Vec::new(),
+            constant_in_progress: None,
+            in_const_context: false,
+            local_const_keys: HashMap::new(),
+            refutable_pattern: false,
+            cast_by_class_only: false,
+            in_adapter: false,
+            guaranteed_arity: false,
+            arg_types: None,
+            checked_args: std::collections::HashSet::new(),
+            allowed_directs: std::collections::HashSet::new(),
+            assigned: std::collections::HashSet::new(),
+            pointers: std::collections::HashSet::new(),
+            direct_functions: HashMap::new(),
+            without_directs: false,
+            typed_data: None,
+            header_caches: std::collections::HashMap::new(),
+            read_from_global: std::collections::HashSet::new(),
+            async_state: None,
+            function_type_params: Vec::new(),
+            local_params: Vec::new(),
+            class_by_tuple: false,
+            type_tuple: None,
+            concrete_class: None,
+            creation_type: None,
+            armed_tuple: None,
+            this_extension: None,
+            this_ext_type: None,
+            constructor_return: None,
+            pattern_tuple_te: None,
+            fixed_lists: Vec::new(),
+            access_fixed: None,
+            proven_typed: Vec::new(),
+            access_proven: None,
+            member_class: None,
+            callback_sites: 0,
+            position: None,
+            stack_trace: FunctionStackTrace::default(),
         }
     }
 
     /// Passa à depuração da função o que o rastro precisa dela e insere a
     /// pilha do rastro, quando pedida. Sem o rastro simbólico, nada.
-    pub fn fechar_rastro(&mut self) {
-        if !self.ctx.rastro {
+    pub fn close_stack_trace(&mut self) {
+        if !self.ctx.stack_trace {
             return;
         }
-        let r = std::mem::take(&mut self.rastro);
-        let precisa = r.marcas != 0 || r.corpo_async.is_some() || r.entrada_de_closure.is_some() || r.elo.is_some() || r.pilha.is_some();
-        if self.func.depuracao.is_none() {
-            if !precisa {
+        let r = std::mem::take(&mut self.stack_trace);
+        let needs = r.marks != 0 || r.async_body.is_some() || r.closure_entry.is_some() || r.chain_link.is_some() || r.stack.is_some();
+        if self.func.debug_info.is_none() {
+            if !needs {
                 return;
             }
-            let unidade = self.ctx.program.unit(self.unit_id);
-            self.func.depuracao = Some(Box::new(crate::hir::DepuracaoDaFuncao {
-                arquivo: unidade.path.as_ref().map_or_else(|| unidade.uri.clone(), |p| p.display().to_string()),
-                url: self.ctx.url_do_rastro(self.unit_id),
-                linha: r.token.map_or(0, |t| t.0),
+            let unit = self.ctx.program.unit(self.unit_id);
+            self.func.debug_info = Some(Box::new(crate::hir::FunctionDebugInfo {
+                file: unit.path.as_ref().map_or_else(|| unit.uri.clone(), |p| p.display().to_string()),
+                url: self.ctx.stack_trace_url(self.unit_id),
+                line: r.token.map_or(0, |t| t.0),
                 ..Default::default()
             }));
         }
-        if let Some(d) = self.func.depuracao.as_mut() {
-            d.token = r.token.unwrap_or((d.linha, 0));
-            d.marcas |= r.marcas;
-            d.corpo_async = r.corpo_async;
-            d.entrada_de_closure = r.entrada_de_closure;
-            d.elo = r.elo;
+        if let Some(d) = self.func.debug_info.as_mut() {
+            d.token = r.token.unwrap_or((d.line, 0));
+            d.marks |= r.marks;
+            d.async_body = r.async_body;
+            d.closure_entry = r.closure_entry;
+            d.chain_link = r.chain_link;
         }
-        if let Some((tipo, valor)) = r.pilha {
-            self.instrumentar_pilha_do_rastro(tipo, valor);
+        if let Some((ty, value)) = r.stack {
+            self.instrument_stack_trace_stack(ty, value);
         }
     }
 
-    /// `dartforge_rastro_entrar(tipo, valor)` no começo do bloco de entrada
-    /// (depois da definição de `valor`, quando é dele) e
-    /// `dartforge_rastro_sair(profundidade)` antes de cada `Return` e `Throw`:
+    /// `dartforge_rastro_entrar(ty, value)` no começo do bloco de entrada
+    /// (depois da definição de `value`, quando é dele) e
+    /// `dartforge_rastro_sair(depth)` antes de cada `Return` e `Throw`:
     /// a profundidade devolvida pela entrada corta também o que funções
     /// desenroladas por exceção deixaram em cima.
-    fn instrumentar_pilha_do_rastro(&mut self, tipo: i64, valor: Operand) {
+    fn instrument_stack_trace_stack(&mut self, ty: i64, value: Operand) {
         if self.func.blocks.is_empty() {
             return;
         }
-        let novo = |n: &mut u32| {
+        let new = |n: &mut u32| {
             let v = ValueId(*n);
             *n += 1;
             v
         };
-        let prof = novo(&mut self.next_value);
-        let chamada = Instruction::CallRuntime {
+        let prof = new(&mut self.next_value);
+        let call = Instruction::CallRuntime {
             name: "dartforge_rastro_entrar".to_string(),
-            args: vec![(Operand::Constant(Constant::Int(tipo)), Type::I64), (valor.clone(), Type::Ref)],
+            args: vec![(Operand::Constant(Constant::Int(ty)), Type::I64), (value.clone(), Type::Ref)],
             ret_ty: Type::I64,
         };
         self.value_types.insert(prof, Type::I64);
-        let bloco = &mut self.func.blocks[0];
-        let depois = match &valor {
-            Operand::Val(v) => bloco.instructions.iter().position(|(x, _, _)| x == v).map_or(0, |i| i + 1),
+        let block = &mut self.func.blocks[0];
+        let after = match &value {
+            Operand::Val(v) => block.instructions.iter().position(|(x, _, _)| x == v).map_or(0, |i| i + 1),
             _ => 0,
         };
         // Um `phi` não há no bloco de entrada; os `alloca` podem ficar antes.
-        bloco.instructions.insert(depois, (prof, chamada, Type::I64));
-        let mut saidas = Vec::new();
+        block.instructions.insert(after, (prof, call, Type::I64));
+        let mut exits = Vec::new();
         for (bi, b) in self.func.blocks.iter().enumerate() {
             if matches!(b.terminator, Terminator::Return(_) | Terminator::Throw(_)) {
-                saidas.push(bi);
+                exits.push(bi);
             }
         }
-        for bi in saidas {
-            let v = novo(&mut self.next_value);
+        for bi in exits {
+            let v = new(&mut self.next_value);
             self.value_types.insert(v, Type::Void);
             self.func.blocks[bi].instructions.push((
                 v,
@@ -483,21 +483,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// J05: a posição corrente passa a ser a do byte `offset` de `ast`, se é
     /// a árvore da unidade desta função (a posição é dela) e a depuração
     /// está ligada.
-    pub fn marcar_posicao(&mut self, ast: &ast::Ast, offset: usize) {
-        if self.ctx.depuracao.is_none() || !std::ptr::eq(ast, &self.ctx.program.unit(self.unit_id).ast) {
+    pub fn mark_position(&mut self, ast: &ast::Ast, offset: usize) {
+        if self.ctx.debug_info.is_none() || !std::ptr::eq(ast, &self.ctx.program.unit(self.unit_id).ast) {
             return;
         }
-        self.posicao = self.ctx.linha_e_coluna(self.unit_id, offset);
+        self.position = self.ctx.line_and_column(self.unit_id, offset);
     }
 
-    /// Declara `this` (quando `com_this`) e os parâmetros do outline de `fid`.
-    pub fn declarar_parametros(&mut self, fid: usize, com_this: bool) {
-        if com_this {
+    /// Declara `this` (quando `with_this`) e os parâmetros do outline de `fid`.
+    pub fn declare_parameters(&mut self, fid: usize, with_this: bool) {
+        if with_this {
             let this_vid = self.add_param("this".to_string(), Type::Ref);
             self.this_param = Some(Operand::Val(this_vid));
-            self.this_finalizavel = self.ctx.classificar_this(fid);
+            self.finalizable_this = self.ctx.classify_this(fid);
         }
-        let Some(dados) = self.ctx.outline.functions.get(fid) else {
+        let Some(data) = self.ctx.outline.functions.get(fid) else {
             return;
         };
         // Os offsets dos nomes na declaração: a chave das células (P1).
@@ -518,51 +518,51 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             dartforge_elements::model::FunctionRef::None => &[],
         };
-        for (i, p) in dados.parameters.iter().enumerate() {
+        for (i, p) in data.parameters.iter().enumerate() {
             let p_name = p
                 .name
                 .map(|s| self.ctx.symbol_name(s).to_string())
                 .unwrap_or_else(|| "arg".to_string());
             let p_ty = self.repr(p.ty);
             let vid = self.add_param(p_name, p_ty);
-            if self.ctx.memoria_arc && matches!(p_ty, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
-                self.parametros_escalares_dart.entry(self.func.symbol.clone()).or_default().insert(vid);
+            if self.ctx.arc_memory && matches!(p_ty, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
+                self.dart_scalar_parameters.entry(self.func.symbol.clone()).or_default().insert(vid);
             }
             if let Some(sym) = p.name {
                 match ast_params.get(i).and_then(|a| a.name) {
                     Some(n) => {
-                        self.declarar_variavel(sym, n.span.start as usize, p_ty, Operand::Val(vid))
+                        self.declare_variable(sym, n.span.start as usize, p_ty, Operand::Val(vid))
                     }
-                    None => self.declarar_local_com_valor(sym, p_ty, Operand::Val(vid)),
+                    None => self.declare_local_with_value(sym, p_ty, Operand::Val(vid)),
                 }
                 // O outline guarda o tipo Dart mesmo sem offset no corpo.
-                self.atribuir_tipo_semantico(sym, Some(p.ty));
+                self.assign_semantic_type(sym, Some(p.ty));
             }
         }
     }
 
     /// Entrega a função (e as funções locais) ao módulo, com os diagnósticos.
     pub fn finalizar(mut self, module: &mut Module) {
-        self.fechar_rastro();
+        self.close_stack_trace();
         // P6: o diagnóstico de uma função da fonte só vale se a poda a
-        // mantiver (`fonte::podar`).
+        // mantiver (`source::prune`).
         let lib = self.ctx.program.unit(self.unit_id).library;
-        if self.ctx.da_fonte.contains(&lib) && crate::fonte::simbolo_do_sdk(&self.func.symbol) {
-            if !self.erros.is_empty() {
-                module.erros_da_fonte.push((self.func.symbol.clone(), self.erros));
+        if self.ctx.from_source.contains(&lib) && crate::source::sdk_symbol(&self.func.symbol) {
+            if !self.errors.is_empty() {
+                module.source_errors.push((self.func.symbol.clone(), self.errors));
             }
         } else {
-            module.erros.extend(self.erros);
+            module.errors.extend(self.errors);
         }
-        module.globais.extend(self.globais_extras);
-        module.parametros_escalares_dart.extend(self.parametros_escalares_dart);
-        module.parametros_rti_dart.extend(self.parametros_rti_dart);
-        module.parametros_vetores_dart.extend(self.parametros_vetores_dart);
-        module.retornos_uniformes_arc.extend(self.retornos_uniformes_arc);
-        module.retornos_ref_dart.extend(self.retornos_ref_dart);
-        module.caches_rti_arc.extend(self.caches_rti_arc);
-        module.funcoes_compartilhadas_arc.extend(self.funcoes_compartilhadas_arc);
-        module.funcoes_locais_diretas_arc.extend(self.funcoes_locais_diretas_arc);
+        module.globals.extend(self.extra_globals);
+        module.dart_scalar_parameters.extend(self.dart_scalar_parameters);
+        module.dart_rti_parameters.extend(self.dart_rti_parameters);
+        module.dart_vector_parameters.extend(self.dart_vector_parameters);
+        module.arc_uniform_returns.extend(self.arc_uniform_returns);
+        module.dart_ref_returns.extend(self.dart_ref_returns);
+        module.arc_rti_caches.extend(self.arc_rti_caches);
+        module.arc_shared_functions.extend(self.arc_shared_functions);
+        module.arc_direct_local_functions.extend(self.arc_direct_local_functions);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
     }
@@ -571,68 +571,68 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// (N1). O operando devolvido nunca chega a ser emitido — um módulo com
     /// erros não gera código.
     /// O corpo de uma função (ou getter de global) que o mundo fechado do
-    /// programa não alcança (C7, `mundo_nativo.rs`): lança
+    /// programa não alcança (C7, `native_world.rs`): lança
     /// `UnsupportedError` com o símbolo. Só roda se a análise errou — o erro
     /// é alto e diz o que faltou.
-    pub fn corpo_podado(&mut self) {
+    pub fn pruned_body(&mut self) {
         let msg = format!("dartforge: código podado como inalcançável foi chamado: {}", self.func.symbol);
         let m = self.emit(Instruction::Const(Constant::String(msg)), Type::Ref);
-        let e = self.novo_erro_do_runtime("dartforge_unsupported_error_new", vec![(m, Type::Ref)]);
+        let e = self.new_runtime_error("dartforge_unsupported_error_new", vec![(m, Type::Ref)]);
         self.emit_throw_op(e);
     }
 
-    pub fn nao_suportado(&mut self, oque: &str, span: dartforge_diagnostics::Span) -> Operand {
+    pub fn unsupported(&mut self, what: &str, span: dartforge_diagnostics::Span) -> Operand {
         let unit = self.ctx.program.unit(self.unit_id);
         // P6: no código do SDK compilado da fonte (mundo aberto: a poda é
         // conservadora — o `toString` de toda classe, todo alvo de um
         // despacho), o construto que falta vira `UnsupportedError` em tempo
         // de execução, com o mesmo texto: o programa que não passa por ali
         // compila, e o que passa falha alto, nunca em silêncio.
-        if self.ctx.da_fonte.contains(&unit.library) {
+        if self.ctx.from_source.contains(&unit.library) {
             // `DARTFORGE_FONTE_NAO_SUPORTADO=1`: lista, na compilação, cada
             // construto que virou `UnsupportedError` no código da fonte.
             if std::env::var_os("DARTFORGE_FONTE_NAO_SUPORTADO").is_some() {
-                eprintln!("fonte não suportado em {}: {oque}", self.func.symbol);
+                eprintln!("fonte não suportado em {}: {what}", self.func.symbol);
             }
             if !self.is_terminated() {
-                let msg = format!("{}{oque}", crate::PREFIXO_NAO_SUPORTADO);
+                let msg = format!("{}{what}", crate::UNSUPPORTED_PREFIX);
                 let m = self.emit(Instruction::Const(Constant::String(msg)), Type::Ref);
-                let e = self.novo_erro_do_runtime("dartforge_unsupported_error_new", vec![(m, Type::Ref)]);
+                let e = self.new_runtime_error("dartforge_unsupported_error_new", vec![(m, Type::Ref)]);
                 self.emit_throw_op(e);
             }
             return Operand::Constant(Constant::Null);
         }
-        let posicao = self.posicao(span);
-        self.erros.push(format!("{}{oque} ({posicao})", crate::PREFIXO_NAO_SUPORTADO));
+        let position = self.position(span);
+        self.errors.push(format!("{}{what} ({position})", crate::UNSUPPORTED_PREFIX));
         Operand::Constant(Constant::Null)
     }
 
-    /// `arquivo:linha:coluna` de `span` na unidade corrente.
-    fn posicao(&self, span: dartforge_diagnostics::Span) -> String {
+    /// `file:line:column` de `span` na unidade corrente.
+    fn position(&self, span: dartforge_diagnostics::Span) -> String {
         let unit = self.ctx.program.unit(self.unit_id);
-        let fonte = &unit.source;
-        let ini = span.start.min(fonte.len());
-        let antes = &fonte[..ini];
-        let linha = antes.matches('\n').count() + 1;
-        let coluna = ini - antes.rfind('\n').map_or(0, |p| p + 1) + 1;
-        let arquivo = unit
+        let source = &unit.source;
+        let ini = span.start.min(source.len());
+        let before = &source[..ini];
+        let line = before.matches('\n').count() + 1;
+        let column = ini - before.rfind('\n').map_or(0, |p| p + 1) + 1;
+        let file = unit
             .path
             .as_ref()
             .and_then(|p| p.file_name())
             .map_or_else(|| unit.uri.clone(), |n| n.to_string_lossy().into_owned());
-        format!("{arquivo}:{linha}:{coluna}")
+        format!("{file}:{line}:{column}")
     }
 
     /// Um erro de compilação da linguagem (o programa é inválido, não um
     /// construto que falta), com o texto do front-end da VM. No código do
     /// SDK compilado da fonte não acontece: o SDK é válido.
-    pub fn erro_de_linguagem(&mut self, mensagem: &str, span: dartforge_diagnostics::Span) -> Operand {
-        let posicao = self.posicao(span);
-        self.erros.push(format!("{mensagem} ({posicao})"));
+    pub fn language_error(&mut self, message: &str, span: dartforge_diagnostics::Span) -> Operand {
+        let position = self.position(span);
+        self.errors.push(format!("{message} ({position})"));
         Operand::Constant(Constant::Null)
     }
 
-    /// Converte um operando para a representação `para` (R4).
+    /// Converte um operando para a representação `to` (R4).
     ///
     /// É o único lugar que muda representação: escalar numa posição `Ref`
     /// vira caixa (`Box`), `Ref` numa posição escalar volta por `Unbox` —
@@ -640,19 +640,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// exceção de uma chamada. `int` para `double` é conversão numérica (o
     /// literal `1` num contexto `double`); os bits de `double` que vêm do
     /// heap usam `Bitcast` explícito, nunca esta função.
-    pub fn coagir(&mut self, op: Operand, para: Type) -> Operand {
+    pub fn coerce(&mut self, op: Operand, to: Type) -> Operand {
         let de = self.operand_type(&op);
-        if de == para
-            || matches!(para, Type::Void | Type::Ptr)
+        if de == to
+            || matches!(to, Type::Void | Type::Ptr)
             || matches!(de, Type::Void | Type::Ptr)
         {
             return op;
         }
-        match (de, para) {
+        match (de, to) {
             // O vetor SIMD e a caixa do tipo estático (`lower/simd.rs`): o
             // tipo estático não anulável garante a caixa certa.
-            (k, Type::Ref) if k.e_vetor() => self.emit(Instruction::Box { op, from: k }, Type::Ref),
-            (Type::Ref, k) if k.e_vetor() => self.emit(Instruction::Unbox { op, to: k }, k),
+            (k, Type::Ref) if k.is_vector() => self.emit(Instruction::Box { op, from: k }, Type::Ref),
+            (Type::Ref, k) if k.is_vector() => self.emit(Instruction::Unbox { op, to: k }, k),
             (Type::I64 | Type::F64 | Type::I1, Type::Ref) => {
                 self.emit(Instruction::Box { op, from: de }, Type::Ref)
             }
@@ -674,7 +674,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 )
             }
             (Type::Ref, Type::I64 | Type::F64 | Type::I1) => {
-                self.emit_call_with_check(Instruction::Unbox { op, to: para }, para)
+                self.emit_call_with_check(Instruction::Unbox { op, to: to }, to)
             }
             (Type::Ref, Type::I8) => {
                 let b =
@@ -699,9 +699,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Instruction::ZExt {
                     op,
                     from: Type::I1,
-                    to: para,
+                    to: to,
                 },
-                para,
+                to,
             ),
             (Type::I8, Type::I64) => self.emit(
                 Instruction::ZExt {
@@ -751,12 +751,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Inicializador de uma variável/campo, de qualquer unidade (quem baixa
-    /// usa `lower_expr_de` com a unidade da variável).
-    pub fn variable_initializer_em(
+    /// usa `lower_expr_of` com a unidade da variável).
+    pub fn variable_initializer_in(
         &self,
         var_id: dartforge_elements::model::VariableId,
     ) -> Option<dartforge_frontend::ast::ExprId> {
-        super::layouts_arc::inicializador(self.ctx, var_id)
+        super::layouts_arc::initializer(self.ctx, var_id)
     }
 
     pub fn add_param(&mut self, name: String, ty: Type) -> ValueId {
@@ -768,11 +768,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Declara um vetor da entrada uniforme, sem inferir papel pelo tipo Ptr.
-    pub(super) fn add_param_vetor(&mut self, papel: VetorEntradaDart) -> ValueId {
-        let nome = match papel { VetorEntradaDart::Argumentos => "args", VetorEntradaDart::Descritor => "desc" };
-        let id = self.add_param(nome.to_string(), Type::Ptr);
-        if self.ctx.memoria_arc {
-            self.parametros_vetores_dart.entry(self.func.symbol.clone()).or_default().insert(id, papel);
+    pub(super) fn add_param_vector(&mut self, role: DartEntryVector) -> ValueId {
+        let name_str = match role { DartEntryVector::Argumentos => "args", DartEntryVector::Descriptor => "desc" };
+        let id = self.add_param(name_str.to_string(), Type::Ptr);
+        if self.ctx.arc_memory {
+            self.dart_vector_parameters.entry(self.func.symbol.clone()).or_default().insert(id, role);
         }
         id
     }
@@ -780,23 +780,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Declara a convenção alvo de uma entrada uniforme gerada nesta imagem.
     /// Só a preparação/verificação completa pode publicar seu corpo Owned;
     /// callbacks e dispatch indireto ainda exigem contratos dos chamadores.
-    pub(super) fn declarar_retorno_uniforme_arc(&mut self) {
-        if !self.ctx.memoria_arc || self.func.return_ty != Type::Ref { return; }
+    pub(super) fn declare_arc_uniform_return(&mut self) {
+        if !self.ctx.arc_memory || self.func.return_ty != Type::Ref { return; }
         assert_eq!(self.func.params.iter().map(|p| p.2).collect::<Vec<_>>(),
             [Type::Ref, Type::Ptr, Type::Ptr], "declaração de entrada uniforme incompatível");
-        let papeis = &self.parametros_vetores_dart[&self.func.symbol];
-        assert_eq!(papeis.get(&self.func.params[1].0), Some(&VetorEntradaDart::Argumentos));
-        assert_eq!(papeis.get(&self.func.params[2].0), Some(&VetorEntradaDart::Descritor));
-        self.retornos_uniformes_arc.insert(self.func.symbol.clone());
+        let roles = &self.dart_vector_parameters[&self.func.symbol];
+        assert_eq!(roles.get(&self.func.params[1].0), Some(&DartEntryVector::Argumentos));
+        assert_eq!(roles.get(&self.func.params[2].0), Some(&DartEntryVector::Descriptor));
+        self.arc_uniform_returns.insert(self.func.symbol.clone());
     }
 
     /// Um parâmetro na representação do tipo Dart (de closure, função local
     /// ou captura por valor): sob ARC, a representação escalar é fato
-    /// escalar, como em `declarar_parametros`.
+    /// escalar, como em `declare_parameters`.
     pub(super) fn add_param_dart(&mut self, name: String, ty: Type) -> ValueId {
         let v = self.add_param(name, ty);
-        if self.ctx.memoria_arc && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
-            self.parametros_escalares_dart.entry(self.func.symbol.clone()).or_default().insert(v);
+        if self.ctx.arc_memory && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
+            self.dart_scalar_parameters.entry(self.func.symbol.clone()).or_default().insert(v);
         }
         v
     }
@@ -805,8 +805,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// O chamador deve passar somente IDs canônicos nativos de tipos/tuplas.
     pub fn add_param_rti(&mut self, name: String) -> ValueId {
         let v = self.add_param(name, Type::I64);
-        if self.ctx.memoria_arc {
-            self.parametros_rti_dart.entry(self.func.symbol.clone()).or_default().insert(v);
+        if self.ctx.arc_memory {
+            self.dart_rti_parameters.entry(self.func.symbol.clone()).or_default().insert(v);
         }
         v
     }
@@ -819,7 +819,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Operand::Constant(Constant::Bool(_)) => Type::I1,
             Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
             Operand::Constant(Constant::Null) => Type::Ref,
-            Operand::Constant(Constant::Funcao(_)) => Type::I64,
+            Operand::Constant(Constant::Function(_)) => Type::I64,
         }
     }
 
@@ -871,22 +871,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .position(|b| b.id == self.current_block)
             .unwrap();
         self.func.blocks[idx].instructions.push((vid, inst, ty));
-        if let Some((pos, d)) = self.depuracao_da_funcao() {
-            d.posicoes.insert(vid, pos);
+        if let Some((pos, d)) = self.function_debug_info() {
+            d.positions.insert(vid, pos);
         }
         Operand::Val(vid)
     }
 
     /// J05: a posição corrente e as posições da função (criadas na primeira
     /// instrução com posição), com a depuração ligada.
-    fn depuracao_da_funcao(&mut self) -> Option<((u32, u32), &mut crate::hir::DepuracaoDaFuncao)> {
-        let pos = self.posicao?;
-        let unidade = self.ctx.program.unit(self.unit_id);
-        let d = self.func.depuracao.get_or_insert_with(|| {
-            Box::new(crate::hir::DepuracaoDaFuncao {
-                arquivo: unidade.path.as_ref().map_or_else(|| unidade.uri.clone(), |p| p.display().to_string()),
-                url: self.ctx.url_do_rastro(self.unit_id),
-                linha: pos.0,
+    fn function_debug_info(&mut self) -> Option<((u32, u32), &mut crate::hir::FunctionDebugInfo)> {
+        let pos = self.position?;
+        let unit = self.ctx.program.unit(self.unit_id);
+        let d = self.func.debug_info.get_or_insert_with(|| {
+            Box::new(crate::hir::FunctionDebugInfo {
+                file: unit.path.as_ref().map_or_else(|| unit.uri.clone(), |p| p.display().to_string()),
+                url: self.ctx.stack_trace_url(self.unit_id),
+                line: pos.0,
                 ..Default::default()
             })
         });
@@ -900,10 +900,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // P6: o `return` de um corpo `async` completa o `Future`
         // (`_asyncReturn`); a suspensão e o tratador do topo são crus.
         if let Terminator::Return(r) = &term
-            && self.async_estado.as_ref().is_some_and(|e| !e.retorno_cru)
+            && self.async_state.as_ref().is_some_and(|e| !e.raw_return)
         {
             let r = r.clone();
-            self.retorno_async(r);
+            self.async_return(r);
             return;
         }
         // R4: o valor devolvido na representação do retorno da função.
@@ -913,11 +913,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // `=> print(x)` numa função que devolve valor: a expressão
                 // `void` vale null (não há valor SSA a devolver).
                 let op = if matches!(self.operand_type(&op), Type::Void) {
-                    Self::valor_zero(r)
+                    Self::zero_value(r)
                 } else {
                     op
                 };
-                let op = self.coagir(op, r);
+                let op = self.coerce(op, r);
                 if self.is_terminated() {
                     return;
                 }
@@ -929,9 +929,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             t => t,
         };
         self.terminated_blocks.insert(self.current_block);
-        let bloco = self.current_block;
-        if let Some((pos, d)) = self.depuracao_da_funcao() {
-            d.saidas.insert(bloco, pos);
+        let block = self.current_block;
+        if let Some((pos, d)) = self.function_debug_info() {
+            d.exits.insert(block, pos);
         }
         let idx = self
             .func
@@ -960,14 +960,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn route_return(&mut self, ret_val: Option<Operand>) {
-        let ret_val = ret_val.or_else(|| self.retorno_do_construtor.clone());
+        let ret_val = ret_val.or_else(|| self.constructor_return.clone());
         // O valor na representação do retorno da função (o corpo de uma
         // closure tipada devolve `int` sem caixa, por exemplo).
         let ret_val = match ret_val {
             Some(r) if !matches!(self.func.return_ty, Type::Void) && self.finally_scopes.is_empty() => {
-                Some(self.coagir(r, self.func.return_ty))
+                Some(self.coerce(r, self.func.return_ty))
             }
-            outro => outro,
+            other => other,
         };
         self.emit(
             Instruction::CallRuntime {
@@ -989,7 +989,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             } else {
                 self.func.return_ty
             };
-            let val = self.coagir(val, ty_phi);
+            let val = self.coerce(val, ty_phi);
             let fin = self.finally_scopes.last_mut().unwrap();
             fin.incoming.push((self.current_block, 1, val));
             let fin_entry = fin.entry_block;
@@ -1004,7 +1004,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn route_break_to(&mut self, label: Option<SymbolId>) {
-        self.saltar(false, label);
+        self.jump(false, label);
     }
 
     /// `break`/`continue` (com ou sem rótulo): direto ao alvo, ou pelo
@@ -1012,7 +1012,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// salto `k` desse `finally`; no fim dele o salto continua — por outros
     /// `finally` de fora, se atravessar mais). Um salto para um alvo DENTRO
     /// do `try` (o laço do próprio corpo) não passa pelo `finally`.
-    pub fn saltar(&mut self, e_continue: bool, label: Option<SymbolId>) {
+    pub fn jump(&mut self, is_continue: bool, label: Option<SymbolId>) {
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_exception_clear".to_string(),
@@ -1021,44 +1021,44 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
-        let (pilha, rotulados) = if e_continue {
+        let (stack, labeled_set) = if is_continue {
             (&self.continue_targets, &self.labeled_continue_targets)
         } else {
             (&self.break_targets, &self.labeled_break_targets)
         };
         let target_opt = match label {
-            Some(sym) => rotulados.get(&sym).copied(),
-            None => pilha.last().copied(),
+            Some(sym) => labeled_set.get(&sym).copied(),
+            None => stack.last().copied(),
         };
-        let indice = pilha.len().checked_sub(1);
+        let index = stack.len().checked_sub(1);
         if let Some(target) = target_opt {
-            let atravessa = self.finally_scopes.last().is_some_and(|fin| match label {
+            let crosses = self.finally_scopes.last().is_some_and(|fin| match label {
                 Some(sym) => {
-                    if e_continue {
-                        fin.rotulos_continue.contains(&sym)
+                    if is_continue {
+                        fin.continue_labels.contains(&sym)
                     } else {
-                        fin.rotulos_break.contains(&sym)
+                        fin.break_labels.contains(&sym)
                     }
                 }
                 None => {
-                    let prof = if e_continue { fin.prof_continue } else { fin.prof_break };
-                    indice.is_some_and(|i| i < prof)
+                    let prof = if is_continue { fin.prof_continue } else { fin.prof_break };
+                    index.is_some_and(|i| i < prof)
                 }
             });
-            if !atravessa {
+            if !crosses {
                 self.terminate(Terminator::Branch(target));
             } else {
                 let default_ret = self.default_return_operand();
-                let atual = self.current_block;
+                let current = self.current_block;
                 let fin = self.finally_scopes.last_mut().unwrap();
-                let k = match fin.saltos.iter().position(|s| *s == (e_continue, label)) {
+                let k = match fin.jumps.iter().position(|s| *s == (is_continue, label)) {
                     Some(k) => k,
                     None => {
-                        fin.saltos.push((e_continue, label));
-                        fin.saltos.len() - 1
+                        fin.jumps.push((is_continue, label));
+                        fin.jumps.len() - 1
                     }
                 };
-                fin.incoming.push((atual, 5 + k as i64, default_ret));
+                fin.incoming.push((current, 5 + k as i64, default_ret));
                 let fin_entry = fin.entry_block;
                 self.terminate(Terminator::Branch(fin_entry));
             }
@@ -1072,7 +1072,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn route_continue_to(&mut self, label: Option<SymbolId>) {
-        self.saltar(true, label);
+        self.jump(true, label);
     }
 
     /// O ponto seguro de uma volta de laço (J01), no começo do corpo: lê o
@@ -1081,25 +1081,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// pausa, `kill`). Um `kill` imediato deixa a exceção pendente não
     /// capturável, e o caminho de exceção comum desenrola o isolado. É o papel
     /// da verificação de pilha da VM nas voltas de laço.
-    pub fn emitir_ponto_seguro(&mut self) {
+    pub fn emit_safepoint(&mut self) {
         if self.is_terminated() {
             return;
         }
-        let pedido = self.emit(
+        let request = self.emit(
             Instruction::CallRuntime { name: "dartforge_interrupcao_pendente".to_string(), args: Vec::new(), ret_ty: Type::I8 },
             Type::I8,
         );
-        let ha = self.emit(Instruction::ICmp(ICmpOp::Ne, pedido, Operand::Constant(Constant::Int(0))), Type::I1);
-        let lento = self.new_block();
-        let segue = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: ha, then_block: lento, else_block: segue });
-        self.set_block(lento);
+        let ha = self.emit(Instruction::ICmp(ICmpOp::Ne, request, Operand::Constant(Constant::Int(0))), Type::I1);
+        let slow = self.new_block();
+        let follows = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: ha, then_block: slow, else_block: follows });
+        self.set_block(slow);
         self.emit_call_with_check(
             Instruction::CallRuntime { name: "dartforge_ponto_seguro".to_string(), args: Vec::new(), ret_ty: Type::Void },
             Type::Void,
         );
-        self.terminate(Terminator::Branch(segue));
-        self.set_block(segue);
+        self.terminate(Terminator::Branch(follows));
+        self.set_block(follows);
     }
 
     pub fn emit_call_with_check(&mut self, inst: Instruction, ret_ty: Type) -> Operand {
@@ -1111,10 +1111,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // `DARTFORGE_SEM_EFEITOS_NA_CONFERENCIA=1` volta a conferir tudo (medida).
         if let Instruction::CallRuntime { name, .. } = &inst
             && name != "dartforge_exception_pending"
-            && !Self::conferir_toda_extern()
+            && !Self::check_every_extern()
         {
-            let e = crate::llvm::externs::efeitos_de(name);
-            if !e.lanca && !e.chama_dart {
+            let e = crate::llvm::externs::effects_of(name);
+            if !e.throws && !e.calls_dart {
                 return self.emit(inst, ret_ty);
             }
         }
@@ -1173,9 +1173,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// A conferência depois de toda extern, também das que não lançam (o
     /// comportamento anterior a E1.1, para medir).
-    fn conferir_toda_extern() -> bool {
-        static LIGADO: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *LIGADO.get_or_init(|| {
+    fn check_every_extern() -> bool {
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ENABLED.get_or_init(|| {
             std::env::var_os("DARTFORGE_SEM_EFEITOS_NA_CONFERENCIA").is_some_and(|v| !v.is_empty() && v != "0")
         })
     }
@@ -1186,7 +1186,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn emit_throw_op(&mut self, ex_op: Operand) -> Operand {
-        self.emitir_lancamento(ex_op, None);
+        self.emit_throw_value(ex_op, None);
         let curr_b = self.current_block;
         if let Some(&exc_target) = self.exception_targets.last() {
             self.terminate(Terminator::Branch(exc_target));
@@ -1207,7 +1207,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     pub fn emit_rethrow(&mut self) -> Operand {
         if let Some((ex_op, _)) = self.active_catch_stack.last().cloned() {
-            self.emitir_lancamento(ex_op, None);
+            self.emit_throw_value(ex_op, None);
         }
         let curr_b = self.current_block;
         if let Some(&exc_target) = self.exception_targets.last() {
@@ -1233,33 +1233,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// pergunta a classe ao runtime (`dartforge_value_class`, que devolve
     /// -12 para null, -9/-10/-11 para as caixas de int/double/bool, -2 para
     /// String…) — sem desreferenciar null (H6).
-    pub fn testar_tipo(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) -> Operand {
-        if let Some(r) = self.testar_tipo_fonte(ast_ty, op.clone()) {
+    pub fn test_type(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) -> Operand {
+        if let Some(r) = self.test_source_type(ast_ty, op.clone()) {
             return r;
         }
         // `x is List<int>`, `x is T`, `x is FutureOr<T>`, tipo de função ou
         // de record: pelo RTI (`rti.rs`). O teste pela classe abaixo só vale
         // para a classe sem argumentos de tipo (ou com argumentos triviais).
-        if self.anotacao_precisa_rti(ast_ty) {
-            return match self.receita_da_anotacao(ast_ty) {
+        if self.annotation_needs_rti(ast_ty) {
+            return match self.annotation_recipe(ast_ty) {
                 Some(r) => {
-                    let t = self.rti_da_receita(&r);
-                    self.testar_rti(op, t)
+                    let t = self.recipe_rti(&r);
+                    self.test_rti(op, t)
                 }
-                None => self.nao_suportado("teste de tipo com nome não resolvido", ast_ty.span),
+                None => self.unsupported("teste de tipo com nome não resolvido", ast_ty.span),
             };
         }
         let ast::TypeKind::Named { name, .. } = &ast_ty.kind else {
-            return self.nao_suportado("teste de tipo estrutural", ast_ty.span);
+            return self.unsupported("teste de tipo estrutural", ast_ty.span);
         };
-        let Some(ultimo) = name.last() else {
-            return self.nao_suportado("teste de tipo", ast_ty.span);
+        let Some(last_one) = name.last() else {
+            return self.unsupported("teste de tipo", ast_ty.span);
         };
-        let nome = self.ctx.symbol_name(ultimo.sym).to_string();
+        let name_str = self.ctx.symbol_name(last_one.sym).to_string();
         let repr = self.operand_type(&op);
         if repr != Type::Ref {
             let r = matches!(
-                (nome.as_str(), repr),
+                (name_str.as_str(), repr),
                 ("int", Type::I64)
                     | ("double", Type::F64)
                     | ("bool", Type::I1 | Type::I8)
@@ -1276,13 +1276,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::I64,
         );
-        let igual = |b: &mut Self, v: i64| {
+        let equal = |b: &mut Self, v: i64| {
             b.emit(
                 Instruction::ICmp(ICmpOp::Eq, cls.clone(), Operand::Constant(Constant::Int(v))),
                 Type::I1,
             )
         };
-        let base = match nome.as_str() {
+        let base = match name_str.as_str() {
             "dynamic" => Operand::Constant(Constant::Bool(true)),
             "Object" => self.emit(
                 Instruction::ICmp(
@@ -1292,10 +1292,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ),
                 Type::I1,
             ),
-            "Null" => igual(self, -12),
+            "Null" => equal(self, -12),
             "num" => {
-                let i = igual(self, -9);
-                let d = igual(self, -10);
+                let i = equal(self, -9);
+                let d = equal(self, -10);
                 self.emit(Instruction::Or(i, d), Type::I1)
             }
             _ => {
@@ -1303,18 +1303,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // `p.Tipo` (import com prefixo) ou `Tipo`.
                 let binding = match &name[..] {
                     [p, t] => self.ctx.program.lookup_prefixed(lib, p.sym, t.sym),
-                    _ => self.ctx.program.lookup(lib, ultimo.sym),
+                    _ => self.ctx.program.lookup(lib, last_one.sym),
                 };
                 let cid = binding
                     .and_then(|b| match b.getter {
                         Some(dartforge_elements::model::Element::Class(c)) => Some(c),
                         _ => None,
                     });
-                let Some(id) = cid.and_then(|c| self.id_de_classe(c)) else {
-                    return self.nao_suportado(&format!("teste de tipo `{nome}`"), ast_ty.span);
+                let Some(id) = cid.and_then(|c| self.class_id_of(c)) else {
+                    return self.unsupported(&format!("teste de tipo `{name_str}`"), ast_ty.span);
                 };
                 if id < 0 {
-                    igual(self, id)
+                    equal(self, id)
                 } else {
                     let sub = self.emit(
                         Instruction::CallRuntime {
@@ -1337,29 +1337,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !ast_ty.nullable {
             return base;
         }
-        let nulo = igual(self, -12);
-        self.emit(Instruction::Or(base, nulo), Type::I1)
+        let null = equal(self, -12);
+        self.emit(Instruction::Or(base, null), Type::I1)
     }
 
     /// `as T` implícito ou explícito: `TypeError` se o valor não é um `T`,
-    /// com a mensagem da VM do `contexto` ("… in type cast" no `as`, sem
+    /// com a mensagem da VM do `context` ("… in type cast" no `as`, sem
     /// sufixo na atribuição implícita de um `dynamic`).
-    pub fn checar_tipo_ou_lancar(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand, contexto: super::rti::ContextoDoCast) {
+    pub fn check_type_or_throw(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand, context: super::rti::CastContext) {
         // `as List<int>`, `as T`…: o cast inteiro pelo RTI.
-        if self.anotacao_precisa_rti(ast_ty) {
-            match self.receita_da_anotacao(ast_ty) {
+        if self.annotation_needs_rti(ast_ty) {
+            match self.annotation_recipe(ast_ty) {
                 Some(r) => {
-                    let t = self.rti_da_receita(&r);
-                    self.cast_rti_em(op, t, contexto);
+                    let t = self.recipe_rti(&r);
+                    self.cast_rti_in(op, t, context);
                 }
                 None => {
-                    self.nao_suportado("cast com nome não resolvido", ast_ty.span);
+                    self.unsupported("cast com nome não resolvido", ast_ty.span);
                 }
             }
             return;
         }
-        let ok = self.testar_tipo(ast_ty, op.clone());
-        let ok = self.para_bool(ok);
+        let ok = self.test_type(ast_ty, op.clone());
+        let ok = self.to_bool(ok);
         let fail_b = self.new_block();
         let pass_b = self.new_block();
         self.terminate(Terminator::CondBranch {
@@ -1370,14 +1370,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(fail_b);
         // A falha (caminho frio): o RTI decide e lança com a mensagem da VM
         // — o tipo dinâmico do valor e o da anotação.
-        match self.receita_da_anotacao(ast_ty) {
+        match self.annotation_recipe(ast_ty) {
             Some(r) => {
-                let t = self.rti_da_receita(&r);
-                self.cast_rti_em(op, t, contexto);
+                let t = self.recipe_rti(&r);
+                self.cast_rti_in(op, t, context);
                 self.terminate(Terminator::Branch(pass_b));
             }
             None => {
-                let err_op = self.novo_erro_do_runtime("dartforge_type_error_new", Vec::new());
+                let err_op = self.new_runtime_error("dartforge_type_error_new", Vec::new());
                 self.emit_throw_op(err_op);
             }
         }
@@ -1391,22 +1391,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Operand::Constant(Constant::Int(c)) if c != 0 => return self.emit(Instruction::SDiv(lop, rop), Type::I64),
             _ => {}
         }
-        self.exigir_divisor(&rop);
+        self.require_divisor(&rop);
         // `x ~/ -1` é `-x` com o estouro de 64 bits (`-2^63 ~/ -1 == -2^63`);
         // o `sdiv` do LLVM não define esse caso (o `idiv` do x86 dá SIGFPE).
-        let menos_um = self.emit(Instruction::ICmp(ICmpOp::Eq, rop.clone(), Operand::Constant(Constant::Int(-1))), Type::I1);
-        let negar = self.new_block();
-        let dividir = self.new_block();
-        let juncao = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: menos_um, then_block: negar, else_block: dividir });
-        self.set_block(negar);
+        let minus_one = self.emit(Instruction::ICmp(ICmpOp::Eq, rop.clone(), Operand::Constant(Constant::Int(-1))), Type::I1);
+        let negate = self.new_block();
+        let split = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: minus_one, then_block: negate, else_block: split });
+        self.set_block(negate);
         let n = self.emit(Instruction::Neg(lop.clone()), Type::I64);
-        self.terminate(Terminator::Branch(juncao));
-        self.set_block(dividir);
+        self.terminate(Terminator::Branch(join));
+        self.set_block(split);
         let q = self.emit(Instruction::SDiv(lop, rop), Type::I64);
-        self.terminate(Terminator::Branch(juncao));
-        self.set_block(juncao);
-        self.emit(Instruction::Phi { incoming: vec![(negar, n), (dividir, q)], ty: Type::I64 }, Type::I64)
+        self.terminate(Terminator::Branch(join));
+        self.set_block(join);
+        self.emit(Instruction::Phi { incoming: vec![(negate, n), (split, q)], ty: Type::I64 }, Type::I64)
     }
 
     /// `a % b` de `int` com divisor variável, em linha depois do guarda do
@@ -1414,33 +1414,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// valor em `[0, |b|)` do Dart (`Integer::ArithmeticOp`, kMOD). `b == -1`
     /// dá sempre 0 e evita o `srem` de `i64::MIN` por `-1`, indefinido no
     /// LLVM; `|i64::MIN|` dá `i64::MIN`, que somado dá o mesmo que subtraído.
-    pub fn emit_modulo(&mut self, lop: Operand, rop: Operand) -> Operand {
-        self.exigir_divisor(&rop);
+    pub fn emit_module(&mut self, lop: Operand, rop: Operand) -> Operand {
+        self.require_divisor(&rop);
         let int = |c| Operand::Constant(Constant::Int(c));
-        let menos_um = self.emit(Instruction::ICmp(ICmpOp::Eq, rop.clone(), int(-1)), Type::I1);
+        let minus_one = self.emit(Instruction::ICmp(ICmpOp::Eq, rop.clone(), int(-1)), Type::I1);
         let zero = self.new_block();
-        let resto = self.new_block();
-        let juncao = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: menos_um, then_block: zero, else_block: resto });
+        let rest = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: minus_one, then_block: zero, else_block: rest });
         self.set_block(zero);
-        self.terminate(Terminator::Branch(juncao));
-        self.set_block(resto);
+        self.terminate(Terminator::Branch(join));
+        self.set_block(rest);
         let r = self.emit(Instruction::SRem(lop, rop.clone()), Type::I64);
-        let sinal_b = self.emit(Instruction::AShr(rop.clone(), int(63)), Type::I64);
-        let invertido = self.emit(Instruction::Xor(rop, sinal_b.clone()), Type::I64);
-        let modulo_b = self.emit(Instruction::Sub(invertido, sinal_b), Type::I64);
-        let sinal_r = self.emit(Instruction::AShr(r.clone(), int(63)), Type::I64);
-        let ajuste = self.emit(Instruction::And(sinal_r, modulo_b), Type::I64);
-        let valor = self.emit(Instruction::Add(r, ajuste), Type::I64);
-        self.terminate(Terminator::Branch(juncao));
-        self.set_block(juncao);
-        self.emit(Instruction::Phi { incoming: vec![(zero, int(0)), (resto, valor)], ty: Type::I64 }, Type::I64)
+        let sign_b = self.emit(Instruction::AShr(rop.clone(), int(63)), Type::I64);
+        let inverted = self.emit(Instruction::Xor(rop, sign_b.clone()), Type::I64);
+        let module_b = self.emit(Instruction::Sub(inverted, sign_b), Type::I64);
+        let sign_r = self.emit(Instruction::AShr(r.clone(), int(63)), Type::I64);
+        let adjustment = self.emit(Instruction::And(sign_r, module_b), Type::I64);
+        let value = self.emit(Instruction::Add(r, adjustment), Type::I64);
+        self.terminate(Terminator::Branch(join));
+        self.set_block(join);
+        self.emit(Instruction::Phi { incoming: vec![(zero, int(0)), (rest, value)], ty: Type::I64 }, Type::I64)
     }
 
     /// Divisor inteiro zero (`~/` e `%` de `int`) lança
     /// `IntegerDivisionByZeroException`; o bloco corrente segue no caminho do
     /// divisor válido.
-    pub fn exigir_divisor(&mut self, rop: &Operand) {
+    pub fn require_divisor(&mut self, rop: &Operand) {
         let is_zero = self.emit(
             Instruction::ICmp(ICmpOp::Eq, rop.clone(), Operand::Constant(Constant::Int(0))),
             Type::I1,
@@ -1456,13 +1456,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(div_zero_block);
         // SDK da fonte: o `IntegerDivisionByZeroException` do `dart:core`, o
         // que a VM lança (e o que `on IntegerDivisionByZeroException` pega).
-        if let Some(classe) = self.ctx.classe_do_sdk("core", "IntegerDivisionByZeroException")
-            && let Some(vazio) = self.ctx.interner.lookup("")
-            && let Some(&ctor) = self.ctx.program.classes[classe.0 as usize].constructors.get(&vazio)
+        if let Some(class) = self.ctx.sdk_class("core", "IntegerDivisionByZeroException")
+            && let Some(empty) = self.ctx.interner.lookup("")
+            && let Some(&ctor) = self.ctx.program.classes[class.0 as usize].constructors.get(&empty)
         {
-            let erro = self.instanciar_avaliados(ctor, &[], dartforge_diagnostics::Span { start: 0, end: 0 });
+            let error = self.instantiate_evaluated(ctor, &[], dartforge_diagnostics::Span { start: 0, end: 0 });
             if !self.is_terminated() {
-                self.emit_throw_op(erro);
+                self.emit_throw_op(error);
             }
             self.set_block(normal_div_block);
             return;
@@ -1480,7 +1480,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
-        self.emitir_lancamento(err_obj, None);
+        self.emit_throw_value(err_obj, None);
         let curr_b = self.current_block;
         if let Some(&exc_target) = self.exception_targets.last() {
             self.terminate(Terminator::Branch(exc_target));
@@ -1498,7 +1498,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Operador de uma atribuição composta (`a op= b`).
-    pub fn lower_binary_op_helper(&mut self, op: BinaryOp, lop: Operand, rop: Operand, admite_smi: bool) -> Operand {
+    pub fn lower_binary_op_helper(&mut self, op: BinaryOp, lop: Operand, rop: Operand, admits_smi: bool) -> Operand {
         // O valor corrente em `Ref` pode ser `String`, um número anulável ou
         // outro objeto. O tipo do operando direito não prova que ele seja
         // numérico (`s *= 2`); o despacho dinâmico trata esses casos.
@@ -1512,16 +1512,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::F64,
             )
         } else if tr == Type::Ref && tl == Type::I64 {
-            self.coagir(rop, tl)
+            self.coerce(rop, tl)
         } else {
             rop
         };
-        self.operar_com_smi(
+        self.operate_with_smi(
             op,
             lop,
             rop,
             false,
-            admite_smi,
+            admits_smi,
             dartforge_diagnostics::Span { start: 0, end: 0 },
         )
     }
@@ -1530,38 +1530,38 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 /// Uma lista do runtime com comprimento e endereço dos elementos lidos uma
 /// vez antes das voltas de um laço que não pode mudá-los (N13).
 #[derive(Debug, Clone)]
-pub struct ListaFixa {
+pub struct FixedList {
     /// O endereço do local da lista (o `alloca` dele): a identidade do
     /// local, também de um parâmetro.
-    pub chave: Operand,
-    pub comprimento: Operand,
-    pub dados: Operand,
+    pub key: Operand,
+    pub length: Operand,
+    pub data: Operand,
     /// A forma dos elementos (N14, `heap::FormaDeLista`: 0 geral, 1 `int`,
     /// 2 `double`, 3 `bool`), conferida antes das voltas: nelas, o
     /// tamanho e a interpretação de cada elemento são conhecidos na emissão.
-    pub forma: i64,
+    pub shape: i64,
     /// Numa forma compacta, o comprimento para as gravações diretas
     /// (`dartforge_lista_len_gravavel`, chamado antes das voltas: o
     /// comprimento se a lista é modificável, senão 0 — e toda gravação vai
     /// ao `[]=` do SDK).
-    pub comprimento_gravavel: Option<Operand>,
+    pub writable_length: Option<Operand>,
 }
 
 /// Uma lista tipada (`dart:typed_data`) das voltas rápidas de um laço
-/// versionado (`comandos::Contado::Tipadas`): antes delas, provou-se que
-/// todo valor do contador fica em `0..comprimento`, e o comprimento e o
+/// versionado (`statements::Counted::TypedSet`): antes delas, provou-se que
+/// todo valor do contador fica em `0..length`, e o comprimento e o
 /// endereço dos elementos foram lidos uma vez — fixos enquanto a lista
 /// vive (lista tipada não muda de tamanho, e os bytes moram atrás de um
 /// cabeçalho de endereço fixo, `heap::CabecalhoTipado`).
 #[derive(Debug, Clone)]
-pub struct TipadaProvada {
+pub struct ProvenTyped {
     /// O endereço do local da lista (o `alloca` dele).
-    pub chave: Operand,
+    pub key: Operand,
     /// O endereço do local do contador do laço.
-    pub contador: Operand,
-    pub dados: Operand,
-    pub comprimento: Operand,
+    pub counter: Operand,
+    pub data: Operand,
+    pub length: Operand,
     /// Provada também para a gravação: o comprimento de uma visão veio de
     /// `dartforge_typed_len(.., 1)`, que dá 0 para a não modificável.
-    pub escrita: bool,
+    pub write: bool,
 }

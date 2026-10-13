@@ -6,46 +6,46 @@ use dartforge_intern::Interner;
 use dartforge_types::table::{CoreTypes, TypeTable};
 use std::{collections::{BTreeMap, HashMap}, path::Path};
 
-fn inventariar_externs(modulos: &[dartforge_emit_native::hir::Module]) {
+fn inventory_externs(modules: &[dartforge_emit_native::hir::Module]) {
     use dartforge_emit_native::hir::Instruction;
-    let mut inventario = BTreeMap::<String, (usize, BTreeMap<String, usize>, String)>::new();
-    for f in modulos.iter().flat_map(|m| &m.functions) {
+    let mut inventory = BTreeMap::<String, (usize, BTreeMap<String, usize>, String)>::new();
+    for f in modules.iter().flat_map(|m| &m.functions) {
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
             let Instruction::CallRuntime { name, args, ret_ty } = inst else { continue };
-            if contrato(name).is_ok() { continue; }
-            let tipos: Vec<_> = args.iter().map(|(_, ty)| ty).collect();
-            let assinatura = format!("{tipos:?} -> {ret_ty:?} (SSA {ty:?})");
-            let e = inventario.entry(name.clone()).or_insert_with(||
+            if contract(name).is_ok() { continue; }
+            let types: Vec<_> = args.iter().map(|(_, ty)| ty).collect();
+            let signature = format!("{types:?} -> {ret_ty:?} (SSA {ty:?})");
+            let e = inventory.entry(name.clone()).or_insert_with(||
                 (0, BTreeMap::new(), format!("{} v{}", f.symbol, v.0)));
             e.0 += 1;
-            *e.1.entry(assinatura).or_default() += 1;
+            *e.1.entry(signature).or_default() += 1;
         }
     }
-    println!("Inventário antes dos produtores ARC: {} símbolos sem contrato direto no catálogo; não certifica ABI, alcance ou ownership", inventario.len());
-    for (nome, (n, assinaturas, exemplo)) in inventario {
-        println!("Extern sem contrato direto: {nome}: {n} chamadas; exemplo {exemplo}");
-        for (assinatura, n) in assinaturas { println!("  {n} x {assinatura}"); }
+    println!("Inventário antes dos produtores ARC: {} símbolos sem contrato direto no catálogo; não certifica ABI, alcance ou ownership", inventory.len());
+    for (name_str, (n, signatures, example)) in inventory {
+        println!("Extern sem contrato direto: {name_str}: {n} chamadas; exemplo {example}");
+        for (signature, n) in signatures { println!("  {n} x {signature}"); }
     }
 }
 
-fn auditar(entrada: &Path, sdk_no_grupo: bool, inventario_externs: bool) -> Result<(), String> {
+fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<(), String> {
     let lib = std::env::var_os("DARTFORGE_SDK_LIB").ok_or("defina DARTFORGE_SDK_LIB")?;
     let sdk_dir = Path::new(&lib);
-    let sdk = sdk_modulo::carregar_sdk_nativo(sdk_dir)?;
+    let sdk = sdk_modulo::load_native_sdk(sdk_dir)?;
     let mut interner = Interner::new();
-    let (programa, diags) =
-        dartforge_elements::load::load_lenient(entrada, &sdk, None, &mut interner);
+    let (program, diags) =
+        dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
     if !diags.is_empty() {
         return Err(format!("carga: {diags:?}"));
     }
-    let mut tipos = TypeTable::new();
-    let core = CoreTypes::init(&mut tipos, &programa, &interner);
+    let mut types = TypeTable::new();
+    let core = CoreTypes::init(&mut types, &program, &interner);
     let (mut outline, diags) =
-        dartforge_types::resolve_outline(&programa, &interner, &mut tipos, &core);
-    let (corpos, diags_corpos) = dartforge_types::infer_program_bodies(
-        &programa,
+        dartforge_types::resolve_outline(&program, &interner, &mut types, &core);
+    let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(
+        &program,
         &interner,
-        &mut tipos,
+        &mut types,
         &core,
         &mut outline,
     );
@@ -54,158 +54,158 @@ fn auditar(entrada: &Path, sdk_no_grupo: bool, inventario_externs: bool) -> Resu
             return Err(format!("tipagem: {d:?}"));
         }
     }
-    let te = dartforge_emit_native::apagamento::calcular(&programa, &outline, &mut tipos);
-    let mut ctx = Context::new(&programa, &interner, &tipos, &core, &outline, &corpos);
+    let te = dartforge_emit_native::erasure::compute(&program, &outline, &mut types);
+    let mut ctx = Context::new(&program, &interner, &types, &core, &outline, &bodies);
     ctx.te = te;
-    ctx.memoria_arc = true;
-    ctx.mundo = dartforge_emit_native::mundo_nativo::calcular(
-        &programa, &interner, &tipos, &outline, &corpos,
+    ctx.arc_memory = true;
+    ctx.world = dartforge_emit_native::native_world::compute(
+        &program, &interner, &types, &outline, &bodies,
     );
-    let ctx = ctx.com_sdk_da_fonte_e_ids(sdk_modulo::ids_de_classe_do_sdk(sdk_dir)?);
+    let ctx = ctx.with_source_sdk_and_ids(sdk_modulo::sdk_class_ids(sdk_dir)?);
     let mut m = dartforge_emit_native::lower::lower_program(&ctx);
-    m.ids_do_programa = ctx.ids_do_programa();
-    m.campos_do_programa = ctx.campos_do_programa();
-    m.registros_do_sdk = sdk_modulo::registros_do_sdk();
-    m.cids_do_runtime = sdk_modulo::cids_do_runtime(&ctx);
-    if !m.erros.is_empty() {
-        return Err(format!("lowering: {:?}", m.erros));
+    m.program_ids = ctx.program_ids();
+    m.program_fields = ctx.program_fields();
+    m.sdk_records = sdk_modulo::sdk_records();
+    m.runtime_cids = sdk_modulo::runtime_cids(&ctx);
+    if !m.errors.is_empty() {
+        return Err(format!("lowering: {:?}", m.errors));
     }
-    if !sdk_no_grupo {
+    if !sdk_in_group {
         let clang = driver::NativeDriverOptions::default().clang;
-        let sdk_compilado = sdk_modulo::sdk_compilado_no_perfil(
+        let compiled_sdk = sdk_modulo::compiled_sdk_in_profile(
             sdk_dir,
             &clang,
-            sdk_modulo::PerfilDoSdk::Producao,
+            sdk_modulo::SdkProfile::Production,
         )?;
-        let resumos = dartforge_emit_native::poda::ler_resumos(&sdk_compilado.resumos)?;
-        let refs = resumos.iter().map(|r| r.as_ref()).collect::<Vec<_>>();
-        dartforge_emit_native::poda::podar_hir(&mut m, &refs);
+        let summaries = dartforge_emit_native::pruning::read_summaries(&compiled_sdk.summaries)?;
+        let refs = summaries.iter().map(|r| r.as_ref()).collect::<Vec<_>>();
+        dartforge_emit_native::pruning::prune_hir(&mut m, &refs);
     }
-    optimize::otimizar(&mut m);
-    let por_tabelas = dartforge_emit_native::alvo::excecoes_por_tabelas()?;
-    if por_tabelas {
+    optimize::optimize(&mut m);
+    let by_tables = dartforge_emit_native::alvo::excecoes_por_tabelas()?;
+    if by_tables {
         optimize::excecoes_por_tabelas(&mut m);
     }
-    if sdk_no_grupo {
-        let mut modulos = vec![m];
-        modulos.extend(baixar_sdk_para_auditoria(sdk_dir, por_tabelas)?);
-        if inventario_externs { inventariar_externs(&modulos); }
-        let mut planos: Vec<HashMap<_, _>> = modulos
+    if sdk_in_group {
+        let mut modules = vec![m];
+        modules.extend(lower_sdk_for_audit(sdk_dir, by_tables)?);
+        if externs_inventory { inventory_externs(&modules); }
+        let mut plans: Vec<HashMap<_, _>> = modules
             .iter()
             .map(|m| {
                 m.functions
                     .iter()
-                    .map(|f| (f.symbol.clone(), PlanoFuncaoDart::default()))
+                    .map(|f| (f.symbol.clone(), DartFunctionPlan::default()))
                     .collect()
             })
             .collect();
-        let quantidade: usize = modulos.iter().map(|m| m.functions.len()).sum();
-        let stopwatch = modulos
+        let quantity: usize = modules.iter().map(|m| m.functions.len()).sum();
+        let stopwatch = modules
             .iter()
             .flat_map(|m| &m.functions)
             .filter(|f| f.symbol == "df.dart$3acore.Stopwatch.new")
             .count();
         println!(
-            "{}: {} módulos, {quantidade} funções, {stopwatch} corpo(s) de Stopwatch.new",
-            entrada.display(),
-            modulos.len()
+            "{}: {} módulos, {quantity} funções, {stopwatch} corpo(s) de Stopwatch.new",
+            entry.display(),
+            modules.len()
         );
-        for (indice, modulo) in modulos.iter().enumerate() {
-            match auditar_slots_ref_compartilhados(modulo) {
+        for (index, module) in modules.iter().enumerate() {
+            match audit_shared_ref_slots(module) {
                 Ok(slots) => println!(
-                    "Slots Ref compartilhados no módulo {indice}: {} funções, {} endereços",
+                    "Slots Ref compartilhados no módulo {index}: {} funções, {} endereços",
                     slots.len(), slots.values().map(|s| s.len()).sum::<usize>()
                 ),
-                Err(erro) => println!(
-                    "Slots Ref compartilhados no módulo {indice}: {erro}"
+                Err(error) => println!(
+                    "Slots Ref compartilhados no módulo {index}: {error}"
                 ),
             }
-            match baixar_slots_ref_compartilhados(modulo) {
-                Ok(rascunho) => {
+            match lower_shared_ref_slots(module) {
+                Ok(draft) => {
                     println!(
-                        "Baixamento intermediário dos slots no módulo {indice}: {} quadros locais, {} assinaturas novas",
-                        rascunho.locais.len(), rascunho.simbolos.len()
+                        "Baixamento intermediário dos slots no módulo {index}: {} quadros locais, {} assinaturas novas",
+                        draft.locals.len(), draft.symbols.len()
                     );
-                    let mut planos_slots = rascunho.funcoes.iter().map(|f|
-                        (f.symbol.clone(), PlanoFuncaoDart::default())).collect();
-                    let papeis = produzir_planos_slots_ref_cfg(modulo, &rascunho, &mut planos_slots);
-                    println!("Papéis nativos dos slots no módulo {indice}: {papeis:?}");
+                    let mut slot_plans = draft.functions.iter().map(|f|
+                        (f.symbol.clone(), DartFunctionPlan::default())).collect();
+                    let roles = produce_cfg_ref_slot_plans(module, &draft, &mut slot_plans);
+                    println!("Papéis nativos dos slots no módulo {index}: {roles:?}");
                 }
-                Err(erro) => println!("Baixamento intermediário dos slots no módulo {indice}: {erro}"),
+                Err(error) => println!("Baixamento intermediário dos slots no módulo {index}: {error}"),
             }
         }
-        let antes = format!("{modulos:?}/{planos:?}");
-        let resultado = preparar_arc_modulos_dart(&mut modulos, &mut planos);
-        println!("Preparação conjunta com SDK da fonte: {resultado:?}");
-        if let Err(erro) = &resultado {
-            let tamanho = modulos.iter().flat_map(|m| &m.functions)
-                .filter(|f| erro.contains(&f.symbol)).map(|f| f.symbol.len()).max();
-            for (indice, m) in modulos.iter().enumerate() {
-                for f in m.functions.iter().filter(|f| Some(f.symbol.len()) == tamanho && erro.contains(&f.symbol)) {
-                    println!("Corpo associado no módulo {indice}: {f:#?}");
-                    let mut chamadas = 0;
-                    for caller in modulos.iter().flat_map(|m| &m.functions) {
+        let before = format!("{modules:?}/{plans:?}");
+        let result = prepare_arc_dart_modules(&mut modules, &mut plans);
+        println!("Preparação conjunta com SDK da fonte: {result:?}");
+        if let Err(error) = &result {
+            let size = modules.iter().flat_map(|m| &m.functions)
+                .filter(|f| error.contains(&f.symbol)).map(|f| f.symbol.len()).max();
+            for (index, m) in modules.iter().enumerate() {
+                for f in m.functions.iter().filter(|f| Some(f.symbol.len()) == size && error.contains(&f.symbol)) {
+                    println!("Corpo associado no módulo {index}: {f:#?}");
+                    let mut calls = 0;
+                    for caller in modules.iter().flat_map(|m| &m.functions) {
                         for (v, i, _) in caller.blocks.iter().flat_map(|b| &b.instructions) {
                             if let dartforge_emit_native::hir::Instruction::CallStatic { symbol, args, .. } = i
                                 && symbol == &f.symbol
                             {
-                                chamadas += 1;
+                                calls += 1;
                                 println!("Chamador de captura {} v{}: {args:?}", caller.symbol, v.0);
                                 for arg in args {
                                     if let dartforge_emit_native::hir::Operand::Val(id) = arg {
-                                        let definicao = caller.blocks.iter().flat_map(|b| &b.instructions)
+                                        let definition = caller.blocks.iter().flat_map(|b| &b.instructions)
                                             .find(|(v, _, _)| v == id);
-                                        println!("Origem do argumento v{}: {definicao:?}", id.0);
+                                        println!("Origem do argumento v{}: {definition:?}", id.0);
                                     }
                                 }
                             }
                         }
                     }
-                    println!("Total de chamadores diretos de {}: {chamadas}", f.symbol);
+                    println!("Total de chamadores diretos de {}: {calls}", f.symbol);
                 }
             }
         }
 
-        if resultado.is_err() && format!("{modulos:?}/{planos:?}") != antes {
+        if result.is_err() && format!("{modules:?}/{plans:?}") != before {
             return Err("preparação conjunta recusada alterou módulos/planos".into());
         }
         return Ok(());
     }
-    if inventario_externs { inventariar_externs(std::slice::from_ref(&m)); }
-    let mut planos: HashMap<_, _> = m
+    if externs_inventory { inventory_externs(std::slice::from_ref(&m)); }
+    let mut plans: HashMap<_, _> = m
         .functions
         .iter()
-        .map(|f| (f.symbol.clone(), PlanoFuncaoDart::default()))
+        .map(|f| (f.symbol.clone(), DartFunctionPlan::default()))
         .collect();
     println!(
         "{}: {} funções, {} layouts, {} sítios",
-        entrada.display(),
+        entry.display(),
         m.functions.len(),
-        m.layouts_campos_arc.len(),
-        m.sitios_arc.len()
+        m.arc_field_layouts.len(),
+        m.arc_sites.len()
     );
-    let antes = format!("{m:?}/{planos:?}");
-    let resultado = if por_tabelas {
-        preparar_arc_modulo_tabelado(&mut m, &mut planos)
+    let before = format!("{m:?}/{plans:?}");
+    let result = if by_tables {
+        prepare_arc_tabled_module(&mut m, &mut plans)
     } else {
-        preparar_arc_modulo_dart(&mut m, &mut planos)
+        prepare_arc_dart_module(&mut m, &mut plans)
     };
-    println!("Preparação do módulo inteiro: {resultado:?}");
-    if let Err(erro) = resultado {
-        if format!("{m:?}/{planos:?}") != antes {
+    println!("Preparação do módulo inteiro: {result:?}");
+    if let Err(error) = result {
+        if format!("{m:?}/{plans:?}") != before {
             return Err("preparação recusada alterou o módulo ou os planos".into());
         }
         for f in &m.functions {
-            if erro.contains(&f.symbol)
+            if error.contains(&f.symbol)
                 || f.blocks
                     .iter()
                     .flat_map(|b| &b.instructions)
                     .any(|(_, i, _)| match i {
                         dartforge_emit_native::hir::Instruction::CallRuntime { name, .. } => {
-                            erro.contains(name)
+                            error.contains(name)
                         }
                         dartforge_emit_native::hir::Instruction::CallStatic { symbol, .. } => {
-                            erro.contains(symbol)
+                            error.contains(symbol)
                         }
                         _ => false,
                     })
@@ -219,117 +219,117 @@ fn auditar(entrada: &Path, sdk_no_grupo: bool, inventario_externs: bool) -> Resu
 
 // Baixa os mesmos corpos/bibliotecas que a compilação do SDK usa. O grupo
 // permanece privado ao diagnóstico: não reutiliza bitcode com ABI antiga.
-fn baixar_sdk_para_auditoria(
+fn lower_sdk_for_audit(
     sdk_dir: &Path,
-    por_tabelas: bool,
+    by_tables: bool,
 ) -> Result<Vec<dartforge_emit_native::hir::Module>, String> {
     let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
-    let entrada = tmp.path().join("main.dart");
-    let mut fonte: String = sdk_modulo::BIBLIOTECAS_DA_FONTE
+    let entry = tmp.path().join("main.dart");
+    let mut source: String = sdk_modulo::SOURCE_LIBRARIES
         .iter()
         .map(|b| format!("import 'dart:{b}';\n"))
         .collect();
-    fonte.push_str("void main() {}\n");
-    std::fs::write(&entrada, fonte).map_err(|e| e.to_string())?;
-    let sdk = sdk_modulo::carregar_sdk_nativo(sdk_dir)?;
+    source.push_str("void main() {}\n");
+    std::fs::write(&entry, source).map_err(|e| e.to_string())?;
+    let sdk = sdk_modulo::load_native_sdk(sdk_dir)?;
     let mut interner = Interner::new();
-    let (programa, diags) =
-        dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
+    let (program, diags) =
+        dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
     if !diags.is_empty() {
         return Err(format!("carga SDK: {diags:?}"));
     }
-    let mut tipos = TypeTable::new();
-    let core = CoreTypes::init(&mut tipos, &programa, &interner);
+    let mut types = TypeTable::new();
+    let core = CoreTypes::init(&mut types, &program, &interner);
     let (mut outline, _) =
-        dartforge_types::resolve_outline(&programa, &interner, &mut tipos, &core);
-    let libs: Vec<_> = sdk_modulo::BIBLIOTECAS_DA_FONTE
+        dartforge_types::resolve_outline(&program, &interner, &mut types, &core);
+    let libs: Vec<_> = sdk_modulo::SOURCE_LIBRARIES
         .iter()
         .filter_map(|b| {
             let uri = format!("dart:{b}");
-            programa
+            program
                 .libraries
                 .iter()
                 .position(|l| l.uri == uri)
                 .map(|i| dartforge_elements::model::LibraryId(i as u32))
         })
         .collect();
-    if libs.len() != sdk_modulo::BIBLIOTECAS_DA_FONTE.len() {
+    if libs.len() != sdk_modulo::SOURCE_LIBRARIES.len() {
         return Err("bibliotecas SDK incompletas".into());
     }
-    let (corpos, _) = dartforge_types::infer_bodies_das_bibliotecas(
-        &programa,
+    let (bodies, _) = dartforge_types::infer_bodies_das_bibliotecas(
+        &program,
         &interner,
-        &mut tipos,
+        &mut types,
         &core,
         &mut outline,
         &libs,
     );
-    let ids = sdk_modulo::ids_de_classe_do_sdk(sdk_dir)?;
-    let mut modulos = Vec::new();
+    let ids = sdk_modulo::sdk_class_ids(sdk_dir)?;
+    let mut modules = Vec::new();
     for lib in libs {
-        let mut ctx = Context::new(&programa, &interner, &tipos, &core, &outline, &corpos)
-            .com_sdk_da_fonte_e_ids(ids.clone())
-            .so_a_biblioteca(lib);
-        ctx.memoria_arc = true;
+        let mut ctx = Context::new(&program, &interner, &types, &core, &outline, &bodies)
+            .with_source_sdk_and_ids(ids.clone())
+            .only_the_library(lib);
+        ctx.arc_memory = true;
         let mut m = dartforge_emit_native::lower::lower_program(&ctx);
-        m.biblioteca_sdk = true;
-        m.cids_do_runtime = sdk_modulo::cids_do_runtime(&ctx);
-        if !m.erros.is_empty() {
+        m.sdk_library = true;
+        m.runtime_cids = sdk_modulo::runtime_cids(&ctx);
+        if !m.errors.is_empty() {
             return Err(format!(
                 "lowering SDK {}: {:?}",
-                programa.library(lib).uri,
-                m.erros
+                program.library(lib).uri,
+                m.errors
             ));
         }
-        optimize::otimizar(&mut m);
-        if por_tabelas { optimize::excecoes_por_tabelas(&mut m); }
+        optimize::optimize(&mut m);
+        if by_tables { optimize::excecoes_por_tabelas(&mut m); }
         println!(
             "SDK {}: {} funções",
-            programa.library(lib).uri,
+            program.library(lib).uri,
             m.functions.len()
         );
         // Confere compatibilidade com o conjunto compartilhado pelo emissor
         // anterior; esses nomes não produzem contratos de ownership.
-        let anteriores: std::collections::HashSet<_> = m.functions.iter()
+        let previous_ones: std::collections::HashSet<_> = m.functions.iter()
             .filter(|f| f.symbol.ends_with("$tear") || f.symbol.ends_with("$tearm") || f.symbol.starts_with("dfc."))
             .map(|f| f.symbol.clone()).collect();
-        if anteriores != m.funcoes_compartilhadas_arc {
-            return Err(format!("declarações de compartilhamento SDK incompletas em {}", programa.library(lib).uri));
+        if previous_ones != m.arc_shared_functions {
+            return Err(format!("declarações de compartilhamento SDK incompletas em {}", program.library(lib).uri));
         }
-        modulos.push(m);
+        modules.push(m);
     }
-    Ok(modulos)
+    Ok(modules)
 }
 
 fn main() -> Result<(), String> {
     std::thread::Builder::new()
         .stack_size(64 << 20)
         .spawn(|| {
-            let mut entradas = Vec::new();
-            let mut selecionou_arc = false;
-            let mut sdk_no_grupo = false;
-            let mut inventario_externs = false;
-            for argumento in std::env::args_os().skip(1) {
-                if argumento == "--memoria=arc" {
-                    selecionou_arc = true;
-                } else if argumento == "--sdk-no-grupo" {
-                    sdk_no_grupo = true;
-                } else if argumento == "--inventario-externs" {
-                    inventario_externs = true;
+            let mut entries = Vec::new();
+            let mut selected_arc = false;
+            let mut sdk_in_group = false;
+            let mut externs_inventory = false;
+            for argument in std::env::args_os().skip(1) {
+                if argument == "--memoria=arc" {
+                    selected_arc = true;
+                } else if argument == "--sdk-no-grupo" {
+                    sdk_in_group = true;
+                } else if argument == "--inventario-externs" {
+                    externs_inventory = true;
                 } else {
-                    entradas.push(argumento);
+                    entries.push(argument);
                 }
             }
             // A seleção explícita do diagnóstico deve coincidir com a chave
             // de memória usada pelo cache/compilação das bibliotecas do SDK.
-            if !selecionou_arc || !dartforge_emit_native::alvo::memoria_arc()? {
+            if !selected_arc || !dartforge_emit_native::alvo::arc_memory()? {
                 return Err("auditoria exige --memoria=arc e DARTFORGE_MEMORIA=arc".into());
             }
-            if entradas.is_empty() {
+            if entries.is_empty() {
                 return Err("informe os arquivos Dart a auditar".into());
             }
-            for entrada in entradas {
-                auditar(Path::new(&entrada), sdk_no_grupo, inventario_externs)?;
+            for entry in entries {
+                audit(Path::new(&entry), sdk_in_group, externs_inventory)?;
             }
             Ok(())
         })

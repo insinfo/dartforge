@@ -5,12 +5,12 @@ use std::collections::{BTreeSet, VecDeque};
 #[derive(Clone, Default)]
 struct Classes {
     cids: BTreeSet<u32>,
-    topo: bool,
+    top: bool,
 }
 
-pub(super) fn produzir(m: &Module) -> HashMap<String, HashMap<ValueId, u32>> {
+pub(super) fn produce(m: &Module) -> HashMap<String, HashMap<ValueId, u32>> {
     let mut ids = HashMap::new();
-    let mut estados = Vec::<Classes>::new();
+    let mut states = Vec::<Classes>::new();
     for f in &m.functions {
         for (v, t) in f.params.iter().map(|(v, _, t)| (v, t)).chain(
             f.blocks
@@ -19,17 +19,17 @@ pub(super) fn produzir(m: &Module) -> HashMap<String, HashMap<ValueId, u32>> {
                 .map(|(v, _, t)| (v, t)),
         ) {
             if *t == Type::Ref {
-                ids.insert((f.symbol.clone(), *v), estados.len());
-                estados.push(Classes::default());
+                ids.insert((f.symbol.clone(), *v), states.len());
+                states.push(Classes::default());
             }
         }
     }
-    let por_nome: HashMap<_, _> = m.functions.iter().map(|f| (&f.symbol, f)).collect();
-    let mut entradas: HashSet<String> = m
-        .retornos_uniformes_arc
+    let by_name: HashMap<_, _> = m.functions.iter().map(|f| (&f.symbol, f)).collect();
+    let mut entries: HashSet<String> = m
+        .arc_uniform_returns
         .iter()
         .cloned()
-        .chain(m.ajudantes.iter().map(|(_, s)| s.clone()))
+        .chain(m.helpers.iter().map(|(_, s)| s.clone()))
         .chain(m.classes.iter().flat_map(|c| {
             c.vtable
                 .iter()
@@ -37,30 +37,30 @@ pub(super) fn produzir(m: &Module) -> HashMap<String, HashMap<ValueId, u32>> {
                 .chain(c.to_string_symbol.iter().cloned())
         }))
         .chain(m.entry_symbol.iter().cloned())
-        .chain(m.chamar_dart.iter().cloned())
-        .chain(m.ffi_callbacks.iter().map(|c| c.corpo.clone()))
-        .chain(m.ffi_trampolins.iter().map(|(_, s)| s.clone()))
-        .chain(m.raizes_da_fonte.iter().cloned())
-        .chain(m.funcoes_de_tabela.values().cloned())
-        .chain(m.registro.iter().cloned())
-        .chain(m.registros_do_sdk.iter().cloned())
-        .chain(m.iniciar_rti.iter().cloned())
-        .chain(m.tearoffs_do_rastro.iter().map(|(s, _)| s.clone()))
+        .chain(m.call_dart.iter().cloned())
+        .chain(m.ffi_callbacks.iter().map(|c| c.body.clone()))
+        .chain(m.ffi_trampolines.iter().map(|(_, s)| s.clone()))
+        .chain(m.source_roots.iter().cloned())
+        .chain(m.table_functions.values().cloned())
+        .chain(m.record.iter().cloned())
+        .chain(m.sdk_records.iter().cloned())
+        .chain(m.start_rti.iter().cloned())
+        .chain(m.stack_trace_tearoffs.iter().map(|(s, _)| s.clone()))
         .chain(
-            m.tabelas_de_metodos
+            m.method_tables
                 .iter()
                 .flat_map(|(_, _, t)| t.iter().map(|(_, s)| s.clone())),
         )
         .collect();
-    let mut chamadas = HashSet::new();
-    let mut arestas = vec![Vec::new(); estados.len()];
-    let mut alimentar = |simbolo: &str, op: &Operand, destino: usize| {
+    let mut calls = HashSet::new();
+    let mut edges = vec![Vec::new(); states.len()];
+    let mut feed = |sym_name: &str, op: &Operand, dest: usize| {
         if let Operand::Val(v) = op
-            && let Some(&origem) = ids.get(&(simbolo.to_string(), *v))
+            && let Some(&origin) = ids.get(&(sym_name.to_string(), *v))
         {
-            arestas[origem].push(destino);
+            edges[origin].push(dest);
         } else {
-            estados[destino].topo = true;
+            states[dest].top = true;
         }
     };
     // Endereço materializado é uma entrada aberta, mesmo que existam callers
@@ -68,66 +68,66 @@ pub(super) fn produzir(m: &Module) -> HashMap<String, HashMap<ValueId, u32>> {
     for f in &m.functions {
         for (_, i, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
             match i {
-                Instruction::Const(Constant::Funcao(s))
+                Instruction::Const(Constant::Function(s))
                 | Instruction::TearOff { code_symbol: s }
                 | Instruction::AllocClosure { code_symbol: s, .. } => {
-                    entradas.insert(s.clone());
+                    entries.insert(s.clone());
                 }
-                Instruction::AllocClosureTipada {
+                Instruction::AllocClosureTyped {
                     code_symbol,
-                    tipado,
+                    typed,
                     ..
                 } => {
-                    entradas.insert(code_symbol.clone());
-                    entradas.insert(tipado.clone());
+                    entries.insert(code_symbol.clone());
+                    entries.insert(typed.clone());
                 }
-                Instruction::TabelaDeFuncoes(simbolos) => entradas.extend(simbolos.iter().cloned()),
+                Instruction::FunctionTable(symbols) => entries.extend(symbols.iter().cloned()),
                 _ => {}
             }
-            super::super::operandos::operandos(i, &mut |o| {
-                if let Operand::Constant(Constant::Funcao(s)) = o {
-                    entradas.insert(s.clone());
+            super::super::operands::operands(i, &mut |o| {
+                if let Operand::Constant(Constant::Function(s)) = o {
+                    entries.insert(s.clone());
                 }
             });
             if let Instruction::CallStatic { symbol, args, .. } = i
-                && let Some(callee) = por_nome.get(symbol)
+                && let Some(callee) = by_name.get(symbol)
             {
-                chamadas.insert(symbol.clone());
+                calls.insert(symbol.clone());
                 if args.len() == callee.params.len() {
                     for (op, (v, _, t)) in args.iter().zip(&callee.params) {
                         if *t == Type::Ref {
-                            alimentar(&f.symbol, op, ids[&(symbol.clone(), *v)]);
+                            feed(&f.symbol, op, ids[&(symbol.clone(), *v)]);
                         }
                     }
                 } else {
-                    entradas.insert(symbol.clone());
+                    entries.insert(symbol.clone());
                 }
             }
         }
     }
     for f in &m.functions {
         for b in &f.blocks {
-            super::super::operandos::operandos_do_terminador(&b.terminator, &mut |o| {
-                if let Operand::Constant(Constant::Funcao(s)) = o {
-                    entradas.insert(s.clone());
+            super::super::operands::terminator_operands(&b.terminator, &mut |o| {
+                if let Operand::Constant(Constant::Function(s)) = o {
+                    entries.insert(s.clone());
                 }
             });
         }
     }
     for f in &m.functions {
         for (v, _, t) in &f.params {
-            if *t == Type::Ref && (entradas.contains(&f.symbol) || !chamadas.contains(&f.symbol)) {
-                estados[ids[&(f.symbol.clone(), *v)]].topo = true;
+            if *t == Type::Ref && (entries.contains(&f.symbol) || !calls.contains(&f.symbol)) {
+                states[ids[&(f.symbol.clone(), *v)]].top = true;
             }
         }
         for (v, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if *t != Type::Ref {
                 continue;
             }
-            let destino = ids[&(f.symbol.clone(), *v)];
-            let classe = match i {
+            let dest = ids[&(f.symbol.clone(), *v)];
+            let class = match i {
                 Instruction::AllocObject { class_id, fields } => m
-                    .layouts_campos_arc
+                    .arc_field_layouts
                     .get(class_id)
                     .filter(|l| l.len() == fields.len())
                     .map(|_| *class_id),
@@ -148,7 +148,7 @@ pub(super) fn produzir(m: &Module) -> HashMap<String, HashMap<ValueId, u32>> {
                             .filter(|cid| {
                                 usize::try_from(*n).ok().is_some_and(|n| {
                                     u16::try_from(n).is_ok()
-                                        && m.layouts_campos_arc
+                                        && m.arc_field_layouts
                                             .get(cid)
                                             .is_some_and(|l| l.len() == n)
                                 })
@@ -158,69 +158,69 @@ pub(super) fn produzir(m: &Module) -> HashMap<String, HashMap<ValueId, u32>> {
                 }
                 _ => None,
             };
-            if let Some(cid) = classe {
-                estados[destino].cids.insert(cid);
+            if let Some(cid) = class {
+                states[dest].cids.insert(cid);
                 continue;
             }
             let ops: Vec<_> = match i {
                 Instruction::ArcCopy { value } | Instruction::ArcMove { value } => vec![value],
                 Instruction::Phi { incoming, .. } => incoming.iter().map(|(_, o)| o).collect(),
                 _ => {
-                    estados[destino].topo = true;
+                    states[dest].top = true;
                     continue;
                 }
             };
             for op in ops {
                 if let Operand::Val(v) = op
-                    && let Some(&origem) = ids.get(&(f.symbol.clone(), *v))
+                    && let Some(&origin) = ids.get(&(f.symbol.clone(), *v))
                 {
-                    arestas[origem].push(destino);
+                    edges[origin].push(dest);
                 } else {
-                    estados[destino].topo = true;
+                    states[dest].top = true;
                 }
             }
         }
     }
-    let mut fila: VecDeque<_> = (0..estados.len()).collect();
-    let mut agendado = vec![true; estados.len()];
-    while let Some(origem) = fila.pop_front() {
-        agendado[origem] = false;
-        let atual = estados[origem].clone();
-        for &destino in &arestas[origem] {
-            let antes = (estados[destino].topo, estados[destino].cids.len());
-            estados[destino].topo |= atual.topo;
-            estados[destino].cids.extend(&atual.cids);
-            if antes != (estados[destino].topo, estados[destino].cids.len()) && !agendado[destino] {
-                agendado[destino] = true;
-                fila.push_back(destino);
+    let mut queue: VecDeque<_> = (0..states.len()).collect();
+    let mut scheduled = vec![true; states.len()];
+    while let Some(origin) = queue.pop_front() {
+        scheduled[origin] = false;
+        let current = states[origin].clone();
+        for &dest in &edges[origin] {
+            let before = (states[dest].top, states[dest].cids.len());
+            states[dest].top |= current.top;
+            states[dest].cids.extend(&current.cids);
+            if before != (states[dest].top, states[dest].cids.len()) && !scheduled[dest] {
+                scheduled[dest] = true;
+                queue.push_back(dest);
             }
         }
     }
-    let mut resultado = HashMap::<String, HashMap<ValueId, u32>>::new();
+    let mut result = HashMap::<String, HashMap<ValueId, u32>>::new();
     for f in &m.functions {
         for (v, _, t) in &f.params {
             if *t != Type::Ref {
                 continue;
             }
-            let c = &estados[ids[&(f.symbol.clone(), *v)]];
-            if !c.topo && c.cids.len() == 1 {
-                resultado
+            let c = &states[ids[&(f.symbol.clone(), *v)]];
+            if !c.top && c.cids.len() == 1 {
+                result
                     .entry(f.symbol.clone())
                     .or_default()
                     .insert(*v, *c.cids.first().unwrap());
             }
         }
     }
-    resultado
+    result
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn modulo() -> (Module, HashMap<String, PlanoFuncaoDart>) {
+    fn module() -> (Module, HashMap<String, DartFunctionPlan>) {
         let mut m = Module::new();
-        m.memoria_arc = true;
+        m.arc_memory = true;
         m.classes.push(ClassDef {
             id: 123,
             name: "C".into(),
@@ -228,12 +228,12 @@ mod testes {
             vtable: vec![],
             to_string_symbol: None,
         });
-        m.layouts_campos_arc.insert(123, vec![Type::Ref]);
+        m.arc_field_layouts.insert(123, vec![Type::Ref]);
         m.functions = vec![
             Function {
                 symbol: "caller".into(),
                 name: "caller".into(),
-                depuracao: None,
+                debug_info: None,
                 params: vec![],
                 return_ty: Type::Void,
                 blocks: vec![BasicBlock {
@@ -263,7 +263,7 @@ mod testes {
             Function {
                 symbol: "ctor".into(),
                 name: "ctor".into(),
-                depuracao: None,
+                debug_info: None,
                 params: vec![(ValueId(0), "this".into(), Type::Ref)],
                 return_ty: Type::Void,
                 blocks: vec![BasicBlock {
@@ -294,7 +294,7 @@ mod testes {
             Function {
                 symbol: "base".into(),
                 name: "base".into(),
-                depuracao: None,
+                debug_info: None,
                 params: vec![(ValueId(0), "this".into(), Type::Ref)],
                 return_ty: Type::Void,
                 blocks: vec![BasicBlock {
@@ -304,35 +304,35 @@ mod testes {
                 }],
             },
         ];
-        let planos = m
+        let plans = m
             .functions
             .iter()
-            .map(|f| (f.symbol.clone(), PlanoFuncaoDart::default()))
+            .map(|f| (f.symbol.clone(), DartFunctionPlan::default()))
             .collect();
-        (m, planos)
+        (m, plans)
     }
 
     #[test]
-    fn caller_ancora_this_e_inicializacao_anterior_ao_super_sem_inventar_frescor() {
-        let (mut m, mut planos) = modulo();
-        let fatos = produzir(&m);
-        assert_eq!(fatos["ctor"][&ValueId(0)], 123);
-        assert_eq!(fatos["base"][&ValueId(0)], 123);
-        preparar_arc_modulo_dart(&mut m, &mut planos).unwrap();
+    fn caller_anchors_this_and_pre_super_initialization_without_inventing_freshness() {
+        let (mut m, mut plans) = module();
+        let facts = produce(&m);
+        assert_eq!(facts["ctor"][&ValueId(0)], 123);
+        assert_eq!(facts["base"][&ValueId(0)], 123);
+        prepare_arc_dart_module(&mut m, &mut plans).unwrap();
         assert!(m.functions[1].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
             matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_gravar_campo_ref_v1")));
         assert_eq!(
-            preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+            prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
             (0, 0)
         );
     }
 
     #[test]
-    fn fronteiras_abertas_exigem_guarda_e_provas_estaticas_invalidas_recusam() {
-        for caso in 0..7 {
-            let (mut m, mut planos) = modulo();
-            match caso {
-                0 => m.ajudantes.push(("nativo".into(), "ctor".into())),
+    fn open_boundaries_require_guard_and_invalid_static_proofs_reject() {
+        for case in 0..7 {
+            let (mut m, mut plans) = module();
+            match case {
+                0 => m.helpers.push(("nativo".into(), "ctor".into())),
                 1 => {
                     if let Instruction::CallStatic { args, .. } =
                         &mut m.functions[0].blocks[0].instructions[1].1
@@ -343,7 +343,7 @@ mod testes {
                 2 => m.functions[1].blocks[0].instructions.swap(0, 1),
                 3 => m.functions[0].blocks[0].instructions.push((
                     ValueId(9),
-                    Instruction::Const(Constant::Funcao("ctor".into())),
+                    Instruction::Const(Constant::Function("ctor".into())),
                     Type::I64,
                 )),
                 4 => {
@@ -356,37 +356,37 @@ mod testes {
                         args[0] = Operand::Val(ValueId(8));
                     }
                     m.functions.push(caller);
-                    planos.insert("outro".into(), PlanoFuncaoDart::default());
+                    plans.insert("outro".into(), DartFunctionPlan::default());
                 }
                 5 => m.functions[1].blocks[0].terminator = Terminator::Branch(BlockId(0)),
                 _ => {
-                    let mut corpo = m.functions[1].blocks[0].clone();
-                    corpo.id = BlockId(1);
+                    let mut body = m.functions[1].blocks[0].clone();
+                    body.id = BlockId(1);
                     m.functions[1].blocks[0].instructions.clear();
                     m.functions[1].blocks[0].terminator = Terminator::Branch(BlockId(1));
-                    m.functions[1].blocks.push(corpo);
+                    m.functions[1].blocks.push(body);
                 }
             }
-            if matches!(caso, 0 | 1 | 3 | 4) {
+            if matches!(case, 0 | 1 | 3 | 4) {
                 assert!(
-                    !produzir(&m).contains_key("ctor"),
-                    "caso {caso}: entrada aberta ganhou classe"
+                    !produce(&m).contains_key("ctor"),
+                    "caso {case}: entrada aberta ganhou classe"
                 );
             }
-            let antes = format!("{m:?}/{planos:?}");
-            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
-            if matches!(caso, 0 | 1 | 2 | 4 | 5 | 6) {
+            let before = format!("{m:?}/{plans:?}");
+            let result = prepare_arc_dart_module(&mut m, &mut plans);
+            if matches!(case, 0 | 1 | 2 | 4 | 5 | 6) {
                 // Entradas abertas não ganham classe por haver callers
                 // conhecidos. Entradas expostas também exigem guarda física;
                 // null, CID ou tamanho inválido serão recusados pelo runtime.
-                resultado.unwrap();
+                result.unwrap();
                 assert!(m.functions[1].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
                     matches!(i, Instruction::CallRuntime { name, .. }
                         if name == "dartforge_arc_gravar_campo_ref_conferido_v1")));
-                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             } else {
-                assert!(resultado.is_err(), "caso {caso}: {resultado:?}");
-                assert_eq!(antes, format!("{m:?}/{planos:?}"));
+                assert!(result.is_err(), "caso {case}: {result:?}");
+                assert_eq!(before, format!("{m:?}/{plans:?}"));
             }
         }
     }

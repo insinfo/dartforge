@@ -1,0 +1,1003 @@
+//! A tabela de natives do SDK da fonte (P5b, docs/NATIVO-PLANO.md §7).
+//!
+//! No SDK da VM, um membro `external` sem patch é implementado de um de dois
+//! jeitos: **native** — `@pragma("vm:external-name", "Nome")`, uma função C++
+//! do runtime da VM (`runtime/lib/*.cc`) — ou **intrínseco** —
+//! `@pragma("vm:recognized", ...)` sem nome de native, que o compilador da
+//! VM gera no lugar da chamada (aritmética de `double`, `[]` de `_List`,
+//! campos invisíveis de `_GrowableList`/`_compact_hash`/`Record`…). O nativo
+//! faz o mesmo: todo native das [`SOURCE_LIBRARIES`] tem uma entrada
+//! aqui, com o que o backend faz com ele.
+//!
+//! * [`State::Runtime`]: uma função do runtime Rust,
+//!   `dartforge_nativo_<Nome>` (o fragmento `natives` de `crates/runtime`),
+//!   com a assinatura na representação da HIR (R1) dos tipos Dart
+//!   declarados: `int` → `i64`, `double` → `double`, `bool` → `i8`, o resto
+//!   (receptor inclusive) → `Ref`. Erros saem pela exceção pendente.
+//! * [`State::Pendente`]: ainda sem implementação; o lowering de P5d
+//!   transforma a chamada em diagnóstico (N1), nunca em chamada a símbolo
+//!   inexistente.
+//!
+//! Os efeitos seguem G8 (NATIVO-PLANO §6.5): marcados de forma conservadora
+//! (aloca, lança) até um teste sob `DARTFORGE_GC_STRESS=1` provar o
+//! contrário.
+//!
+//! O teste `inventory::every_source_native_has_entry` carrega o SDK com a
+//! sobreposição, percorre os `external` sem patch das bibliotecas da fonte e
+//! recusa native sem entrada (e entrada que não é mais native): é o que
+//! impede um patch novo do SDK — ou da sobreposição — de entrar em silêncio.
+//!
+//! [`SOURCE_LIBRARIES`]: crate::sdk_modulo::BIBLIOTECAS_DA_FONTE
+
+/// O que o backend faz com um native.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum State {
+    /// Função do runtime `dartforge_nativo_<Nome>`.
+    Runtime,
+    /// Sem implementação ainda: chamar é diagnóstico.
+    Pendente,
+    /// O lowering gera o código no lugar da chamada (`Internal_unsafeCast`
+    /// é o próprio valor).
+    Builtin,
+}
+
+/// Efeitos de uma chamada (G8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Effects {
+    pub allocates: bool,
+    pub throws: bool,
+    pub calls_dart: bool,
+}
+
+/// Conservador: aloca e lança, não chama Dart.
+pub const CONSERVATIVE: Effects = Effects { allocates: true, throws: true, calls_dart: false };
+
+/// Um native de `@pragma("vm:external-name", name)`.
+#[derive(Debug, Clone, Copy)]
+pub struct Nativo {
+    pub name: &'static str,
+    pub state: State,
+    pub effects: Effects,
+}
+
+const fn runtime(name: &'static str) -> Nativo {
+    Nativo { name, state: State::Runtime, effects: CONSERVATIVE }
+}
+
+const fn embedded(name: &'static str) -> Nativo {
+    Nativo { name, state: State::Builtin, effects: CONSERVATIVE }
+}
+
+/// Natives que o SDK declara com retornos diferentes conforme o ponto de uso
+/// e que o runtime implementa com o mais largo, `Ref`: `Double_parse` é
+/// `double?` no `double._nativeParse` e `double` no `_parseDouble` do
+/// `convert_patch.dart` (o número do JSON). O `external` chama com `Ref` e
+/// converte para o tipo declarado — sem isso o handle da caixa era lido
+/// como os bits do `double`.
+pub const RETURN_REF: &[&str] = &["Double_parse"];
+
+/// Intrínsecos da VM (`vm:recognized` sem native) que o nativo implementa
+/// com uma função do runtime, pelo `Classe.member`: (membro, native).
+pub const INTRINSICS: &[(&str, &str)] = &[
+    ("_Array.[]", "DartForge_lista_get"),
+    ("_Double._modulo", "DartForge_double_modulo"),
+    ("_Double._remainder", "DartForge_double_remainder"),
+    ("_Double.ceilToDouble", "DartForge_double_ceil"),
+    ("_Double.floorToDouble", "DartForge_double_floor"),
+    ("_Double.hashCode", "DartForge_double_hashCode"),
+    ("_Double.roundToDouble", "DartForge_double_round"),
+    ("_Double.toInt", "DartForge_double_toInt"),
+    ("_Double.truncateToDouble", "DartForge_double_truncate"),
+    ("_Float32ArrayView.[]", "DartForge_typed_indexar_double"),
+    ("_Float32List.[]", "DartForge_typed_indexar_double"),
+    ("_Float64ArrayView.[]", "DartForge_typed_indexar_double"),
+    ("_Float64List.[]", "DartForge_typed_indexar_double"),
+    ("_Float32x4List.[]", "DartForge_typed_indexar_simd"),
+    ("_Int32x4List.[]", "DartForge_typed_indexar_simd"),
+    ("_Float64x2List.[]", "DartForge_typed_indexar_simd"),
+    ("_Float32x4ArrayView.[]", "DartForge_typed_indexar_simd"),
+    ("_Int32x4ArrayView.[]", "DartForge_typed_indexar_simd"),
+    ("_Float64x2ArrayView.[]", "DartForge_typed_indexar_simd"),
+    ("_GrowableList.[]", "DartForge_lista_get"),
+    ("_ImmutableList.[]", "DartForge_lista_get"),
+    ("_Int16ArrayView.[]", "DartForge_typed_indexar_int"),
+    ("_Int16List.[]", "DartForge_typed_indexar_int"),
+    ("_Int32ArrayView.[]", "DartForge_typed_indexar_int"),
+    ("_Int32List.[]", "DartForge_typed_indexar_int"),
+    ("_Int64ArrayView.[]", "DartForge_typed_indexar_int"),
+    ("_Int64List.[]", "DartForge_typed_indexar_int"),
+    ("_Int8ArrayView.[]", "DartForge_typed_indexar_int"),
+    ("_Int8List.[]", "DartForge_typed_indexar_int"),
+    ("_List.[]", "DartForge_lista_get"),
+    ("_Mint.hashCode", "DartForge_int_hashCode"),
+    ("_Record._fieldAt", "DartForge_record_fieldAt"),
+    ("_Record._fieldNames", "DartForge_record_fieldNames"),
+    ("_Record._numFields", "DartForge_record_numFields"),
+    ("_Record._shape", "DartForge_record_shape"),
+    ("_Smi.hashCode", "DartForge_int_hashCode"),
+    ("_StringBase.codeUnitAt", "DartForge_string_codeUnitAt"),
+    ("_TypedList._getFloat32", "TypedData_GetFloat32"),
+    ("_TypedList._getFloat64", "TypedData_GetFloat64"),
+    ("_TypedList._getFloat32x4", "TypedData_GetFloat32x4"),
+    ("_TypedList._getInt32x4", "TypedData_GetInt32x4"),
+    ("_TypedList._getFloat64x2", "TypedData_GetFloat64x2"),
+    ("_TypedList._getInt16", "DartForge_typed_getInt16"),
+    ("_TypedList._getInt32", "DartForge_typed_getInt32"),
+    ("_TypedList._getInt64", "DartForge_typed_getInt64"),
+    ("_TypedList._getInt8", "DartForge_typed_getInt8"),
+    ("_TypedList._getUint16", "DartForge_typed_getUint16"),
+    ("_TypedList._getUint32", "DartForge_typed_getUint32"),
+    ("_TypedList._getUint64", "DartForge_typed_getUint64"),
+    ("_TypedList._getUint8", "DartForge_typed_getUint8"),
+    ("_TypedList._setFloat32", "TypedData_SetFloat32"),
+    ("_TypedList._setFloat64", "TypedData_SetFloat64"),
+    ("_TypedList._setFloat32x4", "TypedData_SetFloat32x4"),
+    ("_TypedList._setInt32x4", "TypedData_SetInt32x4"),
+    ("_TypedList._setFloat64x2", "TypedData_SetFloat64x2"),
+    ("_TypedList._setInt16", "DartForge_typed_setInt16"),
+    ("_TypedList._setInt32", "DartForge_typed_setInt32"),
+    ("_TypedList._setInt64", "DartForge_typed_setInt64"),
+    ("_TypedList._setInt8", "DartForge_typed_setInt8"),
+    ("_TypedList._setUint16", "DartForge_typed_setUint16"),
+    ("_TypedList._setUint32", "DartForge_typed_setUint32"),
+    ("_TypedList._setUint64", "DartForge_typed_setUint64"),
+    ("_TypedList._setUint8", "DartForge_typed_setUint8"),
+    ("_TypedListBase._memMove1", "DartForge_typed_memMove1"),
+    ("_TypedListBase._memMove16", "DartForge_typed_memMove16"),
+    ("_TypedListBase._memMove2", "DartForge_typed_memMove2"),
+    ("_TypedListBase._memMove4", "DartForge_typed_memMove4"),
+    ("_TypedListBase._memMove8", "DartForge_typed_memMove8"),
+    ("_Uint16ArrayView.[]", "DartForge_typed_indexar_int"),
+    ("_Uint16List.[]", "DartForge_typed_indexar_int"),
+    ("_Uint32ArrayView.[]", "DartForge_typed_indexar_int"),
+    ("_Uint32List.[]", "DartForge_typed_indexar_int"),
+    ("_Uint64ArrayView.[]", "DartForge_typed_indexar_int"),
+    ("_Uint64List.[]", "DartForge_typed_indexar_int"),
+    ("_Uint8ArrayView.[]", "DartForge_typed_indexar_int"),
+    ("_Uint8ClampedArrayView.[]", "DartForge_typed_indexar_int"),
+    ("_Uint8ClampedList.[]", "DartForge_typed_indexar_int"),
+    ("_Uint8List.[]", "DartForge_typed_indexar_int"),
+    ("_acos", "DartForge_math_acos"),
+    ("_asin", "DartForge_math_asin"),
+    ("_atan", "DartForge_math_atan"),
+    ("_atan2", "DartForge_math_atan2"),
+    ("_cos", "DartForge_math_cos"),
+    ("_doublePow", "DartForge_math_pow"),
+    ("_exp", "DartForge_math_exp"),
+    ("_log", "DartForge_math_log"),
+    ("_sin", "DartForge_math_sin"),
+    ("_sqrt", "DartForge_math_sqrt"),
+    ("_tan", "DartForge_math_tan"),
+    ("has63BitSmis", "DartForge_verdadeiro"),
+];
+
+/// A função do runtime de um intrínseco da VM, se o nativo a tem.
+pub fn intrinsic(member: &str) -> Option<&'static str> {
+    INTRINSICS.iter().find(|(m, _)| *m == member).map(|(_, n)| *n)
+}
+
+const fn pending(name: &'static str) -> Nativo {
+    Nativo { name, state: State::Pendente, effects: CONSERVATIVE }
+}
+
+/// Todo native das bibliotecas da fonte com a sobreposição `native_sdk/`,
+/// em ordem de bytes (a de `str`, que a busca binária usa). Os `DartForge_*` são os da sobreposição.
+pub const NATIVES: &[Nativo] = &[
+    pending("AbstractType_equality"),
+    pending("AbstractType_getHashCode"),
+    pending("AbstractType_toString"),
+    pending("AssertionError_throwNew"),
+    pending("AssertionError_throwNewSource"),
+    pending("Bool_fromEnvironment"),
+    pending("Bool_hasEnvironment"),
+    // A classe do valor em linha (`@df.class`, docs/NATIVO-ESPACO-UNIFICADO.md §3.8).
+    embedded("ClassID_getID"),
+    runtime("Closure_computeHash"),
+    runtime("Closure_equals"),
+    runtime("Crypto_GetRandomBytes"),
+    runtime("DartApiDLInitializeData"),
+    runtime("DartApiDLMajorVersion"),
+    runtime("DartApiDLMinorVersion"),
+    runtime("DartForge_GrowableList_reservar"),
+    runtime("DartForge_List_copiar"),
+    runtime("DartForge_List_preencher"),
+    runtime("DartForge_Timer_cancelar"),
+    runtime("DartForge_Timer_novo"),
+    runtime("DartForge_capacidade_nova"),
+    runtime("DartForge_classe_nao_enviavel"),
+    runtime("DartForge_classe_transferivel"),
+    runtime("DartForge_double_bits"),
+    runtime("DartForge_ffi_abi"),
+    runtime("DartForge_ffi_callback_apagar"),
+    runtime("DartForge_ffi_callback_args"),
+    runtime("DartForge_ffi_callback_manter"),
+    runtime("DartForge_ffi_callback_novo"),
+    runtime("DartForge_ffi_carregar_abi"),
+    runtime("DartForge_ffi_carregar_f32"),
+    runtime("DartForge_ffi_carregar_f64"),
+    runtime("DartForge_ffi_carregar_i16"),
+    runtime("DartForge_ffi_carregar_i32"),
+    runtime("DartForge_ffi_carregar_i64"),
+    runtime("DartForge_ffi_carregar_i8"),
+    runtime("DartForge_ffi_carregar_u16"),
+    runtime("DartForge_ffi_carregar_u32"),
+    runtime("DartForge_ffi_carregar_u64"),
+    runtime("DartForge_ffi_carregar_u8"),
+    runtime("DartForge_ffi_composto_de_tipo"),
+    runtime("DartForge_ffi_copiar"),
+    runtime("DartForge_ffi_funcao"),
+    runtime("DartForge_ffi_gravar_abi"),
+    runtime("DartForge_ffi_gravar_f32"),
+    runtime("DartForge_ffi_gravar_f64"),
+    runtime("DartForge_ffi_gravar_i16"),
+    runtime("DartForge_ffi_gravar_i32"),
+    runtime("DartForge_ffi_gravar_i64"),
+    runtime("DartForge_ffi_gravar_i8"),
+    runtime("DartForge_ffi_gravar_u16"),
+    runtime("DartForge_ffi_gravar_u32"),
+    runtime("DartForge_ffi_gravar_u64"),
+    runtime("DartForge_ffi_gravar_u8"),
+    runtime("DartForge_ffi_tamanho"),
+    runtime("DartForge_finalizador_anexar"),
+    runtime("DartForge_finalizador_anexar_nativo"),
+    runtime("DartForge_finalizador_desanexar"),
+    runtime("DartForge_hash_conjunto_adicionar"),
+    runtime("DartForge_hash_conjunto_buscar"),
+    runtime("DartForge_hash_conjunto_preencher"),
+    runtime("DartForge_hash_mapa_buscar"),
+    runtime("DartForge_hash_mapa_gravar"),
+    runtime("DartForge_hash_mapa_preencher"),
+    runtime("DartForge_hash_novos_dados"),
+    runtime("DartForge_imprimir"),
+    runtime("DartForge_int_toString"),
+    runtime("DartForge_json_empilhar"),
+    runtime("DartForge_json_fechar_lista"),
+    runtime("DartForge_json_marca"),
+    runtime("DartForge_json_truncar"),
+    runtime("DartForge_ler_texto"),
+    runtime("DartForge_mensagem_atual"),
+    runtime("DartForge_mirrors_nome"),
+    runtime("DartForge_mirrors_uri"),
+    runtime("DartForge_package_config"),
+    runtime("DartForge_porta_abrir"),
+    runtime("DartForge_porta_atual"),
+    runtime("DartForge_porta_enviar"),
+    runtime("DartForge_porta_fechar"),
+    runtime("DartForge_porta_mantem_vivo"),
+    runtime("DartForge_porta_manter_vivo"),
+    runtime("DartForge_porta_recusa"),
+    runtime("DartForge_portas_despachante"),
+    runtime("DartForge_regexp_captura"),
+    runtime("DartForge_regexp_compilar"),
+    runtime("DartForge_regexp_erro"),
+    runtime("DartForge_regexp_executar"),
+    runtime("DartForge_regexp_grupos"),
+    runtime("DartForge_regexp_indice_do_nome"),
+    runtime("DartForge_regexp_n_nomes"),
+    runtime("DartForge_regexp_nome"),
+    runtime("DartForge_sb_escrever"),
+    runtime("DartForge_sb_escrever_codigo"),
+    runtime("DartForge_sb_escrever_se_texto"),
+    runtime("DartForge_sb_novo"),
+    runtime("DartForge_sb_texto"),
+    runtime("DartForge_scheduleImmediate"),
+    runtime("DartForge_string_de_codigos"),
+    runtime("DartForge_string_dividir_por_codigo"),
+    runtime("DartForge_string_iguais"),
+    runtime("DartForge_string_igual_a"),
+    runtime("DartForge_string_indice_de"),
+    runtime("DartForge_string_regiao_igual"),
+    runtime("DartForge_string_ultimo_indice_de"),
+    runtime("DartForge_tls_contexto_alpn"),
+    runtime("DartForge_tls_contexto_autoridades"),
+    runtime("DartForge_tls_contexto_cadeia"),
+    runtime("DartForge_tls_contexto_chave"),
+    runtime("DartForge_tls_contexto_confiaveis"),
+    runtime("DartForge_tls_contexto_definir_versao_minima"),
+    runtime("DartForge_tls_contexto_novo"),
+    runtime("DartForge_tls_contexto_raizes_embutidas"),
+    runtime("DartForge_tls_contexto_versao_minima"),
+    runtime("DartForge_tls_filtro_certificado_do_par"),
+    runtime("DartForge_tls_filtro_certificado_pendente"),
+    runtime("DartForge_tls_filtro_chaves_pendentes"),
+    runtime("DartForge_tls_filtro_conectar"),
+    runtime("DartForge_tls_filtro_decidir"),
+    runtime("DartForge_tls_filtro_destruir"),
+    runtime("DartForge_tls_filtro_erro"),
+    runtime("DartForge_tls_filtro_handshake"),
+    runtime("DartForge_tls_filtro_novo"),
+    runtime("DartForge_tls_filtro_processar"),
+    runtime("DartForge_tls_filtro_protocolo"),
+    runtime("DartForge_tls_filtro_registrar_chaves"),
+    runtime("DartForge_tls_x509_adotar"),
+    runtime("DartForge_tls_x509_der"),
+    runtime("DartForge_tls_x509_emissor"),
+    runtime("DartForge_tls_x509_fim"),
+    runtime("DartForge_tls_x509_inicio"),
+    runtime("DartForge_tls_x509_pem"),
+    runtime("DartForge_tls_x509_sha1"),
+    runtime("DartForge_tls_x509_sujeito"),
+    runtime("DartNativeApiFunctionPointer"),
+    runtime("DateTime_currentTimeMicros"),
+    runtime("DateTime_timeZoneName"),
+    runtime("DateTime_timeZoneOffsetInSeconds"),
+    runtime("Developer_NativeRuntime_buildId"),
+    pending("Developer_NativeRuntime_writeHeapSnapshotToFile"),
+    runtime("Developer_debugger"),
+    runtime("Developer_getIsolateIdFromSendPort"),
+    runtime("Developer_getObjectId"),
+    runtime("Developer_getServerInfo"),
+    runtime("Developer_getServiceMajorVersion"),
+    runtime("Developer_getServiceMinorVersion"),
+    runtime("Developer_inspect"),
+    runtime("Developer_log"),
+    runtime("Developer_lookupExtension"),
+    runtime("Developer_postEvent"),
+    runtime("Developer_reachability_barrier"),
+    runtime("Developer_registerExtension"),
+    runtime("Developer_webServerControl"),
+    runtime("Directory_Create"),
+    runtime("Directory_CreateTemp"),
+    runtime("Directory_Current"),
+    runtime("Directory_Delete"),
+    runtime("Directory_Exists"),
+    runtime("Directory_FillWithDirectoryListing"),
+    runtime("Directory_GetAsyncDirectoryListerPointer"),
+    runtime("Directory_Rename"),
+    runtime("Directory_SetAsyncDirectoryListerPointer"),
+    runtime("Directory_SetCurrent"),
+    runtime("Directory_SystemTemp"),
+    runtime("Double_add"),
+    runtime("Double_div"),
+    runtime("Double_doubleFromInteger"),
+    runtime("Double_equal"),
+    runtime("Double_equalToInteger"),
+    runtime("Double_flipSignBit"),
+    runtime("Double_getIsInfinite"),
+    runtime("Double_getIsNaN"),
+    runtime("Double_getIsNegative"),
+    runtime("Double_greaterThan"),
+    runtime("Double_greaterThanFromInteger"),
+    runtime("Double_mul"),
+    runtime("Double_parse"),
+    runtime("Double_sub"),
+    runtime("Double_toString"),
+    runtime("Double_toStringAsExponential"),
+    runtime("Double_toStringAsFixed"),
+    runtime("Double_toStringAsPrecision"),
+    runtime("Error_throwWithStackTrace"),
+    runtime("Error_trySetStackTrace"),
+    runtime("EventHandler_SendData"),
+    runtime("EventHandler_TimerMillisecondClock"),
+    pending("Ffi_GetFfiNativeResolver"),
+    pending("Ffi_createNativeCallableIsolateLocal"),
+    pending("Ffi_createNativeCallableListener"),
+    runtime("Ffi_dl_close"),
+    runtime("Ffi_dl_executableLibrary"),
+    runtime("Ffi_dl_lookup"),
+    runtime("Ffi_dl_open"),
+    runtime("Ffi_dl_processLibrary"),
+    runtime("Ffi_dl_providesSymbol"),
+    pending("Ffi_nativeAsyncCallbackFunction"),
+    pending("Ffi_nativeCallbackFunction"),
+    pending("Ffi_nativeIsolateLocalCallbackFunction"),
+    runtime("FileSystemWatcher_CloseWatcher"),
+    runtime("FileSystemWatcher_GetSocketId"),
+    runtime("FileSystemWatcher_InitWatcher"),
+    runtime("FileSystemWatcher_IsSupported"),
+    runtime("FileSystemWatcher_ReadEvents"),
+    runtime("FileSystemWatcher_UnwatchPath"),
+    runtime("FileSystemWatcher_WatchPath"),
+    runtime("File_AreIdentical"),
+    runtime("File_Close"),
+    runtime("File_Copy"),
+    runtime("File_Create"),
+    runtime("File_CreateLink"),
+    runtime("File_CreatePipe"),
+    runtime("File_Delete"),
+    runtime("File_DeleteLink"),
+    runtime("File_Exists"),
+    runtime("File_Flush"),
+    runtime("File_GetFD"),
+    runtime("File_GetPointer"),
+    runtime("File_GetStdioHandleType"),
+    runtime("File_GetType"),
+    runtime("File_LastAccessed"),
+    runtime("File_LastModified"),
+    runtime("File_Length"),
+    runtime("File_LengthFromPath"),
+    runtime("File_LinkTarget"),
+    runtime("File_Lock"),
+    runtime("File_Open"),
+    runtime("File_OpenStdio"),
+    runtime("File_Position"),
+    runtime("File_Read"),
+    runtime("File_ReadByte"),
+    runtime("File_ReadInto"),
+    runtime("File_Rename"),
+    runtime("File_RenameLink"),
+    runtime("File_ResolveSymbolicLinks"),
+    runtime("File_SetLastAccessed"),
+    runtime("File_SetLastModified"),
+    runtime("File_SetPointer"),
+    runtime("File_SetPosition"),
+    runtime("File_Stat"),
+    runtime("File_Truncate"),
+    runtime("File_WriteByte"),
+    runtime("File_WriteFrom"),
+    runtime("Filter_CreateZLibDeflate"),
+    runtime("Filter_CreateZLibInflate"),
+    runtime("Filter_Process"),
+    runtime("Filter_Processed"),
+    pending("FinalizerEntry_allocate"),
+    runtime("Float32x4_abs"),
+    runtime("Float32x4_add"),
+    runtime("Float32x4_clamp"),
+    runtime("Float32x4_cmpequal"),
+    runtime("Float32x4_cmpgt"),
+    runtime("Float32x4_cmpgte"),
+    runtime("Float32x4_cmplt"),
+    runtime("Float32x4_cmplte"),
+    runtime("Float32x4_cmpnequal"),
+    runtime("Float32x4_div"),
+    runtime("Float32x4_fromDoubles"),
+    runtime("Float32x4_fromFloat64x2"),
+    runtime("Float32x4_fromInt32x4Bits"),
+    runtime("Float32x4_getSignMask"),
+    runtime("Float32x4_getW"),
+    runtime("Float32x4_getX"),
+    runtime("Float32x4_getY"),
+    runtime("Float32x4_getZ"),
+    runtime("Float32x4_max"),
+    runtime("Float32x4_min"),
+    runtime("Float32x4_mul"),
+    runtime("Float32x4_negate"),
+    runtime("Float32x4_reciprocal"),
+    runtime("Float32x4_reciprocalSqrt"),
+    runtime("Float32x4_scale"),
+    runtime("Float32x4_setW"),
+    runtime("Float32x4_setX"),
+    runtime("Float32x4_setY"),
+    runtime("Float32x4_setZ"),
+    runtime("Float32x4_shuffle"),
+    runtime("Float32x4_shuffleMix"),
+    runtime("Float32x4_splat"),
+    runtime("Float32x4_sqrt"),
+    runtime("Float32x4_sub"),
+    runtime("Float32x4_zero"),
+    runtime("Float64x2_abs"),
+    runtime("Float64x2_add"),
+    runtime("Float64x2_clamp"),
+    runtime("Float64x2_div"),
+    runtime("Float64x2_fromDoubles"),
+    runtime("Float64x2_fromFloat32x4"),
+    runtime("Float64x2_getSignMask"),
+    runtime("Float64x2_getX"),
+    runtime("Float64x2_getY"),
+    runtime("Float64x2_max"),
+    runtime("Float64x2_min"),
+    runtime("Float64x2_mul"),
+    runtime("Float64x2_negate"),
+    runtime("Float64x2_scale"),
+    runtime("Float64x2_setX"),
+    runtime("Float64x2_setY"),
+    runtime("Float64x2_splat"),
+    runtime("Float64x2_sqrt"),
+    runtime("Float64x2_sub"),
+    runtime("Float64x2_zero"),
+    runtime("Function_apply"),
+    runtime("GrowableList_allocate"),
+    runtime("GrowableList_getCapacity"),
+    runtime("GrowableList_getLength"),
+    runtime("GrowableList_setData"),
+    runtime("GrowableList_setIndexed"),
+    runtime("GrowableList_setLength"),
+    runtime("IOService_NewServicePort"),
+    runtime("Identical_comparison"),
+    runtime("ImmutableList_from"),
+    runtime("Int32x4_add"),
+    runtime("Int32x4_and"),
+    runtime("Int32x4_fromBools"),
+    runtime("Int32x4_fromFloat32x4Bits"),
+    runtime("Int32x4_fromInts"),
+    runtime("Int32x4_getFlagW"),
+    runtime("Int32x4_getFlagX"),
+    runtime("Int32x4_getFlagY"),
+    runtime("Int32x4_getFlagZ"),
+    runtime("Int32x4_getSignMask"),
+    runtime("Int32x4_getW"),
+    runtime("Int32x4_getX"),
+    runtime("Int32x4_getY"),
+    runtime("Int32x4_getZ"),
+    runtime("Int32x4_or"),
+    runtime("Int32x4_select"),
+    runtime("Int32x4_setFlagW"),
+    runtime("Int32x4_setFlagX"),
+    runtime("Int32x4_setFlagY"),
+    runtime("Int32x4_setFlagZ"),
+    runtime("Int32x4_setW"),
+    runtime("Int32x4_setX"),
+    runtime("Int32x4_setY"),
+    runtime("Int32x4_setZ"),
+    runtime("Int32x4_shuffle"),
+    runtime("Int32x4_shuffleMix"),
+    runtime("Int32x4_sub"),
+    runtime("Int32x4_xor"),
+    runtime("Integer_addFromInteger"),
+    runtime("Integer_bitAndFromInteger"),
+    runtime("Integer_bitOrFromInteger"),
+    runtime("Integer_bitXorFromInteger"),
+    runtime("Integer_equalToInteger"),
+    pending("Integer_fromEnvironment"),
+    runtime("Integer_greaterThanFromInteger"),
+    runtime("Integer_moduloFromInteger"),
+    runtime("Integer_mulFromInteger"),
+    runtime("Integer_shlFromInteger"),
+    runtime("Integer_shrFromInteger"),
+    runtime("Integer_subFromInteger"),
+    runtime("Integer_truncDivFromInteger"),
+    runtime("Integer_ushrFromInteger"),
+    pending("Internal_allocateObjectInstructionsEnd"),
+    pending("Internal_allocateObjectInstructionsStart"),
+    runtime("Internal_allocateOneByteString"),
+    runtime("Internal_allocateTwoByteString"),
+    pending("Internal_boundsCheckForPartialInstantiation"),
+    pending("Internal_collectAllGarbage"),
+    pending("Internal_deoptimizeFunctionsOnStack"),
+    pending("Internal_extractTypeArguments"),
+    pending("Internal_loadDynamicModule"),
+    runtime("Internal_makeFixedListUnmodifiable"),
+    runtime("Internal_makeListFixedLength"),
+    pending("Internal_nativeEffect"),
+    pending("Internal_prependTypeArguments"),
+    embedded("Internal_unsafeCast"),
+    runtime("Internal_writeIntoOneByteString"),
+    runtime("Internal_writeIntoTwoByteString"),
+    runtime("InternetAddress_Parse"),
+    runtime("InternetAddress_ParseScopedLinkLocalAddress"),
+    runtime("InternetAddress_RawAddrToString"),
+    pending("InvocationMirror_unpackTypeArguments"),
+    runtime("Isolate_exit_"),
+    runtime("Isolate_getCurrentRootUriStr"),
+    runtime("Isolate_getDebugName"),
+    runtime("Isolate_getPortAndCapabilitiesOfCurrentIsolate"),
+    pending("Isolate_registerKernelBlob"),
+    runtime("Isolate_sendOOB"),
+    runtime("Isolate_spawnFunction"),
+    runtime("Isolate_spawnUri"),
+    pending("Isolate_unregisterKernelBlob"),
+    pending("LibraryPrefix_isLoaded"),
+    pending("LibraryPrefix_issueLoad"),
+    pending("LibraryPrefix_loadingUnit"),
+    pending("LibraryPrefix_setLoaded"),
+    runtime("List_allocate"),
+    runtime("List_getLength"),
+    runtime("List_setIndexed"),
+    runtime("List_slice"),
+    runtime("Mint_bitLength"),
+    runtime("Mint_bitNegate"),
+    runtime("Namespace_Create"),
+    runtime("Namespace_GetDefault"),
+    runtime("Namespace_GetPointer"),
+    runtime("NoSuchMethodError_existingMethodSignature"),
+    runtime("OSError_inProgressErrorCode"),
+    runtime("Object_equals"),
+    runtime("Object_getHash"),
+    runtime("Object_haveSameRuntimeType"),
+    pending("Object_instanceOf"),
+    runtime("Object_runtimeType"),
+    pending("Object_simpleInstanceOf"),
+    runtime("Object_toString"),
+    runtime("OneByteString_allocateFromOneByteList"),
+    runtime("OneByteString_substringUnchecked"),
+    runtime("Platform_Environment"),
+    runtime("Platform_ExecutableArguments"),
+    runtime("Platform_ExecutableName"),
+    runtime("Platform_GetVersion"),
+    runtime("Platform_LocalHostname"),
+    runtime("Platform_LocaleName"),
+    runtime("Platform_NumberOfProcessors"),
+    runtime("Platform_OperatingSystem"),
+    runtime("Platform_OperatingSystemVersion"),
+    runtime("Platform_PathSeparator"),
+    runtime("Platform_ResolvedExecutableName"),
+    runtime("ProcessInfo_CurrentRSS"),
+    runtime("ProcessInfo_MaxRSS"),
+    runtime("Process_ClearSignalHandler"),
+    runtime("Process_Exit"),
+    runtime("Process_GetExitCode"),
+    runtime("Process_KillPid"),
+    runtime("Process_Pid"),
+    runtime("Process_SetExitCode"),
+    runtime("Process_SetSignalHandler"),
+    runtime("Process_Sleep"),
+    runtime("Process_Start"),
+    runtime("Process_Wait"),
+    runtime("Random_initialSeed"),
+    runtime("RawSocketOption_GetOptionValue"),
+    runtime("ResourceHandleImpl_toFile"),
+    runtime("ResourceHandleImpl_toRawDatagramSocket"),
+    runtime("ResourceHandleImpl_toRawSocket"),
+    runtime("ResourceHandleImpl_toSocket"),
+    runtime("SecureRandom_getBytes"),
+    runtime("SendPort_get_id"),
+    runtime("ServerSocket_Accept"),
+    runtime("ServerSocket_CreateBindListen"),
+    runtime("ServerSocket_CreateUnixDomainBindListen"),
+    runtime("Smi_bitLength"),
+    runtime("Smi_bitNegate"),
+    runtime("SocketBase_IsBindError"),
+    runtime("SocketControlMessageImpl_extractHandles"),
+    runtime("SocketControlMessage_fromHandles"),
+    runtime("Socket_Available"),
+    runtime("Socket_AvailableDatagram"),
+    runtime("Socket_CreateBindConnect"),
+    runtime("Socket_CreateBindDatagram"),
+    runtime("Socket_CreateConnect"),
+    runtime("Socket_CreateUnixDomainBindConnect"),
+    runtime("Socket_CreateUnixDomainConnect"),
+    runtime("Socket_Fatal"),
+    runtime("Socket_GetError"),
+    runtime("Socket_GetFD"),
+    runtime("Socket_GetOption"),
+    runtime("Socket_GetPort"),
+    runtime("Socket_GetRawOption"),
+    runtime("Socket_GetRemotePeer"),
+    runtime("Socket_GetSocketId"),
+    runtime("Socket_GetStdioHandle"),
+    runtime("Socket_GetType"),
+    runtime("Socket_HasPendingWrite"),
+    runtime("Socket_JoinMulticast"),
+    runtime("Socket_LeaveMulticast"),
+    runtime("Socket_Read"),
+    runtime("Socket_ReceiveMessage"),
+    runtime("Socket_RecvFrom"),
+    runtime("Socket_SendMessage"),
+    runtime("Socket_SendTo"),
+    runtime("Socket_SetOption"),
+    runtime("Socket_SetRawOption"),
+    runtime("Socket_SetSocketId"),
+    runtime("Socket_WriteList"),
+    runtime("StackTrace_current"),
+    runtime("Stdin_AnsiSupported"),
+    runtime("Stdin_GetEchoMode"),
+    runtime("Stdin_GetEchoNewlineMode"),
+    runtime("Stdin_GetLineMode"),
+    runtime("Stdin_ReadByte"),
+    runtime("Stdin_SetEchoMode"),
+    runtime("Stdin_SetEchoNewlineMode"),
+    runtime("Stdin_SetLineMode"),
+    runtime("Stdout_AnsiSupported"),
+    runtime("Stdout_GetTerminalSize"),
+    runtime("Stopwatch_frequency"),
+    runtime("Stopwatch_now"),
+    runtime("StringBase_createFromCodePoints"),
+    pending("StringBase_intern"),
+    runtime("StringBase_joinReplaceAllResult"),
+    runtime("StringBase_substringUnchecked"),
+    runtime("StringToSystemEncoding"),
+    runtime("String_charAt"),
+    runtime("String_concat"),
+    runtime("String_concatRange"),
+    pending("String_fromEnvironment"),
+    runtime("String_getHashCode"),
+    runtime("String_getLength"),
+    runtime("String_toLowerCase"),
+    runtime("String_toUpperCase"),
+    runtime("SynchronousSocket_Available"),
+    runtime("SynchronousSocket_CloseSync"),
+    runtime("SynchronousSocket_CreateConnectSync"),
+    runtime("SynchronousSocket_GetPort"),
+    runtime("SynchronousSocket_GetRemotePeer"),
+    runtime("SynchronousSocket_LookupRequest"),
+    runtime("SynchronousSocket_Read"),
+    runtime("SynchronousSocket_ReadList"),
+    runtime("SynchronousSocket_ShutdownRead"),
+    runtime("SynchronousSocket_ShutdownWrite"),
+    runtime("SynchronousSocket_WriteList"),
+    runtime("SystemEncodingToString"),
+    runtime("Timeline_getNextTaskId"),
+    runtime("Timeline_getTraceClock"),
+    runtime("Timeline_isDartStreamEnabled"),
+    runtime("Timeline_reportTaskEvent"),
+    runtime("TwoByteString_allocateFromTwoByteList"),
+    pending("TypeError_throwNew"),
+    pending("Type_equality"),
+    runtime("TypedDataBase_length"),
+    runtime("TypedDataBase_setClampedRange"),
+    runtime("TypedDataView_offsetInBytes"),
+    runtime("TypedDataView_typedData"),
+    runtime("TypedData_GetFloat32"),
+    runtime("TypedData_GetFloat32x4"),
+    runtime("TypedData_GetFloat64"),
+    runtime("TypedData_GetFloat64x2"),
+    runtime("TypedData_GetInt32x4"),
+    runtime("TypedData_SetFloat32"),
+    runtime("TypedData_SetFloat32x4"),
+    runtime("TypedData_SetFloat64"),
+    runtime("TypedData_SetFloat64x2"),
+    runtime("TypedData_SetInt32x4"),
+    runtime("Uri_isWindowsPlatform"),
+    runtime("WeakProperty_getKey"),
+    runtime("WeakProperty_getValue"),
+    runtime("WeakProperty_setKey"),
+    runtime("WeakProperty_setValue"),
+    runtime("WeakReference_getTarget"),
+    runtime("WeakReference_setTarget"),
+];
+
+/// A entrada de um native, se existe.
+pub fn native(name: &str) -> Option<&'static Nativo> {
+    NATIVES.binary_search_by(|n| n.name.cmp(name)).ok().map(|i| &NATIVES[i])
+}
+
+/// Os pacotes da especificação do espaço unificado
+/// (docs/NATIVO-ESPACO-UNIFICADO.md §4): quem muda a implementação de um native.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Package {
+    /// Fundação: layout, espaço, coletor, contrato do emissor.
+    P0,
+    /// Strings.
+    P1,
+    /// Caixas, células, contextos, closures, records.
+    P2,
+    /// Listas, mapas, conjuntos.
+    P3,
+    /// Listas tipadas, SIMD, FFI, E/S.
+    P4,
+    /// Transversais (isolados, RTI, erros, saída).
+    P5,
+}
+
+/// O que o espaço unificado muda num native (a tabela §3.8 da especificação):
+/// o pacote que troca a implementação e se ela passa a ser **em linha** (pelos
+/// ajudantes `@df.*` e pelos ganchos `*_em_linha` do lowering; o native do
+/// runtime, quando fica, é o caminho lento). `None`: o native não muda de
+/// representação (só de API do heap, quando a tem).
+pub fn in_unified_space(name: &str) -> Option<(Package, bool)> {
+    use Package::*;
+    let r = match name {
+        // P1: strings.
+        "String_getLength" | "Internal_allocateOneByteString" | "Internal_allocateTwoByteString"
+        | "Internal_writeIntoOneByteString" | "Internal_writeIntoTwoByteString" | "String_getHashCode"
+        | "DartForge_string_codeUnitAt" => (P1, true),
+        "String_charAt"
+        | "String_concat"
+        | "StringBase_substringUnchecked"
+        | "OneByteString_substringUnchecked"
+        | "OneByteString_allocateFromOneByteList"
+        | "TwoByteString_allocateFromTwoByteList"
+        | "StringBase_createFromCodePoints"
+        | "StringBase_joinReplaceAllResult"
+        | "String_concatRange"
+        | "String_toUpperCase"
+        | "String_toLowerCase"
+        | "DartForge_int_toString"
+        | "Double_toString"
+        | "DartForge_double_bits"
+        | "DartForge_imprimir" => (P1, false),
+        n if n.starts_with("DartForge_string_") || n.starts_with("DartForge_sb_") || n.starts_with("DartForge_regexp_") => {
+            (P1, false)
+        }
+        // P0: a classe do valor.
+        "ClassID_getID" => (P0, true),
+        // P3: listas do núcleo (o em linha de `List<E>` em `lower/typed_items.rs` é da P4).
+        "List_getLength" | "GrowableList_getLength" | "GrowableList_getCapacity" | "GrowableList_setLength"
+        | "GrowableList_setData" | "GrowableList_setIndexed" | "List_setIndexed" | "DartForge_lista_get" => (P3, true),
+        "List_allocate"
+        | "List_slice"
+        | "ImmutableList_from"
+        | "GrowableList_allocate"
+        | "DartForge_List_preencher"
+        | "DartForge_List_copiar"
+        | "DartForge_GrowableList_reservar"
+        | "Internal_makeListFixedLength"
+        | "Internal_makeFixedListUnmodifiable"
+        | "DartForge_json_empilhar"
+        | "DartForge_json_fechar_lista"
+        | "DartForge_json_marca"
+        | "DartForge_json_truncar" => (P3, false),
+        n if n.starts_with("DartForge_hash_") => (P3, false),
+        // P2: caixas, closures, records.
+        n if n.starts_with("DartForge_record_") => (P2, true),
+        "Closure_equals" | "Closure_computeHash" | "Function_apply" | "Identical_comparison" | "Double_parse"
+        | "DartForge_int_hashCode" | "Object_getHash" => (P2, false),
+        n if n.starts_with("Double_")
+            || n.starts_with("Integer_")
+            || n.starts_with("Mint_")
+            || n.starts_with("Smi_")
+            || n.starts_with("DartForge_double_") =>
+        {
+            (P2, false)
+        }
+        // P4: listas tipadas e SIMD.
+        "TypedDataBase_length" | "TypedDataView_typedData" | "TypedDataView_offsetInBytes" => (P4, true),
+        n if n.starts_with("TypedData_Get") || n.starts_with("TypedData_Set") || n.starts_with("DartForge_typed_") => {
+            (P4, true)
+        }
+        "TypedDataBase_setClampedRange" => (P4, false),
+        n if n.starts_with("Float32x4_") || n.starts_with("Int32x4_") || n.starts_with("Float64x2_") => (P4, false),
+        // P5: transversais.
+        n if n.starts_with("WeakReference_")
+            || n.starts_with("WeakProperty_")
+            || n.starts_with("Object_")
+            || n.starts_with("Isolate_")
+            || n.starts_with("DartForge_porta_") =>
+        {
+            (P5, false)
+        }
+        _ => return None,
+    };
+    Some(r)
+}
+
+/// O símbolo do runtime que implementa um native.
+pub fn symbol(name: &str) -> String {
+    format!("dartforge_nativo_{name}")
+}
+
+/// Um `external` sem patch das bibliotecas da fonte: o que o implementa.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SdkExternal {
+    /// `dart:core`…
+    pub library: String,
+    /// `Classe.member` ou `member` (de topo).
+    pub member: String,
+    /// O nome do native, se é um.
+    pub native: Option<String>,
+    /// Tem `@pragma("vm:recognized", ...)` (intrínseco da VM).
+    pub recognized: bool,
+}
+
+/// O que os `@pragma` de uma função dizem: o nome do native
+/// (`vm:external-name`) e se ela é `vm:recognized` (intrínseco).
+pub fn pragmas(
+    program: &dartforge_elements::Program,
+    interner: &dartforge_intern::Interner,
+    f: &dartforge_elements::model::FunctionElement,
+) -> (Option<String>, bool) {
+    use dartforge_elements::model::FunctionRef;
+    use dartforge_frontend::ast;
+    // O pragma mora no `Member`/`Decl` que declara a função.
+    let metadata: &[ast::Annotation] = match f.node {
+        FunctionRef::Function { unit, function } => {
+            let a = &program.unit(unit).ast;
+            a.members
+                .iter()
+                .find(|m| matches!(m.kind, ast::MemberKind::Method(id) if id == function))
+                .map(|m| &*m.metadata)
+                .or_else(|| {
+                    a.decls
+                        .iter()
+                        .find(|d| matches!(d.kind, ast::DeclKind::Function(id) if id == function))
+                        .map(|d| &*d.metadata)
+                })
+                .unwrap_or(&[])
+        }
+        FunctionRef::Constructor { unit, member } => &program.unit(unit).ast.members[member.0 as usize].metadata,
+        FunctionRef::None => &[],
+    };
+    let unit = match f.node {
+        FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => Some(unit),
+        FunctionRef::None => None,
+    };
+    let mut native = None;
+    let mut recognized = false;
+    for an in metadata {
+        let Some(u) = unit else { break };
+        if an.name.len() != 1 || interner.resolve(an.name[0].sym) != "pragma" {
+            continue;
+        }
+        let Some(args) = &an.arguments else { continue };
+        let strings: Vec<Option<String>> = args
+            .args
+            .iter()
+            .map(|a| match &program.unit(u).ast.exprs[a.value.0 as usize].kind {
+                ast::ExprKind::String(lit) => {
+                    lit.constant_value().map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned())
+                }
+                _ => None,
+            })
+            .collect();
+        match strings.first().and_then(|t| t.as_deref()) {
+            Some("vm:external-name") => native = strings.get(1).cloned().flatten(),
+            Some("vm:recognized") => recognized = true,
+            _ => {}
+        }
+    }
+    (native, recognized)
+}
+
+/// Os `external` sem patch das bibliotecas dadas, com o pragma que os
+/// implementa. Um `external` que tem patch não entra: quem o implementa é o
+/// membro do patch (que entra, se for `external` também).
+pub fn inventory(
+    program: &dartforge_elements::Program,
+    interner: &dartforge_intern::Interner,
+    libraries: &[&str],
+) -> Vec<SdkExternal> {
+    let mut exit = Vec::new();
+    for f in &program.functions {
+        if !f.external || f.patched_by.is_some() {
+            continue;
+        }
+        let lib = program.library(f.library);
+        let Some(lib_name) = lib.uri.strip_prefix("dart:") else { continue };
+        if !libraries.contains(&lib_name) {
+            continue;
+        }
+        let (native, recognized) = pragmas(program, interner, f);
+        let owner = f.class.map(|c| interner.resolve(program.classes[c.0 as usize].name).to_string());
+        let name = interner.resolve(f.name).to_string();
+        exit.push(SdkExternal {
+            library: lib.uri.clone(),
+            member: match owner {
+                Some(c) => format!("{c}.{name}"),
+                None => name,
+            },
+            native,
+            recognized,
+        });
+    }
+    exit.sort_by(|a, b| (&a.library, &a.member).cmp(&(&b.library, &b.member)));
+    exit
+}
+
+#[cfg(test)]
+mod inventory {
+    use super::*;
+
+
+
+    #[test]
+    fn table_is_sorted_and_without_duplicates() {
+        for par in NATIVES.windows(2) {
+            assert!(par[0].name < par[1].name, "{} antes de {}", par[0].name, par[1].name);
+        }
+        assert!(native("String_getLength").is_some());
+        assert!(native("Inexistente").is_none());
+    }
+
+    /// Todo native da fonte (com a sobreposição) tem entrada, e toda entrada
+    /// ainda é um native da fonte.
+    #[test]
+    fn every_source_native_has_entry() {
+        crate::sdk_tests();
+        let externals = std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                let sdk = crate::sdk_modulo::load_native_sdk(crate::sdk_tests()).unwrap();
+                let tmp = tempfile::tempdir().unwrap();
+                let entry = tmp.path().join("main.dart");
+                let mut source = String::new();
+                for b in crate::sdk_modulo::SOURCE_LIBRARIES {
+                    source.push_str(&format!("import 'dart:{b}';\n"));
+                }
+                source.push_str("void main() {}\n");
+                std::fs::write(&entry, source).unwrap();
+                let mut interner = dartforge_intern::Interner::new();
+                let (program, diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+                assert!(diags.is_empty(), "{diags:?}");
+                inventory(&program, &interner, crate::sdk_modulo::SOURCE_LIBRARIES)
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        let names: std::collections::BTreeSet<&str> = externals.iter().filter_map(|e| e.native.as_deref()).collect();
+        let without_entry: Vec<&&str> = names.iter().filter(|n| native(n).is_none()).collect();
+        assert!(without_entry.is_empty(), "natives da fonte sem entrada em NATIVOS: {without_entry:?}");
+        let leftover: Vec<&str> = NATIVES.iter().map(|n| n.name).filter(|n| !names.contains(n)).collect();
+        assert!(leftover.is_empty(), "entradas de NATIVOS que não são mais natives da fonte: {leftover:?}");
+        // Um `external` sem patch sem native nem `vm:recognized` não tem
+        // implementação em lugar nenhum — nem na VM.
+        let orphans: Vec<String> = externals
+            .iter()
+            .filter(|e| e.native.is_none() && !e.recognized)
+            .map(|e| format!("{}::{}", e.library, e.member))
+            .collect();
+        println!("externals: {} natives distintos, {} intrínsecos, {} sem pragma", names.len(), externals.iter().filter(|e| e.native.is_none() && e.recognized).count(), orphans.len());
+        for o in &orphans {
+            println!("  sem pragma: {o}");
+        }
+    }
+}

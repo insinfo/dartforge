@@ -10,19 +10,19 @@
 //! o objeto fica como está. Depois do inlining do construtor e dos
 //! métodos, os temporários do tipo `Ponto(a, b).x` somem.
 
-use super::operandos::*;
+use super::operands::*;
 use crate::hir::*;
 use std::collections::HashMap;
 
-/// Um acesso ao campo `indice` de um objeto candidato.
-enum Acesso {
+/// Um acesso ao campo `index` de um objeto candidato.
+enum Access {
     /// Leitura: representação lógica tipada ou bits legados em `I64`.
     Le(Type),
     /// Gravação: o valor e se é referência.
-    Grava(Type, bool),
+    Writes(Type, bool),
 }
 
-fn indice(o: &Operand) -> Option<usize> {
+fn const_index(o: &Operand) -> Option<usize> {
     match o {
         Operand::Constant(Constant::Int(i)) if *i >= 0 => Some(*i as usize),
         _ => None,
@@ -38,9 +38,9 @@ fn flag(o: &Operand) -> Option<bool> {
 }
 
 /// Substitui os objetos que não escapam de `func`. Devolve se mudou.
-pub fn substituir_objetos(func: &mut Function) -> bool {
-    let tipos = tipos_da_funcao(func);
-    let mut candidatos: HashMap<ValueId, Vec<(usize, Acesso)>> = HashMap::new();
+pub fn replace_objects(func: &mut Function) -> bool {
+    let types = function_types(func);
+    let mut candidates: HashMap<ValueId, Vec<(usize, Access)>> = HashMap::new();
     for b in &func.blocks {
         for (v, inst, _) in &b.instructions {
             // Só objetos do programa (cid ≥ 128): as classes do runtime têm
@@ -50,158 +50,158 @@ pub fn substituir_objetos(func: &mut Function) -> bool {
                 && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                     if *c >= dartforge_runtime::layout::PRIMEIRO_CID_LIVRE)
             {
-                candidatos.insert(*v, Vec::new());
+                candidates.insert(*v, Vec::new());
             }
         }
     }
-    if candidatos.is_empty() {
+    if candidates.is_empty() {
         return false;
     }
-    let mut fugiu: std::collections::HashSet<ValueId> = std::collections::HashSet::new();
+    let mut escaped: std::collections::HashSet<ValueId> = std::collections::HashSet::new();
     for b in &func.blocks {
         for (_, inst, ty) in &b.instructions {
             // O acesso reconhecido: o objeto e o campo, fora de outra posição.
-            let reconhecido = match inst {
+            let recognized = match inst {
                 Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
-                    match (&args[0].0, indice(&args[1].0)) {
-                        (Operand::Val(o), Some(i)) if candidatos.contains_key(o) => Some((*o, i, Acesso::Le(*ty), None)),
+                    match (&args[0].0, const_index(&args[1].0)) {
+                        (Operand::Val(o), Some(i)) if candidates.contains_key(o) => Some((*o, i, Access::Le(*ty), None)),
                         _ => None,
                     }
                 }
                 Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
-                    match (&args[0].0, indice(&args[1].0), flag(&args[3].0)) {
-                        (Operand::Val(o), Some(i), Some(r)) if candidatos.contains_key(o) => {
-                            let t = tipo_do_operando(&args[2].0, &tipos).unwrap_or(Type::Void);
-                            Some((*o, i, Acesso::Grava(t, r), Some(&args[2].0)))
+                    match (&args[0].0, const_index(&args[1].0), flag(&args[3].0)) {
+                        (Operand::Val(o), Some(i), Some(r)) if candidates.contains_key(o) => {
+                            let t = operand_type(&args[2].0, &types).unwrap_or(Type::Void);
+                            Some((*o, i, Access::Writes(t, r), Some(&args[2].0)))
                         }
                         _ => None,
                     }
                 }
-                Instruction::GetField { object: Operand::Val(o), index } if candidatos.contains_key(o) => {
-                    Some((*o, *index, Acesso::Le(*ty), None))
+                Instruction::GetField { object: Operand::Val(o), index } if candidates.contains_key(o) => {
+                    Some((*o, *index, Access::Le(*ty), None))
                 }
-                Instruction::SetField { object: Operand::Val(o), index, value } if candidatos.contains_key(o) => {
-                    let t = tipo_do_operando(value, &tipos).unwrap_or(Type::Void);
-                    Some((*o, *index, Acesso::Grava(t, t == Type::Ref), Some(value)))
+                Instruction::SetField { object: Operand::Val(o), index, value } if candidates.contains_key(o) => {
+                    let t = operand_type(value, &types).unwrap_or(Type::Void);
+                    Some((*o, *index, Access::Writes(t, t == Type::Ref), Some(value)))
                 }
                 _ => None,
             };
-            match reconhecido {
-                Some((o, i, acesso, valor)) => {
+            match recognized {
+                Some((o, i, access, val_ref)) => {
                     // O próprio objeto gravado num campo (dele ou de outro).
-                    if let Some(Operand::Val(x)) = valor
-                        && candidatos.contains_key(x)
+                    if let Some(Operand::Val(x)) = val_ref
+                        && candidates.contains_key(x)
                     {
-                        fugiu.insert(*x);
+                        escaped.insert(*x);
                     }
-                    candidatos.get_mut(&o).expect("candidato").push((i, acesso));
+                    candidates.get_mut(&o).expect("candidato").push((i, access));
                 }
-                None => operandos(inst, &mut |op| {
+                None => operands(inst, &mut |op| {
                     if let Operand::Val(x) = op
-                        && candidatos.contains_key(x)
+                        && candidates.contains_key(x)
                         && !matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new")
                     {
-                        fugiu.insert(*x);
+                        escaped.insert(*x);
                     }
                 }),
             }
         }
-        operandos_do_terminador(&b.terminator, &mut |op| {
+        terminator_operands(&b.terminator, &mut |op| {
             if let Operand::Val(x) = op
-                && candidatos.contains_key(x)
+                && candidates.contains_key(x)
             {
-                fugiu.insert(*x);
+                escaped.insert(*x);
             }
         });
     }
 
     // Todos os acessos devem concordar na representação do campo;
     // leituras tipadas não podem carregar uma gravação legada em bits.
-    let mut locais: HashMap<(ValueId, usize), Type> = HashMap::new();
-    let mut ordem: Vec<ValueId> = candidatos.keys().copied().filter(|v| !fugiu.contains(v)).collect();
-    ordem.sort_by_key(|v| v.0);
-    let mut aceitos = Vec::new();
-    'objetos: for v in ordem {
-        let mut campos: HashMap<usize, Type> = HashMap::new();
-        for (i, a) in &candidatos[&v] {
+    let mut locals: HashMap<(ValueId, usize), Type> = HashMap::new();
+    let mut order: Vec<ValueId> = candidates.keys().copied().filter(|v| !escaped.contains(v)).collect();
+    order.sort_by_key(|v| v.0);
+    let mut accepted = Vec::new();
+    'objetos: for v in order {
+        let mut fields: HashMap<usize, Type> = HashMap::new();
+        for (i, a) in &candidates[&v] {
             let t = match a {
-                Acesso::Le(t) => *t,
-                Acesso::Grava(t, true) if *t == Type::Ref => Type::Ref,
-                Acesso::Grava(t, false) if matches!(t, Type::I64 | Type::F64 | Type::I1 | Type::I8) => *t,
+                Access::Le(t) => *t,
+                Access::Writes(t, true) if *t == Type::Ref => Type::Ref,
+                Access::Writes(t, false) if matches!(t, Type::I64 | Type::F64 | Type::I1 | Type::I8) => *t,
                 _ => continue 'objetos,
             };
-            if !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I1 | Type::I8) || *campos.entry(*i).or_insert(t) != t {
+            if !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I1 | Type::I8) || *fields.entry(*i).or_insert(t) != t {
                 continue 'objetos;
             }
         }
-        for (i, t) in campos {
-            locais.insert((v, i), t);
+        for (i, t) in fields {
+            locals.insert((v, i), t);
         }
-        aceitos.push(v);
+        accepted.push(v);
     }
-    if aceitos.is_empty() {
+    if accepted.is_empty() {
         return false;
     }
 
     // Um local por campo, na entrada.
-    let (mut prox, _) = maiores_ids(func);
-    let mut chaves: Vec<(ValueId, usize)> = locais.keys().copied().collect();
-    chaves.sort_by_key(|(v, i)| (v.0, *i));
-    let mut enderecos: HashMap<(ValueId, usize), ValueId> = HashMap::new();
+    let (mut next, _) = largest_ids(func);
+    let mut keys: Vec<(ValueId, usize)> = locals.keys().copied().collect();
+    keys.sort_by_key(|(v, i)| (v.0, *i));
+    let mut addresses: HashMap<(ValueId, usize), ValueId> = HashMap::new();
     let mut allocas = Vec::new();
-    let mut inicializacoes: HashMap<ValueId, Vec<(ValueId, Instruction, Type)>> = HashMap::new();
-    for k in chaves {
-        prox += 1;
-        enderecos.insert(k, ValueId(prox));
-        allocas.push((ValueId(prox), Instruction::Alloca(locais[&k]), Type::Ptr));
-        if matches!(locais[&k], Type::F64 | Type::I1 | Type::I8) {
+    let mut initializations: HashMap<ValueId, Vec<(ValueId, Instruction, Type)>> = HashMap::new();
+    for k in keys {
+        next += 1;
+        addresses.insert(k, ValueId(next));
+        allocas.push((ValueId(next), Instruction::Alloca(locals[&k]), Type::Ptr));
+        if matches!(locals[&k], Type::F64 | Type::I1 | Type::I8) {
             // Reinicializa no ponto da alocação, não na entrada: uma alocação
             // dentro de um laço começa zerada em cada iteração.
-            let val = match locais[&k] {
+            let val = match locals[&k] {
                 Type::F64 => Operand::Constant(Constant::Double(0.0)),
                 Type::I1 => Operand::Constant(Constant::Bool(false)),
                 _ => Operand::Constant(Constant::Int(0)),
             };
-            prox += 1;
-            inicializacoes.entry(k.0).or_default().push((ValueId(prox), Instruction::Store {
-                ptr: Operand::Val(enderecos[&k]), val,
+            next += 1;
+            initializations.entry(k.0).or_default().push((ValueId(next), Instruction::Store {
+                ptr: Operand::Val(addresses[&k]), val,
             }, Type::Void));
         }
     }
-    let aceitos: std::collections::HashSet<ValueId> = aceitos.into_iter().collect();
+    let accepted: std::collections::HashSet<ValueId> = accepted.into_iter().collect();
     for b in &mut func.blocks {
         b.instructions = std::mem::take(&mut b.instructions).into_iter().flat_map(|inst| {
-            if aceitos.contains(&inst.0) {
-                inicializacoes.remove(&inst.0).unwrap_or_default()
+            if accepted.contains(&inst.0) {
+                initializations.remove(&inst.0).unwrap_or_default()
             } else { vec![inst] }
         }).collect();
         for (_, inst, ty) in &mut b.instructions {
-            let novo = match inst {
+            let new = match inst {
                 Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
-                    match (&args[0].0, indice(&args[1].0)) {
-                        (Operand::Val(o), Some(i)) if aceitos.contains(o) => {
-                            Some(Instruction::Load { ptr: Operand::Val(enderecos[&(*o, i)]), ty: *ty })
+                    match (&args[0].0, const_index(&args[1].0)) {
+                        (Operand::Val(o), Some(i)) if accepted.contains(o) => {
+                            Some(Instruction::Load { ptr: Operand::Val(addresses[&(*o, i)]), ty: *ty })
                         }
                         _ => None,
                     }
                 }
                 Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
-                    match (&args[0].0, indice(&args[1].0)) {
-                        (Operand::Val(o), Some(i)) if aceitos.contains(o) => {
-                            Some(Instruction::Store { ptr: Operand::Val(enderecos[&(*o, i)]), val: args[2].0.clone() })
+                    match (&args[0].0, const_index(&args[1].0)) {
+                        (Operand::Val(o), Some(i)) if accepted.contains(o) => {
+                            Some(Instruction::Store { ptr: Operand::Val(addresses[&(*o, i)]), val: args[2].0.clone() })
                         }
                         _ => None,
                     }
                 }
-                Instruction::GetField { object: Operand::Val(o), index } if aceitos.contains(o) => {
-                    Some(Instruction::Load { ptr: Operand::Val(enderecos[&(*o, *index)]), ty: *ty })
+                Instruction::GetField { object: Operand::Val(o), index } if accepted.contains(o) => {
+                    Some(Instruction::Load { ptr: Operand::Val(addresses[&(*o, *index)]), ty: *ty })
                 }
-                Instruction::SetField { object: Operand::Val(o), index, value } if aceitos.contains(o) => {
-                    Some(Instruction::Store { ptr: Operand::Val(enderecos[&(*o, *index)]), val: value.clone() })
+                Instruction::SetField { object: Operand::Val(o), index, value } if accepted.contains(o) => {
+                    Some(Instruction::Store { ptr: Operand::Val(addresses[&(*o, *index)]), val: value.clone() })
                 }
                 _ => None,
             };
-            if let Some(n) = novo {
+            if let Some(n) = new {
                 if matches!(n, Instruction::Store { .. }) {
                     *ty = Type::Void;
                 }

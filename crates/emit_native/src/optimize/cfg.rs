@@ -2,13 +2,13 @@
 //! árvore de dominância (Cooper, Harvey e Kennedy, "A Simple, Fast
 //! Dominance Algorithm"), com as fronteiras de dominância.
 
-use super::operandos::sucessores_mut;
+use super::operands::successors_mut;
 use crate::hir::*;
 use std::collections::HashMap;
 
 pub struct Cfg {
-    pub sucessores: Vec<Vec<usize>>,
-    pub predecessores: Vec<Vec<usize>>,
+    pub successors: Vec<Vec<usize>>,
+    pub predecessors: Vec<Vec<usize>>,
     /// Ordem reversa pós-ordem a partir da entrada (só os alcançáveis).
     pub rpo: Vec<usize>,
     /// O dominador imediato de cada bloco alcançável (a entrada aponta
@@ -16,91 +16,91 @@ pub struct Cfg {
     pub idom: Vec<usize>,
 }
 
-pub fn sucessores(t: &Terminator) -> Vec<BlockId> {
+pub fn successors(t: &Terminator) -> Vec<BlockId> {
     let mut t = t.clone();
     let mut v = Vec::new();
-    sucessores_mut(&mut t, &mut |b| v.push(*b));
+    successors_mut(&mut t, &mut |b| v.push(*b));
     v
 }
 
 impl Cfg {
-    pub fn novo(func: &Function) -> Cfg {
+    pub fn new(func: &Function) -> Cfg {
         let pos: HashMap<BlockId, usize> = func.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
         let n = func.blocks.len();
-        let mut suc = vec![Vec::new(); n];
+        let mut succ = vec![Vec::new(); n];
         let mut pred = vec![Vec::new(); n];
         for (i, b) in func.blocks.iter().enumerate() {
-            for s in sucessores(&b.terminator) {
+            for s in successors(&b.terminator) {
                 if let Some(&j) = pos.get(&s)
-                    && !suc[i].contains(&j)
+                    && !succ[i].contains(&j)
                 {
-                    suc[i].push(j);
+                    succ[i].push(j);
                     pred[j].push(i);
                 }
             }
         }
         // Pós-ordem iterativa a partir da entrada (posição 0).
-        let mut visto = vec![false; n];
-        let mut pos_ordem = Vec::with_capacity(n);
+        let mut seen = vec![false; n];
+        let mut post_order = Vec::with_capacity(n);
         if n > 0 {
-            let mut pilha = vec![(0usize, 0usize)];
-            visto[0] = true;
-            while let Some((b, k)) = pilha.last_mut() {
-                if *k < suc[*b].len() {
-                    let s = suc[*b][*k];
+            let mut stack = vec![(0usize, 0usize)];
+            seen[0] = true;
+            while let Some((b, k)) = stack.last_mut() {
+                if *k < succ[*b].len() {
+                    let s = succ[*b][*k];
                     *k += 1;
-                    if !visto[s] {
-                        visto[s] = true;
-                        pilha.push((s, 0));
+                    if !seen[s] {
+                        seen[s] = true;
+                        stack.push((s, 0));
                     }
                 } else {
-                    pos_ordem.push(*b);
-                    pilha.pop();
+                    post_order.push(*b);
+                    stack.pop();
                 }
             }
         }
-        let rpo: Vec<usize> = pos_ordem.iter().rev().copied().collect();
-        let mut ordem = vec![usize::MAX; n];
+        let rpo: Vec<usize> = post_order.iter().rev().copied().collect();
+        let mut order = vec![usize::MAX; n];
         for (k, &b) in rpo.iter().enumerate() {
-            ordem[b] = k;
+            order[b] = k;
         }
         let mut idom = vec![usize::MAX; n];
         if n > 0 {
             idom[0] = 0;
         }
-        let mut mudou = true;
-        while mudou {
-            mudou = false;
+        let mut changed = true;
+        while changed {
+            changed = false;
             for &b in rpo.iter().skip(1) {
-                let mut novo = usize::MAX;
+                let mut new = usize::MAX;
                 for &p in &pred[b] {
                     if idom[p] == usize::MAX {
                         continue;
                     }
-                    novo = if novo == usize::MAX { p } else { intersecao(&idom, &ordem, p, novo) };
+                    new = if new == usize::MAX { p } else { intersection(&idom, &order, p, new) };
                 }
-                if novo != usize::MAX && idom[b] != novo {
-                    idom[b] = novo;
-                    mudou = true;
+                if new != usize::MAX && idom[b] != new {
+                    idom[b] = new;
+                    changed = true;
                 }
             }
         }
-        Cfg { sucessores: suc, predecessores: pred, rpo, idom }
+        Cfg { successors: succ, predecessors: pred, rpo, idom }
     }
 
-    pub fn alcancavel(&self, b: usize) -> bool {
+    pub fn reachable(&self, b: usize) -> bool {
         self.idom[b] != usize::MAX
     }
 
     /// As fronteiras de dominância de cada bloco alcançável.
-    pub fn fronteiras(&self) -> Vec<Vec<usize>> {
+    pub fn boundaries(&self) -> Vec<Vec<usize>> {
         let n = self.idom.len();
         let mut df = vec![Vec::new(); n];
         for b in 0..n {
-            if !self.alcancavel(b) {
+            if !self.reachable(b) {
                 continue;
             }
-            let preds: Vec<usize> = self.predecessores[b].iter().copied().filter(|&p| self.alcancavel(p)).collect();
+            let preds: Vec<usize> = self.predecessors[b].iter().copied().filter(|&p| self.reachable(p)).collect();
             if preds.len() < 2 {
                 continue;
             }
@@ -121,7 +121,7 @@ impl Cfg {
     }
 
     /// Os filhos de cada bloco na árvore de dominância.
-    pub fn filhos(&self) -> Vec<Vec<usize>> {
+    pub fn children(&self) -> Vec<Vec<usize>> {
         let mut f = vec![Vec::new(); self.idom.len()];
         for &b in &self.rpo {
             if b != 0 {
@@ -132,12 +132,12 @@ impl Cfg {
     }
 }
 
-fn intersecao(idom: &[usize], ordem: &[usize], mut a: usize, mut b: usize) -> usize {
+fn intersection(idom: &[usize], order: &[usize], mut a: usize, mut b: usize) -> usize {
     while a != b {
-        while ordem[a] > ordem[b] {
+        while order[a] > order[b] {
             a = idom[a];
         }
-        while ordem[b] > ordem[a] {
+        while order[b] > order[a] {
             b = idom[b];
         }
     }

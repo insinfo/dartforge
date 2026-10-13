@@ -1,29 +1,29 @@
 //! Compilador nativo LLVM do DartForge sobre a trilha nova.
 
 pub mod alvo;
-pub mod apagamento;
+pub mod erasure;
 pub mod cache;
-pub mod cache_objeto;
+pub mod object_cache;
 pub mod context;
 pub mod driver;
-pub mod fonte;
-mod finalizaveis;
+pub mod source;
+mod finalizables;
 pub mod gcmap;
-pub mod rastro_compacto;
+pub mod compact_stack_trace;
 pub mod gerador;
 pub mod ligador;
 pub mod ligador_macos;
 pub mod ligador_windows;
 #[cfg(feature = "llvm-embutido")]
-pub mod lto_distribuida;
+pub mod distributed_lto;
 pub mod hir;
 pub mod llvm;
 pub mod lower;
-pub mod mundo_nativo;
-pub mod particao;
-pub mod nativos;
+pub mod native_world;
+pub mod partition;
+pub mod natives;
 pub mod optimize;
-pub mod poda;
+pub mod pruning;
 pub mod resumo;
 pub mod sdk_modulo;
 
@@ -42,12 +42,12 @@ pub struct CompileOptions<'a> {
     pub packages: Option<&'a Path>,
     pub timings: bool,
     pub optimize: bool,
-    /// Versão de linguagem corrente (`--versao-linguagem`, docs/VERSOES-LINGUAGEM.md);
+    /// Versão de linguagem corrente (`--version-linguagem`, docs/VERSOES-LINGUAGEM.md);
     /// `None` = a da ferramenta (3.13).
     pub versao_linguagem: Option<dartforge_frontend::LanguageVersion>,
     /// Experimentos pedidos explicitamente para bibliotecas na versão corrente.
     pub experimentos: Vec<dartforge_frontend::Feature>,
-    /// J05: tabelas de linha para o depurador nativo (`llvm/depuracao.rs`).
+    /// J05: tabelas de linha para o depurador nativo (`llvm/debug_info.rs`).
     pub depuracao: bool,
     /// Quem produz as fontes geradas do projeto (o motor de build,
     /// `crates/build`) a partir do programa carregado sem elas — o mesmo
@@ -68,12 +68,12 @@ pub type Gerador<'a> = &'a (dyn Fn(
 
 /// Tempo de cada fase da emissão (tudo antes do Clang).
 #[derive(Debug, Clone, Copy, Default)]
-pub struct TemposEmissao {
+pub struct EmissionTimes {
     pub frontend: Duration,
-    /// O mundo fechado do programa (`mundo_nativo.rs`).
-    pub mundo: Duration,
+    /// O mundo fechado do programa (`native_world.rs`).
+    pub world: Duration,
     /// Funções do programa vivas no mundo fechado / todas (0/0 sem poda).
-    pub funcoes_vivas: (usize, usize),
+    pub live_functions: (usize, usize),
     pub hir: Duration,
     pub llvm_ir: Duration,
 }
@@ -82,84 +82,84 @@ pub struct TemposEmissao {
 #[derive(Debug, Clone)]
 pub struct IrEmitido {
     pub texto: String,
-    pub tempos: TemposEmissao,
-    /// Bytes de `texto` que são corpo de função do SDK (`dart:`); ver
-    /// `bytes_do_sdk`.
-    pub bytes_sdk: usize,
+    pub tempos: EmissionTimes,
+    /// Bytes de `text` que são corpo de função do SDK (`dart:`); ver
+    /// `sdk_bytes`.
+    pub sdk_byte_count: usize,
 }
 
 impl IrEmitido {
     /// As linhas de `--timings` da emissão, no formato de [`compilar`].
     pub fn imprimir_tempos(&self) {
         eprintln!("  Front-end: {:?}", self.tempos.frontend);
-        let (vivas, todas) = self.tempos.funcoes_vivas;
-        eprintln!("  Mundo:     {:?} ({vivas} de {todas} funções do programa vivas)", self.tempos.mundo);
+        let (live_set, all) = self.tempos.live_functions;
+        eprintln!("  Mundo:     {:?} ({live_set} de {all} funções do programa vivas)", self.tempos.world);
         eprintln!("  HIR:       {:?}", self.tempos.hir);
         eprintln!("  LLVM IR:   {:?}", self.tempos.llvm_ir);
-        let pct = if self.texto.is_empty() { 0.0 } else { 100.0 * self.bytes_sdk as f64 / self.texto.len() as f64 };
-        eprintln!("  IR:        {} bytes, {} do SDK ({pct:.1}%)", self.texto.len(), self.bytes_sdk);
+        let pct = if self.texto.is_empty() { 0.0 } else { 100.0 * self.sdk_byte_count as f64 / self.texto.len() as f64 };
+        eprintln!("  IR:        {} bytes, {} do SDK ({pct:.1}%)", self.texto.len(), self.sdk_byte_count);
     }
 }
 
 /// Começo de todo diagnóstico de construto que o lowering não sabe baixar
-/// (`FnBuilder::nao_suportado`, N1). [`construtos_do_erro`] é quem o lê.
-pub const PREFIXO_NAO_SUPORTADO: &str = "não suportado no backend nativo: ";
+/// (`FnBuilder::unsupported`, N1). [`construtos_do_erro`] é quem o lê.
+pub const UNSUPPORTED_PREFIX: &str = "não suportado no backend nativo: ";
 
-/// [`poda::podar_hir`] com os resumos das bibliotecas do SDK do perfil (o
+/// [`pruning::prune_hir`] com os resumos das bibliotecas do SDK do perfil (o
 /// SDK sai do cache, ou é compilado agora, como a ligação faria em
 /// seguida). `None` quando o módulo não usa o SDK da fonte.
-fn podar_hir_do_programa(module: &mut hir::Module, producao: bool) -> Result<Option<poda::PodaDaHir>, String> {
-    if module.biblioteca_sdk || module.registros_do_sdk.is_empty() {
+fn prune_program_hir(module: &mut hir::Module, production: bool) -> Result<Option<pruning::HirPruning>, String> {
+    if module.sdk_library || module.sdk_records.is_empty() {
         return Ok(None);
     }
-    let perfil = if producao { sdk_modulo::PerfilDoSdk::Producao } else { sdk_modulo::PerfilDoSdk::Desenvolvimento };
+    let profile = if production { sdk_modulo::SdkProfile::Production } else { sdk_modulo::SdkProfile::Development };
     let clang = driver::NativeDriverOptions::default().clang;
     // O mesmo diretório e o mesmo Clang da ligação (`driver::compile_and_link`):
     // a mesma chave de cache.
-    let sdk = sdk_modulo::sdk_compilado_no_perfil(&sdk_do_dart()?, &clang, perfil)?;
-    if !sdk.resumos.iter().all(|r| r.is_file()) {
+    let sdk = sdk_modulo::compiled_sdk_in_profile(&sdk_do_dart()?, &clang, profile)?;
+    if !sdk.summaries.iter().all(|r| r.is_file()) {
         return Ok(None);
     }
-    let resumos = poda::ler_resumos(&sdk.resumos)?;
-    let refs: Vec<&poda::Resumo> = resumos.iter().map(|r| r.as_ref()).collect();
-    Ok(Some(poda::podar_hir(module, &refs)))
+    let summaries = pruning::read_summaries(&sdk.summaries)?;
+    let refs: Vec<&pruning::Summary> = summaries.iter().map(|r| r.as_ref()).collect();
+    Ok(Some(pruning::prune_hir(module, &refs)))
 }
 
-/// A versão do SDK em `raiz` como a VM a escreve em `Platform.version`
+/// A versão do SDK em `root` como a VM a escreve em `Platform.version`
 /// (`VM/runtime/vm/version_in.cc:33`, `{{VERSION_STR}} ({{CHANNEL}})
 /// ({{COMMIT_TIME}})`): `3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800)`,
 /// sem o ` on "<sistema>"` que o runtime põe. A data do commit só o próprio
 /// `dart` sabe: a primeira compilação a pergunta (`dart --version`) e a
 /// guarda no cache nativo, pela versão; sem o `dart`, só o número do arquivo
 /// `version` (o `sqlite3` imprime o `Platform.version`).
-fn versao_do_sdk(raiz: &Path) -> Option<String> {
-    let numero = std::fs::read_to_string(raiz.join("version")).ok()?.trim().to_string();
-    let guardada = cache::dir_cache_nativo().join(format!("versao_do_sdk_{numero}.txt"));
-    if let Ok(v) = std::fs::read_to_string(&guardada)
-        && v.starts_with(&numero)
+fn sdk_version(root: &Path) -> Option<String> {
+    let number = std::fs::read_to_string(root.join("version")).ok()?.trim().to_string();
+    let saved = cache::native_cache_dir().join(format!("versao_do_sdk_{number}.txt"));
+    if let Ok(v) = std::fs::read_to_string(&saved)
+        && v.starts_with(&number)
     {
         return Some(v.trim().to_string());
     }
-    let dart = raiz.join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" });
-    let completa = std::process::Command::new(&dart)
+    let dart = root.join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" });
+    let complete = std::process::Command::new(&dart)
         .arg("--version")
         .output()
         .ok()
         .and_then(|s| {
             // `Dart SDK version: 3.6.2 (stable) (…) on "windows_x64"` (na
             // saída padrão desde o 2.15; antes, na de erro).
-            let texto = format!("{}{}", String::from_utf8_lossy(&s.stdout), String::from_utf8_lossy(&s.stderr));
-            let resto = texto.split("Dart SDK version: ").nth(1)?;
-            let v = resto.split(" on \"").next()?.trim().to_string();
-            v.starts_with(&numero).then_some(v)
+            let text = format!("{}{}", String::from_utf8_lossy(&s.stdout), String::from_utf8_lossy(&s.stderr));
+            let rest = text.split("Dart SDK version: ").nth(1)?;
+            let v = rest.split(" on \"").next()?.trim().to_string();
+            v.starts_with(&number).then_some(v)
         });
-    match completa {
+    match complete {
         Some(v) => {
-            let _ = std::fs::create_dir_all(cache::dir_cache_nativo());
-            let _ = std::fs::write(&guardada, &v);
+            let _ = std::fs::create_dir_all(cache::native_cache_dir());
+            let _ = std::fs::write(&saved, &v);
             Some(v)
         }
-        None => Some(numero),
+        None => Some(number),
     }
 }
 
@@ -167,34 +167,34 @@ fn versao_do_sdk(raiz: &Path) -> Option<String> {
 /// como grande (`compile`, campos e ajudantes por chamada): o
 /// new_sali/backend tem ~200 mil; os programas do corpus e os benchmarks,
 /// poucos milhares.
-pub const FUNCOES_DO_PROGRAMA_GRANDE: usize = 50_000;
+pub const LARGE_PROGRAM_FUNCTIONS: usize = 50_000;
 
 /// O erro de um módulo com diagnósticos do lowering.
 ///
-/// A primeira linha é `erro de compilação: ` e o primeiro diagnóstico **sem a
+/// A primeira linha é `error de compilação: ` e o primeiro diagnóstico **sem a
 /// posição**: é a chave de agrupamento do harness, e o mesmo construto em
 /// programas diferentes tem de cair no mesmo grupo. Depois vem uma linha por
 /// diagnóstico, todos eles, com a posição e recuados dois espaços.
-fn erro_de_compilacao(erros: &[String]) -> String {
-    let primeiro = &erros[0];
-    let resumo = primeiro.rsplit_once(" (").map_or(primeiro.as_str(), |(a, _)| a);
-    let mut texto = format!("erro de compilação: {resumo}");
-    for e in erros {
-        texto.push_str("\n  ");
-        texto.push_str(e);
+fn compile_error(errors: &[String]) -> String {
+    let first_one = &errors[0];
+    let resumo = first_one.rsplit_once(" (").map_or(first_one.as_str(), |(a, _)| a);
+    let mut text = format!("erro de compilação: {resumo}");
+    for e in errors {
+        text.push_str("\n  ");
+        text.push_str(e);
     }
-    texto
+    text
 }
 
 /// Os construtos não suportados de um erro de [`emitir_ir`]/[`compilar`], ou
 /// de um texto que o contenha (o stderr que o harness monta com ele): um por
 /// diagnóstico, na ordem, sem a posição. Vazio quando o erro não é de
 /// construto (carga, pânico, verificador da HIR).
-pub fn construtos_do_erro(texto: &str) -> Vec<String> {
-    texto
+pub fn construtos_do_erro(text: &str) -> Vec<String> {
+    text
         .lines()
         .filter_map(|l| {
-            let d = l.strip_prefix("  ")?.strip_prefix(PREFIXO_NAO_SUPORTADO)?;
+            let d = l.strip_prefix("  ")?.strip_prefix(UNSUPPORTED_PREFIX)?;
             Some(d.rsplit_once(" (").map_or(d, |(a, _)| a).to_string())
         })
         .collect()
@@ -203,7 +203,7 @@ pub fn construtos_do_erro(texto: &str) -> Vec<String> {
 /// Carrega, analisa e baixa um programa até o LLVM IR, sem Clang nem ligação.
 ///
 /// É a parte de [`compilar`] que é nossa: o teste de determinismo do harness
-/// compara só isto (`dartforge-differential determinismo --nativo`), e
+/// compara só isto (`dartforge-differential determinismo --native`), e
 /// `compile-native --emit-ir` grava isto. Diagnósticos de carga vão na
 /// mensagem de erro, e não no stderr, para não se entrelaçarem quando várias
 /// emissões rodam no mesmo processo. A primeira linha é o primeiro
@@ -211,9 +211,9 @@ pub fn construtos_do_erro(texto: &str) -> Vec<String> {
 /// contagem ("1 erro(s)") juntava num grupo só causas diferentes.
 ///
 /// Construto não suportado também é `Err`, com **todos** os diagnósticos do
-/// módulo (formato em `erro_de_compilacao`); nenhum IR é emitido.
-pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
-    emitir_ir_com(entrada, options)
+/// módulo (formato em `compile_error`); nenhum IR é emitido.
+pub fn emitir_ir(entry: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
+    emit_ir_with(entry, options)
 }
 
 /// O `lib/` do SDK do Dart: o que [`SdkLayout::discover`] acha (a variável
@@ -236,64 +236,64 @@ pub fn sdk_do_dart() -> Result<PathBuf, String> {
 /// DLL (`identical('a'.substring(1, 1), '')` dava falso). Sem estáticos, o
 /// literal do programa é internado no heap e canonicalizado contra os
 /// estáticos da DLL, como no JIT.
-pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
-    emitir_ir_interno(entrada, options, None, None, options.optimize, true)
+pub fn emit_ir_with(entry: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
+    emit_ir_internal(entry, options, None, None, options.optimize, true)
 }
 
 /// [`emitir_ir`] de uma geração nova de um programa em execução (o hot
-/// reload do JIT): `ir_anterior` é o IR da geração viva, de onde sai o layout
-/// da área de globais que a geração nova estende ([`area_do_ir`]).
-pub fn emitir_ir_recarregavel(entrada: &Path, options: &CompileOptions, ir_anterior: Option<&str>) -> Result<IrEmitido, String> {
-    let area = ir_anterior.and_then(area_do_ir);
+/// reload do JIT): `previous_ir` é o IR da geração viva, de onde sai o layout
+/// da área de globais que a geração nova estende ([`ir_area`]).
+pub fn emitir_ir_recarregavel(entry: &Path, options: &CompileOptions, previous_ir: Option<&str>) -> Result<IrEmitido, String> {
+    let area = previous_ir.and_then(ir_area);
     // J03: a mesma classe com o mesmo id da geração viva.
-    let ids = ir_anterior.map(context::ids_do_ir);
+    let ids = previous_ir.map(context::ir_ids);
     // O JIT libera a memória de uma geração (J02): sem objetos estáticos nos
     // módulos do programa (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
-    emitir_ir_interno(entrada, options, area, ids, false, false)
+    emit_ir_internal(entry, options, area, ids, false, false)
 }
 
 /// Os nomes (hashes) dos slots da área de globais do programa no IR `ir`:
-/// o `@df.area = … [chave, n, nome_0…]` que o emissor escreve.
-pub fn area_do_ir(ir: &str) -> Option<Vec<i64>> {
-    let linha = ir.lines().find(|l| l.starts_with("@df.area = "))?;
-    let lista = &linha[linha.rfind('[')? + 1..linha.rfind(']')?];
-    let valores: Vec<i64> = lista
+/// o `@df.area = … [key, n, nome_0…]` que o emissor escreve.
+pub fn ir_area(ir: &str) -> Option<Vec<i64>> {
+    let line = ir.lines().find(|l| l.starts_with("@df.area = "))?;
+    let list = &line[line.rfind('[')? + 1..line.rfind(']')?];
+    let values: Vec<i64> = list
         .split(',')
         .map(|v| v.trim().strip_prefix("i64 ").and_then(|n| n.trim().parse().ok()))
         .collect::<Option<_>>()?;
-    let n = usize::try_from(*valores.get(1)?).ok()?;
-    (valores.len() == n + 2).then(|| valores[2..].to_vec())
+    let n = usize::try_from(*values.get(1)?).ok()?;
+    (values.len() == n + 2).then(|| values[2..].to_vec())
 }
 
-fn emitir_ir_interno(
-    entrada: &Path,
+fn emit_ir_internal(
+    entry: &Path,
     options: &CompileOptions,
-    area_anterior: Option<Vec<i64>>,
-    ids_anteriores: Option<std::collections::HashMap<(String, String), u32>>,
-    objetos_estaticos: bool,
-    podar: bool,
+    previous_area: Option<Vec<i64>>,
+    previous_ids: Option<std::collections::HashMap<(String, String), u32>>,
+    static_objects: bool,
+    prune: bool,
 ) -> Result<IrEmitido, String> {
     // O modelo de exceções (`alvo::excecoes_por_tabelas`). O JIT (o único
     // que emite sem a poda) não tem as tabelas: o código dele não registra
     // as tabelas de desenrolamento no sistema.
     let excecoes_por_tabelas = alvo::excecoes_por_tabelas()?;
-    if excecoes_por_tabelas && !podar {
+    if excecoes_por_tabelas && !prune {
         return Err("as exceções por tabelas (DARTFORGE_EXCECOES=tabelas) não existem no JIT: use compile-native".to_string());
     }
     // O modo de raízes (`alvo::raizes_por_mapas`). No JIT (o único que emite
     // sem a poda) o mapa de cada objeto é achado e registrado pelo
     // gerenciador de memória da sessão (`crates/jit`, §3.8).
     let raizes_por_mapas = alvo::raizes_por_mapas()?;
-    // A política de memória (`alvo::memoria_arc`), no AOT e no JIT: a
+    // A política de memória (`alvo::arc_memory`), no AOT e no JIT: a
     // migração de instâncias da recarga conta pela foto
     // (`Heap::trocar_campos`, docs/ARC-IMPLEMENTACAO.md).
-    let memoria_arc = alvo::memoria_arc()?;
-    let mapas_no_jit = raizes_por_mapas && !podar;
+    let arc_memory = alvo::arc_memory()?;
+    let maps_in_jit = raizes_por_mapas && !prune;
     // O rastro simbólico (§13.14). No JIT a tabela de cada objeto é
     // registrada pelo gerenciador de memória da sessão (`crates/jit`), e o
     // módulo sai sem os símbolos do ligador e sem a chamada de registro.
-    let rastro_simbolico = alvo::rastro_simbolico()?;
-    let rastro_no_jit = rastro_simbolico && !podar;
+    let symbolic_stack_trace = alvo::symbolic_stack_trace()?;
+    let stack_trace_in_jit = symbolic_stack_trace && !prune;
     // 1. Carregamento e Inferência (Front-end)
     let t_front = Instant::now();
     let sdk_dir = match options.sdk {
@@ -302,18 +302,18 @@ fn emitir_ir_interno(
     };
 
     // A seção `vm` com a sobreposição `native_sdk/` (P5a): as bibliotecas de
-    // `BIBLIOTECAS_DA_FONTE` são as dela, ligadas como objetos em cache
-    // (`sdk_modulo::sdk_compilado`). `mut`: a
-    // versão de linguagem corrente pode vir de `--versao-linguagem` (Dart
+    // `SOURCE_LIBRARIES` são as dela, ligadas como objetos em cache
+    // (`sdk_modulo::compiled_sdk`). `mut`: a
+    // versão de linguagem corrente pode vir de `--version-linguagem` (Dart
     // moderno, P2).
-    let mut sdk = sdk_modulo::carregar_sdk_nativo(&sdk_dir)
+    let mut sdk = sdk_modulo::load_native_sdk(&sdk_dir)
         .map_err(|e| format!("falha ao carregar SDK VM: {e}"))?;
     if let Some(v) = options.versao_linguagem {
         sdk.versao_corrente = v;
     }
-    for experimento in &options.experimentos {
-        if !sdk.experimentos.contains(experimento) {
-            sdk.experimentos.push(*experimento);
+    for experiment in &options.experimentos {
+        if !sdk.experimentos.contains(experiment) {
+            sdk.experimentos.push(*experiment);
         }
     }
 
@@ -323,24 +323,24 @@ fn emitir_ir_interno(
     // a carga de verdade a lê antes do disco.
     let (program, elements_diags) = match options.gerador {
         Some(gerar) => {
-            let mut nomes_resolucao = Interner::new();
-            let (resolucao, _) = load_lenient(entrada, &sdk, options.packages, &mut nomes_resolucao);
-            let geracao = gerar(&resolucao, &nomes_resolucao)?;
+            let mut resolution_names = Interner::new();
+            let (resolution, _) = load_lenient(entry, &sdk, options.packages, &mut resolution_names);
+            let generation = gerar(&resolution, &resolution_names)?;
             dartforge_elements::load::load_lenient_gerados(
-                entrada,
+                entry,
                 &sdk,
                 options.packages,
                 &mut interner,
                 None,
                 None,
-                Some(geracao),
+                Some(generation),
             )
         }
-        None => load_lenient(entrada, &sdk, options.packages, &mut interner),
+        None => load_lenient(entry, &sdk, options.packages, &mut interner),
     };
-    if let Some((primeiro, resto)) = elements_diags.split_first() {
-        let mut msg = format!("erro ao carregar o programa: {primeiro}");
-        for d in resto {
+    if let Some((first_one, rest)) = elements_diags.split_first() {
+        let mut msg = format!("erro ao carregar o programa: {first_one}");
+        for d in rest {
             msg.push_str(&format!("\nerro: {d}"));
         }
         return Err(msg);
@@ -348,8 +348,8 @@ fn emitir_ir_interno(
     // As bibliotecas do SDK compiladas da fonte (P5c) são módulos à parte, em
     // cache: o programa não as baixa de novo; `dart:async` usado liga o laço
     // de eventos.
-    let usa_dart_async = !fonte::bibliotecas_da_fonte(&program, &interner).is_empty();
-    let bibliotecas_da_fonte: Vec<dartforge_elements::model::LibraryId> = Vec::new();
+    let uses_dart_async = !source::source_libraries(&program, &interner).is_empty();
+    let source_libraries: Vec<dartforge_elements::model::LibraryId> = Vec::new();
 
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
@@ -358,61 +358,61 @@ fn emitir_ir_interno(
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
     // Erros de linguagem dos recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md §3) e
     // leitura de local não definitivamente atribuído abortam
-    // (`codes::e_erro_de_compilacao`); o resto de `types` é aviso e não aparece aqui.
-    let mut erros = outline_diags
+    // (`codes::is_compile_error`); o resto de `types` é aviso e não aparece aqui.
+    let mut errors = outline_diags
         .iter()
         .chain(body_diags.iter())
         .filter(|d| dartforge_types::codes::e_erro_de_compilacao(&d.message));
-    if let Some(primeiro) = erros.next() {
-        let mut msg = format!("erro: {primeiro}");
-        for d in erros {
+    if let Some(first_one) = errors.next() {
+        let mut msg = format!("erro: {first_one}");
+        for d in errors {
             msg.push_str(&format!("\nerro: {d}"));
         }
         return Err(msg);
     }
 
-    let te = apagamento::calcular(&program, &outline, &mut table);
+    let te = erasure::compute(&program, &outline, &mut table);
     let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
-    ctx.memoria_arc = memoria_arc;
+    ctx.arc_memory = arc_memory;
     ctx.te = te;
     if options.depuracao {
-        ctx.ligar_depuracao();
+        ctx.link_debug();
         ctx.dwarf = true;
-    } else if rastro_simbolico {
+    } else if symbolic_stack_trace {
         // As posições sem o DWARF: só a tabela do rastro (§13.14).
-        ctx.ligar_depuracao();
+        ctx.link_debug();
     }
-    ctx.rastro = rastro_simbolico;
-    ctx.da_fonte = bibliotecas_da_fonte.into_iter().collect();
-    ctx.usa_dart_async = usa_dart_async;
-    // O mundo fechado do programa (C7, `mundo_nativo.rs`): o que o `main`
+    ctx.stack_trace = symbolic_stack_trace;
+    ctx.from_source = source_libraries.into_iter().collect();
+    ctx.uses_dart_async = uses_dart_async;
+    // O mundo fechado do programa (C7, `native_world.rs`): o que o `main`
     // não alcança não é baixado.
-    let t_mundo = Instant::now();
-    ctx.mundo = mundo_nativo::calcular(&program, &interner, &table, &outline, &bodies);
-    let mundo_duracao = t_mundo.elapsed();
-    let estat_mundo = ctx.mundo.as_ref().map_or((0, 0), |m| (m.estat.funcoes_vivas, m.estat.funcoes_usuario));
+    let t_world = Instant::now();
+    ctx.world = native_world::compute(&program, &interner, &table, &outline, &bodies);
+    let world_duration = t_world.elapsed();
+    let world_stat = ctx.world.as_ref().map_or((0, 0), |m| (m.estat.funcoes_vivas, m.estat.funcoes_usuario));
     // Um programa sem `main` na biblioteca de entrada não executa: a VM
     // recusa ("Invoked Dart programs must have a 'main' function defined").
     // Na recarga, é o arquivo lido no meio de uma gravação (vazio), que não
     // pode virar uma geração.
-    let tem_main = program.functions.iter().any(|f| {
+    let has_main = program.functions.iter().any(|f| {
         f.class.is_none()
             && f.extension.is_none()
             && f.kind == dartforge_elements::model::FunctionKind::Function
             && Some(f.library) == ctx.entry_lib
             && interner.resolve(f.name) == "main"
     });
-    if !tem_main {
+    if !has_main {
         return Err("erro de compilação: o programa não define a função `main` \
                     (Invoked Dart programs must have a 'main' function defined)"
             .to_string());
     }
     // Os ids das classes do SDK são os do SDK compilado, não os do que este
-    // programa carregou (`context::TabelaDeIds`).
-    let ids = sdk_modulo::ids_de_classe_do_sdk(&sdk_dir)?;
-    let ctx = ctx.com_sdk_da_fonte_e_ids(ids);
-    let ctx = match ids_anteriores {
-        Some(ids) => ctx.com_ids_anteriores(ids),
+    // programa carregou (`context::IdTable`).
+    let ids = sdk_modulo::sdk_class_ids(&sdk_dir)?;
+    let ctx = ctx.with_source_sdk_and_ids(ids);
+    let ctx = match previous_ids {
+        Some(ids) => ctx.with_previous_ids(ids),
         None => ctx,
     };
     let front_duration = t_front.elapsed();
@@ -420,152 +420,152 @@ fn emitir_ir_interno(
     // 2. Lowering para HIR
     let t_hir = Instant::now();
     let mut hir_module = lower::lower_program(&ctx);
-    hir_module.ids_do_programa = ctx.ids_do_programa();
-    hir_module.campos_do_programa = ctx.campos_do_programa();
-    hir_module.registros_do_sdk = sdk_modulo::registros_do_sdk();
-    hir_module.cids_do_runtime = sdk_modulo::cids_do_runtime(&ctx);
-    hir_module.versao_do_sdk = sdk_dir.parent().and_then(versao_do_sdk);
-    if !hir_module.erros.is_empty() {
-        return Err(erro_de_compilacao(&hir_module.erros));
+    hir_module.program_ids = ctx.program_ids();
+    hir_module.program_fields = ctx.program_fields();
+    hir_module.sdk_records = sdk_modulo::sdk_records();
+    hir_module.runtime_cids = sdk_modulo::runtime_cids(&ctx);
+    hir_module.sdk_version = sdk_dir.parent().and_then(sdk_version);
+    if !hir_module.errors.is_empty() {
+        return Err(compile_error(&hir_module.errors));
     }
     // 2a. A poda da HIR do programa pelo grafo de símbolos e seletores com
-    // os resumos do SDK (`poda::podar_hir`): o que a ligação de produção
+    // os resumos do SDK (`pruning::prune_hir`): o que a ligação de produção
     // tiraria depois sai antes de otimizar e emitir. Não no JIT (a geração
     // seguinte de uma recarga pode chamar qualquer seletor).
     // `DARTFORGE_SEM_PODA_HIR=1` desliga.
-    if podar && !std::env::var("DARTFORGE_SEM_PODA_HIR").is_ok_and(|v| v == "1") {
-        let t_poda = Instant::now();
-        if let Some(e) = podar_hir_do_programa(&mut hir_module, options.optimize)?
+    if prune && !std::env::var("DARTFORGE_SEM_PODA_HIR").is_ok_and(|v| v == "1") {
+        let t_prune = Instant::now();
+        if let Some(e) = prune_program_hir(&mut hir_module, options.optimize)?
             && options.timings
         {
             eprintln!(
                 "  Poda HIR:  {} de {} funções, {} de {} pares, {} assinaturas FFI ({:?})",
-                e.funcoes_vivas,
-                e.funcoes,
-                e.pares_vivos,
-                e.pares,
+                e.live_functions,
+                e.functions,
+                e.live_pairs,
+                e.pairs,
                 if e.ffi.1 { e.ffi.0.to_string() } else { "todas as".to_string() },
-                t_poda.elapsed()
+                t_prune.elapsed()
             );
         }
     }
     // 2b. Otimização da HIR (inlining, substituição escalar: `optimize/`).
-    let t_otimizar = Instant::now();
+    let t_optimize = Instant::now();
     // O mesmo pipeline prepara as bibliotecas do SDK e materializa tabelas
     // somente depois das transformações da HIR.
-    optimize::preparar_para_emissao(&mut hir_module, memoria_arc, excecoes_por_tabelas);
+    optimize::prepare_for_emission(&mut hir_module, arc_memory, excecoes_por_tabelas);
     // A preparação ARC publicada (`DARTFORGE_ARC_PREPARADO=1`): o programa
     // sozinho, chamando o SDK preparado (`sdk_modulo`, a mesma opção na
     // chave do cache) pelos resumos das próprias chamadas.
-    if alvo::arc_preparado()? {
-        hir_module.arc_callees_externos = true;
-        hir_module.layouts_externos_arc = lower::layouts_arc_do_sdk(&ctx);
-        let mut planos: std::collections::HashMap<_, _> = hir_module
+    if alvo::arc_prepared()? {
+        hir_module.arc_external_callees = true;
+        hir_module.arc_external_layouts = lower::sdk_arc_layouts(&ctx);
+        let mut plans: std::collections::HashMap<_, _> = hir_module
             .functions
             .iter()
-            .map(|f| (f.symbol.clone(), optimize::arc::PlanoFuncaoDart::default()))
+            .map(|f| (f.symbol.clone(), optimize::arc::DartFunctionPlan::default()))
             .collect();
         // Com tabelas, os planos partem dos invokes e pousos já materializados.
         if excecoes_por_tabelas {
-            optimize::arc::preparar_arc_modulo_tabelado(&mut hir_module, &mut planos)
+            optimize::arc::prepare_arc_tabled_module(&mut hir_module, &mut plans)
         } else {
-            optimize::arc::preparar_arc_modulo_dart(&mut hir_module, &mut planos)
+            optimize::arc::prepare_arc_dart_module(&mut hir_module, &mut plans)
         }
         .map_err(|e| format!("preparação ARC do programa: {e}"))?;
-        optimize::arc::certificar_portas_arc_aot(&mut hir_module, &planos)
+        optimize::arc::certify_arc_aot_ports(&mut hir_module, &plans)
             .map_err(|e| format!("portas ARC do programa: {e}"))?;
     }
     if options.timings {
-        eprintln!("  HIR:       baixar {:?}, otimizar {:?}", t_otimizar.duration_since(t_hir), t_otimizar.elapsed());
+        eprintln!("  HIR:       baixar {:?}, otimizar {:?}", t_optimize.duration_since(t_hir), t_optimize.elapsed());
     }
     let hir_duration = t_hir.elapsed();
 
     // 3. Emissão de LLVM IR
     let t_llvm = Instant::now();
     // Produção (`--optimize`) nunca recarrega: o descritor da área vai sem
-    // os nomes dos slots (`com_area_enxuta`). O JIT emite sem `optimize`.
-    let enxuta = options.optimize && area_anterior.is_none();
+    // os nomes dos slots (`with_lean_area`). O JIT emite sem `optimize`.
+    let lean = options.optimize && previous_area.is_none();
     // O programa grande (o new_sali/backend: ~180 mil funções HIR) na
     // produção: o endereço dos campos e os ajudantes (despacho, alocação,
     // barreira, área, subtipo) por chamada, fora de linha — o executável
     // cai de 94,6 para ~71 MB e a geração de 707 para ~460 s
     // (docs/NATIVO-PRODUCAO-GRANDE.md §5). O preço é o desempenho do código
     // que chama muito por despacho dinâmico ou lê muitos campos
-    // (`bench/performance/chamadas.dart`: 1,4–2,5× mais lento); com
+    // (`bench/performance/calls.dart`: 1,4–2,5× mais lento); com
     // `DARTFORGE_AJUDANTES_FORA=` (vazio) e `DARTFORGE_CAMPOS_POR_CHAMADA=0`
     // o programa grande volta todo em linha. O programa pequeno continua em
     // linha (a LTO tira o que sobra).
-    let tamanho_grande = hir_module.functions.len() >= FUNCOES_DO_PROGRAMA_GRANDE;
-    let grande = options.optimize && tamanho_grande;
-    if grande && options.timings {
+    let large_size = hir_module.functions.len() >= LARGE_PROGRAM_FUNCTIONS;
+    let large = options.optimize && large_size;
+    if large && options.timings {
         eprintln!("  Programa grande: {} funções HIR (campos e ajudantes por chamada)", hir_module.functions.len());
     }
-    let campos_por_chamada = match std::env::var("DARTFORGE_CAMPOS_POR_CHAMADA") {
+    let fields_per_call = match std::env::var("DARTFORGE_CAMPOS_POR_CHAMADA") {
         Ok(v) => v == "1",
-        Err(_) => grande,
+        Err(_) => large,
     };
     let emitter = llvm::LlvmEmitter::new(&hir_module)
-        .com_area_anterior(area_anterior)
-        .com_area_enxuta(enxuta)
-        .com_objetos_estaticos(objetos_estaticos)
+        .with_previous_area(previous_area)
+        .with_lean_area(lean)
+        .with_static_objects(static_objects)
         // O AOT não recarrega: nenhum objeto ganha corpo de fora.
-        .com_corpo_sem_fora(podar)
+        .with_body_without_outside(prune)
         // Desenvolvimento (`-O0`): o endereço dos campos por chamada (C9).
-        .com_campos_por_chamada(!options.optimize || campos_por_chamada)
-        .com_ajudantes_fora(llvm::ajudantes_fora_de_linha(!options.optimize && tamanho_grande, grande))
+        .with_fields_per_call(!options.optimize || fields_per_call)
+        .with_outlined_helpers(llvm::out_of_line_helpers(!options.optimize && large_size, large))
         // `optsize` nas funções do programa grande: −8,7% no executável do
         // backend, sem mudar o tempo (docs/NATIVO-PRODUCAO-GRANDE.md §5);
         // `DARTFORGE_OPTSIZE_PROGRAMA=0` desliga.
-        .com_otimizar_tamanho(grande && !std::env::var("DARTFORGE_OPTSIZE_PROGRAMA").is_ok_and(|v| v == "0"))
-        .com_producao(options.optimize)
+        .with_optimize_size(large && !std::env::var("DARTFORGE_OPTSIZE_PROGRAMA").is_ok_and(|v| v == "0"))
+        .with_production(options.optimize)
         // Sem otimização não há inlining: um quadro de raízes por quadro
         // nativo, e o runtime confere a ordem (o quadro morto).
-        .com_quadros_ordenados(!options.optimize)
-        .com_raizes_por_mapas(raizes_por_mapas)
-        .com_mapas_no_jit(mapas_no_jit)
-        .com_rastro(rastro_simbolico)
-        .com_rastro_no_jit(rastro_no_jit);
+        .with_ordered_frames(!options.optimize)
+        .with_roots_by_maps(raizes_por_mapas)
+        .with_maps_in_jit(maps_in_jit)
+        .with_stack_trace(symbolic_stack_trace)
+        .with_stack_trace_in_jit(stack_trace_in_jit);
     let llvm_ir = emitter.emit_all();
     // O verificador do modo mapas (§7.4), antes do passe dos mapas.
     if raizes_por_mapas {
-        llvm::verificar_mapas::verificar(&llvm_ir)?;
-    } else if llvm::verificar_sombra::ligada() {
+        llvm::verify_maps::verify(&llvm_ir)?;
+    } else if llvm::verify_shadow::linked() {
         // O conferidor de dominância do modo sombra (§7.4).
-        llvm::verificar_sombra::verificar(&llvm_ir)?;
+        llvm::verify_shadow::verify(&llvm_ir)?;
     }
     // Nos alvos Itanium, toda função precisa da tabela de desenrolamento:
     // nas exceções por tabelas (o desenrolamento) e nas raízes por mapas (o
     // percurso do coletor pelo `_Unwind_Backtrace`, que para no quadro sem
     // tabela — a libunwind do macOS o encerra ali, e as raízes dos quadros
     // de fora ficavam sem visita).
-    let llvm_ir = if (excecoes_por_tabelas || raizes_por_mapas) && cfg!(unix) { sdk_modulo::com_uwtable(&llvm_ir) } else { llvm_ir };
+    let llvm_ir = if (excecoes_por_tabelas || raizes_por_mapas) && cfg!(unix) { sdk_modulo::with_uwtable(&llvm_ir) } else { llvm_ir };
     // Nas exceções por checagem com a pilha-sombra nada desenrola o código
-    // Dart: sem o CFI de cada função (`sdk_modulo::com_nounwind`).
+    // Dart: sem o CFI de cada função (`sdk_modulo::with_nounwind`).
     // Só nos alvos Itanium: no COFF x64 toda função tem tabela de
     // desenrolamento de qualquer jeito, e o Windows não foi medido.
-    let llvm_ir = if cfg!(unix) && !excecoes_por_tabelas && !raizes_por_mapas { sdk_modulo::com_nounwind(&llvm_ir) } else { llvm_ir };
+    let llvm_ir = if cfg!(unix) && !excecoes_por_tabelas && !raizes_por_mapas { sdk_modulo::with_nounwind(&llvm_ir) } else { llvm_ir };
     // O contexto da thread numa variável `thread_local` do módulo, no AOT
-    // padrão (`sdk_modulo::com_contexto_em_tls`): em linha no programa
+    // padrão (`sdk_modulo::with_context_in_tls`): em linha no programa
     // pequeno, uma chamada no grande.
-    let llvm_ir = if cfg!(unix) && podar && !excecoes_por_tabelas && !raizes_por_mapas && !memoria_arc {
-        let modo = if grande { sdk_modulo::ContextoEmTls::PorChamada } else { sdk_modulo::ContextoEmTls::EmLinha };
-        sdk_modulo::com_contexto_em_tls(&llvm_ir, modo, "df.ctx.tls.programa")
+    let llvm_ir = if cfg!(unix) && prune && !excecoes_por_tabelas && !raizes_por_mapas && !arc_memory {
+        let mode = if large { sdk_modulo::ContextInTls::PerCall } else { sdk_modulo::ContextInTls::Inline };
+        sdk_modulo::with_context_in_tls(&llvm_ir, mode, "df.ctx.tls.programa")
     } else {
         llvm_ir
     };
     let llvm_duration = t_llvm.elapsed();
 
-    let bytes_sdk = bytes_do_sdk(&llvm_ir, &program);
+    let sdk_byte_count = sdk_bytes(&llvm_ir, &program);
     Ok(IrEmitido {
         texto: llvm_ir,
-        tempos: TemposEmissao {
+        tempos: EmissionTimes {
             frontend: front_duration,
-            mundo: mundo_duracao,
-            funcoes_vivas: estat_mundo,
+            world: world_duration,
+            live_functions: world_stat,
             hir: hir_duration,
             llvm_ir: llvm_duration,
         },
-        bytes_sdk,
+        sdk_byte_count,
     })
 }
 
@@ -573,23 +573,23 @@ fn emitir_ir_interno(
 ///
 /// Mede quanto do módulo seria compartilhável entre programas se o SDK virasse
 /// um módulo à parte (ESTADO.md §2.5). Cada `define` é atribuído ao elemento
-/// pelo nome da biblioteca no símbolo estável (`df.<biblioteca>.…`, que os
+/// pelo nome da biblioteca no símbolo estável (`df.<library>.…`, que os
 /// fechos locais herdam da função que os contém); o resto — entrada, despacho, declarações do runtime,
 /// strings — conta como do programa.
-fn bytes_do_sdk(texto: &str, program: &Program) -> usize {
+fn sdk_bytes(text: &str, program: &Program) -> usize {
     let mut total = 0usize;
-    let mut no_sdk = false;
-    for linha in texto.split_inclusive('\n') {
-        if let Some(resto) = linha.strip_prefix("define ") {
+    let mut in_sdk = false;
+    for line in text.split_inclusive('\n') {
+        if let Some(rest) = line.strip_prefix("define ") {
             // O símbolo estável começa pelo nome da biblioteca (P2):
             // `@df.dart$3a…` é função de uma biblioteca `dart:`.
             let _ = program;
-            no_sdk = resto.contains("@df.dart$3a");
+            in_sdk = rest.contains("@df.dart$3a");
         }
-        if no_sdk {
-            total += linha.len();
-            if linha.trim_end() == "}" {
-                no_sdk = false;
+        if in_sdk {
+            total += line.len();
+            if line.trim_end() == "}" {
+                in_sdk = false;
             }
         }
     }
@@ -598,33 +598,33 @@ fn bytes_do_sdk(texto: &str, program: &Program) -> usize {
 
 /// Compila um programa Dart para um executável nativo.
 pub fn compilar(
-    entrada: &Path,
-    saida: &Path,
+    entry: &Path,
+    exit: &Path,
     options: &CompileOptions,
 ) -> Result<PathBuf, String> {
-    compilar_com(entrada, saida, options)
+    compile_with(entry, exit, options)
 }
 
-/// [`compilar`] escolhendo o SDK (ver [`emitir_ir_com`]).
-pub fn compilar_com(
-    entrada: &Path,
-    saida: &Path,
+/// [`compilar`] escolhendo o SDK (ver [`emit_ir_with`]).
+pub fn compile_with(
+    entry: &Path,
+    exit: &Path,
     options: &CompileOptions,
 ) -> Result<PathBuf, String> {
     let t_total = Instant::now();
 
-    let ir = emitir_ir_com(entrada, options)?;
+    let ir = emit_ir_with(entry, options)?;
 
     // 4. Clang e Ligação
     let driver_opts = driver::NativeDriverOptions {
         clang: driver::NativeDriverOptions::default().clang,
         optimize: options.optimize,
         timings: options.timings,
-        depuracao: options.depuracao,
+        debug_info: options.depuracao,
         cpu: options.cpu,
     };
 
-    let ligacao = driver::compile_and_link(&ir.texto, saida, &driver_opts)?;
+    let linkage = driver::compile_and_link(&ir.texto, exit, &driver_opts)?;
 
     let total_duration = t_total.elapsed();
     let peak_memory = dartforge_instrument::peak_bytes();
@@ -632,19 +632,19 @@ pub fn compilar_com(
     if options.timings {
         eprintln!("--- Tempos de Compilação Nativa ---");
         ir.imprimir_tempos();
-        let origem = if ligacao.objeto_do_cache { " (cache)" } else { "" };
-        eprintln!("  Objeto:    {:?}{origem}", ligacao.clang);
-        eprintln!("  Link:      {:?}", ligacao.link);
+        let origin = if linkage.objeto_do_cache { " (cache)" } else { "" };
+        eprintln!("  Objeto:    {:?}{origin}", linkage.clang);
+        eprintln!("  Link:      {:?}", linkage.link);
         eprintln!("  Total:     {:?}", total_duration);
         eprintln!("  Pico Mem:  {} KB", peak_memory / 1024);
     }
 
-    Ok(saida.to_path_buf())
+    Ok(exit.to_path_buf())
 }
 
 #[cfg(test)]
 /// Os mesmos caminhos da emissão real, também nos runners Unix.
-pub(crate) fn sdk_testes() -> &'static Path {
+pub(crate) fn sdk_tests() -> &'static Path {
     static SDK: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     SDK.get_or_init(|| {
         let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB")
@@ -660,32 +660,32 @@ pub(crate) fn sdk_testes() -> &'static Path {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn emitir(entrada: &Path) -> IrEmitido {
-        let options = CompileOptions { sdk: Some(sdk_testes()), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
-        emitir_ir(entrada, &options).expect("emitir IR")
+    fn emit(entry: &Path) -> IrEmitido {
+        let options = CompileOptions { sdk: Some(sdk_tests()), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+        emitir_ir(entry, &options).expect("emitir IR")
     }
 
     #[test]
-    fn operador_bigint_exclui_smi_sem_retirar_caminho_de_num_e_dynamic() {
+    fn bigint_operator_excludes_smi_without_removing_num_and_dynamic_path() {
         std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
             let dir = tempfile::tempdir().unwrap();
-            let entrada = dir.path().join("main.dart");
-            std::fs::write(&entrada, "BigInt big(BigInt a, BigInt b) => a - b;\nnum numero(num a, num b) => a - b;\ndynamic aberto(dynamic a, dynamic b) => a - b;\nBigInt composto(BigInt a, BigInt b) { a += b; return a; }\nnum compostoNumero(num a, num b) { a += b; return a; }\nvoid main() { print(big(BigInt.from(9), BigInt.from(4))); print(numero(9, 4)); print(aberto(9, 4)); print(composto(BigInt.from(9), BigInt.from(4))); print(compostoNumero(9, 4)); }\n").unwrap();
-            let ir = emitir(&entrada).texto;
-            let corpo = |nome: &str| {
-                let simbolo = format!("@df.main$2edart..{nome}(");
-                let inicio = ir.lines().find(|l| l.starts_with("define ") && l.contains(&simbolo))
-                    .unwrap_or_else(|| panic!("função {nome} não emitida"));
-                let pos = ir.find(inicio).unwrap();
+            let entry = dir.path().join("main.dart");
+            std::fs::write(&entry, "BigInt big(BigInt a, BigInt b) => a - b;\nnum numero(num a, num b) => a - b;\ndynamic aberto(dynamic a, dynamic b) => a - b;\nBigInt composto(BigInt a, BigInt b) { a += b; return a; }\nnum compostoNumero(num a, num b) { a += b; return a; }\nvoid main() { print(big(BigInt.from(9), BigInt.from(4))); print(numero(9, 4)); print(aberto(9, 4)); print(composto(BigInt.from(9), BigInt.from(4))); print(compostoNumero(9, 4)); }\n").unwrap();
+            let ir = emit(&entry).texto;
+            let body = |name: &str| {
+                let symbol = format!("@df.main$2edart..{name}(");
+                let start = ir.lines().find(|l| l.starts_with("define ") && l.contains(&symbol))
+                    .unwrap_or_else(|| panic!("função {name} não emitida"));
+                let pos = ir.find(start).unwrap();
                 ir[pos..].split("\n}").next().unwrap()
             };
-            for nome in ["big", "composto"] { assert!(!corpo(nome).contains("ashr i64"), "{}", corpo(nome)); }
-            assert!(corpo("big").contains("call "));
-            for nome in ["numero", "aberto", "compostoNumero"] {
-                assert!(corpo(nome).contains("ashr i64"), "{}", corpo(nome));
+            for name in ["big", "composto"] { assert!(!body(name).contains("ashr i64"), "{}", body(name)); }
+            assert!(body("big").contains("call "));
+            for name in ["numero", "aberto", "compostoNumero"] {
+                assert!(body(name).contains("ashr i64"), "{}", body(name));
             }
         }).unwrap().join().unwrap();
     }
@@ -694,27 +694,27 @@ mod testes {
     /// mesmo tempo dá o mesmo IR: nada da emissão depende de estado global,
     /// de endereço ou de ordem de conclusão.
     #[test]
-    fn emitir_ir_e_deterministico() {
-        sdk_testes();
+    fn emit_ir_is_deterministic() {
+        sdk_tests();
         let dir = tempfile::tempdir().unwrap();
-        let entrada = dir.path().join("main.dart");
-        std::fs::write(&entrada, "void main() { print(1); }\n").unwrap();
-        let a = emitir(&entrada);
+        let entry = dir.path().join("main.dart");
+        std::fs::write(&entry, "void main() { print(1); }\n").unwrap();
+        let a = emit(&entry);
         assert!(a.texto.contains("@dart_main"), "{}", a.texto);
-        assert!(a.bytes_sdk <= a.texto.len());
-        assert_eq!(a.texto, emitir(&entrada).texto);
-        let paralelos: Vec<String> = std::thread::scope(|s| {
+        assert!(a.sdk_byte_count <= a.texto.len());
+        assert_eq!(a.texto, emit(&entry).texto);
+        let parallel: Vec<String> = std::thread::scope(|s| {
             let alcas: Vec<_> = (0..4)
                 .map(|_| {
                     std::thread::Builder::new()
                         .stack_size(64 << 20)
-                        .spawn_scoped(s, || emitir(&entrada).texto)
+                        .spawn_scoped(s, || emit(&entry).texto)
                         .unwrap()
                 })
                 .collect();
             alcas.into_iter().map(|h| h.join().unwrap()).collect()
         });
-        for p in paralelos {
+        for p in parallel {
             assert_eq!(p, a.texto);
         }
     }
@@ -722,28 +722,28 @@ mod testes {
     /// Construto não suportado é `Err` de `emitir_ir`, com todos os
     /// diagnósticos: nenhum IR, e nenhum executável que só os imprime.
     #[test]
-    fn construto_nao_suportado_e_erro_com_todos_os_diagnosticos() {
-        sdk_testes();
+    fn unsupported_construct_is_error_with_all_diagnostics() {
+        sdk_tests();
         let dir = tempfile::tempdir().unwrap();
-        let entrada = dir.path().join("main.dart");
-        std::fs::write(&entrada, "void main() {\n  int? k = 1;\n  var a = {?k: 1};\n  var b = {?k: 2};\n  print(a.length + b.length);\n}\n").unwrap();
-        let options = CompileOptions { sdk: Some(sdk_testes()), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
-        let erro = std::thread::Builder::new()
+        let entry = dir.path().join("main.dart");
+        std::fs::write(&entry, "void main() {\n  int? k = 1;\n  var a = {?k: 1};\n  var b = {?k: 2};\n  print(a.length + b.length);\n}\n").unwrap();
+        let options = CompileOptions { sdk: Some(sdk_tests()), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+        let error = std::thread::Builder::new()
             .stack_size(64 << 20)
-            .spawn(move || emitir_ir(&entrada, &options).map(|ir| ir.texto))
+            .spawn(move || emitir_ir(&entry, &options).map(|ir| ir.texto))
             .unwrap()
             .join()
             .unwrap()
             .expect_err("entrada de mapa null-aware é recusada no nativo");
-        let linhas: Vec<&str> = erro.lines().collect();
-        assert_eq!(linhas[0], "erro de compilação: não suportado no backend nativo: entrada de mapa null-aware", "{erro}");
-        assert_eq!(linhas[1], "  não suportado no backend nativo: entrada de mapa null-aware (main.dart:3:11)", "{erro}");
-        assert_eq!(linhas[2], "  não suportado no backend nativo: entrada de mapa null-aware (main.dart:4:11)", "{erro}");
-        assert_eq!(construtos_do_erro(&erro), ["entrada de mapa null-aware", "entrada de mapa null-aware"]);
+        let lines: Vec<&str> = error.lines().collect();
+        assert_eq!(lines[0], "erro de compilação: não suportado no backend nativo: entrada de mapa null-aware", "{error}");
+        assert_eq!(lines[1], "  não suportado no backend nativo: entrada de mapa null-aware (main.dart:3:11)", "{error}");
+        assert_eq!(lines[2], "  não suportado no backend nativo: entrada de mapa null-aware (main.dart:4:11)", "{error}");
+        assert_eq!(construtos_do_erro(&error), ["entrada de mapa null-aware", "entrada de mapa null-aware"]);
     }
 
     /// Os símbolos definidos (`define … @<símbolo>(`) de um IR.
-    fn simbolos(ir: &str) -> std::collections::BTreeSet<String> {
+    fn symbols(ir: &str) -> std::collections::BTreeSet<String> {
         ir.lines()
             .filter_map(|l| {
                 let r = l.strip_prefix("define ")?;
@@ -759,25 +759,25 @@ mod testes {
     /// nenhuma outra declaração, e o mesmo programa em outro diretório tem os
     /// mesmos símbolos.
     #[test]
-    fn t_id_simbolos_estaveis() {
-        sdk_testes();
+    fn t_id_stable_symbols() {
+        sdk_tests();
         let a = "int a() => 1;\nclass C {\n  int v = 3;\n  int m() => v;\n  static int s() => 4;\n}\nint g = 5;\nvoid main() {\n  var f = () => a();\n  print(f());\n  print(C().m() + C.s() + g);\n}\n";
         let b = "int z() => 0;\nclass D {}\nint a() => 1;\nclass C {\n  int v = 3;\n  int m() => v;\n  static int s() => 4;\n}\nint h = 6;\nint g = 5;\nvoid main() {\n  var f = () => a();\n  print(f());\n  print(C().m() + C.s() + g + z() + h);\n}\n";
-        let emitir_em = |fonte: &'static str| {
+        let emit_into = |source: &'static str| {
             std::thread::Builder::new()
                 .stack_size(64 << 20)
                 .spawn(move || {
                     let dir = tempfile::tempdir().unwrap();
-                    let entrada = dir.path().join("main.dart");
-                    std::fs::write(&entrada, fonte).unwrap();
-                    emitir(&entrada).texto
+                    let entry = dir.path().join("main.dart");
+                    std::fs::write(&entry, source).unwrap();
+                    emit(&entry).texto
                 })
                 .unwrap()
                 .join()
                 .unwrap()
         };
-        let (ia, ib, ia2) = (emitir_em(a), emitir_em(b), emitir_em(a));
-        let (sa, sb) = (simbolos(&ia), simbolos(&ib));
+        let (ia, ib, ia2) = (emit_into(a), emit_into(b), emit_into(a));
+        let (sa, sb) = (symbols(&ia), symbols(&ib));
         for s in ["df.main$2edart..a", "df.main$2edart.C.m", "df.main$2edart.C.s", "df.main$2edart.C.new", "df.main$2edart..g", "dart_main"] {
             assert!(sa.contains(s), "{s} em {sa:?}");
         }
@@ -786,16 +786,16 @@ mod testes {
         // constantes de dados (`@df.arr.*`): a tabela da RTI leva a URI
         // `file:` da biblioteca de cada classe (`dart:mirrors`), que depende
         // do diretório por definição. A tabela vai comprimida
-        // (`dartforge_runtime::tabela_rti`), então o tamanho de uma
+        // (`dartforge_runtime::rti_table`), então o tamanho de uma
         // constante (o tipo `[N x i64]`) e o argumento da chamada que
         // registra a tabela também podem mudar.
         let (la, la2): (Vec<_>, Vec<_>) = (ia.lines().collect(), ia2.lines().collect());
         assert_eq!(la.len(), la2.len(), "o mesmo programa em outro diretório dá o mesmo IR");
-        let tabela_da_rti = |l: &str| l.contains("@dartforge_rti_iniciar_tabela(");
+        let rti_table = |l: &str| l.contains("@dartforge_rti_iniciar_tabela(");
         for (x, y) in la.iter().zip(&la2) {
             if x != y {
                 assert!(
-                    (x.starts_with("@df.arr.") && y.starts_with("@df.arr.")) || (tabela_da_rti(x) && tabela_da_rti(y)),
+                    (x.starts_with("@df.arr.") && y.starts_with("@df.arr.")) || (rti_table(x) && rti_table(y)),
                     "o mesmo programa em outro diretório dá o mesmo IR:\n{x}\n{y}"
                 );
             }
@@ -806,43 +806,43 @@ mod testes {
     /// o `dart:async` da fonte e liga o laço de eventos; o que não usa não
     /// tem nada disso no IR.
     #[test]
-    fn dart_async_da_fonte_so_para_quem_usa() {
-        sdk_testes();
-        let emitir_fonte = |fonte: &'static str| {
+    fn source_dart_async_only_for_users() {
+        sdk_tests();
+        let emit_source = |source: &'static str| {
             std::thread::Builder::new()
                 .stack_size(64 << 20)
                 .spawn(move || {
                     let dir = tempfile::tempdir().unwrap();
-                    let entrada = dir.path().join("main.dart");
-                    std::fs::write(&entrada, fonte).unwrap();
-                    emitir(&entrada)
+                    let entry = dir.path().join("main.dart");
+                    std::fs::write(&entry, source).unwrap();
+                    emit(&entry)
                 })
                 .unwrap()
                 .join()
                 .unwrap()
         };
-        let sincrono = emitir_fonte("void main() { print(1); }\n");
-        assert!(!sincrono.texto.contains("call void @dartforge_laco_de_eventos"));
-        assert!(!sincrono.texto.contains("@df.dart$3aasync"));
-        assert_eq!(sincrono.bytes_sdk, 0);
+        let synchronous = emit_source("void main() { print(1); }\n");
+        assert!(!synchronous.texto.contains("call void @dartforge_laco_de_eventos"));
+        assert!(!synchronous.texto.contains("@df.dart$3aasync"));
+        assert_eq!(synchronous.sdk_byte_count, 0);
 
-        let assincrono = emitir_fonte("Future<int> f() async { await null; return 2; }\nFuture<void> main() async { print(await f()); }\n");
-        assert!(assincrono.texto.contains("call void @dartforge_laco_de_eventos(ptr @dartforge_chamar_dart0)"));
-        assert!(assincrono.texto.contains("define i64 @df.main$2edart..f$async$q"), "o corpo da máquina de estados");
+        let asynchronous = emit_source("Future<int> f() async { await null; return 2; }\nFuture<void> main() async { print(await f()); }\n");
+        assert!(asynchronous.texto.contains("call void @dartforge_laco_de_eventos(ptr @dartforge_chamar_dart0)"));
+        assert!(asynchronous.texto.contains("define i64 @df.main$2edart..f$async$q"), "o corpo da máquina de estados");
         // O `dart:async` vem do módulo do SDK em cache (`sdk_modulo.rs`): o IR
-        // do programa só o chama, não define as funções dele (`bytes_sdk`
+        // do programa só o chama, não define as funções dele (`sdk_byte_count`
         // pode ser 0).
-        assert!(assincrono.texto.contains("@df.dart$3aasync.._asyncAwait("));
+        assert!(asynchronous.texto.contains("@df.dart$3aasync.._asyncAwait("));
     }
 
     #[test]
-    fn construtos_do_erro_ignora_o_que_nao_e_construto() {
-        let texto = "[compile-native] erro de compilação: não suportado no backend nativo: membro `hash`\n\
+    fn error_constructs_ignores_non_constructs() {
+        let text = "[compile-native] erro de compilação: não suportado no backend nativo: membro `hash`\n\
                      erro de compilação: não suportado no backend nativo: membro `hash`\n  \
                      não suportado no backend nativo: membro `hash` (a.dart:1:2)\n  \
                      verificador da HIR (main): tag 3 para um valor I64\n  \
                      não suportado no backend nativo: chamada `sort` (a.dart:3:4)";
-        assert_eq!(construtos_do_erro(texto), ["membro `hash`", "chamada `sort`"]);
+        assert_eq!(construtos_do_erro(text), ["membro `hash`", "chamada `sort`"]);
         assert!(construtos_do_erro("erro ao carregar o programa: x").is_empty());
     }
 }

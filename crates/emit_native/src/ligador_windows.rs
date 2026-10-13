@@ -5,7 +5,7 @@
 //! ligação vem daqui, escrito por nós (nada do MSVC nem do Windows SDK é
 //! copiado nem redistribuído — as licenças deles não permitem):
 //!
-//! * **bibliotecas de importação** ([`IMPORTACOES`]): arquivos `ar` com
+//! * **bibliotecas de importação** ([`IMPORTS`]): arquivos `ar` com
 //!   membros COFF *short import* (`IMPORT_OBJECT_HEADER`, especificação PE/COFF
 //!   §8), gerados de listas com só os nomes que o runtime, o SDK e o código
 //!   gerado usam — `kernel32`, `ntdll`, `ws2_32`, `advapi32`, `userenv`,
@@ -13,7 +13,7 @@
 //!   do Windows 10 e posteriores). Um nome é um fato de interface; não há
 //!   código de ninguém nelas. O `lld-link` monta a tabela de importação
 //!   sozinho a partir desses membros;
-//! * **a CRT mínima** ([`CRT_COMUM_IR`], [`CRT_EXE_IR`], [`CRT_DLL_IR`]): o
+//! * **a CRT mínima** ([`CRT_COMMON_IR`], [`CRT_EXE_IR`], [`CRT_DLL_IR`]): o
 //!   que a CRT estática (`msvcrt.lib`/`vcruntime.lib`) punha no executável e
 //!   o `ucrtbase.dll` não exporta — o diretório de TLS (`_tls_used`,
 //!   `_tls_index`, os marcadores `.tls` e `.CRT$XL*` entre os quais o Rust
@@ -42,9 +42,9 @@ use std::process::Command;
 pub const TRIPLE: &str = "x86_64-pc-windows-msvc";
 
 /// As funções importadas, por DLL. Só nomes exportados pelo sistema desde o
-/// Windows 10 (o teste `importacoes_existem_no_sistema` confere cada um nas
+/// Windows 10 (o teste `imports_exist_in_system` confere cada um nas
 /// DLLs de `System32` do runner do Windows).
-pub const IMPORTACOES: &[(&str, &[&str])] = &[
+pub const IMPORTS: &[(&str, &[&str])] = &[
     (
         "kernel32.dll",
         &[
@@ -380,7 +380,7 @@ pub const IMPORTACOES: &[(&str, &[&str])] = &[
 ];
 
 /// O cabeçalho dos três módulos da CRT mínima.
-const CABECALHO: &str = "target datalayout = \"e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\ntarget triple = \"x86_64-pc-windows-msvc\"\n\n";
+const HEADER: &str = "target datalayout = \"e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\ntarget triple = \"x86_64-pc-windows-msvc\"\n\n";
 
 /// A parte da CRT mínima comum ao executável e à DLL.
 ///
@@ -390,7 +390,7 @@ const CABECALHO: &str = "target datalayout = \"e-m:w-p270:32:32-p271:32:32-p272:
 /// longe das entradas do Rust (`.CRT$XLB`, `.CRT$XCU`). A leitura das tabelas
 /// é `volatile` e o módulo é gerado sem otimização: o laço anda de um
 /// marcador ao outro, fora dos limites de qualquer objeto do IR.
-pub const CRT_COMUM_IR: &str = r#"
+pub const CRT_COMMON_IR: &str = r#"
 @_tls_index = global i32 0, align 4
 @_tls_start = global i8 0, section ".tls", align 8
 @_tls_end = global i8 0, section ".tls$ZZZ", align 8
@@ -609,33 +609,33 @@ fim:
 "#;
 
 /// Os módulos da CRT mínima: (arquivo do objeto, IR sem cabeçalho).
-const MODULOS_DA_CRT: &[(&str, &str)] =
-    &[("dfcrt_comum.obj", CRT_COMUM_IR), ("dfcrt_exe.obj", CRT_EXE_IR), ("dfcrt_dll.obj", CRT_DLL_IR)];
+const CRT_MODULES: &[(&str, &str)] =
+    &[("dfcrt_comum.obj", CRT_COMMON_IR), ("dfcrt_exe.obj", CRT_EXE_IR), ("dfcrt_dll.obj", CRT_DLL_IR)];
 
 /// O IR completo (com o cabeçalho do alvo) de um módulo da CRT mínima.
-pub fn ir_da_crt(corpo: &str) -> String {
-    format!("{CABECALHO}{corpo}")
+pub fn crt_ir(body: &str) -> String {
+    format!("{HEADER}{body}")
 }
 
 /// O nome do arquivo da biblioteca de importação de `dll` (`kernel32.lib`).
-pub fn nome_da_importacao(dll: &str) -> String {
+pub fn import_name(dll: &str) -> String {
     format!("{}.lib", dll.trim_end_matches(".dll"))
 }
 
 /// Um membro *short import* (`IMPORT_OBJECT_HEADER` e os dois nomes) para a
-/// função `nome` de `dll`, importada pelo nome, em x86-64.
-fn membro_de_importacao(dll: &str, nome: &str) -> Vec<u8> {
-    let mut m = Vec::with_capacity(20 + nome.len() + dll.len() + 2);
+/// função `name` de `dll`, importada pelo nome, em x86-64.
+fn import_member(dll: &str, name: &str) -> Vec<u8> {
+    let mut m = Vec::with_capacity(20 + name.len() + dll.len() + 2);
     m.extend_from_slice(&0u16.to_le_bytes()); // Sig1: IMAGE_FILE_MACHINE_UNKNOWN
     m.extend_from_slice(&0xFFFFu16.to_le_bytes()); // Sig2
     m.extend_from_slice(&0u16.to_le_bytes()); // Version
     m.extend_from_slice(&0x8664u16.to_le_bytes()); // Machine: AMD64
     m.extend_from_slice(&0u32.to_le_bytes()); // TimeDateStamp (determinístico)
-    m.extend_from_slice(&((nome.len() + 1 + dll.len() + 1) as u32).to_le_bytes()); // SizeOfData
+    m.extend_from_slice(&((name.len() + 1 + dll.len() + 1) as u32).to_le_bytes()); // SizeOfData
     m.extend_from_slice(&0u16.to_le_bytes()); // Hint
     // Type = IMPORT_OBJECT_CODE (0), NameType = IMPORT_OBJECT_NAME (1) << 2.
     m.extend_from_slice(&(1u16 << 2).to_le_bytes());
-    m.extend_from_slice(nome.as_bytes());
+    m.extend_from_slice(name.as_bytes());
     m.push(0);
     m.extend_from_slice(dll.as_bytes());
     m.push(0);
@@ -643,15 +643,15 @@ fn membro_de_importacao(dll: &str, nome: &str) -> Vec<u8> {
 }
 
 /// O cabeçalho `ar` de um membro (60 bytes).
-fn cabecalho_ar(nome: &str, tamanho: usize) -> Vec<u8> {
-    let h = format!("{nome:<16}{:<12}{:<6}{:<6}{:<8}{tamanho:<10}`\n", 0, 0, 0, 644);
+fn ar_header(name: &str, size: usize) -> Vec<u8> {
+    let h = format!("{name:<16}{:<12}{:<6}{:<6}{:<8}{size:<10}`\n", 0, 0, 0, 644);
     debug_assert_eq!(h.len(), 60);
     h.into_bytes()
 }
 
-/// A biblioteca de importação de `dll` com as funções `nomes`: um arquivo
+/// A biblioteca de importação de `dll` com as funções `names`: um arquivo
 /// `ar` (formato GNU, o do `llvm-dlltool`) com a tabela de símbolos
-/// (`nome` e `__imp_nome` de cada função) e um membro *short import* por
+/// (`name` e `__imp_nome` de cada função) e um membro *short import* por
 /// função.
 ///
 /// ```
@@ -660,55 +660,55 @@ fn cabecalho_ar(nome: &str, tamanho: usize) -> Vec<u8> {
 /// assert!(lib.starts_with(b"!<arch>\n/"));
 /// assert!(lib.windows(18).any(|j| j == b"__imp_ExitProcess\0"));
 /// ```
-pub fn biblioteca_de_importacao(dll: &str, nomes: &[&str]) -> Vec<u8> {
-    let membros: Vec<Vec<u8>> = nomes.iter().map(|n| membro_de_importacao(dll, n)).collect();
-    let mut simbolos: Vec<(String, usize)> = Vec::new();
-    for (i, n) in nomes.iter().enumerate() {
-        simbolos.push((format!("__imp_{n}"), i));
-        simbolos.push(((*n).to_string(), i));
+pub fn import_library(dll: &str, names: &[&str]) -> Vec<u8> {
+    let members: Vec<Vec<u8>> = names.iter().map(|n| import_member(dll, n)).collect();
+    let mut symbols: Vec<(String, usize)> = Vec::new();
+    for (i, n) in names.iter().enumerate() {
+        symbols.push((format!("__imp_{n}"), i));
+        symbols.push(((*n).to_string(), i));
     }
     // A tabela de símbolos: contagem, deslocamentos (big-endian) e nomes.
-    let nomes_tabela: usize = simbolos.iter().map(|(s, _)| s.len() + 1).sum();
-    let tamanho_tabela = 4 + 4 * simbolos.len() + nomes_tabela;
-    let preenchido = |t: usize| t + (t & 1);
+    let table_names: usize = symbols.iter().map(|(s, _)| s.len() + 1).sum();
+    let table_size = 4 + 4 * symbols.len() + table_names;
+    let filled = |t: usize| t + (t & 1);
     // O nome do membro: o da DLL (até 15 bytes, o campo tem 16 com a `/`).
-    let nome_membro: String = format!("{}/", &dll[..dll.len().min(15)]);
-    let mut deslocamentos = Vec::with_capacity(membros.len());
-    let mut pos = 8 + 60 + preenchido(tamanho_tabela);
-    for m in &membros {
-        deslocamentos.push(pos);
-        pos += 60 + preenchido(m.len());
+    let member_name: String = format!("{}/", &dll[..dll.len().min(15)]);
+    let mut offsets = Vec::with_capacity(members.len());
+    let mut pos = 8 + 60 + filled(table_size);
+    for m in &members {
+        offsets.push(pos);
+        pos += 60 + filled(m.len());
     }
-    let mut saida = Vec::with_capacity(pos);
-    saida.extend_from_slice(b"!<arch>\n");
-    saida.extend(cabecalho_ar("/", tamanho_tabela));
-    saida.extend_from_slice(&(simbolos.len() as u32).to_be_bytes());
-    for (_, i) in &simbolos {
-        saida.extend_from_slice(&(deslocamentos[*i] as u32).to_be_bytes());
+    let mut exit = Vec::with_capacity(pos);
+    exit.extend_from_slice(b"!<arch>\n");
+    exit.extend(ar_header("/", table_size));
+    exit.extend_from_slice(&(symbols.len() as u32).to_be_bytes());
+    for (_, i) in &symbols {
+        exit.extend_from_slice(&(offsets[*i] as u32).to_be_bytes());
     }
-    for (s, _) in &simbolos {
-        saida.extend_from_slice(s.as_bytes());
-        saida.push(0);
+    for (s, _) in &symbols {
+        exit.extend_from_slice(s.as_bytes());
+        exit.push(0);
     }
-    if tamanho_tabela & 1 == 1 {
-        saida.push(b'\n');
+    if table_size & 1 == 1 {
+        exit.push(b'\n');
     }
-    for m in &membros {
-        saida.extend(cabecalho_ar(&nome_membro, m.len()));
-        saida.extend_from_slice(m);
+    for m in &members {
+        exit.extend(ar_header(&member_name, m.len()));
+        exit.extend_from_slice(m);
         if m.len() & 1 == 1 {
-            saida.push(b'\n');
+            exit.push(b'\n');
         }
     }
-    debug_assert_eq!(saida.len(), pos);
-    saida
+    debug_assert_eq!(exit.len(), pos);
+    exit
 }
 
 /// Quem compila a CRT mínima: o gerador do programa, ou um Clang com
 /// `--target` (o `dartforge empacotar` e os testes fora do Windows).
 pub enum CompiladorDaCrt<'a> {
     Gerador(&'a crate::gerador::Gerador),
-    ClangComAlvo(&'a Path),
+    ClangWithTarget(&'a Path),
 }
 
 /// Gera em `dir` as bibliotecas de importação e os objetos da CRT mínima.
@@ -716,21 +716,21 @@ pub enum CompiladorDaCrt<'a> {
 /// # Erros
 ///
 /// Falha de escrita no diretório ou do compilador do IR.
-pub fn gerar(dir: &Path, compilador: &CompiladorDaCrt<'_>) -> Result<(), String> {
+pub fn gerar(dir: &Path, compiler: &CompiladorDaCrt<'_>) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    for (dll, nomes) in IMPORTACOES {
-        let caminho = dir.join(nome_da_importacao(dll));
-        std::fs::write(&caminho, biblioteca_de_importacao(dll, nomes)).map_err(|e| format!("{}: {e}", caminho.display()))?;
+    for (dll, names) in IMPORTS {
+        let path = dir.join(import_name(dll));
+        std::fs::write(&path, import_library(dll, names)).map_err(|e| format!("{}: {e}", path.display()))?;
     }
-    for (arquivo, corpo) in MODULOS_DA_CRT {
-        let ir = ir_da_crt(corpo);
-        let obj = dir.join(arquivo);
-        match compilador {
-            CompiladorDaCrt::Gerador(g) => g.gerar(&ir, crate::gerador::Geracao::do_programa(false, false), &obj)?,
-            CompiladorDaCrt::ClangComAlvo(clang) => {
+    for (file, body) in CRT_MODULES {
+        let ir = crt_ir(body);
+        let obj = dir.join(file);
+        match compiler {
+            CompiladorDaCrt::Gerador(g) => g.gerar(&ir, crate::gerador::Generation::of_program(false, false), &obj)?,
+            CompiladorDaCrt::ClangWithTarget(clang) => {
                 let ll = obj.with_extension("ll");
                 std::fs::write(&ll, &ir).map_err(|e| format!("{}: {e}", ll.display()))?;
-                let saida = Command::new(clang)
+                let exit = Command::new(clang)
                     .args(["-x", "ir", "-c", "-O0", "-mno-incremental-linker-compatible"])
                     .arg(format!("--target={TRIPLE}"))
                     .arg(&ll)
@@ -739,8 +739,8 @@ pub fn gerar(dir: &Path, compilador: &CompiladorDaCrt<'_>) -> Result<(), String>
                     .output()
                     .map_err(|e| format!("falha ao executar {}: {e}", clang.display()))?;
                 let _ = std::fs::remove_file(&ll);
-                if !saida.status.success() {
-                    return Err(format!("a CRT mínima não compilou: {}", String::from_utf8_lossy(&saida.stderr)));
+                if !exit.status.success() {
+                    return Err(format!("a CRT mínima não compilou: {}", String::from_utf8_lossy(&exit.stderr)));
                 }
             }
         }
@@ -750,19 +750,19 @@ pub fn gerar(dir: &Path, compilador: &CompiladorDaCrt<'_>) -> Result<(), String>
 
 /// A impressão digital do conteúdo gerado (listas e IR), para o diretório no
 /// cache.
-fn impressao() -> String {
+fn printing() -> String {
     let mut h = blake3::Hasher::new();
-    for (dll, nomes) in IMPORTACOES {
+    for (dll, names) in IMPORTS {
         h.update(dll.as_bytes());
-        for n in *nomes {
+        for n in *names {
             h.update(n.as_bytes());
             h.update(&[0]);
         }
     }
-    for (arquivo, corpo) in MODULOS_DA_CRT {
-        h.update(arquivo.as_bytes());
-        h.update(CABECALHO.as_bytes());
-        h.update(corpo.as_bytes());
+    for (file, body) in CRT_MODULES {
+        h.update(file.as_bytes());
+        h.update(HEADER.as_bytes());
+        h.update(body.as_bytes());
     }
     h.finalize().to_hex()[..16].to_string()
 }
@@ -780,7 +780,7 @@ impl SysrootWindows {
     /// # Erros
     ///
     /// A geração falhou (ver [`gerar`]).
-    pub fn localizar(clang: &Path) -> Result<&'static SysrootWindows, String> {
+    pub fn locate(clang: &Path) -> Result<&'static SysrootWindows, String> {
         static S: std::sync::OnceLock<Result<SysrootWindows, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
             if let Some(dir) = dartforge_elements::distribuicao::em_lib(&format!("sysroot/{TRIPLE}"))
@@ -789,13 +789,13 @@ impl SysrootWindows {
                 return Ok(SysrootWindows { dir });
             }
             let gerador = crate::gerador::Gerador::escolher(clang);
-            let chave = format!("{}-{}", impressao(), &blake3::hash(gerador.identidade()?.as_bytes()).to_hex()[..8]);
-            let raiz = crate::cache::dir_cache_nativo().join("ligacao-windows");
-            let dir = raiz.join(&chave);
+            let key = format!("{}-{}", printing(), &blake3::hash(gerador.identity()?.as_bytes()).to_hex()[..8]);
+            let root = crate::cache::native_cache_dir().join("ligacao-windows");
+            let dir = root.join(&key);
             if dir.join("pronto").is_file() {
                 return Ok(SysrootWindows { dir });
             }
-            let tmp = raiz.join(format!("{chave}.tmp.{}", std::process::id()));
+            let tmp = root.join(format!("{key}.tmp.{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&tmp);
             gerar(&tmp, &CompiladorDaCrt::Gerador(&gerador))?;
             std::fs::write(tmp.join("pronto"), b"").map_err(|e| e.to_string())?;
@@ -812,39 +812,39 @@ impl SysrootWindows {
     }
 
     /// Um diretório já gerado (testes).
-    pub fn do_diretorio(dir: PathBuf) -> SysrootWindows {
+    pub fn from_dir(dir: PathBuf) -> SysrootWindows {
         SysrootWindows { dir }
     }
 
-    fn bibliotecas(&self) -> Vec<PathBuf> {
-        IMPORTACOES.iter().map(|(dll, _)| self.dir.join(nome_da_importacao(dll))).collect()
+    fn libraries(&self) -> Vec<PathBuf> {
+        IMPORTS.iter().map(|(dll, _)| self.dir.join(import_name(dll))).collect()
     }
 }
 
 /// O que se liga.
-pub enum Produto<'a> {
+pub enum Product<'a> {
     /// Um executável de console.
-    Executavel,
+    Executable,
     /// Uma DLL com as exportações do `.def` dado; a biblioteca de importação
     /// sai ao lado (`<saída>.lib`).
     Dll { def: &'a Path },
 }
 
 /// Uma ligação pelo `lld-link`.
-pub struct Ligacao<'a> {
-    pub produto: Produto<'a>,
+pub struct Linkage<'a> {
+    pub product: Product<'a>,
     /// Objetos e bibliotecas do programa, na ordem.
-    pub entradas: Vec<PathBuf>,
+    pub entries: Vec<PathBuf>,
     /// LTO dos bitcodes de entrada (produção), em partições.
     pub lto: bool,
     /// A CPU-alvo da geração de código da LTO (`--cpu`, o nome do LLVM);
     /// `None`, a base.
     pub cpu: Option<&'static str>,
     /// Tirar as seções que nada alcança (`/OPT:REF`, produção).
-    pub podar: bool,
+    pub prune: bool,
     /// O PDB com as tabelas CodeView dos objetos (J05, `/DEBUG`).
-    pub depuracao: bool,
-    pub saida: &'a Path,
+    pub debug_info: bool,
+    pub exit: &'a Path,
 }
 
 /// O `lld-link`: o da distribuição, o ao lado do Clang, ou o do `PATH`.
@@ -852,12 +852,12 @@ pub fn lld_link(clang: &Path) -> PathBuf {
     if let Some(l) = dartforge_elements::distribuicao::ferramenta_llvm("lld-link") {
         return l;
     }
-    let ao_lado = clang.with_file_name(if cfg!(windows) { "lld-link.exe" } else { "lld-link" });
-    if ao_lado.is_file() { ao_lado } else { PathBuf::from("lld-link") }
+    let alongside = clang.with_file_name(if cfg!(windows) { "lld-link.exe" } else { "lld-link" });
+    if alongside.is_file() { alongside } else { PathBuf::from("lld-link") }
 }
 
 /// Os argumentos do `lld-link` para a ligação `l`.
-pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::OsString> {
+pub fn arguments(sysroot: &SysrootWindows, l: &Linkage<'_>) -> Vec<std::ffi::OsString> {
     let mut a: Vec<std::ffi::OsString> = Vec::new();
     // Nada do ambiente (`LIB`, o Visual Studio detectado) nem das diretivas
     // `/DEFAULTLIB` dos objetos (`msvcrt.lib`, `oldnames.lib`, as do Rust):
@@ -872,39 +872,39 @@ pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::Os
     // endereço ninguém toma (a tabela `.llvm_addrsig` do objeto; um objeto
     // sem ela, como os do Rust, conta inteiro como tomado); no
     // desenvolvimento, nenhum (a ligação rápida).
-    a.push(if l.podar { "/opt:safeicf" } else { "/opt:noicf" }.into());
-    let crt_comum = sysroot.dir.join("dfcrt_comum.obj");
-    match &l.produto {
-        Produto::Executavel => {
+    a.push(if l.prune { "/opt:safeicf" } else { "/opt:noicf" }.into());
+    let common_crt = sysroot.dir.join("dfcrt_comum.obj");
+    match &l.product {
+        Product::Executable => {
             a.push("/entry:mainCRTStartup".into());
-            a.push(crt_comum.into_os_string());
+            a.push(common_crt.into_os_string());
             a.push(sysroot.dir.join("dfcrt_exe.obj").into_os_string());
         }
-        Produto::Dll { def } => {
+        Product::Dll { def } => {
             a.push("/dll".into());
             a.push("/entry:_DllMainCRTStartup".into());
             let mut d = std::ffi::OsString::from("/def:");
             d.push(def.as_os_str());
             a.push(d);
-            a.push(crt_comum.into_os_string());
+            a.push(common_crt.into_os_string());
             a.push(sysroot.dir.join("dfcrt_dll.obj").into_os_string());
         }
     }
-    if l.podar {
+    if l.prune {
         a.push("/opt:ref".into());
-        if let Some(m) = crate::ligador::mapa_da_ligacao(l.saida) {
+        if let Some(m) = crate::ligador::link_map(l.exit) {
             let mut o = std::ffi::OsString::from("/map:");
             o.push(m.as_os_str());
             a.push(o);
         }
     }
     if l.lto {
-        let particoes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
-        a.push(format!("/opt:lldlto={}", crate::driver::nivel_da_lto()).into());
-        a.push(format!("/opt:lldltopartitions={particoes}").into());
+        let partitions = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
+        a.push(format!("/opt:lldlto={}", crate::driver::lto_level()).into());
+        a.push(format!("/opt:lldltopartitions={partitions}").into());
         // ThinLTO (os bitcodes das partes de um programa grande, C9): um
         // módulo por tarefa, poucas ao mesmo tempo — a memória é a medida.
-        a.push(format!("/opt:lldltojobs={}", crate::driver::tarefas_de_geracao()).into());
+        a.push(format!("/opt:lldltojobs={}", crate::driver::generation_tasks()).into());
         // Medida: opções do LLVM para a LTO (`DARTFORGE_LTO_MLLVM="-a -b=1"`).
         if let Ok(v) = std::env::var("DARTFORGE_LTO_MLLVM") {
             for o in v.split_whitespace() {
@@ -912,14 +912,14 @@ pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::Os
             }
         }
         // Medida: o perfil de tempo da LTO (módulo a módulo, passe a passo),
-        // `DARTFORGE_LTO_PERFIL=<arquivo.json>`.
+        // `DARTFORGE_LTO_PERFIL=<file.json>`.
         if let Some(f) = std::env::var_os("DARTFORGE_LTO_PERFIL") {
             let mut o = std::ffi::OsString::from("--time-trace=");
             o.push(&f);
             a.push(o);
             a.push("--time-trace-granularity=20000".into());
         }
-        if let Some(d) = crate::driver::cache_do_thinlto() {
+        if let Some(d) = crate::driver::thinlto_cache() {
             let mut o = std::ffi::OsString::from("/lldltocache:");
             o.push(d.as_os_str());
             a.push(o);
@@ -931,14 +931,14 @@ pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::Os
             a.push(format!("/mllvm:-mcpu={c}").into());
         }
     }
-    if l.depuracao {
+    if l.debug_info {
         a.push("/debug".into());
     }
     let mut o = std::ffi::OsString::from("/out:");
-    o.push(l.saida.as_os_str());
+    o.push(l.exit.as_os_str());
     a.push(o);
-    a.extend(l.entradas.iter().map(|e| e.clone().into_os_string()));
-    a.extend(sysroot.bibliotecas().into_iter().map(PathBuf::into_os_string));
+    a.extend(l.entries.iter().map(|e| e.clone().into_os_string()));
+    a.extend(sysroot.libraries().into_iter().map(PathBuf::into_os_string));
     a
 }
 
@@ -948,27 +948,27 @@ pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::Os
 ///
 /// O `lld-link` não executou ou recusou a ligação (a mensagem leva o que ele
 /// disse).
-pub fn ligar(lld: &Path, sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Result<(), String> {
-    let saida = Command::new(lld)
-        .args(argumentos(sysroot, l))
+pub fn link(lld: &Path, sysroot: &SysrootWindows, l: &Linkage<'_>) -> Result<(), String> {
+    let exit = Command::new(lld)
+        .args(arguments(sysroot, l))
         .output()
         .map_err(|e| format!("falha ao executar {}: {e}", lld.display()))?;
-    if !saida.status.success() {
-        let mut texto = String::from_utf8_lossy(&saida.stderr).into_owned();
-        texto.push_str(&String::from_utf8_lossy(&saida.stdout));
-        let linhas: Vec<&str> = texto.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
-        return Err(format!("o lld-link falhou na ligação ({}):\n{}", saida.status, linhas.join("\n")));
+    if !exit.status.success() {
+        let mut text = String::from_utf8_lossy(&exit.stderr).into_owned();
+        text.push_str(&String::from_utf8_lossy(&exit.stdout));
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
+        return Err(format!("o lld-link falhou na ligação ({}):\n{}", exit.status, lines.join("\n")));
     }
     Ok(())
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn membro_short_import() {
-        let m = membro_de_importacao("k.dll", "F");
+    fn short_import_member() {
+        let m = import_member("k.dll", "F");
         assert_eq!(&m[..4], &[0, 0, 0xFF, 0xFF]);
         assert_eq!(u16::from_le_bytes([m[6], m[7]]), 0x8664);
         assert_eq!(u32::from_le_bytes([m[12], m[13], m[14], m[15]]), 8);
@@ -976,59 +976,59 @@ mod testes {
     }
 
     #[test]
-    fn arquivo_com_tabela_de_simbolos() {
-        let lib = biblioteca_de_importacao("abc.dll", &["Um", "Dois"]);
+    fn file_with_symbol_table() {
+        let lib = import_library("abc.dll", &["Um", "Dois"]);
         assert_eq!(&lib[..8], b"!<arch>\n");
-        let tam: usize = std::str::from_utf8(&lib[8 + 48..8 + 58]).unwrap().trim().parse().unwrap();
-        let tabela = &lib[68..68 + tam];
-        assert_eq!(u32::from_be_bytes(tabela[..4].try_into().unwrap()), 4);
+        let sz: usize = std::str::from_utf8(&lib[8 + 48..8 + 58]).unwrap().trim().parse().unwrap();
+        let table = &lib[68..68 + sz];
+        assert_eq!(u32::from_be_bytes(table[..4].try_into().unwrap()), 4);
         // Cada deslocamento aponta um cabeçalho de membro com o nome da DLL.
         for i in 0..4 {
-            let d = u32::from_be_bytes(tabela[4 + 4 * i..8 + 4 * i].try_into().unwrap()) as usize;
+            let d = u32::from_be_bytes(table[4 + 4 * i..8 + 4 * i].try_into().unwrap()) as usize;
             assert_eq!(&lib[d..d + 8], b"abc.dll/");
             assert_eq!(&lib[d + 60..d + 64], &[0, 0, 0xFF, 0xFF]);
         }
     }
 
     #[test]
-    fn nenhuma_importacao_repetida() {
-        let mut todos: Vec<&str> = IMPORTACOES.iter().flat_map(|(_, n)| n.iter().copied()).collect();
-        let total = todos.len();
-        todos.sort_unstable();
-        todos.dedup();
-        assert_eq!(todos.len(), total);
+    fn no_repeated_import() {
+        let mut all: Vec<&str> = IMPORTS.iter().flat_map(|(_, n)| n.iter().copied()).collect();
+        let total = all.len();
+        all.sort_unstable();
+        all.dedup();
+        assert_eq!(all.len(), total);
     }
 
     /// Os nomes exportados por uma DLL (a tabela de exportação do PE).
     #[cfg(windows)]
-    fn exportados(dll: &Path) -> Vec<String> {
+    fn exported(dll: &Path) -> Vec<String> {
         let b = std::fs::read(dll).unwrap();
         let u16_ = |o: usize| u16::from_le_bytes([b[o], b[o + 1]]) as usize;
         let u32_ = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap()) as usize;
         let pe = u32_(0x3c);
-        let n_secoes = u16_(pe + 6);
-        let opcional = pe + 24;
-        let secoes = opcional + u16_(pe + 20);
+        let n_sections = u16_(pe + 6);
+        let optional = pe + 24;
+        let sections = optional + u16_(pe + 20);
         // PE32+: o diretório de exportação é o primeiro do opcional (+112).
-        let rva_exp = u32_(opcional + 112);
-        let para_arquivo = |rva: usize| -> usize {
-            for i in 0..n_secoes {
-                let s = secoes + 40 * i;
-                let (va, tam, bruto) = (u32_(s + 12), u32_(s + 8).max(u32_(s + 16)), u32_(s + 20));
-                if rva >= va && rva < va + tam {
-                    return rva - va + bruto;
+        let rva_exp = u32_(optional + 112);
+        let to_file = |rva: usize| -> usize {
+            for i in 0..n_sections {
+                let s = sections + 40 * i;
+                let (va, sz, raw) = (u32_(s + 12), u32_(s + 8).max(u32_(s + 16)), u32_(s + 20));
+                if rva >= va && rva < va + sz {
+                    return rva - va + raw;
                 }
             }
             panic!("RVA fora das seções")
         };
-        let exp = para_arquivo(rva_exp);
-        let n_nomes = u32_(exp + 24);
-        let nomes = para_arquivo(u32_(exp + 32));
-        (0..n_nomes)
+        let exp = to_file(rva_exp);
+        let n_names = u32_(exp + 24);
+        let names = to_file(u32_(exp + 32));
+        (0..n_names)
             .map(|i| {
-                let o = para_arquivo(u32_(nomes + 4 * i));
-                let fim = b[o..].iter().position(|&c| c == 0).unwrap();
-                String::from_utf8_lossy(&b[o..o + fim]).into_owned()
+                let o = to_file(u32_(names + 4 * i));
+                let end = b[o..].iter().position(|&c| c == 0).unwrap();
+                String::from_utf8_lossy(&b[o..o + end]).into_owned()
             })
             .collect()
     }
@@ -1036,18 +1036,18 @@ mod testes {
     /// Cada nome importado existe na DLL do sistema (o runner do Windows).
     #[cfg(windows)]
     #[test]
-    fn importacoes_existem_no_sistema() {
+    fn imports_exist_in_system() {
         let sistema = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32");
-        let mut faltam = Vec::new();
-        for (dll, nomes) in IMPORTACOES {
-            let exp = exportados(&sistema.join(dll));
-            for n in *nomes {
+        let mut missing_set = Vec::new();
+        for (dll, names) in IMPORTS {
+            let exp = exported(&sistema.join(dll));
+            for n in *names {
                 if !exp.iter().any(|e| e == n) {
-                    faltam.push(format!("{dll}!{n}"));
+                    missing_set.push(format!("{dll}!{n}"));
                 }
             }
         }
-        assert!(faltam.is_empty(), "não exportados pelo sistema: {faltam:?}");
+        assert!(missing_set.is_empty(), "não exportados pelo sistema: {missing_set:?}");
     }
 
     /// Liga programas C para Windows (compilados pelo Clang com `--target`)
@@ -1058,24 +1058,24 @@ mod testes {
     /// outro executável. No Windows, ou com o Wine no `PATH`, também executa.
     #[test]
     #[ignore = "exige o Clang e o lld-link (DARTFORGE_CLANG ou PATH)"]
-    fn liga_e_executa_programa_c() {
+    fn links_and_runs_c_program() {
         let clang = crate::driver::NativeDriverOptions::default().clang;
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path();
         let sys = d.join("sysroot");
-        gerar(&sys, &CompiladorDaCrt::ClangComAlvo(&clang)).unwrap();
-        let sysroot = SysrootWindows::do_diretorio(sys);
-        let comum = r#"
+        gerar(&sys, &CompiladorDaCrt::ClangWithTarget(&clang)).unwrap();
+        let sysroot = SysrootWindows::from_dir(sys);
+        let common = r#"
 __declspec(dllimport) void* __stdcall GetStdHandle(unsigned);
 __declspec(dllimport) int __stdcall WriteFile(void*, const void*, unsigned, unsigned*, void*);
 double pow(double, double);
 int atexit(void (*)(void));
 static void escrever(const char* s) { unsigned n = 0, t = 0; while (s[t]) t++; WriteFile(GetStdHandle((unsigned)-11), s, t, &n, 0); }
 "#;
-        let compilar = |nome: &str, fonte: &str| -> PathBuf {
-            let c = d.join(format!("{nome}.c"));
-            std::fs::write(&c, format!("{comum}{fonte}")).unwrap();
-            let obj = d.join(format!("{nome}.obj"));
+        let compilar = |name: &str, source: &str| -> PathBuf {
+            let c = d.join(format!("{name}.c"));
+            std::fs::write(&c, format!("{common}{source}")).unwrap();
+            let obj = d.join(format!("{name}.obj"));
             let st = Command::new(&clang)
                 .args([&format!("--target={TRIPLE}"), "-c", "-O1", "-fms-extensions"])
                 .arg(&c)
@@ -1083,7 +1083,7 @@ static void escrever(const char* s) { unsigned n = 0, t = 0; while (s[t]) t++; W
                 .arg(&obj)
                 .status()
                 .unwrap();
-            assert!(st.success(), "o Clang não compilou {nome}.c");
+            assert!(st.success(), "o Clang não compilou {name}.c");
             obj
         };
         let p = compilar(
@@ -1112,15 +1112,15 @@ int main(void) {
 "#,
         );
         let exe = d.join("p.exe");
-        let ligar_exe = |entradas: Vec<PathBuf>, saida: &Path| {
-            ligar(
+        let link_exe = |entries: Vec<PathBuf>, exit: &Path| {
+            link(
                 &lld_link(&clang),
                 &sysroot,
-                &Ligacao { produto: Produto::Executavel, entradas, lto: false, cpu: None, podar: true, depuracao: true, saida },
+                &Linkage { product: Product::Executable, entries, lto: false, cpu: None, prune: true, debug_info: true, exit },
             )
             .unwrap();
         };
-        ligar_exe(vec![p], &exe);
+        link_exe(vec![p], &exe);
         let dll_obj = compilar(
             "b",
             r#"
@@ -1131,21 +1131,21 @@ int df_valor(void) { static int registrado; if (!registrado) { registrado = 1; a
         );
         let def = d.join("b.def");
         std::fs::write(&def, "LIBRARY b.dll\nEXPORTS\n  df_valor\n").unwrap();
-        ligar(
+        link(
             &lld_link(&clang),
             &sysroot,
-            &Ligacao { produto: Produto::Dll { def: &def }, entradas: vec![dll_obj], lto: false, cpu: None, podar: false, depuracao: false, saida: &d.join("b.dll") },
+            &Linkage { product: Product::Dll { def: &def }, entries: vec![dll_obj], lto: false, cpu: None, prune: false, debug_info: false, exit: &d.join("b.dll") },
         )
         .unwrap();
         assert!(d.join("b.lib").is_file(), "a biblioteca de importação da DLL");
         let q = compilar("q", "int df_valor(void);\nint main(void) { if (df_valor() == 6) escrever(\"dll ok\\n\"); return 0; }\n");
         let exe_dll = d.join("q.exe");
-        ligar_exe(vec![q, d.join("b.lib")], &exe_dll);
+        link_exe(vec![q, d.join("b.lib")], &exe_dll);
         let wine = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).map(|p| p.join("wine")).find(|w| w.is_file());
         if !cfg!(windows) && wine.is_none() {
             return;
         }
-        let executar = |exe: &Path| {
+        let run = |exe: &Path| {
             let mut cmd = match &wine {
                 Some(w) if !cfg!(windows) => {
                     let mut c = Command::new(w);
@@ -1157,7 +1157,7 @@ int df_valor(void) { static int registrado; if (!registrado) { registrado = 1; a
             let s = cmd.current_dir(d).env("WINEDEBUG", "-all").output().unwrap();
             (String::from_utf8_lossy(&s.stdout).replace('\r', ""), s.status.code())
         };
-        assert_eq!(executar(&exe), ("ok\nfim\n".to_string(), Some(3)));
-        assert_eq!(executar(&exe_dll), ("dll ok\ndll fim\n".to_string(), Some(0)));
+        assert_eq!(run(&exe), ("ok\nfim\n".to_string(), Some(3)));
+        assert_eq!(run(&exe_dll), ("dll ok\ndll fim\n".to_string(), Some(0)));
     }
 }

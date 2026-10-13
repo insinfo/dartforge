@@ -7,23 +7,23 @@ use std::{collections::HashMap, path::PathBuf};
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(outro) => return Err(format!("modo desconhecido: {outro}")),
+        Some(other) => return Err(format!("modo desconhecido: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(outro) => return Err(format!("nível desconhecido: {outro}")),
+        Some(other) => return Err(format!("nível desconhecido: {other}")),
     };
-    let controle = args.next();
+    let control = args.next();
     if args.next().is_some() {
         return Err("argumentos excedentes".into());
     }
     let mut m = Module::new();
-    m.memoria_arc = arc;
+    m.arc_memory = arc;
     m.entry_symbol = Some("prova_literal".into());
     let bits = 0xfff8_1234_5678_9abc_u64;
     let mut instructions = vec![(
@@ -53,7 +53,7 @@ fn main() -> Result<(), String> {
     m.functions.push(Function {
         symbol: "literal_misto".into(),
         name: "literal_misto".into(),
-        depuracao: None,
+        debug_info: None,
         params: vec![(ValueId(0), "filho".into(), Type::Ref)],
         return_ty: Type::Ref,
         blocks: vec![BasicBlock {
@@ -62,10 +62,10 @@ fn main() -> Result<(), String> {
             terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
         }],
     });
-    let mut plano = PlanoFuncaoDart::default();
-    plano.tokens.retorno = RetornoTokens::Owned;
-    let mut planos = HashMap::from([("literal_misto".into(), plano)]);
-    preparar_arc_modulo_dart(&mut m, &mut planos)?;
+    let mut plan = DartFunctionPlan::default();
+    plan.tokens.ret = TokenReturn::Owned;
+    let mut plans = HashMap::from([("literal_misto".into(), plan)]);
+    prepare_arc_dart_module(&mut m, &mut plans)?;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     if !ir
         .lines()
@@ -76,7 +76,7 @@ fn main() -> Result<(), String> {
     if !ir.contains("declare void @llvm.trap()") {
         ir.push_str("declare void @llvm.trap()\n");
     }
-    let retencao = if arc {
+    let retention = if arc {
         ""
     } else {
         "  call void @dartforge_arc_retain(i64 %lista)\n"
@@ -87,7 +87,7 @@ define void @prova_literal() {{
 entry:
   %filho = call i64 @dartforge_arc_lista_nova_owned_v1(ptr null, i64 0, i64 8, i64 0)
   %lista = call i64 @literal_misto(i64 %filho)
-{retencao}  call void @dartforge_arc_release(i64 %filho)
+{retention}  call void @dartforge_arc_release(i64 %filho)
   call void @dartforge_arc_collect()
   %estado = call i8 @dartforge_arc_observar_heap_v1(i64 %lista)
   %owner = icmp eq i8 %estado, 3
@@ -147,7 +147,7 @@ falha:
 }}
 "#
     ));
-    match controle.as_deref() {
+    match control.as_deref() {
         None => {}
         Some("sem-owner") => {
             ir = ir.replace("  call void @dartforge_arc_release(i64 %filho)\n",
@@ -159,15 +159,15 @@ falha:
                 "soltar:\n",
             );
         }
-        Some(outro) => return Err(format!("controle desconhecido: {outro}")),
+        Some(other) => return Err(format!("controle desconhecido: {other}")),
     }
-    if let Some(dir) = saida.parent() {
+    if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
+    std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     driver::compile_and_link(
         &ir,
-        &saida,
+        &exit,
         &driver::NativeDriverOptions {
             optimize,
             ..Default::default()

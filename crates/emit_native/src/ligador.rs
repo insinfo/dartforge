@@ -18,7 +18,7 @@ use std::process::Command;
 
 /// Os arquivos do sysroot de ligação, na ordem em que o driver do Clang os
 /// passa.
-pub const ARQUIVOS_DO_SYSROOT: &[&str] = &[
+pub const SYSROOT_FILES: &[&str] = &[
     "Scrt1.o",
     "crti.o",
     "crtbeginS.o",
@@ -33,13 +33,13 @@ pub const ARQUIVOS_DO_SYSROOT: &[&str] = &[
     "libutil.so.1",
     "libgcc_s.so.1",
     "libgcc.a",
-    // O carregador dinâmico (`__tls_get_addr`…), que o `libc.so` de
+    // O carregador dinâmico (`__tls_get_addr`…), que o `libc.only` de
     // desenvolvimento traz como `AS_NEEDED`.
-    CARREGADOR,
+    LOADER,
 ];
 
 /// O arquivo do carregador dinâmico do hospedeiro.
-const CARREGADOR: &str = if cfg!(target_arch = "aarch64") { "ld-linux-aarch64.so.1" } else { "ld-linux-x86-64.so.2" };
+const LOADER: &str = if cfg!(target_arch = "aarch64") { "ld-linux-aarch64.so.1" } else { "ld-linux-x86-64.so.2" };
 
 /// O triple do sysroot deste hospedeiro.
 pub fn triple_do_sysroot() -> &'static str {
@@ -47,7 +47,7 @@ pub fn triple_do_sysroot() -> &'static str {
 }
 
 /// O carregador dinâmico do hospedeiro e a emulação do `ld.lld`.
-fn carregador_e_emulacao() -> (&'static str, &'static str) {
+fn loader_and_emulation() -> (&'static str, &'static str) {
     if cfg!(target_arch = "aarch64") {
         ("/lib/ld-linux-aarch64.so.1", "aarch64linux")
     } else {
@@ -55,19 +55,19 @@ fn carregador_e_emulacao() -> (&'static str, &'static str) {
     }
 }
 
-/// Onde estão os arquivos de [`ARQUIVOS_DO_SYSROOT`].
+/// Onde estão os arquivos de [`SYSROOT_FILES`].
 #[derive(Debug, Clone)]
 pub struct SysrootLinux {
-    arquivos: Vec<PathBuf>,
+    files: Vec<PathBuf>,
 }
 
 impl SysrootLinux {
     /// O da distribuição, senão o do sistema (pelo Clang de `clang`).
-    pub fn localizar(clang: &Path) -> Result<&'static SysrootLinux, String> {
+    pub fn locate(clang: &Path) -> Result<&'static SysrootLinux, String> {
         static S: std::sync::OnceLock<Result<SysrootLinux, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
             if let Some(dir) = dartforge_elements::distribuicao::em_lib(&format!("sysroot/{}", triple_do_sysroot())) {
-                return Self::do_diretorio(&dir);
+                return Self::from_dir(&dir);
             }
             Self::do_sistema(clang)
         })
@@ -75,75 +75,75 @@ impl SysrootLinux {
         .map_err(Clone::clone)
     }
 
-    fn do_diretorio(dir: &Path) -> Result<SysrootLinux, String> {
-        let arquivos: Vec<PathBuf> = ARQUIVOS_DO_SYSROOT.iter().map(|a| dir.join(a)).collect();
-        if let Some(falta) = arquivos.iter().find(|a| !a.is_file()) {
-            return Err(format!("o sysroot da distribuição está incompleto: falta {}", falta.display()));
+    fn from_dir(dir: &Path) -> Result<SysrootLinux, String> {
+        let files: Vec<PathBuf> = SYSROOT_FILES.iter().map(|a| dir.join(a)).collect();
+        if let Some(missing) = files.iter().find(|a| !a.is_file()) {
+            return Err(format!("o sysroot da distribuição está incompleto: falta {}", missing.display()));
         }
-        Ok(SysrootLinux { arquivos })
+        Ok(SysrootLinux { files })
     }
 
     /// Os arquivos que o driver do Clang usaria (`-print-file-name`).
     pub fn do_sistema(clang: &Path) -> Result<SysrootLinux, String> {
-        let mut arquivos = Vec::new();
-        for a in ARQUIVOS_DO_SYSROOT {
-            let saida = Command::new(clang)
+        let mut files = Vec::new();
+        for a in SYSROOT_FILES {
+            let exit = Command::new(clang)
                 .arg(format!("-print-file-name={a}"))
                 .output()
                 .map_err(|e| format!("falha ao executar {} para achar {a}: {e}", clang.display()))?;
-            let caminho = PathBuf::from(String::from_utf8_lossy(&saida.stdout).trim());
-            if !caminho.is_file() {
+            let path = PathBuf::from(String::from_utf8_lossy(&exit.stdout).trim());
+            if !path.is_file() {
                 return Err(format!(
                     "{a} não encontrado no sistema: instale os pacotes de desenvolvimento da glibc e do GCC, \
                      ou use a distribuição do dartforge (que traz o sysroot de ligação)"
                 ));
             }
-            arquivos.push(caminho);
+            files.push(path);
         }
-        Ok(SysrootLinux { arquivos })
+        Ok(SysrootLinux { files })
     }
 
-    fn arquivo(&self, nome: &str) -> &Path {
-        let i = ARQUIVOS_DO_SYSROOT.iter().position(|a| *a == nome).expect("arquivo do sysroot");
-        &self.arquivos[i]
+    fn file(&self, name: &str) -> &Path {
+        let i = SYSROOT_FILES.iter().position(|a| *a == name).expect("arquivo do sysroot");
+        &self.files[i]
     }
 
-    /// Copia os arquivos para `destino` (o `dartforge empacotar`).
-    pub fn copiar_para(&self, destino: &Path) -> Result<(), String> {
-        std::fs::create_dir_all(destino).map_err(|e| format!("{}: {e}", destino.display()))?;
-        for (nome, de) in ARQUIVOS_DO_SYSROOT.iter().zip(&self.arquivos) {
-            std::fs::copy(de, destino.join(nome)).map_err(|e| format!("copiar {}: {e}", de.display()))?;
+    /// Copia os arquivos para `dest` (o `dartforge empacotar`).
+    pub fn copiar_para(&self, dest: &Path) -> Result<(), String> {
+        std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+        for (name, de) in SYSROOT_FILES.iter().zip(&self.files) {
+            std::fs::copy(de, dest.join(name)).map_err(|e| format!("copiar {}: {e}", de.display()))?;
         }
         Ok(())
     }
 }
 
 /// O que se liga.
-pub enum Produto<'a> {
+pub enum Product<'a> {
     /// Um executável PIE.
-    Executavel,
+    Executable,
     /// Uma biblioteca compartilhada com o `soname`, exportando (e trazendo
     /// das `staticlib`) os símbolos dados.
-    Compartilhada { soname: &'a str, exportados: &'a [String] },
+    Shared { soname: &'a str, exported: &'a [String] },
 }
 
 /// Uma ligação pelo `ld.lld`.
-pub struct Ligacao<'a> {
-    pub produto: Produto<'a>,
+pub struct Linkage<'a> {
+    pub product: Product<'a>,
     /// Objetos e bibliotecas do programa (na ordem), antes das do sistema.
-    pub entradas: Vec<PathBuf>,
+    pub entries: Vec<PathBuf>,
     /// Procurar as bibliotecas compartilhadas ao lado do executável.
-    pub rpath_origem: bool,
+    pub origin_rpath: bool,
     /// LTO dos bitcodes de entrada, com a geração de código em partições.
     pub lto: bool,
     /// A CPU-alvo da geração de código da LTO (`--cpu`, o nome do LLVM);
     /// `None`, a base (`x86-64` no x86-64).
     pub cpu: Option<&'static str>,
     /// Tirar as seções que nada alcança e a tabela de símbolos (produção).
-    pub podar: bool,
+    pub prune: bool,
     /// Manter os símbolos e as seções de depuração mesmo podando (J05).
-    pub manter_depuracao: bool,
-    pub saida: &'a Path,
+    pub keep_debug_info: bool,
+    pub exit: &'a Path,
 }
 
 /// O `ld.lld`: o da distribuição, o ao lado do Clang, ou o do `PATH`.
@@ -151,35 +151,35 @@ pub fn ld_lld(clang: &Path) -> PathBuf {
     if let Some(l) = dartforge_elements::distribuicao::ferramenta_llvm("ld.lld") {
         return l;
     }
-    let ao_lado = clang.with_file_name("ld.lld");
-    if ao_lado.is_file() { ao_lado } else { PathBuf::from("ld.lld") }
+    let alongside = clang.with_file_name("ld.lld");
+    if alongside.is_file() { alongside } else { PathBuf::from("ld.lld") }
 }
 
 /// Liga com o `ld.lld` e o sysroot de ligação.
-pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), String> {
-    let mut cmd = comando(ld, sysroot, l)?;
-    let saida = cmd.output().map_err(|e| format!("falha ao executar {}: {e}", ld.display()))?;
-    if !saida.status.success() {
-        let texto = String::from_utf8_lossy(&saida.stderr);
-        let linhas: Vec<&str> = texto.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
-        return Err(format!("o ld.lld falhou na ligação ({}):\n{}", saida.status, linhas.join("\n")));
+pub fn link(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<(), String> {
+    let mut cmd = statement(ld, sysroot, l)?;
+    let exit = cmd.output().map_err(|e| format!("falha ao executar {}: {e}", ld.display()))?;
+    if !exit.status.success() {
+        let text = String::from_utf8_lossy(&exit.stderr);
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
+        return Err(format!("o ld.lld falhou na ligação ({}):\n{}", exit.status, lines.join("\n")));
     }
     Ok(())
 }
 
 /// O comando do `ld.lld` para a ligação `l`, pronto para rodar (o
-/// [`ligar`]) ou para receber mais opções (o `--thinlto-index-only` do
-/// ThinLTO distribuído, `lto_distribuida.rs`).
-pub fn comando(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<Command, String> {
-    let (carregador, emulacao) = carregador_e_emulacao();
+/// [`link`]) ou para receber mais opções (o `--thinlto-index-only` do
+/// ThinLTO distribuído, `distributed_lto.rs`).
+pub fn statement(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<Command, String> {
+    let (loader, emulation) = loader_and_emulation();
     let mut cmd = Command::new(ld);
-    cmd.args(["-z", "relro", "--hash-style=gnu", "--eh-frame-hdr", "-m", emulacao]);
-    match &l.produto {
-        Produto::Executavel => {
-            cmd.args(["-pie", "-dynamic-linker", carregador]);
-            cmd.arg(sysroot.arquivo("Scrt1.o"));
+    cmd.args(["-z", "relro", "--hash-style=gnu", "--eh-frame-hdr", "-m", emulation]);
+    match &l.product {
+        Product::Executable => {
+            cmd.args(["-pie", "-dynamic-linker", loader]);
+            cmd.arg(sysroot.file("Scrt1.o"));
         }
-        Produto::Compartilhada { soname, .. } => {
+        Product::Shared { soname, .. } => {
             cmd.args(["-shared", "-soname", soname]);
             // Raízes por mapas: o índice do mapa compacto (`dfgcm`) aponta
             // cada função por uma relocação relativa de 32 bits, que o
@@ -192,86 +192,86 @@ pub fn comando(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<Com
             }
         }
     }
-    cmd.arg("-o").arg(l.saida);
-    cmd.arg(sysroot.arquivo("crti.o")).arg(sysroot.arquivo("crtbeginS.o"));
-    if let Produto::Compartilhada { exportados, .. } = &l.produto {
+    cmd.arg("-o").arg(l.exit);
+    cmd.arg(sysroot.file("crti.o")).arg(sysroot.file("crtbeginS.o"));
+    if let Product::Shared { exported, .. } = &l.product {
         // Cada nome entra como não definido, para o ligador trazer da
         // `staticlib` também o que o SDK não usa (o programa usa); o
         // símbolo sai exportado.
         let mut rsp = String::new();
-        for n in exportados.iter() {
+        for n in exported.iter() {
             rsp.push_str(&format!("--undefined={n}\n"));
         }
-        let arquivo = l.saida.with_extension("rsp");
-        std::fs::write(&arquivo, rsp).map_err(|e| format!("{}: {e}", arquivo.display()))?;
-        cmd.arg(format!("@{}", arquivo.display()));
+        let file = l.exit.with_extension("rsp");
+        std::fs::write(&file, rsp).map_err(|e| format!("{}: {e}", file.display()))?;
+        cmd.arg(format!("@{}", file.display()));
     }
-    if l.rpath_origem {
+    if l.origin_rpath {
         cmd.args(["-rpath", "$ORIGIN"]);
     }
     if l.lto {
-        let particoes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
+        let partitions = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
         let cpu = l.cpu.unwrap_or(if cfg!(target_arch = "x86_64") { "x86-64" } else { "generic" });
-        cmd.arg(format!("--lto-O{}", crate::driver::nivel_da_lto())).arg(format!("--lto-partitions={particoes}")).arg(format!("-plugin-opt=mcpu={cpu}"));
-        cmd.arg(format!("--thinlto-jobs={}", crate::driver::tarefas_de_geracao()));
-        if let Some(d) = crate::driver::cache_do_thinlto() {
+        cmd.arg(format!("--lto-O{}", crate::driver::lto_level())).arg(format!("--lto-partitions={partitions}")).arg(format!("-plugin-opt=mcpu={cpu}"));
+        cmd.arg(format!("--thinlto-jobs={}", crate::driver::generation_tasks()));
+        if let Some(d) = crate::driver::thinlto_cache() {
             cmd.arg(format!("--thinlto-cache-dir={}", d.display()));
         }
     }
-    if l.podar {
+    if l.prune {
         cmd.arg("--gc-sections");
         // O ICF seguro: junta só as funções idênticas cujo endereço ninguém
         // toma (`.llvm_addrsig`), então o `==` de tear-offs continua certo
         // (`ligador_windows.rs`, corpus/native 80).
         cmd.arg("--icf=safe");
         // `DARTFORGE_MANTER_SIMBOLOS=1`: a tabela de símbolos fica (perfis).
-        if !manter_simbolos() && !l.manter_depuracao {
+        if !keep_symbols() && !l.keep_debug_info {
             cmd.arg("--strip-all");
         }
     }
-    if l.podar
-        && let Some(m) = mapa_da_ligacao(l.saida)
+    if l.prune
+        && let Some(m) = link_map(l.exit)
     {
         cmd.arg(format!("-Map={}", m.display()));
     }
-    cmd.args(&l.entradas);
+    cmd.args(&l.entries);
     // As bibliotecas do sistema (o `-lgcc_s -lutil -lrt -lpthread -lm -ldl
     // -lc` do runtime), pelos arquivos do sysroot.
     cmd.arg("--as-needed");
     for b in ["libm.so.6", "libpthread.so.0", "libdl.so.2", "librt.so.1", "libutil.so.1", "libgcc_s.so.1"] {
-        cmd.arg(sysroot.arquivo(b));
+        cmd.arg(sysroot.file(b));
     }
     cmd.arg("--no-as-needed");
-    cmd.arg(sysroot.arquivo("libgcc.a"));
-    cmd.arg(sysroot.arquivo("libc.so.6")).arg(sysroot.arquivo("libc_nonshared.a"));
-    cmd.arg("--as-needed").arg(sysroot.arquivo(CARREGADOR)).arg("--no-as-needed");
-    cmd.arg(sysroot.arquivo("libgcc.a"));
-    cmd.arg(sysroot.arquivo("crtendS.o")).arg(sysroot.arquivo("crtn.o"));
+    cmd.arg(sysroot.file("libgcc.a"));
+    cmd.arg(sysroot.file("libc.so.6")).arg(sysroot.file("libc_nonshared.a"));
+    cmd.arg("--as-needed").arg(sysroot.file(LOADER)).arg("--no-as-needed");
+    cmd.arg(sysroot.file("libgcc.a"));
+    cmd.arg(sysroot.file("crtendS.o")).arg(sysroot.file("crtn.o"));
     Ok(cmd)
 }
 
 /// `DARTFORGE_MAPA_DA_LIGACAO=1`: o mapa da ligação de um executável de
 /// produção ao lado dele (`<saída>.map`), com o endereço e o tamanho de cada
-/// símbolo depois do LTO — o que `tools/tamanho/quebra.py` lê e o teste de
+/// símbolo depois do LTO — o que `tools/size/quebra.py` lê e o teste de
 /// ausência de código confere (docs/NATIVO-PODA-DE-TABELAS.md §3.10).
-/// [`pedir_mapas_da_ligacao`] também liga.
-pub fn mapa_da_ligacao(saida: &Path) -> Option<PathBuf> {
-    let pedido = MAPAS.load(std::sync::atomic::Ordering::Relaxed)
+/// [`request_link_maps`] também liga.
+pub fn link_map(exit: &Path) -> Option<PathBuf> {
+    let request = MAPS.load(std::sync::atomic::Ordering::Relaxed)
         || std::env::var("DARTFORGE_MAPA_DA_LIGACAO").is_ok_and(|v| v == "1");
-    pedido.then(|| saida.with_extension("map"))
+    request.then(|| exit.with_extension("map"))
 }
 
 /// Os mapas pedidos pelo próprio processo (os testes), sem mexer no
 /// ambiente.
-static MAPAS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static MAPS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Liga [`mapa_da_ligacao`] neste processo.
-pub fn pedir_mapas_da_ligacao() {
-    MAPAS.store(true, std::sync::atomic::Ordering::Relaxed);
+/// Liga [`link_map`] neste processo.
+pub fn request_link_maps() {
+    MAPS.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// `DARTFORGE_MANTER_SIMBOLOS=1` deixa a tabela de símbolos no executável,
 /// para perfilar (`perf`, `callgrind`) o código gerado.
-pub fn manter_simbolos() -> bool {
+pub fn keep_symbols() -> bool {
     std::env::var("DARTFORGE_MANTER_SIMBOLOS").is_ok_and(|v| v == "1")
 }

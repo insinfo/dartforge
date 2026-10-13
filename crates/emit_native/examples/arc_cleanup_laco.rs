@@ -10,9 +10,9 @@
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
-fn modulo() -> Result<Module, String> {
+fn module() -> Result<Module, String> {
     let mut m = Module::new();
-    m.memoria_arc = true;
+    m.arc_memory = true;
     m.entry_symbol = Some("prova_cleanup_laco".into());
     let val = |v| Operand::Val(ValueId(v));
     let int = |v| Operand::Constant(Constant::Int(v));
@@ -21,9 +21,9 @@ fn modulo() -> Result<Module, String> {
         args,
         ret_ty,
     };
-    let guarda = |cmp, erro, normal| Terminator::CondBranch {
+    let guard = |cmp, error, normal| Terminator::CondBranch {
         cond: val(cmp),
-        then_block: BlockId(erro),
+        then_block: BlockId(error),
         else_block: BlockId(normal),
     };
     let flag = |v| {
@@ -43,7 +43,7 @@ fn modulo() -> Result<Module, String> {
     m.functions.push(Function {
         symbol: "alocar_no_laco".into(),
         name: "alocar_no_laco".into(),
-        depuracao: None,
+        debug_info: None,
         params: vec![(ValueId(0), "limite".into(), Type::I64)],
         return_ty: Type::Void,
         blocks: vec![
@@ -84,7 +84,7 @@ fn modulo() -> Result<Module, String> {
                     flag(4),
                     cmp(5, 4),
                 ],
-                terminator: guarda(5, 5, 2),
+                terminator: guard(5, 5, 2),
             },
             BasicBlock {
                 id: BlockId(2),
@@ -106,7 +106,7 @@ fn modulo() -> Result<Module, String> {
                     flag(10),
                     cmp(11, 10),
                 ],
-                terminator: guarda(11, 6, 4),
+                terminator: guard(11, 6, 4),
             },
             BasicBlock {
                 id: BlockId(4),
@@ -141,82 +141,82 @@ fn modulo() -> Result<Module, String> {
             },
         ],
     });
-    let mut plano = PlanoFuncaoDart::default();
+    let mut plan = DartFunctionPlan::default();
     // O limite do harness é um contador escalar, não bits de referência.
-    plano.classes.insert(ValueId(0), Ownership::Trivial);
-    let mut planos = HashMap::from([("alocar_no_laco".into(), plano)]);
-    let produzido = preparar_arc_modulo_dart(&mut m, &mut planos)?;
-    if produzido != (0, 2) {
-        return Err(format!("cleanup esperado (0, 2), encontrado {produzido:?}"));
+    plan.classes.insert(ValueId(0), Ownership::Trivial);
+    let mut plans = HashMap::from([("alocar_no_laco".into(), plan)]);
+    let produced = prepare_arc_dart_module(&mut m, &mut plans)?;
+    if produced != (0, 2) {
+        return Err(format!("cleanup esperado (0, 2), encontrado {produced:?}"));
     }
-    let antes = format!("{m:?}/{planos:?}");
-    if preparar_arc_modulo_dart(&mut m, &mut planos)? != (0, 0)
-        || format!("{m:?}/{planos:?}") != antes
+    let before = format!("{m:?}/{plans:?}");
+    if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0)
+        || format!("{m:?}/{plans:?}") != before
     {
         return Err("cleanup do laço não foi idempotente".into());
     }
-    let erros = dartforge_emit_native::lower::verificador::verificar(&m);
-    if !erros.is_empty() {
-        return Err(erros.join("\n"));
+    let errors = dartforge_emit_native::lower::verifier::verify(&m);
+    if !errors.is_empty() {
+        return Err(errors.join("\n"));
     }
     Ok(m)
 }
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(outro) => return Err(format!("modo desconhecido: {outro}")),
+        Some(other) => return Err(format!("modo desconhecido: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(outro) => return Err(format!("nível desconhecido: {outro}")),
+        Some(other) => return Err(format!("nível desconhecido: {other}")),
     };
-    let erro = match args.next().as_deref() {
+    let error = match args.next().as_deref() {
         Some("erro") => true,
         Some("normal") | None => false,
-        Some(outro) => return Err(format!("caminho desconhecido: {outro}")),
+        Some(other) => return Err(format!("caminho desconhecido: {other}")),
     };
-    let controle = args.next();
-    let mut m = modulo()?;
-    m.memoria_arc = arc;
+    let control = args.next();
+    let mut m = module()?;
+    m.arc_memory = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
-    for (antes, depois) in [
+    for (before, after) in [
         ("@dartforge_print_handle(i64 %v2)", "@prova_salvar(i64 %v2)"),
         ("@dartforge_print_handle(i64 0)", "@prova_sem_owner(i64 0)"),
     ] {
-        if ir.matches(antes).count() != 1 {
-            return Err(format!("hook de observação ausente: {antes}"));
+        if ir.matches(before).count() != 1 {
+            return Err(format!("hook de observação ausente: {before}"));
         }
-        ir = ir.replace(antes, depois);
+        ir = ir.replace(before, after);
     }
-    match controle.as_deref() {
+    match control.as_deref() {
         None => {}
-        Some("sem-drop-normal") if !erro => {
-            let trecho = "b7:\n  call void @dartforge_arc_release(i64 %v2)\n";
-            if ir.matches(trecho).count() != 1 {
+        Some("sem-drop-normal") if !error => {
+            let excerpt = "b7:\n  call void @dartforge_arc_release(i64 %v2)\n";
+            if ir.matches(excerpt).count() != 1 {
                 return Err("cleanup normal ausente no IR".into());
             }
-            ir = ir.replace(trecho, "b7:\n");
+            ir = ir.replace(excerpt, "b7:\n");
         }
-        Some("sem-drop-erro") if erro => {
-            let trecho = "b5:\n  call void @dartforge_arc_release(i64 %v2)\n";
-            if ir.matches(trecho).count() != 1 {
+        Some("sem-drop-erro") if error => {
+            let excerpt = "b5:\n  call void @dartforge_arc_release(i64 %v2)\n";
+            if ir.matches(excerpt).count() != 1 {
                 return Err("cleanup de erro ausente no IR".into());
             }
-            ir = ir.replace(trecho, "b5:\n");
+            ir = ir.replace(excerpt, "b5:\n");
         }
-        Some(outro) => return Err(format!("controle/caminho incompatível: {outro}")),
+        Some(other) => return Err(format!("controle/caminho incompatível: {other}")),
     }
-    let pre_carga = if erro {
+    let preload = if error {
         "  call void @dartforge_arc_lancar_ref_v1(i64 85)\n"
     } else {
         ""
     };
-    ir.push_str(&format!("\ndefine void @prova_cleanup_laco() {{\n{pre_carga}  call void @alocar_no_laco(i64 10)\n  call void @prova_final(i64 {})\n  ret void\n}}\n", if erro { 1 } else { 10 }));
+    ir.push_str(&format!("\ndefine void @prova_cleanup_laco() {{\n{preload}  call void @alocar_no_laco(i64 10)\n  call void @prova_final(i64 {})\n  ret void\n}}\n", if error { 1 } else { 10 }));
     ir.push_str(
         r#"
 @prova.endereco = internal global i64 0
@@ -282,13 +282,13 @@ passou:
 }
 "#,
     );
-    if let Some(dir) = saida.parent() {
+    if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
+    std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     driver::compile_and_link(
         &ir,
-        &saida,
+        &exit,
         &driver::NativeDriverOptions {
             optimize,
             ..Default::default()
@@ -298,11 +298,11 @@ passou:
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
     #[test]
-    fn cleanup_do_laco_esta_antes_da_coleta_e_na_saida_de_erro() {
-        let m = modulo().unwrap();
+    fn loop_cleanup_is_before_collection_and_on_error_exit() {
+        let m = module().unwrap();
         let f = &m.functions[0];
         assert!(matches!(
             f.blocks[1].terminator,

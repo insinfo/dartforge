@@ -3,24 +3,24 @@
 use crate::hir::*;
 use std::collections::HashMap;
 
-pub(super) fn verificar(modulo: &Module) -> Result<(), String> {
+pub(super) fn verify(module: &Module) -> Result<(), String> {
     let mut classes: HashMap<u32, Vec<&ClassDef>> = HashMap::new();
-    for c in &modulo.classes {
+    for c in &module.classes {
         classes.entry(c.id).or_default().push(c);
     }
-    let mut ids: Vec<_> = modulo.layouts_campos_arc.keys().copied().collect();
+    let mut ids: Vec<_> = module.arc_field_layouts.keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
-        let campos = &modulo.layouts_campos_arc[&id];
+        let fields = &module.arc_field_layouts[&id];
         let cs = classes
             .get(&id)
             .ok_or_else(|| format!("layout ARC de classe ausente {id}"))?;
-        if cs.len() != 1 || cs[0].field_count != campos.len() {
+        if cs.len() != 1 || cs[0].field_count != fields.len() {
             return Err(format!(
                 "layout ARC da classe {id} ambíguo ou com quantidade incompatível"
             ));
         }
-        if campos
+        if fields
             .iter()
             .any(|t| !matches!(t, Type::Ref | Type::I1 | Type::I8 | Type::I64 | Type::F64))
         {
@@ -33,15 +33,15 @@ pub(super) fn verificar(modulo: &Module) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
-    use crate::optimize::arc::{PlanoFuncaoDart, preparar_arc_modulo_dart};
+    use crate::optimize::arc::{DartFunctionPlan, prepare_arc_dart_module};
 
     #[test]
-    fn layout_invalido_nao_publica_modulo_e_tracing_nao_aplica_fatos() {
-        for caso in 0..5 {
+    fn invalid_layout_does_not_publish_module_and_tracing_does_not_apply_facts() {
+        for case in 0..5 {
             let mut m = Module::default();
-            m.memoria_arc = true;
+            m.arc_memory = true;
             m.classes.push(ClassDef {
                 id: 7,
                 name: "C".into(),
@@ -49,11 +49,11 @@ mod testes {
                 vtable: vec![],
                 to_string_symbol: None,
             });
-            m.layouts_campos_arc.insert(7, vec![Type::I64, Type::Ref]);
+            m.arc_field_layouts.insert(7, vec![Type::I64, Type::Ref]);
             m.functions.push(Function {
                 symbol: "f".into(),
                 name: "f".into(),
-                depuracao: None,
+                debug_info: None,
                 params: vec![],
                 return_ty: Type::Void,
                 blocks: vec![BasicBlock {
@@ -69,33 +69,33 @@ mod testes {
                     terminator: Terminator::Return(None),
                 }],
             });
-            let mut planos = HashMap::from([("f".into(), PlanoFuncaoDart::default())]);
-            match caso {
+            let mut plans = HashMap::from([("f".into(), DartFunctionPlan::default())]);
+            match case {
                 1 => {
-                    m.layouts_campos_arc.get_mut(&7).unwrap().pop();
+                    m.arc_field_layouts.get_mut(&7).unwrap().pop();
                 }
                 2 => m.classes.clear(),
-                3 => m.layouts_campos_arc.get_mut(&7).unwrap()[0] = Type::V4F32,
+                3 => m.arc_field_layouts.get_mut(&7).unwrap()[0] = Type::V4F32,
                 4 => m.classes.push(m.classes[0].clone()),
                 _ => {}
             }
-            let antes = format!("{m:?}/{planos:?}");
-            if caso == 0 {
+            let before = format!("{m:?}/{plans:?}");
+            if case == 0 {
                 assert_eq!(
-                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
                     (0, 1)
                 );
             } else {
-                assert!(preparar_arc_modulo_dart(&mut m, &mut planos).is_err());
-                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+                assert!(prepare_arc_dart_module(&mut m, &mut plans).is_err());
+                assert_eq!(format!("{m:?}/{plans:?}"), before);
             }
-            m.memoria_arc = false;
-            let antes = format!("{m:?}/{planos:?}");
+            m.arc_memory = false;
+            let before = format!("{m:?}/{plans:?}");
             assert_eq!(
-                preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
                 (0, 0)
             );
-            assert_eq!(format!("{m:?}/{planos:?}"), antes);
+            assert_eq!(format!("{m:?}/{plans:?}"), before);
         }
     }
 }

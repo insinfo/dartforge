@@ -1,0 +1,953 @@
+//! Testes do contrato no IR emitido (docs/NATIVO-PLANO.md §6: E1, G1–G3).
+
+use super::LlvmEmitter;
+use crate::hir::*;
+
+#[test]
+fn owned_factory_preserves_method_table_registration() {
+    for owned in [false, true] {
+        let name = if owned { "dartforge_arc_objeto_owned_v1" } else { "dartforge_object_new" };
+        let mut m = Module::new();
+        m.arc_memory = true;
+        m.table_functions.insert(32001, "df.mt.C".into());
+        m.functions.push(function("criar", vec![], Type::Ref,
+            vec![BasicBlock { id: BlockId(0), instructions: vec![
+                (ValueId(0), Instruction::CallRuntime { name: name.into(),
+                    args: vec![(Operand::Constant(Constant::Int(32001)), Type::I64),
+                        (Operand::Constant(Constant::Int(40)), Type::I64)], ret_ty: Type::Ref }, Type::Ref),
+            ], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }]));
+        let ir = LlvmEmitter::new(&m).emit_all();
+        let body = body_of(&ir, "criar");
+        let expected = if owned { "dartforge_arc_objeto_owned_t_v1" } else { "dartforge_object_new_t" };
+        assert!(ir.contains(&format!("declare i64 @{expected}(i64, i64, ptr)")), "{ir}");
+        assert!(body.contains(&format!("call i64 @{expected}(i64 32001, i64 40, ptr @df.mt.C)")), "{body}");
+        assert!(ir.contains("declare ptr @df.mt.C()"), "{ir}");
+    }
+}
+
+#[test]
+fn typed_fields_keep_inline_llvm_type_and_extension() {
+    let limit = dartforge_runtime::layout::CAMPOS_EM_LINHA;
+    for index in [0, limit] {
+        for (ty, llvm_ty, conversion) in [
+            (Type::Ref, "i64", None), (Type::I64, "i64", None),
+            (Type::F64, "double", Some("bitcast i64 %fb1 to double")),
+            (Type::I1, "i1", Some("trunc i64 %fb1 to i1")),
+            (Type::I8, "i8", Some("trunc i64 %fb1 to i8")),
+        ] {
+            let read = Instruction::GetField {
+                object: Operand::Val(ValueId(0)), index,
+            };
+            assert_eq!(LlvmEmitter::result_type(&read, ty), ty);
+            let ir = emit(function("campo_tipado", vec![(ValueId(0), "obj".into(), Type::Ref)],
+                ty, vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(1), read, ty),
+                ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }]));
+            let body = body_of(&ir, "campo_tipado");
+            assert!(body.contains(&format!("ret {llvm_ty} %v1")), "{body}");
+            if let Some(conversion) = conversion {
+                assert!(body.contains(conversion), "{body}");
+            }
+            if index == limit {
+                assert!(body.contains(&format!("@dartforge_object_get(i64 %v0, i64 {limit})")), "{body}");
+            } else {
+                assert!(body.contains("load i64"), "{body}");
+            }
+        }
+    }
+}
+
+fn function(
+    symbol: &str,
+    params: Vec<(ValueId, String, Type)>,
+    return_ty: Type,
+    blocks: Vec<BasicBlock>,
+) -> Function {
+    Function {
+        symbol: symbol.to_string(),
+        name: symbol.to_string(),
+        debug_info: None,
+        params,
+        return_ty,
+        blocks,
+    }
+}
+
+fn emit(f: Function) -> String {
+    let mut m = Module::new();
+    m.functions.push(f);
+    LlvmEmitter::new(&m).emit_all()
+}
+
+fn body_of<'a>(ir: &'a str, symbol: &str) -> &'a str {
+    let ini = ir.find(&format!("@{symbol}(")).expect("função emitida");
+    let end = ir[ini..].find("\n}\n").map_or(ir.len(), |f| ini + f);
+    &ir[ini..end]
+}
+
+#[test]
+fn arc_global_loads_real_bits_and_publishes_before_transferring_owner() {
+    let slot = StrongSlot::Global { symbol: "dfg.recurso".into() };
+    let f = function("arc_global", vec![(ValueId(0), "x".into(), Type::Ref)], Type::Void,
+        vec![BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(1), Instruction::ArcStoreStrong { slot: slot.clone(), value: Operand::Val(ValueId(0)), mode: StrongStoreMode::Copy }, Type::Void),
+            (ValueId(2), Instruction::ArcLoadStrong { slot: slot.clone() }, Type::Ref),
+            (ValueId(3), Instruction::ArcStoreStrong { slot, value: Operand::Val(ValueId(2)), mode: StrongStoreMode::Move }, Type::Void),
+        ], terminator: Terminator::Return(None) }]);
+    let mut m = Module::new();
+    m.globals.push((0, Type::Ref, "dfg.recurso".into()));
+    m.functions.push(f);
+    assert!(crate::lower::verifier::verify(&m).is_empty());
+    crate::optimize::optimize(&mut m);
+    let ir = LlvmEmitter::new(&m).emit_all();
+    let body = body_of(&ir, "arc_global");
+    assert!(body.contains("%v2 = load i64, ptr %ga2"));
+    assert!(body.contains("@dartforge_arc_retain(i64 %v2)"));
+    assert!(body.find("@dartforge_arc_retain(i64 %v0)").unwrap() < body.find("store i64 %v0, ptr %ga1").unwrap());
+    assert!(body.find("store i64 %v2, ptr %ga3").unwrap() < body.find("@dartforge_arc_global_receber_v1").unwrap());
+    assert!(!body.contains("@dartforge_arc_release(i64 %v2)"));
+    m.globals[0].1 = Type::I64;
+    assert!(!crate::lower::verifier::verify(&m).is_empty());
+    m.globals.clear();
+    assert!(!crate::lower::verifier::verify(&m).is_empty());
+    m.globals.extend([(0, Type::Ref, "dfg.recurso".into()), (1, Type::Ref, "dfg.recurso".into())]);
+    assert!(!crate::lower::verifier::verify(&m).is_empty());
+}
+
+#[test]
+fn emitted_arc_slots_preserve_descriptor_and_modes_after_optimizing() {
+    let slot = StrongSlot::Quadro {
+        frame: Operand::Val(ValueId(0)),
+        index: 7,
+    };
+    let f = function(
+        "arc_slots",
+        vec![
+            (ValueId(0), "q".into(), Type::I64),
+            (ValueId(1), "x".into(), Type::Ref),
+        ],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    ValueId(2),
+                    Instruction::ArcStoreStrong {
+                        slot: slot.clone(),
+                        value: Operand::Val(ValueId(1)),
+                        mode: StrongStoreMode::Copy,
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::ArcLoadStrong { slot: slot.clone() },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(4),
+                    Instruction::ArcStoreStrong {
+                        slot,
+                        value: Operand::Val(ValueId(3)),
+                        mode: StrongStoreMode::Move,
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions.push(f);
+    assert!(crate::lower::verifier::verify(&m).is_empty());
+    crate::optimize::optimize(&mut m);
+    let ir = LlvmEmitter::new(&m).emit_all();
+    let body = body_of(&ir, "arc_slots");
+    assert!(body.contains("@dartforge_arc_quadro_copiar_v1(i64 %v0, i64 7, i64 %v1)"));
+    assert!(body.contains("%v3 = call i64 @dartforge_arc_quadro_carregar_v1(i64 %v0, i64 7)"));
+    assert!(body.contains("@dartforge_arc_quadro_receber_v1(i64 %v0, i64 7, i64 %v3)"));
+    assert!(!body.contains("@dartforge_arc_retain"));
+    assert!(!body.contains("@dartforge_arc_release"));
+    m.functions[0].params[0].2 = Type::Ptr;
+    assert!(!crate::lower::verifier::verify(&m).is_empty());
+}
+
+#[test]
+fn arc_operations_preserve_count_and_move_in_optimization() {
+    let f = function(
+        "arc_linear",
+        vec![(ValueId(0), "x".into(), Type::Ref)],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    ValueId(1),
+                    Instruction::ArcCopy {
+                        value: Operand::Val(ValueId(0)),
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(2),
+                    Instruction::ArcMove {
+                        value: Operand::Val(ValueId(1)),
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(2)),
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions.push(f);
+    assert!(crate::lower::verifier::verify(&m).is_empty());
+    crate::optimize::optimize(&mut m);
+    assert!(crate::lower::verifier::verify(&m).is_empty());
+    let ir = LlvmEmitter::new(&m).emit_all();
+    let body = body_of(&ir, "arc_linear");
+    assert_eq!(body.matches("call void @dartforge_arc_retain").count(), 1);
+    assert_eq!(body.matches("call void @dartforge_arc_release").count(), 1);
+    assert!(body.contains("%v2 = add i64 %v1, 0"));
+    assert!(body.contains("@dartforge_arc_release(i64 %v2)"));
+    assert!(!body.contains("@dartforge_box"));
+}
+
+#[test]
+fn inlining_remaps_arc_operand_and_preserves_return_token() {
+    let donate = function(
+        "arc_doar",
+        vec![(ValueId(0), "x".into(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                ValueId(1),
+                Instruction::ArcCopy {
+                    value: Operand::Val(ValueId(0)),
+                },
+                Type::Ref,
+            )],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+        }],
+    );
+    let call = function(
+        "arc_chamar",
+        vec![(ValueId(10), "x".into(), Type::Ref)],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    ValueId(11),
+                    Instruction::CallStatic {
+                        symbol: "arc_doar".into(),
+                        args: vec![Operand::Val(ValueId(10))],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(12),
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(11)),
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions = vec![donate, call];
+    crate::optimize::optimize(&mut m);
+    assert!(crate::lower::verifier::verify(&m).is_empty());
+    let ir = LlvmEmitter::new(&m).emit_all();
+    let body = body_of(&ir, "arc_chamar");
+    assert!(!body.contains("call i64 @arc_doar"));
+    assert!(body.contains("@dartforge_arc_retain(i64 %v10)"));
+    assert_eq!(body.matches("call void @dartforge_arc_retain").count(), 1);
+    assert_eq!(body.matches("call void @dartforge_arc_release").count(), 1);
+}
+
+#[test]
+fn arc_operations_reject_unevaluated_literal_scalar_and_wrong_result() {
+    for operation in 0..3 {
+        let expected = if operation == 2 { Type::Void } else { Type::Ref };
+        let wrong = if expected == Type::Void {
+            Type::Ref
+        } else {
+            Type::Void
+        };
+        for (value, parameter, result) in [
+            (Operand::Val(ValueId(0)), Type::I64, expected),
+            (
+                Operand::Constant(Constant::String("literal".into())),
+                Type::Ref,
+                expected,
+            ),
+            (Operand::Val(ValueId(0)), Type::Ref, wrong),
+        ] {
+            let inst = match operation {
+                0 => Instruction::ArcCopy { value },
+                1 => Instruction::ArcMove { value },
+                _ => Instruction::ArcDrop { value },
+            };
+            assert_eq!(LlvmEmitter::result_type(&inst, result), expected);
+            let f = function(
+                "arc_invalida",
+                vec![(ValueId(0), "x".into(), parameter)],
+                Type::Void,
+                vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(ValueId(1), inst, result)],
+                    terminator: Terminator::Return(None),
+                }],
+            );
+            let mut m = Module::new();
+            m.functions.push(f);
+            let errors = crate::lower::verifier::verify(&m);
+            assert!(
+                errors.iter().any(|e| e.contains("operação ARC")),
+                "{errors:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn arc_entry_rejects_incompatible_abi_before_registrations() {
+    for sdk in [false, true] {
+        for arc in [false, true] {
+            let mut m = Module::new();
+            m.sdk_mode = sdk;
+            m.arc_memory = arc;
+            let ir = LlvmEmitter::new(&m).emit_all();
+            let body = body_of(&ir, if sdk { "df.preparar_isolado" } else { "dartforge_entry" });
+            if !arc {
+                assert!(!body.contains("@dartforge_arc_verificar_abi"));
+                continue;
+            }
+            let activate = body.find("@dartforge_memoria_arc_v1()").unwrap();
+            let check = body.find("@dartforge_arc_verificar_abi(i64 1)").unwrap();
+            let compatible = body.find("df.arc.compativel:\n").unwrap();
+            assert!(activate < check && check < compatible);
+            assert!(body.contains("icmp eq i8 %df.arc.abi, 1"));
+            assert!(body.contains("label %df.arc.compativel, label %df.arc.incompativel"));
+            assert!(body.contains("df.arc.incompativel:\n  call void @llvm.trap()\n  unreachable"));
+            assert!(ir.contains("declare void @llvm.trap()"));
+        }
+    }
+}
+
+#[test]
+fn wtf8_literal_preserves_lone_surrogate_in_ir() {
+    let f = function(
+        "literal_wtf8",
+        vec![],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                ValueId(0),
+                Instruction::Const(Constant::StringWtf8(vec![0xED, 0xA0, 0xBD])),
+                Type::Ref,
+            )],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+        }],
+    );
+    let ir = emit(f);
+    assert!(ir.contains("[3 x i8] c\"\\ED\\A0\\BD\""), "{ir}");
+    assert!(ir.contains("@dartforge_string_new(ptr @.str.0, i64 3)"), "{ir}");
+    assert!(!ir.contains("\\EF\\BF\\BD"), "surrogate foi substituído: {ir}");
+}
+
+/// §2.11: no AOT (`static_objects`), o literal é um objeto estático do
+/// módulo — `_TwoByteString` (cid 7) com o surrogate solto como unidade, o
+/// cabeçalho `PERMANENTE | BRUTO | w | cid` e o hash da VM —, sem chamada nem
+/// cache no ponto de uso.
+#[test]
+fn static_literal_in_aot() {
+    use dartforge_runtime::layout;
+    let f = function(
+        "literal_estatico",
+        vec![],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                ValueId(0),
+                Instruction::Const(Constant::StringWtf8(vec![0xED, 0xA0, 0xBD])),
+                Type::Ref,
+            )],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions.push(f);
+    let ir = LlvmEmitter::new(&m).with_static_objects(true).emit_all();
+    let body = body_of(&ir, "literal_estatico");
+    assert!(!body.contains("@dartforge_string_new("), "{body}");
+    // O nome do global é `@"df.s.<blake3>"` (com aspas: tem pontos).
+    assert!(ir.contains("df.s."), "{ir}");
+    assert!(ir.contains("linkonce_odr"), "{ir}");
+    let header = layout::palavra_do_cabecalho(
+        layout::estado::PERMANENTE,
+        layout::flags::BRUTO,
+        layout::palavras_de_texto(1, true),
+        layout::cid::TWO_BYTE_STRING,
+    );
+    assert!(ir.contains(&format!("i64 {}", header as i64)), "cabeçalho {header:#x}: {ir}");
+    let hash = layout::hash_de_texto([0xD83Du16]);
+    assert!(ir.contains(&format!("i64 {hash}")), "hash {hash}: {ir}");
+}
+
+/// G1/G3: função com `Ref` vivo num ponto de coleta abre o quadro, enraíza
+/// o parâmetro (argumento da chamada que aloca) e fecha o quadro antes de
+/// TODO `ret` — inclusive o da saída por exceção. O resultado da chamada só
+/// é usado no `ret`, sem coleta no meio: não ganha raiz (`roots.rs`).
+#[test]
+fn roots_frame_on_every_ret() {
+    let v0 = ValueId(0);
+    let v1 = ValueId(1);
+    let f = function(
+        "f",
+        vec![(v0, "s".to_string(), Type::Ref)],
+        Type::Ref,
+        vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    v1,
+                    Instruction::CallRuntime {
+                        name: "dartforge_string_concat".to_string(),
+                        args: vec![(Operand::Val(v0), Type::Ref), (Operand::Val(v0), Type::Ref)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )],
+                terminator: Terminator::CondBranch {
+                    cond: Operand::Constant(Constant::Bool(true)),
+                    then_block: BlockId(1),
+                    else_block: BlockId(2),
+                },
+            },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Val(v1))),
+            },
+            // A saída por exceção devolve o valor padrão pelo mesmo `ret`.
+            BasicBlock {
+                id: BlockId(2),
+                instructions: vec![],
+                terminator: Terminator::Return(None),
+            },
+        ],
+    );
+    let ir = emit(f);
+    let body = body_of(&ir, "f");
+    assert!(
+        body.contains("%gcq = alloca { ptr, i64, [1 x i64] }")
+            && body.contains("%ctx = call ptr @dartforge_contexto()")
+            && body.contains("store ptr %gcq, ptr %ctxtopo"),
+        "{body}"
+    );
+    assert!(body.contains("store i64 %v0, ptr %gcs0"), "{body}");
+    assert!(!body.contains("store i64 %v1, ptr"), "{body}");
+    // A saída da conferência da pilha (C22) volta antes de o quadro ser
+    // encadeado: nada a fechar ali.
+    let (prologue, rest) = body.split_once("pilha.ok:").expect("conferência da pilha no prólogo");
+    assert!(prologue.contains("pilha.estouro:") && prologue.contains("call void @dartforge_estouro_de_pilha()"), "{body}");
+    assert!(!prologue.contains("store ptr %gcq, ptr %ctxtopo"), "o quadro não pode estar encadeado no estouro: {body}");
+    assert_eq!(prologue.matches("\n  ret ").count(), 1, "{body}");
+    let rets = rest.matches("\n  ret ").count();
+    let pops = rest.matches("store ptr %gcvolta").count();
+    assert_eq!(rets, 2, "{body}");
+    assert_eq!(pops, rets, "todo ret fecha o quadro: {body}");
+}
+
+/// Uma chamada que aloca.
+fn concat(a: ValueId, b: ValueId) -> Instruction {
+    Instruction::CallRuntime {
+        name: "dartforge_string_concat".to_string(),
+        args: vec![(Operand::Val(a), Type::Ref), (Operand::Val(b), Type::Ref)],
+        ret_ty: Type::Ref,
+    }
+}
+
+/// Vivacidade: `v1` atravessa a segunda chamada (é usado depois dela) e
+/// ganha raiz; `v0` morre na primeira e `v1` nasce dela, então os dois
+/// dividem o slot; `v2` só vai ao `ret`.
+#[test]
+fn roots_by_liveness_and_shared_slot() {
+    let (v0, v1, v2, v3) = (ValueId(0), ValueId(1), ValueId(2), ValueId(3));
+    let f = function(
+        "g",
+        vec![(v0, "s".to_string(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (v1, concat(v0, v0), Type::Ref),
+                (v2, concat(v1, v1), Type::Ref),
+                (v3, concat(v2, v1), Type::Ref),
+            ],
+            terminator: Terminator::Return(Some(Operand::Val(v3))),
+        }],
+    );
+    let ir = emit(f);
+    let body = body_of(&ir, "g");
+    // v0 e v1 no slot 0 (não interferem: v0 morre na definição de v1); v2
+    // é argumento da terceira chamada junto com v1, então interfere e vai
+    // ao slot 1; v3 não passa por coleta.
+    assert!(body.contains("[2 x i64]"), "{body}");
+    assert!(body.contains("store i64 %v0, ptr %gcs0"), "{body}");
+    assert!(body.contains("store i64 %v1, ptr %gcs0"), "{body}");
+    assert!(body.contains("store i64 %v2, ptr %gcs1"), "{body}");
+    assert!(!body.contains("store i64 %v3, ptr"), "{body}");
+}
+
+/// G: função sem valor `Ref` não abre quadro.
+#[test]
+fn without_ref_without_frame() {
+    let v0 = ValueId(0);
+    let f = function(
+        "g",
+        vec![(v0, "n".to_string(), Type::I64)],
+        Type::I64,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![],
+            terminator: Terminator::Return(Some(Operand::Val(v0))),
+        }],
+    );
+    let ir = emit(f);
+    assert!(!body_of(&ir, "g").contains("gc_empilhar"));
+}
+
+/// G2: `store` num local `Ref` atualiza o slot do `alloca`.
+#[test]
+fn ref_local_has_own_slot() {
+    let (p, v0, v1) = (ValueId(0), ValueId(1), ValueId(2));
+    let f = function(
+        "h",
+        vec![],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (p, Instruction::Alloca(Type::Ref), Type::Ptr),
+                (
+                    v0,
+                    Instruction::Const(Constant::String("x".to_string())),
+                    Type::Ref,
+                ),
+                (
+                    v1,
+                    Instruction::Store {
+                        ptr: Operand::Val(p),
+                        val: Operand::Val(v0),
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let ir = emit(f);
+    let body = body_of(&ir, "h");
+    assert!(body.contains("store i64 %v1, ptr %v0"), "{body}");
+    assert!(
+        body.contains("store i64 %v1, ptr %gcs0"),
+        "{body}"
+    );
+}
+
+/// E1: gravar um `Ref` num campo leva `is_ref = 1`; um escalar, 0 — em
+/// linha, no par `(bits, is_ref)` do vetor de campos.
+#[test]
+fn ref_field_carries_is_ref() {
+    let (v0, v1) = (ValueId(0), ValueId(1));
+    let f = function(
+        "k",
+        vec![
+            (v0, "o".to_string(), Type::Ref),
+            (v1, "s".to_string(), Type::Ref),
+        ],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    ValueId(2),
+                    Instruction::SetField {
+                        object: Operand::Val(v0),
+                        index: 0,
+                        value: Operand::Val(v1),
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::SetField {
+                        object: Operand::Val(v0),
+                        index: 1,
+                        value: Operand::Constant(Constant::Int(7)),
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let ir = emit(f);
+    let body = body_of(&ir, "k");
+    // O endereço dos campos vem do próprio objeto (`h + 14`), sem chamada.
+    assert!(!body.contains("@dartforge_object_campos("), "{body}");
+    // O cabeçalho em `h - 2`; os campos, palavras de 8 bytes depois dele; o
+    // `is_ref` é o bit do campo no mapa do cabeçalho.
+    assert!(body.contains("%fxa2 = add i64 %v0, -2"), "{body}");
+    assert!(body.contains("%fp2 = getelementptr inbounds i8, ptr %fcb2, i64 16"), "{body}");
+    assert!(body.contains("ptr %fp2, i64 0\n  store i64 %v1, ptr %fg2"), "{body}");
+    assert!(body.contains("%fms2 = or i32 %fm2, 1"), "{body}");
+    assert!(body.contains("store i64 7, ptr %fg3"), "{body}");
+    assert!(body.contains("%fmc3 = and i32 %fm3, -3\n  store i32 %fmc3"), "{body}");
+    assert!(!body.contains("@dartforge_object_set("), "{body}");
+}
+
+/// E3: o verificador recusa constante inteira numa posição `Ref` e tag
+/// incoerente com a representação (a ABI plana `(bits, tag)` do
+/// lançamento).
+#[test]
+fn verifier_rejects_integer_as_ref_and_wrong_tag() {
+    let v0 = ValueId(0);
+    let f = function(
+        "m",
+        vec![(v0, "l".to_string(), Type::Ref)],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    ValueId(1),
+                    Instruction::CallRuntime {
+                        name: "dartforge_print_handle".to_string(),
+                        args: vec![(Operand::Constant(Constant::Int(0)), Type::Ref)],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(2),
+                    Instruction::CallRuntime {
+                        name: "dartforge_exception_throw".to_string(),
+                        args: vec![
+                            (Operand::Constant(Constant::Int(5)), Type::I64),
+                            (Operand::Constant(Constant::Int(3)), Type::I8),
+                        ],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions.push(f);
+    let errors = crate::lower::verifier::verify(&m);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("constante inteira numa posição Ref")),
+        "{errors:?}"
+    );
+    assert!(
+        errors.iter().any(|e| e.contains("tag 3 para um valor I64")),
+        "{errors:?}"
+    );
+}
+
+/// Risco 12 (docs/NATIVO-ESPACO-UNIFICADO.md §6): a captura lida na
+/// representação com que foi gravada; o record posicional só com `Ref`; e
+/// as instruções que saíram com o espaço unificado (`AllocMap`, `AllocSet`).
+#[test]
+fn verifier_checks_captures_records_and_removed_instructions() {
+    let (x, env, clo) = (ValueId(0), ValueId(1), ValueId(2));
+    // `f(x)` cria a closure `g` com o ambiente `[x: I64, célula de I64]` e um
+    // record com um `I64`.
+    let cel = ValueId(3);
+    let creator = function(
+        "f",
+        vec![(x, "x".to_string(), Type::I64)],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (cel, Instruction::AllocCell { value: Operand::Val(x) }, Type::Ref),
+                (env, Instruction::AllocEnv { values: vec![Operand::Val(x), Operand::Val(cel)] }, Type::Ref),
+                (clo, Instruction::AllocClosure { code_symbol: "g".to_string(), env: Operand::Val(env) }, Type::Ref),
+                (ValueId(4), Instruction::AllocRecord { elements: vec![(Operand::Val(x), 1)] }, Type::Ref),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    // `g` lê a captura 0 como `Ref` (gravada `I64`) e a célula como `F64`.
+    let (e, c0, c1, c2) = (ValueId(0), ValueId(1), ValueId(2), ValueId(3));
+    let body = function(
+        "g",
+        vec![(e, "env".to_string(), Type::Ref)],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (c0, Instruction::EnvGet { env: Operand::Val(e), index: 0 }, Type::Ref),
+                (c1, Instruction::EnvGet { env: Operand::Val(e), index: 1 }, Type::Ref),
+                (c2, Instruction::CellGet { cell: Operand::Val(c1) }, Type::F64),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions.push(creator);
+    m.functions.push(body);
+    let errors = crate::lower::verifier::verify(&m);
+    let has = |s: &str| errors.iter().any(|e| e.contains(s));
+    assert!(has("captura 0 do ambiente: lida como Ref, gravada como I64"), "{errors:?}");
+    assert!(has("célula: lida como F64, gravada como I64"), "{errors:?}");
+    assert!(has("record posicional: campo I64"), "{errors:?}");
+    // A captura 1 (a célula, `Ref`) lida como `Ref`: sem erro.
+    assert!(!has("captura 1"), "{errors:?}");
+}
+
+// Testa o emissor do corpo também no host Windows, sem fingir suporte AOT Unix.
+#[test]
+fn cleanup_resumes_original_pair_and_rejects_incoherent_metadata() {
+    let f = function("retoma", vec![(ValueId(0), "x".into(), Type::Ref)], Type::Void, vec![
+        BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref),
+            (ValueId(2), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
+        ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(2), else_block: BlockId(1) } },
+        BasicBlock { id: BlockId(1), instructions: vec![(ValueId(4), Instruction::ArcDrop { value: Operand::Val(ValueId(1)) }, Type::Void)], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(2), instructions: vec![
+            (ValueId(3), Instruction::ArcDrop { value: Operand::Val(ValueId(1)) }, Type::Void),
+        ], terminator: Terminator::Return(None) },
+    ]);
+    let t = FunctionTables {
+        invocations: [(ValueId(2), BlockId(2))].into(),
+        landing_pads: [BlockId(2)].into(),
+        exits: [(BlockId(2), ExceptionExit::Resume)].into(),
+        ..Default::default()
+    };
+    crate::optimize::arc::check_resumes(&f, &t).unwrap();
+    let m = Module::new();
+    let mut e = LlvmEmitter::new(&m);
+    e.tab = Some(&t);
+    e.emit_function(&f);
+    let ir = e.out;
+    assert!(ir.contains("personality ptr @dartforge_personalidade_cleanup_itanium"));
+    #[cfg(feature = "llvm-embutido")]
+    check_cleanup_objects(&ir);
+    let landing_pad = &ir[ir.find("b2:").unwrap()..];
+    assert!(landing_pad.contains("%lpad2 = landingpad { ptr, i32 } cleanup"));
+    assert!(landing_pad.contains("resume { ptr, i32 } %lpad2"));
+    assert!(!landing_pad.contains("@df.lancar"));
+    assert!(landing_pad.find("@dartforge_arc_release").unwrap() < landing_pad.find("resume").unwrap());
+    let mut bad = t.clone();
+    bad.landing_pads.clear();
+    assert!(crate::optimize::arc::check_resumes(&f, &bad).unwrap_err().contains("pouso"));
+    bad = t.clone();
+    bad.invocations.insert(ValueId(1000), BlockId(2));
+    assert!(crate::optimize::arc::check_resumes(&f, &bad).unwrap_err().contains("exatamente um invoke"));
+    let mut body = f.clone();
+    body.blocks[0].terminator = Terminator::Branch(BlockId(2));
+    assert!(crate::optimize::arc::check_resumes(&body, &t).unwrap_err().contains("sem invoke"));
+    body = f.clone();
+    body.blocks[2].instructions.push((ValueId(5), Instruction::CallRuntime { name: "dartforge_exception_clear".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
+    assert!(crate::optimize::arc::check_resumes(&body, &t).unwrap_err().contains("só admite drops"));
+    let mut e = LlvmEmitter::new(&m);
+    e.tab = Some(&t);
+    e.maps = true;
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| e.emit_function(&f))).is_err());
+}
+
+#[cfg(windows)]
+#[test]
+#[should_panic(expected = "Windows precisa de funclets SEH")]
+fn resume_does_not_promise_seh_support_in_public_emitter() {
+    let mut m = Module::new();
+    m.tables.push(FunctionTables { exits: [(BlockId(1), ExceptionExit::Resume)].into(), ..Default::default() });
+    LlvmEmitter::new(&m).emit_all();
+}
+
+#[cfg(feature = "llvm-embutido")]
+fn check_cleanup_objects(ir: &str) {
+    // O corpo emitido é verificado e gera código Itanium, sem usar o
+    // cabeçalho Windows nem prometer cross-compilation de módulos Dart.
+    let triple = if cfg!(target_arch = "aarch64") { "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" };
+    let complete = format!(r#"target triple = "{triple}"
+        declare i32 @dartforge_personalidade_cleanup_itanium(...)
+        declare i32 @llvm.eh.typeid.for(ptr)
+        declare ptr @dartforge_contexto()
+        declare void @dartforge_estouro_de_pilha()
+        declare i1 @llvm.expect.i1(i1, i1)
+        declare void @df.lancar()
+        declare void @dartforge_arc_retain(i64)
+        declare void @dartforge_arc_release(i64)
+        declare i64 @dartforge_efeitos_nivel() nounwind
+        declare void @dartforge_efeitos_restaurar(i64) nounwind
+        declare void @falha()
+        {ir}"#);
+    for optimize in [false, true] {
+        let object = dartforge_llvm::gerar("cleanup-retoma", &complete, &dartforge_llvm::Opcoes {
+            optimize, format: dartforge_llvm::Format::Objeto, cpu: None,
+        }).unwrap_or_else(|error| panic!("{error}\n{complete}"));
+        assert!(!object.is_empty());
+    }
+}
+
+#[test]
+fn catch_in_cleanup_profile_checks_selector_and_remaps_landing_pad_phi() {
+    let call = |v| (ValueId(v), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void);
+    let drop = |v| (ValueId(v), Instruction::ArcDrop { value: Operand::Val(ValueId(1)) }, Type::Void);
+    let branch = |p, n| Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(p), else_block: BlockId(n) };
+    let f = function("misto", vec![(ValueId(0), "x".into(), Type::Ref)], Type::Void, vec![
+        BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref), call(2),
+        ], terminator: branch(4, 1) },
+        BasicBlock { id: BlockId(1), instructions: vec![call(5)], terminator: branch(2, 3) },
+        BasicBlock { id: BlockId(2), instructions: vec![drop(3)], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(3), instructions: vec![drop(4)], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(4), instructions: vec![], terminator: Terminator::Branch(BlockId(5)) },
+        BasicBlock { id: BlockId(5), instructions: vec![
+            (ValueId(6), Instruction::Phi { incoming: vec![(BlockId(4), Operand::Constant(Constant::Int(1)))], ty: Type::I64 }, Type::I64), drop(7),
+        ], terminator: Terminator::Return(None) },
+    ]);
+    let t = FunctionTables {
+        invocations: [(ValueId(2), BlockId(4)), (ValueId(5), BlockId(2))].into(),
+        landing_pads: [BlockId(2), BlockId(4)].into(),
+        exits: [(BlockId(2), ExceptionExit::Resume)].into(), ..Default::default()
+    };
+    let failure = function("falha", vec![], Type::Void, vec![BasicBlock {
+        id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None),
+    }]);
+    let mut functions = vec![f, failure];
+    let mut plan = crate::optimize::arc::DartFunctionPlan::default();
+    plan.tables = t;
+    let mut leaf = crate::optimize::arc::DartFunctionPlan::default();
+    leaf.tables.checks_stack = true;
+    let mut plans = std::collections::HashMap::from([("misto".into(), plan), ("falha".into(), leaf)]);
+    assert_eq!(crate::optimize::arc::insert_arc_dart_functions(&mut functions, &mut plans).unwrap(), (0, 0));
+    let f = &functions[0];
+    let t = &plans["misto"].tables;
+    let certificate = t.foreign_cleanup.as_ref().unwrap();
+    assert_eq!(certificate.owners(BlockId(4)), &[ValueId(1)]);
+    let mut stale = f.clone();
+    stale.name.push_str(" alterada");
+    assert!(certificate.check(&stale, t).is_err());
+    let mut stale_tables = t.clone();
+    stale_tables.invocations.remove(&ValueId(2));
+    assert!(certificate.check(f, &stale_tables).is_err());
+    let m = Module::new();
+    let mut e = LlvmEmitter::new(&m);
+    e.tab = Some(t);
+    e.emit_function(f);
+    let ir = e.out;
+    if super::externs::check_effects() {
+        assert!(ir.contains("%efnivel = call i64 @dartforge_efeitos_nivel()"));
+        let restoration = ir.find("call void @dartforge_efeitos_restaurar(i64 %efnivel)").unwrap();
+        assert!(restoration < ir.find("lpad4.estrangeira:").unwrap());
+    }
+    assert!(ir.contains("%lpseletor4 = extractvalue { ptr, i32 } %lpad4, 1"));
+    assert!(ir.contains("%lptipo4 = call i32 @llvm.eh.typeid.for(ptr null)"));
+    assert!(ir.contains("lpad4.estrangeira:\n  call void @dartforge_arc_release(i64 %v1)"));
+    let foreign = ir.split("lpad4.estrangeira:\n").nth(1).unwrap().split("lpad4.dart:").next().unwrap();
+    assert!(foreign.contains("resume { ptr, i32 } %lpad4"));
+    assert_eq!(foreign.matches("@dartforge_arc_release").count(), 1);
+    if ir.contains("%gcant =") {
+        assert!(foreign.contains("store ptr %gcant, ptr %ctxtopo"));
+    }
+    assert!(ir.contains("%lpad4.dart ]"), "{ir}");
+    assert!(!ir.contains("%lpseletor2"));
+    #[cfg(feature = "llvm-embutido")]
+    check_cleanup_objects(&ir);
+}
+
+#[test]
+fn foreign_cleanup_closes_local_frames_in_lifo() {
+    let val = |id| Operand::Val(ValueId(id));
+    let open = |id| (ValueId(id), Instruction::CallRuntime {
+        name: "dartforge_arc_quadro_abrir_v1".into(),
+        args: vec![(Operand::Constant(Constant::Int(1)), Type::I64)], ret_ty: Type::I64,
+    }, Type::I64);
+    let close = |id, q| (ValueId(id), Instruction::CallRuntime {
+        name: "dartforge_arc_quadro_fechar_v1".into(), args: vec![(val(q), Type::I64)], ret_ty: Type::Void,
+    }, Type::Void);
+    let f = function("quadros_estrangeiros", vec![], Type::Void, vec![
+        BasicBlock { id: BlockId(0), instructions: vec![open(0), open(1),
+            (ValueId(2), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
+        ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(1), else_block: BlockId(2) } },
+        BasicBlock { id: BlockId(1), instructions: vec![close(3, 1), close(4, 0)], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(2), instructions: vec![
+            (ValueId(7), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
+        ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(3), else_block: BlockId(4) } },
+        BasicBlock { id: BlockId(3), instructions: vec![close(5, 1), close(6, 0)], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(4), instructions: vec![close(8, 1), close(9, 0)], terminator: Terminator::Return(None) },
+    ]);
+    let failure = function("falha", vec![], Type::Void, vec![BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }]);
+    let mut plan = crate::optimize::arc::DartFunctionPlan::default();
+    plan.tables.invocations.insert(ValueId(2), BlockId(1));
+    plan.tables.landing_pads.insert(BlockId(1));
+    plan.tables.exits.insert(BlockId(1), ExceptionExit::Guard);
+    plan.tables.invocations.insert(ValueId(7), BlockId(3));
+    plan.tables.landing_pads.insert(BlockId(3));
+    plan.tables.exits.insert(BlockId(3), ExceptionExit::Resume);
+    let mut leaf = crate::optimize::arc::DartFunctionPlan::default();
+    leaf.tables.checks_stack = true;
+    let mut plans = std::collections::HashMap::from([("quadros_estrangeiros".into(), plan), ("falha".into(), leaf)]);
+    let mut functions = vec![f, failure];
+    crate::optimize::arc::insert_arc_dart_functions(&mut functions, &mut plans).unwrap();
+    let t = &plans["quadros_estrangeiros"].tables;
+    assert_eq!(t.foreign_cleanup.as_ref().unwrap().frames(BlockId(1)), &[ValueId(0), ValueId(1)]);
+    let m = Module::new();
+    let mut e = LlvmEmitter::new(&m);
+    e.tab = Some(t);
+    e.emit_function(&functions[0]);
+    let ir = e.out;
+    let excerpt = ir.split("lpad1.estrangeira:").nth(1).unwrap().split("resume ").next().unwrap();
+    let internal = excerpt.find("call void @dartforge_arc_quadro_fechar_v1(i64 %v1)").unwrap();
+    let external = excerpt.find("call void @dartforge_arc_quadro_fechar_v1(i64 %v0)").unwrap();
+    assert!(internal < external);
+    assert_eq!(excerpt.matches("@dartforge_arc_quadro_fechar_v1").count(), 2);
+    let resume = ir.split("b3:\n").nth(1).unwrap().split("resume ").next().unwrap();
+    assert!(!resume.contains("catch ptr null"));
+    assert!(resume.find("@dartforge_arc_quadro_fechar_v1(i64 %v1)").unwrap()
+        < resume.find("@dartforge_arc_quadro_fechar_v1(i64 %v0)").unwrap());
+    let mut invalidates = functions[0].clone();
+    invalidates.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.swap(0, 1);
+    assert!(crate::optimize::arc::check_resumes(&invalidates, t).unwrap_err().contains("fora de LIFO"));
+    let mut without_closing = functions[0].clone();
+    without_closing.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.pop();
+    assert!(crate::optimize::arc::check_resumes(&without_closing, t).unwrap_err().contains("quadros ainda abertos"));
+    let mut collection = functions[0].clone();
+    collection.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.push((
+        ValueId(10), Instruction::CallRuntime { name: "dartforge_arc_collect".into(), args: vec![], ret_ty: Type::Void }, Type::Void,
+    ));
+    assert!(crate::optimize::arc::check_resumes(&collection, t).unwrap_err().contains("só admite drops"));
+    assert!(ir.contains("resume { ptr, i32 } %lpad3"));
+
+
+    #[cfg(feature = "llvm-embutido")]
+    {
+        let complete = format!("declare i64 @dartforge_arc_quadro_abrir_v1(i64) nounwind\ndeclare void @dartforge_arc_quadro_fechar_v1(i64) nounwind\n{ir}");
+        check_cleanup_objects(&complete);
+    }
+}

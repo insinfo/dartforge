@@ -10,14 +10,14 @@ use std::{
     path::PathBuf,
 };
 
-fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
+fn module(tables: bool, certify: bool) -> Result<Module, String> {
     let mut m = Module::new();
-    m.memoria_arc = true;
+    m.arc_memory = true;
     m.entry_symbol = Some("prova_porta_owned".into());
     m.functions.push(Function {
         symbol: "ajudante_nsm".into(),
         name: "ajudante_nsm".into(),
-        depuracao: None,
+        debug_info: None,
         params: (0..7)
             .map(|n| {
                 (
@@ -41,15 +41,15 @@ fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
             terminator: Terminator::Return(Some(Operand::Val(ValueId(7)))),
         }],
     });
-    m.parametros_escalares_dart
+    m.dart_scalar_parameters
         .insert("ajudante_nsm".into(), HashSet::from([ValueId(1)]));
-    m.retornos_ref_dart.insert("ajudante_nsm".into());
-    m.ajudantes
+    m.dart_ref_returns.insert("ajudante_nsm".into());
+    m.helpers
         .push(("_dartforgeNoSuchMethod".into(), "ajudante_nsm".into()));
     m.functions.push(Function {
         symbol: "entrada_uniforme".into(),
         name: "entrada_uniforme".into(),
-        depuracao: None,
+        debug_info: None,
         params: vec![
             (ValueId(0), "recv".into(), Type::Ref),
             (ValueId(1), "args".into(), Type::Ptr),
@@ -76,45 +76,45 @@ fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
             terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
         }],
     });
-    m.retornos_uniformes_arc.insert("entrada_uniforme".into());
-    m.parametros_vetores_dart.insert(
+    m.arc_uniform_returns.insert("entrada_uniforme".into());
+    m.dart_vector_parameters.insert(
         "entrada_uniforme".into(),
         HashMap::from([
-            (ValueId(1), VetorEntradaDart::Argumentos),
-            (ValueId(2), VetorEntradaDart::Descritor),
+            (ValueId(1), DartEntryVector::Argumentos),
+            (ValueId(2), DartEntryVector::Descriptor),
         ]),
     );
-    let mut falivel = m.functions[1].clone();
-    falivel.symbol = "uniforme_falivel".into();
-    falivel.name = "uniforme_falivel".into();
-    falivel.blocks[0].terminator = Terminator::Throw(Operand::Val(ValueId(0)));
-    m.functions.push(falivel);
-    m.retornos_uniformes_arc.insert("uniforme_falivel".into());
-    m.parametros_vetores_dart.insert(
+    let mut fallible = m.functions[1].clone();
+    fallible.symbol = "uniforme_falivel".into();
+    fallible.name = "uniforme_falivel".into();
+    fallible.blocks[0].terminator = Terminator::Throw(Operand::Val(ValueId(0)));
+    m.functions.push(fallible);
+    m.arc_uniform_returns.insert("uniforme_falivel".into());
+    m.dart_vector_parameters.insert(
         "uniforme_falivel".into(),
-        m.parametros_vetores_dart["entrada_uniforme"].clone(),
+        m.dart_vector_parameters["entrada_uniforme"].clone(),
     );
-    if tabelas {
+    if tables {
         optimize::excecoes_por_tabelas(&mut m);
     }
-    let mut planos = HashMap::from([
-        ("ajudante_nsm".into(), PlanoFuncaoDart::default()),
-        ("entrada_uniforme".into(), PlanoFuncaoDart::default()),
-        ("uniforme_falivel".into(), PlanoFuncaoDart::default()),
+    let mut plans = HashMap::from([
+        ("ajudante_nsm".into(), DartFunctionPlan::default()),
+        ("entrada_uniforme".into(), DartFunctionPlan::default()),
+        ("uniforme_falivel".into(), DartFunctionPlan::default()),
     ]);
-    if certificar {
-        let mut repasse = m.functions[1].clone();
-        repasse.symbol = "repasse_seletor".into();
-        repasse.name = "repasse_seletor".into();
-        repasse.blocks = vec![
+    if certify {
+        let mut forward = m.functions[1].clone();
+        forward.symbol = "repasse_seletor".into();
+        forward.name = "repasse_seletor".into();
+        forward.blocks = vec![
             BasicBlock {
                 id: BlockId(0),
                 instructions: vec![
                     (
                         ValueId(3),
-                        Instruction::CallSeletorRepasse {
+                        Instruction::CallSelectorForward {
                             arc_owned: false,
-                            seletor: "c:ausente".into(),
+                            selector: "c:ausente".into(),
                             recv: Operand::Val(ValueId(0)),
                             args: Operand::Val(ValueId(1)),
                             desc: Operand::Val(ValueId(2)),
@@ -157,67 +157,67 @@ fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
                 terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
             },
         ];
-        m.functions.push(repasse);
-        m.retornos_uniformes_arc.insert("repasse_seletor".into());
-        m.parametros_vetores_dart.insert(
+        m.functions.push(forward);
+        m.arc_uniform_returns.insert("repasse_seletor".into());
+        m.dart_vector_parameters.insert(
             "repasse_seletor".into(),
-            m.parametros_vetores_dart["entrada_uniforme"].clone(),
+            m.dart_vector_parameters["entrada_uniforme"].clone(),
         );
-        let mut plano = PlanoFuncaoDart::default();
-        if tabelas {
-            plano
-                .tabelas
-                .saidas
-                .insert(BlockId(1), SaidaPorExcecao::Lanca);
-            m.tabelas.push(plano.tabelas.clone());
+        let mut plan = DartFunctionPlan::default();
+        if tables {
+            plan
+                .tables
+                .exits
+                .insert(BlockId(1), ExceptionExit::Throws);
+            m.tables.push(plan.tables.clone());
         }
-        planos.insert("repasse_seletor".into(), plano.clone());
+        plans.insert("repasse_seletor".into(), plan.clone());
         let mut closure = m.functions.last().unwrap().clone();
         closure.symbol = "repasse_closure".into();
         closure.name = "repasse_closure".into();
-        closure.blocks[0].instructions[0].1 = Instruction::CallClosureRepasse {
+        closure.blocks[0].instructions[0].1 = Instruction::CallClosureForward {
             arc_owned: false,
             closure: Operand::Val(ValueId(0)),
             args: Operand::Val(ValueId(1)),
             desc: Operand::Val(ValueId(2)),
         };
         m.functions.push(closure);
-        m.retornos_uniformes_arc.insert("repasse_closure".into());
-        m.parametros_vetores_dart.insert(
+        m.arc_uniform_returns.insert("repasse_closure".into());
+        m.dart_vector_parameters.insert(
             "repasse_closure".into(),
-            m.parametros_vetores_dart["entrada_uniforme"].clone(),
+            m.dart_vector_parameters["entrada_uniforme"].clone(),
         );
-        if tabelas {
-            m.tabelas.push(plano.tabelas.clone());
+        if tables {
+            m.tables.push(plan.tables.clone());
         }
-        planos.insert("repasse_closure".into(), plano.clone());
+        plans.insert("repasse_closure".into(), plan.clone());
         let mut local = m.functions.last().unwrap().clone();
         local.symbol = "seletor_local".into();
         local.name = "seletor_local".into();
-        local.blocks[0].instructions[0].1 = Instruction::CallSeletor {
-            seletor: "c:ausente".into(), recv: Operand::Val(ValueId(0)),
-            args: vec![], nomes: vec![], tupla_tipos: Operand::Constant(Constant::Int(0)),
+        local.blocks[0].instructions[0].1 = Instruction::CallSelector {
+            selector: "c:ausente".into(), recv: Operand::Val(ValueId(0)),
+            args: vec![], names: vec![], tuple_types: Operand::Constant(Constant::Int(0)),
         };
         m.functions.push(local);
-        m.retornos_uniformes_arc.insert("seletor_local".into());
-        m.parametros_vetores_dart.insert("seletor_local".into(), m.parametros_vetores_dart["entrada_uniforme"].clone());
-        if tabelas { m.tabelas.push(plano.tabelas.clone()); }
-        planos.insert("seletor_local".into(), plano);
+        m.arc_uniform_returns.insert("seletor_local".into());
+        m.dart_vector_parameters.insert("seletor_local".into(), m.dart_vector_parameters["entrada_uniforme"].clone());
+        if tables { m.tables.push(plan.tables.clone()); }
+        plans.insert("seletor_local".into(), plan);
     }
-    preparar_arc_modulo_dart(&mut m, &mut planos)?;
-    if planos
+    prepare_arc_dart_module(&mut m, &mut plans)?;
+    if plans
         .values()
-        .any(|p| p.tokens.retorno != RetornoTokens::Owned)
+        .any(|p| p.tokens.ret != TokenReturn::Owned)
     {
         return Err("corpo não possui convenção Owned".into());
     }
-    let antes = format!("{m:?}/{planos:?}");
-    if preparar_arc_modulo_dart(&mut m, &mut planos)? != (0, 0)
-        || format!("{m:?}/{planos:?}") != antes
+    let before = format!("{m:?}/{plans:?}");
+    if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0)
+        || format!("{m:?}/{plans:?}") != before
     {
         return Err("preparação não idempotente".into());
     }
-    if certificar && certificar_portas_arc_aot(&mut m, &planos)? != 6 {
+    if certify && certify_arc_aot_ports(&mut m, &plans)? != 6 {
         return Err("inventário de portas certificado incompleto".into());
     }
     Ok(m)
@@ -225,7 +225,7 @@ fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") => false,
@@ -236,17 +236,17 @@ fn main() -> Result<(), String> {
         Some("2") => true,
         _ => return Err("informe 0 ou 2".into()),
     };
-    let tabelas = match args.next().as_deref() {
+    let tables = match args.next().as_deref() {
         Some("checagem") => false,
         Some("tabelas") => true,
         _ => return Err("informe checagem ou tabelas".into()),
     };
-    let controle = args.next();
+    let control = args.next();
     if args.next().is_some() {
         return Err("argumentos excedentes".into());
     }
-    let mut m = modulo(tabelas, arc)?;
-    m.memoria_arc = arc;
+    let mut m = module(tables, arc)?;
+    m.arc_memory = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     // O callback registrado é exatamente o corpo verificado acima. O harness
     // observa endereços mortos como diagnósticos, sem os tratar como raízes.
@@ -417,7 +417,7 @@ local_concluido:
         // O emissor registra os corpos certificados na entrada da imagem.
         // Não repetir os registros no harness: isso esconderia um registro
         // ausente na partida. A imagem fixa conserva as versões até o exit.
-        for linha in [
+        for line in [
             "  %versao = call i64 @dartforge_arc_registrar_retorno_owned_v1(i64 %codigo, i64 7)\n",
             "  %versao_uniforme = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %codigo_uniforme)\n",
             "  %versao_falivel = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %codigo_falivel)\n",
@@ -425,10 +425,10 @@ local_concluido:
             "  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo_uniforme, i64 %versao_uniforme)\n",
             "  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo, i64 %versao)\n",
         ] {
-            ir = ir.replace(linha, "");
+            ir = ir.replace(line, "");
         }
     }
-    match controle.as_deref() {
+    match control.as_deref() {
         None => {}
         Some("sem-registro") => {
             if arc {
@@ -446,15 +446,15 @@ local_concluido:
                 "",
             );
         }
-        Some(outro) => return Err(format!("controle desconhecido: {outro}")),
+        Some(other) => return Err(format!("controle desconhecido: {other}")),
     }
-    if let Some(p) = saida.parent() {
+    if let Some(p) = exit.parent() {
         std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
     }
-    std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
+    std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     driver::compile_and_link(
         &ir,
-        &saida,
+        &exit,
         &driver::NativeDriverOptions {
             optimize,
             ..Default::default()
@@ -464,12 +464,12 @@ local_concluido:
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
     #[test]
-    fn corpo_do_callback_tem_fabrica_owned_e_nao_retem_o_retorno_duas_vezes() {
-        for tabelas in [false, true] {
-            let m = modulo(tabelas, true).unwrap();
+    fn callback_body_has_owned_factory_and_does_not_retain_return_twice() {
+        for tables in [false, true] {
+            let m = module(tables, true).unwrap();
             let ir = LlvmEmitter::new(&m).emit_all();
             assert!(ir.contains("call i64 @dartforge_arc_box_int_owned_v1"));
             assert!(ir.contains("call void @df.arc.registrar_portas()"));

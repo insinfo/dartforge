@@ -1,0 +1,359 @@
+//! Limpezas do CFG depois dos outros passes: a conferência de exceção
+//! depois de uma chamada que não lança, comparações e desvios constantes,
+//! blocos inalcançáveis, blocos encadeados e valores puros sem uso.
+
+use super::cfg::{Cfg, successors};
+use super::effects::{checks_all, is_check};
+use super::operands::*;
+use crate::hir::*;
+use std::collections::{HashMap, HashSet};
+
+/// Troca por 0 a conferência de exceção logo depois de uma chamada a uma
+/// função que não lança.
+pub fn dead_checks(func: &mut Function, do_not_throw: &HashSet<String>) -> bool {
+    if !checks_all(func, do_not_throw) {
+        return false;
+    }
+    let mut dead: HashSet<ValueId> = HashSet::new();
+    for b in &func.blocks {
+        for par in b.instructions.windows(2) {
+            if let Instruction::CallStatic { symbol, .. } = &par[0].1
+                && do_not_throw.contains(symbol)
+                && is_check(&par[1].1)
+            {
+                dead.insert(par[1].0);
+            }
+        }
+    }
+    if dead.is_empty() {
+        return false;
+    }
+    for b in &mut func.blocks {
+        b.instructions.retain(|(v, _, _)| !dead.contains(v));
+    }
+    replace(func, &|v| dead.contains(&v).then_some(Operand::Constant(Constant::Int(0))));
+    true
+}
+
+fn integer(o: &Operand) -> Option<i64> {
+    match o {
+        Operand::Constant(Constant::Int(n)) => Some(*n),
+        Operand::Constant(Constant::Bool(b)) => Some(i64::from(*b)),
+        _ => None,
+    }
+}
+
+/// Dobra comparações inteiras e extensões de constantes, e desvios por
+/// condição constante.
+pub fn fold_constants(func: &mut Function) -> bool {
+    let mut changed = false;
+    loop {
+        let mut boxes: HashMap<ValueId, (Operand, Type)> = HashMap::new();
+        for b in &func.blocks {
+            for (v, inst, _) in &b.instructions {
+                if let Instruction::Box { op, from } = inst
+                    && matches!(from, Type::I64 | Type::F64 | Type::I1)
+                {
+                    boxes.insert(*v, (op.clone(), *from));
+                }
+            }
+        }
+        // A classe do cabeçalho é imutável. Só alocações explícitas com
+        // resultado Ref provam este fato; bits, parâmetros e calls opacas não.
+        let classes: HashMap<_, _> = func.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(v, inst, ty)| {
+            if *ty != Type::Ref { return None; }
+            let cid = match inst {
+                Instruction::AllocObject { class_id, .. } => i64::from(*class_id),
+                Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
+                    if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1") => match args.as_slice() {
+                        [(Operand::Constant(Constant::Int(cid)), Type::I64), (_, Type::I64)] => *cid,
+                        _ => return None,
+                    },
+                _ => return None,
+            };
+            i32::try_from(cid).ok().map(|_| (*v, cid))
+        }).collect();
+        let mut values: HashMap<ValueId, Operand> = HashMap::new();
+        for b in &func.blocks {
+            for (v, inst, _) in &b.instructions {
+                let r = match inst {
+                    Instruction::CallRuntime { name, args, ret_ty: Type::I64 }
+                        if name == "dartforge_value_class" => match args.as_slice() {
+                            [(Operand::Val(obj), Type::Ref)] => classes.get(obj).map(|&cid| Operand::Constant(Constant::Int(cid))),
+                            _ => None,
+                        },
+                    // `x == null` com `x` também constante: o handle de null é 0.
+                    Instruction::ICmp(op @ (ICmpOp::Eq | ICmpOp::Ne), a, c)
+                        if matches!((a, c), (Operand::Constant(Constant::Null), _) | (_, Operand::Constant(Constant::Null)))
+                            && [a, c].iter().all(|o| matches!(o, Operand::Constant(Constant::Null)) || integer(o).is_some()) =>
+                    {
+                        let bits = |o: &Operand| integer(o).unwrap_or(0);
+                        let equal = bits(a) == bits(c);
+                        Some(Operand::Constant(Constant::Bool(if *op == ICmpOp::Eq { equal } else { !equal })))
+                    }
+                    Instruction::ICmp(op, a, c) => match (integer(a), integer(c)) {
+                        (Some(x), Some(y)) => Some(match op {
+                            ICmpOp::Eq => x == y,
+                            ICmpOp::Ne => x != y,
+                            ICmpOp::Slt => x < y,
+                            ICmpOp::Sle => x <= y,
+                            ICmpOp::Sgt => x > y,
+                            ICmpOp::Sge => x >= y,
+                            ICmpOp::Ult => (x as u64) < (y as u64),
+                        })
+                        .map(|b| Operand::Constant(Constant::Bool(b))),
+                        _ => None,
+                    },
+                    Instruction::ZExt { op, from: Type::I1 | Type::I8, .. } => {
+                        integer(op).map(|n| Operand::Constant(Constant::Int(n & 0xFF)))
+                    }
+                    // A caixa desfeita: `Unbox(Box(x))` é `x` (o `int`, o
+                    // `double` e o `bool` voltam exatos; nada lança).
+                    Instruction::Unbox { op: Operand::Val(b), to } => match boxes.get(b) {
+                        Some((x, de)) if de == to || (matches!(de, Type::I1 | Type::I8) && matches!(to, Type::I1)) => {
+                            Some(x.clone())
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(r) = r {
+                    values.insert(*v, r);
+                }
+            }
+        }
+        // As trocas em cadeia: `v178 = Unbox(Box(v49))` vira `v49`, mas o
+        // próprio `v49 = Unbox(Box(v46))` também sai nesta volta — sem seguir
+        // a cadeia, quem usava `v178` ficava com o `v49` já removido ("use
+        // of undefined value" no LLVM: `a = aa = x` com `int?`, o
+        // `RIPEMD128Digest` do pointycastle no new_sali/backend;
+        // docs/NATIVO-PROJETOS-REAIS.md, C10). A cadeia é acíclica: cada
+        // troca aponta para um valor definido antes.
+        let keys: Vec<ValueId> = values.keys().copied().collect();
+        for k in keys {
+            let mut alvo = values[&k].clone();
+            let mut steps = 0;
+            while let Operand::Val(x) = &alvo
+                && let Some(next) = values.get(x)
+                && steps < values.len()
+            {
+                alvo = next.clone();
+                steps += 1;
+            }
+            values.insert(k, alvo);
+        }
+        let mut changed_here = false;
+        if !values.is_empty() {
+            for b in &mut func.blocks {
+                b.instructions.retain(|(v, _, _)| !values.contains_key(v));
+            }
+            replace(func, &|v| values.get(&v).cloned());
+            changed_here = true;
+        }
+        // Desvios constantes.
+        let ids: Vec<BlockId> = func.blocks.iter().map(|b| b.id).collect();
+        let mut removed_edges: Vec<(BlockId, BlockId)> = Vec::new();
+        for (i, b) in func.blocks.iter_mut().enumerate() {
+            if let Terminator::CondBranch { cond, then_block, else_block } = &b.terminator
+                && let Some(c) = integer(cond)
+            {
+                let (goes, stays) = if c != 0 { (*then_block, *else_block) } else { (*else_block, *then_block) };
+                if goes != stays {
+                    removed_edges.push((ids[i], stays));
+                }
+                b.terminator = Terminator::Branch(goes);
+                changed_here = true;
+            } else if let Terminator::Switch { val, default, cases } = &b.terminator
+                && let Some(c) = integer(val)
+            {
+                let goes = cases.iter().find(|(n, _)| *n == c).map(|(_, d)| *d).unwrap_or(*default);
+                for dest in successors(&b.terminator) {
+                    if dest != goes { removed_edges.push((ids[i], dest)); }
+                }
+                b.terminator = Terminator::Branch(goes);
+                changed_here = true;
+            }
+        }
+        for (origin, dest) in removed_edges {
+            if let Some(b) = func.blocks.iter_mut().find(|b| b.id == dest) {
+                remove_entries(b, origin);
+            }
+        }
+        if !changed_here {
+            return changed;
+        }
+        changed = true;
+    }
+}
+
+fn remove_entries(b: &mut BasicBlock, origin: BlockId) {
+    for (_, inst, _) in &mut b.instructions {
+        if let Instruction::Phi { incoming, .. } = inst {
+            incoming.retain(|(o, _)| *o != origin);
+        }
+    }
+}
+
+/// Tira os blocos inalcançáveis (e as entradas de `phi` vindas deles).
+pub fn remove_unreachable(func: &mut Function) -> bool {
+    let cfg = Cfg::new(func);
+    let dead_set: HashSet<BlockId> =
+        func.blocks.iter().enumerate().filter(|(i, _)| !cfg.reachable(*i)).map(|(_, b)| b.id).collect();
+    if dead_set.is_empty() {
+        return false;
+    }
+    func.blocks.retain(|b| !dead_set.contains(&b.id));
+    for b in &mut func.blocks {
+        for (_, inst, _) in &mut b.instructions {
+            if let Instruction::Phi { incoming, .. } = inst {
+                incoming.retain(|(o, _)| !dead_set.contains(o));
+            }
+        }
+    }
+    true
+}
+
+/// Junta `a -> b` quando `b` só tem `a` como predecessor e `a` só vai a
+/// `b` (sem `phi` em `b`, ou com os `phi` de uma entrada resolvidos).
+pub fn join_blocks(func: &mut Function) -> bool {
+    let mut changed = false;
+    loop {
+        let mut preds: HashMap<BlockId, usize> = HashMap::new();
+        for b in &func.blocks {
+            for s in successors(&b.terminator) {
+                *preds.entry(s).or_default() += 1;
+            }
+        }
+        let alvo = func.blocks.iter().enumerate().find_map(|(i, b)| match b.terminator {
+            Terminator::Branch(s) if s != b.id && s.0 != 0 && preds.get(&s) == Some(&1) => Some((i, s)),
+            _ => None,
+        });
+        let Some((i, s)) = alvo else { return changed };
+        let j = func.blocks.iter().position(|b| b.id == s).expect("sucessor existe");
+        let mut child = func.blocks.remove(j);
+        let i = if j < i { i - 1 } else { i };
+        let parent = func.blocks[i].id;
+        // Os `phi` de uma só entrada viram o valor dela.
+        let mut swap: HashMap<ValueId, Operand> = HashMap::new();
+        child.instructions.retain(|(v, inst, _)| match inst {
+            Instruction::Phi { incoming, .. } => {
+                let value = incoming.first().map(|(_, o)| o.clone()).unwrap_or(Operand::Constant(Constant::Null));
+                swap.insert(*v, value);
+                false
+            }
+            _ => true,
+        });
+        func.blocks[i].instructions.extend(child.instructions);
+        func.blocks[i].terminator = child.terminator;
+        // Os sucessores do filho agora vêm do pai.
+        for b in &mut func.blocks {
+            for (_, inst, _) in &mut b.instructions {
+                if let Instruction::Phi { incoming, .. } = inst {
+                    for (o, _) in incoming.iter_mut() {
+                        if *o == s {
+                            *o = parent;
+                        }
+                    }
+                }
+            }
+        }
+        if !swap.is_empty() {
+            replace(func, &|v| swap.get(&v).cloned());
+        }
+        changed = true;
+    }
+}
+
+/// A instrução sem efeito além do resultado (tirável se ninguém o usa)?
+fn pure(inst: &Instruction) -> bool {
+    match inst {
+        Instruction::Const(_)
+        | Instruction::Add(..)
+        | Instruction::Sub(..)
+        | Instruction::Mul(..)
+        | Instruction::Shl(..)
+        | Instruction::AShr(..)
+        | Instruction::LShr(..)
+        | Instruction::And(..)
+        | Instruction::Or(..)
+        | Instruction::Xor(..)
+        | Instruction::Neg(_)
+        | Instruction::Not(_)
+        | Instruction::FAdd(..)
+        | Instruction::FSub(..)
+        | Instruction::FMul(..)
+        | Instruction::FDiv(..)
+        | Instruction::FNeg(_)
+        | Instruction::ICmp(..)
+        | Instruction::FCmp(..)
+        | Instruction::LNot(_)
+        | Instruction::IntToDouble(_)
+        | Instruction::ZExt { .. }
+        | Instruction::Trunc { .. }
+        | Instruction::Bitcast { .. }
+        | Instruction::Box { .. }
+        | Instruction::GetField { .. }
+        | Instruction::Load { .. }
+        | Instruction::Phi { .. }
+        | Instruction::IsClass { .. }
+        | Instruction::EnvGet { .. }
+        | Instruction::CellGet { .. } => true,
+        Instruction::Unbox { to, .. } => to.is_vector(),
+        Instruction::Simd { op, .. } => *op != OpSimd::Writes,
+        Instruction::CallRuntime { name, .. } => {
+            matches!(name.as_str(), "dartforge_object_new" | "dartforge_exception_pending" | "dartforge_value_class")
+                || pure_helper(name)
+        }
+        _ => false,
+    }
+}
+
+/// Um ajudante `@df.*` do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md
+/// §3.5) sem efeito além do resultado: está numa das quatro tabelas de
+/// efeitos (`llvm/ir_strings.rs`, `ir_boxes.rs`, `ir_lists.rs`,
+/// `ir_typed.rs`, lidas por `externs::effects_of`), não lança e não grava
+/// no heap (os `*_gravar*` gravam, mesmo os que devolvem valor). Os que
+/// alocam (caixas, strings, SIMD) são tiráveis como a alocação de objeto; o
+/// `@df.texto_hash` só preenche o cache do hash.
+fn pure_helper(name: &str) -> bool {
+    use crate::llvm::externs::{CONSERVATIVE, effects_of};
+    if !name.starts_with("df.") || name.contains("gravar") {
+        return false;
+    }
+    let e = effects_of(name);
+    e != CONSERVATIVE && !e.throws
+}
+
+/// Tira os valores puros que ninguém usa.
+pub fn remove_dead(func: &mut Function) -> bool {
+    let mut changed = false;
+    loop {
+        let mut used_set: HashSet<ValueId> = HashSet::new();
+        for b in &func.blocks {
+            for (v, inst, _) in &b.instructions {
+                operands(inst, &mut |o| {
+                    if let Operand::Val(u) = o
+                        && u != v
+                    {
+                        used_set.insert(*u);
+                    }
+                });
+            }
+            terminator_operands(&b.terminator, &mut |o| {
+                if let Operand::Val(u) = o {
+                    used_set.insert(*u);
+                }
+            });
+        }
+        let mut removed_done = false;
+        for b in &mut func.blocks {
+            let before = b.instructions.len();
+            b.instructions.retain(|(v, inst, _)| used_set.contains(v) || !pure(inst));
+            removed_done |= b.instructions.len() != before;
+        }
+        if !removed_done {
+            return changed;
+        }
+        changed = true;
+    }
+}

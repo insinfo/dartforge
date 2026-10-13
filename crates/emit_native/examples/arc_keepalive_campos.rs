@@ -4,40 +4,40 @@
 //! Em tracing, o mesmo corpo com tokens explícitos testa compatibilidade do
 //! protocolo runtime; não ativa preparação ARC no pipeline padrão tracing.
 //! Não certifica lowering de fonte, guardas pending, recarga ou suspensão.
-//! Controles negativos `sem-retencao` e `sem-liberar` alteram somente o IR
+//! Controles negativos `without-retention` e `without-release` alteram somente o IR
 //! final do harness, depois da conferência; a execução deve falhar.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Clone, Copy)]
-enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel, Misto, Ciclo, Celula, Contexto, Global, Late }
+enum Scenario { Field, Capture, Neighbor, CaptureNeighbor, Argumento, Nullable, Mixed, Cycle, Cell, Context, Global, Late }
 
-fn modulo(cenario: Cenario) -> Result<Module, String> {
-    let captura = matches!(cenario, Cenario::Captura | Cenario::CapturaVizinho);
-    let vizinho = matches!(cenario, Cenario::Vizinho | Cenario::CapturaVizinho);
-    let argumento = matches!(cenario, Cenario::Argumento);
-    let anulavel = matches!(cenario, Cenario::Anulavel | Cenario::Misto | Cenario::Ciclo);
-    let misto = matches!(cenario, Cenario::Misto);
-    let celula = matches!(cenario, Cenario::Celula);
-    let global = matches!(cenario, Cenario::Global);
+fn module(scenario: Scenario) -> Result<Module, String> {
+    let capture = matches!(scenario, Scenario::Capture | Scenario::CaptureNeighbor);
+    let neighbor = matches!(scenario, Scenario::Neighbor | Scenario::CaptureNeighbor);
+    let argument = matches!(scenario, Scenario::Argumento);
+    let nullable = matches!(scenario, Scenario::Nullable | Scenario::Mixed | Scenario::Cycle);
+    let mixed = matches!(scenario, Scenario::Mixed);
+    let cell = matches!(scenario, Scenario::Cell);
+    let global = matches!(scenario, Scenario::Global);
     let mut m = Module::new();
-    m.memoria_arc = true;
+    m.arc_memory = true;
     m.entry_symbol = Some("prova_keepalive".into());
     let mut layout = vec![Type::Ref; 40];
     layout[..4].copy_from_slice(&[Type::I64, Type::F64, Type::I1, Type::I8]);
-    m.layouts_campos_arc.insert(123, layout.clone());
-    if celula { m.layouts_campos_arc.insert(dartforge_runtime::layout::cid::CELULA as u32, vec![Type::Ref]); }
-    if captura { m.layouts_campos_arc.insert(dartforge_runtime::layout::cid::CONTEXTO as u32, layout); }
-    for id in m.layouts_campos_arc.keys() {
-        m.classes.push(ClassDef { id: *id, name: format!("C{id}"), field_count: m.layouts_campos_arc[id].len(),
+    m.arc_field_layouts.insert(123, layout.clone());
+    if cell { m.arc_field_layouts.insert(dartforge_runtime::layout::cid::CELULA as u32, vec![Type::Ref]); }
+    if capture { m.arc_field_layouts.insert(dartforge_runtime::layout::cid::CONTEXTO as u32, layout); }
+    for id in m.arc_field_layouts.keys() {
+        m.classes.push(ClassDef { id: *id, name: format!("C{id}"), field_count: m.arc_field_layouts[id].len(),
             vtable: vec![], to_string_symbol: None });
     }
     let val = |n| Operand::Val(ValueId(n));
     m.functions.push(Function {
         symbol: "ler_e_substituir".into(),
         name: "ler_e_substituir".into(),
-        depuracao: None,
+        debug_info: None,
         params: vec![(ValueId(0), "receiver".into(), Type::Ref)],
         return_ty: Type::Ref,
         blocks: vec![BasicBlock {
@@ -59,31 +59,31 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
         }],
     });
     if global {
-        m.globais.push((0, Type::Ref, "dfg.prova_keepalive".into()));
+        m.globals.push((0, Type::Ref, "dfg.prova_keepalive".into()));
         let f = &mut m.functions[0];
         f.params.clear();
         for (_, inst, _) in &mut f.blocks[0].instructions {
             if let Instruction::GetField { object, .. } | Instruction::SetField { object, .. } = inst { *object = val(9); }
         }
         f.blocks[0].instructions.splice(0..0, [
-            (ValueId(9), Instruction::LoadGlobal { simbolo: "dfg.prova_keepalive".into(), ty: Type::Ref }, Type::Ref),
-            (ValueId(10), Instruction::StoreGlobal { simbolo: "dfg.prova_keepalive".into(), val: Operand::Constant(Constant::Null), ty: Type::Ref, raiz: Some(0) }, Type::Void),
+            (ValueId(9), Instruction::LoadGlobal { symbol: "dfg.prova_keepalive".into(), ty: Type::Ref }, Type::Ref),
+            (ValueId(10), Instruction::StoreGlobal { symbol: "dfg.prova_keepalive".into(), val: Operand::Constant(Constant::Null), ty: Type::Ref, root: Some(0) }, Type::Void),
         ]);
     }
-    if celula {
+    if cell {
         m.functions[0].blocks[0].instructions[0].1 = Instruction::CellGet { cell: val(0) };
         m.functions[0].blocks[0].instructions[1].1 = Instruction::SetField {
             object: val(0), index: 0, value: Operand::Constant(Constant::Null),
         };
     }
-    if matches!(cenario, Cenario::Late) {
+    if matches!(scenario, Scenario::Late) {
         m.functions[0].blocks[0].instructions[0].1 = Instruction::CallRuntime {
             name: "dartforge_arc_ler_campo_late_ref_v1".into(),
             args: vec![(val(0), Type::Ref), (Operand::Constant(Constant::Int(39)), Type::I64)],
             ret_ty: Type::Ref,
         };
     }
-    if matches!(cenario, Cenario::Contexto) {
+    if matches!(scenario, Scenario::Context) {
         let f = &mut m.functions[0];
         for (_, inst, _) in &mut f.blocks[0].instructions {
             if let Instruction::GetField { object, .. } | Instruction::SetField { object, .. } = inst { *object = val(9); }
@@ -92,14 +92,14 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
             name: "dartforge_arc_contexto_closure_v1".into(), args: vec![(val(0), Type::Ref)], ret_ty: Type::Ref,
         }, Type::Ref));
     }
-    if captura {
+    if capture {
         // Exercita a tradução EnvGet e o mapa real do ambiente, inclusive
         // o campo 39, antes de substituir a aresta que sustenta o empréstimo.
         m.functions[0].blocks[0].instructions[0].1 = Instruction::EnvGet {
             env: val(0), index: 39,
         };
     }
-    if vizinho {
+    if neighbor {
         // O filho depende do vizinho e este da raiz. Retirar a aresta da
         // raiz deve preservar ambos até terminar a mutação e devolver o filho.
         m.functions[0].blocks[0].instructions = vec![
@@ -111,11 +111,11 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
                 value: Operand::Constant(Constant::Null) }, Type::Void),
         ];
         m.functions[0].blocks[0].terminator = Terminator::Return(Some(val(2)));
-        if captura {
+        if capture {
             m.functions[0].blocks[0].instructions[0].1 = Instruction::EnvGet { env: val(0), index: 39 };
         }
     }
-    if argumento {
+    if argument {
         let f = &mut m.functions[0];
         f.params.extend([(ValueId(100), "args".into(), Type::Ptr), (ValueId(101), "desc".into(), Type::Ptr)]);
         for (_, i, _) in &mut f.blocks[0].instructions {
@@ -124,17 +124,17 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
         f.blocks[0].instructions.insert(0, (ValueId(9), Instruction::LoadIndexed {
             base: val(100), index: Operand::Constant(Constant::Int(0)),
         }, Type::Ref));
-        m.parametros_vetores_dart.insert("ler_e_substituir".into(), HashMap::from([
-            (ValueId(100), VetorEntradaDart::Argumentos), (ValueId(101), VetorEntradaDart::Descritor)]));
+        m.dart_vector_parameters.insert("ler_e_substituir".into(), HashMap::from([
+            (ValueId(100), DartEntryVector::Argumentos), (ValueId(101), DartEntryVector::Descriptor)]));
     }
-    if anulavel {
+    if nullable {
         let f = &mut m.functions[0];
         f.params.push((ValueId(100), "presente".into(), Type::I1));
-        let mut corpo = f.blocks[0].clone(); corpo.id = BlockId(5);
-        for (_, i, _) in &mut corpo.instructions {
+        let mut body = f.blocks[0].clone(); body.id = BlockId(5);
+        for (_, i, _) in &mut body.instructions {
             if let Instruction::GetField { object, .. } | Instruction::SetField { object, .. } = i { *object = val(105); }
         }
-        corpo.instructions.insert(0, (ValueId(107), Instruction::GetField { object: val(105), index: 2 }, Type::I1));
+        body.instructions.insert(0, (ValueId(107), Instruction::GetField { object: val(105), index: 2 }, Type::I1));
         f.blocks = vec![
             BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::CondBranch {
                 cond: val(100), then_block: BlockId(1), else_block: BlockId(2) } },
@@ -151,22 +151,22 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
                 (ValueId(106), Instruction::ICmp(ICmpOp::Eq, val(105), Operand::Constant(Constant::Null)), Type::I1),
             ], terminator: Terminator::CondBranch { cond: val(106), then_block: BlockId(4), else_block: BlockId(5) } },
             BasicBlock { id: BlockId(4), instructions: vec![], terminator: Terminator::Return(Some(val(105))) },
-            corpo,
+            body,
         ];
-        if misto {
-            let mut campos = vec![Operand::Constant(Constant::Null); 40];
-            campos[..4].clone_from_slice(&[Operand::Constant(Constant::Int(42)),
+        if mixed {
+            let mut fields = vec![Operand::Constant(Constant::Null); 40];
+            fields[..4].clone_from_slice(&[Operand::Constant(Constant::Int(42)),
                 Operand::Constant(Constant::Double(-0.0)), Operand::Constant(Constant::Bool(true)), val(109)]);
             f.blocks[2].instructions = vec![
                 (ValueId(109), Instruction::Trunc { op: Operand::Constant(Constant::Int(255)),
                     from: Type::I64, to: Type::I8 }, Type::I8),
-                (ValueId(108), Instruction::AllocObject { class_id: 123, fields: campos }, Type::Ref),
+                (ValueId(108), Instruction::AllocObject { class_id: 123, fields: fields }, Type::Ref),
             ];
         }
     }
-    if matches!(cenario, Cenario::Ciclo) {
+    if matches!(scenario, Scenario::Cycle) {
         let f = &mut m.functions[0];
-        let saida = f.blocks[3].terminator.clone();
+        let exit = f.blocks[3].terminator.clone();
         if let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 {
             incoming.push((BlockId(6), val(110)));
         }
@@ -180,13 +180,13 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
                 (ValueId(110), Instruction::Phi { ty: Type::Ref, incoming: vec![(BlockId(3), val(105))] }, Type::Ref),
                 (ValueId(112), Instruction::Add(val(111), Operand::Constant(Constant::Int(1))), Type::I64),
             ], terminator: Terminator::Branch(BlockId(3)) },
-            BasicBlock { id: BlockId(7), instructions: vec![], terminator: saida },
+            BasicBlock { id: BlockId(7), instructions: vec![], terminator: exit },
         ]);
     }
-    let mut plano = PlanoFuncaoDart::default();
-    plano.tokens.retorno = RetornoTokens::Owned;
+    let mut plan = DartFunctionPlan::default();
+    plan.tokens.ret = TokenReturn::Owned;
     m.functions.push(Function {
-        symbol: "inicializar".into(), name: "inicializar".into(), depuracao: None,
+        symbol: "inicializar".into(), name: "inicializar".into(), debug_info: None,
         params: vec![(ValueId(0), "this".into(), Type::Ref), (ValueId(1), "filho".into(), Type::Ref)],
         return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0),
             instructions: vec![
@@ -200,90 +200,90 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
             terminator: Terminator::Return(None) }],
     });
     m.functions.push(Function {
-        symbol: "ler_inteiro".into(), name: "ler_inteiro".into(), depuracao: None,
+        symbol: "ler_inteiro".into(), name: "ler_inteiro".into(), debug_info: None,
         params: vec![(ValueId(0), "this".into(), Type::Ref)], return_ty: Type::I64,
         blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
             (ValueId(1), Instruction::GetField { object: val(0), index: 0 }, Type::I64),
         ], terminator: Terminator::Return(Some(val(1))) }],
     });
-    if celula {
+    if cell {
         m.functions[1].blocks[0].instructions = vec![(ValueId(2), Instruction::SetField {
             object: val(0), index: 0, value: val(1),
         }, Type::Void)];
     }
-    let mut planos = HashMap::from([("ler_e_substituir".into(), plano),
-        ("inicializar".into(), PlanoFuncaoDart::default()), ("ler_inteiro".into(), PlanoFuncaoDart::default())]);
+    let mut plans = HashMap::from([("ler_e_substituir".into(), plan),
+        ("inicializar".into(), DartFunctionPlan::default()), ("ler_inteiro".into(), DartFunctionPlan::default())]);
     if global {
         m.functions.push(Function {
-            symbol: "guardar_global".into(), name: "guardar_global".into(), depuracao: None,
+            symbol: "guardar_global".into(), name: "guardar_global".into(), debug_info: None,
             params: vec![(ValueId(0), "objeto".into(), Type::Ref)], return_ty: Type::Void,
             blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                (ValueId(1), Instruction::StoreGlobal { simbolo: "dfg.prova_keepalive".into(), val: val(0), ty: Type::Ref, raiz: Some(0) }, Type::Void),
+                (ValueId(1), Instruction::StoreGlobal { symbol: "dfg.prova_keepalive".into(), val: val(0), ty: Type::Ref, root: Some(0) }, Type::Void),
             ], terminator: Terminator::Return(None) }],
         });
-        planos.insert("guardar_global".into(), PlanoFuncaoDart::default());
+        plans.insert("guardar_global".into(), DartFunctionPlan::default());
     }
-    let produzido = preparar_arc_modulo_dart(&mut m, &mut planos)?;
-    let esperado = if vizinho { (2, 1) } else if argumento || anulavel || global { (1, 1) } else { (1, 0) };
-    let retorno = ValueId(if vizinho { 2 } else { 1 });
-    if produzido != esperado || planos["ler_e_substituir"].classes[&retorno] != Ownership::Owned {
+    let produced = prepare_arc_dart_module(&mut m, &mut plans)?;
+    let expected = if neighbor { (2, 1) } else if argument || nullable || global { (1, 1) } else { (1, 0) };
+    let ret = ValueId(if neighbor { 2 } else { 1 });
+    if produced != expected || plans["ler_e_substituir"].classes[&ret] != Ownership::Owned {
         return Err(format!(
-            "keepalive esperado {esperado:?}, encontrado {produzido:?}"
+            "keepalive esperado {expected:?}, encontrado {produced:?}"
         ));
     }
-    let preparado = format!("{m:?}"); let planos_preparados = planos.clone();
-    if preparar_arc_modulo_dart(&mut m, &mut planos)? != (0, 0)
-        || format!("{m:?}") != preparado || planos != planos_preparados
+    let prepared = format!("{m:?}"); let prepared_plans = plans.clone();
+    if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0)
+        || format!("{m:?}") != prepared || plans != prepared_plans
     {
         return Err("preparação de keepalive não foi idempotente".into());
     }
-    let erros = dartforge_emit_native::lower::verificador::verificar(&m);
-    if !erros.is_empty() {
-        return Err(erros.join("\n"));
+    let errors = dartforge_emit_native::lower::verifier::verify(&m);
+    if !errors.is_empty() {
+        return Err(errors.join("\n"));
     }
-    if argumento {
-        m.retornos_uniformes_arc.insert("ler_e_substituir".into());
-        certificar_portas_arc_aot(&mut m, &planos)?;
+    if argument {
+        m.arc_uniform_returns.insert("ler_e_substituir".into());
+        certify_arc_aot_ports(&mut m, &plans)?;
     }
     Ok(m)
 }
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(outro) => return Err(format!("modo desconhecido: {outro}")),
+        Some(other) => return Err(format!("modo desconhecido: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(outro) => return Err(format!("nível desconhecido: {outro}")),
+        Some(other) => return Err(format!("nível desconhecido: {other}")),
     };
-    let mut controle = args.next();
-    let cenario = match controle.as_deref() {
-        Some("--captura") => Cenario::Captura,
-        Some("--vizinho") => Cenario::Vizinho,
-        Some("--captura-vizinho") => Cenario::CapturaVizinho,
-        Some("--argumento") => Cenario::Argumento,
-        Some("--anulavel") => Cenario::Anulavel,
-        Some("--misto") => Cenario::Misto,
-        Some("--ciclo") => Cenario::Ciclo,
-        Some("--celula") => Cenario::Celula,
-        Some("--contexto") => Cenario::Contexto,
-        Some("--global") => Cenario::Global,
-        Some("--late") => Cenario::Late,
-        _ => Cenario::Campo,
+    let mut control = args.next();
+    let scenario = match control.as_deref() {
+        Some("--captura") => Scenario::Capture,
+        Some("--vizinho") => Scenario::Neighbor,
+        Some("--captura-vizinho") => Scenario::CaptureNeighbor,
+        Some("--argumento") => Scenario::Argumento,
+        Some("--anulavel") => Scenario::Nullable,
+        Some("--misto") => Scenario::Mixed,
+        Some("--ciclo") => Scenario::Cycle,
+        Some("--celula") => Scenario::Cell,
+        Some("--contexto") => Scenario::Context,
+        Some("--global") => Scenario::Global,
+        Some("--late") => Scenario::Late,
+        _ => Scenario::Field,
     };
-    if !matches!(cenario, Cenario::Campo) { controle = args.next(); }
-    let captura = matches!(cenario, Cenario::Captura | Cenario::CapturaVizinho);
-    let vizinho = matches!(cenario, Cenario::Vizinho | Cenario::CapturaVizinho);
-    let argumento = matches!(cenario, Cenario::Argumento);
+    if !matches!(scenario, Scenario::Field) { control = args.next(); }
+    let capture = matches!(scenario, Scenario::Capture | Scenario::CaptureNeighbor);
+    let neighbor = matches!(scenario, Scenario::Neighbor | Scenario::CaptureNeighbor);
+    let argument = matches!(scenario, Scenario::Argumento);
     if args.next().is_some() { return Err("argumentos excedentes".into()); }
-    let mut m = modulo(cenario)?;
-    m.memoria_arc = arc;
-    if !arc { m.portas_arc_aot = None; }
+    let mut m = module(scenario)?;
+    m.arc_memory = arc;
+    if !arc { m.arc_aot_ports = None; }
     let mut ir = LlvmEmitter::new(&m).emit_all();
     // Nenhum Ref observado passa pela HIR do harness: um endereço já morto
     // é apenas diagnóstico nativo. Não há alocação entre morte e observação,
@@ -339,27 +339,27 @@ passou:
 }
 "#,
     );
-    if matches!(cenario, Cenario::Celula) {
+    if matches!(scenario, Scenario::Cell) {
         ir = ir.replace("@dartforge_arc_objeto_owned_v1(i64 123, i64 40)",
             &format!("@dartforge_arc_objeto_owned_v1(i64 {}, i64 1)", dartforge_runtime::layout::cid::CELULA));
-        let inicio = ir.find("  %inteiro = call i64 @ler_inteiro(i64 %obj)\n").ok_or("início da conferência escalar ausente")?;
-        let fim = ir[inicio..].find("  br i1 %ok_inicio,").map(|n| inicio + n).ok_or("fim da conferência escalar ausente")?;
-        ir.replace_range(inicio..fim, "  %ok_inicio = icmp eq i8 %aresta, 1\n");
+        let start = ir.find("  %inteiro = call i64 @ler_inteiro(i64 %obj)\n").ok_or("início da conferência escalar ausente")?;
+        let end = ir[start..].find("  br i1 %ok_inicio,").map(|n| start + n).ok_or("fim da conferência escalar ausente")?;
+        ir.replace_range(start..end, "  %ok_inicio = icmp eq i8 %aresta, 1\n");
     }
-    if matches!(cenario, Cenario::Late) {
+    if matches!(scenario, Scenario::Late) {
         // A sondagem vazia não muda o estado late. O harness marca somente
         // depois de inicializar; o corpo certificado copia antes de retirar
         // a aresta e devolve Owned, como nos demais cenários.
-        for declaracao in ["declare i8 @dartforge_late_field_initialized(i64, i64)",
+        for declaration in ["declare i8 @dartforge_late_field_initialized(i64, i64)",
             "declare void @dartforge_late_field_mark_initialized(i64, i64)"] {
-            if !ir.contains(declaracao) { ir.push_str(&format!("\n{declaracao}\n")); }
+            if !ir.contains(declaration) { ir.push_str(&format!("\n{declaration}\n")); }
         }
         ir = ir.replace("  call void @inicializar(i64 %obj, i64 %filho)\n",
             "  %late_vazio = call i64 @dartforge_arc_ler_campo_late_ref_v1(i64 %obj, i64 39)\n  %late_estado = call i8 @dartforge_late_field_initialized(i64 %obj, i64 39)\n  %late_null = icmp eq i64 %late_vazio, 0\n  %late_sem_marca = icmp eq i8 %late_estado, 0\n  %late_ok = and i1 %late_null, %late_sem_marca\n  call void @inicializar(i64 %obj, i64 %filho)\n  call void @dartforge_late_field_mark_initialized(i64 %obj, i64 39)\n");
         ir = ir.replace("  %ok_inicio = and i1 %ok_campos, %ok_aresta\n",
             "  %ok_inicializado = and i1 %ok_campos, %ok_aresta\n  %ok_inicio = and i1 %ok_inicializado, %late_ok\n");
     }
-    if matches!(cenario, Cenario::Contexto) {
+    if matches!(scenario, Scenario::Context) {
         // O endereço permanece na imagem AOT e nunca é invocado nesta prova;
         // só a aresta forte da closure e o empréstimo do contexto são usados.
         ir.push_str("\ndefine i64 @entrada_contexto(i64 %clo, ptr %args, ptr %desc) { ret i64 0 }\n");
@@ -368,71 +368,71 @@ passou:
         ir = ir.replace("  %ok = and i1 %ok_obj, %ok_filho\n",
             "  %closure_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %closure)\n  %closure_morta = icmp eq i8 %closure_estado, 0\n  %ok_par = and i1 %ok_obj, %ok_filho\n  %ok = and i1 %ok_par, %closure_morta\n");
     }
-    if captura {
+    if capture {
         ir = ir.replace("@dartforge_arc_objeto_owned_v1(i64 123, i64 40)",
             &format!("@dartforge_arc_objeto_owned_v1(i64 {}, i64 40)",
                 dartforge_runtime::layout::cid::CONTEXTO));
     }
-    if vizinho {
+    if neighbor {
         ir = ir.replace("  call void @inicializar(i64 %obj, i64 %filho)\n",
             "  %vizinho = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)\n  call void @inicializar(i64 %vizinho, i64 %filho)\n  call void @inicializar(i64 %obj, i64 %vizinho)\n  call void @dartforge_arc_release(i64 %vizinho)\n");
         ir = ir.replace("  %ok = and i1 %ok_obj, %ok_filho\n",
             "  %vizinho_morto = call i8 @dartforge_arc_observar_heap_v1(i64 %vizinho)\n  %ok_vizinho = icmp eq i8 %vizinho_morto, 0\n  %ok_par = and i1 %ok_obj, %ok_filho\n  %ok = and i1 %ok_par, %ok_vizinho\n");
     }
-    if matches!(cenario, Cenario::Global) {
+    if matches!(scenario, Scenario::Global) {
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
             "  call void @guardar_global(i64 %obj)\n  call void @dartforge_arc_release(i64 %obj)\n  %retorno = call i64 @ler_e_substituir()\n");
         ir = ir.replace("  call void @dartforge_arc_release(i64 %obj)\n  call void @dartforge_arc_collect()\n",
             "  call void @dartforge_arc_collect()\n");
     }
-    if argumento {
+    if argument {
         ir.push_str("\n@desc.argumento = private constant [2 x i64] [i64 1, i64 0]\n");
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
             "  %argumentos = alloca [1 x i64], align 8\n  store i64 %obj, ptr %argumentos\n  %retorno = call i64 @ler_e_substituir(i64 %obj, ptr %argumentos, ptr @desc.argumento)\n");
     }
-    if matches!(cenario, Cenario::Anulavel | Cenario::Misto | Cenario::Ciclo) {
+    if matches!(scenario, Scenario::Nullable | Scenario::Mixed | Scenario::Cycle) {
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
             "  %retorno = call i64 @ler_e_substituir(i64 %obj, i1 true)\n");
         ir = ir.replace("passou:\n  call void @dartforge_print_handle(i64 3)",
             "passou:\n  %obj_nulo = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)\n  %filho_nulo = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775807)\n  call void @inicializar(i64 %obj_nulo, i64 %filho_nulo)\n  call void @dartforge_arc_release(i64 %filho_nulo)\n  %ret_nulo = call i64 @ler_e_substituir(i64 %obj_nulo, i1 false)\n  %eh_nulo = icmp eq i64 %ret_nulo, 0\n  call void @dartforge_arc_release(i64 %obj_nulo)\n  call void @dartforge_arc_collect()\n  %obj_nulo_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %obj_nulo)\n  %filho_nulo_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %filho_nulo)\n  %obj_nulo_morto = icmp eq i8 %obj_nulo_estado, 0\n  %filho_nulo_morto = icmp eq i8 %filho_nulo_estado, 0\n  %ambos_nulos_mortos = and i1 %obj_nulo_morto, %filho_nulo_morto\n  %ok_nulo = and i1 %ambos_nulos_mortos, %eh_nulo\n  br i1 %ok_nulo, label %passou_nulo, label %falha\npassou_nulo:\n  call void @dartforge_print_handle(i64 3)");
     }
-    if matches!(cenario, Cenario::Misto) {
+    if matches!(scenario, Scenario::Mixed) {
         // Registra apenas o endereço nativo, sem criar raiz ou owner. A
         // observação posterior deve encontrar a alocação local já destruída.
-        let linha = ir.lines().find(|l| l.contains("%v108 = call i64 @dartforge_arc_objeto_owned_v1"))
+        let line = ir.lines().find(|l| l.contains("%v108 = call i64 @dartforge_arc_objeto_owned_v1"))
             .ok_or("alocação local da prova mista não encontrada")?.to_owned();
-        ir = ir.replace(&linha, &format!("{linha}\n  store i64 %v108, ptr @misto.local"));
+        ir = ir.replace(&line, &format!("{line}\n  store i64 %v108, ptr @misto.local"));
         ir.push_str("\n@misto.local = internal global i64 0\n");
         ir = ir.replace("  %ok_nulo = and i1 %ambos_nulos_mortos, %eh_nulo",
             "  %local = load i64, ptr @misto.local\n  %local_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %local)\n  %local_morto = icmp eq i8 %local_estado, 0\n  %originais_mortos = and i1 %ambos_nulos_mortos, %eh_nulo\n  %ok_nulo = and i1 %originais_mortos, %local_morto");
     }
-    match controle.as_deref() {
+    match control.as_deref() {
         None => {}
         Some("sem-retencao") => {
-            let emprestado = m.functions[0].blocks.iter().flat_map(|b| &b.instructions)
+            let borrowed = m.functions[0].blocks.iter().flat_map(|b| &b.instructions)
                 .find_map(|(v, i, _)| match i {
                     Instruction::ArcCopy { value: Operand::Val(de) }
-                        if *v == ValueId(if vizinho { 2 } else { 1 }) => Some(de.0),
+                        if *v == ValueId(if neighbor { 2 } else { 1 }) => Some(de.0),
                     _ => None,
                 }).ok_or("cópia do retorno não encontrada")?;
-            let chamada = format!("  call void @dartforge_arc_retain(i64 %v{emprestado})\n");
-            if ir.matches(&chamada).count() != 1 {
+            let call = format!("  call void @dartforge_arc_retain(i64 %v{borrowed})\n");
+            if ir.matches(&call).count() != 1 {
                 return Err("retenção produzida não foi localizada unicamente no IR".into());
             }
-            ir = ir.replace(&chamada, "");
+            ir = ir.replace(&call, "");
         }
         Some("sem-liberar") => {
             ir = ir.replace("  call void @dartforge_arc_release(i64 %retorno)\n", "");
         }
-        Some(outro) => return Err(format!("controle desconhecido: {outro}")),
+        Some(other) => return Err(format!("controle desconhecido: {other}")),
     }
-    if let Some(dir) = saida.parent() {
+    if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
+    std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     driver::compile_and_link(
         &ir,
-        &saida,
+        &exit,
         &driver::NativeDriverOptions {
             optimize,
             ..Default::default()
@@ -442,29 +442,29 @@ passou:
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     #[test]
-    fn contexto_auditado_sustenta_campos_e_retorno_owned() {
-        let m = super::modulo(super::Cenario::Contexto).unwrap();
+    fn audited_context_sustains_fields_and_owned_return() {
+        let m = super::module(super::Scenario::Context).unwrap();
         super::LlvmEmitter::new(&m).emit_all();
     }
 
     #[test]
-    fn celula_ref_promove_owner_antes_de_limpar_o_slot() {
-        let m = super::modulo(super::Cenario::Celula).unwrap();
+    fn ref_cell_promotes_owner_before_clearing_slot() {
+        let m = super::module(super::Scenario::Cell).unwrap();
         super::LlvmEmitter::new(&m).emit_all();
     }
 
     #[test]
-    fn ciclo_de_phis_preserva_owner_e_guardas_de_campo() {
-        let m = super::modulo(super::Cenario::Ciclo).unwrap();
+    fn phi_cycle_preserves_owner_and_field_guards() {
+        let m = super::module(super::Scenario::Cycle).unwrap();
         super::LlvmEmitter::new(&m).emit_all();
     }
     use super::*;
 
     #[test]
-    fn phi_misto_preserva_layout_local_e_confere_receiver_emprestado() {
-        let m = modulo(Cenario::Misto).unwrap();
+    fn mixed_phi_preserves_local_layout_and_checks_borrowed_receiver() {
+        let m = module(Scenario::Mixed).unwrap();
         let f = &m.functions[0];
         assert!(f.blocks[2].instructions.iter().any(|(v, i, _)| *v == ValueId(108)
             && matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_objeto_owned_v1")));
@@ -476,63 +476,63 @@ mod testes {
     }
 
     #[test]
-    fn phi_anulavel_confere_campos_e_transfere_owner_nas_duas_saidas() {
-        let m = modulo(Cenario::Anulavel).unwrap();
+    fn nullable_phi_checks_fields_and_transfers_owner_on_both_exits() {
+        let m = module(Scenario::Nullable).unwrap();
         let b = m.functions[0].blocks.iter().find(|b| b.id == BlockId(5)).unwrap();
-        let guardar = b.instructions.iter().position(|(v, _, _)| *v == ValueId(2)).unwrap();
-        let copiar = b.instructions.iter().position(|(v, i, _)| *v == ValueId(1) && matches!(i, Instruction::ArcCopy { .. })).unwrap();
-        assert!(copiar < guardar);
+        let save = b.instructions.iter().position(|(v, _, _)| *v == ValueId(2)).unwrap();
+        let copy = b.instructions.iter().position(|(v, i, _)| *v == ValueId(1) && matches!(i, Instruction::ArcCopy { .. })).unwrap();
+        assert!(copy < save);
         assert!(b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
             if name == "dartforge_arc_gravar_campo_ref_conferido_v1")));
-        let nulo = m.functions[0].blocks.iter().find(|b| b.id == BlockId(4)).unwrap();
-        assert!(matches!(nulo.terminator, Terminator::Return(Some(Operand::Val(ValueId(105))))));
+        let null = m.functions[0].blocks.iter().find(|b| b.id == BlockId(4)).unwrap();
+        assert!(matches!(null.terminator, Terminator::Return(Some(Operand::Val(ValueId(105))))));
         assert!(b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
             if name == "dartforge_arc_ler_campo_escalar_conferido_v1")));
     }
 
     #[test]
-    fn argumento_owned_sustenta_receiver_e_certifica_vetores_readonly() {
-        let m = modulo(Cenario::Argumento).unwrap();
+    fn owned_argument_sustains_receiver_and_certifies_readonly_vectors() {
+        let m = module(Scenario::Argumento).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, .. }
             if name == "dartforge_arc_argumento_owned_v1"));
-        let soltar = ops.iter().position(|(_, i, _)| matches!(i,
+        let release_ref = ops.iter().position(|(_, i, _)| matches!(i,
             Instruction::ArcDrop { value: Operand::Val(ValueId(9)) })).unwrap();
-        let gravar = ops.iter().position(|(v, _, _)| *v == ValueId(2)).unwrap();
-        assert!(soltar > gravar);
-        assert!(m.portas_arc_aot.is_some());
+        let store = ops.iter().position(|(v, _, _)| *v == ValueId(2)).unwrap();
+        assert!(release_ref > store);
+        assert!(m.arc_aot_ports.is_some());
     }
 
     #[test]
-    fn captura_derivada_conserva_owners_antes_de_mutar_ambiente() {
-        let m = modulo(Cenario::CapturaVizinho).unwrap();
+    fn derived_capture_keeps_owners_before_mutating_env() {
+        let m = module(Scenario::CaptureNeighbor).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_env_ref_v1"));
-        let retirar = ops.iter().position(|(v, _, _)| *v == ValueId(3)).unwrap();
+        let remove = ops.iter().position(|(v, _, _)| *v == ValueId(3)).unwrap();
         for id in [ValueId(1), ValueId(2)] {
-            let reter = ops.iter().position(|(v, i, _)| *v == id && matches!(i, Instruction::ArcCopy { .. })).unwrap();
-            assert!(reter < retirar);
+            let retain = ops.iter().position(|(v, i, _)| *v == id && matches!(i, Instruction::ArcCopy { .. })).unwrap();
+            assert!(retain < remove);
         }
     }
 
     #[test]
-    fn filho_e_vizinho_sobrevivem_a_remocao_da_aresta_da_raiz() {
-        let m = modulo(Cenario::Vizinho).unwrap();
+    fn child_and_neighbor_survive_root_edge_removal() {
+        let m = module(Scenario::Neighbor).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
-        let retirar_raiz = ops.iter().position(|(v, _, _)| *v == ValueId(3)).unwrap();
+        let remove_root = ops.iter().position(|(v, _, _)| *v == ValueId(3)).unwrap();
         for id in [ValueId(1), ValueId(2)] {
-            let reter = ops.iter().position(|(v, i, _)| *v == id && matches!(i, Instruction::ArcCopy { .. })).unwrap();
-            assert!(reter < retirar_raiz);
+            let retain = ops.iter().position(|(v, i, _)| *v == id && matches!(i, Instruction::ArcCopy { .. })).unwrap();
+            assert!(retain < remove_root);
         }
-        let retirar_filho = ops.iter().position(|(v, _, _)| *v == ValueId(4)).unwrap();
-        let soltar_vizinho = ops.iter().position(|(_, i, _)| matches!(i,
+        let remove_child = ops.iter().position(|(v, _, _)| *v == ValueId(4)).unwrap();
+        let release_neighbor = ops.iter().position(|(_, i, _)| matches!(i,
             Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })).unwrap();
-        assert!(soltar_vizinho > retirar_filho);
+        assert!(release_neighbor > remove_child);
     }
 
     #[test]
-    fn retencao_produzida_antecede_substituicao_da_aresta() {
-        let m = modulo(Cenario::Campo).unwrap();
+    fn produced_retention_precedes_edge_replacement() {
+        let m = module(Scenario::Field).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(
             ops[1],
@@ -548,16 +548,16 @@ mod testes {
 }
 
 #[cfg(test)]
-mod testes_captura {
+mod capture_tests {
     use super::*;
 
     #[test]
-    fn captura_auditada_e_retida_antes_de_substituir_aresta() {
-        let m = modulo(Cenario::Captura).unwrap();
+    fn audited_capture_is_retained_before_replacing_edge() {
+        let m = module(Scenario::Capture).unwrap();
         let ir = LlvmEmitter::new(&m).emit_all();
-        let ler = ir.find("call i64 @dartforge_arc_env_ref_v1").unwrap();
-        let reter = ir.find("call void @dartforge_arc_retain").unwrap();
-        let gravar = ir.find("call void @dartforge_arc_gravar_campo_ref_conferido_v1").unwrap();
-        assert!(ler < reter && reter < gravar);
+        let read = ir.find("call i64 @dartforge_arc_env_ref_v1").unwrap();
+        let retain = ir.find("call void @dartforge_arc_retain").unwrap();
+        let store = ir.find("call void @dartforge_arc_gravar_campo_ref_conferido_v1").unwrap();
+        assert!(read < retain && retain < store);
     }
 }

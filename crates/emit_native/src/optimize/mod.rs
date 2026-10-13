@@ -5,8 +5,8 @@
 //! passes eliminam o trabalho antes de ele virar chamada:
 //!
 //! 1. `mem2reg`: locais viram valores SSA;
-//! 2. resumo de exceções (`efeitos`) e a conferência depois de uma chamada
-//!    que não lança dobrada (`simplificar`);
+//! 2. resumo de exceções (`effects`) e a conferência depois de uma chamada
+//!    que não lança dobrada (`simplify`);
 //! 3. inlining das funções pequenas (`inline`) — construtores, getters,
 //!    operadores —, também das que lançam (a conferência depois da chamada
 //!    leva a exceção ao tratador de quem chama);
@@ -17,18 +17,18 @@
 
 mod cfg;
 pub mod arc;
-mod efeitos;
+mod effects;
 pub(crate) mod scc;
 mod escape;
 mod inline;
-mod locais_diretas;
+mod direct_locals;
 mod mem2reg;
-pub(crate) mod operandos;
-mod simplificar;
-mod tabelas;
+pub(crate) mod operands;
+mod simplify;
+mod tables;
 
 #[cfg(test)]
-mod testes;
+mod tests;
 
 use crate::hir::*;
 use std::collections::HashMap;
@@ -37,42 +37,42 @@ use std::collections::HashMap;
 /// O modelo de memória fica definido antes dos passes; a materialização das
 /// exceções permanece por último, pois seus IDs descrevem a HIR final.
 /// A inserção de owners ARC ainda não faz parte deste pipeline (§20).
-/// Sua integração deve ficar condicionada a `memoria_arc` (`--memoria=arc`):
+/// Sua integração deve ficar condicionada a `arc_memory` (`--memoria=arc`):
 /// tracing não recebe fábricas Owned, retenções ou liberações ARC.
-pub(crate) fn preparar_para_emissao(module: &mut Module, memoria_arc: bool, por_tabelas: bool) {
-    module.memoria_arc = memoria_arc;
-    otimizar(module);
-    if por_tabelas {
-        let plano = tabelas::preparar(module);
+pub(crate) fn prepare_for_emission(module: &mut Module, arc_memory: bool, by_tables: bool) {
+    module.arc_memory = arc_memory;
+    optimize(module);
+    if by_tables {
+        let plan = tables::prepare(module);
         // A inserção/verificação de ownership deverá ocorrer aqui, sobre
         // o CFG excepcional preparado, antes de publicar tabelas LLVM.
-        tabelas::materializar(module, plano);
+        tables::materialize(module, plan);
     }
 }
 
 /// Os passes desligados pelo ambiente?
-fn desligado() -> bool {
+fn disabled() -> bool {
     std::env::var("DARTFORGE_OTIMIZAR_HIR").is_ok_and(|v| v == "0")
 }
 
-fn limpar(func: &mut Function, nao_lancam: &std::collections::HashSet<String>) {
+fn clear(func: &mut Function, do_not_throw: &std::collections::HashSet<String>) {
     // Numa função que não lança, a exceção nunca está pendente: o
     // `dartforge_exception_clear` do `return` (que descarta a pendente ao
     // sair de um `finally`) não tem o que limpar.
-    if nao_lancam.contains(&func.symbol) {
+    if do_not_throw.contains(&func.symbol) {
         for b in &mut func.blocks {
             b.instructions.retain(|(_, i, _)| !matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear"));
         }
     }
-    simplificar::conferencias_mortas(func, nao_lancam);
-    simplificar::dobrar_constantes(func);
-    simplificar::tirar_inalcancaveis(func);
-    simplificar::juntar_blocos(func);
-    simplificar::tirar_mortos(func);
+    simplify::dead_checks(func, do_not_throw);
+    simplify::fold_constants(func);
+    simplify::remove_unreachable(func);
+    simplify::join_blocks(func);
+    simplify::remove_dead(func);
 }
 
 /// A entrada é o primeiro bloco em todo o resto do compilador.
-fn valida(f: &Function) -> bool {
+fn valid(f: &Function) -> bool {
     f.blocks.first().is_some_and(|b| b.id.0 == 0)
 }
 
@@ -86,123 +86,123 @@ fn threads() -> usize {
         .max(1)
 }
 
-/// Aplica `passe` a cada função válida, em pedaços contíguos por thread: os
+/// Aplica `pass` a cada função válida, em pedaços contíguos por thread: os
 /// passes por função só leem o resto do módulo pelo que recebem pronto
-/// (`nao_lancam`, as cópias do inliner), então o resultado é o mesmo da
+/// (`do_not_throw`, as cópias do inliner), então o resultado é o mesmo da
 /// ordem sequencial. Devolve se algum passe mudou alguma função. No
 /// new_sali/backend (~180 mil funções) os passes levavam ~20 s numa thread.
-fn em_paralelo(funcoes: &mut [Function], passe: &(dyn Fn(&mut Function) -> bool + Sync)) -> bool {
+fn in_parallel(functions: &mut [Function], pass: &(dyn Fn(&mut Function) -> bool + Sync)) -> bool {
     let n = threads();
-    if n == 1 || funcoes.len() < 2048 {
-        let mut mudou = false;
-        for f in funcoes.iter_mut().filter(|f| valida(f)) {
-            mudou |= passe(f);
+    if n == 1 || functions.len() < 2048 {
+        let mut changed = false;
+        for f in functions.iter_mut().filter(|f| valid(f)) {
+            changed |= pass(f);
         }
-        return mudou;
+        return changed;
     }
     // Pedaços pequenos distribuídos sob demanda: as funções grandes (os
     // literais e as tabelas de dados) se agrupam, e um pedaço por thread
     // deixava uma thread com quase todo o trabalho.
-    let pedacos: Vec<std::sync::Mutex<&mut [Function]>> =
-        funcoes.chunks_mut(256).map(std::sync::Mutex::new).collect();
-    let proximo = std::sync::atomic::AtomicUsize::new(0);
+    let chunks: Vec<std::sync::Mutex<&mut [Function]>> =
+        functions.chunks_mut(256).map(std::sync::Mutex::new).collect();
+    let next_item = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|s| {
-        let tarefas: Vec<_> = (0..n)
+        let tasks: Vec<_> = (0..n)
             .map(|_| {
-                let (pedacos, proximo) = (&pedacos, &proximo);
+                let (chunks, next_item) = (&chunks, &next_item);
                 std::thread::Builder::new()
                     .stack_size(64 << 20)
                     .spawn_scoped(s, move || {
-                        let mut mudou = false;
+                        let mut changed = false;
                         loop {
-                            let i = proximo.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            let Some(p) = pedacos.get(i) else { break };
-                            let mut pedaco = p.lock().unwrap_or_else(|e| e.into_inner());
-                            for f in pedaco.iter_mut().filter(|f| valida(f)) {
-                                mudou |= passe(f);
+                            let i = next_item.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let Some(p) = chunks.get(i) else { break };
+                            let mut chunk = p.lock().unwrap_or_else(|e| e.into_inner());
+                            for f in chunk.iter_mut().filter(|f| valid(f)) {
+                                changed |= pass(f);
                             }
                         }
-                        mudou
+                        changed
                     })
                     .expect("thread dos passes da HIR")
             })
             .collect();
-        tarefas.into_iter().fold(false, |acc, t| acc | t.join().expect("passe da HIR em pânico"))
+        tasks.into_iter().fold(false, |acc, t| acc | t.join().expect("passe da HIR em pânico"))
     })
 }
 
-/// Passa o módulo para as exceções por tabelas (`--excecoes=tabelas`,
+/// Passa o módulo para as exceções por tabelas (`--excecoes=tables`,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): o último passe sobre a HIR,
-/// depois de [`otimizar`] e logo antes da emissão. Sem ele o módulo fica no
+/// depois de [`optimize`] e logo antes da emissão. Sem ele o módulo fica no
 /// modelo de sempre (a pendência conferida depois de cada chamada).
 pub fn excecoes_por_tabelas(module: &mut Module) {
-    tabelas::aplicar(module);
+    tables::apply(module);
 }
 
 /// Otimiza as funções do módulo.
-pub fn otimizar(module: &mut Module) {
-    if desligado() {
+pub fn optimize(module: &mut Module) {
+    if disabled() {
         return;
     }
-    em_paralelo(&mut module.functions, &|f| {
-        mem2reg::promover(f);
+    in_parallel(&mut module.functions, &|f| {
+        mem2reg::promote(f);
         false
     });
     for _ in 0..3 {
-        let nao_lancam = efeitos::nao_lancam(module);
-        em_paralelo(&mut module.functions, &|f| {
-            limpar(f, &nao_lancam);
+        let do_not_throw = effects::do_not_throw(module);
+        in_parallel(&mut module.functions, &|f| {
+            clear(f, &do_not_throw);
             false
         });
         // A limpeza pode liberar IDs SSA que as próximas cópias reutilizam.
         // Não deixar uma origem morta aderir a uma instrução nova com esse ID.
-        if module.memoria_arc { arc::analise::origens::podar(module); }
-        let copias: HashMap<String, (Function, bool)> = module
+        if module.arc_memory { arc::analysis::origins::prune(module); }
+        let copies: HashMap<String, (Function, bool)> = module
             .functions
             .iter()
             // J05: a função compilada com informação de depuração não é
             // embutida — o corpo copiado perderia a posição, e o breakpoint
             // nela nunca pararia.
-            .filter(|f| f.depuracao.is_none() && inline::copiavel(f))
-            .map(|f| (f.symbol.clone(), (f.clone(), !nao_lancam.contains(&f.symbol))))
+            .filter(|f| f.debug_info.is_none() && inline::copyable(f))
+            .map(|f| (f.symbol.clone(), (f.clone(), !do_not_throw.contains(&f.symbol))))
             .collect();
-        let origens = &module.sitios_arc;
-        let atualizadas = std::sync::Mutex::new(HashMap::new());
-        let memoria_arc = module.memoria_arc;
-        let mudou = em_paralelo(&mut module.functions, &|f| {
-            let mudou = if memoria_arc {
-                let mut sitios = origens.get(&f.symbol).cloned().unwrap_or_default();
-                let mudou = inline::inlining_com_origens(f, &copias, origens, &mut sitios);
-                if !sitios.is_empty() {
-                    atualizadas.lock().unwrap().insert(f.symbol.clone(), sitios);
+        let origins = &module.arc_sites;
+        let updated = std::sync::Mutex::new(HashMap::new());
+        let arc_memory = module.arc_memory;
+        let changed = in_parallel(&mut module.functions, &|f| {
+            let changed = if arc_memory {
+                let mut sites = origins.get(&f.symbol).cloned().unwrap_or_default();
+                let changed = inline::inlining_with_origins(f, &copies, origins, &mut sites);
+                if !sites.is_empty() {
+                    updated.lock().unwrap().insert(f.symbol.clone(), sites);
                 }
-                mudou
+                changed
             } else {
-                inline::inlining(f, &copias)
+                inline::inlining(f, &copies)
             };
             // O corpo embutido de uma função local direta deixa o local que
             // ela recebia por endereço só com `Load`/`Store`: promovível.
-            if mudou {
-                mem2reg::promover(f);
-                limpar(f, &nao_lancam);
+            if changed {
+                mem2reg::promote(f);
+                clear(f, &do_not_throw);
             }
-            mudou
+            changed
         });
-        if memoria_arc { module.sitios_arc.extend(atualizadas.into_inner().unwrap()); }
-        if !mudou {
+        if arc_memory { module.arc_sites.extend(updated.into_inner().unwrap()); }
+        if !changed {
             break;
         }
     }
-    let nao_lancam = efeitos::nao_lancam(module);
-    em_paralelo(&mut module.functions, &|f| {
-        if escape::substituir_objetos(f) {
-            mem2reg::promover(f);
-            limpar(f, &nao_lancam);
+    let do_not_throw = effects::do_not_throw(module);
+    in_parallel(&mut module.functions, &|f| {
+        if escape::replace_objects(f) {
+            mem2reg::promote(f);
+            clear(f, &do_not_throw);
         }
         false
     });
-    if module.memoria_arc {
-        locais_diretas::podar(module);
-        arc::analise::origens::podar(module);
+    if module.arc_memory {
+        direct_locals::prune(module);
+        arc::analysis::origins::prune(module);
     }
 }

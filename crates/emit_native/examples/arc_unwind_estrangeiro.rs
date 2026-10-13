@@ -11,14 +11,14 @@ use dartforge_emit_native::{hir::*, optimize::arc::*};
 use std::collections::HashMap;
 
 #[cfg(any(unix, test))]
-fn modulo(com_quadros: bool, retoma: bool) -> Result<Module, String> {
+fn module(with_frames: bool, resume: bool) -> Result<Module, String> {
     let val = |v| Operand::Val(ValueId(v));
-    let print = |v, argumento| {
+    let print = |v, argument| {
         (
             ValueId(v),
             Instruction::CallRuntime {
                 name: "dartforge_print_handle".into(),
-                args: vec![(argumento, Type::Ref)],
+                args: vec![(argument, Type::Ref)],
                 ret_ty: Type::Void,
             },
             Type::Void,
@@ -27,7 +27,7 @@ fn modulo(com_quadros: bool, retoma: bool) -> Result<Module, String> {
     let mut caller = Function {
         symbol: "prova_owner_estrangeiro".into(),
         name: "prova_owner_estrangeiro".into(),
-        depuracao: None,
+        debug_info: None,
         params: vec![],
         return_ty: Type::Void,
         blocks: vec![
@@ -70,49 +70,49 @@ fn modulo(com_quadros: bool, retoma: bool) -> Result<Module, String> {
             },
         ],
     };
-    if com_quadros {
-        let chamada = |id, nome: &str, args, ty| {
+    if with_frames {
+        let call = |id, name: &str, args, ty| {
             (
                 ValueId(id),
                 Instruction::CallRuntime {
-                    name: nome.into(),
+                    name: name.into(),
                     args,
                     ret_ty: ty,
                 },
                 ty,
             )
         };
-        let abrir = |id| {
-            chamada(
+        let open = |id| {
+            call(
                 id,
                 "dartforge_arc_quadro_abrir_v1",
                 vec![(Operand::Constant(Constant::Int(1)), Type::I64)],
                 Type::I64,
             )
         };
-        let fechar = |id, quadro| {
-            chamada(
+        let close = |id, frame| {
+            call(
                 id,
                 "dartforge_arc_quadro_fechar_v1",
-                vec![(val(quadro), Type::I64)],
+                vec![(val(frame), Type::I64)],
                 Type::Void,
             )
         };
-        let slot = |quadro| SlotForte::Quadro {
-            quadro: val(quadro),
-            indice: 0,
+        let slot = |frame| StrongSlot::Quadro {
+            frame: val(frame),
+            index: 0,
         };
-        let fabrica = caller.blocks[0].instructions.remove(0);
+        let factory = caller.blocks[0].instructions.remove(0);
         caller.blocks[0].instructions = vec![
-            abrir(6),
-            abrir(11),
-            fabrica,
+            open(6),
+            open(11),
+            factory,
             (
                 ValueId(7),
                 Instruction::ArcStoreStrong {
                     slot: slot(6),
                     value: val(0),
-                    modo: ModoStoreForte::Copy,
+                    mode: StrongStoreMode::Copy,
                 },
                 Type::Void,
             ),
@@ -121,7 +121,7 @@ fn modulo(com_quadros: bool, retoma: bool) -> Result<Module, String> {
                 Instruction::ArcStoreStrong {
                     slot: slot(11),
                     value: val(0),
-                    modo: ModoStoreForte::Move,
+                    mode: StrongStoreMode::Move,
                 },
                 Type::Void,
             ),
@@ -140,18 +140,18 @@ fn modulo(com_quadros: bool, retoma: bool) -> Result<Module, String> {
                 Type::Void,
             ),
         ];
-        caller.blocks[1].instructions = vec![fechar(13, 11), fechar(14, 6), print(3, val(8))];
-        caller.blocks[2].instructions = vec![fechar(15, 11), fechar(16, 6)];
+        caller.blocks[1].instructions = vec![close(13, 11), close(14, 6), print(3, val(8))];
+        caller.blocks[2].instructions = vec![close(15, 11), close(16, 6)];
     }
-    if retoma {
+    if resume {
         caller.blocks[1]
             .instructions
             .retain(|(id, _, _)| *id != ValueId(3));
     }
-    let folha = Function {
+    let leaf = Function {
         symbol: "prova_falha_estrangeira".into(),
         name: "prova_falha_estrangeira".into(),
-        depuracao: None,
+        debug_info: None,
         params: vec![(ValueId(0), "valor".into(), Type::Ref)],
         return_ty: Type::Void,
         blocks: vec![BasicBlock {
@@ -160,45 +160,45 @@ fn modulo(com_quadros: bool, retoma: bool) -> Result<Module, String> {
             terminator: Terminator::Return(None),
         }],
     };
-    let mut caller_plano = PlanoFuncaoDart::default();
-    caller_plano
-        .tabelas
-        .invocacoes
+    let mut caller_plan = DartFunctionPlan::default();
+    caller_plan
+        .tables
+        .invocations
         .insert(ValueId(2), BlockId(1));
-    caller_plano.tabelas.pousos.insert(BlockId(1));
-    caller_plano.tabelas.saidas.insert(
+    caller_plan.tables.landing_pads.insert(BlockId(1));
+    caller_plan.tables.exits.insert(
         BlockId(1),
-        if retoma {
-            SaidaPorExcecao::Retoma
+        if resume {
+            ExceptionExit::Resume
         } else {
-            SaidaPorExcecao::Guarda
+            ExceptionExit::Guard
         },
     );
-    let mut folha_plano = PlanoFuncaoDart::default();
-    folha_plano
-        .tabelas
-        .saidas
-        .insert(BlockId(0), SaidaPorExcecao::Guarda);
-    let mut planos = HashMap::from([
-        (caller.symbol.clone(), caller_plano),
-        (folha.symbol.clone(), folha_plano),
+    let mut leaf_plan = DartFunctionPlan::default();
+    leaf_plan
+        .tables
+        .exits
+        .insert(BlockId(0), ExceptionExit::Guard);
+    let mut plans = HashMap::from([
+        (caller.symbol.clone(), caller_plan),
+        (leaf.symbol.clone(), leaf_plan),
     ]);
     let mut m = Module::new();
-    m.functions = vec![caller, folha];
+    m.functions = vec![caller, leaf];
     m.excecoes_por_tabelas = true;
     m.entry_symbol = Some("prova_owner_estrangeiro".into());
     assert_eq!(
-        inserir_arc_funcoes_dart(&mut m.functions, &mut planos)?,
-        (0, if retoma { 2 } else { 3 })
+        insert_arc_dart_functions(&mut m.functions, &mut plans)?,
+        (0, if resume { 2 } else { 3 })
     );
     assert_eq!(
-        planos["prova_owner_estrangeiro"].owners_no_pouso[&BlockId(1)],
-        vec![ValueId(if com_quadros { 8 } else { 0 })]
+        plans["prova_owner_estrangeiro"].owners_at_landing_pad[&BlockId(1)],
+        vec![ValueId(if with_frames { 8 } else { 0 })]
     );
-    m.tabelas = m
+    m.tables = m
         .functions
         .iter()
-        .map(|f| planos[&f.symbol].tabelas.clone())
+        .map(|f| plans[&f.symbol].tables.clone())
         .collect();
     Ok(m)
 }
@@ -207,33 +207,33 @@ fn modulo(com_quadros: bool, retoma: bool) -> Result<Module, String> {
 fn main() -> Result<(), String> {
     use dartforge_emit_native::{
         cache::RuntimeCache,
-        gerador::{Geracao, Gerador},
+        gerador::{Generation, Gerador},
     };
     use std::{path::PathBuf, process::Command};
-    let saida = PathBuf::from(
+    let exit = PathBuf::from(
         std::env::args()
             .nth(1)
             .ok_or("informe o executável de saída")?,
     );
-    if let Some(dir) = saida.parent() {
+    if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let perfil = std::env::args().nth(3).unwrap_or_else(|| "simples".into());
-    let m = modulo(
-        perfil == "quadros" || perfil == "retoma",
-        perfil == "retoma",
+    let profile = std::env::args().nth(3).unwrap_or_else(|| "simples".into());
+    let m = module(
+        profile == "quadros" || profile == "retoma",
+        profile == "retoma",
     )?;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     ir.push_str("\ndeclare void @dartforge_print_handle(i64)\n");
     ir = ir.replace("@dartforge_print_handle(", "@prova_print_estrangeira(");
-    std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
-    let obj = saida.with_extension("o");
+    std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
+    let obj = exit.with_extension("o");
     Gerador::escolher(&PathBuf::from("clang")).gerar(
         &ir,
-        Geracao::do_programa(std::env::args().nth(2).as_deref() != Some("0"), false),
+        Generation::of_program(std::env::args().nth(2).as_deref() != Some("0"), false),
         &obj,
     )?;
-    let cpp = saida.with_extension("cpp");
+    let cpp = exit.with_extension("cpp");
     std::fs::write(
         &cpp,
         include_str!("../tests/fixtures/arc_unwind_estrangeiro.cpp"),
@@ -242,34 +242,34 @@ fn main() -> Result<(), String> {
     let runtime = RuntimeCache::para_producao()?;
     let cxx = std::env::var_os("CXX").unwrap_or_else(|| "c++".into());
     #[cfg(not(target_os = "macos"))]
-    let biblioteca = runtime.lib_path.clone();
+    let library = runtime.lib_path.clone();
     #[cfg(target_os = "macos")]
-    let biblioteca = {
+    let library = {
         // Compact unwind admite três personalidades por imagem. A fixture
         // combina C++, Dart legado/cleanup e Rust; separa o runtime numa dylib
         // conservando as informações de unwind de ambas as imagens.
         let dylib = std::env::current_dir()
             .map_err(|e| e.to_string())?
-            .join(saida.with_extension("runtime.dylib"));
-        let mut ligar_runtime = Command::new(&cxx);
-        ligar_runtime
+            .join(exit.with_extension("runtime.dylib"));
+        let mut link_runtime = Command::new(&cxx);
+        link_runtime
             .args(["-dynamiclib", "-Xlinker", "-force_load", "-Xlinker"])
             .arg(&runtime.lib_path)
             .args(["-Xlinker", "-install_name", "-Xlinker"])
             .arg(&dylib)
-            .args(dartforge_emit_native::alvo::bibliotecas_do_sistema())
+            .args(dartforge_emit_native::alvo::system_libraries())
             .arg("-o")
             .arg(&dylib);
         std::fs::write(
-            saida.with_extension("runtime.ligacao.txt"),
-            format!("{ligar_runtime:?}\n"),
+            exit.with_extension("runtime.ligacao.txt"),
+            format!("{link_runtime:?}\n"),
         )
         .map_err(|e| e.to_string())?;
-        let resultado = ligar_runtime.output().map_err(|e| e.to_string())?;
-        if !resultado.status.success() {
+        let result = link_runtime.output().map_err(|e| e.to_string())?;
+        if !result.status.success() {
             return Err(format!(
                 "ligação da dylib do runtime falhou: {}",
-                String::from_utf8_lossy(&resultado.stderr)
+                String::from_utf8_lossy(&result.stderr)
             ));
         }
         dylib
@@ -278,17 +278,17 @@ fn main() -> Result<(), String> {
     cmd.args(["-std=c++17", "-O2"])
         .arg(&cpp)
         .arg(&obj)
-        .arg(&biblioteca)
+        .arg(&library)
         .arg("-o")
-        .arg(&saida);
-    cmd.args(dartforge_emit_native::alvo::bibliotecas_do_sistema());
-    std::fs::write(saida.with_extension("ligacao.txt"), format!("{cmd:?}\n"))
+        .arg(&exit);
+    cmd.args(dartforge_emit_native::alvo::system_libraries());
+    std::fs::write(exit.with_extension("ligacao.txt"), format!("{cmd:?}\n"))
         .map_err(|e| e.to_string())?;
-    let resultado = cmd.output().map_err(|e| e.to_string())?;
-    if !resultado.status.success() {
+    let result = cmd.output().map_err(|e| e.to_string())?;
+    if !result.status.success() {
         return Err(format!(
             "ligação C++ falhou: {}",
-            String::from_utf8_lossy(&resultado.stderr)
+            String::from_utf8_lossy(&result.stderr)
         ));
     }
     Ok(())
@@ -300,12 +300,12 @@ fn main() -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
     #[test]
-    fn prova_estrangeira_tem_inventario_certificado() {
-        let m = modulo(false, false).unwrap();
-        assert!(m.tabelas[0].cleanup_estrangeiro.is_some());
+    fn foreign_proof_has_certified_inventory() {
+        let m = module(false, false).unwrap();
+        assert!(m.tables[0].foreign_cleanup.is_some());
         #[cfg(unix)]
         {
             let ir = LlvmEmitter::new(&m).emit_all();
@@ -316,45 +316,45 @@ mod testes {
 }
 
 #[cfg(test)]
-mod testes_quadros {
+mod frame_tests {
     use super::*;
     #[test]
-    fn prova_estrangeira_com_dois_quadros_locais() {
-        let m = modulo(true, false).unwrap();
-        assert!(m.tabelas[0].cleanup_estrangeiro.is_some());
-        assert!(dartforge_emit_native::lower::verificador::verificar(&m).is_empty());
+    fn foreign_proof_with_two_local_frames() {
+        let m = module(true, false).unwrap();
+        assert!(m.tables[0].foreign_cleanup.is_some());
+        assert!(dartforge_emit_native::lower::verifier::verify(&m).is_empty());
         #[cfg(unix)]
         {
             let ir = LlvmEmitter::new(&m).emit_all();
-            let estrangeiro = ir
+            let foreign = ir
                 .split("lpad1.estrangeira:")
                 .nth(1)
                 .unwrap()
                 .split("resume ")
                 .next()
                 .unwrap();
-            let interno = estrangeiro
+            let internal = foreign
                 .find("call void @dartforge_arc_quadro_fechar_v1(i64 %v11)")
                 .unwrap();
-            let externo = estrangeiro
+            let external = foreign
                 .find("call void @dartforge_arc_quadro_fechar_v1(i64 %v6)")
                 .unwrap();
-            assert!(interno < externo);
+            assert!(internal < external);
         }
     }
 }
 
 #[cfg(test)]
-mod testes_retoma {
+mod resume_tests {
     use super::*;
     #[test]
-    fn retoma_fecha_dois_quadros_sem_executar_catch_dart() {
-        let m = modulo(true, true).unwrap();
+    fn resume_closes_two_frames_without_running_dart_catch() {
+        let m = module(true, true).unwrap();
         assert_eq!(
-            m.tabelas[0].saidas.get(&BlockId(1)),
-            Some(&SaidaPorExcecao::Retoma)
+            m.tables[0].exits.get(&BlockId(1)),
+            Some(&ExceptionExit::Resume)
         );
-        assert!(m.tabelas[0].cleanup_estrangeiro.is_none());
-        assert!(dartforge_emit_native::lower::verificador::verificar(&m).is_empty());
+        assert!(m.tables[0].foreign_cleanup.is_none());
+        assert!(dartforge_emit_native::lower::verifier::verify(&m).is_empty());
     }
 }

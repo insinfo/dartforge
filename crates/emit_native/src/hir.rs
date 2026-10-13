@@ -57,7 +57,7 @@ impl Type {
     }
 
     /// Um dos vetores SIMD sem caixa?
-    pub fn e_vetor(self) -> bool {
+    pub fn is_vector(self) -> bool {
         matches!(self, Self::V4F32 | Self::V4I32 | Self::V2F64)
     }
 }
@@ -89,25 +89,25 @@ pub enum OpSimd {
     Recip,
     RecipSqrt,
     /// `v * s`, com `s` `double` (arredondado a `float` no `Float32x4`).
-    Escala,
+    Scale,
     /// Comparação de `Float32x4` que dá a máscara `Int32x4` (-1/0).
     Cmp(FCmpOp),
     /// A pista `i` como `double` (`int` no `Int32x4`).
-    Pista(u8),
+    Hint(u8),
     /// O vetor com a pista `i` trocada.
-    ComPista(u8),
+    WithHint(u8),
     /// A pista `i` do `Int32x4` como `bool` (≠ 0).
     Flag(u8),
     /// O `Int32x4` com a pista `i` em -1/0 pelo `bool`.
-    ComFlag(u8),
+    WithFlag(u8),
     /// O vetor das pistas dadas (`double`, `int` ou `bool`).
-    Monta,
+    Builds,
     /// `Int32x4.bool(x, y, z, w)`: -1/0 por pista.
-    MontaFlags,
+    BuildsFlags,
     Splat,
     Zero,
     /// Os bits de sinal das pistas, a pista 0 no bit 0.
-    SinalMask,
+    SignMask,
     /// `shuffle(m)` / `shuffleMix(b, m)` com a máscara constante `m`.
     Shuffle(u8),
     ShuffleMix(u8),
@@ -117,11 +117,11 @@ pub enum OpSimd {
     Bits,
     /// `Float64x2.fromFloat32x4` (pistas 0 e 1) e `Float32x4.fromFloat64x2`
     /// (`[x, y, 0, 0]`).
-    Converte,
+    Converts,
     /// O vetor no endereço `args[0]` + 16 × `args[1]` (lista SIMD).
-    Carrega,
+    Loads,
     /// Grava `args[2]` no endereço `args[0]` + 16 × `args[1]`.
-    Grava,
+    Writes,
     // API de `Int32x4` do Dart 3.14 (`docs/SIMD-NATIVO.md` §6), pela
     // extensão marcada `@pragma('dartforge:simd-api', '3.14')`. `Mul`,
     // `Min`, `Max`, `Neg` e `Abs` servem também ao `Int32x4` (inteiro, com
@@ -134,22 +134,22 @@ pub enum OpSimd {
     Not,
     /// `a << (s & 31)` (`false`) ou `a >> (s & 31)` aritmético (`true`),
     /// com `s` `int`.
-    Desloca(bool),
+    Shifts(bool),
     /// Alguma pista ≠ 0 (`anyTrue`) / todas ≠ 0 (`allTrue`): `bool`.
-    Algum,
-    Todos,
+    Any,
+    All,
     /// `Float32x4(v.x.toDouble(), v.y.toDouble(), v.z.toDouble(),
-    /// v.w.toDouble())` de um `Int32x4` `v` (`lower/simd.rs`): `sitofp`
+    /// v.w.toDouble())` de one `Int32x4` `v` (`lower/simd.rs`): `sitofp`
     /// pista a pista — o mesmo valor, pois o `int` de 32 bits vira `double`
     /// sem perda e o `double` vira `float` com um arredondamento só.
-    IntParaFloat,
+    IntToFloat,
     /// `fptosi` pista a pista de um `Float32x4` cujas pistas estão todas em
-    /// `[-2^31, 2^31)` (conferido antes por [`OpSimd::NaFaixaInt32`]): o
+    /// `[-2^31, 2^31)` (conferido antes por [`OpSimd::InInt32Range`]): o
     /// `toInt()` de cada pista, que aí não lança nem satura.
-    FloatParaInt,
+    FloatToInt,
     /// Todas as pistas do `Float32x4` em `[-2^31, 2^31)` (NaN não está):
     /// `bool`.
-    NaFaixaInt32,
+    InInt32Range,
 }
 
 /// Constantes suportadas na HIR.
@@ -164,7 +164,7 @@ pub enum Constant {
     Null,
     /// O endereço da função `símbolo` como `i64` (`ptrtoint`): a mesma em
     /// todos os isolados do processo.
-    Funcao(String),
+    Function(String),
 }
 
 /// Operando de instrução: uma constante direta ou um resultado SSA anterior.
@@ -208,9 +208,9 @@ pub enum FCmpOp {
 /// assert!(matches!(slot, SlotForte::Quadro { indice: 2, .. }));
 /// ```
 #[derive(Debug, Clone)]
-pub enum SlotForte {
+pub enum StrongSlot {
     /// Slot Ref num quadro proprietário aberto pela ABI, identificado por SSA I64.
-    Quadro { quadro: Operand, indice: u32 },
+    Quadro { frame: Operand, index: u32 },
     /// Armazenamento global Ref declarado exatamente uma vez no módulo.
     /// Inicialização lazy continua sendo responsabilidade do lowering.
     ///
@@ -219,7 +219,7 @@ pub enum SlotForte {
     /// let slot = SlotForte::Global { simbolo: "dfg.recurso".into() };
     /// assert!(matches!(slot, SlotForte::Global { .. }));
     /// ```
-    Global { simbolo: String },
+    Global { symbol: String },
 }
 
 /// Como publicar uma referência no slot proprietário.
@@ -229,7 +229,7 @@ pub enum SlotForte {
 /// assert_ne!(ModoStoreForte::Copy, ModoStoreForte::Move);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModoStoreForte {
+pub enum StrongStoreMode {
     /// Retém uma ocorrência independente; não consome o token SSA.
     Copy,
     /// Consome o token SSA no sucesso, transferindo sua ocorrência.
@@ -278,7 +278,7 @@ pub enum Instruction {
     /// let carga = Instruction::ArcLoadStrong { slot };
     /// assert!(matches!(carga, Instruction::ArcLoadStrong { .. }));
     /// ```
-    ArcLoadStrong { slot: SlotForte },
+    ArcLoadStrong { slot: StrongSlot },
     /// Publica a referência já avaliada antes de liberar o conteúdo antigo.
     ///
     /// ```
@@ -289,7 +289,7 @@ pub enum Instruction {
     /// };
     /// assert!(matches!(store, Instruction::ArcStoreStrong { .. }));
     /// ```
-    ArcStoreStrong { slot: SlotForte, value: Operand, modo: ModoStoreForte },
+    ArcStoreStrong { slot: StrongSlot, value: Operand, mode: StrongStoreMode },
 
     // Aritmética e lógica inteira
     Add(Operand, Operand),
@@ -354,31 +354,31 @@ pub enum Instruction {
     /// (`dartforge_string_juntar_tipado`), não uma por concatenação. Cada
     /// parte é um texto (`Ref`) ou um `int` sem caixa (`I64`), escrito em
     /// decimal direto no resultado.
-    JuntarTextos {
-        partes: Vec<Operand>,
+    ConcatStrings {
+        parts: Vec<Operand>,
     },
     AllocClosure {
         code_symbol: String,
         env: Operand,
     },
     /// Closure cujo corpo tem ABI tipada (`lower/closures.rs`): além da
-    /// entrada uniforme `code_symbol`, o corpo `tipado`
+    /// entrada uniforme `code_symbol`, o corpo `typed`
     /// `(env, p0…) -> r` nas representações da HIR, com o código `abi`
     /// delas, que a chamada tipada confere.
-    AllocClosureTipada {
+    AllocClosureTyped {
         code_symbol: String,
         env: Operand,
-        tipado: String,
+        typed: String,
         abi: i64,
         /// `env` é o único valor capturado, guardado no lugar do ambiente
         /// (`lower/closures.rs`, ambiente direto): não é um ambiente.
-        direto: bool,
+        direct: bool,
     },
     /// Chamada do corpo tipado de uma closure: `alvo` é o endereço (`I64`,
     /// de `dartforge_closure_tipada`), os argumentos vão nas representações
     /// da HIR (o primeiro é o ambiente) e o resultado volta em `ret`. A
     /// exceção sai pela pendência, como numa chamada Dart.
-    ChamadaTipada {
+    TypedCall {
         alvo: Operand,
         args: Vec<(Operand, Type)>,
         ret: Type,
@@ -447,20 +447,20 @@ pub enum Instruction {
     },
     /// Chamada de um valor função (closure, tear-off) pela convenção
     /// uniforme: todos os argumentos `Ref`, os posicionais primeiro e depois
-    /// os nomeados na ordem de `nomes` (ordenados); o resultado é `Ref`. O
+    /// os nomeados na ordem de `names` (ordenados); o resultado é `Ref`. O
     /// emissor monta o vetor de argumentos e o descritor
-    /// (`[n_posicionais, n_nomeados, hash(nome)…]`) e chama a entrada
+    /// (`[n_posicionais, n_nomeados, hash(name)…]`) e chama a entrada
     /// uniforme da closure pelo endereço guardado nela (`@df_clo_invalido`
     /// quando o valor não é closure). Como na chamada por seletor, o vetor
     /// tem um slot a mais, depois dos argumentos, com a tupla RTI dos
-    /// argumentos de tipo (`tupla_tipos`, `I64`; `0` quando a chamada não
+    /// argumentos de tipo (`tuple_types`, `I64`; `0` quando a chamada não
     /// passa nenhum): é dela que uma closure genérica lê os seus.
     CallClosure {
         closure: Operand,
         args: Vec<Operand>,
-        nomes: Vec<String>,
+        names: Vec<String>,
         ret_ty: Type,
-        tupla_tipos: Operand,
+        tuple_types: Operand,
     },
     CallRuntime {
         name: String,
@@ -477,16 +477,16 @@ pub enum Instruction {
 
     // Globais do módulo (variáveis de topo e campos estáticos — N6)
     LoadGlobal {
-        simbolo: String,
+        symbol: String,
         ty: Type,
     },
-    /// `raiz`: id do global `Ref`, que o runtime mantém como raiz
+    /// `root`: id do global `Ref`, que o runtime mantém como raiz
     /// permanente (N6/G6); `None` para a bandeira e para escalares.
     StoreGlobal {
-        simbolo: String,
+        symbol: String,
         val: Operand,
         ty: Type,
-        raiz: Option<u32>,
+        root: Option<u32>,
     },
 
     /// Operação SIMD sem caixa (`OpSimd`); o tipo do resultado é o da
@@ -521,46 +521,46 @@ pub enum Instruction {
     ConstArray(Vec<i64>),
     /// Endereço (`Ptr`) de um vetor constante com o endereço de cada função
     /// (`@df.fns.<k>`, global do módulo): os getters das constantes de um
-    /// literal grande que vira tabela (`lower/literais.rs`,
-    /// `preencher_de_tabela`), que o runtime chama.
-    TabelaDeFuncoes(Vec<String>),
+    /// literal grande que vira tabela (`lower/literals.rs`,
+    /// `fill_from_table`), que o runtime chama.
+    FunctionTable(Vec<String>),
 
     // --- P5c (SDK da fonte, δ) ------------------------------------------
     /// Chamada de membro de instância pelo **seletor** (`c:m`, `g:x`,
-    /// `s:x`, `lower/sdk_fonte.rs`), no mundo aberto: a implementação sai da
+    /// `s:x`, `lower/sdk_source.rs`), no mundo aberto: a implementação sai da
     /// tabela de métodos da classe dinâmica do receptor (registrada no
     /// runtime por classe), com um cache por ponto de chamada. A convenção é
     /// a uniforme das closures: todos os argumentos `Ref`, posicionais e
-    /// depois nomeados na ordem de `nomes`; o resultado é `Ref`. Receptor sem
+    /// depois nomeados na ordem de `names`; o resultado é `Ref`. Receptor sem
     /// o membro: `NoSuchMethodError` pendente.
-    CallSeletor {
-        seletor: String,
+    CallSelector {
+        selector: String,
         recv: Operand,
         args: Vec<Operand>,
-        nomes: Vec<String>,
+        names: Vec<String>,
         /// Tupla RTI do método genérico, no slot oculto após os argumentos.
-        tupla_tipos: Operand,
+        tuple_types: Operand,
     },
     /// Chama o valor função `closure` repassando o vetor de argumentos e o
     /// descritor já montados (os parâmetros de uma entrada uniforme): o
     /// adaptador `c:x` de um getter ou campo chama o valor lido.
-    CallClosureRepasse {
+    CallClosureForward {
         /// Retorno Owned pelo adaptador ARC, com entrada uniforme certificada.
         arc_owned: bool,
         closure: Operand,
         args: Operand,
         desc: Operand,
     },
-    /// `recv.<seletor>` repassando o vetor de argumentos e o descritor já
+    /// `recv.<selector>` repassando o vetor de argumentos e o descritor já
     /// montados (os de uma entrada uniforme, com a tupla de tipos no slot
     /// depois dos argumentos): a entrada do tear-off de um método chama a
     /// implementação do receptor, que confere os argumentos e completa os
     /// opcionais com os padrões dela. Resultado `Ref`.
-    CallSeletorRepasse {
+    CallSelectorForward {
         /// Usa o adaptador ARC com retorno Owned e guarda de pendência.
         /// Só pode ser emitida junto ao inventário AOT certificado.
         arc_owned: bool,
-        seletor: String,
+        selector: String,
         recv: Operand,
         args: Operand,
         desc: Operand,
@@ -570,47 +570,47 @@ pub enum Instruction {
     /// representação da HIR — inteiros e ponteiros `I64`, ponto flutuante
     /// `F64`, `bool` `I1` — e são convertidos ao tipo C; o resultado volta
     /// do mesmo jeito (inteiros estendidos a 64 bits pelo sinal do tipo C).
-    ChamadaNativa {
+    NativeCall {
         alvo: Operand,
-        args: Vec<(Operand, TipoC)>,
-        ret: TipoC,
+        args: Vec<(Operand, CType)>,
+        ret: CType,
     },
-    /// O elemento `indice` (tipo C `tipo`) da memória em `endereco` (`I64`):
+    /// O elemento `index` (tipo C `ty`) da memória em `address` (`I64`):
     /// o caminho rápido de uma lista tipada, com os limites já conferidos.
     /// O resultado vem na representação Dart do tipo (`I64`, `F64`).
-    CargaNativa {
-        endereco: Operand,
-        indice: Operand,
-        tipo: TipoC,
+    NativeLoad {
+        address: Operand,
+        index: Operand,
+        ty: CType,
     },
-    /// Grava `valor` (representação Dart) como o elemento `indice` do tipo
-    /// C `tipo` em `endereco`.
-    GravacaoNativa {
-        endereco: Operand,
-        indice: Operand,
-        tipo: TipoC,
-        valor: Operand,
+    /// Grava `value` (representação Dart) como o elemento `index` do tipo
+    /// C `ty` em `address`.
+    NativeWrite {
+        address: Operand,
+        index: Operand,
+        ty: CType,
+        value: Operand,
     },
     /// Uma chamada nativa com structs ou unions por valor, ou variádica: o operando de um
     /// composto é o endereço (`I64`) dos bytes dele, e um retorno composto é
-    /// gravado em `destino` (o resultado da instrução é então `Void`). O
-    /// emissor aplica a ABI C do alvo (`llvm/abi_c.rs`).
-    ChamadaNativaComposta {
+    /// gravado em `dest` (o resultado da instrução é então `Void`). O
+    /// emissor aplica a ABI C do alvo (`llvm/c_abi.rs`).
+    CompositeNativeCall {
         alvo: Operand,
-        args: Vec<(Operand, TipoNativo)>,
-        ret: TipoNativo,
-        destino: Option<Operand>,
+        args: Vec<(Operand, NativeType)>,
+        ret: NativeType,
+        dest: Option<Operand>,
         /// Função variádica (`VarArgs`): quantos parâmetros são fixos; os
         /// seguintes vão com as promoções de argumento do C.
-        variadica: Option<usize>,
+        variadic_flag: Option<usize>,
     },
 }
 
 /// Um tipo na fronteira nativa: primitivo ou composto por valor.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TipoNativo {
-    Prim(TipoC),
-    Composto(LayoutC),
+pub enum NativeType {
+    Prim(CType),
+    Composite(LayoutC),
 }
 
 /// O layout C de uma struct ou union: tamanho, alinhamento e as folhas
@@ -618,28 +618,28 @@ pub enum TipoNativo {
 /// achatados — o que a classificação da ABI examina.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LayoutC {
-    pub tamanho: usize,
-    pub alinhamento: usize,
-    pub folhas: Vec<(usize, TipoC)>,
+    pub size: usize,
+    pub alignment: usize,
+    pub leaves: Vec<(usize, CType)>,
 }
 
 impl LayoutC {
     /// Alguma folha fora do alinhamento natural (`@Packed`).
-    pub fn desalinhado(&self) -> bool {
-        self.folhas.iter().any(|(o, t)| {
-            let n = t.tamanho_c();
+    pub fn misaligned(&self) -> bool {
+        self.leaves.iter().any(|(o, t)| {
+            let n = t.c_size();
             n > 1 && o % n != 0
         })
     }
 }
 
-impl TipoNativo {
+impl NativeType {
     /// A representação na HIR do valor Dart correspondente (um composto
     /// chega como endereço).
-    pub fn tipo_hir(&self) -> Type {
+    pub fn hir_type(&self) -> Type {
         match self {
-            TipoNativo::Prim(t) => t.tipo_hir(),
-            TipoNativo::Composto(_) => Type::I64,
+            NativeType::Prim(t) => t.hir_type(),
+            NativeType::Composite(_) => Type::I64,
         }
     }
 }
@@ -647,7 +647,7 @@ impl TipoNativo {
 /// Um tipo C na fronteira de uma chamada nativa (os primitivos do
 /// `dart:ffi`, com os inteiros específicos da ABI já resolvidos).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TipoC {
+pub enum CType {
     I8,
     U8,
     I16,
@@ -666,70 +666,70 @@ pub enum TipoC {
     Void,
 }
 
-impl TipoC {
+impl CType {
     /// O tipo LLVM do valor C.
     pub fn llvm(self) -> &'static str {
         match self {
-            TipoC::I8 | TipoC::U8 => "i8",
-            TipoC::I16 | TipoC::U16 => "i16",
-            TipoC::I32 | TipoC::U32 => "i32",
-            TipoC::I64 | TipoC::U64 => "i64",
-            TipoC::F32 => "float",
-            TipoC::F64 => "double",
-            TipoC::Bool => "i1",
-            TipoC::Ptr | TipoC::Handle => "ptr",
-            TipoC::Void => "void",
+            CType::I8 | CType::U8 => "i8",
+            CType::I16 | CType::U16 => "i16",
+            CType::I32 | CType::U32 => "i32",
+            CType::I64 | CType::U64 => "i64",
+            CType::F32 => "float",
+            CType::F64 => "double",
+            CType::Bool => "i1",
+            CType::Ptr | CType::Handle => "ptr",
+            CType::Void => "void",
         }
     }
 
     /// A representação na HIR do valor Dart correspondente.
-    pub fn tipo_hir(self) -> Type {
+    pub fn hir_type(self) -> Type {
         match self {
-            TipoC::F32 | TipoC::F64 => Type::F64,
-            TipoC::Bool => Type::I1,
-            TipoC::Void => Type::Void,
+            CType::F32 | CType::F64 => Type::F64,
+            CType::Bool => Type::I1,
+            CType::Void => Type::Void,
             _ => Type::I64,
         }
     }
 
     /// O atributo de extensão de um parâmetro estreito (quem chama estende:
     /// exigido pela ABI da Apple em arm64 e inócuo nas outras).
-    pub fn extensao(self) -> &'static str {
+    pub fn extension(self) -> &'static str {
         match self {
-            TipoC::I8 | TipoC::I16 => "signext ",
-            TipoC::U8 | TipoC::U16 | TipoC::Bool => "zeroext ",
+            CType::I8 | CType::I16 => "signext ",
+            CType::U8 | CType::U16 | CType::Bool => "zeroext ",
             _ => "",
         }
     }
 
     /// Bytes do tipo C (0 para `void`).
-    pub fn tamanho_c(self) -> usize {
+    pub fn c_size(self) -> usize {
         match self {
-            TipoC::I8 | TipoC::U8 | TipoC::Bool => 1,
-            TipoC::I16 | TipoC::U16 => 2,
-            TipoC::I32 | TipoC::U32 | TipoC::F32 => 4,
-            TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Ptr | TipoC::Handle => 8,
-            TipoC::Void => 0,
+            CType::I8 | CType::U8 | CType::Bool => 1,
+            CType::I16 | CType::U16 => 2,
+            CType::I32 | CType::U32 | CType::F32 => 4,
+            CType::I64 | CType::U64 | CType::F64 | CType::Ptr | CType::Handle => 8,
+            CType::Void => 0,
         }
     }
 
     /// A letra do tipo na chave de uma assinatura nativa.
-    pub fn letra(self) -> char {
+    pub fn letter(self) -> char {
         match self {
-            TipoC::I8 => 'a',
-            TipoC::U8 => 'h',
-            TipoC::I16 => 's',
-            TipoC::U16 => 't',
-            TipoC::I32 => 'i',
-            TipoC::U32 => 'j',
-            TipoC::I64 => 'l',
-            TipoC::U64 => 'm',
-            TipoC::F32 => 'f',
-            TipoC::F64 => 'd',
-            TipoC::Bool => 'b',
-            TipoC::Ptr => 'p',
-            TipoC::Handle => 'H',
-            TipoC::Void => 'v',
+            CType::I8 => 'a',
+            CType::U8 => 'h',
+            CType::I16 => 's',
+            CType::U16 => 't',
+            CType::I32 => 'i',
+            CType::U32 => 'j',
+            CType::I64 => 'l',
+            CType::U64 => 'm',
+            CType::F32 => 'f',
+            CType::F64 => 'd',
+            CType::Bool => 'b',
+            CType::Ptr => 'p',
+            CType::Handle => 'H',
+            CType::Void => 'v',
         }
     }
 }
@@ -770,27 +770,27 @@ pub struct Function {
     pub return_ty: Type,
     pub blocks: Vec<BasicBlock>,
     /// As posições na fonte, quando a compilação pede informação de
-    /// depuração (`CompileOptions::depuracao`, J05).
-    pub depuracao: Option<Box<DepuracaoDaFuncao>>,
+    /// depuração (`CompileOptions::debug_info`, J05).
+    pub debug_info: Option<Box<FunctionDebugInfo>>,
 }
 
 /// A fonte de uma função e a posição de cada instrução (a do comando que a
-/// gerou), para as tabelas de linha do depurador (`llvm/depuracao.rs`).
+/// gerou), para as tabelas de linha do depurador (`llvm/debug_info.rs`).
 /// Instrução sem posição (criada por um passo de otimização) herda a da
 /// anterior no bloco.
 #[derive(Debug, Clone, Default)]
-pub struct DepuracaoDaFuncao {
+pub struct FunctionDebugInfo {
     /// O caminho absoluto do arquivo `.dart` (ou o URI, sem arquivo).
-    pub arquivo: String,
-    /// A url do script no rastro da VM (§13.14, `Context::url_do_rastro`).
+    pub file: String,
+    /// A url do script no rastro da VM (§13.14, `Context::stack_trace_url`).
     pub url: String,
     /// A linha do primeiro comando com posição (a do `DISubprogram`).
-    pub linha: u32,
-    /// `(linha, coluna)` de cada instrução, a partir de 1.
-    pub posicoes: std::collections::HashMap<ValueId, (u32, u32)>,
+    pub line: u32,
+    /// `(line, column)` de cada instrução, a partir de 1.
+    pub positions: std::collections::HashMap<ValueId, (u32, u32)>,
     /// A do terminador de cada bloco (o `return` e o `break` não emitem
     /// instrução).
-    pub saidas: std::collections::HashMap<BlockId, (u32, u32)>,
+    pub exits: std::collections::HashMap<BlockId, (u32, u32)>,
     // --- o rastro no formato da VM (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14)
     /// A posição do token da função (o `Function.token_pos` da VM: o nome,
     /// ou o começo de uma closure): a do quadro de uma closure que escuta um
@@ -799,117 +799,117 @@ pub struct DepuracaoDaFuncao {
     /// As funções copiadas nesta pelo inlining da HIR (`optimize::inline`),
     /// para o rastro mostrar o quadro de cada uma como a VM mostra os quadros
     /// embutidos (`GetInlinedFunctionsAtReturnAddress`).
-    pub embutidas: Vec<Embutida>,
-    /// `(linha, coluna, contexto)` das instruções copiadas pelo inlining: a
-    /// posição na função copiada e o índice dela em `embutidas`. Fica fora de
-    /// `posicoes`, que é das tabelas de linha (o arquivo é o desta função).
-    pub posicoes_embutidas: std::collections::HashMap<ValueId, (u32, u32, u32)>,
-    /// As marcas do rastro ([`marcas_do_rastro`]).
-    pub marcas: u8,
+    pub embedded_set: Vec<Embedded>,
+    /// `(line, column, context)` das instruções copiadas pelo inlining: a
+    /// posição na função copiada e o índice dela em `embedded_set`. Fica fora de
+    /// `positions`, que é das tabelas de linha (o arquivo é o desta função).
+    pub embedded_positions: std::collections::HashMap<ValueId, (u32, u32, u32)>,
+    /// As marcas do rastro ([`stack_trace_marks`]).
+    pub marks: u8,
     /// Corpo `async` (a máquina de estados): a entrada das closures dele e a
     /// posição de cada `await`.
-    pub corpo_async: Option<CorpoAsyncDoRastro>,
+    pub async_body: Option<TraceAsyncBody>,
     /// A entrada uniforme (`$ent`), quando esta função é o corpo de uma
     /// closure: o código que a closure guarda, pelo qual o runtime acha a
     /// função de uma closure que escuta um `Future`.
-    pub entrada_de_closure: Option<String>,
+    pub closure_entry: Option<String>,
     /// A captura marcada `@pragma('vm:awaiter-link')` de uma closure: o elo
     /// com quem espera (`ClosureData::awaiter_link` da VM).
-    pub elo: Option<EloDeEspera>,
+    pub chain_link: Option<WaitLink>,
 }
 
 impl Function {
     /// O nome da função no rastro no formato da VM (o
     /// `QualifiedUserVisibleName`): o qualificado do Dart, tirado do símbolo
-    /// estável `df.<biblioteca>.<classe>.<membro>`, com as partes que o
+    /// estável `df.<library>.<class>.<member>`, com as partes que o
     /// lowering acrescenta trocadas como a VM as escreve: `$clo<k>` vira
-    /// `.<anonymous closure>`, `$<nome>` de função local vira `.<nome>`, e as
+    /// `.<anonymous closure>`, `$<name>` de função local vira `.<name>`, e as
     /// impressões digitais e os sufixos de corpo (`$e…`, `$q…`, `$async`,
-    /// `$ent`, `$novo`, a repetição `$<k>`) saem.
-    pub fn nome_do_rastro(&self) -> String {
+    /// `$ent`, `$new`, a repetição `$<k>`) saem.
+    pub fn stack_trace_name(&self) -> String {
         let base = match self.symbol.strip_prefix("dart_main") {
-            Some(resto) => format!("main{resto}"),
+            Some(rest) => format!("main{rest}"),
             None => self
                 .symbol
                 .strip_prefix("df.")
-                .and_then(|resto| resto.split_once('.'))
-                .map(|(_, nome)| nome.trim_start_matches('.').to_string())
+                .and_then(|rest| rest.split_once('.'))
+                .map(|(_, name)| name.trim_start_matches('.').to_string())
                 .filter(|n| !n.is_empty())
                 .unwrap_or_else(|| self.name.clone()),
         };
-        let impressao = |s: &str, p: char| s.len() == 9 && s.starts_with(p) && s[1..].bytes().all(|b| b.is_ascii_hexdigit());
-        let mut partes = base.split('$');
-        let mut nome = partes.next().unwrap_or_default().to_string();
-        for p in partes {
-            if p.is_empty() || p == "async" || p == "ent" || p == "novo" || impressao(p, 'e') || impressao(p, 'q') || p.bytes().all(|b| b.is_ascii_digit()) {
+        let printing = |s: &str, p: char| s.len() == 9 && s.starts_with(p) && s[1..].bytes().all(|b| b.is_ascii_hexdigit());
+        let mut parts = base.split('$');
+        let mut name = parts.next().unwrap_or_default().to_string();
+        for p in parts {
+            if p.is_empty() || p == "async" || p == "ent" || p == "novo" || printing(p, 'e') || printing(p, 'q') || p.bytes().all(|b| b.is_ascii_digit()) {
                 continue;
             }
             if let Some(k) = p.strip_prefix("clo")
                 && !k.is_empty()
                 && k.bytes().all(|b| b.is_ascii_digit())
             {
-                nome.push_str(".<anonymous closure>");
+                name.push_str(".<anonymous closure>");
                 continue;
             }
-            nome.push('.');
-            nome.push_str(p);
+            name.push('.');
+            name.push_str(p);
         }
-        nome
+        name
     }
 }
 
 /// Uma função copiada pelo inlining da HIR.
 #[derive(Debug, Clone)]
-pub struct Embutida {
+pub struct Embedded {
     /// O nome da função copiada, como o rastro o escreve.
-    pub nome: String,
+    pub name: String,
     /// A url do script dela.
     pub url: String,
     /// A posição da chamada que a copiou, na função de fora (o contexto
-    /// `pai`, ou a própria função).
-    pub chamada: (u32, u32),
-    /// O contexto de fora (índice em `embutidas`); `None`: a própria função.
-    pub pai: Option<u32>,
+    /// `parent`, ou a própria função).
+    pub call: (u32, u32),
+    /// O contexto de fora (índice em `embedded_set`); `None`: a própria função.
+    pub parent: Option<u32>,
     /// As marcas do rastro da função copiada.
-    pub marcas: u8,
+    pub marks: u8,
 }
 
 /// A parte do rastro de um corpo `async`.
 #[derive(Debug, Clone, Default)]
-pub struct CorpoAsyncDoRastro {
+pub struct TraceAsyncBody {
     /// A entrada uniforme do corpo (o código da closure do corpo, cujo
     /// ambiente guarda o quadro na posição 0).
-    pub entrada: String,
+    pub entry: String,
     /// A posição do `await` de cada estado: o índice `k − 1` para o estado `k`.
-    pub esperas: Vec<(u32, u32)>,
+    pub waits: Vec<(u32, u32)>,
 }
 
 /// Onde mora a captura que é o elo com quem espera.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EloDeEspera {
-    /// A posição no ambiente (sem `direto`).
-    pub indice: usize,
+pub struct WaitLink {
+    /// A posição no ambiente (sem `direct`).
+    pub index: usize,
     /// O ambiente é o próprio valor capturado (`lower/closures.rs`).
-    pub direto: bool,
+    pub direct: bool,
     /// A captura mora numa célula.
-    pub celula: bool,
+    pub cell: bool,
 }
 
-/// As marcas do rastro de uma função ([`DepuracaoDaFuncao::marcas`]).
-pub mod marcas_do_rastro {
+/// As marcas do rastro de uma função ([`FunctionDebugInfo::marks`]).
+pub mod stack_trace_marks {
     /// O corpo de uma função `async` (a máquina de estados): o quadro dele,
     /// retomado, começa a cadeia de quem espera.
-    pub const CORPO_ASYNC: u8 = 1;
+    pub const ASYNC_BODY: u8 = 1;
     /// Fora do rastro: o stub de uma função `async` (a VM tem um quadro só
-    /// para ela) e os apoios do `async_patch` (`@pragma("dartforge:rastro-oculto")`).
-    pub const OCULTA: u8 = 2;
+    /// para ela) e os apoios do `async_patch` (`@pragma("dartforge:stack_trace-oculto")`).
+    pub const HIDDEN: u8 = 2;
     /// `_FutureListener.handleValue`: o ouvinte dela começa a cadeia
     /// (`MethodRecognizer::kFutureListenerHandleValue`).
-    pub const ESCUTA: u8 = 4;
-    /// Com [`CORPO_ASYNC`], o corpo de um gerador `async*`: o quadro dele na
+    pub const LISTEN: u8 = 4;
+    /// Com [`ASYNC_BODY`], o corpo de um gerador `async*`: o quadro dele na
     /// pilha conta sempre como já suspenso (`WasPreviouslySuspended`), e o
     /// próximo da cadeia é o controlador.
-    pub const GERADOR_ASYNC: u8 = 8;
+    pub const ASYNC_GENERATOR: u8 = 8;
 }
 
 /// Definição de classe na HIR.
@@ -934,14 +934,14 @@ pub struct SelectorDef {
 /// Uma struct/union do programa para o runtime: a classe (RTI e heap), onde
 /// ficam `_typedDataBase`/`_offsetInBytes` no objeto, e a medida na ABI.
 #[derive(Debug, Clone)]
-pub struct FfiComposto {
+pub struct FfiComposite {
     pub rti: i64,
-    pub classe: i64,
-    pub campos: i64,
-    pub indice_base: i64,
-    pub indice_deslocamento: i64,
-    pub tamanho: i64,
-    pub alinhamento: i64,
+    pub class: i64,
+    pub fields: i64,
+    pub base_index: i64,
+    pub offset_index: i64,
+    pub size: i64,
+    pub alignment: i64,
 }
 
 /// Um callback nativo de uma assinatura: a chave, o corpo HIR (contexto e
@@ -949,62 +949,62 @@ pub struct FfiComposto {
 /// como o endereço dos bytes) e os tipos nativos.
 #[derive(Debug, Clone)]
 pub struct FfiCallback {
-    pub chave: String,
-    pub corpo: String,
-    pub ret: TipoNativo,
-    pub params: Vec<TipoNativo>,
+    pub key: String,
+    pub body: String,
+    pub ret: NativeType,
+    pub params: Vec<NativeType>,
 }
 
 /// Um campo do layout de uma classe do programa (J03).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CampoDoLayout {
-    pub nome: String,
+pub struct LayoutField {
+    pub name: String,
     /// `null` é um valor do tipo declarado (`T?`, `dynamic`, `Object?`…).
-    pub anulavel: bool,
+    pub nullable: bool,
     pub late: bool,
     /// O tipo declarado, como texto (uma mudança dele não migra).
-    pub tipo: String,
+    pub ty: String,
 }
 
 /// Como um `Return` sai quando a exceção pode estar pendente, nas exceções por
 /// tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): uma função Dart
 /// nunca volta a quem a chamou com a exceção pendente — ela desenrola.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SaidaPorExcecao {
+pub enum ExceptionExit {
     /// A exceção está pendente em todo caminho até este `Return`: desenrola
-    /// (`@df.lancar`) em vez de retornar.
-    Lanca,
+    /// (`@df.throw`) em vez de retornar.
+    Throws,
     /// Retoma o objeto nativo recebido neste pouso de cleanup Itanium.
     /// Só admite drops ARC e fechamento LIFO de quadros locais antes do Return.
     /// Não coleta, chama Dart nem publica uma nova exceção.
-    Retoma,
+    Resume,
     /// Pode estar pendente: confere a pendência e desenrola ou retorna.
-    Guarda,
+    Guard,
 }
 
-/// O que o passe das exceções por tabelas (`optimize/tabelas.rs`) decidiu
+/// O que o passe das exceções por tabelas (`optimize/tables.rs`) decidiu
 /// para uma função: quem é `invoke`, onde pousa e como cada `Return` sai. O
 /// emissor (`llvm/mod.rs`) só lê.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TabelasDaFuncao {
+pub struct FunctionTables {
     /// A instrução (chamada Dart) que vira `invoke`, e o bloco de pouso dela.
-    pub invocacoes: std::collections::HashMap<ValueId, BlockId>,
+    pub invocations: std::collections::HashMap<ValueId, BlockId>,
     /// Os blocos de pouso: começam com o `landingpad` e a restauração do
     /// topo da pilha-sombra; só o `invoke` chega a eles.
-    pub pousos: std::collections::HashSet<BlockId>,
+    pub landing_pads: std::collections::HashSet<BlockId>,
     /// Os blocos que terminam em `Return` com a exceção (talvez) pendente.
-    pub saidas: std::collections::HashMap<BlockId, SaidaPorExcecao>,
+    pub exits: std::collections::HashMap<BlockId, ExceptionExit>,
     /// A função chama código Dart: confere a pilha no prólogo
     /// (`StackOverflowError`). No modelo de conferência a leitura da
     /// pendência depois de cada chamada já dava à função o contexto em que a
     /// conferência da pilha mora; aqui a leitura some, e sem esta marca
     /// `f() => f()` estouraria a pilha do sistema.
-    pub confere_pilha: bool,
+    pub checks_stack: bool,
     /// Inventário certificado de owners para cleanup estrangeiro; recalcular após mutações.
-    pub cleanup_estrangeiro: Option<crate::optimize::arc::CleanupEstrangeiro>,
+    pub foreign_cleanup: Option<crate::optimize::arc::ForeignCleanup>,
     /// Papéis nativos de quadros compartilhados para conferir Retoma/cleanup.
     /// Não substitui o certificado de owners nem prova unwind por si só.
-    pub quadros_compartilhados: Option<crate::optimize::arc::ContratoQuadrosCompartilhadosCfg>,
+    pub shared_frames: Option<crate::optimize::arc::SharedFramesCfgContract>,
 }
 
 /// Papel semântico dos vetores nativos da ABI de entrada uniforme.
@@ -1016,95 +1016,95 @@ pub struct TabelasDaFuncao {
 /// assert_ne!(VetorEntradaDart::Argumentos, VetorEntradaDart::Descritor);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VetorEntradaDart {
+pub enum DartEntryVector {
     Argumentos,
-    Descritor,
+    Descriptor,
 }
 
 /// Módulo HIR completo representando um programa Dart compilável.
 #[derive(Debug, Default, Clone)]
 pub struct Module {
-    /// J05: as posições das funções viram tabelas de linha (`--depuracao`).
+    /// J05: as posições das funções viram tabelas de linha (`--debug_info`).
     /// Sem isto, as posições que houver são só do rastro simbólico (§13.14).
     pub dwarf: bool,
-    /// As exceções do módulo são por tabelas (`--excecoes=tabelas`): o passe
-    /// `optimize::tabelas` rodou e [`Module::tabelas`] vale. Falso: o modelo
+    /// As exceções do módulo são por tabelas (`--excecoes=tables`): o passe
+    /// `optimize::tables` rodou e [`Module::tables`] vale. Falso: o modelo
     /// de sempre (pendência conferida depois de cada chamada).
     pub excecoes_por_tabelas: bool,
-    /// A memória do módulo é ARC (`--memoria=arc`, `alvo::memoria_arc`): a
+    /// A memória do módulo é ARC (`--memoria=arc`, `alvo::arc_memory`): a
     /// entrada liga o ARC no runtime e as gravações de referência em objeto
     /// que pode ser velho passam pelo runtime (docs/ARC-IMPLEMENTACAO.md).
-    pub memoria_arc: bool,
+    pub arc_memory: bool,
     /// Com [`Module::excecoes_por_tabelas`], a decisão do passe para cada
     /// função, na ordem de [`Module::functions`].
-    pub tabelas: Vec<TabelasDaFuncao>,
+    pub tables: Vec<FunctionTables>,
     /// `dart:ffi`: (id RTI da classe, letra do tipo C) de cada tipo nativo
     /// e (chave da assinatura, símbolo do trampolim) (`lower/ffi.rs`).
-    pub ffi_tipos: Vec<(i64, char)>,
-    pub ffi_trampolins: Vec<(String, String)>,
+    pub ffi_types: Vec<(i64, char)>,
+    pub ffi_trampolines: Vec<(String, String)>,
     /// `dart:ffi`: as entradas C dos callbacks nativos, uma por assinatura
     /// (`lower/ffi.rs`; o emissor gera a entrada com a ABI C).
     pub ffi_callbacks: Vec<FfiCallback>,
     /// `dart:ffi`: as structs e unions do programa (`lower/ffi.rs`).
-    pub ffi_compostos: Vec<FfiComposto>,
+    pub ffi_composites: Vec<FfiComposite>,
     pub functions: Vec<Function>,
     /// Parâmetros escalares declarados na fonte, por símbolo/ID SSA.
     /// O lowering registra somente int/double/bool sem caixa. Parâmetros
     /// ocultos/nativos i64 não são classificados pela largura. Estes fatos
     /// ainda precisam alimentar os planos ARC e sobreviver aos passes.
-    pub parametros_escalares_dart: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
+    pub dart_scalar_parameters: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
     /// IDs nativos do universo canônico de RTI, produzidos explicitamente.
     /// Não são Ref nem escalares Dart; vida do universo/pins exige outro protocolo.
-    pub parametros_rti_dart: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
+    pub dart_rti_parameters: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
     /// Vetores da ABI uniforme registrados explicitamente pelo lowering.
     /// Vida/bounds dependem do protocolo do chamador. Descritores são imutáveis;
     /// os primeiros dois slots são contagens nativas, sem referências do heap.
-    pub parametros_vetores_dart: std::collections::HashMap<String, std::collections::HashMap<ValueId, VetorEntradaDart>>,
+    pub dart_vector_parameters: std::collections::HashMap<String, std::collections::HashMap<ValueId, DartEntryVector>>,
     /// Corpos tipados de funções Dart da fonte cuja ABI devolve Ref Owned.
     /// Proveniência nominal do lowering; não inclui automaticamente entradas
     /// uniformes, callbacks FFI ou funções HIR fornecidas por outro produtor.
-    pub retornos_ref_dart: std::collections::HashSet<String>,
+    pub dart_ref_returns: std::collections::HashSet<String>,
     /// Armazenamentos de globais Dart cuja representação, pelo tipo Dart, é
     /// escalar sem caixa (`int`, `double`, `bool`): o conteúdo nunca é handle.
-    pub globais_escalares_dart: std::collections::HashSet<String>,
+    pub dart_scalar_globals: std::collections::HashSet<String>,
     /// Entradas uniformes declaradas pelo lowering para a ABI ARC com retorno Owned.
     /// São premissas para preparar o corpo inteiro, não certificados de dispatch
     /// indireto ou de callbacks C; as fronteiras exigem verificação própria.
-    pub retornos_uniformes_arc: std::collections::HashSet<String>,
+    pub arc_uniform_returns: std::collections::HashSet<String>,
     /// Portas de uma imagem AOT fixa, após verificar os corpos e dependências.
     /// Alterações posteriores invalidam o inventário; não certifica recarga JIT.
-    pub portas_arc_aot: Option<crate::optimize::arc::PortasArcAot>,
+    pub arc_aot_ports: Option<crate::optimize::arc::ArcAotPorts>,
     /// A preparação ARC de ownership publicou estes corpos. Sem ela, uma imagem
     /// ARC segue o regime legado (chamadas diretas, fábricas sem owner do
     /// código); com ela, a emissão exige o certificado de portas AOT.
-    pub arc_preparado: bool,
+    pub arc_prepared: bool,
     /// A preparação ARC aceita chamadas diretas a funções Dart de outra
     /// imagem já preparada (o SDK da fonte preparado), com o resumo tirado
     /// da própria chamada: argumentos pela representação dos operandos,
     /// falha possível e resultado Ref Owned (a convenção das funções Dart).
-    pub arc_callees_externos: bool,
+    pub arc_external_callees: bool,
     /// Caches de IDs nativos RTI declarados pelo lowering, com flag implícita `$ok`.
     /// Todas as escritas e representações exigem conferência antes de produzir contratos.
-    pub caches_rti_arc: std::collections::HashSet<String>,
+    pub arc_rti_caches: std::collections::HashSet<String>,
     /// Definições compartilháveis declaradas nominalmente pelo produtor ARC.
     /// Não certifica equivalência das cópias nem dependências da emissão.
-    pub funcoes_compartilhadas_arc: std::collections::HashSet<String>,
+    pub arc_shared_functions: std::collections::HashSet<String>,
     /// Funções locais diretas declaradas pelo lowering, fechadas à ligação externa.
     /// A poda ainda confere chamadas, endereços materializados e entradas publicadas.
-    pub funcoes_locais_diretas_arc: std::collections::HashSet<String>,
+    pub arc_direct_local_functions: std::collections::HashSet<String>,
     /// Origem nominal pré-otimização das alocações reconhecidas do lowering ARC.
     /// IDs SSA indexam a versão atual; cópias do inliner conservam o sítio de
     /// origem. Contextos especializados e dependências de recarga ainda faltam.
-    pub sitios_arc: std::collections::HashMap<String, std::collections::HashMap<ValueId, crate::optimize::arc::analise::modelo::SitioArc>>,
+    pub arc_sites: std::collections::HashMap<String, std::collections::HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
     /// Representações declaradas dos campos por classe/posição, somente no ARC.
     /// Inclui herança, mixins e prefixo de enum; late com inicializador fica Ref.
     /// Não certifica o tipo do receiver, forma física do heap ou versão/pins de recarga.
-    pub layouts_campos_arc: std::collections::HashMap<u32, Vec<Type>>,
+    pub arc_field_layouts: std::collections::HashMap<u32, Vec<Type>>,
     /// Os layouts declarados das classes do SDK da fonte preparado (outra
-    /// imagem), na mesma forma de `layouts_campos_arc`: só para conferir
+    /// imagem), na mesma forma de `arc_field_layouts`: só para conferir
     /// gravações e leituras abertas do programa preparado sozinho
-    /// (`arc_callees_externos`); não declaram classes deste módulo.
-    pub layouts_externos_arc: std::collections::HashMap<u32, Vec<Type>>,
+    /// (`arc_external_callees`); não declaram classes deste módulo.
+    pub arc_external_layouts: std::collections::HashMap<u32, Vec<Type>>,
     pub classes: Vec<ClassDef>,
     pub selectors: Vec<SelectorDef>,
     pub subtyping_edges: Vec<(u32, u32)>,
@@ -1115,81 +1115,81 @@ pub struct Module {
     pub entry_params: usize,
     /// Globais do usuário: (id da variável, representação). Cada um vira
     /// Globais do usuário: (id da raiz no runtime, representação, símbolo
-    /// estável do valor `dfg.<caminho>`); a bandeira de inicialização é
+    /// estável do valor `dfg.<path>`); a bandeira de inicialização é
     /// `<símbolo>$ok`.
-    pub globais: Vec<(u32, Type, String)>,
+    pub globals: Vec<(u32, Type, String)>,
     /// Construtos que o lowering não sabe baixar (N1). Não vazio = o
     /// programa não compila; o emissor produz só a mensagem.
-    pub erros: Vec<String>,
+    pub errors: Vec<String>,
     // --- P5c (SDK da fonte, δ) ---
     /// O módulo é parte de um programa com o SDK compilado da fonte: o
     /// código compartilhado entre módulos (entradas de tear-off, constantes
     /// canônicas) sai em `comdat`, e símbolos de outros módulos são
     /// declarados.
-    pub modo_sdk: bool,
+    pub sdk_mode: bool,
     /// O módulo é uma biblioteca do SDK (sem `dartforge_entry` nem o
     /// despacho de `toString`, que são do programa).
-    pub biblioteca_sdk: bool,
+    pub sdk_library: bool,
     /// Tabelas de métodos das classes deste módulo, registradas no runtime
     /// na partida (P5c): (id da classe, [(seletor, símbolo do adaptador)]).
-    pub tabelas_de_metodos: Vec<(u32, String, Vec<(String, String)>)>,
+    pub method_tables: Vec<(u32, String, Vec<(String, String)>)>,
     /// A função que devolve a tabela de métodos de cada classe concreta
     /// compilada (de qualquer módulo), pelo id: a alocação de um objeto da
     /// classe registra a tabela (`dartforge_object_new_t`).
-    pub funcoes_de_tabela: std::collections::HashMap<u32, String>,
+    pub table_functions: std::collections::HashMap<u32, String>,
     /// Biblioteca do SDK: o nome da função que registra as classes dela
     /// (nomes, subtipos, tabelas de métodos) no runtime.
-    pub registro: Option<String>,
+    pub record: Option<String>,
     /// Programa com o SDK da fonte: as funções de registro das bibliotecas
     /// do SDK, chamadas por `dartforge_entry` antes das do programa.
-    pub registros_do_sdk: Vec<String>,
+    pub sdk_records: Vec<String>,
     /// Os campos do `dart:async` que o rastro percorre para achar quem espera
-    /// (§13.14): `(id da classe, "Classe.campo", posição)`, registrados na
+    /// (§13.14): `(id da class, "Classe.field", posição)`, registrados na
     /// partida com o rastro simbólico.
-    pub campos_do_rastro: Vec<(u32, String, usize)>,
+    pub trace_fields: Vec<(u32, String, usize)>,
     /// As entradas de tear-off que o rastro reconhece nos ramos de stream
-    /// (§13.14): `(símbolo da entrada, espécie)`, a espécie 1 para o
+    /// (§13.14): `(símbolo da entry, espécie)`, a espécie 1 para o
     /// `_StreamIterator._onData` e 2 para o `_StreamController._add`.
-    pub tearoffs_do_rastro: Vec<(String, i64)>,
-    /// Os ids das classes do programa, `(id, biblioteca, classe)`: escritos
-    /// no IR (`; df.classe …`) para que a geração seguinte de uma recarga do
-    /// JIT dê o mesmo id à mesma classe (J03, `Context::com_ids_anteriores`).
-    pub ids_do_programa: Vec<(u32, String, String)>,
+    pub stack_trace_tearoffs: Vec<(String, i64)>,
+    /// Os ids das classes do programa, `(id, library, class)`: escritos
+    /// no IR (`; df.class …`) para que a geração seguinte de uma recarga do
+    /// JIT dê o mesmo id à mesma classe (J03, `Context::with_previous_ids`).
+    pub program_ids: Vec<(u32, String, String)>,
     /// O layout dos objetos de cada classe do programa, para a migração das
     /// instâncias vivas numa recarga do JIT (J03): `(id, campos antes dos
     /// declarados — os de enum —, campos)`, escrito no IR como
-    /// `; df.campos …`.
-    pub campos_do_programa: Vec<(u32, usize, Vec<CampoDoLayout>)>,
+    /// `; df.fields …`.
+    pub program_fields: Vec<(u32, usize, Vec<LayoutField>)>,
     /// Programa com o SDK da fonte: os ids de classe dos valores que o
     /// runtime representa (`Null`, `_Smi`, `_Mint`, `_Double`, `bool`,
     /// `_OneByteString`, `_TwoByteString`, `_GrowableList`, `_List`,
     /// `_ImmutableList`, `_Closure`, `_Record`), na ordem de
-    /// `runtime/src/seletores.rs`.
-    pub cids_do_runtime: Vec<i64>,
+    /// `runtime/src/selectors.rs`.
+    pub runtime_cids: Vec<i64>,
     /// Programa com o SDK da fonte: a versão do SDK Dart compilado (o
     /// arquivo `version` dele), que `Platform.version` informa.
-    pub versao_do_sdk: Option<String>,
+    pub sdk_version: Option<String>,
     /// Membros do SDK da fonte recusados neste módulo: (símbolo, motivo).
     /// Cada um virou uma função que avisa em tempo de execução.
-    pub recusados: Vec<(String, String)>,
+    pub rejected: Vec<(String, String)>,
     /// Funções Dart que o runtime chama pelo nome (`_dartforge*` da
     /// sobreposição): (nome, símbolo), registradas pelo registro do módulo.
-    pub ajudantes: Vec<(String, String)>,
-    // --- P6 (bibliotecas da fonte, `fonte.rs`) ---------------------------
+    pub helpers: Vec<(String, String)>,
+    // --- P6 (bibliotecas da fonte, `source.rs`) ---------------------------
     /// Diagnósticos das funções de bibliotecas do SDK compiladas da fonte,
-    /// pelo símbolo da função que os produziu: só viram `erros` se a poda
-    /// (`fonte::podar`) mantiver a função.
-    pub erros_da_fonte: Vec<(String, Vec<String>)>,
+    /// pelo símbolo da função que os produziu: só viram `errors` se a poda
+    /// (`source::prune`) mantiver a função.
+    pub source_errors: Vec<(String, Vec<String>)>,
     /// Funções da fonte que o runtime chama sem que o programa as referencie
     /// (raízes da poda, além das funções do programa).
-    pub raizes_da_fonte: Vec<String>,
+    pub source_roots: Vec<String>,
     /// A função que o laço de eventos do runtime usa para chamar uma
     /// closure sem argumentos (`dartforge_laco_de_eventos`, depois do
     /// `main`). `None`: o programa não usa `dart:async` e não há laço.
-    pub chamar_dart: Option<String>,
+    pub call_dart: Option<String>,
     /// RTI: a função que registra o universo de tipos antes do `main`
-    /// (`lower::rti::registrar_universo`); `None` sem receitas.
-    pub iniciar_rti: Option<String>,
+    /// (`lower::rti::register_universe`); `None` sem receitas.
+    pub start_rti: Option<String>,
 }
 
 impl Module {

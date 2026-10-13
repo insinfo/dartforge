@@ -12,47 +12,47 @@ use std::time::Instant;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let filtro = args.first().cloned();
+    let filter = args.first().cloned();
 
-    let raiz = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let corpus_dir = raiz.join("corpus/js");
-    let out_dir = raiz.join("target/native_corpus");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let corpus_dir = root.join("corpus/js");
+    let out_dir = root.join("target/native_corpus");
     std::fs::create_dir_all(&out_dir).expect("criar target/native_corpus");
 
-    let programas = listar_programas(&corpus_dir, filtro.as_deref());
-    if programas.is_empty() {
+    let programs = list_programs(&corpus_dir, filter.as_deref());
+    if programs.is_empty() {
         eprintln!("Nenhum programa encontrado em {}", corpus_dir.display());
         std::process::exit(1);
     }
 
     println!("=== DartForge Nativo (LLVM AOT) — Diferencial contra VM ===");
-    println!("Total de programas selecionados: {}", programas.len());
+    println!("Total de programas selecionados: {}", programs.len());
     println!();
 
     let mut pass = 0usize;
     let mut fail = 0usize;
 
-    for (idx, prog) in programas.iter().enumerate() {
-        let nome = &prog.nome;
-        let entrada = &prog.entrada;
-        let exe_saida = out_dir.join(format!("{nome}.exe"));
+    for (idx, prog) in programs.iter().enumerate() {
+        let name = &prog.name;
+        let entry = &prog.entry;
+        let exe_output = out_dir.join(format!("{name}.exe"));
 
         // 1. Oráculo: dart run --enable-asserts
         let dart_res = match Command::new("dart")
-            .args(["run", "--enable-asserts", entrada.to_str().unwrap()])
+            .args(["run", "--enable-asserts", entry.to_str().unwrap()])
             .output()
         {
             Ok(out) => out,
             Err(e) => {
-                eprintln!("[{}/{}] FAIL {nome}: falha ao invocar dart run: {e}", idx + 1, programas.len());
+                eprintln!("[{}/{}] FAIL {name}: falha ao invocar dart run: {e}", idx + 1, programs.len());
                 fail += 1;
                 continue;
             }
         };
 
         // 2. Compilação Nativa
-        let i2 = entrada.clone();
-        let o2 = exe_saida.clone();
+        let i2 = entry.clone();
+        let o2 = exe_output.clone();
         let t_comp_start = Instant::now();
         let comp_res = std::thread::Builder::new()
             .stack_size(1 << 30)
@@ -78,16 +78,16 @@ fn main() {
         let comp_duration = t_comp_start.elapsed();
 
         if let Err(e) = comp_res {
-            eprintln!("[{}/{}] FAIL {nome} (compilação): {e}", idx + 1, programas.len());
+            eprintln!("[{}/{}] FAIL {name} (compilação): {e}", idx + 1, programs.len());
             fail += 1;
             continue;
         }
 
         // 3. Execução Nativa
-        let nat_res = match Command::new(&exe_saida).output() {
+        let nat_res = match Command::new(&exe_output).output() {
             Ok(out) => out,
             Err(e) => {
-                eprintln!("[{}/{}] FAIL {nome} (execução): {e}", idx + 1, programas.len());
+                eprintln!("[{}/{}] FAIL {name} (execução): {e}", idx + 1, programs.len());
                 fail += 1;
                 continue;
             }
@@ -107,10 +107,10 @@ fn main() {
         let match_code = (dart_code == 0 && nat_code == 0) || (dart_code != 0 && nat_code != 0);
 
         if match_stdout && match_code {
-            println!("[{}/{}] PASS {} ({:.1?})", idx + 1, programas.len(), nome, comp_duration);
+            println!("[{}/{}] PASS {} ({:.1?})", idx + 1, programs.len(), name, comp_duration);
             pass += 1;
         } else {
-            println!("[{}/{}] FAIL {}", idx + 1, programas.len(), nome);
+            println!("[{}/{}] FAIL {}", idx + 1, programs.len(), name);
             if !match_stdout {
                 println!("  --- STDOUT DIFF ---");
                 println!("  [DART]:\n{}", dart_stdout.trim_end());
@@ -130,51 +130,51 @@ fn main() {
     }
 
     println!();
-    println!("=== RESULTADO FINAL: {}/{} PASSOU ({:.1}%) ===", pass, programas.len(), (pass as f64 / programas.len() as f64) * 100.0);
+    println!("=== RESULTADO FINAL: {}/{} PASSOU ({:.1}%) ===", pass, programs.len(), (pass as f64 / programs.len() as f64) * 100.0);
     if fail > 0 {
         std::process::exit(1);
     }
 }
 
 struct Prog {
-    nome: String,
-    entrada: PathBuf,
+    name: String,
+    entry: PathBuf,
 }
 
-fn listar_programas(dir: &Path, filtro: Option<&str>) -> Vec<Prog> {
+fn list_programs(dir: &Path, filter: Option<&str>) -> Vec<Prog> {
     let mut progs = Vec::new();
-    let Ok(entradas) = std::fs::read_dir(dir) else { return progs };
-    for e in entradas.flatten() {
+    let Ok(entries) = std::fs::read_dir(dir) else { return progs };
+    for e in entries.flatten() {
         let p = e.path();
         if p.is_file() && p.extension().is_some_and(|ext| ext == "dart") {
-            let nome = p.file_stem().unwrap().to_string_lossy().to_string();
-            progs.push(Prog { nome, entrada: p });
+            let name = p.file_stem().unwrap().to_string_lossy().to_string();
+            progs.push(Prog { name, entry: p });
         } else if p.is_dir() {
             let main_dart = p.join("main.dart");
             if main_dart.is_file() {
-                let nome = p.file_name().unwrap().to_string_lossy().to_string();
-                progs.push(Prog { nome, entrada: main_dart });
+                let name = p.file_name().unwrap().to_string_lossy().to_string();
+                progs.push(Prog { name, entry: main_dart });
             }
         }
     }
 
-    if let Some(f) = filtro {
+    if let Some(f) = filter {
         if f.starts_with("--bloco") {
             // Suporte a filtro por bloco
         } else {
-            progs.retain(|p| p.nome.contains(f));
+            progs.retain(|p| p.name.contains(f));
         }
     }
 
     progs.sort_by(|a, b| {
-        let na = numero(&a.nome);
-        let nb = numero(&b.nome);
-        na.cmp(&nb).then_with(|| a.nome.cmp(&b.nome))
+        let na = number(&a.name);
+        let nb = number(&b.name);
+        na.cmp(&nb).then_with(|| a.name.cmp(&b.name))
     });
 
     progs
 }
 
-fn numero(nome: &str) -> u32 {
-    nome.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(u32::MAX)
+fn number(name: &str) -> u32 {
+    name.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(u32::MAX)
 }

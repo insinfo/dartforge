@@ -6,82 +6,82 @@
 //! ainda precisam de cobertura completa e integração no pipeline padrão.
 
 use super::cfg::Cfg;
-use super::operandos::{operandos, operandos_do_terminador};
+use super::operands::{operands, terminator_operands};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
 /// O prefixo do thunk Owned genérico de uma função do runtime que devolve
-/// `Ref` (`nativos::preparar`, `contratos::contrato_owned_generico`); o
-/// emissor LLVM define o thunk (`llvm/seletores.rs`).
-pub const PREFIXO_OWNED_GENERICO: &str = "df.arc.owned.";
+/// `Ref` (`natives::prepare`, `contracts::generic_owned_contract`); o
+/// emissor LLVM define o thunk (`llvm/selectors.rs`).
+pub const GENERIC_OWNED_PREFIX: &str = "df.arc.owned.";
 /// O thunk de escopo nativo: a função do runtime que pode rodar Dart, com o
 /// resultado e o contrato da base, dentro de um escopo nativo (os tokens que
 /// portas Dart devolvem morrem no fechamento), definido pelo emissor.
-pub const PREFIXO_ESCOPO_NATIVO: &str = "df.arc.escopo.";
-pub(crate) use nativos::ERROS_COM_VARIANTE_ARC;
+pub const NATIVE_SCOPE_PREFIX: &str = "df.arc.escopo.";
+pub(crate) use natives::ERRORS_WITH_ARC_VARIANT;
 
-mod classificacao;
-pub mod analise;
-mod caixas;
-mod nativos;
-mod escopos;
+mod classification;
+pub mod analysis;
+mod boxes;
+mod natives;
+mod scopes;
 mod tokens;
-mod contratos;
-mod locais;
-mod slots_compartilhados;
-mod slots_vidas;
-mod slots_planos;
-pub use slots_planos::{ContratoQuadrosCompartilhadosCfg, produzir_planos_slots_ref_cfg};
-pub use slots_vidas::verificar_vidas_slots_ref_cfg;
-pub use slots_compartilhados::{auditar_slots_ref_compartilhados, baixar_slots_ref_compartilhados, RascunhoSlotsRefArc};
-mod puros;
-mod derivados;
-mod emprestimos;
-mod arestas;
+mod contracts;
+mod locals;
+mod shared_slots;
+mod slot_lives;
+mod slot_plans;
+pub use slot_plans::{SharedFramesCfgContract, produce_cfg_ref_slot_plans};
+pub use slot_lives::verify_cfg_ref_slot_lives;
+pub use shared_slots::{audit_shared_ref_slots, lower_shared_ref_slots, ArcRefSlotsDraft};
+mod pure_set;
+mod derived_set;
+mod borrows;
+mod edges;
 mod phis;
 mod layouts;
-mod objetos;
-mod campos;
-mod globais;
+mod objects;
+mod fields;
+mod globals;
 mod receivers;
-mod classes_cfg;
-mod chamadas;
-mod funcoes;
-mod modulos;
-pub use modulos::{certificar_portas_arc_modulos, preparar_arc_modulos_dart};
-mod planos;
-pub use planos::produzir_tabelas_arc_do_modulo;
-pub use planos::preparar_arc_modulo_tabelado;
-mod parametros;
-mod vetores;
-mod seletores;
-mod tipadas;
-mod portas;
-pub use portas::{PortasArcAot, certificar_portas_arc_aot};
-mod caches_rti;
-pub use parametros::produzir_parametros_escalares_do_lowering;
-pub use parametros::produzir_parametros_rti_do_lowering;
-mod retornos;
-pub use retornos::produzir_retornos_ref_do_lowering;
-mod invocacoes;
-mod saidas;
+mod cfg_classes;
+mod calls;
+mod functions;
+mod modules;
+pub use modules::{certify_arc_module_ports, prepare_arc_dart_modules};
+mod plans;
+pub use plans::produce_module_arc_tables;
+pub use plans::prepare_arc_tabled_module;
+mod parameters;
+mod vectors;
+mod selectors;
+mod typed_set;
+mod ports;
+pub use ports::{ArcAotPorts, certify_arc_aot_ports};
+mod rti_caches;
+pub use parameters::produce_lowering_scalar_parameters;
+pub use parameters::produce_lowering_rti_parameters;
+mod returns;
+pub use returns::produce_lowering_ref_returns;
+mod invocations;
+mod exits;
 mod ssa;
-mod quadros;
-mod cleanup_estrangeiro;
-pub use cleanup_estrangeiro::CleanupEstrangeiro;
-pub use contratos::{CONTRATOS_DOS_AJUDANTES, ContratoChamadaRuntime, contrato, contrato_chamada_runtime, produzir_contratos_runtime, produzir_contratos_arc};
-pub use contratos::produzir_e_verificar_tokens;
-pub use contratos::produzir_parametros_ref_dart;
-pub use contratos::produzir_e_verificar_tokens_dart;
-pub use contratos::inserir_retencao_retornos_dart;
-pub use contratos::inserir_arc_saidas_dart;
-pub use chamadas::{ContratoFuncaoDart, verificar_contrato_funcao_dart, produzir_chamadas_dart};
-pub use funcoes::{PlanoFuncaoDart, inserir_arc_funcoes_dart, preparar_arc_funcoes_dart};
-pub use funcoes::preparar_arc_modulo_dart;
-pub use tokens::{EfeitoTokens, PlanoTokens, RetornoTokens, verificar_tokens, tokens_na_entrada_dos_pousos};
-pub use escopos::{AlteracaoEscopo, PlanoEscopos, verificar_escopos};
-pub use classificacao::{
-    OrigemOwner, Ownership, vivacidade_classificada, vivacidade_classificada_com_excecoes,
+mod frames;
+mod foreign_cleanup;
+pub use foreign_cleanup::ForeignCleanup;
+pub use contracts::{HELPER_CONTRACTS, RuntimeCallContract, contract, runtime_call_contract, produce_runtime_contracts, produce_arc_contracts};
+pub use contracts::produce_and_verify_tokens;
+pub use contracts::produce_dart_ref_parameters;
+pub use contracts::produce_and_verify_dart_tokens;
+pub use contracts::insert_dart_return_retention;
+pub use contracts::insert_arc_dart_exits;
+pub use calls::{DartFunctionContract, verify_dart_function_contract, produce_dart_calls};
+pub use functions::{DartFunctionPlan, insert_arc_dart_functions, prepare_arc_dart_functions};
+pub use functions::prepare_arc_dart_module;
+pub use tokens::{TokenEffect, TokenPlan, TokenReturn, verify_tokens, tokens_at_landing_pad_entry};
+pub use scopes::{ScopeChange, ScopePlan, verify_scopes};
+pub use classification::{
+    OwnerOrigin, Ownership, classified_liveness, classified_liveness_with_exceptions,
 };
 
 /// Vivacidade dos valores classificados pelo chamador, só em blocos alcançáveis.
@@ -92,90 +92,90 @@ pub use classificacao::{
 /// assert!(vazia.entrada.is_empty() && vazia.arestas.is_empty());
 /// ```
 #[derive(Debug, Default)]
-pub struct Vivacidade {
+pub struct Liveness {
     /// Antes das definições de `Phi` na entrada do bloco.
-    pub entrada: HashMap<BlockId, HashSet<ValueId>>,
+    pub entry: HashMap<BlockId, HashSet<ValueId>>,
     /// Depois do terminador, união das necessidades das arestas de saída.
-    pub saida: HashMap<BlockId, HashSet<ValueId>>,
+    pub exit: HashMap<BlockId, HashSet<ValueId>>,
     /// Antes de cada instrução; entradas de `Phi` pertencem às arestas.
-    pub antes: HashMap<ValueId, HashSet<ValueId>>,
+    pub before: HashMap<ValueId, HashSet<ValueId>>,
     /// Depois de cada instrução.
-    pub depois: HashMap<ValueId, HashSet<ValueId>>,
+    pub after: HashMap<ValueId, HashSet<ValueId>>,
     /// Necessidade específica de `(predecessor, sucessor)`, incluindo apenas
     /// as entradas de `Phi` desse predecessor.
-    pub arestas: HashMap<(BlockId, BlockId), HashSet<ValueId>>,
+    pub edges: HashMap<(BlockId, BlockId), HashSet<ValueId>>,
 }
 
-struct Inventario<'a> {
-    referencias: &'a HashSet<ValueId>,
-    emprestimos: &'a HashMap<ValueId, ValueId>,
+struct Inventory<'a> {
+    references: &'a HashSet<ValueId>,
+    borrows: &'a HashMap<ValueId, ValueId>,
 }
 
-fn usos(o: &Operand, referencias: &Inventario<'_>, vivos: &mut HashSet<ValueId>) {
+fn uses(o: &Operand, references: &Inventory<'_>, live_set: &mut HashSet<ValueId>) {
     if let Operand::Val(v) = o
-        && referencias.referencias.contains(v)
+        && references.references.contains(v)
     {
-        let mut atual = *v;
+        let mut current = *v;
         loop {
-            vivos.insert(atual);
-            let Some(&owner) = referencias.emprestimos.get(&atual) else {
+            live_set.insert(current);
+            let Some(&owner) = references.borrows.get(&current) else {
                 break;
             };
-            atual = owner;
+            current = owner;
         }
     }
 }
 
-fn na_aresta(
+fn on_edge(
     f: &Function,
-    origem: usize,
-    destino: usize,
-    entrada: &[HashSet<ValueId>],
-    referencias: &Inventario<'_>,
+    origin: usize,
+    dest: usize,
+    entry: &[HashSet<ValueId>],
+    references: &Inventory<'_>,
 ) -> HashSet<ValueId> {
-    let mut vivos = entrada[destino].clone();
-    for (v, inst, _) in &f.blocks[destino].instructions {
+    let mut live_set = entry[dest].clone();
+    for (v, inst, _) in &f.blocks[dest].instructions {
         if let Instruction::Phi { incoming, .. } = inst {
-            vivos.remove(v);
+            live_set.remove(v);
             for (de, op) in incoming {
-                if *de == f.blocks[origem].id {
-                    usos(op, referencias, &mut vivos);
+                if *de == f.blocks[origin].id {
+                    uses(op, references, &mut live_set);
                 }
             }
         }
     }
-    vivos
+    live_set
 }
 
-fn na_saida(
+fn at_exit(
     f: &Function,
     cfg: &Cfg,
     b: usize,
-    entrada: &[HashSet<ValueId>],
-    referencias: &Inventario<'_>,
+    entry: &[HashSet<ValueId>],
+    references: &Inventory<'_>,
 ) -> HashSet<ValueId> {
-    let mut vivos = HashSet::new();
-    for &s in &cfg.sucessores[b] {
-        vivos.extend(na_aresta(f, b, s, entrada, referencias));
+    let mut live_set = HashSet::new();
+    for &s in &cfg.successors[b] {
+        live_set.extend(on_edge(f, b, s, entry, references));
     }
-    vivos
+    live_set
 }
 
-fn recuar(
+fn retreat(
     v: ValueId,
     inst: &Instruction,
-    referencias: &Inventario<'_>,
-    vivos: &mut HashSet<ValueId>,
+    references: &Inventory<'_>,
+    live_set: &mut HashSet<ValueId>,
 ) {
-    vivos.remove(&v);
+    live_set.remove(&v);
     if !matches!(inst, Instruction::Phi { .. }) {
-        operandos(inst, &mut |o| usos(o, referencias, vivos));
+        operands(inst, &mut |o| uses(o, references, live_set));
     }
 }
 
 /// Calcula vivacidade reversa em ponto fixo, com `Phi` por predecessor.
 ///
-/// A função deve ter CFG/SSA válidos. `referencias` vem da classificação
+/// A função deve ter CFG/SSA válidos. `references` vem da classificação
 /// semântica: não deduzimos ownership de `Type::I64` nem de `Type::Ptr`.
 /// Incluir aliases com proveniência gerenciada e slots proprietários, quando
 /// classificados. Dependências de borrows e extensões de vida precisam ser
@@ -197,12 +197,12 @@ fn recuar(
 /// assert!(vivos.entrada[&BlockId(0)].contains(&ValueId(0)));
 /// assert!(vivos.saida[&BlockId(0)].is_empty());
 /// ```
-pub fn vivacidade(f: &Function, referencias: &HashSet<ValueId>) -> Vivacidade {
-    analisar(
+pub fn liveness(f: &Function, references: &HashSet<ValueId>) -> Liveness {
+    analyze(
         f,
-        &Inventario {
-            referencias,
-            emprestimos: &HashMap::new(),
+        &Inventory {
+            references,
+            borrows: &HashMap::new(),
         },
     )
 }
@@ -216,33 +216,33 @@ pub fn vivacidade(f: &Function, referencias: &HashSet<ValueId>) -> Vivacidade {
 /// assert!(erro.to_string().starts_with("ARC003"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ErroEmprestimo {
+pub struct BorrowError {
     /// Símbolo da função analisada.
-    pub funcao: String,
+    pub function: String,
     /// Alias que iniciou a verificação desta cadeia.
-    pub origem: ValueId,
+    pub origin: ValueId,
     /// Cadeia de aliases/owners; um ciclo termina repetindo seu primeiro ID.
-    pub caminho: Vec<ValueId>,
+    pub path: Vec<ValueId>,
     /// Razão da rejeição do inventário.
-    pub motivo: &'static str,
+    pub reason: &'static str,
 }
 
-impl std::fmt::Display for ErroEmprestimo {
+impl std::fmt::Display for BorrowError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "ARC003 em {}: v{}: {}; caminho {:?}",
-            self.funcao, self.origem.0, self.motivo, self.caminho
+            self.function, self.origin.0, self.reason, self.path
         )
     }
 }
 
-impl std::error::Error for ErroEmprestimo {}
+impl std::error::Error for BorrowError {}
 
 /// Inclui a cadeia de sustentação de cada alias borrowed nos seus usos.
 ///
-/// `emprestimos` associa alias a owner imediato; cadeias incluem também os
-/// aliases intermediários. Vale o contrato de CFG/SSA de [`vivacidade`].
+/// `borrows` associa alias a owner imediato; cadeias incluem também os
+/// aliases intermediários. Vale o contrato de CFG/SSA de [`liveness`].
 /// Escopos, dominância e escape ainda precisam do verificador de ownership.
 /// A análise de `Phi` trata cada entrada na aresta do seu predecessor;
 /// transferências de tokens devem usar essas arestas, não pontos entre `Phi`.
@@ -265,12 +265,12 @@ impl std::error::Error for ErroEmprestimo {}
 /// assert_eq!(v.entrada[&BlockId(0)], refs);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-pub fn vivacidade_com_emprestimos(
+pub fn liveness_with_borrows(
     f: &Function,
-    referencias: &HashSet<ValueId>,
-    emprestimos: &HashMap<ValueId, ValueId>,
-) -> Result<Vivacidade, ErroEmprestimo> {
-    let existentes: HashSet<ValueId> = f
+    references: &HashSet<ValueId>,
+    borrows: &HashMap<ValueId, ValueId>,
+) -> Result<Liveness, BorrowError> {
+    let existing_set: HashSet<ValueId> = f
         .params
         .iter()
         .map(|(v, _, _)| *v)
@@ -280,105 +280,105 @@ pub fn vivacidade_com_emprestimos(
                 .flat_map(|b| b.instructions.iter().map(|(v, _, _)| *v)),
         )
         .collect();
-    let mut origens: Vec<ValueId> = emprestimos.keys().copied().collect();
-    origens.sort_by_key(|v| v.0);
-    let erro = |origem, caminho, motivo| ErroEmprestimo {
-        funcao: f.symbol.clone(),
-        origem,
-        caminho,
-        motivo,
+    let mut origins: Vec<ValueId> = borrows.keys().copied().collect();
+    origins.sort_by_key(|v| v.0);
+    let error = |origin, path, reason| BorrowError {
+        function: f.symbol.clone(),
+        origin,
+        path,
+        reason,
     };
-    for &alias in &origens {
-        let owner = emprestimos[&alias];
+    for &alias in &origins {
+        let owner = borrows[&alias];
         if [alias, owner]
             .iter()
-            .any(|v| !referencias.contains(v) || !existentes.contains(v))
+            .any(|v| !references.contains(v) || !existing_set.contains(v))
         {
-            return Err(erro(
+            return Err(error(
                 alias,
                 vec![alias, owner],
                 "alias/owner ausente da função ou do inventário",
             ));
         }
     }
-    let mut verificados = HashSet::new();
-    for origem in origens {
-        let mut caminho = Vec::new();
-        let mut posicoes = HashMap::new();
-        let mut atual = origem;
-        while !verificados.contains(&atual) {
-            if posicoes.insert(atual, caminho.len()).is_some() {
-                caminho.push(atual);
-                return Err(erro(origem, caminho, "dependência cíclica"));
+    let mut verified_set = HashSet::new();
+    for origin in origins {
+        let mut path = Vec::new();
+        let mut positions = HashMap::new();
+        let mut current = origin;
+        while !verified_set.contains(&current) {
+            if positions.insert(current, path.len()).is_some() {
+                path.push(current);
+                return Err(error(origin, path, "dependência cíclica"));
             }
-            caminho.push(atual);
-            let Some(&owner) = emprestimos.get(&atual) else {
+            path.push(current);
+            let Some(&owner) = borrows.get(&current) else {
                 break;
             };
-            atual = owner;
+            current = owner;
         }
-        verificados.extend(caminho);
+        verified_set.extend(path);
     }
-    Ok(analisar(
+    Ok(analyze(
         f,
-        &Inventario {
-            referencias,
-            emprestimos,
+        &Inventory {
+            references,
+            borrows,
         },
     ))
 }
 
-fn analisar(f: &Function, referencias: &Inventario<'_>) -> Vivacidade {
-    let cfg = Cfg::novo(f);
-    let mut entrada = vec![HashSet::new(); f.blocks.len()];
-    let mut fila: Vec<usize> = cfg.rpo.clone();
-    let mut na_fila = vec![false; f.blocks.len()];
-    for &b in &fila {
-        na_fila[b] = true;
+fn analyze(f: &Function, references: &Inventory<'_>) -> Liveness {
+    let cfg = Cfg::new(f);
+    let mut entry = vec![HashSet::new(); f.blocks.len()];
+    let mut queue: Vec<usize> = cfg.rpo.clone();
+    let mut in_queue = vec![false; f.blocks.len()];
+    for &b in &queue {
+        in_queue[b] = true;
     }
-    while let Some(b) = fila.pop() {
-        na_fila[b] = false;
-        let mut vivos = na_saida(f, &cfg, b, &entrada, referencias);
-        operandos_do_terminador(&f.blocks[b].terminator, &mut |o| {
-            usos(o, referencias, &mut vivos)
+    while let Some(b) = queue.pop() {
+        in_queue[b] = false;
+        let mut live_set = at_exit(f, &cfg, b, &entry, references);
+        terminator_operands(&f.blocks[b].terminator, &mut |o| {
+            uses(o, references, &mut live_set)
         });
         for (v, inst, _) in f.blocks[b].instructions.iter().rev() {
-            recuar(*v, inst, referencias, &mut vivos);
+            retreat(*v, inst, references, &mut live_set);
         }
-        if vivos != entrada[b] {
-            entrada[b] = vivos;
-            for &p in &cfg.predecessores[b] {
-                if cfg.alcancavel(p) && !na_fila[p] {
-                    fila.push(p);
-                    na_fila[p] = true;
+        if live_set != entry[b] {
+            entry[b] = live_set;
+            for &p in &cfg.predecessors[b] {
+                if cfg.reachable(p) && !in_queue[p] {
+                    queue.push(p);
+                    in_queue[p] = true;
                 }
             }
         }
     }
-    let mut resultado = Vivacidade::default();
+    let mut result = Liveness::default();
     for &b in &cfg.rpo {
-        let bloco = &f.blocks[b];
-        let mut vivos = na_saida(f, &cfg, b, &entrada, referencias);
-        resultado.entrada.insert(bloco.id, entrada[b].clone());
-        resultado.saida.insert(bloco.id, vivos.clone());
-        for &s in &cfg.sucessores[b] {
-            resultado.arestas.insert(
-                (bloco.id, f.blocks[s].id),
-                na_aresta(f, b, s, &entrada, referencias),
+        let block = &f.blocks[b];
+        let mut live_set = at_exit(f, &cfg, b, &entry, references);
+        result.entry.insert(block.id, entry[b].clone());
+        result.exit.insert(block.id, live_set.clone());
+        for &s in &cfg.successors[b] {
+            result.edges.insert(
+                (block.id, f.blocks[s].id),
+                on_edge(f, b, s, &entry, references),
             );
         }
-        operandos_do_terminador(&bloco.terminator, &mut |o| usos(o, referencias, &mut vivos));
-        for (v, inst, _) in bloco.instructions.iter().rev() {
-            resultado.depois.insert(*v, vivos.clone());
-            recuar(*v, inst, referencias, &mut vivos);
-            resultado.antes.insert(*v, vivos.clone());
+        terminator_operands(&block.terminator, &mut |o| uses(o, references, &mut live_set));
+        for (v, inst, _) in block.instructions.iter().rev() {
+            result.after.insert(*v, live_set.clone());
+            retreat(*v, inst, references, &mut live_set);
+            result.before.insert(*v, live_set.clone());
         }
     }
-    resultado
+    result
 }
 
 #[cfg(test)]
-mod testes;
+mod tests;
 
-mod retomas;
-pub(crate) use retomas::{conferir as conferir_retomas, instrucao_de_retoma};
+mod resumes;
+pub(crate) use resumes::{check as check_resumes, resume_instruction};

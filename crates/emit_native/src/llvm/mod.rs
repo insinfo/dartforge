@@ -1,33 +1,33 @@
 //! Gerador de LLVM IR a partir da HIR nativa.
 
-pub mod abi_c;
+pub mod c_abi;
 pub mod externs;
-mod depuracao;
-mod raizes;
-mod contexto_arc;
-mod portas_arc;
-mod rastro;
-pub mod verificar_mapas;
-pub mod verificar_sombra;
+mod debug_info;
+mod roots;
+mod arc_context;
+mod arc_ports;
+mod stack_trace;
+pub mod verify_maps;
+pub mod verify_shadow;
 mod simd;
 // As emissões que dependem da representação dos valores do runtime, uma por
 // pacote do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §4.2, passo 4).
-mod caixas_ir;
-mod listas_ir;
-mod textos_ir;
-mod tipados_ir;
+mod ir_boxes;
+mod ir_lists;
+mod ir_strings;
+mod ir_typed;
 
 use dartforge_runtime::layout;
 /// Maior índice de campo lido em linha (o contrato de layout).
-const CAMPOS_EM_LINHA: usize = layout::CAMPOS_EM_LINHA;
+const INLINE_FIELDS: usize = layout::CAMPOS_EM_LINHA;
 /// O maior corpo, em palavras, com alocação em linha (a TLAB de `w` palavras,
-/// `layout::contexto::tlab_cursor(w)`): um objeto de até `TLAB_N` campos.
+/// `layout::context::tlab_cursor(w)`): um objeto de até `TLAB_N` campos.
 const TLAB_N: i64 = layout::TLAB_N as i64;
 /// A máscara de `e_objeto` (`h & (7 | i64::MIN) == 2`).
-const MASCARA_DE_OBJETO: i64 = 7 | i64::MIN;
-mod seletores;
+const OBJECT_MASK: i64 = 7 | i64::MIN;
+mod selectors;
 #[cfg(test)]
-mod testes;
+mod tests;
 
 use crate::hir::*;
 use std::fmt::Write;
@@ -38,172 +38,172 @@ pub struct LlvmEmitter<'a> {
     /// `find` linear que esta tabela substituiu: ele era feito a cada
     /// `CallStatic` e tornava a emissão quadrática — dezenas de minutos no
     /// new_sali/backend, docs/NATIVO-PROJETOS-REAIS.md).
-    funcao_por_simbolo: std::collections::HashMap<&'a str, &'a Function>,
+    function_by_symbol: std::collections::HashMap<&'a str, &'a Function>,
     out: String,
     /// As constantes de string, na ordem de emissão (determinística); o
     /// índice de cada uma é a posição.
     string_constants: Vec<Vec<u8>>,
     /// O índice de cada constante pelo conteúdo: coletar e consultar sem
     /// percorrer a tabela (antes, quadrático no número de literais).
-    indice_de_string: std::collections::HashMap<Vec<u8>, usize>,
+    string_index: std::collections::HashMap<Vec<u8>, usize>,
     /// Tipo de cada valor da funcao sendo emitida, para coercao de operandos.
-    tipos: std::collections::HashMap<ValueId, Type>,
+    types: std::collections::HashMap<ValueId, Type>,
     /// Contador dos temporarios de coercao (%c0, %c1, ...), por funcao.
-    prox_coercao: u32,
+    next_coercion: u32,
     /// Conversoes que uma entrada de phi exige, atribuidas ao bloco de ORIGEM:
     /// (bloco, nome do temporario, tipo de origem, valor, tipo do phi).
     conv_phi: Vec<(u32, String, Type, ValueId, Type)>,
     /// Tipo guardado por cada `alloca` da função (para o `store`).
-    apontado: std::collections::HashMap<ValueId, Type>,
+    pointee: std::collections::HashMap<ValueId, Type>,
     /// Os `alloca` `Ref` cujo endereço sai da função (a captura por endereço
-    /// de uma função local direta, `lower/funcoes_diretas.rs`): moram no
+    /// de uma função local direta, `lower/direct_functions.rs`): moram no
     /// próprio slot do quadro de raízes, e quem recebe o endereço grava
     /// onde o coletor enxerga.
-    allocas_no_quadro: std::collections::HashSet<ValueId>,
+    frame_allocas: std::collections::HashSet<ValueId>,
     /// G: slot de raiz de cada valor `Ref` da função (SSA ou `alloca`).
     slots: std::collections::HashMap<ValueId, usize>,
     /// A função abriu um quadro de raízes (`%gcq`).
-    tem_frame: bool,
+    has_frame: bool,
     /// A função leu `%ctx` (`dartforge_contexto`, o contexto da thread do
     /// runtime) na entrada: exceção pendente e pilha-sombra sem chamada.
-    tem_ctx: bool,
+    has_ctx: bool,
     /// O rótulo LLVM em que termina cada bloco da HIR que se divide em
-    /// vários (a alocação em linha, [`LlvmEmitter::alocacao_em_linha`]): é
+    /// vários (a alocação em linha, [`LlvmEmitter::inline_allocation`]): é
     /// o predecessor que os `phi` dos sucessores nomeiam.
-    rotulos_de_saida: std::collections::HashMap<u32, String>,
+    exit_labels: std::collections::HashMap<u32, String>,
     /// O rótulo LLVM do trecho em emissão (o do bloco, ou o último que uma
     /// instrução dividida abriu): o predecessor de um `phi` interno.
-    rotulo_atual: String,
+    current_label: String,
     // --- P1 (closures, α) ---
     /// Vetores constantes de `i64` (`@df.arr.<k>`): assinaturas e descritores.
-    vetores: Vec<Vec<i64>>,
-    vetor_de: std::collections::HashMap<Vec<i64>, usize>,
+    vectors: Vec<Vec<i64>>,
+    vector_of: std::collections::HashMap<Vec<i64>, usize>,
     /// Vetores constantes de endereços de função (`@df.fns.<k>`).
-    tabelas_de_funcoes: Vec<Vec<String>>,
-    tabela_de_funcoes_de: std::collections::HashMap<Vec<String>, usize>,
+    function_tables: Vec<Vec<String>>,
+    function_table_of: std::collections::HashMap<Vec<String>, usize>,
     /// Os nomes dos argumentos nomeados dos descritores do módulo: o
     /// descritor só guarda o hash, e o `Invocation` de um `noSuchMethod`
     /// precisa do nome (`dartforge_registrar_nome_de_argumento`).
-    nomes_de_argumento: std::collections::BTreeSet<String>,
-    // --- P5c (SDK da fonte, δ; `seletores.rs`) ---
+    argument_names: std::collections::BTreeSet<String>,
+    // --- P5c (SDK da fonte, δ; `selectors.rs`) ---
     /// Pontos de chamada por seletor já emitidos (um cache cada).
-    caches_de_seletor: usize,
+    selector_caches: usize,
     /// O símbolo da função em emissão e quantos caches de seletor ela já
     /// abriu: o nome do slot de um cache é `(função, posição)`, estável
     /// entre gerações de uma recarga (J04).
-    funcao_atual: String,
-    cache_na_funcao: usize,
+    current_function: String,
+    cache_in_function: usize,
     /// O índice de cada nome de slot do layout da geração viva (recarga).
-    indice_de_slot: std::collections::HashMap<i64, usize>,
+    slot_index: std::collections::HashMap<i64, usize>,
     /// Textos dos seletores, na ordem do primeiro uso.
-    nomes_de_seletor: Vec<String>,
+    selector_names: Vec<String>,
     /// Assinatura de cada símbolo chamado, para declarar o que o módulo não
     /// define.
-    externos: std::collections::BTreeMap<String, String>,
+    externals: std::collections::BTreeMap<String, String>,
     /// Os thunks Owned genéricos chamados (`df.arc.owned.<base>`): a base e a
-    /// assinatura (`seletores::emitir_thunks_owned`).
-    thunks_owned: std::collections::BTreeMap<String, (String, Vec<Type>)>,
-    /// Os thunks de escopo nativo (`df.arc.escopo.<base>`): base, argumentos
+    /// assinatura (`selectors::emit_owned_thunks`).
+    owned_thunks: std::collections::BTreeMap<String, (String, Vec<Type>)>,
+    /// Os thunks de escopo nativo (`df.arc.scope.<base>`): base, argumentos
     /// e retorno.
-    thunks_escopo: std::collections::BTreeMap<String, (String, Vec<Type>, Type)>,
-    /// Símbolos definidos em `comdat` (`seletores::ligacao_de`).
+    scope_thunks: std::collections::BTreeMap<String, (String, Vec<Type>, Type)>,
+    /// Símbolos definidos em `comdat` (`selectors::linkage_of`).
     comdats: Vec<String>,
     /// `DARTFORGE_RASTRO=1` na compilação: cada função conta a entrada e a
     /// saída ao runtime, que mostra a pilha de funções Dart numa exceção
     /// (`DARTFORGE_DEPURAR=1`). Só para depurar o SDK da fonte.
-    rastro: Option<usize>,
-    nomes_do_rastro: Vec<String>,
+    stack_trace: Option<usize>,
+    stack_trace_names: Vec<String>,
     // --- Área de globais por isolado ---
     /// O slot (`i64`) de cada global do módulo na área (`@dfg_…` e a
     /// bandeira `$ok`): os estáticos do Dart são por isolado, e cada
     /// isolado é uma thread com a sua área (`dartforge_area_de_globais`).
-    slots_de_global: std::collections::HashMap<String, usize>,
+    global_slots: std::collections::HashMap<String, usize>,
     /// O hash do nome de cada slot, na ordem (o descritor da área): 0 nos
     /// caches de seletor.
-    hashes_de_slot: Vec<i64>,
+    slot_hashes: Vec<i64>,
     /// O layout da área da geração em execução (hot reload): os slots que
-    /// continuam mantêm o índice, os novos vêm depois (`emit_globais`).
-    area_anterior: Option<Vec<i64>>,
-    /// O descritor da área sem os nomes dos slots (`[chave, -n]`): o
-    /// executável de produção, que nunca recarrega (`com_area_enxuta`).
-    area_enxuta: bool,
+    /// continuam mantêm o índice, os novos vêm depois (`emit_globals`).
+    previous_area: Option<Vec<i64>>,
+    /// O descritor da área sem os nomes dos slots (`[key, -n]`): o
+    /// executável de produção, que nunca recarrega (`with_lean_area`).
+    lean_area: bool,
     /// J05: os metadados de depuração, quando alguma função tem posições.
-    depuracao: Option<depuracao::Depuracao>,
+    debug_info: Option<debug_info::DebugInfo>,
     // --- Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md) ---
     /// Os literais de string são objetos estáticos do módulo (§2.11):
     /// verdadeiro no AOT e nos módulos do SDK; falso nos módulos do programa no
     /// JIT, cuja memória é liberada (J02).
-    objetos_estaticos: bool,
-    /// O endereço dos campos de um objeto por chamada a `@df.corpo` em vez
+    static_objects: bool,
+    /// O endereço dos campos de um objeto por chamada a `@df.body` em vez
     /// das 15 instruções em linha (o perfil de desenvolvimento do programa,
     /// `-O0`): o IR do new_sali/backend tinha 465 mil cópias da sequência,
     /// 21% das linhas (docs/NATIVO-PROJETOS-REAIS.md, C9). A produção e os
     /// módulos do SDK continuam em linha.
-    campos_por_chamada: bool,
-    /// A alocação de instância por chamada ao `@df.nova_instancia` (a
-    /// produção do programa com `nova_instancia` em
-    /// [`LlvmEmitter::ajudantes_fora`]).
-    alocacao_fora_de_linha: bool,
+    fields_per_call: bool,
+    /// A alocação de instância por chamada ao `@df.new_instance` (a
+    /// produção do programa com `new_instance` em
+    /// [`LlvmEmitter::outlined_helpers`]).
+    out_of_line_allocation: bool,
     /// Os ajudantes `@df.*` que vão `noinline` no módulo do programa de
-    /// produção ([`ajudantes_fora_de_linha`]).
-    ajudantes_fora: Vec<String>,
-    /// O despacho por seletor fora de linha (`seletor` em
-    /// [`LlvmEmitter::ajudantes_fora`]): o ponto de chamada passa o
+    /// produção ([`out_of_line_helpers`]).
+    outlined_helpers: Vec<String>,
+    /// O despacho por seletor fora de linha (`selector` em
+    /// [`LlvmEmitter::outlined_helpers`]): o ponto de chamada passa o
     /// descritor estático do seletor (`@df.seld.<k>`: hash, nome,
-    /// comprimento) ao `@df.seletor_d`, que tem o `@df.seletor` em linha —
+    /// comprimento) ao `@df.seletor_d`, que tem o `@df.selector` em linha —
     /// três argumentos em vez de cinco em cada um dos ~170 mil pontos do
     /// programa grande.
-    seletor_compacto: bool,
+    compact_selector: bool,
     /// `optsize` em cada função do módulo (o programa grande na produção;
-    /// o SDK de produção já o tem, `sdk_modulo::com_optsize`).
-    otimizar_tamanho: bool,
+    /// o SDK de produção já o tem, `sdk_modulo::with_optsize`).
+    optimize_size: bool,
     /// Os objetos recém-alocados neste bloco da HIR, sem ponto de coleta
-    /// desde a alocação (`emitir_endereco_dos_campos`): o corpo está no
+    /// desde a alocação (`emit_field_addresses`): o corpo está no
     /// bloco (nunca de fora, nunca null nem `Smi`) e o objeto é jovem (a
     /// barreira não faz nada).
-    frescos: std::collections::HashSet<u32>,
-    /// Nenhum objeto tem corpo de fora (`com_corpo_sem_fora`).
-    corpo_sem_fora: bool,
+    fresh_set: std::collections::HashSet<u32>,
+    /// Nenhum objeto tem corpo de fora (`with_body_without_outside`).
+    body_without_outside: bool,
     /// O `this` da função em emissão, quando o corpo dele é direto
-    /// ([`Self::corpo_direto`]).
-    this_objeto: Option<u32>,
+    /// ([`Self::direct_body`]).
+    this_object: Option<u32>,
     /// Cada quadro de raízes desta emissão fica num quadro nativo próprio
     /// (o programa sem otimização: `-O0` no AOT, `CodeGenLevelNone` no JIT,
     /// sem inlining): o runtime pode conferir a ordem dos endereços na
     /// pilha-sombra (o quadro morto, `RT/heap.rs` `visitar_quadros`). Com
     /// inlining, dois quadros viram `alloca` da mesma função, em ordem
     /// qualquer, e a conferência daria falso positivo.
-    quadros_ordenados: bool,
+    ordered_frames: bool,
     /// O módulo é do perfil de produção (`--optimize`): com
-    /// [`Self::campos_por_chamada`], o `@df.corpo` vai `noinline` (o
+    /// [`Self::fields_per_call`], o `@df.body` vai `noinline` (o
     /// otimizador o poria de volta em linha).
-    producao: bool,
+    production: bool,
     /// As tabelas de métodos são montadas na ligação
     /// (docs/NATIVO-PODA-DE-TABELAS.md §3.2): o módulo só declara a função
-    /// de cada tabela, e o conteúdo vai para o resumo (`poda.rs`). É o SDK
+    /// de cada tabela, e o conteúdo vai para o resumo (`pruning.rs`). É o SDK
     /// de produção.
-    tabelas_na_ligacao: bool,
+    tables_at_link: bool,
     /// O estado de cada pacote da emissão (§4.2, passo 4); os pacotes o usam
     /// conforme migram.
     #[allow(dead_code)]
-    textos: textos_ir::EstadoDeTextos,
+    strings: ir_strings::StringState,
     #[allow(dead_code)]
-    caixas: caixas_ir::EstadoDeCaixas,
+    boxes: ir_boxes::BoxState,
     #[allow(dead_code)]
-    listas: listas_ir::EstadoDeListas,
+    lists: ir_lists::ListState,
     #[allow(dead_code)]
-    tipados: tipados_ir::EstadoDeTipados,
+    typed_items: ir_typed::TypedState,
     /// Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13):
-    /// a decisão do passe `optimize::tabelas` para a função em emissão —
+    /// a decisão do passe `optimize::tables` para a função em emissão —
     /// quem é `invoke`, os pousos e como cada `Return` sai. `None` no modelo
     /// de sempre (a pendência conferida depois de cada chamada), e o IR é
     /// então o de sempre, byte a byte.
-    tab: Option<&'a TabelasDaFuncao>,
-    /// `DARTFORGE_EFEITOS=conferir` ([`externs::conferir_efeitos`]): os nomes
+    tab: Option<&'a FunctionTables>,
+    /// `DARTFORGE_EFEITOS=check` ([`externs::check_effects`]): os nomes
     /// das externs conferidas neste módulo, na ordem do primeiro uso (o
     /// índice é o do global `@df.efn.<k>` com o texto).
-    externs_conferidas: Vec<String>,
-    /// Raízes por mapas de pilha (`--raizes=mapas`,
+    checked_externs: Vec<String>,
+    /// Raízes por mapas de pilha (`--roots=maps`,
     /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12): os valores SSA `Ref`
     /// vivos através de um ponto de coleta não vão para o quadro da
     /// pilha-sombra; cada chamada que pode coletar leva, no operando
@@ -212,37 +212,37 @@ pub struct LlvmEmitter<'a> {
     /// pilha da chamada — o registrador preservado em que ele já está, ou o
     /// slot. O coletor não move objetos: nada é relocado, e o código segue
     /// com o próprio valor. Só os `alloca` `Ref` continuam no quadro.
-    mapas: bool,
-    /// Com [`Self::mapas`], a análise de raízes da função em emissão.
-    raizes_da_funcao: raizes::Raizes,
-    /// Com [`Self::mapas`], os valores enraizados da função em emissão.
-    enraizados: std::collections::HashSet<ValueId>,
+    maps: bool,
+    /// Com [`Self::maps`], a análise de raízes da função em emissão.
+    function_roots: roots::Roots,
+    /// Com [`Self::maps`], os valores enraizados da função em emissão.
+    rooted_set: std::collections::HashSet<ValueId>,
     /// Raízes por mapas: as definições de `@df.vararg.<k>`, os intermediários
     /// das chamadas C variádicas feitas por uma função `gc`
-    /// ([`Self::texto_da_chamada_c`]); vão ao módulo depois das funções.
-    variadicas: Vec<String>,
+    /// ([`Self::c_call_text`]); vão ao módulo depois das funções.
+    variadic_set: Vec<String>,
     /// O build de conferência do percurso (`DARTFORGE_RAIZES_CONFERIR=1`
-    /// com `--raizes=mapas`, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §15.2,
+    /// com `--roots=maps`, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §15.2,
     /// E2.5): numa função `gc`, o primeiro dos slots de conferência no fim
     /// do quadro de raízes e quantos são. Antes de cada ponto de coleta eles
     /// recebem exatamente os valores vivos nele (zero nos demais), e o
     /// runtime confere que o percurso por mapas visitou todos.
-    conferencia: Option<(usize, usize)>,
+    check: Option<(usize, usize)>,
     /// Raízes por mapas num módulo do JIT (§3.8): o gerenciador de memória do
     /// JIT acha o mapa de cada objeto e o registra; o módulo não chama o
     /// registro nem leva o `-ni:1` (o `LLJIT` recusa um módulo com a camada
     /// de dados diferente da dele, e o JIT não roda otimização de IR).
-    mapas_no_jit: bool,
+    maps_in_jit: bool,
     /// Quantas funções `gc` o módulo emitiu (no Mach-O, o `.no_dead_strip`
     /// do mapa só vai a um módulo que tem mapa).
-    funcoes_gc: usize,
-    /// O rastro no formato da VM (§13.14, `llvm/rastro.rs`): os rótulos das
+    gc_functions: usize,
+    /// O rastro no formato da VM (§13.14, `llvm/stack_trace.rs`): os rótulos das
     /// chamadas e a tabela da seção `dfpcl`. `None`: sem tabela.
-    rastro_vm: Option<rastro::Rastro>,
+    vm_stack_trace: Option<stack_trace::StackTrace>,
     /// O módulo vai para o JIT: a seção do rastro de cada objeto é
     /// registrada pelo gerenciador de memória da sessão (`crates/jit`), e o
     /// módulo não tem os símbolos do ligador nem a chamada de registro.
-    rastro_no_jit: bool,
+    stack_trace_in_jit: bool,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -251,90 +251,90 @@ impl<'a> LlvmEmitter<'a> {
             module,
             out: String::new(),
             string_constants: Vec::new(),
-            indice_de_string: std::collections::HashMap::new(),
-            tipos: std::collections::HashMap::new(),
-            prox_coercao: 0,
+            string_index: std::collections::HashMap::new(),
+            types: std::collections::HashMap::new(),
+            next_coercion: 0,
             conv_phi: Vec::new(),
-            apontado: std::collections::HashMap::new(),
-            allocas_no_quadro: std::collections::HashSet::new(),
+            pointee: std::collections::HashMap::new(),
+            frame_allocas: std::collections::HashSet::new(),
             slots: std::collections::HashMap::new(),
-            tem_frame: false,
-            tem_ctx: false,
-            rotulos_de_saida: std::collections::HashMap::new(),
-            rotulo_atual: String::new(),
+            has_frame: false,
+            has_ctx: false,
+            exit_labels: std::collections::HashMap::new(),
+            current_label: String::new(),
 
-            vetores: Vec::new(),
-            vetor_de: std::collections::HashMap::new(),
-            tabelas_de_funcoes: Vec::new(),
-            tabela_de_funcoes_de: std::collections::HashMap::new(),
-            nomes_de_argumento: std::collections::BTreeSet::new(),
-            caches_de_seletor: 0,
-            funcao_atual: String::new(),
-            cache_na_funcao: 0,
-            indice_de_slot: std::collections::HashMap::new(),
-            nomes_de_seletor: Vec::new(),
-            externos: std::collections::BTreeMap::new(),
-            thunks_owned: std::collections::BTreeMap::new(),
-            thunks_escopo: std::collections::BTreeMap::new(),
+            vectors: Vec::new(),
+            vector_of: std::collections::HashMap::new(),
+            function_tables: Vec::new(),
+            function_table_of: std::collections::HashMap::new(),
+            argument_names: std::collections::BTreeSet::new(),
+            selector_caches: 0,
+            current_function: String::new(),
+            cache_in_function: 0,
+            slot_index: std::collections::HashMap::new(),
+            selector_names: Vec::new(),
+            externals: std::collections::BTreeMap::new(),
+            owned_thunks: std::collections::BTreeMap::new(),
+            scope_thunks: std::collections::BTreeMap::new(),
             comdats: Vec::new(),
-            rastro: std::env::var("DARTFORGE_RASTRO").is_ok_and(|v| v == "1").then_some(0),
-            nomes_do_rastro: Vec::new(),
-            slots_de_global: std::collections::HashMap::new(),
-            hashes_de_slot: Vec::new(),
-            area_anterior: None,
-            area_enxuta: false,
-            // As posições servem às tabelas de linha só com `--depuracao`; sem
-            // ela, são só do rastro simbólico (`rastro_vm`).
-            depuracao: (module.dwarf && module.functions.iter().any(|f| f.depuracao.is_some())).then(depuracao::Depuracao::nova),
-            funcao_por_simbolo: {
+            stack_trace: std::env::var("DARTFORGE_RASTRO").is_ok_and(|v| v == "1").then_some(0),
+            stack_trace_names: Vec::new(),
+            global_slots: std::collections::HashMap::new(),
+            slot_hashes: Vec::new(),
+            previous_area: None,
+            lean_area: false,
+            // As posições servem às tabelas de linha só com `--debug_info`; sem
+            // ela, são só do rastro simbólico (`vm_stack_trace`).
+            debug_info: (module.dwarf && module.functions.iter().any(|f| f.debug_info.is_some())).then(debug_info::DebugInfo::new_one),
+            function_by_symbol: {
                 let mut m = std::collections::HashMap::with_capacity(module.functions.len());
                 for f in &module.functions {
                     m.entry(f.symbol.as_str()).or_insert(f);
                 }
                 m
             },
-            objetos_estaticos: false,
-            campos_por_chamada: false,
-            producao: false,
-            quadros_ordenados: false,
-            alocacao_fora_de_linha: false,
-            ajudantes_fora: Vec::new(),
-            otimizar_tamanho: false,
-            frescos: std::collections::HashSet::new(),
-            corpo_sem_fora: false,
-            this_objeto: None,
-            seletor_compacto: false,
-            tabelas_na_ligacao: false,
-            textos: Default::default(),
-            caixas: Default::default(),
-            listas: Default::default(),
-            tipados: Default::default(),
+            static_objects: false,
+            fields_per_call: false,
+            production: false,
+            ordered_frames: false,
+            out_of_line_allocation: false,
+            outlined_helpers: Vec::new(),
+            optimize_size: false,
+            fresh_set: std::collections::HashSet::new(),
+            body_without_outside: false,
+            this_object: None,
+            compact_selector: false,
+            tables_at_link: false,
+            strings: Default::default(),
+            boxes: Default::default(),
+            lists: Default::default(),
+            typed_items: Default::default(),
             tab: None,
-            externs_conferidas: Vec::new(),
-            mapas: false,
-            raizes_da_funcao: raizes::Raizes::default(),
-            enraizados: std::collections::HashSet::new(),
-            variadicas: Vec::new(),
-            conferencia: None,
-            funcoes_gc: 0,
-            mapas_no_jit: false,
-            rastro_vm: None,
-            rastro_no_jit: false,
+            checked_externs: Vec::new(),
+            maps: false,
+            function_roots: roots::Roots::default(),
+            rooted_set: std::collections::HashSet::new(),
+            variadic_set: Vec::new(),
+            check: None,
+            gc_functions: 0,
+            maps_in_jit: false,
+            vm_stack_trace: None,
+            stack_trace_in_jit: false,
         }
     }
 
     /// Delega o registro das seções do rastro ao gerenciador de memória do JIT.
     /// O módulo deixa de emitir os símbolos do ligador e a chamada de registro.
-    pub fn com_rastro_no_jit(mut self, sim: bool) -> Self {
-        self.rastro_no_jit = sim;
+    pub fn with_stack_trace_in_jit(mut self, yes: bool) -> Self {
+        self.stack_trace_in_jit = yes;
         self
     }
 
     /// O rastro simbólico (§13.14): os rótulos antes das chamadas e a
-    /// tabela da imagem (`alvo::rastro_simbolico`; no JIT, com
-    /// [`LlvmEmitter::com_rastro_no_jit`]).
-    pub fn com_rastro(mut self, sim: bool) -> Self {
-        self.rastro_vm = sim.then(rastro::Rastro::novo);
+    /// tabela da imagem (`alvo::symbolic_stack_trace`; no JIT, com
+    /// [`LlvmEmitter::with_stack_trace_in_jit`]).
+    pub fn with_stack_trace(mut self, yes: bool) -> Self {
+        self.vm_stack_trace = yes.then(stack_trace::StackTrace::new);
         self
     }
 
@@ -342,7 +342,7 @@ impl<'a> LlvmEmitter<'a> {
     /// base da imagem PE (o runtime acha `.dfgcm` e `.llvm_st` pelos
     /// cabeçalhos); os limites da seção `dfgcm` que o `ld.lld` define; no
     /// Mach-O, os do `__llvm_stackmaps` do LLVM.
-    fn chamada_de_registro_dos_mapas() -> &'static str {
+    fn maps_registration_call() -> &'static str {
         match crate::alvo::sistema() {
             crate::alvo::Sistema::Windows => "  call void @dartforge_registrar_mapa(ptr @__ImageBase)\n",
             crate::alvo::Sistema::Linux => "  call void @dartforge_registrar_mapa_secao(ptr @__start_dfgcm, ptr @__stop_dfgcm)\n",
@@ -353,125 +353,125 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// O registro dos campos do `dart:async` que o rastro percorre (§13.14).
-    fn chamadas_de_registro_dos_campos_do_rastro(&self) -> String {
+    fn trace_field_registration_calls(&self) -> String {
         let mut s = String::new();
-        for (cid, nome, posicao) in &self.module.campos_do_rastro {
-            let idx = self.string_const_index(nome.as_bytes()).unwrap_or(0);
-            writeln!(s, "  call void @dartforge_registrar_campo_do_rastro(i64 {cid}, ptr @.str.{idx}, i64 {}, i64 {posicao})", nome.len()).unwrap();
+        for (cid, name_str, position) in &self.module.trace_fields {
+            let idx = self.string_const_index(name_str.as_bytes()).unwrap_or(0);
+            writeln!(s, "  call void @dartforge_registrar_campo_do_rastro(i64 {cid}, ptr @.str.{idx}, i64 {}, i64 {position})", name_str.len()).unwrap();
         }
         // As entradas de tear-off dos ramos de stream.
         // Só as que sobraram da poda (a entrada some com quem a criava).
-        for (simbolo, especie) in &self.module.tearoffs_do_rastro {
-            if !self.module.functions.iter().any(|f| f.symbol == *simbolo) {
+        for (sym_name, kind) in &self.module.stack_trace_tearoffs {
+            if !self.module.functions.iter().any(|f| f.symbol == *sym_name) {
                 continue;
             }
-            writeln!(s, "  call void @dartforge_registrar_tearoff_do_rastro(ptr @{simbolo}, i64 {especie})").unwrap();
+            writeln!(s, "  call void @dartforge_registrar_tearoff_do_rastro(ptr @{sym_name}, i64 {kind})").unwrap();
         }
         s
     }
 
     /// A chamada de registro da tabela do rastro da imagem (§13.14).
-    fn chamada_de_registro_do_rastro(&self) -> Option<String> {
-        self.rastro_vm.as_ref()?;
-        if self.rastro_no_jit {
+    fn trace_registration_call(&self) -> Option<String> {
+        self.vm_stack_trace.as_ref()?;
+        if self.stack_trace_in_jit {
             return None;
         }
-        let (_, inicio, fim) = rastro::marcadores();
-        Some(format!("  call void @dartforge_registrar_rastro(ptr {inicio}, ptr {fim})\n"))
+        let (_, start, end) = stack_trace::markers();
+        Some(format!("  call void @dartforge_registrar_rastro(ptr {start}, ptr {end})\n"))
     }
 
-    /// Obtém o endereço dos campos por chamada a `@df.corpo`, fora de linha.
+    /// Obtém o endereço dos campos por chamada a `@df.body`, fora de linha.
     /// Usado no perfil de desenvolvimento para reduzir o tamanho do IR.
-    pub fn com_campos_por_chamada(mut self, sim: bool) -> Self {
-        self.campos_por_chamada = sim;
+    pub fn with_fields_per_call(mut self, yes: bool) -> Self {
+        self.fields_per_call = yes;
         self
     }
 
     /// Seleciona o perfil de produção; com campos por chamada, mantém
-    /// `@df.corpo` fora de linha por meio de `noinline`.
-    pub fn com_producao(mut self, sim: bool) -> Self {
-        self.producao = sim;
+    /// `@df.body` fora de linha por meio de `noinline`.
+    pub fn with_production(mut self, yes: bool) -> Self {
+        self.production = yes;
         self
     }
 
     /// Marca quadros de raízes como ordenados para a conferência do runtime.
     /// Requer emissão sem inlining, com um quadro nativo por função.
-    pub fn com_quadros_ordenados(mut self, sim: bool) -> Self {
-        self.quadros_ordenados = sim;
+    pub fn with_ordered_frames(mut self, yes: bool) -> Self {
+        self.ordered_frames = yes;
         self
     }
 
     /// Nenhum objeto terá corpo de fora (o bit `FORA`, que só a migração da
     /// recarga do JIT cria — `runtime/src/heap.rs`, `trocar_campos`): o AOT
     /// e o SDK de produção. Com isto, o campo do `this` de um método é lido
-    /// direto do bloco ([`Self::corpo_direto`]).
-    pub fn com_corpo_sem_fora(mut self, sim: bool) -> Self {
-        self.corpo_sem_fora = sim;
+    /// direto do bloco ([`Self::direct_body`]).
+    pub fn with_body_without_outside(mut self, yes: bool) -> Self {
+        self.body_without_outside = yes;
         self
     }
 
     /// Aplica `optsize` a cada função emitida no módulo.
-    pub fn com_otimizar_tamanho(mut self, sim: bool) -> Self {
-        self.otimizar_tamanho = sim;
+    pub fn with_optimize_size(mut self, yes: bool) -> Self {
+        self.optimize_size = yes;
         self
     }
 
     /// Os ajudantes fora de linha do módulo do programa (veja
-    /// [`ajudantes_fora_de_linha`]); um módulo do SDK os ignora.
-    pub fn com_ajudantes_fora(mut self, nomes: Vec<String>) -> Self {
-        if self.module.biblioteca_sdk {
+    /// [`out_of_line_helpers`]); um módulo do SDK os ignora.
+    pub fn with_outlined_helpers(mut self, names: Vec<String>) -> Self {
+        if self.module.sdk_library {
             return self;
         }
-        self.alocacao_fora_de_linha = nomes.iter().any(|n| n == "nova_instancia");
-        self.seletor_compacto = nomes.iter().any(|n| n == "seletor");
-        // O `@df.seletor` continua `alwaysinline`: só o `@df.seletor_d`
+        self.out_of_line_allocation = names.iter().any(|n| n == "nova_instancia");
+        self.compact_selector = names.iter().any(|n| n == "seletor");
+        // O `@df.selector` continua `alwaysinline`: só o `@df.seletor_d`
         // (fora de linha) o chama.
-        self.ajudantes_fora = nomes.into_iter().filter(|n| n != "seletor").collect();
+        self.outlined_helpers = names.into_iter().filter(|n| n != "seletor").collect();
         self
     }
 
-    pub fn com_objetos_estaticos(mut self, sim: bool) -> Self {
-        self.objetos_estaticos = sim;
+    pub fn with_static_objects(mut self, yes: bool) -> Self {
+        self.static_objects = yes;
         self
     }
 
     /// Delega o registro dos mapas de pilha ao gerenciador de memória do JIT.
     /// O módulo deixa de emitir o registro e a opção de layout `-ni:1`.
-    pub fn com_mapas_no_jit(mut self, sim: bool) -> Self {
-        self.mapas_no_jit = sim;
+    pub fn with_maps_in_jit(mut self, yes: bool) -> Self {
+        self.maps_in_jit = yes;
         self
     }
 
     /// Emite raízes SSA pelos mapas de pilha dos statepoints do LLVM.
     /// Os `alloca` de referências continuam no quadro da pilha-sombra.
-    pub fn com_raizes_por_mapas(mut self, sim: bool) -> Self {
-        self.mapas = sim;
+    pub fn with_roots_by_maps(mut self, yes: bool) -> Self {
+        self.maps = yes;
         self
     }
 
-    pub fn com_tabelas_na_ligacao(mut self, sim: bool) -> Self {
-        self.tabelas_na_ligacao = sim;
+    pub fn with_tables_at_link(mut self, yes: bool) -> Self {
+        self.tables_at_link = yes;
         self
     }
 
     /// O emissor de uma geração nova de um programa em execução (hot reload
-    /// do JIT): `anterior` são os nomes dos slots da área da geração viva
-    /// ([`crate::area_do_ir`]). Os globais que continuam mantêm o índice e
+    /// do JIT): `previous` são os nomes dos slots da área da geração viva
+    /// ([`crate::ir_area`]). Os globais que continuam mantêm o índice e
     /// os novos vêm depois, então o código das duas gerações lê e grava a
     /// mesma área — os quadros `async` suspensos e as closures que ainda
     /// executam código antigo veem os mesmos estáticos que o código novo.
-    pub fn com_area_anterior(mut self, anterior: Option<Vec<i64>>) -> Self {
-        self.area_anterior = anterior;
+    pub fn with_previous_area(mut self, previous: Option<Vec<i64>>) -> Self {
+        self.previous_area = previous;
         self
     }
 
-    /// O descritor da área só com a chave e o número de slots, `[chave, -n]`
+    /// O descritor da área só com a chave e o número de slots, `[key, -n]`
     /// (o sinal marca a forma enxuta para `dartforge_area_de_globais`): os
     /// hashes dos nomes só servem à recarga (a migração da área e a
     /// extensão do layout), e o executável de produção nunca recarrega. O
     /// JIT e a DLL de desenvolvimento ficam com o descritor completo.
-    pub fn com_area_enxuta(mut self, enxuta: bool) -> Self {
-        self.area_enxuta = enxuta;
+    pub fn with_lean_area(mut self, lean: bool) -> Self {
+        self.lean_area = lean;
         self
     }
 
@@ -489,9 +489,9 @@ impl<'a> LlvmEmitter<'a> {
     /// Módulo com diagnósticos ou metadados excepcionais incoerentes.
     /// Retoma ainda exige Itanium sem statepoints; Windows precisa de funclets.
     pub fn emit_all(mut self) -> String {
-        assert!(self.module.erros.is_empty(), "emit_all com diagnósticos: {:?}", self.module.erros);
-        assert!(!cfg!(windows) || !self.module.tabelas.iter().any(|t|
-            t.saidas.values().any(|s| *s == SaidaPorExcecao::Retoma)),
+        assert!(self.module.errors.is_empty(), "emit_all com diagnósticos: {:?}", self.module.errors);
+        assert!(!cfg!(windows) || !self.module.tables.iter().any(|t|
+            t.exits.values().any(|s| *s == ExceptionExit::Resume)),
             "Retoma exige Itanium; Windows precisa de funclets SEH");
         // Coleta literais de strings do módulo para declaração como constantes globais
         self.collect_string_constants();
@@ -501,7 +501,7 @@ impl<'a> LlvmEmitter<'a> {
 
         // 2. Declarações do runtime
         self.emit_runtime_decls();
-        self.emitir_portas_arc_aot();
+        self.emit_arc_aot_ports();
 
         // 3. Constantes de strings globais
         self.emit_string_constants();
@@ -510,52 +510,52 @@ impl<'a> LlvmEmitter<'a> {
         self.emit_vtables();
 
         // 4b. Globais do usuário (N6)
-        self.emit_globais();
+        self.emit_globals();
 
         // 4c. Tabela de código das closures e vetores constantes (P1)
         self.emit_closures();
 
         // 5. Funções compiladas
-        let modulo = self.module;
-        if modulo.excecoes_por_tabelas {
+        let module = self.module;
+        if module.excecoes_por_tabelas {
             assert!(
-                modulo.tabelas.len() == modulo.functions.len(),
+                module.tables.len() == module.functions.len(),
                 "bug do compilador: as funções do módulo mudaram depois do passe das exceções por tabelas"
             );
         }
-        for (k, func) in modulo.functions.iter().enumerate() {
-            self.tab = if modulo.excecoes_por_tabelas { modulo.tabelas.get(k) } else { None };
+        for (k, func) in module.functions.iter().enumerate() {
+            self.tab = if module.excecoes_por_tabelas { module.tables.get(k) } else { None };
             self.emit_function(func);
         }
         self.tab = None;
-        for d in std::mem::take(&mut self.variadicas) {
+        for d in std::mem::take(&mut self.variadic_set) {
             self.out.push_str(&d);
         }
 
-        if self.module.biblioteca_sdk {
+        if self.module.sdk_library {
             // Uma biblioteca do SDK da fonte (P5c): sem entrada nem despacho
             // de `toString`, que são do programa; a função de registro das
             // classes dela, que a entrada do programa chama.
-            let reg = self.module.registro.clone().unwrap_or_else(|| "df.registrar".to_string());
-            self.emitir_registro(&reg);
-            self.emitir_globais_de_seletores();
-            self.emitir_descritor_da_area();
-            self.out.push_str(OBTER_AREA);
-            self.emitir_globais_de_texto();
-            self.emitir_declaracoes_externas();
-            self.fechar_mapas();
-            if let Some(r) = self.rastro_vm.take() {
+            let reg = self.module.record.clone().unwrap_or_else(|| "df.registrar".to_string());
+            self.emit_registration(&reg);
+            self.emit_selector_globals();
+            self.emit_area_descriptor();
+            self.out.push_str(GET_AREA);
+            self.emit_string_globals();
+            self.emit_external_declarations();
+            self.close_maps();
+            if let Some(r) = self.vm_stack_trace.take() {
                 r.finalizar(&mut self.out);
             }
-            if let Some(d) = self.depuracao.take() {
+            if let Some(d) = self.debug_info.take() {
                 d.finalizar(&mut self.out);
             }
             return self.out;
         }
 
         // 6. Funções de despacho polimórfico
-        if self.module.modo_sdk {
-            self.emitir_to_string_por_seletor();
+        if self.module.sdk_mode {
+            self.emit_to_string_by_selector();
         } else {
             self.emit_dispatch_functions();
         }
@@ -563,8 +563,8 @@ impl<'a> LlvmEmitter<'a> {
         // 7. Entrada global @dartforge_entry
         self.emit_entry();
 
-        self.emitir_globais_de_seletores();
-        self.emitir_descritor_da_area();
+        self.emit_selector_globals();
+        self.emit_area_descriptor();
         // A área deste isolado com o layout desta geração, criada (ou
         // estendida) agora: a publicação de uma recarga do JIT a chama no
         // ponto seguro, antes de o código novo executar.
@@ -572,22 +572,22 @@ impl<'a> LlvmEmitter<'a> {
             "define void @df.preparar_area() {\n  %a = call ptr @dartforge_area_de_globais(ptr @df.area)\n  ret void\n}\n",
         );
         // A área no prólogo de cada função: o id do módulo indexa a tabela
-        // desta thread no `Contexto` (deslocamentos 16 e 24); uma entrada
+        // desta thread no `Context` (deslocamentos 16 e 24); uma entrada
         // ausente vai ao runtime, que a preenche (e dá o id na primeira vez).
         // O índice da área do programa tem nome próprio: o particionamento
-        // (`particao.rs`) o promove a externo, e a LTO completa dos módulos
+        // (`partition.rs`) o promove a externo, e a LTO completa dos módulos
         // do SDK, ao dividir o módulo juntado em partições, promove o
         // `@df.area_id` interno de um deles com o mesmo nome — "duplicate
         // symbol: df.area_id" (docs/NATIVO-PRODUCAO-GRANDE.md §5).
-        let obter_area = OBTER_AREA.replace("@df.area_id", "@df.area_id.programa");
-        self.out.push_str(&fora_de_linha(&obter_area, &self.ajudantes_fora));
-        self.emitir_globais_de_texto();
-        self.emitir_declaracoes_externas();
-        self.fechar_mapas();
-        if let Some(r) = self.rastro_vm.take() {
+        let get_area = GET_AREA.replace("@df.area_id", "@df.area_id.programa");
+        self.out.push_str(&out_of_line(&get_area, &self.outlined_helpers));
+        self.emit_string_globals();
+        self.emit_external_declarations();
+        self.close_maps();
+        if let Some(r) = self.vm_stack_trace.take() {
             r.finalizar(&mut self.out);
         }
-        if let Some(d) = self.depuracao.take() {
+        if let Some(d) = self.debug_info.take() {
             d.finalizar(&mut self.out);
         }
         self.out
@@ -603,12 +603,12 @@ impl<'a> LlvmEmitter<'a> {
     /// mapa, o símbolo não existe.
     ///
     /// Antes, o `"deopt"()` vazio em toda chamada que pode coletar e ainda
-    /// não tem o dela ([`deopt_vazio`]).
-    fn fechar_mapas(&mut self) {
-        if self.mapas {
-            self.out = deopt_vazio(&self.out);
+    /// não tem o dela ([`empty_deopt`]).
+    fn close_maps(&mut self) {
+        if self.maps {
+            self.out = empty_deopt(&self.out);
         }
-        if self.mapas && !self.mapas_no_jit && self.funcoes_gc > 0 && crate::alvo::sistema() == crate::alvo::Sistema::MacOs {
+        if self.maps && !self.maps_in_jit && self.gc_functions > 0 && crate::alvo::sistema() == crate::alvo::Sistema::MacOs {
             self.out.push_str("module asm \".no_dead_strip __LLVM_StackMaps\"\n");
         }
     }
@@ -623,29 +623,29 @@ impl<'a> LlvmEmitter<'a> {
                             Instruction::Const(Constant::StringWtf8(s)) => s,
                             _ => unreachable!(),
                         };
-                        Self::registrar_string(&mut self.string_constants, &mut self.indice_de_string, bytes);
+                        Self::register_string(&mut self.string_constants, &mut self.string_index, bytes);
                     }
                 }
             }
         }
         for class in &self.module.classes {
-            Self::registrar_string(&mut self.string_constants, &mut self.indice_de_string, class.name.as_bytes());
+            Self::register_string(&mut self.string_constants, &mut self.string_index, class.name.as_bytes());
         }
-        for (_, nome, _) in &self.module.campos_do_rastro {
-            Self::registrar_string(&mut self.string_constants, &mut self.indice_de_string, nome.as_bytes());
+        for (_, name_str, _) in &self.module.trace_fields {
+            Self::register_string(&mut self.string_constants, &mut self.string_index, name_str.as_bytes());
         }
     }
 
     /// Acrescenta `bytes` à tabela de constantes, se ainda não estiver.
-    fn registrar_string(tabela: &mut Vec<Vec<u8>>, indice: &mut std::collections::HashMap<Vec<u8>, usize>, bytes: &[u8]) {
-        if !indice.contains_key(bytes) {
-            indice.insert(bytes.to_vec(), tabela.len());
-            tabela.push(bytes.to_vec());
+    fn register_string(table: &mut Vec<Vec<u8>>, idx_value: &mut std::collections::HashMap<Vec<u8>, usize>, bytes: &[u8]) {
+        if !idx_value.contains_key(bytes) {
+            idx_value.insert(bytes.to_vec(), table.len());
+            table.push(bytes.to_vec());
         }
     }
 
     fn emit_header(&mut self) {
-        if self.mapas && !self.mapas_no_jit {
+        if self.maps && !self.maps_in_jit {
             // `-ni:1`: o `addrspace(1)` é de ponteiros não integrais — o
             // otimizador não fabrica `ptrtoint`/`inttoptr` com as raízes.
             self.out.push_str(&crate::alvo::cabecalho_ir().replacen("-S128\"", "-S128-ni:1\"", 1));
@@ -653,21 +653,21 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push_str(crate::alvo::cabecalho_ir());
         }
         // Os ids das classes do programa, para a geração seguinte de uma
-        // recarga do JIT (J03, `context::ids_do_ir`).
-        for (id, lib, classe) in &self.module.ids_do_programa {
-            writeln!(self.out, "; df.classe {id} {} {}", crate::context::escapar(lib), crate::context::escapar(classe)).unwrap();
+        // recarga do JIT (J03, `context::ir_ids`).
+        for (id, lib, class) in &self.module.program_ids {
+            writeln!(self.out, "; df.classe {id} {} {}", crate::context::escape_str(lib), crate::context::escape_str(class)).unwrap();
         }
         // O layout dos objetos, para migrar as instâncias vivas (J03):
-        // `nome:flags:tipo`, com `a` anulável e `l` late.
-        for (id, base, campos) in &self.module.campos_do_programa {
-            let lista: Vec<String> = campos
+        // `name:flags:ty`, com `a` anulável e `l` late.
+        for (id, base, fields) in &self.module.program_fields {
+            let list: Vec<String> = fields
                 .iter()
                 .map(|c| {
-                    let flags = format!("{}{}", if c.anulavel { "a" } else { "" }, if c.late { "l" } else { "" });
-                    format!("{}:{flags}:{}", crate::context::escapar(&c.nome), crate::context::escapar(&c.tipo))
+                    let flags = format!("{}{}", if c.nullable { "a" } else { "" }, if c.late { "l" } else { "" });
+                    format!("{}:{flags}:{}", crate::context::escape_str(&c.name), crate::context::escape_str(&c.ty))
                 })
                 .collect();
-            writeln!(self.out, "; df.campos {id} {base} {}", lista.join(",")).unwrap();
+            writeln!(self.out, "; df.campos {id} {base} {}", list.join(",")).unwrap();
         }
     }
 
@@ -677,19 +677,19 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push_str(e.decl);
             // Raízes por mapas: a extern que não coleta é folha — a chamada
             // a ela não vira ponto de coleta (nem registro no mapa).
-            if self.mapas {
-                let ef = externs::efeitos_de(e.nome());
-                if (!ef.aloca && !ef.chama_dart) || crate::alvo::folha_sabotada(e.nome()) {
+            if self.maps {
+                let ef = externs::effects_of(e.nome());
+                if (!ef.allocates && !ef.calls_dart) || crate::alvo::sabotaged_leaf(e.nome()) {
                     self.out.push_str(" \"gc-leaf-function\"");
                 }
             }
             self.out.push('\n');
         }
-        if self.rastro_vm.is_some() && !self.rastro_no_jit {
+        if self.vm_stack_trace.is_some() && !self.stack_trace_in_jit {
             // O começo e o fim da seção do rastro da imagem (§13.14).
-            self.out.push_str(rastro::marcadores().0);
+            self.out.push_str(stack_trace::markers().0);
         }
-        if self.mapas && !self.mapas_no_jit {
+        if self.maps && !self.maps_in_jit {
             // O registro do mapa da imagem (`dartforge_registrar_mapa*`): a
             // base da imagem PE (o runtime acha `.dfgcm` e `.llvm_st` pelos
             // cabeçalhos); os limites da seção `dfgcm` que o `ld.lld` define;
@@ -707,42 +707,42 @@ impl<'a> LlvmEmitter<'a> {
             });
         }
         // As chamadas nativas com struct por valor copiam os bytes numa
-        // temporária da pilha (`llvm/abi_c.rs`).
-        let compostas = self.module.functions.iter().any(|f| {
-            f.blocks.iter().any(|b| b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::ChamadaNativaComposta { .. })))
+        // temporária da pilha (`llvm/c_abi.rs`).
+        let composites = self.module.functions.iter().any(|f| {
+            f.blocks.iter().any(|b| b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CompositeNativeCall { .. })))
         });
-        self.out.push_str(simd::DECLARACOES);
+        self.out.push_str(simd::DECLARATIONS);
         self.out.push_str("declare i8 @llvm.expect.i8(i8, i8)\n");
         self.out.push_str("declare i1 @llvm.expect.i1(i1, i1)\n");
-        for (_, decl) in externs::GLOBAIS {
+        for (_, decl) in externs::GLOBALS {
             self.out.push_str(decl);
             self.out.push('\n');
         }
         // Os ajudantes `@df.*` de cada pacote (§3.5).
-        let inicio_dos_ajudantes = self.out.len();
-        self.out.push_str(textos_ir::AJUDANTES);
-        self.out.push_str(caixas_ir::AJUDANTES);
-        self.out.push_str(&listas_ir::ajudantes(self.module.memoria_arc));
-        self.out.push_str(tipados_ir::AJUDANTES);
-        let classe_do_valor = classe_do_valor(&self.module.cids_do_runtime);
-        self.out.push_str(&classe_do_valor);
-        self.out.push_str(&ajudantes_do_espaco());
-        self.out.push_str(&ajudante_do_corpo(self.campos_por_chamada, self.producao));
-        if !self.ajudantes_fora.is_empty() {
-            let ajudantes = self.out.split_off(inicio_dos_ajudantes);
-            self.out.push_str(&fora_de_linha(&ajudantes, &self.ajudantes_fora));
+        let helpers_start = self.out.len();
+        self.out.push_str(ir_strings::HELPERS);
+        self.out.push_str(ir_boxes::HELPERS);
+        self.out.push_str(&ir_lists::helpers(self.module.arc_memory));
+        self.out.push_str(ir_typed::HELPERS);
+        let value_class = value_class(&self.module.runtime_cids);
+        self.out.push_str(&value_class);
+        self.out.push_str(&space_helpers());
+        self.out.push_str(&body_helper(self.fields_per_call, self.production));
+        if !self.outlined_helpers.is_empty() {
+            let helpers = self.out.split_off(helpers_start);
+            self.out.push_str(&out_of_line(&helpers, &self.outlined_helpers));
         }
-        if self.mapas {
-            let ajudantes = self.out.split_off(inicio_dos_ajudantes);
-            self.out.push_str(&ajudantes_folha(&ajudantes));
+        if self.maps {
+            let helpers = self.out.split_off(helpers_start);
+            self.out.push_str(&leaf_helpers(&helpers));
         }
-        if self.alocacao_fora_de_linha {
-            self.out.push_str(&nova_instancia());
+        if self.out_of_line_allocation {
+            self.out.push_str(&new_instance());
         }
-        if self.seletor_compacto {
-            self.out.push_str(SELETOR_POR_DESCRITOR);
+        if self.compact_selector {
+            self.out.push_str(SELECTOR_BY_DESCRIPTOR);
         }
-        if compostas || !self.module.ffi_callbacks.is_empty() {
+        if composites || !self.module.ffi_callbacks.is_empty() {
             self.out.push_str(
                 "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n\
                  declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n\
@@ -751,12 +751,12 @@ impl<'a> LlvmEmitter<'a> {
             );
         }
         if self.module.excecoes_por_tabelas {
-            self.out.push_str(if cfg!(windows) { EXCECOES_POR_TABELAS } else { EXCECOES_POR_TABELAS_ITANIUM });
+            self.out.push_str(if cfg!(windows) { EXCEPTIONS_BY_TABLES } else { EXCEPTIONS_BY_TABLES_ITANIUM });
         }
-        if externs::conferir_efeitos() {
+        if externs::check_effects() {
             // A moldura da conferência não coleta: com as raízes por mapas, é
             // folha (sem statepoint em volta dela).
-            if self.mapas {
+            if self.maps {
                 self.out.push_str(
                     "declare void @dartforge_efeitos_antes(ptr, i64, i64) \"gc-leaf-function\"\ndeclare void @dartforge_efeitos_depois() \"gc-leaf-function\"\n",
                 );
@@ -793,7 +793,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn string_const_index(&self, s: &[u8]) -> Option<usize> {
-        self.indice_de_string.get(s).copied()
+        self.string_index.get(s).copied()
     }
 
     fn emit_vtables(&mut self) {
@@ -804,10 +804,10 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_function(&mut self, func: &Function) {
-        self.funcao_atual.clone_from(&func.symbol);
-        self.cache_na_funcao = 0;
-        self.allocas_no_quadro = Self::allocas_ref_que_escapam(func);
-        self.preparar_tipos_e_phis(func);
+        self.current_function.clone_from(&func.symbol);
+        self.cache_in_function = 0;
+        self.frame_allocas = Self::escaping_ref_allocas(func);
+        self.prepare_types_and_phis(func);
 
         let ret_ty = func.return_ty.llvm_ir();
         let params: Vec<String> = func
@@ -817,12 +817,12 @@ impl<'a> LlvmEmitter<'a> {
             .collect();
         let params_str = params.join(", ");
 
-        let (ligacao, comdat) = self.ligacao_de(&func.symbol);
+        let (linkage, comdat) = self.linkage_of(&func.symbol);
         // Uma cópia por imagem (`linkonce_odr`): o rastro não a rotula.
-        let compartilhada = !ligacao.is_empty();
+        let shared = !linkage.is_empty();
         // §7.4, modo sombra: os valores `Ref` da função (os candidatos de
-        // `raizes::analisar`) para o conferidor de dominância.
-        if !self.mapas && verificar_sombra::ligada() {
+        // `roots::analyze`) para o conferidor de dominância.
+        if !self.maps && verify_shadow::linked() {
             let mut refs: Vec<u32> = func.params.iter().filter(|(_, _, t)| *t == Type::Ref).map(|(v, _, _)| v.0).collect();
             for b in &func.blocks {
                 for (v, inst, t) in &b.instructions {
@@ -831,123 +831,123 @@ impl<'a> LlvmEmitter<'a> {
                     }
                 }
             }
-            let lista: Vec<String> = refs.iter().map(|v| format!("v{v}")).collect();
-            writeln!(self.out, "{} {}", verificar_sombra::MARCA_DE_REFS, lista.join(" ")).unwrap();
+            let list: Vec<String> = refs.iter().map(|v| format!("v{v}")).collect();
+            writeln!(self.out, "{} {}", verify_shadow::REFS_MARK, list.join(" ")).unwrap();
         }
-        let inicio_da_funcao = self.out.len();
-        let mut posicao_escrita: Option<(u32, u32)> = None;
+        let function_start = self.out.len();
+        let mut written_position: Option<(u32, u32)> = None;
         // A posição de uma instrução copiada pelo inlining (só o rastro).
-        let mut embutida_escrita: Option<(u32, u32, u32)> = None;
-        let atributos = if self.otimizar_tamanho { " optsize" } else { "" };
+        let mut written_embedded: Option<(u32, u32, u32)> = None;
+        let attributes = if self.optimize_size { " optsize" } else { "" };
         // O `this` de um método é sempre um objeto do espaço (nunca null nem
         // `Smi`: a classe tem o campo lido); sem corpo de fora, o endereço
         // dos campos dele é `this − 2 + 16`.
-        self.this_objeto = func
+        self.this_object = func
             .params
             .first()
-            .filter(|(_, nome, t)| self.corpo_sem_fora && !self.module.memoria_arc && nome == "this" && *t == Type::Ref)
+            .filter(|(_, name_str, t)| self.body_without_outside && !self.module.arc_memory && name_str == "this" && *t == Type::Ref)
             .map(|(vid, _, _)| vid.0);
         // Exceções por tabelas: a decisão do passe para esta função. Só a
         // função com pouso nomeia a personalidade (é ela que lê a tabela dos
         // pousos); as outras o desenrolamento atravessa.
         let tab = self.tab;
-        let tem_pouso = tab.is_some_and(|t| !t.pousos.is_empty());
-        let tem_retoma = tab.is_some_and(|t| t.saidas.values().any(|s| *s == SaidaPorExcecao::Retoma));
-        if let Some(c) = tab.and_then(|t| t.cleanup_estrangeiro.as_ref()) {
-            c.conferir(func, tab.unwrap()).expect("cleanup estrangeiro inválido");
+        let has_landing_pad = tab.is_some_and(|t| !t.landing_pads.is_empty());
+        let has_resume = tab.is_some_and(|t| t.exits.values().any(|s| *s == ExceptionExit::Resume));
+        if let Some(c) = tab.and_then(|t| t.foreign_cleanup.as_ref()) {
+            c.check(func, tab.unwrap()).expect("cleanup estrangeiro inválido");
         }
-        let tem_cleanup = tem_retoma || (cfg!(unix) && tab.is_some_and(|t| t.cleanup_estrangeiro.is_some()));
-        assert!(!tem_cleanup || !self.mapas, "Retoma não admite landingpad token de statepoint");
-        if tem_retoma {
-            crate::optimize::arc::conferir_retomas(func, tab.unwrap()).expect("Retoma inválida");
+        let has_cleanup = has_resume || (cfg!(unix) && tab.is_some_and(|t| t.foreign_cleanup.is_some()));
+        assert!(!has_cleanup || !self.maps, "Retoma não admite landingpad token de statepoint");
+        if has_resume {
+            crate::optimize::arc::check_resumes(func, tab.unwrap()).expect("Retoma inválida");
         }
-        let personalidade = if tem_cleanup { " personality ptr @dartforge_personalidade_cleanup_itanium" }
-            else if tem_pouso { " personality ptr @dartforge_personalidade" } else { "" };
+        let personality = if has_cleanup { " personality ptr @dartforge_personalidade_cleanup_itanium" }
+            else if has_landing_pad { " personality ptr @dartforge_personalidade" } else { "" };
 
         // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot por `alloca` de tipo
         // `Ref`, e os valores SSA `Ref` vivos em algum ponto de coleta, com
         // slot compartilhado entre os que nunca estão vivos juntos
-        // (`raizes.rs`).
-        let blocos_que_convertem: std::collections::HashSet<u32> = self.conv_phi.iter().map(|(b, ..)| *b).collect();
-        let mut analise = raizes::analisar_com(
+        // (`roots.rs`).
+        let converting_blocks: std::collections::HashSet<u32> = self.conv_phi.iter().map(|(b, ..)| *b).collect();
+        let mut analysis = roots::analyze_with(
             func,
-            &self.tipos,
-            &|inst| self.pode_coletar(inst),
-            &|b| blocos_que_convertem.contains(&b.0),
-            &|inst| self.chamado_enraiza_os_argumentos(inst),
+            &self.types,
+            &|inst| self.may_collect(inst),
+            &|b| converting_blocks.contains(&b.0),
+            &|inst| self.callee_roots_the_arguments(inst),
         );
         // O orçamento do `rewrite-statepoints-for-gc` (§3.4): o passe cresce
-        // de forma superlinear com `vivos × pontos de coleta`. Acima do teto
+        // de forma superlinear com `live_set × points de collection`. Acima do teto
         // a função fica inteira na pilha-sombra, como quadro residual
         // (§3.7): sem `gc`, com os slots de sempre.
-        let custo = analise.enraizados.len() as u64 * (analise.vivos_em.len() + analise.vivos_no_fim.len()) as u64;
-        let no_orcamento = custo <= crate::alvo::orcamento_dos_mapas();
-        if self.mapas && !no_orcamento && std::env::var_os("DARTFORGE_RELATORIO_MAPAS").is_some() {
-            eprintln!("dartforge: {} fora do orçamento dos mapas ({custo}): pilha-sombra", func.symbol);
+        let cost = analysis.rooted_set.len() as u64 * (analysis.live_at.len() + analysis.live_at_end.len()) as u64;
+        let within_budget = cost <= crate::alvo::maps_budget();
+        if self.maps && !within_budget && std::env::var_os("DARTFORGE_RELATORIO_MAPAS").is_some() {
+            eprintln!("dartforge: {} fora do orçamento dos mapas ({cost}): pilha-sombra", func.symbol);
         }
-        if self.mapas && no_orcamento {
+        if self.maps && within_budget {
             // Raízes por mapas: no quadro só ficam os `alloca` `Ref` (o
             // mapa de pilha descreve valores SSA, não memória); os valores
             // SSA enraizados vão para o mapa.
-            analise.slots.retain(|v, _| self.apontado.contains_key(v));
-            self.enraizados = analise.enraizados.iter().copied().collect();
+            analysis.slots.retain(|v, _| self.pointee.contains_key(v));
+            self.rooted_set = analysis.rooted_set.iter().copied().collect();
         } else {
-            self.enraizados.clear();
+            self.rooted_set.clear();
         }
-        self.slots = std::mem::take(&mut analise.slots);
-        self.raizes_da_funcao = analise;
+        self.slots = std::mem::take(&mut analysis.slots);
+        self.function_roots = analysis;
         // Raízes por mapas: toda função é `gc` — o
         // `rewrite-statepoints-for-gc` transforma as chamadas dela que podem
         // coletar em statepoints (`crates/llvm`, `gerar`), cada uma com o
         // operando `"deopt"` dos vivos nela (§14.12): vazio na função sem
         // raízes no mapa (as da fora do orçamento estão no quadro), mas
         // presente, para o inliner juntar a ele os vivos de quem a chama.
-        let tem_gc = self.mapas;
-        if !self.enraizados.is_empty() {
-            self.funcoes_gc += 1;
+        let has_gc = self.maps;
+        if !self.rooted_set.is_empty() {
+            self.gc_functions += 1;
         }
         // O build de conferência: tantos slots a mais quantos o maior
         // conjunto de vivos num ponto de coleta.
-        self.conferencia = None;
-        if !self.enraizados.is_empty() && crate::alvo::conferir_raizes() {
+        self.check = None;
+        if !self.rooted_set.is_empty() && crate::alvo::check_roots() {
             let k = self
-                .raizes_da_funcao
-                .vivos_em
+                .function_roots
+                .live_at
                 .values()
-                .chain(self.raizes_da_funcao.vivos_no_fim.values())
+                .chain(self.function_roots.live_at_end.values())
                 .map(Vec::len)
                 .max()
                 .unwrap_or(0);
             if k > 0 {
-                let primeiro = self.slots.values().max().map_or(0, |m| m + 1);
-                self.conferencia = Some((primeiro, k));
+                let first_one = self.slots.values().max().map_or(0, |m| m + 1);
+                self.check = Some((first_one, k));
             }
         }
-        let gc = if tem_gc { " gc \"statepoint-example\"" } else { "" };
-        writeln!(self.out, "define {ligacao}{ret_ty} @{}({}){atributos}{comdat}{gc}{personalidade} {{", func.symbol, params_str)
+        let gc = if has_gc { " gc \"statepoint-example\"" } else { "" };
+        writeln!(self.out, "define {linkage}{ret_ty} @{}({}){attributes}{comdat}{gc}{personality} {{", func.symbol, params_str)
             .unwrap();
-        self.tem_frame = !self.slots.is_empty() || self.conferencia.is_some();
-        self.rotulos_de_saida = func
+        self.has_frame = !self.slots.is_empty() || self.check.is_some();
+        self.exit_labels = func
             .blocks
             .iter()
             .filter_map(|b| {
                 b.instructions.iter().rev().find_map(|(vid, i, _)| {
                     let v = vid.0;
-                    if tab.is_some_and(|t| t.invocacoes.contains_key(vid)) {
-                        // O caminho normal de um `invoke` ([`Self::tornar_invoke`]).
+                    if tab.is_some_and(|t| t.invocations.contains_key(vid)) {
+                        // O caminho normal de um `invoke` ([`Self::make_invoke`]).
                         Some((b.id.0, format!("inv{v}.fim")))
-                    } else if Self::alocacao_em_linha(i).is_some() && !self.alocacao_fora_de_linha {
+                    } else if Self::inline_allocation(i).is_some() && !self.out_of_line_allocation {
                         Some((b.id.0, format!("ao{v}.fim")))
-                    } else if self.barreira_em_linha(i) {
+                    } else if self.inline_barrier(i) {
                         Some((b.id.0, format!("wb{v}.fim")))
-                    } else if !self.objetos_estaticos && matches!(i, Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))) {
+                    } else if !self.static_objects && matches!(i, Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))) {
                         // Sem os objetos estáticos (o JIT), o literal vai ao
-                        // cache do ponto de uso (`textos_ir`), que divide o
+                        // cache do ponto de uso (`ir_strings`), que divide o
                         // bloco; com eles, é uma constante (§2.11).
                         Some((b.id.0, format!("ls{v}.fim")))
                     } else if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear") {
                         Some((b.id.0, format!("xc{v}.fim")))
-                    } else if Self::rti_avaliar_em_cache(i) {
+                    } else if Self::rti_evaluate_cached(i) {
                         Some((b.id.0, format!("ra{v}.fim")))
                     } else {
                         None
@@ -957,43 +957,43 @@ impl<'a> LlvmEmitter<'a> {
             .collect();
         // O pouso com o desvio Dart/estrangeira termina em `lpad{b}.dart`
         // (abaixo): um `phi` emitido antes dele já precisa do rótulo.
-        if tem_cleanup && let Some(t) = tab {
-            for p in &t.pousos {
-                if t.saidas.get(p) != Some(&SaidaPorExcecao::Retoma) {
-                    self.rotulos_de_saida.entry(p.0).or_insert_with(|| format!("lpad{}.dart", p.0));
+        if has_cleanup && let Some(t) = tab {
+            for p in &t.landing_pads {
+                if t.exits.get(p) != Some(&ExceptionExit::Resume) {
+                    self.exit_labels.entry(p.0).or_insert_with(|| format!("lpad{}.dart", p.0));
                 }
             }
         }
-        self.tem_ctx = self.tem_frame || Self::exige_contexto_explicito(func, tab);
+        self.has_ctx = self.has_frame || Self::requires_explicit_context(func, tab);
 
         for block in &func.blocks {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
-            let inicio_do_bloco = self.out.len();
-            self.rotulo_atual = format!("b{}", block.id.0);
+            let block_start = self.out.len();
+            self.current_label = format!("b{}", block.id.0);
             // O pouso de um `invoke`: quem desenrolou até aqui deixou a
             // exceção pendente e os quadros de raízes dele (e dos quadros
             // atravessados) ainda encadeados — o topo da pilha-sombra volta
             // a ser o desta função, antes de qualquer outra instrução.
-            if tab.is_some_and(|t| t.pousos.contains(&block.id)) {
-                if tab.is_some_and(|t| t.saidas.get(&block.id) == Some(&SaidaPorExcecao::Retoma)) {
+            if tab.is_some_and(|t| t.landing_pads.contains(&block.id)) {
+                if tab.is_some_and(|t| t.exits.get(&block.id) == Some(&ExceptionExit::Resume)) {
                     writeln!(self.out, "  %lpad{} = landingpad {{ ptr, i32 }} cleanup", block.id.0).unwrap();
-                } else if tem_gc {
+                } else if has_gc {
                     // Numa função `gc` o `invoke` vira statepoint, e o pouso
                     // dele é `token` (o que as relocações do caminho de
                     // exceção referenciam).
                     writeln!(self.out, "  %lpad{} = landingpad token cleanup", block.id.0).unwrap();
                 } else {
-                    let cleanup = if tem_cleanup { " cleanup" } else { "" };
+                    let cleanup = if has_cleanup { " cleanup" } else { "" };
                     writeln!(self.out, "  %lpad{} = landingpad {{ ptr, i32 }}{cleanup} catch ptr null", block.id.0).unwrap();
                 }
-                let topo = if self.tem_frame { "%gcq" } else { "%topo0" };
-                if !crate::alvo::sabotagem("pouso_sem_topo") {
-                    writeln!(self.out, "  store ptr {topo}, ptr %ctxtopo, align 8").unwrap();
+                let top = if self.has_frame { "%gcq" } else { "%topo0" };
+                if !crate::alvo::sabotage("pouso_sem_topo") {
+                    writeln!(self.out, "  store ptr {top}, ptr %ctxtopo, align 8").unwrap();
                 }
-                if externs::conferir_efeitos() {
+                if externs::check_effects() {
                     writeln!(self.out, "  call void @dartforge_efeitos_restaurar(i64 %efnivel)").unwrap();
                 }
-                if tem_cleanup && tab.is_some_and(|t| t.saidas.get(&block.id) != Some(&SaidaPorExcecao::Retoma)) {
+                if has_cleanup && tab.is_some_and(|t| t.exits.get(&block.id) != Some(&ExceptionExit::Resume)) {
                     // O inliner pode combinar catch e cleanup. Seletor zero
                     // executa cleanup, mas não autoriza tratar estrangeira como Dart.
                     let b = block.id.0;
@@ -1002,103 +1002,103 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %lpdart{b} = icmp eq i32 %lpseletor{b}, %lptipo{b}").unwrap();
                     writeln!(self.out, "  br i1 %lpdart{b}, label %lpad{b}.dart, label %lpad{b}.estrangeira").unwrap();
                     writeln!(self.out, "lpad{b}.estrangeira:").unwrap();
-                    if let Some(c) = tab.and_then(|t| t.cleanup_estrangeiro.as_ref()) {
+                    if let Some(c) = tab.and_then(|t| t.foreign_cleanup.as_ref()) {
                         for v in c.owners(block.id) {
                             writeln!(self.out, "  call void @dartforge_arc_release(i64 %v{})", v.0).unwrap();
                         }
-                        for q in c.quadros(block.id).iter().rev() {
+                        for q in c.frames(block.id).iter().rev() {
                             writeln!(self.out, "  call void @dartforge_arc_quadro_fechar_v1(i64 %v{})", q.0).unwrap();
                         }
                     }
-                    if self.rastro.is_some() {
+                    if self.stack_trace.is_some() {
                         writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
                     }
-                    if self.tem_frame {
+                    if self.has_frame {
                         writeln!(self.out, "  store ptr %gcant, ptr %ctxtopo, align 8").unwrap();
                     }
                     writeln!(self.out, "  resume {{ ptr, i32 }} %lpad{b}").unwrap();
                     writeln!(self.out, "lpad{b}.dart:").unwrap();
-                    self.rotulo_atual = format!("lpad{b}.dart");
-                    self.rotulos_de_saida.entry(b).or_insert_with(|| format!("lpad{b}.dart"));
+                    self.current_label = format!("lpad{b}.dart");
+                    self.exit_labels.entry(b).or_insert_with(|| format!("lpad{b}.dart"));
                 }
                 // Raízes por mapas: o que o tratador ainda lê estava vivo na
                 // entrada do `invoke` e vai no `"deopt"` dele.
             }
             if block.id.0 == 0 {
-                self.emit_buffers_de_closure(func);
-                if tem_pouso && externs::conferir_efeitos() {
+                self.emit_closure_buffers(func);
+                if has_landing_pad && externs::check_effects() {
                     writeln!(self.out, "  %efnivel = call i64 @dartforge_efeitos_nivel()").unwrap();
                 }
                 // O quadro de raízes também nasce antes de qualquer chamada
-                // (N17): o `df.obter_area` abaixo é `alwaysinline` e tem
+                // (N17): o `df.get_area` abaixo é `alwaysinline` e tem
                 // desvios, e um `alloca` depois dele deixava de ser do bloco
                 // de entrada — virava alocação dinâmica, com `__chkstk` e o
                 // `stacksave` a cada chamada da função, e impedia o inliner
                 // de levar o quadro para o bloco de entrada de quem chama.
                 // `DARTFORGE_SEM_QUADRO_NA_ENTRADA=1` na compilação volta ao
                 // lugar antigo (medida).
-                if self.tem_frame && Self::quadro_na_entrada() {
-                    let n = self.tamanho_do_quadro();
+                if self.has_frame && Self::frame_at_entry() {
+                    let n = self.frame_size();
                     writeln!(self.out, "  %gcq = alloca {{ ptr, i64, [{n} x i64] }}, align 8").unwrap();
                 }
                 // O marco da conferência da pilha
-                // (`emitir_conferencia_da_pilha`), pelo mesmo motivo: depois
-                // do `df.obter_area` (ou do contexto em linha,
-                // `sdk_modulo::com_contexto_em_tls`) ele virava alocação
+                // (`emit_stack_check`), pelo mesmo motivo: depois
+                // do `df.get_area` (ou do contexto em linha,
+                // `sdk_modulo::with_context_in_tls`) ele virava alocação
                 // dinâmica, com o ponteiro de quadro e o ajuste do `sp` a cada
                 // chamada.
-                if self.tem_ctx {
+                if self.has_ctx {
                     writeln!(self.out, "  %pilhaq = alloca i8, align 1").unwrap();
                 }
-                if Self::usa_area(func) {
+                if Self::uses_area(func) {
                     writeln!(self.out, "  %area = call ptr @df.obter_area()").unwrap();
                 }
             }
             if block.id.0 == 0
-                && let Some(k) = self.rastro.as_mut()
+                && let Some(k) = self.stack_trace.as_mut()
             {
                 let n = *k;
                 *k += 1;
-                self.nomes_do_rastro.push(func.symbol.clone());
+                self.stack_trace_names.push(func.symbol.clone());
                 writeln!(self.out, "  call void @dartforge_rastro_entrada(ptr @df.rastro.{n}, i64 {})", func.symbol.len()).unwrap();
             }
-            // O contexto da thread (`runtime/src/heap.rs`, `Contexto`): a
+            // O contexto da thread (`runtime/src/heap.rs`, `Context`): a
             // exceção pendente no deslocamento 0, o topo da pilha-sombra no 8.
-            if block.id.0 == 0 && self.tem_ctx {
+            if block.id.0 == 0 && self.has_ctx {
                 writeln!(self.out, "  %ctx = call ptr @dartforge_contexto()").unwrap();
                 writeln!(self.out, "  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8").unwrap();
                 // Sem quadro de raízes, o topo que o pouso restaura é o da
                 // entrada da função.
-                if tem_pouso && !self.tem_frame {
+                if has_landing_pad && !self.has_frame {
                     writeln!(self.out, "  %topo0 = load ptr, ptr %ctxtopo, align 8").unwrap();
                 }
-                self.emitir_conferencia_da_pilha(func);
+                self.emit_stack_check(func);
             }
-            if block.id.0 == 0 && self.tem_frame {
+            if block.id.0 == 0 && self.has_frame {
                 // O quadro de raízes no stack da função (a pilha-sombra,
                 // `QuadroDeRaizes` do runtime): anterior, número de slots e
                 // os slots, zerados antes de o runtime encadeá-lo. Cada raiz
                 // é um `store` no slot dela (slots compartilhados: o tamanho
                 // é o do maior).
-                let n = self.tamanho_do_quadro();
+                let n = self.frame_size();
                 let t = format!("{{ ptr, i64, [{n} x i64] }}");
-                if !Self::quadro_na_entrada() {
+                if !Self::frame_at_entry() {
                     writeln!(self.out, "  %gcq = alloca {t}, align 8").unwrap();
                 }
-                let cabecalho = self.cabecalho_do_quadro(n);
+                let header = self.frame_header(n);
                 // A sabotagem `quadro_sujo` (D5, §7.3): os slots nascem com um
                 // valor de handle que não aponta para bloco nenhum; um slot
                 // lido antes de escrito cai na validação de handle.
-                let slots = if n > 0 && crate::alvo::sabotagem("quadro_sujo") {
+                let slots = if n > 0 && crate::alvo::sabotage("quadro_sujo") {
                     format!("[{}]", vec!["i64 4098"; n].join(", "))
                 } else {
                     "zeroinitializer".to_string()
                 };
-                writeln!(self.out, "  store {t} {{ ptr null, i64 {cabecalho}, [{n} x i64] {slots} }}, ptr %gcq").unwrap();
+                writeln!(self.out, "  store {t} {{ ptr null, i64 {header}, [{n} x i64] {slots} }}, ptr %gcq").unwrap();
                 for slot in 0..n {
                     writeln!(self.out, "  %gcs{slot} = getelementptr inbounds {t}, ptr %gcq, i64 0, i32 2, i64 {slot}").unwrap();
                 }
-                // Encadeia o quadro: `anterior` = topo; topo = quadro.
+                // Encadeia o quadro: `previous` = topo; topo = quadro.
                 writeln!(self.out, "  %gcant = load ptr, ptr %ctxtopo, align 8").unwrap();
                 writeln!(self.out, "  store ptr %gcant, ptr %gcq, align 8").unwrap();
                 writeln!(self.out, "  store ptr %gcq, ptr %ctxtopo, align 8").unwrap();
@@ -1107,9 +1107,9 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  store i64 %v{}, ptr %gcs{slot}", vid.0).unwrap();
                     }
                 }
-                let mut no_quadro: Vec<ValueId> = self.allocas_no_quadro.iter().copied().collect();
-                no_quadro.sort_by_key(|v| v.0);
-                for vid in no_quadro {
+                let mut in_frame: Vec<ValueId> = self.frame_allocas.iter().copied().collect();
+                in_frame.sort_by_key(|v| v.0);
+                for vid in in_frame {
                     let slot = self.slots[&vid];
                     writeln!(self.out, "  %v{} = getelementptr inbounds i8, ptr %gcs{slot}, i64 0", vid.0).unwrap();
                 }
@@ -1119,13 +1119,13 @@ impl<'a> LlvmEmitter<'a> {
                 // o estouro de pilha, as conversões dos parâmetros) podem
                 // coletar, com os parâmetros enraizados vivos — todo
                 // parâmetro enraizado está vivo na entrada.
-                if !self.enraizados.is_empty() {
-                    let params: Vec<ValueId> = func.params.iter().map(|p| p.0).filter(|v| self.enraizados.contains(v)).collect();
-                    self.anexar_deopt_com(inicio_do_bloco, &params, false);
+                if !self.rooted_set.is_empty() {
+                    let params: Vec<ValueId> = func.params.iter().map(|p| p.0).filter(|v| self.rooted_set.contains(v)).collect();
+                    self.attach_deopt_with(block_start, &params, false);
                 }
                 // A sabotagem `bruto_no_mapa`: um valor que o otimizador não
                 // dobra (a carga volátil) posto no mapa como raiz.
-                if !self.enraizados.is_empty() && crate::alvo::sabotagem("bruto_no_mapa") {
+                if !self.rooted_set.is_empty() && crate::alvo::sabotage("bruto_no_mapa") {
                     self.out.push_str(
                         "  %dfsab = alloca i64, align 8\n  store volatile i64 4098, ptr %dfsab, align 8\n  %dfsabv = load volatile i64, ptr %dfsab, align 8\n",
                     );
@@ -1133,88 +1133,88 @@ impl<'a> LlvmEmitter<'a> {
             }
             // `phi` tem de ser a primeira instrução do bloco: as raízes dos
             // `phi` saem todas depois do último deles.
-            let mut raizes_de_phi: Vec<(usize, u32)> = Vec::new();
-            self.frescos.clear();
+            let mut phi_roots: Vec<(usize, u32)> = Vec::new();
+            self.fresh_set.clear();
 
             for (vid, inst, ty) in &block.instructions {
                 let v = vid.0;
-                // J05: a posição do comando, quando muda (`llvm/depuracao.rs`);
+                // J05: a posição do comando, quando muda (`llvm/debug_info.rs`);
                 // a de uma instrução copiada pelo inlining da HIR, com o
                 // contexto dela, vai num marcador só do rastro (§13.14).
-                if let Some(e) = func.depuracao.as_ref().and_then(|d| d.posicoes_embutidas.get(vid)) {
-                    if embutida_escrita != Some(*e) {
-                        writeln!(self.out, "{}{} {} {}", depuracao::MARCADOR_EMBUTIDO, e.0, e.1, e.2).unwrap();
-                        embutida_escrita = Some(*e);
-                        posicao_escrita = None;
+                if let Some(e) = func.debug_info.as_ref().and_then(|d| d.embedded_positions.get(vid)) {
+                    if written_embedded != Some(*e) {
+                        writeln!(self.out, "{}{} {} {}", debug_info::EMBEDDED_MARKER, e.0, e.1, e.2).unwrap();
+                        written_embedded = Some(*e);
+                        written_position = None;
                     }
-                } else if let Some(p) = func.depuracao.as_ref().and_then(|d| d.posicoes.get(vid))
-                    && posicao_escrita != Some(*p)
+                } else if let Some(p) = func.debug_info.as_ref().and_then(|d| d.positions.get(vid))
+                    && written_position != Some(*p)
                 {
-                    writeln!(self.out, "{}{} {}", depuracao::MARCADOR, p.0, p.1).unwrap();
-                    posicao_escrita = Some(*p);
-                    embutida_escrita = None;
+                    writeln!(self.out, "{}{} {}", debug_info::MARKER, p.0, p.1).unwrap();
+                    written_position = Some(*p);
+                    written_embedded = None;
                 }
-                if !matches!(inst, Instruction::Phi { .. }) && !raizes_de_phi.is_empty() {
-                    for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
-                        self.raiz_de_phi(slot, pv);
+                if !matches!(inst, Instruction::Phi { .. }) && !phi_roots.is_empty() {
+                    for (slot, pv) in std::mem::take(&mut phi_roots) {
+                        self.phi_root(slot, pv);
                     }
                 }
                 // O build de conferência: os vivos deste ponto de coleta,
                 // exatamente, nos slots de conferência.
-                if self.conferencia.is_some()
-                    && let Some(vivos) = self.raizes_da_funcao.vivos_em.get(vid).cloned()
+                if self.check.is_some()
+                    && let Some(live_set) = self.function_roots.live_at.get(vid).cloned()
                 {
-                    self.gravar_conferencia(&vivos);
+                    self.store_check(&live_set);
                 }
                 // Um ponto de coleta pode promover o objeto recém-alocado
                 // (velho depois da coleta): deixa de ser fresco.
-                if self.pode_coletar(inst) {
-                    self.frescos.clear();
+                if self.may_collect(inst) {
+                    self.fresh_set.clear();
                 }
-                let inicio_da_instrucao = self.out.len();
+                let instruction_start = self.out.len();
                 match inst {
                     Instruction::ArcCopy { value } | Instruction::ArcMove { value } => {
-                        let valor = self.referencia_arc(value);
+                        let val_ref = self.arc_reference(value);
                         if matches!(inst, Instruction::ArcCopy { .. }) {
-                            writeln!(self.out, "  call void @dartforge_arc_retain(i64 {valor})").unwrap();
+                            writeln!(self.out, "  call void @dartforge_arc_retain(i64 {val_ref})").unwrap();
                         }
-                        writeln!(self.out, "  %v{v} = add i64 {valor}, 0").unwrap();
+                        writeln!(self.out, "  %v{v} = add i64 {val_ref}, 0").unwrap();
                     }
                     Instruction::ArcDrop { value } => {
-                        let valor = self.referencia_arc(value);
-                        writeln!(self.out, "  call void @dartforge_arc_release(i64 {valor})").unwrap();
+                        let val_ref = self.arc_reference(value);
+                        writeln!(self.out, "  call void @dartforge_arc_release(i64 {val_ref})").unwrap();
                     }
-                    Instruction::ArcLoadStrong { slot: SlotForte::Global { simbolo } } => {
-                        self.conferir_global_arc(simbolo);
-                        self.endereco_do_global(v, simbolo);
+                    Instruction::ArcLoadStrong { slot: StrongSlot::Global { symbol: sym_name } } => {
+                        self.check_arc_global(sym_name);
+                        self.global_address(v, sym_name);
                         writeln!(self.out, "  %v{v} = load i64, ptr %ga{v}").unwrap();
                         writeln!(self.out, "  call void @dartforge_arc_retain(i64 %v{v})").unwrap();
                     }
-                    Instruction::ArcStoreStrong { slot: SlotForte::Global { simbolo }, value, modo } => {
-                        self.conferir_global_arc(simbolo);
-                        let valor = self.referencia_arc(value);
-                        self.endereco_do_global(v, simbolo);
-                        if *modo == ModoStoreForte::Copy {
-                            writeln!(self.out, "  call void @dartforge_arc_retain(i64 {valor})").unwrap();
+                    Instruction::ArcStoreStrong { slot: StrongSlot::Global { symbol: sym_name }, value, mode } => {
+                        self.check_arc_global(sym_name);
+                        let val_ref = self.arc_reference(value);
+                        self.global_address(v, sym_name);
+                        if *mode == StrongStoreMode::Copy {
+                            writeln!(self.out, "  call void @dartforge_arc_retain(i64 {val_ref})").unwrap();
                         }
-                        writeln!(self.out, "  store i64 {valor}, ptr %ga{v}").unwrap();
+                        writeln!(self.out, "  store i64 {val_ref}, ptr %ga{v}").unwrap();
                         writeln!(self.out, "  %gr{v} = ptrtoint ptr %ga{v} to i64").unwrap();
-                        if *modo == ModoStoreForte::Move {
-                            writeln!(self.out, "  call void @dartforge_arc_global_receber_v1(i64 %gr{v}, i64 {valor})").unwrap();
+                        if *mode == StrongStoreMode::Move {
+                            writeln!(self.out, "  call void @dartforge_arc_global_receber_v1(i64 %gr{v}, i64 {val_ref})").unwrap();
                         } else {
-                            writeln!(self.out, "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {valor}) nounwind").unwrap();
-                            writeln!(self.out, "  call void @dartforge_arc_release(i64 {valor})").unwrap();
+                            writeln!(self.out, "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {val_ref}) nounwind").unwrap();
+                            writeln!(self.out, "  call void @dartforge_arc_release(i64 {val_ref})").unwrap();
                         }
                     }
                     Instruction::ArcLoadStrong { slot } => {
-                        let (quadro, indice) = self.slot_arc(slot);
-                        writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_quadro_carregar_v1(i64 {quadro}, i64 {indice})").unwrap();
+                        let (frame, idx_value) = self.slot_arc(slot);
+                        writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_quadro_carregar_v1(i64 {frame}, i64 {idx_value})").unwrap();
                     }
-                    Instruction::ArcStoreStrong { slot, value, modo } => {
-                        let (quadro, indice) = self.slot_arc(slot);
-                        let valor = self.referencia_arc(value);
-                        let nome = if *modo == ModoStoreForte::Copy { "copiar" } else { "receber" };
-                        writeln!(self.out, "  call void @dartforge_arc_quadro_{nome}_v1(i64 {quadro}, i64 {indice}, i64 {valor})").unwrap();
+                    Instruction::ArcStoreStrong { slot, value, mode } => {
+                        let (frame, idx_value) = self.slot_arc(slot);
+                        let val_ref = self.arc_reference(value);
+                        let name_str = if *mode == StrongStoreMode::Copy { "copiar" } else { "receber" };
+                        writeln!(self.out, "  call void @dartforge_arc_quadro_{name_str}_v1(i64 {frame}, i64 {idx_value}, i64 {val_ref})").unwrap();
                     }
                     Instruction::Const(Constant::Int(n)) => {
                         writeln!(self.out, "  %v{v} = add i64 0, {n}").unwrap();
@@ -1230,88 +1230,88 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::Const(Constant::Null) => {
                         writeln!(self.out, "  %v{v} = add i64 0, 0").unwrap();
                     }
-                    Instruction::Const(Constant::String(s)) => self.emitir_const_string(v, s.as_bytes()),
-                    Instruction::Const(Constant::StringWtf8(s)) => self.emitir_const_string(v, s),
+                    Instruction::Const(Constant::String(s)) => self.emit_const_string(v, s.as_bytes()),
+                    Instruction::Const(Constant::StringWtf8(s)) => self.emit_const_string(v, s),
                     Instruction::Add(a, b) => {
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = add i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Sub(a, b) => {
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = sub i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Mul(a, b) => {
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = mul i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::SDiv(a, b) => {
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = sdiv i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::SRem(a, b) => {
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = srem i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Shl(a, b) => {
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = shl i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::AShr(a, b) => {
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = ashr i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::And(a, b) => {
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = and i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Or(a, b) => {
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = or i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Xor(a, b) => {
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = xor i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Neg(a) => {
-                        let sa = self.coagir(a, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
                         writeln!(self.out, "  %v{v} = sub i64 0, {sa}").unwrap();
                     }
                     Instruction::Not(a) => {
-                        let sa = self.coagir(a, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
                         writeln!(self.out, "  %v{v} = xor i64 {sa}, -1").unwrap();
                     }
                     Instruction::FAdd(a, b) => {
-                        let sa = self.coagir(a, Type::F64);
-                        let sb = self.coagir(b, Type::F64);
+                        let sa = self.coerce(a, Type::F64);
+                        let sb = self.coerce(b, Type::F64);
                         writeln!(self.out, "  %v{v} = fadd double {sa}, {sb}").unwrap();
                     }
                     Instruction::FSub(a, b) => {
-                        let sa = self.coagir(a, Type::F64);
-                        let sb = self.coagir(b, Type::F64);
+                        let sa = self.coerce(a, Type::F64);
+                        let sb = self.coerce(b, Type::F64);
                         writeln!(self.out, "  %v{v} = fsub double {sa}, {sb}").unwrap();
                     }
                     Instruction::FMul(a, b) => {
-                        let sa = self.coagir(a, Type::F64);
-                        let sb = self.coagir(b, Type::F64);
+                        let sa = self.coerce(a, Type::F64);
+                        let sb = self.coerce(b, Type::F64);
                         writeln!(self.out, "  %v{v} = fmul double {sa}, {sb}").unwrap();
                     }
                     Instruction::FDiv(a, b) => {
-                        let sa = self.coagir(a, Type::F64);
-                        let sb = self.coagir(b, Type::F64);
+                        let sa = self.coerce(a, Type::F64);
+                        let sb = self.coerce(b, Type::F64);
                         writeln!(self.out, "  %v{v} = fdiv double {sa}, {sb}").unwrap();
                     }
                     Instruction::FNeg(a) => {
-                        let sa = self.coagir(a, Type::F64);
+                        let sa = self.coerce(a, Type::F64);
                         writeln!(self.out, "  %v{v} = fneg double {sa}").unwrap();
                     }
                     Instruction::ICmp(op, a, b) => {
@@ -1324,8 +1324,8 @@ impl<'a> LlvmEmitter<'a> {
                             ICmpOp::Sge => "sge",
                             ICmpOp::Ult => "ult",
                         };
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = icmp {op_str} i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::FCmp(op, a, b) => {
@@ -1337,30 +1337,30 @@ impl<'a> LlvmEmitter<'a> {
                             FCmpOp::Gt => "ogt",
                             FCmpOp::Ge => "oge",
                         };
-                        let sa = self.coagir(a, Type::F64);
-                        let sb = self.coagir(b, Type::F64);
+                        let sa = self.coerce(a, Type::F64);
+                        let sb = self.coerce(b, Type::F64);
                         writeln!(self.out, "  %v{v} = fcmp {op_str} double {sa}, {sb}").unwrap();
                     }
                     Instruction::LNot(a) => {
-                        let sa = self.coagir(a, Type::I1);
+                        let sa = self.coerce(a, Type::I1);
                         writeln!(self.out, "  %v{v} = xor i1 {sa}, true").unwrap();
                     }
                     Instruction::IntToDouble(a) => {
-                        let sa = self.coagir(a, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
                         writeln!(self.out, "  %v{v} = sitofp i64 {sa} to double").unwrap();
                     }
                     Instruction::DoubleToInt(a) => {
-                        let sa = self.coagir(a, Type::F64);
+                        let sa = self.coerce(a, Type::F64);
                         writeln!(self.out, "  %v{v} = fptosi double {sa} to i64").unwrap();
                     }
                     Instruction::ZExt { op, from, to } => {
-                        let sop = self.coagir(op, *from);
+                        let sop = self.coerce(op, *from);
                         let f = from.llvm_ir();
                         let t = to.llvm_ir();
                         writeln!(self.out, "  %v{v} = zext {f} {sop} to {t}").unwrap();
                     }
                     Instruction::Trunc { op, from, to } => {
-                        let sop = self.coagir(op, *from);
+                        let sop = self.coerce(op, *from);
                         let f = from.llvm_ir();
                         let t = to.llvm_ir();
                         writeln!(self.out, "  %v{v} = trunc {f} {sop} to {t}").unwrap();
@@ -1374,78 +1374,78 @@ impl<'a> LlvmEmitter<'a> {
                         // Os campos em linha, pela tabela de campos (o objeto
                         // é novo: nenhum outro código o vê antes disto).
                         if !fields.is_empty() {
-                            self.emitir_endereco_dos_campos_de(v, &format!("%v{v}"), !self.module.memoria_arc);
+                            self.emit_field_addresses_of(v, &format!("%v{v}"), !self.module.arc_memory);
                         }
                         for (idx, field) in fields.iter().enumerate() {
                             // E1: `is_ref` pela representação do valor.
-                            let is_ref = u8::from(self.tipo_de(field) == Type::Ref).to_string();
-                            let sf = self.coagir(field, Type::I64);
-                            self.emitir_gravacao_de_campo(v, &format!(".{idx}"), idx, &sf, &is_ref);
+                            let is_ref = u8::from(self.type_of(field) == Type::Ref).to_string();
+                            let sf = self.coerce(field, Type::I64);
+                            self.emit_field_write(v, &format!(".{idx}"), idx, &sf, &is_ref);
                         }
                         // No ARC, os campos gravados em linha contam.
-                        if fields.iter().any(|f| self.tipo_de(f) == Type::Ref) {
-                            self.contar_iniciais_no_arc(v);
+                        if fields.iter().any(|f| self.type_of(f) == Type::Ref) {
+                            self.count_initial_in_arc(v);
                         }
                     }
                     // O campo em linha: a palavra de 8 bytes depois do
                     // cabeçalho do corpo do objeto (`heap::Cabecalho`).
                     Instruction::GetField { object, index } => {
-                        let so = self.coagir(object, Type::I64);
+                        let only = self.coerce(object, Type::I64);
                         let bits = if matches!(ty, Type::Ref | Type::I64) {
                             format!("%v{v}")
                         } else { format!("%fb{v}") };
-                        if *index < CAMPOS_EM_LINHA {
-                            let direto = self.corpo_direto(object);
-                            self.emitir_endereco_dos_campos_de(v, &so, direto);
+                        if *index < INLINE_FIELDS {
+                            let direct = self.direct_body(object);
+                            self.emit_field_addresses_of(v, &only, direct);
                             writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {index}").unwrap();
                             writeln!(self.out, "  {bits} = load i64, ptr %fg{v}, align 8").unwrap();
                         } else {
-                            writeln!(self.out, "  {bits} = call i64 @dartforge_object_get(i64 {so}, i64 {index})").unwrap();
+                            writeln!(self.out, "  {bits} = call i64 @dartforge_object_get(i64 {only}, i64 {index})").unwrap();
                         }
                         if !matches!(ty, Type::Ref | Type::I64) {
-                            self.emitir_conversao_nomeada(&format!("%v{v}"), Type::I64, &bits, *ty);
+                            self.emit_named_conversion(&format!("%v{v}"), Type::I64, &bits, *ty);
                         }
                     }
                     // No ARC a gravação vai ao runtime (`dartforge_object_set`), que conta a troca.
-                    Instruction::SetField { object, index, value } if (*index as usize) < CAMPOS_EM_LINHA && !self.module.memoria_arc => {
-                        let is_ref = u8::from(self.tipo_de(value) == Type::Ref);
-                        let so = self.coagir(object, Type::I64);
-                        let sv = self.coagir(value, Type::I64);
-                        let fresco = self.fresco(object);
-                        let direto = self.corpo_direto(object);
-                        self.emitir_endereco_dos_campos_de(v, &so, direto);
-                        self.emitir_gravacao_de_campo(v, "", *index, &sv, &is_ref.to_string());
-                        if self.barreira_em_linha(inst) && !fresco {
-                            self.emitir_barreira(v, &so, &sv, None);
+                    Instruction::SetField { object, index, value } if (*index as usize) < INLINE_FIELDS && !self.module.arc_memory => {
+                        let is_ref = u8::from(self.type_of(value) == Type::Ref);
+                        let only = self.coerce(object, Type::I64);
+                        let sv = self.coerce(value, Type::I64);
+                        let fresh = self.fresh(object);
+                        let direct = self.direct_body(object);
+                        self.emit_field_addresses_of(v, &only, direct);
+                        self.emit_field_write(v, "", *index, &sv, &is_ref.to_string());
+                        if self.inline_barrier(inst) && !fresh {
+                            self.emit_barrier(v, &only, &sv, None);
                         }
                     }
                     Instruction::SetField { object, index, value } => {
-                        let is_ref = u8::from(self.tipo_de(value) == Type::Ref);
-                        let so = self.coagir(object, Type::I64);
-                        let sv = self.coagir(value, Type::I64);
+                        let is_ref = u8::from(self.type_of(value) == Type::Ref);
+                        let only = self.coerce(object, Type::I64);
+                        let sv = self.coerce(value, Type::I64);
                         writeln!(
                             self.out,
-                            "  call void @dartforge_object_set(i64 {so}, i64 {index}, i64 {sv}, i8 {is_ref})"
+                            "  call void @dartforge_object_set(i64 {only}, i64 {index}, i64 {sv}, i8 {is_ref})"
                         ).unwrap();
                     }
                     Instruction::CallStatic { symbol, args, ret_ty } => {
-                        let target_func = self.funcao_por_simbolo.get(symbol.as_str()).copied();
+                        let target_func = self.function_by_symbol.get(symbol.as_str()).copied();
                         let mut args_str: Vec<String> = Vec::with_capacity(args.len());
-                        let mut tipos_args = Vec::with_capacity(args.len());
+                        let mut args_types = Vec::with_capacity(args.len());
                         for (idx, a) in args.iter().enumerate() {
                             // Função de outro módulo (SDK da fonte): o tipo do
                             // operando, que o lowering já coagiu para a
                             // representação do parâmetro.
                             let alvo = target_func
                                 .and_then(|f| f.params.get(idx))
-                                .map_or_else(|| self.tipo_de(a), |p| p.2);
+                                .map_or_else(|| self.type_of(a), |p| p.2);
                             let alvo = if alvo == Type::Void { Type::I64 } else { alvo };
-                            let s = self.coagir(a, alvo);
+                            let s = self.coerce(a, alvo);
                             args_str.push(format!("{} {s}", alvo.llvm_ir()));
-                            tipos_args.push(alvo);
+                            args_types.push(alvo);
                         }
                         if target_func.is_none() {
-                            self.anotar_externo(symbol, *ret_ty, &tipos_args);
+                            self.annotate_external(symbol, *ret_ty, &args_types);
                         }
                         let joined = args_str.join(", ");
                         let r = ret_ty.llvm_ir();
@@ -1458,102 +1458,102 @@ impl<'a> LlvmEmitter<'a> {
                     // Campo com índice constante: em linha, como `GetField`.
                     Instruction::CallRuntime { name, args, .. }
                         if name == "dartforge_object_get"
-                            && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i)) =>
+                            && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
                     {
                         let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else { unreachable!() };
-                        let so = self.coagir(&args[0].0, Type::I64);
-                        let direto = self.corpo_direto(&args[0].0);
-                        self.emitir_endereco_dos_campos_de(v, &so, direto);
+                        let only = self.coerce(&args[0].0, Type::I64);
+                        let direct = self.direct_body(&args[0].0);
+                        self.emit_field_addresses_of(v, &only, direct);
                         writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {i}").unwrap();
                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
                     }
                     Instruction::CallRuntime { name, args, .. }
                         if name == "dartforge_object_set"
-                            && !self.module.memoria_arc
+                            && !self.module.arc_memory
                             && args.len() == 4
-                            && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i)) =>
+                            && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
                     {
                         let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else { unreachable!() };
-                        let so = self.coagir(&args[0].0, Type::I64);
-                        let sv = self.coagir(&args[2].0, Type::I64);
+                        let only = self.coerce(&args[0].0, Type::I64);
+                        let sv = self.coerce(&args[2].0, Type::I64);
                         // `is_ref` é um `bool` do Rust: só 0 ou 1.
                         let is_ref = match &args[3].0 {
                             Operand::Constant(Constant::Int(n)) => u8::from(*n != 0).to_string(),
                             Operand::Constant(Constant::Bool(b)) => u8::from(*b).to_string(),
-                            outro => {
-                                let x = self.coagir(outro, Type::I64);
+                            other => {
+                                let x = self.coerce(other, Type::I64);
                                 writeln!(self.out, "  %fb{v} = icmp ne i64 {x}, 0").unwrap();
                                 writeln!(self.out, "  %fz{v} = zext i1 %fb{v} to i8").unwrap();
                                 format!("%fz{v}")
                             }
                         };
-                        let fresco = self.fresco(&args[0].0);
-                        let direto = self.corpo_direto(&args[0].0);
-                        self.emitir_endereco_dos_campos_de(v, &so, direto);
-                        self.emitir_gravacao_de_campo(v, "", *i as usize, &sv, &is_ref);
-                        if self.barreira_em_linha(inst) && !fresco {
-                            let dinamico = is_ref.starts_with('%').then_some(is_ref.as_str());
-                            self.emitir_barreira(v, &so, &sv, dinamico);
+                        let fresh = self.fresh(&args[0].0);
+                        let direct = self.direct_body(&args[0].0);
+                        self.emit_field_addresses_of(v, &only, direct);
+                        self.emit_field_write(v, "", *i as usize, &sv, &is_ref);
+                        if self.inline_barrier(inst) && !fresh {
+                            let dynamic = is_ref.starts_with('%').then_some(is_ref.as_str());
+                            self.emit_barrier(v, &only, &sv, dynamic);
                         }
                     }
-                    Instruction::CallRuntime { .. } if Self::alocacao_em_linha(inst).is_some() => {
-                        let (c, n) = Self::alocacao_em_linha(inst).expect("conferido na guarda");
-                        self.emitir_alocacao_em_linha(v, c, n);
+                    Instruction::CallRuntime { .. } if Self::inline_allocation(inst).is_some() => {
+                        let (c, n) = Self::inline_allocation(inst).expect("conferido na guarda");
+                        self.emit_inline_allocation(v, c, n);
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
                         if (name == "dartforge_object_new" || name == "dartforge_arc_objeto_owned_v1")
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
-                                if self.module.funcoes_de_tabela.contains_key(&(*c as u32))) =>
+                                if self.module.table_functions.contains_key(&(*c as u32))) =>
                     {
                         // SDK da fonte: a primeira alocação registra a tabela
-                        // de métodos da classe (`seletores.rs`).
+                        // de métodos da classe (`selectors.rs`).
                         let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
-                        let f = self.module.funcoes_de_tabela[&(*c as u32)].clone();
-                        self.anotar_externo(&f, Type::Ptr, &[]);
-                        let n = self.coagir(&args[1].0, Type::I64);
-                        let fabrica = if name == "dartforge_arc_objeto_owned_v1" {
+                        let f = self.module.table_functions[&(*c as u32)].clone();
+                        self.annotate_external(&f, Type::Ptr, &[]);
+                        let n = self.coerce(&args[1].0, Type::I64);
+                        let factory = if name == "dartforge_arc_objeto_owned_v1" {
                             "dartforge_arc_objeto_owned_t_v1"
                         } else { "dartforge_object_new_t" };
-                        writeln!(self.out, "  %v{v} = call i64 @{fabrica}(i64 {c}, i64 {n}, ptr @{f})").unwrap();
+                        writeln!(self.out, "  %v{v} = call i64 @{factory}(i64 {c}, i64 {n}, ptr @{f})").unwrap();
                         let _ = ret_ty;
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
                         if (name == "dartforge_typed_novo" || name == "dartforge_view_nova" || name == "dartforge_typed_externo")
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
-                                if self.module.funcoes_de_tabela.contains_key(&(*c as u32))) =>
+                                if self.module.table_functions.contains_key(&(*c as u32))) =>
                     {
                         // A primeira lista tipada (ou visão) de uma classe
                         // registra a tabela de métodos dela, como
                         // `dartforge_object_new_t`.
                         let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
-                        let f = self.module.funcoes_de_tabela[&(*c as u32)].clone();
-                        self.anotar_externo(&f, Type::Ptr, &[]);
-                        let resto: Vec<String> = args.iter().map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coagir(a, *t))).collect();
-                        writeln!(self.out, "  %v{v} = call i64 @{name}_t({}, ptr @{f})", resto.join(", ")).unwrap();
+                        let f = self.module.table_functions[&(*c as u32)].clone();
+                        self.annotate_external(&f, Type::Ptr, &[]);
+                        let rest: Vec<String> = args.iter().map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coerce(a, *t))).collect();
+                        writeln!(self.out, "  %v{v} = call i64 @{name}_t({}, ptr @{f})", rest.join(", ")).unwrap();
                         let _ = ret_ty;
                     }
-                    // O mesmo pelo thunk Owned genérico (`optimize::arc::nativos`):
+                    // O mesmo pelo thunk Owned genérico (`optimize::arc::natives`):
                     // o thunk da variante `_t`, que registra a tabela.
                     Instruction::CallRuntime { name, args, ret_ty }
-                        if name.strip_prefix(crate::optimize::arc::PREFIXO_OWNED_GENERICO).is_some_and(|b|
+                        if name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX).is_some_and(|b|
                             matches!(b, "dartforge_typed_novo" | "dartforge_view_nova" | "dartforge_typed_externo"))
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
-                                if self.module.funcoes_de_tabela.contains_key(&(*c as u32))) =>
+                                if self.module.table_functions.contains_key(&(*c as u32))) =>
                     {
                         let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
-                        let f = self.module.funcoes_de_tabela[&(*c as u32)].clone();
-                        self.anotar_externo(&f, Type::Ptr, &[]);
-                        let base = format!("{}_t", &name[crate::optimize::arc::PREFIXO_OWNED_GENERICO.len()..]);
-                        let thunk = format!("{}{base}", crate::optimize::arc::PREFIXO_OWNED_GENERICO);
-                        let mut tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
-                        tipos.push(Type::Ptr);
-                        self.thunks_owned.insert(thunk.clone(), (base, tipos));
-                        let resto: Vec<String> = args.iter().map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coagir(a, *t))).collect();
-                        writeln!(self.out, "  %v{v} = call i64 @{thunk}({}, ptr @{f})", resto.join(", ")).unwrap();
+                        let f = self.module.table_functions[&(*c as u32)].clone();
+                        self.annotate_external(&f, Type::Ptr, &[]);
+                        let base = format!("{}_t", &name[crate::optimize::arc::GENERIC_OWNED_PREFIX.len()..]);
+                        let thunk = format!("{}{base}", crate::optimize::arc::GENERIC_OWNED_PREFIX);
+                        let mut types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
+                        types.push(Type::Ptr);
+                        self.owned_thunks.insert(thunk.clone(), (base, types));
+                        let rest: Vec<String> = args.iter().map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coerce(a, *t))).collect();
+                        writeln!(self.out, "  %v{v} = call i64 @{thunk}({}, ptr @{f})", rest.join(", ")).unwrap();
                         let _ = ret_ty;
                     }
                     // A exceção pendente: o espelho no contexto da thread.
-                    Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending" && self.tem_ctx => {
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending" && self.has_ctx => {
                         writeln!(self.out, "  %v{v} = load i8, ptr %ctx, align 8").unwrap();
                     }
                     // O `dartforge_exception_clear` de cada `return` e salto:
@@ -1561,7 +1561,7 @@ impl<'a> LlvmEmitter<'a> {
                     // que limpar — a entrada do `catch` e o `finally` já
                     // limparam o rastro junto com a exceção. Só a pendente
                     // (o `finally` que sai por `return`) chama o runtime.
-                    Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear" && self.tem_ctx => {
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear" && self.has_ctx => {
                         writeln!(self.out, "  %xcp{v} = load i8, ptr %ctx, align 8").unwrap();
                         writeln!(self.out, "  %xcn{v} = icmp ne i8 %xcp{v}, 0").unwrap();
                         writeln!(self.out, "  %xce{v} = call i1 @llvm.expect.i1(i1 %xcn{v}, i1 false)").unwrap();
@@ -1585,130 +1585,130 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  br label %xc{v}.fim").unwrap();
                         }
                         writeln!(self.out, "xc{v}.fim:").unwrap();
-                        self.rotulo_atual = format!("xc{v}.fim");
+                        self.current_label = format!("xc{v}.fim");
                     }
                     // O pedido de interrupção (J01): o byte no contexto
                     // (deslocamento 32), lido atômico — outra thread o liga, e
                     // a carga não pode sair do laço.
-                    Instruction::CallRuntime { name, .. } if name == "dartforge_interrupcao_pendente" && self.tem_ctx => {
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_interrupcao_pendente" && self.has_ctx => {
                         writeln!(self.out, "  %ip{v} = getelementptr inbounds i8, ptr %ctx, i64 32").unwrap();
                         writeln!(self.out, "  %iv{v} = load atomic i8, ptr %ip{v} monotonic, align 8").unwrap();
                         // O pedido é raro: o caminho lento fica fora do corpo
                         // do laço.
                         writeln!(self.out, "  %v{v} = call i8 @llvm.expect.i8(i8 %iv{v}, i8 0)").unwrap();
                     }
-                    Instruction::CallRuntime { args, .. } if Self::rti_avaliar_em_cache(inst) => {
-                        self.emitir_rti_avaliar_em_cache(v, args);
+                    Instruction::CallRuntime { args, .. } if Self::rti_evaluate_cached(inst) => {
+                        self.emit_rti_evaluate_cached(v, args);
                     }
                     // A classe do receptor: a do objeto do espaço lida no
-                    // cabeçalho, em linha (`df.classe`); o resto, o runtime.
+                    // cabeçalho, em linha (`df.class`); o resto, o runtime.
                     Instruction::CallRuntime { name, args, .. } if name == "dartforge_value_class" && args.len() == 1 => {
-                        let h = self.coagir(&args[0].0, Type::I64);
+                        let h = self.coerce(&args[0].0, Type::I64);
                         writeln!(self.out, "  %v{v} = call i64 @df.classe(i64 {h})").unwrap();
                     }
                     // `cid <: C` pelo mapa de bits do alvo (`df.subclasse`),
                     // sem chamada depois da primeira consulta.
                     Instruction::CallRuntime { name, args, .. } if name == "dartforge_is_subclass" && args.len() == 2 => {
-                        let a = self.coagir(&args[0].0, Type::I64);
-                        let b = self.coagir(&args[1].0, Type::I64);
+                        let a = self.coerce(&args[0].0, Type::I64);
+                        let b = self.coerce(&args[1].0, Type::I64);
                         writeln!(self.out, "  %v{v} = call i8 @df.subclasse(i64 {a}, i64 {b})").unwrap();
                     }
                     Instruction::CallRuntime { name, args, ret_ty } => {
                         if name.starts_with("dartforge_nativo_") {
-                            let tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
-                            self.anotar_externo(name, *ret_ty, &tipos);
+                            let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
+                            self.annotate_external(name, *ret_ty, &types);
                         }
                         // O código do tear-off pode morar em outro módulo.
                         if name == "dartforge_arc_tearoff_owned_v1"
-                            && let [(Operand::Constant(Constant::Funcao(codigo)), _)] = args.as_slice()
+                            && let [(Operand::Constant(Constant::Function(code)), _)] = args.as_slice()
                         {
-                            self.anotar_externo(codigo, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
+                            self.annotate_external(code, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
                         }
-                        if let Some(base) = name.strip_prefix(crate::optimize::arc::PREFIXO_OWNED_GENERICO) {
-                            let tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
+                        if let Some(base) = name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX) {
+                            let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                             if base.starts_with("dartforge_nativo_") {
-                                self.anotar_externo(base, Type::Ref, &tipos);
+                                self.annotate_external(base, Type::Ref, &types);
                             }
-                            self.thunks_owned.insert(name.clone(), (base.to_string(), tipos));
+                            self.owned_thunks.insert(name.clone(), (base.to_string(), types));
                         }
-                        if let Some(base) = name.strip_prefix(crate::optimize::arc::PREFIXO_ESCOPO_NATIVO) {
-                            let tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
+                        if let Some(base) = name.strip_prefix(crate::optimize::arc::NATIVE_SCOPE_PREFIX) {
+                            let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                             if base.starts_with("dartforge_nativo_") {
-                                self.anotar_externo(base, *ret_ty, &tipos);
+                                self.annotate_external(base, *ret_ty, &types);
                             }
-                            self.thunks_escopo.insert(name.clone(), (base.to_string(), tipos, *ret_ty));
+                            self.scope_thunks.insert(name.clone(), (base.to_string(), types, *ret_ty));
                         }
                         let mut args_formatted = Vec::new();
                         for (a, ty) in args {
-                            let s = self.coagir(a, *ty);
+                            let s = self.coerce(a, *ty);
                             let t = ty.llvm_ir();
                             args_formatted.push(format!("{t} {s}"));
                         }
                         let joined = args_formatted.join(", ");
                         let r = ret_ty.llvm_ir();
-                        // `DARTFORGE_EFEITOS=conferir`: a extern marcada sem
+                        // `DARTFORGE_EFEITOS=check`: a extern marcada sem
                         // coletar ou sem lançar roda vigiada pelo runtime.
-                        let marcas = if externs::conferir_efeitos() { externs::marcas_a_conferir(name) } else { 0 };
-                        if marcas != 0 {
-                            let k = match self.externs_conferidas.iter().position(|n| n == name) {
+                        let marks = if externs::check_effects() { externs::marks_to_check(name) } else { 0 };
+                        if marks != 0 {
+                            let k = match self.checked_externs.iter().position(|n| n == name) {
                                 Some(k) => k,
                                 None => {
-                                    self.externs_conferidas.push(name.clone());
-                                    self.externs_conferidas.len() - 1
+                                    self.checked_externs.push(name.clone());
+                                    self.checked_externs.len() - 1
                                 }
                             };
-                            writeln!(self.out, "  call void @dartforge_efeitos_antes(ptr @df.efn.{k}, i64 {}, i64 {marcas})", name.len()).unwrap();
+                            writeln!(self.out, "  call void @dartforge_efeitos_antes(ptr @df.efn.{k}, i64 {}, i64 {marks})", name.len()).unwrap();
                         }
                         if *ret_ty == Type::Void {
                             writeln!(self.out, "  call {r} @{name}({joined})").unwrap();
                         } else {
                             writeln!(self.out, "  %v{v} = call {r} @{name}({joined})").unwrap();
                         }
-                        if marcas != 0 {
+                        if marks != 0 {
                             writeln!(self.out, "  call void @dartforge_efeitos_depois()").unwrap();
                         }
                     }
-                    Instruction::ChamadaNativa { alvo, args, ret } => {
+                    Instruction::NativeCall { alvo, args, ret } => {
                         // A chamada C: cada argumento convertido ao tipo C
                         // (estreitos com a extensão da ABI), o retorno
                         // estendido de volta explicitamente (o Windows x64
                         // não garante os bits altos de um retorno estreito).
-                        let a = self.coagir(alvo, Type::I64);
+                        let a = self.coerce(alvo, Type::I64);
                         writeln!(self.out, "  %fn{v} = inttoptr i64 {a} to ptr").unwrap();
-                        let mut partes = Vec::with_capacity(args.len());
+                        let mut parts = Vec::with_capacity(args.len());
                         for (i, (op, tc)) in args.iter().enumerate() {
-                            partes.push(self.argumento_c(v, i, op, *tc));
+                            parts.push(self.c_argument(v, i, op, *tc));
                         }
-                        let lista = partes.join(", ");
+                        let list = parts.join(", ");
                         let conv = match ret {
-                            TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {} %nr{v} to i64", ret.llvm())),
-                            TipoC::U8 | TipoC::U16 | TipoC::U32 => Some(format!("zext {} %nr{v} to i64", ret.llvm())),
-                            TipoC::F32 => Some(format!("fpext float %nr{v} to double")),
-                            TipoC::Ptr | TipoC::Handle => Some(format!("ptrtoint ptr %nr{v} to i64")),
-                            TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Bool | TipoC::Void => None,
+                            CType::I8 | CType::I16 | CType::I32 => Some(format!("sext {} %nr{v} to i64", ret.llvm())),
+                            CType::U8 | CType::U16 | CType::U32 => Some(format!("zext {} %nr{v} to i64", ret.llvm())),
+                            CType::F32 => Some(format!("fpext float %nr{v} to double")),
+                            CType::Ptr | CType::Handle => Some(format!("ptrtoint ptr %nr{v} to i64")),
+                            CType::I64 | CType::U64 | CType::F64 | CType::Bool | CType::Void => None,
                         };
                         match (ret, conv) {
-                            (TipoC::Void, _) => writeln!(self.out, "  call void %fn{v}({lista})").unwrap(),
-                            (_, None) => writeln!(self.out, "  %v{v} = call {} %fn{v}({lista})", ret.llvm()).unwrap(),
+                            (CType::Void, _) => writeln!(self.out, "  call void %fn{v}({list})").unwrap(),
+                            (_, None) => writeln!(self.out, "  %v{v} = call {} %fn{v}({list})", ret.llvm()).unwrap(),
                             (_, Some(c)) => {
-                                writeln!(self.out, "  %nr{v} = call {} %fn{v}({lista})", ret.llvm()).unwrap();
+                                writeln!(self.out, "  %nr{v} = call {} %fn{v}({list})", ret.llvm()).unwrap();
                                 writeln!(self.out, "  %v{v} = {c}").unwrap();
                             }
                         }
                     }
-                    Instruction::CargaNativa { endereco, indice, tipo } => {
+                    Instruction::NativeLoad { address, index: idx_value, ty: typ } => {
                         // Sem alinhamento suposto (os bytes de uma lista
                         // tipada são de um `Vec<u8>`).
-                        let e = self.coagir(endereco, Type::I64);
-                        let i = self.coagir(indice, Type::I64);
-                        let t = tipo.llvm();
+                        let e = self.coerce(address, Type::I64);
+                        let i = self.coerce(idx_value, Type::I64);
+                        let t = typ.llvm();
                         let inv = "";
                         writeln!(self.out, "  %cp{v} = inttoptr i64 {e} to ptr").unwrap();
                         writeln!(self.out, "  %cg{v} = getelementptr {t}, ptr %cp{v}, i64 {i}").unwrap();
-                        let conv = match tipo {
-                            TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {t} %cl{v} to i64")),
-                            TipoC::U8 | TipoC::U16 | TipoC::U32 => Some(format!("zext {t} %cl{v} to i64")),
-                            TipoC::F32 => Some(format!("fpext float %cl{v} to double")),
+                        let conv = match typ {
+                            CType::I8 | CType::I16 | CType::I32 => Some(format!("sext {t} %cl{v} to i64")),
+                            CType::U8 | CType::U16 | CType::U32 => Some(format!("zext {t} %cl{v} to i64")),
+                            CType::F32 => Some(format!("fpext float %cl{v} to double")),
                             _ => None,
                         };
                         match conv {
@@ -1719,20 +1719,20 @@ impl<'a> LlvmEmitter<'a> {
                             None => writeln!(self.out, "  %v{v} = load {t}, ptr %cg{v}, align 1{inv}").unwrap(),
                         }
                     }
-                    Instruction::GravacaoNativa { endereco, indice, tipo, valor } => {
-                        let e = self.coagir(endereco, Type::I64);
-                        let i = self.coagir(indice, Type::I64);
-                        let t = tipo.llvm();
-                        let x = match tipo {
-                            TipoC::F32 => {
-                                let d = self.coagir(valor, Type::F64);
+                    Instruction::NativeWrite { address, index: idx_value, ty: typ, value: val_ref } => {
+                        let e = self.coerce(address, Type::I64);
+                        let i = self.coerce(idx_value, Type::I64);
+                        let t = typ.llvm();
+                        let x = match typ {
+                            CType::F32 => {
+                                let d = self.coerce(val_ref, Type::F64);
                                 writeln!(self.out, "  %gx{v} = fptrunc double {d} to float").unwrap();
                                 format!("%gx{v}")
                             }
-                            TipoC::F64 => self.coagir(valor, Type::F64),
-                            TipoC::I64 | TipoC::U64 => self.coagir(valor, Type::I64),
+                            CType::F64 => self.coerce(val_ref, Type::F64),
+                            CType::I64 | CType::U64 => self.coerce(val_ref, Type::I64),
                             _ => {
-                                let n = self.coagir(valor, Type::I64);
+                                let n = self.coerce(val_ref, Type::I64);
                                 writeln!(self.out, "  %gx{v} = trunc i64 {n} to {t}").unwrap();
                                 format!("%gx{v}")
                             }
@@ -1741,12 +1741,12 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %gg{v} = getelementptr {t}, ptr %gp{v}, i64 {i}").unwrap();
                         writeln!(self.out, "  store {t} {x}, ptr %gg{v}, align 1").unwrap();
                     }
-                    Instruction::ChamadaNativaComposta { alvo, args, ret, destino, variadica } => {
-                        self.chamada_nativa_composta(v, alvo, args, ret, destino.as_ref(), *variadica);
+                    Instruction::CompositeNativeCall { alvo, args, ret, dest, variadic_flag } => {
+                        self.composite_native_call(v, alvo, args, ret, dest.as_ref(), *variadic_flag);
                     }
-                    Instruction::AllocList { elements } => self.emitir_alloc_list(v, elements),
-                    Instruction::AllocRecord { elements } => self.emitir_alloc_record(v, elements),
-                    // O `alloca` nasce no bloco de entrada (`emit_buffers_de_closure`).
+                    Instruction::AllocList { elements } => self.emit_alloc_list(v, elements),
+                    Instruction::AllocRecord { elements } => self.emit_alloc_record(v, elements),
+                    // O `alloca` nasce no bloco de entrada (`emit_closure_buffers`).
                     Instruction::Alloca(_) => {}
                     Instruction::Load { ptr, ty } => {
                         let sp = self.operand_str(ptr);
@@ -1757,65 +1757,65 @@ impl<'a> LlvmEmitter<'a> {
                         // valor chega já coagido pelo lowering, e aqui só se
                         // acerta a largura. Um ponteiro que não é `alloca`
                         // desta função (o endereço de um local de quem chama
-                        // uma função local direta, `funcoes_diretas.rs`)
+                        // uma função local direta, `direct_functions.rs`)
                         // grava na largura do valor, a do local de lá: um
                         // `bool` gravado como `i64` pisava 7 bytes do quadro
                         // de quem chamou (o `listenerHasError` do
                         // `_Future._propagateToListeners`).
                         let t = match ptr {
-                            Operand::Val(p) => self.apontado.get(p).copied().unwrap_or_else(|| match self.tipo_de(val) {
+                            Operand::Val(p) => self.pointee.get(p).copied().unwrap_or_else(|| match self.type_of(val) {
                                 Type::I1 => Type::I1,
                                 Type::I8 => Type::I8,
                                 Type::F64 => Type::F64,
                                 // Local SIMD sem caixa de quem chama (16 bytes).
-                                t if t.e_vetor() => t,
+                                t if t.is_vector() => t,
                                 _ => Type::I64,
                             }),
                             _ => Type::I64,
                         };
                         let sp = self.operand_str(ptr);
-                        let sv = self.coagir(val, t);
+                        let sv = self.coerce(val, t);
                         writeln!(self.out, "  store {} {sv}, ptr {sp}", t.llvm_ir()).unwrap();
                         // G2: o local `Ref` tem slot próprio, atualizado a
                         // cada gravação — ele vive mais que o SSA que o gravou.
                         if let Operand::Val(pv) = ptr
-                            && !self.allocas_no_quadro.contains(pv)
+                            && !self.frame_allocas.contains(pv)
                             && let Some(&slot) = self.slots.get(pv)
                         {
                             writeln!(self.out, "  store i64 {sv}, ptr %gcs{slot}").unwrap();
                         }
                     }
-                    Instruction::Box { op, from } if from.e_vetor() => self.emitir_caixa_simd(v, op, *from),
-                    Instruction::Unbox { op, to } if to.e_vetor() => self.emitir_descaixa_simd(v, op, *to),
+                    Instruction::Box { op, from } if from.is_vector() => self.emit_simd_box(v, op, *from),
+                    Instruction::Unbox { op, to } if to.is_vector() => self.emit_simd_unbox(v, op, *to),
                     Instruction::Simd { op, args } => {
-                        let ty = self.tipos.get(vid).copied().unwrap_or(Type::Void);
-                        self.emitir_simd(v, *op, args, ty);
+                        let ty = self.types.get(vid).copied().unwrap_or(Type::Void);
+                        self.emit_simd(v, *op, args, ty);
                     }
-                    Instruction::Box { op, from } => self.emitir_caixa(v, op, *from),
-                    Instruction::Unbox { op, to } => self.emitir_descaixa(v, op, *to),
+                    Instruction::Box { op, from } => self.emit_box(v, op, *from),
+                    Instruction::Unbox { op, to } => self.emit_unbox(v, op, *to),
                     Instruction::LShr(a, b) => {
-                        let sa = self.coagir(a, Type::I64);
-                        let sb = self.coagir(b, Type::I64);
+                        let sa = self.coerce(a, Type::I64);
+                        let sb = self.coerce(b, Type::I64);
                         writeln!(self.out, "  %v{v} = lshr i64 {sa}, {sb}").unwrap();
                     }
                     Instruction::Bitcast { op, to } => {
                         if *to == Type::F64 {
-                            let so = self.coagir(op, Type::I64);
-                            writeln!(self.out, "  %v{v} = bitcast i64 {so} to double").unwrap();
+                            let only = self.coerce(op, Type::I64);
+                            writeln!(self.out, "  %v{v} = bitcast i64 {only} to double").unwrap();
                         } else {
-                            let so = self.coagir(op, Type::F64);
-                            writeln!(self.out, "  %v{v} = bitcast double {so} to i64").unwrap();
+                            let only = self.coerce(op, Type::F64);
+                            writeln!(self.out, "  %v{v} = bitcast double {only} to i64").unwrap();
                         }
                     }
-                    Instruction::LoadGlobal { simbolo, ty } => {
-                        self.endereco_do_global(v, simbolo);
+                    Instruction::LoadGlobal { symbol: sym_name, ty } => {
+                        self.global_address(v, sym_name);
                         writeln!(self.out, "  %v{v} = load {}, ptr %ga{v}", ty.llvm_ir()).unwrap();
                     }
-                    Instruction::StoreGlobal { simbolo, val, ty, raiz } => {
-                        let sv = self.coagir(val, *ty);
-                        self.endereco_do_global(v, simbolo);
+                    Instruction::StoreGlobal { symbol: sym_name, val, ty, root } => {
+                        let sv = self.coerce(val, *ty);
+                        self.global_address(v, sym_name);
                         writeln!(self.out, "  store {} {sv}, ptr %ga{v}", ty.llvm_ir()).unwrap();
-                        if raiz.is_some() {
+                        if root.is_some() {
                             // A raiz é identificada pelo endereço do slot:
                             // único entre os módulos e os isolados.
                             writeln!(self.out, "  %gr{v} = ptrtoint ptr %ga{v} to i64").unwrap();
@@ -1834,19 +1834,19 @@ impl<'a> LlvmEmitter<'a> {
                             .iter()
                             .map(|(b, op)| {
                                 let sop = self
-                                    .constante_no_tipo(op, *ty)
+                                    .constant_in_type(op, *ty)
                                     .or_else(|| match op {
                                         Operand::Val(v) => self
                                             .conv_phi
                                             .iter()
-                                            .find(|(bb, _, _, vv, para)| {
-                                                *bb == b.0 && vv == v && para.llvm_ir() == ty.llvm_ir()
+                                            .find(|(bb, _, _, vv, to_repr)| {
+                                                *bb == b.0 && vv == v && to_repr.llvm_ir() == ty.llvm_ir()
                                             })
-                                            .map(|(_, nome, _, _, _)| nome.clone()),
+                                            .map(|(_, name_str, _, _, _)| name_str.clone()),
                                         _ => None,
                                     })
                                     .unwrap_or_else(|| self.operand_str(op));
-                                match self.rotulos_de_saida.get(&b.0) {
+                                match self.exit_labels.get(&b.0) {
                                     Some(r) => format!("[ {sop}, %{r} ]"),
                                     None => format!("[ {sop}, %b{} ]", b.0),
                                 }
@@ -1865,14 +1865,14 @@ impl<'a> LlvmEmitter<'a> {
                 }
                 // Exceções por tabelas: a chamada Dart com pouso é `invoke`
                 // (a raiz do resultado, abaixo, já sai no caminho normal).
-                if let Some(pouso) = tab.and_then(|t| t.invocacoes.get(vid)) {
-                    self.tornar_invoke(inicio_da_instrucao, v, pouso.0);
+                if let Some(landing_pad) = tab.and_then(|t| t.invocations.get(vid)) {
+                    self.make_invoke(instruction_start, v, landing_pad.0);
                 }
                 // G1: a raiz logo depois da definição — nada aloca entre
                 // o retorno da chamada e este `set_root` (G5).
                 if let Some(&slot) = self.slots.get(vid) {
                     if matches!(inst, Instruction::Phi { .. }) {
-                        raizes_de_phi.push((slot, v));
+                        phi_roots.push((slot, v));
                     } else if !matches!(inst, Instruction::Alloca(_)) {
                         writeln!(self.out, "  store i64 %v{v}, ptr %gcs{slot}").unwrap();
                     }
@@ -1881,74 +1881,74 @@ impl<'a> LlvmEmitter<'a> {
                 // de coleta (os operandos inclusive) vai no `"deopt"` de cada
                 // chamada dele que pode coletar — é o que o põe no mapa da
                 // chamada (§14.12).
-                if !self.enraizados.is_empty()
-                    && let Some(vivos) = self.raizes_da_funcao.vivos_em.get(vid).cloned()
+                if !self.rooted_set.is_empty()
+                    && let Some(live_set) = self.function_roots.live_at.get(vid).cloned()
                 {
-                    self.anexar_deopt(inicio_da_instrucao, &vivos);
+                    self.attach_deopt(instruction_start, &live_set);
                 }
-                if !self.module.memoria_arc
-                    && (matches!(inst, Instruction::AllocObject { .. }) || Self::alocacao_em_linha(inst).is_some()
+                if !self.module.arc_memory
+                    && (matches!(inst, Instruction::AllocObject { .. }) || Self::inline_allocation(inst).is_some()
                         || matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new"))
                 {
-                    self.frescos.insert(v);
+                    self.fresh_set.insert(v);
                 }
                 let _ = ty;
             }
-            for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
-                self.raiz_de_phi(slot, pv);
+            for (slot, pv) in std::mem::take(&mut phi_roots) {
+                self.phi_root(slot, pv);
             }
 
             // O build de conferência: o ponto de coleta do fim do bloco.
-            if self.conferencia.is_some() {
-                let vivos = self.raizes_da_funcao.vivos_no_fim.get(&block.id).cloned().unwrap_or_default();
-                self.gravar_conferencia(&vivos);
+            if self.check.is_some() {
+                let live_set = self.function_roots.live_at_end.get(&block.id).cloned().unwrap_or_default();
+                self.store_check(&live_set);
             }
-            let inicio_do_fim = self.out.len();
-            for (b, nome, de, v, para) in self.conv_phi.clone() {
+            let end_start = self.out.len();
+            for (b, name_str, de, v, to_repr) in self.conv_phi.clone() {
                 if b == block.id.0 {
-                    let origem = format!("%v{}", v.0);
-                    self.emitir_conversao_nomeada(&nome, de, &origem, para);
+                    let origin = format!("%v{}", v.0);
+                    self.emit_named_conversion(&name_str, de, &origin, to_repr);
                 }
             }
             // Raízes por mapas: o ponto de coleta do fim do bloco (as
             // conversões acima podem encaixotar; o `throw` é tratado no
             // terminador, depois da chamada dele).
-            if !self.enraizados.is_empty()
+            if !self.rooted_set.is_empty()
                 && !matches!(block.terminator, Terminator::Throw(_))
-                && let Some(vivos) = self.raizes_da_funcao.vivos_no_fim.get(&block.id).cloned()
+                && let Some(live_set) = self.function_roots.live_at_end.get(&block.id).cloned()
             {
-                self.anexar_deopt(inicio_do_fim, &vivos);
+                self.attach_deopt(end_start, &live_set);
             }
 
-            if let Some(p) = func.depuracao.as_ref().and_then(|d| d.saidas.get(&block.id))
-                && posicao_escrita != Some(*p)
+            if let Some(p) = func.debug_info.as_ref().and_then(|d| d.exits.get(&block.id))
+                && written_position != Some(*p)
             {
-                writeln!(self.out, "{}{} {}", depuracao::MARCADOR, p.0, p.1).unwrap();
-                posicao_escrita = Some(*p);
-                embutida_escrita = None;
+                writeln!(self.out, "{}{} {}", debug_info::MARKER, p.0, p.1).unwrap();
+                written_position = Some(*p);
+                written_embedded = None;
             }
             // Exceções por tabelas: o `Return` com a exceção pendente não
             // retorna — desenrola até o pouso de quem a trata (que restaura
             // o topo da pilha-sombra: o quadro de raízes não é fechado
             // aqui). Com a pendência incerta, confere antes.
             if matches!(block.terminator, Terminator::Return(_)) {
-                match tab.and_then(|t| t.saidas.get(&block.id)) {
-                    Some(SaidaPorExcecao::Lanca) => {
+                match tab.and_then(|t| t.exits.get(&block.id)) {
+                    Some(ExceptionExit::Throws) => {
                         writeln!(self.out, "  call void @df.lancar()").unwrap();
                         writeln!(self.out, "  unreachable").unwrap();
                         continue;
                     }
-                    Some(SaidaPorExcecao::Retoma) => {
-                        if self.rastro.is_some() {
+                    Some(ExceptionExit::Resume) => {
+                        if self.stack_trace.is_some() {
                             writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
                         }
-                        if self.tem_frame {
+                        if self.has_frame {
                             writeln!(self.out, "  store ptr %gcant, ptr %ctxtopo, align 8").unwrap();
                         }
                         writeln!(self.out, "  resume {{ ptr, i32 }} %lpad{}", block.id.0).unwrap();
                         continue;
                     }
-                    Some(SaidaPorExcecao::Guarda) => {
+                    Some(ExceptionExit::Guard) => {
                         let b = block.id.0;
                         writeln!(self.out, "  %xgp{b} = load i8, ptr %ctx, align 8").unwrap();
                         writeln!(self.out, "  %xgn{b} = icmp ne i8 %xgp{b}, 0").unwrap();
@@ -1962,12 +1962,12 @@ impl<'a> LlvmEmitter<'a> {
                     None => {}
                 }
             }
-            if self.rastro.is_some() && matches!(block.terminator, Terminator::Return(_)) {
+            if self.stack_trace.is_some() && matches!(block.terminator, Terminator::Return(_)) {
                 writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
             }
             // G3: o frame de raízes fecha antes de TODO `ret`, inclusive o
             // das saídas por exceção (que retornam o valor padrão).
-            if self.tem_frame && matches!(block.terminator, Terminator::Return(_)) {
+            if self.has_frame && matches!(block.terminator, Terminator::Return(_)) {
                 writeln!(self.out, "  %gcvolta{} = load ptr, ptr %gcq, align 8", block.id.0).unwrap();
                 writeln!(self.out, "  store ptr %gcvolta{}, ptr %ctxtopo, align 8", block.id.0).unwrap();
             }
@@ -1976,7 +1976,7 @@ impl<'a> LlvmEmitter<'a> {
                     if func.return_ty == Type::Void {
                         writeln!(self.out, "  ret void").unwrap();
                     } else {
-                        let sop = self.coagir(op, func.return_ty);
+                        let sop = self.coerce(op, func.return_ty);
                         writeln!(self.out, "  ret {} {sop}", func.return_ty.llvm_ir()).unwrap();
                     }
                 }
@@ -1996,16 +1996,16 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  br label %b{}", target.0).unwrap();
                 }
                 // O desvio ao pouso é o do `invoke` deste bloco
-                // (`optimize/tabelas.rs`): aqui só segue a continuação.
-                Terminator::CondBranch { then_block, else_block, .. } if tab.is_some_and(|t| t.pousos.contains(then_block)) => {
+                // (`optimize/tables.rs`): aqui só segue a continuação.
+                Terminator::CondBranch { then_block, else_block, .. } if tab.is_some_and(|t| t.landing_pads.contains(then_block)) => {
                     writeln!(self.out, "  br label %b{}", else_block.0).unwrap();
                 }
                 Terminator::CondBranch { cond, then_block, else_block } => {
-                    let sc = self.coagir(cond, Type::I1);
+                    let sc = self.coerce(cond, Type::I1);
                     writeln!(self.out, "  br i1 {sc}, label %b{}, label %b{}", then_block.0, else_block.0).unwrap();
                 }
                 Terminator::Switch { val, default, cases } => {
-                    let sv = self.coagir(val, Type::I64);
+                    let sv = self.coerce(val, Type::I64);
                     write!(self.out, "  switch i64 {sv}, label %b{} [", default.0).unwrap();
                     for (c, b) in cases {
                         write!(self.out, " i64 {c}, label %b{}", b.0).unwrap();
@@ -2013,19 +2013,19 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, " ]").unwrap();
                 }
                 Terminator::Throw(op) => {
-                    let tag = match self.tipo_de(op) {
+                    let tag = match self.type_of(op) {
                         Type::I64 => 1,
                         Type::I1 | Type::I8 => 2,
                         Type::F64 => 4,
                         _ => 3,
                     };
-                    let sop = self.coagir(op, Type::I64);
-                    let inicio_do_throw = self.out.len();
+                    let sop = self.coerce(op, Type::I64);
+                    let throw_start = self.out.len();
                     writeln!(self.out, "  call void @dartforge_exception_throw(i64 {sop}, i8 {tag})").unwrap();
-                    if !self.enraizados.is_empty()
-                        && let Some(vivos) = self.raizes_da_funcao.vivos_no_fim.get(&block.id).cloned()
+                    if !self.rooted_set.is_empty()
+                        && let Some(live_set) = self.function_roots.live_at_end.get(&block.id).cloned()
                     {
-                        self.anexar_deopt(inicio_do_throw, &vivos);
+                        self.attach_deopt(throw_start, &live_set);
                     }
                     if tab.is_some() {
                         writeln!(self.out, "  call void @df.lancar()").unwrap();
@@ -2041,29 +2041,29 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "}}\n").unwrap();
         // §13.14: os rótulos do rastro, antes do DWARF (que consome os
         // marcadores de posição).
-        if (func.depuracao.is_some() || compartilhada)
-            && let Some(mut r) = self.rastro_vm.take()
+        if (func.debug_info.is_some() || shared)
+            && let Some(mut r) = self.vm_stack_trace.take()
         {
-            let texto = self.out.split_off(inicio_da_funcao);
-            let rotulado = r.rotular(&texto, func, func.depuracao.as_deref(), self.depuracao.is_some(), compartilhada);
-            self.out.push_str(&rotulado);
-            self.rastro_vm = Some(r);
+            let text = self.out.split_off(function_start);
+            let labeled = r.label(&text, func, func.debug_info.as_deref(), self.debug_info.is_some(), shared);
+            self.out.push_str(&labeled);
+            self.vm_stack_trace = Some(r);
         }
-        if let Some(d) = func.depuracao.as_deref()
-            && let Some(mut dep) = self.depuracao.take()
+        if let Some(d) = func.debug_info.as_deref()
+            && let Some(mut dep) = self.debug_info.take()
         {
-            let texto = self.out.split_off(inicio_da_funcao);
-            let anotado = dep.anotar(&texto, func, d);
-            self.out.push_str(&anotado);
-            self.depuracao = Some(dep);
+            let text = self.out.split_off(function_start);
+            let annotated = dep.annotate(&text, func, d);
+            self.out.push_str(&annotated);
+            self.debug_info = Some(dep);
         }
     }
 
     /// O número de slots do quadro de raízes da função em emissão: os de
     /// sempre e, no build de conferência, os de conferência depois deles.
-    fn tamanho_do_quadro(&self) -> usize {
-        match self.conferencia {
-            Some((primeiro, k)) => primeiro + k,
+    fn frame_size(&self) -> usize {
+        match self.check {
+            Some((first_one, k)) => first_one + k,
             None => self.slots.values().max().map_or(0, |m| m + 1),
         }
     }
@@ -2071,87 +2071,87 @@ impl<'a> LlvmEmitter<'a> {
     /// O campo `n` do quadro (`QuadroDeRaizes` do runtime): o número de
     /// slots e, nos bits 40 em diante, quantos dos últimos são de
     /// conferência.
-    fn cabecalho_do_quadro(&self, n: usize) -> u64 {
+    fn frame_header(&self, n: usize) -> u64 {
         // O bit 62: o quadro está num quadro nativo próprio
-        // ([`Self::quadros_ordenados`]).
-        let ordem = if self.quadros_ordenados { 1u64 << 62 } else { 0 };
-        match self.conferencia {
-            Some((_, k)) => n as u64 | ((k as u64) << 40) | ordem,
-            None => n as u64 | ordem,
+        // ([`Self::ordered_frames`]).
+        let order = if self.ordered_frames { 1u64 << 62 } else { 0 };
+        match self.check {
+            Some((_, k)) => n as u64 | ((k as u64) << 40) | order,
+            None => n as u64 | order,
         }
     }
 
-    /// O build de conferência: grava `vivos` nos slots de conferência e zera
+    /// O build de conferência: grava `live_set` nos slots de conferência e zera
     /// os que sobram.
-    fn gravar_conferencia(&mut self, vivos: &[ValueId]) {
-        let Some((primeiro, k)) = self.conferencia else { return };
+    fn store_check(&mut self, live_set: &[ValueId]) {
+        let Some((first_one, k)) = self.check else { return };
         for i in 0..k {
-            match vivos.get(i) {
-                Some(x) => writeln!(self.out, "  store i64 %v{}, ptr %gcs{}", x.0, primeiro + i).unwrap(),
-                None => writeln!(self.out, "  store i64 0, ptr %gcs{}", primeiro + i).unwrap(),
+            match live_set.get(i) {
+                Some(x) => writeln!(self.out, "  store i64 %v{}, ptr %gcs{}", x.0, first_one + i).unwrap(),
+                None => writeln!(self.out, "  store i64 0, ptr %gcs{}", first_one + i).unwrap(),
             }
         }
     }
 
     /// A raiz de um `phi`, emitida depois do último `phi` do bloco: o `store`
     /// no slot do quadro.
-    fn raiz_de_phi(&mut self, slot: usize, v: u32) {
+    fn phi_root(&mut self, slot: usize, v: u32) {
         writeln!(self.out, "  store i64 %v{v}, ptr %gcs{slot}").unwrap();
     }
 
-    /// Raízes por mapas (§14.12): os valores enraizados `vivos` no operando
-    /// `"deopt"` de cada chamada que pode coletar emitida desde `inicio` (o
+    /// Raízes por mapas (§14.12): os valores enraizados `live_set` no operando
+    /// `"deopt"` de cada chamada que pode coletar emitida desde `start` (o
     /// texto de um ponto de coleta). O operando faz o valor estar vivo *na*
     /// chamada e põe o lugar dele no mapa; vale também para o argumento cujo
     /// último uso é a própria chamada (o runtime conta com quem chama para
     /// mantê-lo vivo enquanto ela roda: o LLVM o guarda num registrador
     /// preservado ou num slot).
-    fn anexar_deopt(&mut self, inicio: usize, vivos: &[ValueId]) {
-        self.anexar_deopt_com(inicio, vivos, true);
+    fn attach_deopt(&mut self, start: usize, live_set: &[ValueId]) {
+        self.attach_deopt_with(start, live_set, true);
     }
 
-    /// [`Self::anexar_deopt`]; `sabotavel` diz se o valor da sabotagem
+    /// [`Self::attach_deopt`]; `sabotageable` diz se o valor da sabotagem
     /// `bruto_no_mapa` (definido depois do prólogo) já existe aqui.
-    fn anexar_deopt_com(&mut self, inicio: usize, vivos: &[ValueId], sabotavel: bool) {
-        let mut operandos: Vec<String> = if crate::alvo::sabotagem("sem_uso_ficticio") {
+    fn attach_deopt_with(&mut self, start: usize, live_set: &[ValueId], sabotageable: bool) {
+        let mut operands: Vec<String> = if crate::alvo::sabotage("sem_uso_ficticio") {
             Vec::new()
         } else {
-            vivos.iter().map(|x| format!("i64 %v{}", x.0)).collect()
+            live_set.iter().map(|x| format!("i64 %v{}", x.0)).collect()
         };
-        if sabotavel && crate::alvo::sabotagem("bruto_no_mapa") {
-            operandos.push("i64 %dfsabv".to_string());
+        if sabotageable && crate::alvo::sabotage("bruto_no_mapa") {
+            operands.push("i64 %dfsabv".to_string());
         }
-        let feixe = format!("\"deopt\"({})", operandos.join(", "));
-        let texto = self.out.split_off(inicio);
-        for linha in texto.split_inclusive('\n') {
-            self.out.push_str(&com_deopt(linha, &feixe));
+        let beam = format!("\"deopt\"({})", operands.join(", "));
+        let text = self.out.split_off(start);
+        for line in text.split_inclusive('\n') {
+            self.out.push_str(&with_deopt(line, &beam));
         }
     }
 
     /// Exceções por tabelas: a chamada Dart que a instrução `v` acabou de
-    /// emitir (a última linha desde `inicio`: a de `CallStatic`,
-    /// `ChamadaTipada`, da closure ou do seletor) vira
-    /// `invoke … to label %inv<v>.fim unwind label %b<pouso>`, e a emissão
+    /// emitir (a última linha desde `start`: a de `CallStatic`,
+    /// `TypedCall`, da closure ou do seletor) vira
+    /// `invoke … to label %inv<v>.end unwind label %b<landing_pad>`, e a emissão
     /// continua no rótulo do caminho normal — o bloco da HIR passa a
-    /// terminar nele ([`LlvmEmitter::rotulos_de_saida`]). As chamadas ao
+    /// terminar nele ([`LlvmEmitter::exit_labels`]). As chamadas ao
     /// runtime que a mesma instrução emite antes (a entrada da closure, a
     /// busca do seletor) não desenrolam e continuam `call`.
-    fn tornar_invoke(&mut self, inicio: usize, v: u32, pouso: u32) {
-        let texto = self.out.split_off(inicio);
-        let corpo = texto.strip_suffix('\n').unwrap_or(&texto);
-        let (antes, chamada) = match corpo.rfind('\n') {
-            Some(i) => (&corpo[..=i], &corpo[i + 1..]),
-            None => ("", corpo),
+    fn make_invoke(&mut self, start: usize, v: u32, landing_pad: u32) {
+        let text = self.out.split_off(start);
+        let body = text.strip_suffix('\n').unwrap_or(&text);
+        let (before, call) = match body.rfind('\n') {
+            Some(i) => (&body[..=i], &body[i + 1..]),
+            None => ("", body),
         };
         assert!(
-            chamada.starts_with("  call ") || chamada.contains(" = call "),
-            "bug do compilador: a instrução com pouso não termina numa chamada: {chamada}"
+            call.starts_with("  call ") || call.contains(" = call "),
+            "bug do compilador: a instrução com pouso não termina numa chamada: {call}"
         );
-        self.out.push_str(antes);
-        self.out.push_str(&chamada.replacen("call ", "invoke ", 1));
-        writeln!(self.out, " to label %inv{v}.fim unwind label %b{pouso}").unwrap();
+        self.out.push_str(before);
+        self.out.push_str(&call.replacen("call ", "invoke ", 1));
+        writeln!(self.out, " to label %inv{v}.fim unwind label %b{landing_pad}").unwrap();
         writeln!(self.out, "inv{v}.fim:").unwrap();
-        self.rotulo_atual = format!("inv{v}.fim");
+        self.current_label = format!("inv{v}.fim");
     }
 
     /// Os invocadores uniformes ARC (closures, seletores, chamadas tipadas):
@@ -2161,25 +2161,25 @@ impl<'a> LlvmEmitter<'a> {
     ///
     /// # Panics
     /// Corpos ARC preparados sem o certificado de portas.
-    pub(super) fn abi_uniforme_arc(&self) -> bool {
-        if !self.module.memoria_arc || !(self.module.arc_preparado || self.module.portas_arc_aot.is_some()) {
+    pub(super) fn arc_uniform_abi(&self) -> bool {
+        if !self.module.arc_memory || !(self.module.arc_prepared || self.module.arc_aot_ports.is_some()) {
             return false;
         }
-        assert!(self.module.portas_arc_aot.is_some(), "invocação ARC preparada exige portas AOT certificadas");
+        assert!(self.module.arc_aot_ports.is_some(), "invocação ARC preparada exige portas AOT certificadas");
         true
     }
 
     /// As fábricas com owner do código (literal de lista, interpolação): só
     /// quando a preparação ARC inseriu a liberação desse owner. No regime
     /// legado ninguém o soltaria, e o objeto nunca seria liberado.
-    pub(super) fn fabricas_owned_arc(&self) -> bool {
-        self.module.memoria_arc && self.module.arc_preparado
+    pub(super) fn arc_owned_factories(&self) -> bool {
+        self.module.arc_memory && self.module.arc_prepared
     }
 
     /// `%cf<v>`: o ponteiro da entrada uniforme da closure `c` — o código
     /// dela, ou `@df_clo_invalido` quando o valor não é closure (o runtime
     /// devolve 0 e deixa o `NoSuchMethodError` pendente).
-    fn entrada_da_closure(&mut self, v: u32, c: &str) {
+    fn closure_entry(&mut self, v: u32, c: &str) {
         writeln!(self.out, "  %cc{v} = call i64 @dartforge_closure_entry(i64 {c})").unwrap();
         writeln!(self.out, "  %cz{v} = icmp eq i64 %cc{v}, 0").unwrap();
         writeln!(
@@ -2192,19 +2192,19 @@ impl<'a> LlvmEmitter<'a> {
 
     /// O descritor de uma chamada pela convenção uniforme:
     /// [n_posicionais, n_nomeados, hash(nome)…].
-    fn descritor(args: usize, nomes: &[String]) -> Vec<i64> {
-        let mut d = vec![(args - nomes.len()) as i64, nomes.len() as i64];
-        d.extend(nomes.iter().map(|n| crate::lower::closures::hash_nome(n)));
+    fn descriptor(args: usize, names: &[String]) -> Vec<i64> {
+        let mut d = vec![(args - names.len()) as i64, names.len() as i64];
+        d.extend(names.iter().map(|n| crate::lower::closures::hash_name(n)));
         d
     }
 
-    fn registrar_vetor(&mut self, v: Vec<i64>) -> usize {
-        if let Some(&k) = self.vetor_de.get(&v) {
+    fn register_vector(&mut self, v: Vec<i64>) -> usize {
+        if let Some(&k) = self.vector_of.get(&v) {
             return k;
         }
-        let k = self.vetores.len();
-        self.vetor_de.insert(v.clone(), k);
-        self.vetores.push(v);
+        let k = self.vectors.len();
+        self.vector_of.insert(v.clone(), k);
+        self.vectors.push(v);
         k
     }
 
@@ -2212,60 +2212,60 @@ impl<'a> LlvmEmitter<'a> {
     /// closure — o runtime já deixou o `NoSuchMethodError` pendente) e os
     /// vetores constantes.
     fn emit_closures(&mut self) {
-        let modulo = self.module;
-        for func in &modulo.functions {
+        let module = self.module;
+        for func in &module.functions {
             for block in &func.blocks {
                 for (_, inst, _) in &block.instructions {
                     match inst {
                         Instruction::ConstArray(v) => {
-                            self.registrar_vetor(v.clone());
+                            self.register_vector(v.clone());
                         }
-                        Instruction::TabelaDeFuncoes(v) => {
-                            if !self.tabela_de_funcoes_de.contains_key(v) {
-                                self.tabela_de_funcoes_de.insert(v.clone(), self.tabelas_de_funcoes.len());
-                                self.tabelas_de_funcoes.push(v.clone());
+                        Instruction::FunctionTable(v) => {
+                            if !self.function_table_of.contains_key(v) {
+                                self.function_table_of.insert(v.clone(), self.function_tables.len());
+                                self.function_tables.push(v.clone());
                             }
                             for s in v {
-                                if !self.funcao_por_simbolo.contains_key(s.as_str()) {
-                                    self.anotar_externo(s, Type::Ref, &[]);
+                                if !self.function_by_symbol.contains_key(s.as_str()) {
+                                    self.annotate_external(s, Type::Ref, &[]);
                                 }
                             }
                         }
-                        Instruction::CallClosure { args, nomes, .. } | Instruction::CallSeletor { args, nomes, .. } => {
-                            self.registrar_vetor(Self::descritor(args.len(), nomes));
-                            self.nomes_de_argumento.extend(nomes.iter().cloned());
+                        Instruction::CallClosure { args, names, .. } | Instruction::CallSelector { args, names, .. } => {
+                            self.register_vector(Self::descriptor(args.len(), names));
+                            self.argument_names.extend(names.iter().cloned());
                         }
                         _ => {}
                     }
                 }
             }
         }
-        if self.module.modo_sdk {
+        if self.module.sdk_mode {
             // O descritor sem argumentos do `dartforge_dispatch_toString`.
-            self.registrar_vetor(vec![0, 0]);
+            self.register_vector(vec![0, 0]);
         }
         self.out.push_str("; Closures: entrada inválida e vetores constantes\n");
         self.out.push_str("define internal i64 @df_clo_invalido(i64 %c, ptr %a, ptr %d) {\nb0:\n  ret i64 0\n}\n");
-        for (k, v) in self.vetores.iter().enumerate() {
-            let itens: Vec<String> = v.iter().map(|x| format!("i64 {x}")).collect();
+        for (k, v) in self.vectors.iter().enumerate() {
+            let items: Vec<String> = v.iter().map(|x| format!("i64 {x}")).collect();
             writeln!(
                 self.out,
                 "@df.arr.{k} = private unnamed_addr constant [{} x i64] [{}]",
                 v.len(),
-                itens.join(", ")
+                items.join(", ")
             )
             .unwrap();
         }
-        for (k, v) in self.tabelas_de_funcoes.iter().enumerate() {
-            let itens: Vec<String> = v.iter().map(|s| format!("ptr @{s}")).collect();
-            writeln!(self.out, "@df.fns.{k} = private unnamed_addr constant [{} x ptr] [{}]", v.len(), itens.join(", ")).unwrap();
+        for (k, v) in self.function_tables.iter().enumerate() {
+            let items: Vec<String> = v.iter().map(|s| format!("ptr @{s}")).collect();
+            writeln!(self.out, "@df.fns.{k} = private unnamed_addr constant [{} x ptr] [{}]", v.len(), items.join(", ")).unwrap();
         }
         self.out.push('\n');
     }
 
     /// Converte os bits i64 lidos de uma célula/ambiente (%u) para a
     /// representação `ty` do resultado `%v<v>`.
-    fn bits_para_repr(&mut self, v: u32, bits: &str, ty: Type) {
+    fn bits_to_repr(&mut self, v: u32, bits: &str, ty: Type) {
         match ty {
             Type::F64 => writeln!(self.out, "  %v{v} = bitcast i64 {bits} to double").unwrap(),
             Type::I1 => writeln!(self.out, "  %v{v} = icmp ne i64 {bits}, 0").unwrap(),
@@ -2276,7 +2276,7 @@ impl<'a> LlvmEmitter<'a> {
 
     /// Tag da ABI (bits, tag) de um valor pela representação (E1).
     fn tag_de(&self, op: &Operand) -> u8 {
-        match self.tipo_de(op) {
+        match self.type_of(op) {
             Type::I64 => 1,
             Type::I1 | Type::I8 => 2,
             Type::F64 => 4,
@@ -2287,90 +2287,90 @@ impl<'a> LlvmEmitter<'a> {
     /// Emite uma instrução das closures (P1); `false` se não é uma delas.
     fn emit_closure_inst(&mut self, v: u32, inst: &Instruction, ty: Type) -> bool {
         match inst {
-            Instruction::AllocCell { value } => self.emitir_alloc_cell(v, value),
-            Instruction::CellGet { cell } => self.emitir_cell_get(v, cell, ty),
-            Instruction::CellSet { cell, value } => self.emitir_cell_set(cell, value),
-            Instruction::EnvGet { env, index } => self.emitir_env_get(v, env, *index, ty),
-            Instruction::JuntarTextos { partes } => self.emitir_juntar_textos(v, partes),
-            Instruction::AllocEnv { values } => self.emitir_alloc_env(v, values),
-            Instruction::AllocClosure { code_symbol, env } => self.emitir_alloc_closure(v, code_symbol, env),
-            Instruction::AllocClosureTipada { code_symbol, env, tipado, abi, direto } => {
-                self.emitir_alloc_closure_tipada(v, code_symbol, env, tipado, *abi, *direto);
+            Instruction::AllocCell { value } => self.emit_alloc_cell(v, value),
+            Instruction::CellGet { cell } => self.emit_cell_get(v, cell, ty),
+            Instruction::CellSet { cell, value } => self.emit_cell_set(cell, value),
+            Instruction::EnvGet { env, index } => self.emit_env_get(v, env, *index, ty),
+            Instruction::ConcatStrings { parts } => self.emit_concat_strings(v, parts),
+            Instruction::AllocEnv { values } => self.emit_alloc_env(v, values),
+            Instruction::AllocClosure { code_symbol, env } => self.emit_alloc_closure(v, code_symbol, env),
+            Instruction::AllocClosureTyped { code_symbol, env, typed, abi, direct } => {
+                self.emit_alloc_typed_closure(v, code_symbol, env, typed, *abi, *direct);
             }
-            Instruction::ChamadaTipada { alvo, args, ret } => {
+            Instruction::TypedCall { alvo, args, ret } => {
                 // A chamada é a mesma nos dois regimes; o predicado só confere
                 // o certificado quando os corpos foram preparados.
-                self.abi_uniforme_arc();
-                let a = self.coagir(alvo, Type::I64);
-                let mut partes = Vec::with_capacity(args.len());
+                self.arc_uniform_abi();
+                let a = self.coerce(alvo, Type::I64);
+                let mut parts = Vec::with_capacity(args.len());
                 for (x, t) in args {
-                    let s = self.coagir(x, *t);
-                    partes.push(format!("{} {s}", t.llvm_ir()));
+                    let s = self.coerce(x, *t);
+                    parts.push(format!("{} {s}", t.llvm_ir()));
                 }
                 writeln!(self.out, "  %ct{v} = inttoptr i64 {a} to ptr").unwrap();
                 if *ret == Type::Void {
-                    writeln!(self.out, "  call void %ct{v}({})", partes.join(", ")).unwrap();
+                    writeln!(self.out, "  call void %ct{v}({})", parts.join(", ")).unwrap();
                 } else {
-                    writeln!(self.out, "  %v{v} = call {} %ct{v}({})", ret.llvm_ir(), partes.join(", ")).unwrap();
+                    writeln!(self.out, "  %v{v} = call {} %ct{v}({})", ret.llvm_ir(), parts.join(", ")).unwrap();
                 }
             }
-            Instruction::TearOff { code_symbol } => self.emitir_tearoff(v, code_symbol),
-            Instruction::CallClosure { closure, args, nomes, tupla_tipos, .. } => {
-                let k = self.vetor_de[&Self::descritor(args.len(), nomes)];
+            Instruction::TearOff { code_symbol } => self.emit_tearoff(v, code_symbol),
+            Instruction::CallClosure { closure, args, names, tuple_types, .. } => {
+                let k = self.vector_of[&Self::descriptor(args.len(), names)];
                 // O slot depois dos argumentos leva a tupla de tipos (a
                 // mesma convenção da chamada por seletor).
                 let n = args.len() + 1;
                 for (i, a) in args.iter().enumerate() {
-                    let s = self.coagir(a, Type::I64);
+                    let s = self.coerce(a, Type::I64);
                     writeln!(self.out, "  %ca{v}_{i} = getelementptr [{n} x i64], ptr %cargs{v}, i64 0, i64 {i}").unwrap();
                     writeln!(self.out, "  store i64 {s}, ptr %ca{v}_{i}").unwrap();
                 }
-                let tupla = self.coagir(tupla_tipos, Type::I64);
+                let tuple = self.coerce(tuple_types, Type::I64);
                 writeln!(self.out, "  %cat{v} = getelementptr [{n} x i64], ptr %cargs{v}, i64 0, i64 {}", args.len()).unwrap();
-                writeln!(self.out, "  store i64 {tupla}, ptr %cat{v}").unwrap();
-                let c = self.coagir(closure, Type::Ref);
-                if self.abi_uniforme_arc() {
+                writeln!(self.out, "  store i64 {tuple}, ptr %cat{v}").unwrap();
+                let c = self.coerce(closure, Type::Ref);
+                if self.arc_uniform_abi() {
                     writeln!(self.out, "  %cav{v} = ptrtoint ptr %cargs{v} to i64").unwrap();
                     writeln!(self.out, "  %cdv{v} = ptrtoint ptr @df.arr.{k} to i64").unwrap();
                     writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invocar_closure_uniforme_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
                 } else {
-                    self.entrada_da_closure(v, &c);
+                    self.closure_entry(v, &c);
                     writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr %cargs{v}, ptr @df.arr.{k})").unwrap();
                 }
             }
-            Instruction::CallClosureRepasse { arc_owned, closure, args, desc } => {
-                let c = self.coagir(closure, Type::Ref);
+            Instruction::CallClosureForward { arc_owned, closure, args, desc } => {
+                let c = self.coerce(closure, Type::Ref);
                 let a = self.operand_str(args);
                 let d = self.operand_str(desc);
                 if *arc_owned {
-                    assert!(self.module.memoria_arc && self.module.portas_arc_aot.is_some(),
+                    assert!(self.module.arc_memory && self.module.arc_aot_ports.is_some(),
                         "repasse de closure ARC exige portas AOT certificadas");
                     writeln!(self.out, "  %cav{v} = ptrtoint ptr {a} to i64").unwrap();
                     writeln!(self.out, "  %cdv{v} = ptrtoint ptr {d} to i64").unwrap();
                     writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invocar_closure_uniforme_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
                 } else {
-                    self.entrada_da_closure(v, &c);
+                    self.closure_entry(v, &c);
                     writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr {a}, ptr {d})").unwrap();
                 }
             }
-            Instruction::CallSeletor { seletor, recv, args, nomes, tupla_tipos } => {
-                self.emitir_chamada_por_seletor(v, seletor, recv, args, nomes, tupla_tipos);
+            Instruction::CallSelector { selector, recv, args, names, tuple_types } => {
+                self.emit_selector_call(v, selector, recv, args, names, tuple_types);
             }
-            Instruction::CallSeletorRepasse { arc_owned, seletor, recv, args, desc } => {
-                self.emitir_repasse_por_seletor(v, seletor, recv, args, desc, *arc_owned);
+            Instruction::CallSelectorForward { arc_owned, selector, recv, args, desc } => {
+                self.emit_selector_forward(v, selector, recv, args, desc, *arc_owned);
             }
             Instruction::LoadIndexed { base, index } => {
                 let b = self.operand_str(base);
-                let i = self.coagir(index, Type::I64);
+                let i = self.coerce(index, Type::I64);
                 writeln!(self.out, "  %li{v} = getelementptr i64, ptr {b}, i64 {i}").unwrap();
                 writeln!(self.out, "  %v{v} = load i64, ptr %li{v}").unwrap();
             }
             Instruction::ConstArray(vals) => {
-                let k = self.vetor_de[vals];
+                let k = self.vector_of[vals];
                 writeln!(self.out, "  %v{v} = getelementptr i64, ptr @df.arr.{k}, i64 0").unwrap();
             }
-            Instruction::TabelaDeFuncoes(fns) => {
-                let k = self.tabela_de_funcoes_de[fns];
+            Instruction::FunctionTable(fns) => {
+                let k = self.function_table_of[fns];
                 writeln!(self.out, "  %v{v} = getelementptr ptr, ptr @df.fns.{k}, i64 0").unwrap();
             }
             _ => return false,
@@ -2382,24 +2382,24 @@ impl<'a> LlvmEmitter<'a> {
     /// closures (argumentos, pares do ambiente), os dos literais de lista,
     /// mapa e record, e os locais: um `alloca` fora da entrada reserva pilha
     /// nova a cada execução, e num laço a pilha cresce até estourar.
-    fn emit_buffers_de_closure(&mut self, func: &Function) {
+    fn emit_closure_buffers(&mut self, func: &Function) {
         for block in &func.blocks {
             for (vid, inst, _) in &block.instructions {
                 match inst {
-                    Instruction::Alloca(_) if self.allocas_no_quadro.contains(vid) => {}
+                    Instruction::Alloca(_) if self.frame_allocas.contains(vid) => {}
                     Instruction::Alloca(ty) => {
                         writeln!(self.out, "  %v{} = alloca {}", vid.0, ty.llvm_ir()).unwrap();
                     }
-                    Instruction::AllocList { elements } => self.buffer_de_lista(vid.0, elements),
-                    Instruction::AllocRecord { elements } => self.buffer_de_record(vid.0, elements),
+                    Instruction::AllocList { elements } => self.list_buffer(vid.0, elements),
+                    Instruction::AllocRecord { elements } => self.record_buffer(vid.0, elements),
                     Instruction::CallClosure { args, .. } => {
                         writeln!(self.out, "  %cargs{} = alloca [{} x i64]", vid.0, args.len() + 1).unwrap();
                     }
-                    Instruction::CallSeletor { args, .. } => {
+                    Instruction::CallSelector { args, .. } => {
                         writeln!(self.out, "  %sargs{} = alloca [{} x i64]", vid.0, args.len() + 1).unwrap();
                     }
-                    Instruction::AllocEnv { values } => self.buffer_de_ambiente(vid.0, values),
-                    Instruction::JuntarTextos { partes } => self.buffer_de_juntar_textos(vid.0, partes),
+                    Instruction::AllocEnv { values } => self.env_buffer(vid.0, values),
+                    Instruction::ConcatStrings { parts } => self.concat_strings_buffer(vid.0, parts),
                     _ => {}
                 }
             }
@@ -2410,82 +2410,82 @@ impl<'a> LlvmEmitter<'a> {
     /// área de globais do isolado: a VM guarda os estáticos na *field table*
     /// de cada isolado, e aqui cada isolado (uma thread) tem a sua área, que
     /// o runtime cria na primeira vez (`dartforge_area_de_globais`, zerada).
-    /// Os caches dos seletores (`seletores.rs`) ganham slots depois destes.
+    /// Os caches dos seletores (`selectors.rs`) ganham slots depois destes.
     ///
-    /// Numa geração de hot reload ([`LlvmEmitter::com_area_anterior`]), a
+    /// Numa geração de hot reload ([`LlvmEmitter::with_previous_area`]), a
     /// área começa com o layout da geração viva inteiro — inclusive os slots
     /// que sumiram e os caches de seletor dela, que o código antigo ainda
     /// usa — e só acrescenta: um global que continua fica no mesmo índice.
-    fn emit_globais(&mut self) {
-        let anterior: std::collections::HashMap<i64, usize> = match &self.area_anterior {
+    fn emit_globals(&mut self) {
+        let previous: std::collections::HashMap<i64, usize> = match &self.previous_area {
             Some(a) => {
-                self.hashes_de_slot = a.clone();
+                self.slot_hashes = a.clone();
                 a.iter().enumerate().filter(|(_, h)| **h != 0).map(|(i, h)| (*h, i)).collect()
             }
             None => std::collections::HashMap::new(),
         };
-        self.indice_de_slot.clone_from(&anterior);
-        for (_, _, simbolo) in &self.module.globais {
-            for nome in [simbolo.clone(), format!("{simbolo}$ok")] {
-                let h = hash_de_slot(&nome);
-                let n = match anterior.get(&h) {
+        self.slot_index.clone_from(&previous);
+        for (_, _, sym_name) in &self.module.globals {
+            for name_str in [sym_name.clone(), format!("{sym_name}$ok")] {
+                let h = slot_hash(&name_str);
+                let n = match previous.get(&h) {
                     Some(&i) => i,
                     None => {
-                        self.hashes_de_slot.push(h);
-                        self.hashes_de_slot.len() - 1
+                        self.slot_hashes.push(h);
+                        self.slot_hashes.len() - 1
                     }
                 };
-                self.slots_de_global.insert(nome, n);
+                self.global_slots.insert(name_str, n);
             }
         }
     }
 
-    /// O descritor da área de globais do módulo: `[chave, n, nome_0…]`, com
+    /// O descritor da área de globais do módulo: `[key, n, nome_0…]`, com
     /// a chave estável do módulo e o hash do nome de cada slot. Os slots de
-    /// cache de seletor têm [`BIT_DE_CACHE`] no nome: não migram para uma
+    /// cache de seletor têm [`CACHE_BIT`] no nome: não migram para uma
     /// área nova e a publicação de uma recarga os zera (guardam endereços de
     /// código, e as tabelas de métodos acabaram de mudar). Em produção,
-    /// `[chave, -n]` ([`LlvmEmitter::com_area_enxuta`]).
-    fn emitir_descritor_da_area(&mut self) {
-        let chave = self.module.registro.clone().unwrap_or_else(|| "df.programa".to_string());
-        if self.area_enxuta {
-            // Produção (`com_area_enxuta`): `[chave, -n]`, sem os nomes.
-            let n = self.hashes_de_slot.len() as i64;
-            writeln!(self.out, "@df.area = private unnamed_addr constant [2 x i64] [i64 {}, i64 {}]", hash_de_slot(&chave), -n)
+    /// `[key, -n]` ([`LlvmEmitter::with_lean_area`]).
+    fn emit_area_descriptor(&mut self) {
+        let key = self.module.record.clone().unwrap_or_else(|| "df.programa".to_string());
+        if self.lean_area {
+            // Produção (`with_lean_area`): `[key, -n]`, sem os nomes.
+            let n = self.slot_hashes.len() as i64;
+            writeln!(self.out, "@df.area = private unnamed_addr constant [2 x i64] [i64 {}, i64 {}]", slot_hash(&key), -n)
                 .unwrap();
             return;
         }
-        let mut valores = vec![hash_de_slot(&chave).to_string(), String::new()];
-        for h in &self.hashes_de_slot {
-            valores.push(h.to_string());
+        let mut values = vec![slot_hash(&key).to_string(), String::new()];
+        for h in &self.slot_hashes {
+            values.push(h.to_string());
         }
-        valores[1] = (valores.len() - 2).to_string();
-        let itens: Vec<String> = valores.iter().map(|v| format!("i64 {v}")).collect();
-        writeln!(self.out, "@df.area = private unnamed_addr constant [{} x i64] [{}]", itens.len(), itens.join(", ")).unwrap();
+        values[1] = (values.len() - 2).to_string();
+        let items: Vec<String> = values.iter().map(|v| format!("i64 {v}")).collect();
+        writeln!(self.out, "@df.area = private unnamed_addr constant [{} x i64] [{}]", items.len(), items.join(", ")).unwrap();
     }
 
     /// O slot do próximo cache de seletor da função em emissão: as duas
     /// palavras (id de classe, entrada) com o nome `(função, posição)`, no
     /// mesmo índice da geração viva quando ela já o tinha — o código de uma
     /// função que não mudou é o mesmo texto nas duas gerações (J04).
-    pub(super) fn slot_de_cache(&mut self) -> usize {
-        let nome = format!("{}#{}", self.funcao_atual, self.cache_na_funcao);
-        self.cache_na_funcao += 1;
-        let (h0, h1) = (hash_de_cache(&nome, 0), hash_de_cache(&nome, 1));
-        if let Some(&i) = self.indice_de_slot.get(&h0)
-            && self.hashes_de_slot.get(i + 1) == Some(&h1)
+    pub(super) fn cache_slot(&mut self) -> usize {
+        let name_str = format!("{}#{}", self.current_function, self.cache_in_function);
+        self.cache_in_function += 1;
+        let (h0, h1) = (cache_hash(&name_str, 0), cache_hash(&name_str, 1));
+        if let Some(&i) = self.slot_index.get(&h0)
+            && self.slot_hashes.get(i + 1) == Some(&h1)
         {
             return i;
         }
-        let i = self.hashes_de_slot.len();
-        self.hashes_de_slot.push(h0);
-        self.hashes_de_slot.push(h1);
+        let i = self.slot_hashes.len();
+        self.slot_hashes.push(h0);
+        self.slot_hashes.push(h1);
         i
     }
 
     /// Os `alloca` `Ref` usados fora do `load`/`store` deles (o endereço
-    /// passado a uma função local direta): ver `allocas_no_quadro`.
-    fn allocas_ref_que_escapam(func: &Function) -> std::collections::HashSet<ValueId> {
+    /// passado a uma função local direta): ver `frame_allocas`.
+    fn escaping_ref_allocas(func: &Function) -> std::collections::HashSet<ValueId> {
         let mut refs = std::collections::HashSet::new();
         for b in &func.blocks {
             for (vid, inst, _) in &b.instructions {
@@ -2494,80 +2494,80 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
         }
-        let mut escapam = std::collections::HashSet::new();
+        let mut escape = std::collections::HashSet::new();
         if refs.is_empty() {
-            return escapam;
+            return escape;
         }
         for b in &func.blocks {
             for (_, inst, _) in &b.instructions {
-                let usos = match inst {
+                let uses = match inst {
                     Instruction::Load { .. } => Vec::new(),
                     Instruction::Store { val: Operand::Val(v), .. } => vec![*v],
                     Instruction::Store { .. } => Vec::new(),
-                    outro => crate::lower::async_sm::usos_de(outro),
+                    other => crate::lower::async_sm::uses_of(other),
                 };
-                escapam.extend(usos.into_iter().filter(|v| refs.contains(v)));
+                escape.extend(uses.into_iter().filter(|v| refs.contains(v)));
             }
-            escapam.extend(crate::lower::async_sm::usos_do_terminador(&b.terminator).into_iter().filter(|v| refs.contains(v)));
+            escape.extend(crate::lower::async_sm::terminator_uses(&b.terminator).into_iter().filter(|v| refs.contains(v)));
         }
-        escapam
+        escape
     }
 
     /// A função usa a área de globais (global, bandeira ou cache de seletor)?
-    fn usa_area(func: &Function) -> bool {
+    fn uses_area(func: &Function) -> bool {
         func.blocks.iter().any(|b| {
             b.instructions.iter().any(|(_, i, _)| {
                 matches!(
                     i,
                     Instruction::LoadGlobal { .. }
                         | Instruction::StoreGlobal { .. }
-                        | Instruction::ArcLoadStrong { slot: SlotForte::Global { .. } }
-                        | Instruction::ArcStoreStrong { slot: SlotForte::Global { .. }, .. }
-                        | Instruction::CallSeletor { .. }
-                        | Instruction::CallSeletorRepasse { .. }
+                        | Instruction::ArcLoadStrong { slot: StrongSlot::Global { .. } }
+                        | Instruction::ArcStoreStrong { slot: StrongSlot::Global { .. }, .. }
+                        | Instruction::CallSelector { .. }
+                        | Instruction::CallSelectorForward { .. }
                         | Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))
-                ) || Self::rti_avaliar_em_cache(i)
+                ) || Self::rti_evaluate_cached(i)
             })
         })
     }
 
     /// O quadro de raízes no topo do bloco de entrada (ver o prólogo).
-    fn quadro_na_entrada() -> bool {
-        static DESLIGADO: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        !*DESLIGADO.get_or_init(|| std::env::var_os("DARTFORGE_SEM_QUADRO_NA_ENTRADA").is_some_and(|v| !v.is_empty() && v != "0"))
+    fn frame_at_entry() -> bool {
+        static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_SEM_QUADRO_NA_ENTRADA").is_some_and(|v| !v.is_empty() && v != "0"))
     }
 
     /// `dartforge_rti_avaliar` sem tupla e com `this`: vai pelo cache do
-    /// ponto de uso na área ([`Self::emitir_rti_avaliar_em_cache`]).
+    /// ponto de uso na área ([`Self::emit_rti_evaluate_cached`]).
     /// `DARTFORGE_SEM_CACHE_RTI=1` na compilação desliga (medida).
-    fn rti_avaliar_em_cache(i: &Instruction) -> bool {
-        static DESLIGADO: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    fn rti_evaluate_cached(i: &Instruction) -> bool {
+        static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         matches!(i, Instruction::CallRuntime { name, args, .. }
             if name == "dartforge_rti_avaliar"
                 && args.len() == 4
                 && matches!(args[3].0, Operand::Constant(Constant::Int(0)))
                 && !matches!(args[1].0, Operand::Constant(_)))
-            && !*DESLIGADO.get_or_init(|| std::env::var_os("DARTFORGE_SEM_CACHE_RTI").is_some_and(|v| !v.is_empty() && v != "0"))
+            && !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_SEM_CACHE_RTI").is_some_and(|v| !v.is_empty() && v != "0"))
     }
 
     /// `P<i>` avaliado com cache no ponto de uso (N17): duas palavras da
     /// área do isolado guardam a chave do tipo de `this` — o metadado do
     /// cabeçalho do objeto (`heap::Cabecalho`, deslocamento 12 do bloco, 10
-    /// do handle), ou `-16 - classe` sem metadado, a mesma chave da memória
+    /// do handle), ou `-16 - class` sem metadado, a mesma chave da memória
     /// do runtime (`chave_do_valor`) — e o resultado. Um objeto do espaço
     /// com a chave gravada responde com duas cargas; o resto (valores do
     /// runtime, a primeira vez, outra chave) chama
     /// `dartforge_rti_avaliar_cache`, que responde e grava. O modelo e a
     /// classe são constantes do ponto; a tupla é 0. A área é por isolado (os
     /// ids de tipo são do universo dele) e a recarga zera os caches.
-    fn emitir_rti_avaliar_em_cache(&mut self, v: u32, args: &[(Operand, Type)]) {
-        let modelo = self.coagir(&args[0].0, Type::I64);
-        let this = self.coagir(&args[1].0, Type::I64);
-        let classe = self.coagir(&args[2].0, Type::I64);
-        let slot = self.slot_de_cache();
+    fn emit_rti_evaluate_cached(&mut self, v: u32, args: &[(Operand, Type)]) {
+        let model = self.coerce(&args[0].0, Type::I64);
+        let this = self.coerce(&args[1].0, Type::I64);
+        let class = self.coerce(&args[2].0, Type::I64);
+        let slot = self.cache_slot();
         let o = &mut self.out;
         writeln!(o, "  %ra{v}c = getelementptr i64, ptr %area, i64 {slot}").unwrap();
-        writeln!(o, "  %ra{v}m = and i64 {this}, {MASCARA_DE_OBJETO}").unwrap();
+        writeln!(o, "  %ra{v}m = and i64 {this}, {OBJECT_MASK}").unwrap();
         writeln!(o, "  %ra{v}o = icmp eq i64 %ra{v}m, 2").unwrap();
         writeln!(o, "  br i1 %ra{v}o, label %ra{v}.obj, label %ra{v}.lenta").unwrap();
         writeln!(o, "ra{v}.obj:").unwrap();
@@ -2589,19 +2589,19 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %ra{v}r1 = load i64, ptr %ra{v}rp, align 8").unwrap();
         writeln!(o, "  br label %ra{v}.fim").unwrap();
         writeln!(o, "ra{v}.lenta:").unwrap();
-        writeln!(o, "  %ra{v}r2 = call i64 @dartforge_rti_avaliar_cache(ptr %ra{v}c, i64 {modelo}, i64 {this}, i64 {classe})").unwrap();
+        writeln!(o, "  %ra{v}r2 = call i64 @dartforge_rti_avaliar_cache(ptr %ra{v}c, i64 {model}, i64 {this}, i64 {class})").unwrap();
         writeln!(o, "  br label %ra{v}.fim").unwrap();
         writeln!(o, "ra{v}.fim:").unwrap();
         writeln!(o, "  %v{v} = phi i64 [ %ra{v}r1, %ra{v}.acerto ], [ %ra{v}r2, %ra{v}.lenta ]").unwrap();
-        self.rotulo_atual = format!("ra{v}.fim");
+        self.current_label = format!("ra{v}.fim");
     }
 
     /// O endereço do slot de um global, em `%ga<v>`.
-    fn endereco_do_global(&mut self, v: u32, simbolo: &str) {
+    fn global_address(&mut self, v: u32, sym_name: &str) {
         let slot = *self
-            .slots_de_global
-            .get(simbolo)
-            .unwrap_or_else(|| panic!("bug do compilador: global @{simbolo} sem slot na área"));
+            .global_slots
+            .get(sym_name)
+            .unwrap_or_else(|| panic!("bug do compilador: global @{sym_name} sem slot na área"));
         writeln!(self.out, "  %ga{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
     }
 
@@ -2645,10 +2645,10 @@ impl<'a> LlvmEmitter<'a> {
 
     /// Referência já avaliada: não usar coagir, que poderia alocar uma caixa.
     /// HIR inválida é falha interna; o verificador confere esta precondição.
-    fn referencia_arc(&self, value: &Operand) -> String {
+    fn arc_reference(&self, value: &Operand) -> String {
         match value {
             Operand::Val(v) => {
-                assert_eq!(self.tipos.get(v), Some(&Type::Ref), "operação ARC exige SSA Ref");
+                assert_eq!(self.types.get(v), Some(&Type::Ref), "operação ARC exige SSA Ref");
                 format!("%v{}", v.0)
             }
             Operand::Constant(Constant::Null) => "0".into(),
@@ -2657,33 +2657,33 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// Descritor de quadro classificado; nunca coagir um ponteiro para um ID.
-    fn slot_arc(&self, slot: &SlotForte) -> (String, u32) {
-        let SlotForte::Quadro { quadro, indice } = slot else { panic!("descritor não é quadro") };
-        let Operand::Val(v) = quadro else {
+    fn slot_arc(&self, slot: &StrongSlot) -> (String, u32) {
+        let StrongSlot::Quadro { frame, index: idx_value } = slot else { panic!("descritor não é quadro") };
+        let Operand::Val(v) = frame else {
             panic!("slot ARC exige quadro SSA")
         };
         assert_eq!(
-            self.tipos.get(v),
+            self.types.get(v),
             Some(&Type::I64),
             "quadro ARC exige ID escalar I64"
         );
-        (format!("%v{}", v.0), *indice)
+        (format!("%v{}", v.0), *idx_value)
     }
 
     /// Schema do armazenamento real; não inferir Ref por largura ou endereço.
-    fn conferir_global_arc(&self, simbolo: &str) {
-        let mut declaracoes = self.module.globais.iter().filter(|(_, _, s)| s == simbolo);
-        assert_eq!(declaracoes.next().map(|(_, ty, _)| *ty), Some(Type::Ref), "global ARC deve ser Ref declarado");
-        assert!(declaracoes.next().is_none(), "global ARC deve ter declaração única");
+    fn check_arc_global(&self, sym_name: &str) {
+        let mut declarations = self.module.globals.iter().filter(|(_, _, s)| s == sym_name);
+        assert_eq!(declarations.next().map(|(_, ty, _)| *ty), Some(Type::Ref), "global ARC deve ser Ref declarado");
+        assert!(declarations.next().is_none(), "global ARC deve ter declaração única");
     }
 
     /// Confere a ABI de tokens antes dos registros e de qualquer código Dart.
     /// A falha é interna e fatal: não pode virar uma pendência ignorada.
-    fn iniciar_arc(&mut self) {
-        if !self.module.memoria_arc {
+    fn start_arc(&mut self) {
+        if !self.module.arc_memory {
             return;
         }
-        self.externos.insert("llvm.trap".into(), "declare void @llvm.trap()".into());
+        self.externals.insert("llvm.trap".into(), "declare void @llvm.trap()".into());
         self.out.push_str("  call void @dartforge_memoria_arc_v1()\n\
             \x20 %df.arc.abi = call i8 @dartforge_arc_verificar_abi(i64 1)\n\
             \x20 %df.arc.abi.ok = icmp eq i8 %df.arc.abi, 1\n\
@@ -2692,18 +2692,18 @@ impl<'a> LlvmEmitter<'a> {
             \x20 call void @llvm.trap()\n\
             \x20 unreachable\n\
             df.arc.compativel:\n");
-        if !self.module.modo_sdk {
-            self.registrar_portas_arc_aot();
+        if !self.module.sdk_mode {
+            self.register_arc_aot_ports();
         }
     }
 
     fn emit_entry(&mut self) {
         if self.module.excecoes_por_tabelas {
-            self.emitir_portas();
+            self.emit_ports();
         }
-        if self.module.modo_sdk {
-            self.emitir_registro("df.registrar.programa");
-            let ids: Vec<String> = self.module.cids_do_runtime.iter().map(|c| format!("i64 {c}")).collect();
+        if self.module.sdk_mode {
+            self.emit_registration("df.registrar.programa");
+            let ids: Vec<String> = self.module.runtime_cids.iter().map(|c| format!("i64 {c}")).collect();
             writeln!(
                 self.out,
                 "@df.cids = private unnamed_addr constant [{} x i64] [{}]",
@@ -2711,12 +2711,12 @@ impl<'a> LlvmEmitter<'a> {
                 ids.join(", ")
             )
             .unwrap();
-            if let Some(v) = &self.module.versao_do_sdk {
+            if let Some(v) = &self.module.sdk_version {
                 writeln!(
                     self.out,
                     "@df.versao_do_sdk = private unnamed_addr constant [{} x i8] c\"{}\"",
                     v.len(),
-                    seletores::bytes_llvm(v)
+                    selectors::llvm_bytes(v)
                 )
                 .unwrap();
             }
@@ -2725,54 +2725,54 @@ impl<'a> LlvmEmitter<'a> {
             // registros das bibliotecas, a RTI e o embedder.
             writeln!(self.out, "define void @df.preparar_isolado() {{").unwrap();
             // A memória ARC, ligada antes de todo código Dart do isolado.
-            self.iniciar_arc();
+            self.start_arc();
             // Imagem ARC preparada: as portas Dart que o runtime chama aqui
             // (registros, RTI, embedder) devolvem owners a um escopo nativo.
-            let escopo_raiz = self.module.memoria_arc && self.module.arc_preparado;
-            if escopo_raiz {
+            let root_scope = self.module.arc_memory && self.module.arc_prepared;
+            if root_scope {
                 writeln!(self.out, "  %escopo.prep = call i64 @dartforge_arc_escopo_nativo_abrir_v1()").unwrap();
             }
             writeln!(self.out, "  call void @dartforge_registrar_cids(ptr @df.cids, i64 {})", ids.len()).unwrap();
-            if let Some(v) = &self.module.versao_do_sdk {
+            if let Some(v) = &self.module.sdk_version {
                 writeln!(self.out, "  call void @dartforge_registrar_versao_do_sdk(ptr @df.versao_do_sdk, i64 {})", v.len()).unwrap();
             }
             // As tabelas das classes dos valores do runtime (que não passam
             // por `dartforge_object_new_t`).
-            for c in self.module.cids_do_runtime.clone() {
-                if let Some(f) = self.module.funcoes_de_tabela.get(&(c as u32)).cloned() {
-                    self.anotar_externo(&f, Type::Ptr, &[]);
+            for c in self.module.runtime_cids.clone() {
+                if let Some(f) = self.module.table_functions.get(&(c as u32)).cloned() {
+                    self.annotate_external(&f, Type::Ptr, &[]);
                     writeln!(self.out, "  call void @dartforge_registrar_tabela(i64 {c}, ptr @{f})").unwrap();
                 }
             }
-            for r in &self.module.registros_do_sdk {
+            for r in &self.module.sdk_records {
                 writeln!(self.out, "  call void @{r}()").unwrap();
-                self.externos.insert(r.clone(), format!("declare void @{r}()"));
+                self.externals.insert(r.clone(), format!("declare void @{r}()"));
             }
             writeln!(self.out, "  call void @df.registrar.programa()").unwrap();
             // RTI e laço de eventos, como na entrada de sempre (abaixo).
-            if let Some(iniciar) = &self.module.iniciar_rti {
-                writeln!(self.out, "  {}", chamada_de_entrada(self.module.excecoes_por_tabelas, iniciar, &[])).unwrap();
+            if let Some(start) = &self.module.start_rti {
+                writeln!(self.out, "  {}", entry_call(self.module.excecoes_por_tabelas, start, &[])).unwrap();
             }
             // O que o embedder da VM prepara antes do `main` (o script de
             // `dart:io`, o `Uri.base`), já com as bibliotecas registradas.
             // `dart:ffi`: os tipos nativos e os trampolins das assinaturas
             // (`lower/ffi.rs`).
-            for c in self.module.ffi_compostos.clone() {
+            for c in self.module.ffi_composites.clone() {
                 writeln!(
                     self.out,
                     "  call void @dartforge_ffi_registrar_composto(i64 {}, i64 {}, i64 {}, i64 {}, i64 {}, i64 {}, i64 {})",
-                    c.rti, c.classe, c.campos, c.indice_base, c.indice_deslocamento, c.tamanho, c.alinhamento
+                    c.rti, c.class, c.fields, c.base_index, c.offset_index, c.size, c.alignment
                 )
                 .unwrap();
             }
-            for (c, letra) in &self.module.ffi_tipos {
-                writeln!(self.out, "  call void @dartforge_ffi_registrar_tipo(i64 {c}, i64 {})", u32::from(*letra)).unwrap();
+            for (c, letter) in &self.module.ffi_types {
+                writeln!(self.out, "  call void @dartforge_ffi_registrar_tipo(i64 {c}, i64 {})", u32::from(*letter)).unwrap();
             }
-            for (i, (chave, simbolo)) in self.module.ffi_trampolins.iter().enumerate() {
+            for (i, (key, sym_name)) in self.module.ffi_trampolines.iter().enumerate() {
                 writeln!(
                     self.out,
-                    "  call void @dartforge_ffi_registrar_trampolim(ptr @df.ffi.chave.{i}, i64 {}, ptr @\"{simbolo}\")",
-                    chave.len()
+                    "  call void @dartforge_ffi_registrar_trampolim(ptr @df.ffi.chave.{i}, i64 {}, ptr @\"{sym_name}\")",
+                    key.len()
                 )
                 .unwrap();
             }
@@ -2780,38 +2780,38 @@ impl<'a> LlvmEmitter<'a> {
                 writeln!(
                     self.out,
                     "  call void @dartforge_ffi_registrar_callback(ptr @df.ffi.cbchave.{i}, i64 {}, ptr @df.ffi.cbentrada.{i})",
-                    cb.chave.len()
+                    cb.key.len()
                 )
                 .unwrap();
             }
             writeln!(self.out, "  call void @dartforge_preparar_embedder()").unwrap();
-            if escopo_raiz {
+            if root_scope {
                 writeln!(self.out, "  call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %escopo.prep)").unwrap();
             }
             writeln!(self.out, "  ret void\n}}\n").unwrap();
-            for (i, (chave, _)) in self.module.ffi_trampolins.iter().enumerate() {
-                writeln!(self.out, "@df.ffi.chave.{i} = private unnamed_addr constant [{} x i8] c\"{chave}\"", chave.len()).unwrap();
+            for (i, (key, _)) in self.module.ffi_trampolines.iter().enumerate() {
+                writeln!(self.out, "@df.ffi.chave.{i} = private unnamed_addr constant [{} x i8] c\"{key}\"", key.len()).unwrap();
             }
             self.emit_callbacks_ffi();
             writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
             // Exceções por tabelas: as portas pelas quais o runtime chama
             // código Dart, entregues antes de qualquer código Dart rodar.
             if self.module.excecoes_por_tabelas {
-                writeln!(self.out, "  call void @dartforge_registrar_portas(ptr @df.portas, i64 {N_PORTAS})").unwrap();
+                writeln!(self.out, "  call void @dartforge_registrar_portas(ptr @df.portas, i64 {N_PORTS})").unwrap();
             }
-            let chamar = self.module.chamar_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
-            writeln!(self.out, "  call void @dartforge_registrar_isolados(ptr @df.preparar_isolado, ptr {chamar})").unwrap();
+            let call = self.module.call_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
+            writeln!(self.out, "  call void @dartforge_registrar_isolados(ptr @df.preparar_isolado, ptr {call})").unwrap();
             writeln!(self.out, "  call void @df.preparar_isolado()").unwrap();
             // O escopo raiz do isolado principal: o `main` e o laço de
             // eventos, cujas chamadas do runtime ao Dart devolvem owners.
-            if escopo_raiz {
+            if root_scope {
                 writeln!(self.out, "  %escopo.raiz = call i64 @dartforge_arc_escopo_nativo_abrir_v1()").unwrap();
             }
-            self.chamar_main();
-            if let Some(chamar) = &self.module.chamar_dart {
-                writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{chamar})").unwrap();
+            self.call_main();
+            if let Some(call) = &self.module.call_dart {
+                writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{call})").unwrap();
             }
-            if escopo_raiz {
+            if root_scope {
                 writeln!(self.out, "  call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %escopo.raiz)").unwrap();
             }
             writeln!(self.out, "  ret void\n}}\n").unwrap();
@@ -2826,11 +2826,11 @@ impl<'a> LlvmEmitter<'a> {
         }
         writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
         // A memória ARC, ligada antes de todo código Dart.
-        self.iniciar_arc();
+        self.start_arc();
         // Exceções por tabelas: as portas pelas quais o runtime chama
         // código Dart, entregues antes de qualquer código Dart rodar.
         if self.module.excecoes_por_tabelas {
-            writeln!(self.out, "  call void @dartforge_registrar_portas(ptr @df.portas, i64 {N_PORTAS})").unwrap();
+            writeln!(self.out, "  call void @dartforge_registrar_portas(ptr @df.portas, i64 {N_PORTS})").unwrap();
         }
         // Registra classes
         for class in &self.module.classes {
@@ -2843,13 +2843,13 @@ impl<'a> LlvmEmitter<'a> {
             ).unwrap();
         }
 
-        if self.mapas && !self.mapas_no_jit {
-            self.out.push_str(Self::chamada_de_registro_dos_mapas());
+        if self.maps && !self.maps_in_jit {
+            self.out.push_str(Self::maps_registration_call());
         }
-        if let Some(c) = self.chamada_de_registro_do_rastro() {
+        if let Some(c) = self.trace_registration_call() {
             self.out.push_str(&c);
-            let campos = self.chamadas_de_registro_dos_campos_do_rastro();
-            self.out.push_str(&campos);
+            let fields = self.trace_field_registration_calls();
+            self.out.push_str(&fields);
         }
         // Registra grafo de subtipagem
         for (sub, sup) in &self.module.subtyping_edges {
@@ -2860,13 +2860,13 @@ impl<'a> LlvmEmitter<'a> {
         }
 
         // RTI: o universo de tipos (classes citadas e regras de supertipo).
-        if let Some(iniciar) = &self.module.iniciar_rti {
-            writeln!(self.out, "  {}", chamada_de_entrada(self.module.excecoes_por_tabelas, iniciar, &[])).unwrap();
+        if let Some(start) = &self.module.start_rti {
+            writeln!(self.out, "  {}", entry_call(self.module.excecoes_por_tabelas, start, &[])).unwrap();
         }
-        self.chamar_main();
-        // P6: microtarefas e timers depois do `main` (runtime, `eventos.rs`).
-        if let Some(chamar) = &self.module.chamar_dart {
-            writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{chamar})").unwrap();
+        self.call_main();
+        // P6: microtarefas e timers depois do `main` (runtime, `events.rs`).
+        if let Some(call) = &self.module.call_dart {
+            writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{call})").unwrap();
         }
         writeln!(self.out, "  ret void").unwrap();
         writeln!(self.out, "}}\n").unwrap();
@@ -2876,30 +2876,30 @@ impl<'a> LlvmEmitter<'a> {
     /// dos argumentos da linha de comando (`dartforge_argumentos_do_main`) e
     /// o segundo, `null`.
     /// Um argumento primitivo de chamada C: o operando convertido ao tipo C
-    /// (estreitos com a extensão da ABI), como `tipo atributos valor`.
-    fn argumento_c(&mut self, v: u32, i: usize, op: &Operand, tc: TipoC) -> String {
+    /// (estreitos com a extensão da ABI), como `ty attributes value`.
+    fn c_argument(&mut self, v: u32, i: usize, op: &Operand, tc: CType) -> String {
         let x = match tc {
-            TipoC::F32 => {
-                let d = self.coagir(op, Type::F64);
+            CType::F32 => {
+                let d = self.coerce(op, Type::F64);
                 writeln!(self.out, "  %na{v}_{i} = fptrunc double {d} to float").unwrap();
                 format!("%na{v}_{i}")
             }
-            TipoC::F64 => self.coagir(op, Type::F64),
-            TipoC::Bool => self.coagir(op, Type::I1),
-            TipoC::Ptr | TipoC::Handle => {
-                let n = self.coagir(op, Type::I64);
+            CType::F64 => self.coerce(op, Type::F64),
+            CType::Bool => self.coerce(op, Type::I1),
+            CType::Ptr | CType::Handle => {
+                let n = self.coerce(op, Type::I64);
                 writeln!(self.out, "  %na{v}_{i} = inttoptr i64 {n} to ptr").unwrap();
                 format!("%na{v}_{i}")
             }
-            TipoC::I64 | TipoC::U64 => self.coagir(op, Type::I64),
-            TipoC::Void => unreachable!("argumento nativo void"),
-            estreito => {
-                let n = self.coagir(op, Type::I64);
-                writeln!(self.out, "  %na{v}_{i} = trunc i64 {n} to {}", estreito.llvm()).unwrap();
+            CType::I64 | CType::U64 => self.coerce(op, Type::I64),
+            CType::Void => unreachable!("argumento nativo void"),
+            narrow => {
+                let n = self.coerce(op, Type::I64);
+                writeln!(self.out, "  %na{v}_{i} = trunc i64 {n} to {}", narrow.llvm()).unwrap();
                 format!("%na{v}_{i}")
             }
         };
-        format!("{} {}{x}", tc.llvm(), tc.extensao())
+        format!("{} {}{x}", tc.llvm(), tc.extension())
     }
 
     /// O texto `call …` de uma chamada C por `%fn<v>`. Numa variádica com as
@@ -2912,189 +2912,189 @@ impl<'a> LlvmEmitter<'a> {
     /// coleta leva o operando, também a de uma função sem raízes, que pode ser
     /// copiada pelo inliner numa com raízes). O intermediário repassa os
     /// argumentos com os mesmos tipos e atributos.
-    fn texto_da_chamada_c(&mut self, v: u32, ret: &str, tipo: &str, partes: &[String], variadica: bool) -> String {
-        let lista = partes.join(", ");
-        if !variadica || !self.mapas {
-            return format!("call {tipo} %fn{v}({lista})");
+    fn c_call_text(&mut self, v: u32, ret: &str, typ: &str, parts: &[String], variadic_flag: bool) -> String {
+        let list = parts.join(", ");
+        if !variadic_flag || !self.maps {
+            return format!("call {typ} %fn{v}({list})");
         }
-        let nome = format!("df.vararg.{}", self.variadicas.len());
+        let name_str = format!("df.vararg.{}", self.variadic_set.len());
         let mut params = vec!["ptr %f".to_string()];
-        let mut repasse = Vec::with_capacity(partes.len());
-        for (j, p) in partes.iter().enumerate() {
-            let cabeca = p.rsplit_once(' ').map_or(p.as_str(), |(c, _)| c);
-            params.push(format!("{cabeca} %p{j}"));
-            repasse.push(format!("{cabeca} %p{j}"));
+        let mut forward = Vec::with_capacity(parts.len());
+        for (j, p) in parts.iter().enumerate() {
+            let head = p.rsplit_once(' ').map_or(p.as_str(), |(c, _)| c);
+            params.push(format!("{head} %p{j}"));
+            forward.push(format!("{head} %p{j}"));
         }
-        let interna = format!("call {tipo} %f({})", repasse.join(", "));
-        let corpo = if ret == "void" { format!("  {interna}\n  ret void\n") } else { format!("  %r = {interna}\n  ret {ret} %r\n") };
-        self.variadicas.push(format!("define internal {ret} @{nome}({}) noinline {{\n{corpo}}}\n\n", params.join(", ")));
+        let internal = format!("call {typ} %f({})", forward.join(", "));
+        let body = if ret == "void" { format!("  {internal}\n  ret void\n") } else { format!("  %r = {internal}\n  ret {ret} %r\n") };
+        self.variadic_set.push(format!("define internal {ret} @{name_str}({}) noinline {{\n{body}}}\n\n", params.join(", ")));
         let mut args = vec![format!("ptr %fn{v}")];
-        args.extend(partes.iter().cloned());
-        format!("call {ret} @{nome}({})", args.join(", "))
+        args.extend(parts.iter().cloned());
+        format!("call {ret} @{name_str}({})", args.join(", "))
     }
 
-    /// Uma chamada C com structs/unions por valor (`llvm/abi_c.rs`): cada
+    /// Uma chamada C com structs/unions por valor (`llvm/c_abi.rs`): cada
     /// composto é copiado dos bytes do operando para uma temporária alinhada
     /// da pilha (liberada por `stackrestore` depois da chamada), e passado
     /// em peças, `byval` ou por ponteiro; um retorno composto vai para
-    /// `destino` (direto: pelas peças gravadas numa temporária; `sret`: o
+    /// `dest` (direto: pelas peças gravadas numa temporária; `sret`: o
     /// próprio destino).
-    fn chamada_nativa_composta(
+    fn composite_native_call(
         &mut self,
         v: u32,
         alvo: &Operand,
-        args: &[(Operand, TipoNativo)],
-        ret: &TipoNativo,
-        destino: Option<&Operand>,
-        variadica: Option<usize>,
+        args: &[(Operand, NativeType)],
+        ret: &NativeType,
+        dest: Option<&Operand>,
+        variadic_flag: Option<usize>,
     ) {
-        use abi_c::{PassagemArg, PassagemRet};
-        let conv = abi_c::Convencao::do_alvo();
-        let mut regs = abi_c::Registradores::novos();
-        let a = self.coagir(alvo, Type::I64);
+        use c_abi::{ArgPassing, RetPassing};
+        let conv = c_abi::Convention::of_target();
+        let mut regs = c_abi::Registers::new_set();
+        let a = self.coerce(alvo, Type::I64);
         writeln!(self.out, "  %fn{v} = inttoptr i64 {a} to ptr").unwrap();
         writeln!(self.out, "  %pilha{v} = call ptr @llvm.stacksave.p0()").unwrap();
         // Retorno primeiro: um `sret` ocupa o primeiro registrador inteiro.
-        let passagem_ret = match ret {
-            TipoNativo::Composto(l) => Some((abi_c::retorno(conv, l, &mut regs), l.clone())),
-            TipoNativo::Prim(_) => None,
+        let ret_passing = match ret {
+            NativeType::Composite(l) => Some((c_abi::ret(conv, l, &mut regs), l.clone())),
+            NativeType::Prim(_) => None,
         };
-        let mut partes = Vec::with_capacity(args.len() + 1);
-        let destino_ptr = destino.map(|d| {
-            let d = self.coagir(d, Type::I64);
+        let mut parts = Vec::with_capacity(args.len() + 1);
+        let dest_ptr = dest.map(|d| {
+            let d = self.coerce(d, Type::I64);
             writeln!(self.out, "  %dst{v} = inttoptr i64 {d} to ptr").unwrap();
             format!("%dst{v}")
         });
-        if let (Some((PassagemRet::Sret { alinhamento }, l)), Some(d)) = (&passagem_ret, &destino_ptr) {
-            partes.push(format!("ptr sret([{} x i8]) align {alinhamento} {d}", l.tamanho));
+        if let (Some((RetPassing::Sret { alignment }, l)), Some(d)) = (&ret_passing, &dest_ptr) {
+            parts.push(format!("ptr sret([{} x i8]) align {alignment} {d}", l.size));
         }
-        let mut tipos_fixos: Vec<String> = Vec::new();
-        if matches!(&passagem_ret, Some((PassagemRet::Sret { .. }, _))) {
-            tipos_fixos.push("ptr".to_string());
+        let mut fixed_types: Vec<String> = Vec::new();
+        if matches!(&ret_passing, Some((RetPassing::Sret { .. }, _))) {
+            fixed_types.push("ptr".to_string());
         }
         for (i, (op, t)) in args.iter().enumerate() {
-            let variadico = variadica.is_some_and(|n| i >= n);
+            let variadic = variadic_flag.is_some_and(|n| i >= n);
             match t {
                 // Promoções de argumento padrão do C num argumento variádico:
                 // `float` vai como `double`; inteiros menores que `int`,
                 // como `int` (com o sinal do tipo).
-                TipoNativo::Prim(tc) if variadico => {
-                    regs.consumir_primitivo(*tc);
+                NativeType::Prim(tc) if variadic => {
+                    regs.consume_primitive(*tc);
                     let p = match tc {
-                        TipoC::F32 => self.argumento_c(v, i, op, TipoC::F64),
-                        TipoC::I8 | TipoC::I16 => self.argumento_c(v, i, op, TipoC::I32),
-                        TipoC::U8 | TipoC::U16 | TipoC::Bool => {
-                            let n = self.coagir(op, if *tc == TipoC::Bool { Type::I1 } else { Type::I64 });
-                            let ext = if *tc == TipoC::Bool { format!("zext i1 {n} to i32") } else { format!("trunc i64 {n} to i32") };
+                        CType::F32 => self.c_argument(v, i, op, CType::F64),
+                        CType::I8 | CType::I16 => self.c_argument(v, i, op, CType::I32),
+                        CType::U8 | CType::U16 | CType::Bool => {
+                            let n = self.coerce(op, if *tc == CType::Bool { Type::I1 } else { Type::I64 });
+                            let ext = if *tc == CType::Bool { format!("zext i1 {n} to i32") } else { format!("trunc i64 {n} to i32") };
                             writeln!(self.out, "  %na{v}_{i} = {ext}").unwrap();
                             format!("i32 %na{v}_{i}")
                         }
-                        _ => self.argumento_c(v, i, op, *tc),
+                        _ => self.c_argument(v, i, op, *tc),
                     };
-                    partes.push(p);
+                    parts.push(p);
                 }
-                TipoNativo::Prim(tc) => {
-                    regs.consumir_primitivo(*tc);
-                    let p = self.argumento_c(v, i, op, *tc);
-                    tipos_fixos.push(p.split(' ').next().unwrap_or("i64").to_string());
-                    partes.push(p);
+                NativeType::Prim(tc) => {
+                    regs.consume_primitive(*tc);
+                    let p = self.c_argument(v, i, op, *tc);
+                    fixed_types.push(p.split(' ').next().unwrap_or("i64").to_string());
+                    parts.push(p);
                 }
-                TipoNativo::Composto(l) => {
+                NativeType::Composite(l) => {
                     // A cópia: alinhada, zerada até a palavra, com os bytes.
-                    let n = self.coagir(op, Type::I64);
-                    let tam = l.tamanho.div_ceil(16) * 16;
-                    let al = l.alinhamento.max(16);
+                    let n = self.coerce(op, Type::I64);
+                    let sz = l.size.div_ceil(16) * 16;
+                    let al = l.alignment.max(16);
                     writeln!(self.out, "  %src{v}_{i} = inttoptr i64 {n} to ptr").unwrap();
-                    writeln!(self.out, "  %tmp{v}_{i} = alloca [{tam} x i8], align {al}").unwrap();
-                    writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %tmp{v}_{i}, i8 0, i64 {tam}, i1 false)").unwrap();
-                    writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr %tmp{v}_{i}, ptr %src{v}_{i}, i64 {}, i1 false)", l.tamanho).unwrap();
+                    writeln!(self.out, "  %tmp{v}_{i} = alloca [{sz} x i8], align {al}").unwrap();
+                    writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %tmp{v}_{i}, i8 0, i64 {sz}, i1 false)").unwrap();
+                    writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr %tmp{v}_{i}, ptr %src{v}_{i}, i64 {}, i1 false)", l.size).unwrap();
                     // Na parte variádica as peças não entram no tipo da
-                    // chamada (`ret (fixos, ...)`).
-                    let passagem = if variadico {
-                        abi_c::argumento_variadico(conv, l, &mut regs)
+                    // chamada (`ret (fixed_set, ...)`).
+                    let passing = if variadic {
+                        c_abi::variadic_argument(conv, l, &mut regs)
                     } else {
-                        abi_c::argumento(conv, l, &mut regs)
+                        c_abi::argument(conv, l, &mut regs)
                     };
-                    let mut fixo = |t: String| {
-                        if !variadico {
-                            tipos_fixos.push(t);
+                    let mut fixed = |t: String| {
+                        if !variadic {
+                            fixed_types.push(t);
                         }
                     };
-                    match passagem {
-                        PassagemArg::Direta(pecas) => {
-                            for (k, p) in pecas.iter().enumerate() {
-                                writeln!(self.out, "  %pp{v}_{i}_{k} = getelementptr i8, ptr %tmp{v}_{i}, i64 {}", p.deslocamento).unwrap();
-                                writeln!(self.out, "  %pc{v}_{i}_{k} = load {}, ptr %pp{v}_{i}_{k}, align 1", p.tipo).unwrap();
-                                partes.push(format!("{} {}%pc{v}_{i}_{k}", p.tipo, p.atributos));
-                                fixo(p.tipo.clone());
+                    match passing {
+                        ArgPassing::Direct(pieces) => {
+                            for (k, p) in pieces.iter().enumerate() {
+                                writeln!(self.out, "  %pp{v}_{i}_{k} = getelementptr i8, ptr %tmp{v}_{i}, i64 {}", p.offset).unwrap();
+                                writeln!(self.out, "  %pc{v}_{i}_{k} = load {}, ptr %pp{v}_{i}_{k}, align 1", p.ty).unwrap();
+                                parts.push(format!("{} {}%pc{v}_{i}_{k}", p.ty, p.attributes));
+                                fixed(p.ty.clone());
                             }
                         }
-                        PassagemArg::Byval { alinhamento } => {
-                            partes.push(format!("ptr byval([{} x i8]) align {alinhamento} %tmp{v}_{i}", l.tamanho));
-                            fixo("ptr".to_string());
+                        ArgPassing::Byval { alignment } => {
+                            parts.push(format!("ptr byval([{} x i8]) align {alignment} %tmp{v}_{i}", l.size));
+                            fixed("ptr".to_string());
                         }
-                        PassagemArg::Indireta => {
-                            partes.push(format!("ptr %tmp{v}_{i}"));
-                            fixo("ptr".to_string());
+                        ArgPassing::Indirect => {
+                            parts.push(format!("ptr %tmp{v}_{i}"));
+                            fixed("ptr".to_string());
                         }
                     }
                 }
             }
         }
-        // O tipo da chamada: numa variádica, `ret (fixos, ...)`.
-        let tipo_da_chamada = |ret: &str| match variadica {
-            Some(_) if tipos_fixos.is_empty() => format!("{ret} (...)"),
-            Some(_) => format!("{ret} ({}, ...)", tipos_fixos.join(", ")),
+        // O tipo da chamada: numa variádica, `ret (fixed_set, ...)`.
+        let call_type = |ret: &str| match variadic_flag {
+            Some(_) if fixed_types.is_empty() => format!("{ret} (...)"),
+            Some(_) => format!("{ret} ({}, ...)", fixed_types.join(", ")),
             None => ret.to_string(),
         };
-        let tipo_de_retorno = match (ret, &passagem_ret) {
-            (TipoNativo::Prim(TipoC::Void), _) | (TipoNativo::Composto(_), Some((PassagemRet::Sret { .. }, _))) => "void".to_string(),
-            (TipoNativo::Prim(tc), _) => tc.llvm().to_string(),
-            (TipoNativo::Composto(_), Some((PassagemRet::Direta(pecas), _))) => abi_c::tipo_do_retorno(pecas),
-            (TipoNativo::Composto(_), None) => unreachable!("retorno composto sem passagem"),
+        let return_type = match (ret, &ret_passing) {
+            (NativeType::Prim(CType::Void), _) | (NativeType::Composite(_), Some((RetPassing::Sret { .. }, _))) => "void".to_string(),
+            (NativeType::Prim(tc), _) => tc.llvm().to_string(),
+            (NativeType::Composite(_), Some((RetPassing::Direct(pieces), _))) => c_abi::return_ty(pieces),
+            (NativeType::Composite(_), None) => unreachable!("retorno composto sem passagem"),
         };
-        let chamada = self.texto_da_chamada_c(v, &tipo_de_retorno, &tipo_da_chamada(&tipo_de_retorno), &partes, variadica.is_some());
-        match (ret, &passagem_ret) {
-            (TipoNativo::Prim(TipoC::Void), _) => writeln!(self.out, "  {chamada}").unwrap(),
-            (TipoNativo::Prim(tc), _) => {
+        let call = self.c_call_text(v, &return_type, &call_type(&return_type), &parts, variadic_flag.is_some());
+        match (ret, &ret_passing) {
+            (NativeType::Prim(CType::Void), _) => writeln!(self.out, "  {call}").unwrap(),
+            (NativeType::Prim(tc), _) => {
                 let conv_ret = match tc {
-                    TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {} %nr{v} to i64", tc.llvm())),
-                    TipoC::U8 | TipoC::U16 | TipoC::U32 => Some(format!("zext {} %nr{v} to i64", tc.llvm())),
-                    TipoC::F32 => Some(format!("fpext float %nr{v} to double")),
-                    TipoC::Ptr | TipoC::Handle => Some(format!("ptrtoint ptr %nr{v} to i64")),
+                    CType::I8 | CType::I16 | CType::I32 => Some(format!("sext {} %nr{v} to i64", tc.llvm())),
+                    CType::U8 | CType::U16 | CType::U32 => Some(format!("zext {} %nr{v} to i64", tc.llvm())),
+                    CType::F32 => Some(format!("fpext float %nr{v} to double")),
+                    CType::Ptr | CType::Handle => Some(format!("ptrtoint ptr %nr{v} to i64")),
                     _ => None,
                 };
                 match conv_ret {
                     Some(c) => {
-                        writeln!(self.out, "  %nr{v} = {chamada}").unwrap();
+                        writeln!(self.out, "  %nr{v} = {call}").unwrap();
                         writeln!(self.out, "  %v{v} = {c}").unwrap();
                     }
-                    None => writeln!(self.out, "  %v{v} = {chamada}").unwrap(),
+                    None => writeln!(self.out, "  %v{v} = {call}").unwrap(),
                 }
             }
-            (TipoNativo::Composto(_), Some((PassagemRet::Sret { .. }, _))) => {
-                writeln!(self.out, "  {chamada}").unwrap();
+            (NativeType::Composite(_), Some((RetPassing::Sret { .. }, _))) => {
+                writeln!(self.out, "  {call}").unwrap();
             }
-            (TipoNativo::Composto(_), Some((PassagemRet::Direta(pecas), l))) => {
-                let tipo = abi_c::tipo_do_retorno(pecas);
-                let tam = l.tamanho.div_ceil(16) * 16;
-                writeln!(self.out, "  %rr{v} = {chamada}").unwrap();
-                writeln!(self.out, "  %rt{v} = alloca [{tam} x i8], align 16").unwrap();
-                for (k, p) in pecas.iter().enumerate() {
-                    let val = if pecas.len() == 1 {
+            (NativeType::Composite(_), Some((RetPassing::Direct(pieces), l))) => {
+                let typ = c_abi::return_ty(pieces);
+                let sz = l.size.div_ceil(16) * 16;
+                writeln!(self.out, "  %rr{v} = {call}").unwrap();
+                writeln!(self.out, "  %rt{v} = alloca [{sz} x i8], align 16").unwrap();
+                for (k, p) in pieces.iter().enumerate() {
+                    let val = if pieces.len() == 1 {
                         format!("%rr{v}")
                     } else {
-                        writeln!(self.out, "  %re{v}_{k} = extractvalue {tipo} %rr{v}, {k}").unwrap();
+                        writeln!(self.out, "  %re{v}_{k} = extractvalue {typ} %rr{v}, {k}").unwrap();
                         format!("%re{v}_{k}")
                     };
-                    writeln!(self.out, "  %rp{v}_{k} = getelementptr i8, ptr %rt{v}, i64 {}", p.deslocamento).unwrap();
-                    writeln!(self.out, "  store {} {val}, ptr %rp{v}_{k}, align 1", p.tipo).unwrap();
+                    writeln!(self.out, "  %rp{v}_{k} = getelementptr i8, ptr %rt{v}, i64 {}", p.offset).unwrap();
+                    writeln!(self.out, "  store {} {val}, ptr %rp{v}_{k}, align 1", p.ty).unwrap();
                 }
-                if let Some(d) = &destino_ptr {
-                    writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr {d}, ptr %rt{v}, i64 {}, i1 false)", l.tamanho).unwrap();
+                if let Some(d) = &dest_ptr {
+                    writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr {d}, ptr %rt{v}, i64 {}, i1 false)", l.size).unwrap();
                 }
             }
-            (TipoNativo::Composto(_), None) => unreachable!("retorno composto sem passagem"),
+            (NativeType::Composite(_), None) => unreachable!("retorno composto sem passagem"),
         }
         writeln!(self.out, "  call void @llvm.stackrestore.p0(ptr %pilha{v})").unwrap();
     }
@@ -3107,85 +3107,85 @@ impl<'a> LlvmEmitter<'a> {
     /// representação Dart, chama o corpo HIR e converte o retorno — ou
     /// devolve o retorno excepcional, se a closure lançou.
     fn emit_callbacks_ffi(&mut self) {
-        use abi_c::{PassagemArg, PassagemRet};
+        use c_abi::{ArgPassing, RetPassing};
         if self.module.ffi_callbacks.is_empty() {
             return;
         }
-        let conv = abi_c::Convencao::do_alvo();
+        let conv = c_abi::Convention::of_target();
         for (i, cb) in self.module.ffi_callbacks.clone().iter().enumerate() {
-            writeln!(self.out, "@df.ffi.cbchave.{i} = private unnamed_addr constant [{} x i8] c\"{}\"", cb.chave.len(), cb.chave).unwrap();
-            let mut regs = abi_c::Registradores::novos();
+            writeln!(self.out, "@df.ffi.cbchave.{i} = private unnamed_addr constant [{} x i8] c\"{}\"", cb.key.len(), cb.key).unwrap();
+            let mut regs = c_abi::Registers::new_set();
             // O retorno primeiro: um `sret` ocupa o primeiro registrador.
             let ret = match &cb.ret {
-                TipoNativo::Composto(l) => Some((abi_c::retorno(conv, l, &mut regs), l.clone())),
-                TipoNativo::Prim(_) => None,
+                NativeType::Composite(l) => Some((c_abi::ret(conv, l, &mut regs), l.clone())),
+                NativeType::Prim(_) => None,
             };
             let mut decls = vec!["ptr nest %ctx".to_string()];
-            if let Some((PassagemRet::Sret { alinhamento }, l)) = &ret {
-                decls.push(format!("ptr sret([{} x i8]) align {alinhamento} %sret", l.tamanho));
+            if let Some((RetPassing::Sret { alignment }, l)) = &ret {
+                decls.push(format!("ptr sret([{} x i8]) align {alignment} %sret", l.size));
             }
             // Como cada composto chega: em peças (remontadas numa
             // temporária) ou já em memória (`byval`/ponteiro).
-            let mut pecas_de: Vec<Option<(Vec<abi_c::Peca>, usize)>> = Vec::with_capacity(cb.params.len());
+            let mut pieces_of: Vec<Option<(Vec<c_abi::Piece>, usize)>> = Vec::with_capacity(cb.params.len());
             for (j, t) in cb.params.iter().enumerate() {
                 match t {
-                    TipoNativo::Prim(tc) => {
-                        regs.consumir_primitivo(*tc);
-                        decls.push(format!("{} {}%a{j}", tc.llvm(), tc.extensao()));
-                        pecas_de.push(None);
+                    NativeType::Prim(tc) => {
+                        regs.consume_primitive(*tc);
+                        decls.push(format!("{} {}%a{j}", tc.llvm(), tc.extension()));
+                        pieces_of.push(None);
                     }
-                    TipoNativo::Composto(l) => match abi_c::argumento(conv, l, &mut regs) {
-                        PassagemArg::Direta(pecas) => {
-                            for (k, p) in pecas.iter().enumerate() {
-                                decls.push(format!("{} {}%a{j}_{k}", p.tipo, p.atributos));
+                    NativeType::Composite(l) => match c_abi::argument(conv, l, &mut regs) {
+                        ArgPassing::Direct(pieces) => {
+                            for (k, p) in pieces.iter().enumerate() {
+                                decls.push(format!("{} {}%a{j}_{k}", p.ty, p.attributes));
                             }
-                            pecas_de.push(Some((pecas, l.tamanho)));
+                            pieces_of.push(Some((pieces, l.size)));
                         }
-                        PassagemArg::Byval { alinhamento } => {
-                            decls.push(format!("ptr byval([{} x i8]) align {alinhamento} %a{j}", l.tamanho));
-                            pecas_de.push(None);
+                        ArgPassing::Byval { alignment } => {
+                            decls.push(format!("ptr byval([{} x i8]) align {alignment} %a{j}", l.size));
+                            pieces_of.push(None);
                         }
-                        PassagemArg::Indireta => {
+                        ArgPassing::Indirect => {
                             decls.push(format!("ptr %a{j}"));
-                            pecas_de.push(None);
+                            pieces_of.push(None);
                         }
                     },
                 }
             }
-            let (tipo_ret, ret_ext) = match (&cb.ret, &ret) {
-                (TipoNativo::Prim(tc), _) => (
+            let (ret_type, ret_ext) = match (&cb.ret, &ret) {
+                (NativeType::Prim(tc), _) => (
                     tc.llvm().to_string(),
                     match tc {
-                        TipoC::I8 | TipoC::I16 => "signext ",
-                        TipoC::U8 | TipoC::U16 | TipoC::Bool => "zeroext ",
+                        CType::I8 | CType::I16 => "signext ",
+                        CType::U8 | CType::U16 | CType::Bool => "zeroext ",
                         _ => "",
                     },
                 ),
-                (_, Some((PassagemRet::Direta(pecas), _))) => (abi_c::tipo_do_retorno(pecas), ""),
+                (_, Some((RetPassing::Direct(pieces), _))) => (c_abi::return_ty(pieces), ""),
                 _ => ("void".to_string(), ""),
             };
-            let r = tipo_ret.as_str();
+            let r = ret_type.as_str();
             // Exceções por tabelas: a entrada pousa o desenrolamento do corpo
             // (abaixo) — código C não é atravessado. A sabotagem
             // `callback_sem_pouso` (o D9 do §7.3) tira o pouso.
-            let por_tabelas = self.module.excecoes_por_tabelas && !crate::alvo::sabotagem("callback_sem_pouso");
-            let personalidade = if por_tabelas { " personality ptr @dartforge_personalidade" } else { "" };
-            writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentrada.{i}({}){personalidade} {{", decls.join(", "))
+            let by_tables = self.module.excecoes_por_tabelas && !crate::alvo::sabotage("callback_sem_pouso");
+            let personality = if by_tables { " personality ptr @dartforge_personalidade" } else { "" };
+            writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentrada.{i}({}){personality} {{", decls.join(", "))
                 .unwrap();
             let n = cb.params.len().max(1);
             writeln!(self.out, "entrada:\n  %saida = alloca i64\n  %buf = alloca [{n} x i64]").unwrap();
             if let Some((_, l)) = &ret {
-                writeln!(self.out, "  %rt = alloca [{} x i8], align 16", l.tamanho.div_ceil(16) * 16).unwrap();
+                writeln!(self.out, "  %rt = alloca [{} x i8], align 16", l.size.div_ceil(16) * 16).unwrap();
             }
             // O endereço de cada composto (`%end{j}`, i64).
             for (j, t) in cb.params.iter().enumerate() {
-                let TipoNativo::Composto(_) = t else { continue };
-                match &pecas_de[j] {
-                    Some((pecas, tamanho)) => {
-                        writeln!(self.out, "  %m{j} = alloca [{} x i8], align 16", tamanho.div_ceil(16) * 16).unwrap();
-                        for (k, p) in pecas.iter().enumerate() {
-                            writeln!(self.out, "  %mp{j}_{k} = getelementptr i8, ptr %m{j}, i64 {}", p.deslocamento).unwrap();
-                            writeln!(self.out, "  store {} %a{j}_{k}, ptr %mp{j}_{k}, align 1", p.tipo).unwrap();
+                let NativeType::Composite(_) = t else { continue };
+                match &pieces_of[j] {
+                    Some((pieces, size)) => {
+                        writeln!(self.out, "  %m{j} = alloca [{} x i8], align 16", size.div_ceil(16) * 16).unwrap();
+                        for (k, p) in pieces.iter().enumerate() {
+                            writeln!(self.out, "  %mp{j}_{k} = getelementptr i8, ptr %m{j}, i64 {}", p.offset).unwrap();
+                            writeln!(self.out, "  store {} %a{j}_{k}, ptr %mp{j}_{k}, align 1", p.ty).unwrap();
                         }
                         writeln!(self.out, "  %end{j} = ptrtoint ptr %m{j} to i64").unwrap();
                     }
@@ -3199,51 +3199,51 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "ouvinte:").unwrap();
             for (j, t) in cb.params.iter().enumerate() {
                 let bits = match t {
-                    TipoNativo::Composto(_) => format!("add i64 %end{j}, 0"),
-                    TipoNativo::Prim(tc) => match tc {
-                        TipoC::I8 | TipoC::I16 | TipoC::I32 => format!("sext {} %a{j} to i64", tc.llvm()),
-                        TipoC::U8 | TipoC::U16 | TipoC::U32 | TipoC::Bool => format!("zext {} %a{j} to i64", tc.llvm()),
-                        TipoC::I64 | TipoC::U64 => format!("add i64 %a{j}, 0"),
-                        TipoC::F32 => {
+                    NativeType::Composite(_) => format!("add i64 %end{j}, 0"),
+                    NativeType::Prim(tc) => match tc {
+                        CType::I8 | CType::I16 | CType::I32 => format!("sext {} %a{j} to i64", tc.llvm()),
+                        CType::U8 | CType::U16 | CType::U32 | CType::Bool => format!("zext {} %a{j} to i64", tc.llvm()),
+                        CType::I64 | CType::U64 => format!("add i64 %a{j}, 0"),
+                        CType::F32 => {
                             writeln!(self.out, "  %of{j} = fpext float %a{j} to double").unwrap();
                             format!("bitcast double %of{j} to i64")
                         }
-                        TipoC::F64 => format!("bitcast double %a{j} to i64"),
-                        TipoC::Ptr | TipoC::Handle => format!("ptrtoint ptr %a{j} to i64"),
-                        TipoC::Void => unreachable!("parâmetro nativo void"),
+                        CType::F64 => format!("bitcast double %a{j} to i64"),
+                        CType::Ptr | CType::Handle => format!("ptrtoint ptr %a{j} to i64"),
+                        CType::Void => unreachable!("parâmetro nativo void"),
                     },
                 };
                 writeln!(self.out, "  %o{j} = {bits}\n  %g{j} = getelementptr [{n} x i64], ptr %buf, i64 0, i64 {j}\n  store i64 %o{j}, ptr %g{j}").unwrap();
             }
             writeln!(self.out, "  call void @dartforge_ffi_callback_postar(ptr %ctx, ptr %buf, i64 {})", cb.params.len()).unwrap();
             match &cb.ret {
-                TipoNativo::Prim(TipoC::Void) => writeln!(self.out, "  ret void").unwrap(),
-                TipoNativo::Prim(TipoC::Ptr | TipoC::Handle) => writeln!(self.out, "  ret ptr null").unwrap(),
-                TipoNativo::Prim(TipoC::F32 | TipoC::F64) => writeln!(self.out, "  ret {r} 0.0").unwrap(),
-                TipoNativo::Prim(_) => writeln!(self.out, "  ret {r} 0").unwrap(),
-                TipoNativo::Composto(_) if r == "void" => writeln!(self.out, "  ret void").unwrap(),
-                TipoNativo::Composto(_) => writeln!(self.out, "  ret {r} zeroinitializer").unwrap(),
+                NativeType::Prim(CType::Void) => writeln!(self.out, "  ret void").unwrap(),
+                NativeType::Prim(CType::Ptr | CType::Handle) => writeln!(self.out, "  ret ptr null").unwrap(),
+                NativeType::Prim(CType::F32 | CType::F64) => writeln!(self.out, "  ret {r} 0.0").unwrap(),
+                NativeType::Prim(_) => writeln!(self.out, "  ret {r} 0").unwrap(),
+                NativeType::Composite(_) if r == "void" => writeln!(self.out, "  ret void").unwrap(),
+                NativeType::Composite(_) => writeln!(self.out, "  ret {r} zeroinitializer").unwrap(),
             }
             // Local: a chamada ao corpo HIR na representação Dart.
             writeln!(self.out, "local:\n  %c = ptrtoint ptr %ctx to i64").unwrap();
             let mut args = vec!["i64 %c".to_string()];
             for (j, t) in cb.params.iter().enumerate() {
                 let tc = match t {
-                    TipoNativo::Composto(_) => {
+                    NativeType::Composite(_) => {
                         args.push(format!("i64 %end{j}"));
                         continue;
                     }
-                    TipoNativo::Prim(tc) => *tc,
+                    NativeType::Prim(tc) => *tc,
                 };
                 let (conv_arg, ty) = match tc {
-                    TipoC::I8 | TipoC::I16 | TipoC::I32 => (Some(format!("sext {} %a{j} to i64", tc.llvm())), "i64"),
-                    TipoC::U8 | TipoC::U16 | TipoC::U32 => (Some(format!("zext {} %a{j} to i64", tc.llvm())), "i64"),
-                    TipoC::F32 => (Some(format!("fpext float %a{j} to double")), "double"),
-                    TipoC::Ptr | TipoC::Handle => (Some(format!("ptrtoint ptr %a{j} to i64")), "i64"),
-                    TipoC::I64 | TipoC::U64 => (None, "i64"),
-                    TipoC::F64 => (None, "double"),
-                    TipoC::Bool => (None, "i1"),
-                    TipoC::Void => unreachable!("parâmetro nativo void"),
+                    CType::I8 | CType::I16 | CType::I32 => (Some(format!("sext {} %a{j} to i64", tc.llvm())), "i64"),
+                    CType::U8 | CType::U16 | CType::U32 => (Some(format!("zext {} %a{j} to i64", tc.llvm())), "i64"),
+                    CType::F32 => (Some(format!("fpext float %a{j} to double")), "double"),
+                    CType::Ptr | CType::Handle => (Some(format!("ptrtoint ptr %a{j} to i64")), "i64"),
+                    CType::I64 | CType::U64 => (None, "i64"),
+                    CType::F64 => (None, "double"),
+                    CType::Bool => (None, "i1"),
+                    CType::Void => unreachable!("parâmetro nativo void"),
                 };
                 match conv_arg {
                     Some(c) => {
@@ -3253,19 +3253,19 @@ impl<'a> LlvmEmitter<'a> {
                     None => args.push(format!("{ty} %a{j}")),
                 }
             }
-            let hr = cb.ret.tipo_hir().llvm_ir();
-            let vazio = matches!(cb.ret, TipoNativo::Prim(TipoC::Void));
-            if por_tabelas {
+            let hr = cb.ret.hir_type().llvm_ir();
+            let empty = matches!(cb.ret, NativeType::Prim(CType::Void));
+            if by_tables {
                 // O corpo que lança desenrola: o pouso restaura o topo da
                 // pilha-sombra e segue com o valor padrão e a exceção
                 // pendente, como o corpo devolvia no modelo de conferência.
                 self.out.push_str(
                     "  %tctx = call ptr @dartforge_contexto()\n  %ttp = getelementptr inbounds i8, ptr %tctx, i64 8\n  %ttopo = load ptr, ptr %ttp, align 8\n",
                 );
-                let pouso = "tlp:\n  %tx = landingpad { ptr, i32 } catch ptr null\n  store ptr %ttopo, ptr %ttp, align 8\n  br label %tcont\n";
-                if vazio {
-                    writeln!(self.out, "  invoke void @{}({}) to label %tcont unwind label %tlp", cb.corpo, args.join(", ")).unwrap();
-                    self.out.push_str(pouso);
+                let landing_pad = "tlp:\n  %tx = landingpad { ptr, i32 } catch ptr null\n  store ptr %ttopo, ptr %ttp, align 8\n  br label %tcont\n";
+                if empty {
+                    writeln!(self.out, "  invoke void @{}({}) to label %tcont unwind label %tlp", cb.body, args.join(", ")).unwrap();
+                    self.out.push_str(landing_pad);
                     self.out.push_str("tcont:\n");
                 } else {
                     let zero = match hr {
@@ -3273,71 +3273,71 @@ impl<'a> LlvmEmitter<'a> {
                         "i1" => "false",
                         _ => "0",
                     };
-                    writeln!(self.out, "  %r.ok = invoke {hr} @{}({}) to label %tok unwind label %tlp", cb.corpo, args.join(", ")).unwrap();
-                    self.out.push_str(pouso);
+                    writeln!(self.out, "  %r.ok = invoke {hr} @{}({}) to label %tok unwind label %tlp", cb.body, args.join(", ")).unwrap();
+                    self.out.push_str(landing_pad);
                     self.out.push_str("tok:\n  br label %tcont\ntcont:\n");
                     writeln!(self.out, "  %r = phi {hr} [ %r.ok, %tok ], [ {zero}, %tlp ]").unwrap();
                 }
-            } else if vazio {
-                writeln!(self.out, "  call void @{}({})", cb.corpo, args.join(", ")).unwrap();
+            } else if empty {
+                writeln!(self.out, "  call void @{}({})", cb.body, args.join(", ")).unwrap();
             } else {
-                writeln!(self.out, "  %r = call {hr} @{}({})", cb.corpo, args.join(", ")).unwrap();
+                writeln!(self.out, "  %r = call {hr} @{}({})", cb.body, args.join(", ")).unwrap();
             }
             // Uma struct devolvida: os bytes copiados já (antes de qualquer
             // alocação); com exceção o corpo devolve 0 e o retorno é zerado.
             if let Some((_, l)) = &ret {
-                let tam = l.tamanho.div_ceil(16) * 16;
-                writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %rt, i8 0, i64 {tam}, i1 false)").unwrap();
-                writeln!(self.out, "  call void @dartforge_ffi_copiar_composto(ptr %rt, i64 %r, i64 {})", l.tamanho).unwrap();
+                let sz = l.size.div_ceil(16) * 16;
+                writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %rt, i8 0, i64 {sz}, i1 false)").unwrap();
+                writeln!(self.out, "  call void @dartforge_ffi_copiar_composto(ptr %rt, i64 %r, i64 {})", l.size).unwrap();
             }
             writeln!(self.out, "  %x = call i8 @dartforge_ffi_callback_sair(ptr %ctx, ptr %saida)").unwrap();
             match (&cb.ret, &ret) {
-                (TipoNativo::Prim(TipoC::Void), _) => {
+                (NativeType::Prim(CType::Void), _) => {
                     writeln!(self.out, "  ret void\n}}\n").unwrap();
                     continue;
                 }
-                (_, Some((PassagemRet::Sret { .. }, l))) => {
-                    writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr %sret, ptr %rt, i64 {}, i1 false)", l.tamanho).unwrap();
+                (_, Some((RetPassing::Sret { .. }, l))) => {
+                    writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr %sret, ptr %rt, i64 {}, i1 false)", l.size).unwrap();
                     writeln!(self.out, "  ret void\n}}\n").unwrap();
                     continue;
                 }
-                (_, Some((PassagemRet::Direta(pecas), _))) => {
-                    let mut atual = "undef".to_string();
-                    for (k, p) in pecas.iter().enumerate() {
-                        writeln!(self.out, "  %rp{k} = getelementptr i8, ptr %rt, i64 {}", p.deslocamento).unwrap();
-                        writeln!(self.out, "  %rv{k} = load {}, ptr %rp{k}, align 1", p.tipo).unwrap();
-                        if pecas.len() == 1 {
-                            atual = format!("%rv{k}");
+                (_, Some((RetPassing::Direct(pieces), _))) => {
+                    let mut current = "undef".to_string();
+                    for (k, p) in pieces.iter().enumerate() {
+                        writeln!(self.out, "  %rp{k} = getelementptr i8, ptr %rt, i64 {}", p.offset).unwrap();
+                        writeln!(self.out, "  %rv{k} = load {}, ptr %rp{k}, align 1", p.ty).unwrap();
+                        if pieces.len() == 1 {
+                            current = format!("%rv{k}");
                         } else {
-                            writeln!(self.out, "  %ra{k} = insertvalue {r} {atual}, {} %rv{k}, {k}", p.tipo).unwrap();
-                            atual = format!("%ra{k}");
+                            writeln!(self.out, "  %ra{k} = insertvalue {r} {current}, {} %rv{k}, {k}", p.ty).unwrap();
+                            current = format!("%ra{k}");
                         }
                     }
-                    writeln!(self.out, "  ret {r} {atual}\n}}\n").unwrap();
+                    writeln!(self.out, "  ret {r} {current}\n}}\n").unwrap();
                     continue;
                 }
                 _ => {}
             }
-            let TipoNativo::Prim(tr) = cb.ret else { unreachable!("retorno composto sem passagem") };
+            let NativeType::Prim(tr) = cb.ret else { unreachable!("retorno composto sem passagem") };
             writeln!(self.out, "  %e_excecao = icmp ne i8 %x, 0\n  br i1 %e_excecao, label %excecao, label %normal").unwrap();
             // O retorno excepcional (bits do tipo C) e o normal (Dart → C).
             writeln!(self.out, "excecao:\n  %e = load i64, ptr %saida").unwrap();
             let exc = match tr {
-                TipoC::I64 | TipoC::U64 => "add i64 %e, 0".to_string(),
-                TipoC::F64 => "bitcast i64 %e to double".to_string(),
-                TipoC::F32 => {
+                CType::I64 | CType::U64 => "add i64 %e, 0".to_string(),
+                CType::F64 => "bitcast i64 %e to double".to_string(),
+                CType::F32 => {
                     writeln!(self.out, "  %ed = bitcast i64 %e to double").unwrap();
                     "fptrunc double %ed to float".to_string()
                 }
-                TipoC::Ptr | TipoC::Handle => "inttoptr i64 %e to ptr".to_string(),
-                estreito => format!("trunc i64 %e to {}", estreito.llvm()),
+                CType::Ptr | CType::Handle => "inttoptr i64 %e to ptr".to_string(),
+                narrow => format!("trunc i64 %e to {}", narrow.llvm()),
             };
             writeln!(self.out, "  %ev = {exc}\n  ret {r} %ev").unwrap();
             let normal = match tr {
-                TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Bool => None,
-                TipoC::F32 => Some("fptrunc double %r to float".to_string()),
-                TipoC::Ptr | TipoC::Handle => Some("inttoptr i64 %r to ptr".to_string()),
-                estreito => Some(format!("trunc i64 %r to {}", estreito.llvm())),
+                CType::I64 | CType::U64 | CType::F64 | CType::Bool => None,
+                CType::F32 => Some("fptrunc double %r to float".to_string()),
+                CType::Ptr | CType::Handle => Some("inttoptr i64 %r to ptr".to_string()),
+                narrow => Some(format!("trunc i64 %r to {}", narrow.llvm())),
             };
             match normal {
                 Some(c) => writeln!(self.out, "normal:\n  %nv = {c}\n  ret {r} %nv\n}}\n").unwrap(),
@@ -3346,52 +3346,52 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    fn chamar_main(&mut self) {
+    fn call_main(&mut self) {
         let Some(entry) = self.module.entry_symbol.clone() else { return };
-        let por_tabelas = self.module.excecoes_por_tabelas;
+        let by_tables = self.module.excecoes_por_tabelas;
         let n = self.module.entry_params.min(2);
         if n == 0 {
-            writeln!(self.out, "  {}", chamada_de_entrada(por_tabelas, &entry, &[])).unwrap();
+            writeln!(self.out, "  {}", entry_call(by_tables, &entry, &[])).unwrap();
             return;
         }
         writeln!(self.out, "  %df.args = call i64 @dartforge_argumentos_do_main()").unwrap();
         let args: &[&str] = if n == 1 { &["i64 %df.args"] } else { &["i64 %df.args", "i64 0"] };
-        writeln!(self.out, "  {}", chamada_de_entrada(por_tabelas, &entry, args)).unwrap();
+        writeln!(self.out, "  {}", entry_call(by_tables, &entry, args)).unwrap();
     }
 
     /// Exceções por tabelas: as portas pelas quais o runtime chama código
     /// Dart (`runtime/src/excecoes_tabelas.rs`), uma por assinatura —
-    /// `@df.porta.<v|r><n>(função, n palavras)`, `v` sem valor e `r`
-    /// devolvendo uma palavra — e a tabela `@df.portas`, no índice
+    /// `@df.porta.<v|r><n>(função, n words)`, `v` sem valor e `r`
+    /// devolvendo uma palavra — e a tabela `@df.ports`, no índice
     /// `2n + (1 se devolve)`, que a entrada do programa registra. A porta
     /// chama a função com `invoke`; um desenrolamento pousa nela, que
     /// restaura o topo da pilha-sombra e volta com a exceção pendente — o
     /// que o runtime espera de uma função Dart que lançou. Assim nenhum
     /// quadro do runtime fica no caminho de um desenrolamento.
-    fn emitir_portas(&mut self) {
-        let mut tabela = Vec::with_capacity(N_PORTAS);
-        for n in 0..N_PORTAS / 2 {
-            for retorna in [false, true] {
-                let nome = format!("df.porta.{}{n}", if retorna { 'r' } else { 'v' });
+    fn emit_ports(&mut self) {
+        let mut table = Vec::with_capacity(N_PORTS);
+        for n in 0..N_PORTS / 2 {
+            for returns in [false, true] {
+                let name_str = format!("df.porta.{}{n}", if returns { 'r' } else { 'v' });
                 let params: String = (0..n).map(|i| format!(", i64 %a{i}")).collect();
                 let args: Vec<String> = (0..n).map(|i| format!("i64 %a{i}")).collect();
-                let (tipo, resultado, volta, padrao) =
-                    if retorna { ("i64", "%r = ", "ret i64 %r", "ret i64 0") } else { ("void", "", "ret void", "ret void") };
-                writeln!(self.out, "define internal {tipo} @{nome}(ptr %f{params}) personality ptr @dartforge_personalidade {{")
+                let (typ, result, back, pattern) =
+                    if returns { ("i64", "%r = ", "ret i64 %r", "ret i64 0") } else { ("void", "", "ret void", "ret void") };
+                writeln!(self.out, "define internal {typ} @{name_str}(ptr %f{params}) personality ptr @dartforge_personalidade {{")
                     .unwrap();
                 self.out.push_str(
                     "entrada:\n  %ctx = call ptr @dartforge_contexto()\n  %tp = getelementptr inbounds i8, ptr %ctx, i64 8\n  %topo = load ptr, ptr %tp, align 8\n",
                 );
-                writeln!(self.out, "  {resultado}invoke {tipo} %f({}) to label %volta unwind label %pouso", args.join(", ")).unwrap();
+                writeln!(self.out, "  {result}invoke {typ} %f({}) to label %volta unwind label %pouso", args.join(", ")).unwrap();
                 writeln!(
                     self.out,
-                    "volta:\n  {volta}\npouso:\n  %lp = landingpad {{ ptr, i32 }} catch ptr null\n  store ptr %topo, ptr %tp, align 8\n  {padrao}\n}}"
+                    "volta:\n  {back}\npouso:\n  %lp = landingpad {{ ptr, i32 }} catch ptr null\n  store ptr %topo, ptr %tp, align 8\n  {pattern}\n}}"
                 )
                 .unwrap();
-                tabela.push(format!("ptr @{nome}"));
+                table.push(format!("ptr @{name_str}"));
             }
         }
-        writeln!(self.out, "@df.portas = private unnamed_addr constant [{N_PORTAS} x ptr] [{}]\n", tabela.join(", ")).unwrap();
+        writeln!(self.out, "@df.portas = private unnamed_addr constant [{N_PORTS} x ptr] [{}]\n", table.join(", ")).unwrap();
     }
 
     /// Tipo do valor que o emissor de fato imprime para uma instrucao.
@@ -3401,7 +3401,7 @@ impl<'a> LlvmEmitter<'a> {
     /// divergente faria a coercao trabalhar com a informacao errada. O tipo
     /// registrado so vale onde o emissor o usa (Load, Phi, Alloca e as
     /// instrucoes ainda nao expandidas).
-    pub(crate) fn tipo_do_resultado(inst: &Instruction, registrado: Type) -> Type {
+    pub(crate) fn result_type(inst: &Instruction, registered: Type) -> Type {
         match inst {
             Instruction::Const(Constant::Bool(_)) => Type::I1,
             Instruction::Const(Constant::Double(_)) => Type::F64,
@@ -3430,26 +3430,26 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::Box { .. }
             | Instruction::AllocCell { .. }
             | Instruction::AllocEnv { .. }
-            | Instruction::JuntarTextos { .. }
+            | Instruction::ConcatStrings { .. }
             | Instruction::AllocClosure { .. }
-            | Instruction::AllocClosureTipada { .. }
+            | Instruction::AllocClosureTyped { .. }
             | Instruction::TearOff { .. }
             | Instruction::CallClosure { .. }
-            | Instruction::CallSeletor { .. }
-            | Instruction::CallSeletorRepasse { .. }
-            | Instruction::CallClosureRepasse { .. } => Type::Ref,
-            Instruction::ChamadaNativa { ret, .. } => ret.tipo_hir(),
-            Instruction::ChamadaTipada { ret, .. } => *ret,
-            Instruction::CargaNativa { tipo, .. } => tipo.tipo_hir(),
-            Instruction::GravacaoNativa { .. } => Type::Void,
-            Instruction::ChamadaNativaComposta { ret, destino, .. } => {
-                if destino.is_some() { Type::Void } else { ret.tipo_hir() }
+            | Instruction::CallSelector { .. }
+            | Instruction::CallSelectorForward { .. }
+            | Instruction::CallClosureForward { .. } => Type::Ref,
+            Instruction::NativeCall { ret, .. } => ret.hir_type(),
+            Instruction::TypedCall { ret, .. } => *ret,
+            Instruction::NativeLoad { ty: typ, .. } => typ.hir_type(),
+            Instruction::NativeWrite { .. } => Type::Void,
+            Instruction::CompositeNativeCall { ret, dest, .. } => {
+                if dest.is_some() { Type::Void } else { ret.hir_type() }
             }
             Instruction::CellSet { .. } | Instruction::ArcDrop { .. } | Instruction::ArcStoreStrong { .. } => Type::Void,
-            Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) => Type::Ptr,
+            Instruction::ConstArray(_) | Instruction::FunctionTable(_) => Type::Ptr,
             Instruction::Unbox { to, .. } => *to,
             Instruction::Alloca(_) => Type::Ptr,
-            Instruction::GetField { .. } => registrado,
+            Instruction::GetField { .. } => registered,
             Instruction::FAdd(..)
             | Instruction::FSub(..)
             | Instruction::FMul(..)
@@ -3462,7 +3462,7 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::CallStatic { ret_ty, .. } | Instruction::CallRuntime { ret_ty, .. } => *ret_ty,
             Instruction::Load { ty, .. } => *ty,
             Instruction::Phi { ty, .. } => *ty,
-            _ => registrado,
+            _ => registered,
         }
     }
 
@@ -3470,12 +3470,12 @@ impl<'a> LlvmEmitter<'a> {
     /// A conferência da pilha no prólogo (o `stack_overflow_check` da VM,
     /// `runtime/vm/compiler/backend/il.h:9693`, `CheckStackOverflowInstr`): o
     /// endereço de um `alloca` do quadro abaixo de
-    /// `Contexto::limite_da_pilha` lança `StackOverflowError`
+    /// `Context::limite_da_pilha` lança `StackOverflowError`
     /// (`dartforge_estouro_de_pilha`) e a função volta com a exceção
     /// pendente, antes de encadear o quadro de raízes. Só nas funções que
     /// chamam (as que têm `%ctx`): uma folha não aprofunda a pilha.
-    fn emitir_conferencia_da_pilha(&mut self, func: &Function) {
-        let por_tabelas = self.tab.is_some();
+    fn emit_stack_check(&mut self, func: &Function) {
+        let by_tables = self.tab.is_some();
         let o = &mut self.out;
         writeln!(o, "  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::LIMITE_DA_PILHA).unwrap();
         writeln!(o, "  %pilhal = load ptr, ptr %pilhalp, align 8").unwrap();
@@ -3484,16 +3484,16 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  br i1 %pilhax, label %pilha.estouro, label %pilha.ok").unwrap();
         writeln!(o, "pilha.estouro:").unwrap();
         writeln!(o, "  call void @dartforge_estouro_de_pilha()").unwrap();
-        if self.rastro.is_some() {
+        if self.stack_trace.is_some() {
             writeln!(o, "  call void @dartforge_rastro_saida()").unwrap();
         }
         // Exceções por tabelas: o `StackOverflowError` desenrola daqui.
-        if por_tabelas {
+        if by_tables {
             writeln!(o, "  call void @df.lancar()").unwrap();
             writeln!(o, "  unreachable").unwrap();
             writeln!(o, "pilha.ok:").unwrap();
-            self.rotulo_atual = "pilha.ok".to_string();
-            self.rotulos_de_saida.entry(0).or_insert_with(|| "pilha.ok".to_string());
+            self.current_label = "pilha.ok".to_string();
+            self.exit_labels.entry(0).or_insert_with(|| "pilha.ok".to_string());
             return;
         }
         match func.return_ty {
@@ -3506,55 +3506,55 @@ impl<'a> LlvmEmitter<'a> {
             t => writeln!(o, "  ret {} zeroinitializer", t.llvm_ir()).unwrap(),
         }
         writeln!(o, "pilha.ok:").unwrap();
-        self.rotulo_atual = "pilha.ok".to_string();
-        self.rotulos_de_saida.entry(0).or_insert_with(|| "pilha.ok".to_string());
+        self.current_label = "pilha.ok".to_string();
+        self.exit_labels.entry(0).or_insert_with(|| "pilha.ok".to_string());
     }
 
-    /// O corpo do objeto `so` (`%fcb{v}`, o cabeçalho) e os campos dele
+    /// O corpo do objeto `only` (`%fcb{v}`, o cabeçalho) e os campos dele
     /// (`%fp{v}`), em linha: um objeto do espaço de objetos (`h & 3 == 2` e
     /// `h > 0`; `crates/runtime/src/heap.rs`, `Cabecalho`) tem o cabeçalho em
     /// `h - 2`; qualquer outra coisa — null, `Smi`, valor do runtime — usa o
-    /// `OBJETO_VAZIO` (o ponteiro em `Contexto::vazios`, deslocamento 40 do
+    /// `OBJETO_VAZIO` (o ponteiro em `Context::vazios`, deslocamento 40 do
     /// contexto), campos zerados, como `dartforge_object_campos` dava. Com o
     /// bit `FORA` nas `flags`, o corpo é o endereço guardado no primeiro
     /// campo (o objeto que mudou de número de campos): uma seleção, sem
     /// desvio. Sem chamada.
     /// O operando é um objeto recém-alocado neste bloco, sem ponto de
-    /// coleta desde a alocação (`frescos`).
-    fn fresco(&self, op: &Operand) -> bool {
-        !self.module.memoria_arc && matches!(op, Operand::Val(x) if self.frescos.contains(&x.0))
+    /// coleta desde a alocação (`fresh_set`).
+    fn fresh(&self, op: &Operand) -> bool {
+        !self.module.arc_memory && matches!(op, Operand::Val(x) if self.fresh_set.contains(&x.0))
     }
 
     /// O corpo do objeto `op` é o próprio bloco: o recém-alocado, ou o
-    /// `this` quando nenhum objeto tem corpo de fora (`this_objeto`).
-    fn corpo_direto(&self, op: &Operand) -> bool {
-        self.fresco(op) || matches!(op, Operand::Val(x) if self.this_objeto == Some(x.0))
+    /// `this` quando nenhum objeto tem corpo de fora (`this_object`).
+    fn direct_body(&self, op: &Operand) -> bool {
+        self.fresh(op) || matches!(op, Operand::Val(x) if self.this_object == Some(x.0))
     }
 
-    /// [`Self::emitir_endereco_dos_campos`]; `direto`: o corpo é o próprio
-    /// bloco ([`Self::corpo_direto`], `handle − 2`), sem a seleção de
+    /// [`Self::emit_field_addresses`]; `direct`: o corpo é o próprio
+    /// bloco ([`Self::direct_body`], `handle − 2`), sem a seleção de
     /// null/`Smi` nem o corpo de fora.
-    fn emitir_endereco_dos_campos_de(&mut self, v: u32, so: &str, direto: bool) {
-        if !direto {
-            return self.emitir_endereco_dos_campos(v, so);
+    fn emit_field_addresses_of(&mut self, v: u32, only: &str, direct: bool) {
+        if !direct {
+            return self.emit_field_addresses(v, only);
         }
         let o = &mut self.out;
-        writeln!(o, "  %fxa{v} = add i64 {so}, -{}", layout::DESLOCAMENTO_DO_HANDLE).unwrap();
+        writeln!(o, "  %fxa{v} = add i64 {only}, -{}", layout::DESLOCAMENTO_DO_HANDLE).unwrap();
         writeln!(o, "  %fcb{v} = inttoptr i64 %fxa{v} to ptr").unwrap();
         writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
     }
 
-    fn emitir_endereco_dos_campos(&mut self, v: u32, so: &str) {
+    fn emit_field_addresses(&mut self, v: u32, only: &str) {
         let o = &mut self.out;
-        if self.campos_por_chamada {
-            writeln!(o, "  %fcb{v} = call ptr @df.corpo(i64 {so}, ptr %ctx)").unwrap();
+        if self.fields_per_call {
+            writeln!(o, "  %fcb{v} = call ptr @df.corpo(i64 {only}, ptr %ctx)").unwrap();
             writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
             return;
         }
         // O bit de sinal entra na máscara: negativo nunca é objeto.
-        writeln!(o, "  %fxk{v} = and i64 {so}, {MASCARA_DE_OBJETO}").unwrap();
+        writeln!(o, "  %fxk{v} = and i64 {only}, {OBJECT_MASK}").unwrap();
         writeln!(o, "  %fxo{v} = icmp eq i64 %fxk{v}, 2").unwrap();
-        writeln!(o, "  %fxa{v} = add i64 {so}, -2").unwrap();
+        writeln!(o, "  %fxa{v} = add i64 {only}, -2").unwrap();
         writeln!(o, "  %fxq{v} = inttoptr i64 %fxa{v} to ptr").unwrap();
         writeln!(o, "  %fxvp{v} = getelementptr inbounds i8, ptr %ctx, i64 40").unwrap();
         writeln!(o, "  %fxv{v} = load ptr, ptr %fxvp{v}, align 8").unwrap();
@@ -3573,12 +3573,12 @@ impl<'a> LlvmEmitter<'a> {
     /// dele no mapa de referências (`is_ref`: `0`, `1` ou um `i8` só
     /// conhecido em execução) — os 32 primeiros no cabeçalho, os demais nas
     /// palavras depois dos campos (achadas pelo `n` do corpo).
-    fn emitir_gravacao_de_campo(&mut self, v: u32, sufixo: &str, idx: usize, sv: &str, is_ref: &str) {
+    fn emit_field_write(&mut self, v: u32, suffix: &str, idx: usize, sv: &str, is_ref: &str) {
         let o = &mut self.out;
-        let t = format!("{v}{sufixo}");
+        let t = format!("{v}{suffix}");
         writeln!(o, "  %fg{t} = getelementptr inbounds i64, ptr %fp{v}, i64 {idx}").unwrap();
         writeln!(o, "  store i64 {sv}, ptr %fg{t}, align 8").unwrap();
-        let (palavra, largura, bit) = if idx < 32 {
+        let (word, width, bit) = if idx < 32 {
             writeln!(o, "  %fmp{t} = getelementptr inbounds i8, ptr %fcb{v}, i64 8").unwrap();
             (format!("%fmp{t}"), "i32", idx)
         } else {
@@ -3590,32 +3590,32 @@ impl<'a> LlvmEmitter<'a> {
             (format!("%fmp{t}"), "i64", (idx - 32) % 64)
         };
         // As constantes na largura da palavra, com sinal (o texto do IR).
-        let (limpa, acende) = if largura == "i32" {
+        let (cleans, lights_up) = if width == "i32" {
             (i64::from(!(1u32 << bit) as i32), i64::from((1u32 << bit) as i32))
         } else {
             (!(1u64 << bit) as i64, (1u64 << bit) as i64)
         };
-        writeln!(o, "  %fm{t} = load {largura}, ptr {palavra}, align 4").unwrap();
-        writeln!(o, "  %fmc{t} = and {largura} %fm{t}, {limpa}").unwrap();
+        writeln!(o, "  %fm{t} = load {width}, ptr {word}, align 4").unwrap();
+        writeln!(o, "  %fmc{t} = and {width} %fm{t}, {cleans}").unwrap();
         match is_ref {
-            "0" => writeln!(o, "  store {largura} %fmc{t}, ptr {palavra}, align 4").unwrap(),
+            "0" => writeln!(o, "  store {width} %fmc{t}, ptr {word}, align 4").unwrap(),
             "1" => {
-                writeln!(o, "  %fms{t} = or {largura} %fm{t}, {acende}").unwrap();
-                writeln!(o, "  store {largura} %fms{t}, ptr {palavra}, align 4").unwrap();
+                writeln!(o, "  %fms{t} = or {width} %fm{t}, {lights_up}").unwrap();
+                writeln!(o, "  store {width} %fms{t}, ptr {word}, align 4").unwrap();
             }
             r => {
-                writeln!(o, "  %fmz{t} = zext i8 {r} to {largura}").unwrap();
-                writeln!(o, "  %fmb{t} = shl {largura} %fmz{t}, {bit}").unwrap();
-                writeln!(o, "  %fms{t} = or {largura} %fmc{t}, %fmb{t}").unwrap();
-                writeln!(o, "  store {largura} %fms{t}, ptr {palavra}, align 4").unwrap();
+                writeln!(o, "  %fmz{t} = zext i8 {r} to {width}").unwrap();
+                writeln!(o, "  %fmb{t} = shl {width} %fmz{t}, {bit}").unwrap();
+                writeln!(o, "  %fms{t} = or {width} %fmc{t}, %fmb{t}").unwrap();
+                writeln!(o, "  store {width} %fms{t}, ptr {word}, align 4").unwrap();
             }
         }
     }
 
     /// `dartforge_object_new(c, n)` com classe e número de campos
     /// constantes e `n ≤ TLAB_N`: a alocação sai em linha
-    /// ([`LlvmEmitter::emitir_alocacao_em_linha`]). Devolve `(c, n)`.
-    fn alocacao_em_linha(inst: &Instruction) -> Option<(i64, i64)> {
+    /// ([`LlvmEmitter::emit_inline_allocation`]). Devolve `(c, n)`.
+    fn inline_allocation(inst: &Instruction) -> Option<(i64, i64)> {
         let Instruction::CallRuntime { name, args, .. } = inst else { return None };
         if name != "dartforge_object_new" || args.len() != 2 {
             return None;
@@ -3630,34 +3630,34 @@ impl<'a> LlvmEmitter<'a> {
 
     /// A alocação em linha de um objeto de classe `c` e `n` campos, como o
     /// `TryAllocateObject` da VM (`stub_code_compiler.cc`): avança o cursor
-    /// da faixa da TLAB de `n` campos do isolado (`Contexto::tlab`: cursor
+    /// da faixa da TLAB de `n` campos do isolado (`Context::tlab`: cursor
     /// em `64 + 16n`, fim em `72 + 16n`; os blocos já foram contados como
     /// alocados e têm cabeçalho e campos zerados, menos o encadeamento no
     /// primeiro campo), grava o cabeçalho (jovem, `n`, a classe) e devolve o
-    /// handle (`bloco + 2`). Faixa esgotada — ou,
+    /// handle (`block + 2`). Faixa esgotada — ou,
     /// para a classe que registra a tabela de métodos na primeira alocação
     /// (`dartforge_object_new_t`), classe ainda não registrada — vai ao
     /// runtime, que coleta se preciso e reabastece. O bloco da HIR termina
-    /// no rótulo `ao{v}.fim` ([`LlvmEmitter::rotulos_de_saida`]).
-    fn emitir_alocacao_em_linha(&mut self, v: u32, c: i64, n: i64) {
-        let tabela = self.module.funcoes_de_tabela.get(&(c as u32)).cloned();
-        if let Some(f) = &tabela {
-            self.anotar_externo(f, Type::Ptr, &[]);
+    /// no rótulo `ao{v}.end` ([`LlvmEmitter::exit_labels`]).
+    fn emit_inline_allocation(&mut self, v: u32, c: i64, n: i64) {
+        let table = self.module.table_functions.get(&(c as u32)).cloned();
+        if let Some(f) = &table {
+            self.annotate_external(f, Type::Ptr, &[]);
         }
         // A TLAB é por palavras do corpo: `n ≤ TLAB_N` campos ocupam
         // `max(n, 1)` palavras (sem extensão do mapa).
         let w = layout::palavras_de_instancia(n as usize);
-        let tamanho = layout::bytes_do_bloco(w);
-        if self.alocacao_fora_de_linha {
+        let size = layout::bytes_do_bloco(w);
+        if self.out_of_line_allocation {
             // Produção do programa grande: a mesma conta, numa chamada ao
-            // `@df.nova_instancia` (docs/NATIVO-PRODUCAO-GRANDE.md §3).
-            let cabecalho = layout::palavra_do_cabecalho(layout::estado::JOVEM, layout::flags::INSTANCIA, n as usize, c as i32);
-            let t = tabela.as_ref().map_or("null".to_string(), |f| format!("@{f}"));
+            // `@df.new_instance` (docs/NATIVO-PRODUCAO-GRANDE.md §3).
+            let header = layout::palavra_do_cabecalho(layout::estado::JOVEM, layout::flags::INSTANCIA, n as usize, c as i32);
+            let t = table.as_ref().map_or("null".to_string(), |f| format!("@{f}"));
             writeln!(
                 self.out,
-                "  %v{v} = call i64 @df.nova_instancia(ptr %ctx, i64 {}, i64 {tamanho}, i64 {}, i64 {c}, i64 {n}, ptr {t})",
+                "  %v{v} = call i64 @df.nova_instancia(ptr %ctx, i64 {}, i64 {size}, i64 {}, i64 {c}, i64 {n}, ptr {t})",
                 layout::contexto::tlab_cursor(w),
-                cabecalho as i64
+                header as i64
             )
             .unwrap();
             return;
@@ -3667,9 +3667,9 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %tb{v} = load ptr, ptr %ta{v}, align 8").unwrap();
         writeln!(o, "  %tfa{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::tlab_fim(w)).unwrap();
         writeln!(o, "  %tf{v} = load ptr, ptr %tfa{v}, align 8").unwrap();
-        writeln!(o, "  %tnx{v} = getelementptr i8, ptr %tb{v}, i64 {tamanho}").unwrap();
+        writeln!(o, "  %tnx{v} = getelementptr i8, ptr %tb{v}, i64 {size}").unwrap();
         writeln!(o, "  %tz{v} = icmp ugt ptr %tnx{v}, %tf{v}").unwrap();
-        if tabela.is_some() {
+        if table.is_some() {
             writeln!(o, "  %tnp{v} = getelementptr inbounds i8, ptr %ctx, i64 56").unwrap();
             writeln!(o, "  %tn{v} = load i64, ptr %tnp{v}, align 8").unwrap();
             writeln!(o, "  %tk{v} = icmp ule i64 %tn{v}, {c}").unwrap();
@@ -3692,104 +3692,104 @@ impl<'a> LlvmEmitter<'a> {
         // os campos zerados e o próximo da lista no primeiro campo: avança-se
         // o cursor, zera-se o primeiro campo e grava-se a palavra do
         // cabeçalho (estado jovem, sem flags, `n`, a classe).
-        let cabecalho = layout::palavra_do_cabecalho(layout::estado::JOVEM, layout::flags::INSTANCIA, n as usize, c as i32);
+        let header = layout::palavra_do_cabecalho(layout::estado::JOVEM, layout::flags::INSTANCIA, n as usize, c as i32);
         writeln!(o, "ao{v}.rapido:").unwrap();
         writeln!(o, "  store ptr %tnx{v}, ptr %ta{v}, align 8").unwrap();
         writeln!(o, "  %tpp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 16").unwrap();
         writeln!(o, "  store i64 0, ptr %tpp{v}, align 8").unwrap();
-        writeln!(o, "  store i64 {}, ptr %tb{v}, align 8", cabecalho as i64).unwrap();
+        writeln!(o, "  store i64 {}, ptr %tb{v}, align 8", header as i64).unwrap();
         writeln!(o, "  %thb{v} = ptrtoint ptr %tb{v} to i64").unwrap();
         writeln!(o, "  %th{v} = add i64 %thb{v}, 2").unwrap();
         writeln!(o, "  br label %ao{v}.fim").unwrap();
         writeln!(o, "ao{v}.lento:").unwrap();
-        match &tabela {
+        match &table {
             Some(f) => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new_t(i64 {c}, i64 {n}, ptr @{f})").unwrap(),
             None => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new(i64 {c}, i64 {n})").unwrap(),
         }
         writeln!(o, "  br label %ao{v}.fim").unwrap();
         writeln!(o, "ao{v}.fim:").unwrap();
         writeln!(o, "  %v{v} = phi i64 [ %th{v}, %ao{v}.rapido ], [ %tl{v}, %ao{v}.lento ]").unwrap();
-        self.rotulo_atual = format!("ao{v}.fim");
+        self.current_label = format!("ao{v}.fim");
     }
 
     /// A gravação em linha de campo que pode pôr um `Ref` num objeto: leva a
-    /// barreira de escrita ([`LlvmEmitter::emitir_barreira`]). Uma constante
+    /// barreira de escrita ([`LlvmEmitter::emit_barrier`]). Uma constante
     /// escalar ou null não precisa.
-    fn barreira_em_linha(&self, inst: &Instruction) -> bool {
+    fn inline_barrier(&self, inst: &Instruction) -> bool {
         // No ARC a gravação vai ao runtime, com a barreira dentro.
-        if self.module.memoria_arc {
+        if self.module.arc_memory {
             return false;
         }
-        let pode_ser_ref = |op: &Operand| {
+        let may_be_ref = |op: &Operand| {
             !matches!(op, Operand::Constant(Constant::Null | Constant::Int(_) | Constant::Bool(_) | Constant::Double(_)))
         };
         match inst {
             Instruction::SetField { index, value, .. } => {
-                *index < CAMPOS_EM_LINHA && self.tipo_de(value) == Type::Ref && pode_ser_ref(value)
+                *index < INLINE_FIELDS && self.type_of(value) == Type::Ref && may_be_ref(value)
             }
             Instruction::CallRuntime { name, args, .. }
                 if name == "dartforge_object_set"
                     && args.len() == 4
-                    && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i)) =>
+                    && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
             {
-                let escalar = matches!(&args[3].0, Operand::Constant(Constant::Int(0)) | Operand::Constant(Constant::Bool(false)));
-                !escalar && pode_ser_ref(&args[2].0)
+                let scalar = matches!(&args[3].0, Operand::Constant(Constant::Int(0)) | Operand::Constant(Constant::Bool(false)));
+                !scalar && may_be_ref(&args[2].0)
             }
             _ => false,
         }
     }
 
-    /// A barreira de escrita depois de gravar o `Ref` `sv` no objeto `so`
-    /// (`@df.barreira`, docs/NATIVO-ESPACO-UNIFICADO.md §2.7): o objeto velho
+    /// A barreira de escrita depois de gravar o `Ref` `sv` no objeto `only`
+    /// (`@df.barrier`, docs/NATIVO-ESPACO-UNIFICADO.md §2.7): o objeto velho
     /// que recebe um filho jovem vai para os lembrados da próxima coleta menor —
-    /// o *store buffer* da barreira da VM. `dinamico`: o `is_ref` só conhecido em
-    /// execução (0/1, `i8`). O bloco da HIR passa a terminar em `wb{v}.fim`.
-    fn emitir_barreira(&mut self, v: u32, so: &str, sv: &str, dinamico: Option<&str>) {
+    /// o *store buffer* da barreira da VM. `dynamic`: o `is_ref` só conhecido em
+    /// execução (0/1, `i8`). O bloco da HIR passa a terminar em `wb{v}.end`.
+    fn emit_barrier(&mut self, v: u32, only: &str, sv: &str, dynamic: Option<&str>) {
         let o = &mut self.out;
-        match dinamico {
+        match dynamic {
             Some(r) => {
                 writeln!(o, "  %wbr{v} = icmp ne i8 {r}, 0").unwrap();
                 writeln!(o, "  br i1 %wbr{v}, label %wb{v}.ref, label %wb{v}.fim").unwrap();
                 writeln!(o, "wb{v}.ref:").unwrap();
-                writeln!(o, "  call void @df.barreira(i64 {so}, i64 {sv})").unwrap();
+                writeln!(o, "  call void @df.barreira(i64 {only}, i64 {sv})").unwrap();
                 writeln!(o, "  br label %wb{v}.fim").unwrap();
             }
             None => {
-                writeln!(o, "  call void @df.barreira(i64 {so}, i64 {sv})").unwrap();
+                writeln!(o, "  call void @df.barreira(i64 {only}, i64 {sv})").unwrap();
                 writeln!(o, "  br label %wb{v}.fim").unwrap();
             }
         }
         writeln!(o, "wb{v}.fim:").unwrap();
-        self.rotulo_atual = format!("wb{v}.fim");
+        self.current_label = format!("wb{v}.fim");
     }
 
     /// Contexto exigido pelo corpo ou pelas tabelas, antes de decidir os
     /// quadros de raízes. Também exige conferência de pilha no prólogo;
     /// os resumos ARC compartilham esta decisão para não omitir unwind.
     /// Quadros calculados por vivacidade podem exigir contexto adicional.
-    pub(crate) fn exige_contexto_explicito(func: &Function, tab: Option<&TabelasDaFuncao>) -> bool {
+    pub(crate) fn requires_explicit_context(func: &Function, tab: Option<&FunctionTables>) -> bool {
         func.blocks.iter().any(|b| {
             b.instructions.iter().any(|(_, i, _)| {
                 matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
-                    || Self::usa_contexto(i)
+                    || Self::uses_context(i)
             })
         }) || tab.is_some_and(|t| {
-            !t.pousos.is_empty() || t.confere_pilha
-                || t.saidas.values().any(|s| *s == SaidaPorExcecao::Guarda)
+            !t.landing_pads.is_empty() || t.checks_stack
+                || t.exits.values().any(|s| *s == ExceptionExit::Guard)
         })
     }
 
     /// A instrução lê o contexto da thread (`%ctx`): campos em linha ou
     /// alocação em linha.
-    fn usa_contexto(inst: &Instruction) -> bool {
+    fn uses_context(inst: &Instruction) -> bool {
         match inst {
-            Instruction::GetField { index, .. } | Instruction::SetField { index, .. } => *index < CAMPOS_EM_LINHA,
+            Instruction::GetField { index, .. } | Instruction::SetField { index, .. } => *index < INLINE_FIELDS,
             Instruction::AllocObject { fields, .. } => !fields.is_empty(),
             Instruction::CallRuntime { name, args, .. } => {
-                Self::alocacao_em_linha(inst).is_some()
+                Self::inline_allocation(inst).is_some()
                     || name == "dartforge_exception_clear"
                     || ((name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
-                        && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i)))
+                        && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)))
             }
             _ => false,
         }
@@ -3800,15 +3800,15 @@ impl<'a> LlvmEmitter<'a> {
     /// extern que não aloca — e sem conversão que encaixote (um operando
     /// `Ref` onde se espera escalar pode lançar `TypeError`, que aloca; um
     /// escalar onde se espera `Ref`, ou uma constante de texto, aloca).
-    fn pode_coletar(&self, inst: &Instruction) -> bool {
-        let escalar = |op: &Operand| {
-            self.tipo_de(op) != Type::Ref && !matches!(op, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)))
+    fn may_collect(&self, inst: &Instruction) -> bool {
+        let scalar = |op: &Operand| {
+            self.type_of(op) != Type::Ref && !matches!(op, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)))
         };
-        let exato = |op: &Operand, t: Type| match op {
+        let exact = |op: &Operand, t: Type| match op {
             Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => false,
             Operand::Constant(Constant::Null) => t == Type::Ref,
             _ => {
-                let a = self.tipo_de(op);
+                let a = self.type_of(op);
                 a == t || (a != Type::Ref && t != Type::Ref)
             }
         };
@@ -3830,68 +3830,68 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::FMul(a, b)
             | Instruction::FDiv(a, b)
             | Instruction::ICmp(_, a, b)
-            | Instruction::FCmp(_, a, b) => !(escalar(a) && escalar(b)),
+            | Instruction::FCmp(_, a, b) => !(scalar(a) && scalar(b)),
             Instruction::Neg(a)
             | Instruction::Not(a)
             | Instruction::FNeg(a)
             | Instruction::LNot(a)
             | Instruction::IntToDouble(a)
-            | Instruction::DoubleToInt(a) => !escalar(a),
+            | Instruction::DoubleToInt(a) => !scalar(a),
             Instruction::Alloca(_) | Instruction::Load { .. } | Instruction::Phi { .. } => false,
             // Aritmética de vetores e o desencaixe (carga direta): não alocam.
             Instruction::Simd { .. } => false,
-            Instruction::Unbox { to, .. } if to.e_vetor() => false,
+            Instruction::Unbox { to, .. } if to.is_vector() => false,
             // Em linha (load/store no vetor de campos), sem conversão que
             // aloque: um `Ref` já é `i64`, um `double` é `bitcast`.
-            Instruction::GetField { index, .. } => (*index as usize) >= CAMPOS_EM_LINHA,
+            Instruction::GetField { index, .. } => (*index as usize) >= INLINE_FIELDS,
             Instruction::SetField { index, value, .. } => {
-                (*index as usize) >= CAMPOS_EM_LINHA
+                (*index as usize) >= INLINE_FIELDS
                     || matches!(value, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)))
             }
             Instruction::Store { ptr, val } => {
                 let t = match ptr {
-                    Operand::Val(p) => self.apontado.get(p).copied().unwrap_or(Type::I64),
+                    Operand::Val(p) => self.pointee.get(p).copied().unwrap_or(Type::I64),
                     _ => return true,
                 };
-                !exato(val, t)
+                !exact(val, t)
             }
-            Instruction::CargaNativa { endereco, indice, .. } => !(escalar(endereco) && escalar(indice)),
-            Instruction::GravacaoNativa { endereco, indice, valor, .. } => {
-                !(escalar(endereco) && escalar(indice) && escalar(valor))
+            Instruction::NativeLoad { address, index: idx_value, .. } => !(scalar(address) && scalar(idx_value)),
+            Instruction::NativeWrite { address, index: idx_value, value: val_ref, .. } => {
+                !(scalar(address) && scalar(idx_value) && scalar(val_ref))
             }
             Instruction::CallRuntime { name, args, .. } => {
-                let e = externs::efeitos_de(name);
-                let nao_aloca = !e.aloca && !e.chama_dart;
-                !(nao_aloca && args.iter().all(|(a, t)| exato(a, *t)))
+                let e = externs::effects_of(name);
+                let does_not_allocate = !e.allocates && !e.calls_dart;
+                !(does_not_allocate && args.iter().all(|(a, t)| exact(a, *t)))
             }
             // Na memória por rastreamento: o texto constante é um objeto
-            // estático da imagem (`textos_ir.rs`, `emitir_const_string`), e
+            // estático da imagem (`ir_strings.rs`, `emit_const_string`), e
             // os vetores constantes e a leitura de um vetor de argumentos são
             // endereços e cargas. Nenhum aloca; antes, cada literal de texto
             // obrigava a enraizar tudo o que estava vivo nele.
             Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => {
-                !(self.objetos_estaticos && !self.module.memoria_arc)
+                !(self.static_objects && !self.module.arc_memory)
             }
-            Instruction::LoadIndexed { .. } | Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) => {
-                self.module.memoria_arc
+            Instruction::LoadIndexed { .. } | Instruction::ConstArray(_) | Instruction::FunctionTable(_) => {
+                self.module.arc_memory
             }
             _ => true,
         }
     }
 
     /// Se a chamada `inst` enraíza os próprios argumentos
-    /// (`raizes::analisar_com`): uma chamada direta a uma função Dart — deste
+    /// (`roots::analyze_with`): uma chamada direta a uma função Dart — deste
     /// módulo, ou do SDK da fonte (`df.dart$3a…`) — cujos operandos chegam
     /// sem conversão que aloque (o tipo do parâmetro, nenhum texto
     /// constante). Só na pilha-sombra da memória por rastreamento: as raízes
     /// por mapas e o ARC seguem a regra de sempre. Só com
-    /// `DARTFORGE_RAIZES_NO_CHAMADO=1` ([`raizes_no_chamado`]).
-    fn chamado_enraiza_os_argumentos(&self, inst: &Instruction) -> bool {
-        if self.mapas || self.module.memoria_arc || !raizes_no_chamado() {
+    /// `DARTFORGE_RAIZES_NO_CHAMADO=1` ([`roots_in_callee`]).
+    fn callee_roots_the_arguments(&self, inst: &Instruction) -> bool {
+        if self.maps || self.module.arc_memory || !roots_in_callee() {
             return false;
         }
         let Instruction::CallStatic { symbol, args, .. } = inst else { return false };
-        let alvo = self.funcao_por_simbolo.get(symbol.as_str()).copied();
+        let alvo = self.function_by_symbol.get(symbol.as_str()).copied();
         if alvo.is_none() && !symbol.starts_with("df.dart$3a") {
             return false;
         }
@@ -3899,7 +3899,7 @@ impl<'a> LlvmEmitter<'a> {
             if matches!(a, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))) {
                 return false;
             }
-            let t = self.tipo_de(a);
+            let t = self.type_of(a);
             match alvo.and_then(|f| f.params.get(i)).map(|p| p.2) {
                 Some(p) => p == t || (p != Type::Ref && t != Type::Ref && p != Type::Void),
                 None => true,
@@ -3907,19 +3907,19 @@ impl<'a> LlvmEmitter<'a> {
         })
     }
 
-    fn tipo_de(&self, op: &Operand) -> Type {
+    fn type_of(&self, op: &Operand) -> Type {
         match op {
-            Operand::Val(v) => self.tipos.get(v).copied().unwrap_or(Type::I64),
+            Operand::Val(v) => self.types.get(v).copied().unwrap_or(Type::I64),
             Operand::Constant(Constant::Int(_)) => Type::I64,
             Operand::Constant(Constant::Double(_)) => Type::F64,
             Operand::Constant(Constant::Bool(_)) => Type::I1,
             Operand::Constant(Constant::Null) => Type::Ref,
             Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
-            Operand::Constant(Constant::Funcao(_)) => Type::I64,
+            Operand::Constant(Constant::Function(_)) => Type::I64,
         }
     }
 
-    fn largura(t: Type) -> u32 {
+    fn width(t: Type) -> u32 {
         match t {
             Type::I1 => 1,
             Type::I8 => 8,
@@ -3937,12 +3937,12 @@ impl<'a> LlvmEmitter<'a> {
 
     /// Reescreve uma constante diretamente no tipo pedido, sem instrucao.
     /// Devolve None quando o operando nao e constante.
-    fn constante_no_tipo(&self, op: &Operand, alvo: Type) -> Option<String> {
+    fn constant_in_type(&self, op: &Operand, alvo: Type) -> Option<String> {
         let Operand::Constant(c) = op else { return None };
         let s = match (c, alvo) {
             (Constant::String(_) | Constant::StringWtf8(_), _) => panic!("string deve ser carregada via Instruction::Const"),
-            (Constant::Funcao(f), Type::I64) => format!("ptrtoint (ptr @{f} to i64)"),
-            (Constant::Funcao(_), _) => panic!("endereço de função só como i64"),
+            (Constant::Function(f), Type::I64) => format!("ptrtoint (ptr @{f} to i64)"),
+            (Constant::Function(_), _) => panic!("endereço de função só como i64"),
             (Constant::Int(n), Type::I1) => if *n != 0 { "true".to_string() } else { "false".to_string() },
             (Constant::Bool(b), Type::I1) => if *b { "true".to_string() } else { "false".to_string() },
             (Constant::Null, Type::I1) => "false".to_string(),
@@ -3972,70 +3972,70 @@ impl<'a> LlvmEmitter<'a> {
     /// a conversao numerica, entao um double ocupando um slot i64 so pode ser o
     /// padrao de bits — e assim que Const(Double) e emitido e como os doubles
     /// atravessam o runtime.
-    fn coagir(&mut self, op: &Operand, alvo: Type) -> String {
+    fn coerce(&mut self, op: &Operand, alvo: Type) -> String {
         if alvo == Type::Void {
             return self.operand_str(op);
         }
-        if let Some(s) = self.constante_no_tipo(op, alvo) {
+        if let Some(s) = self.constant_in_type(op, alvo) {
             return s;
         }
-        let mut atual = self.tipo_de(op);
-        let mut texto = self.operand_str(op);
-        if atual.llvm_ir() == alvo.llvm_ir() && (atual == Type::F64) == (alvo == Type::F64) {
-            return texto;
+        let mut current = self.type_of(op);
+        let mut text = self.operand_str(op);
+        if current.llvm_ir() == alvo.llvm_ir() && (current == Type::F64) == (alvo == Type::F64) {
+            return text;
         }
         // double vira i64 (e vice-versa) sempre pelos bits; larguras menores
         // passam antes por i64 porque bitcast exige tamanho igual.
-        if atual == Type::F64 && alvo != Type::F64 {
-            texto = self.emitir_conversao("bitcast", Type::F64, &texto, Type::I64);
-            atual = Type::I64;
+        if current == Type::F64 && alvo != Type::F64 {
+            text = self.emit_conversion("bitcast", Type::F64, &text, Type::I64);
+            current = Type::I64;
         }
         if alvo == Type::F64 {
-            if atual != Type::I64 && atual != Type::Ref {
-                texto = self.emitir_conversao("zext", atual, &texto, Type::I64);
-                atual = Type::I64;
+            if current != Type::I64 && current != Type::Ref {
+                text = self.emit_conversion("zext", current, &text, Type::I64);
+                current = Type::I64;
             }
-            if atual != Type::F64 {
-                texto = self.emitir_conversao("bitcast", Type::I64, &texto, Type::F64);
+            if current != Type::F64 {
+                text = self.emit_conversion("bitcast", Type::I64, &text, Type::F64);
             }
-            return texto;
+            return text;
         }
-        if Self::largura(atual) < Self::largura(alvo) {
-            self.emitir_conversao("zext", atual, &texto, alvo)
-        } else if Self::largura(atual) > Self::largura(alvo) {
-            self.emitir_conversao("trunc", atual, &texto, alvo)
+        if Self::width(current) < Self::width(alvo) {
+            self.emit_conversion("zext", current, &text, alvo)
+        } else if Self::width(current) > Self::width(alvo) {
+            self.emit_conversion("trunc", current, &text, alvo)
         } else {
-            texto
+            text
         }
     }
 
     /// Mesma conversao, mas gravando num nome escolhido por quem chama
     /// (usado pelas entradas de phi, que precisam de um nome estavel).
-    fn emitir_conversao_nomeada(&mut self, nome: &str, de: Type, origem: &str, para: Type) {
-        let mut atual = de;
-        let mut texto = origem.to_string();
-        if atual == Type::F64 && para != Type::F64 && Self::largura(para) != 64 {
-            texto = self.emitir_conversao("bitcast", Type::F64, &texto, Type::I64);
-            atual = Type::I64;
+    fn emit_named_conversion(&mut self, name_str: &str, de: Type, origin: &str, to_repr: Type) {
+        let mut current = de;
+        let mut text = origin.to_string();
+        if current == Type::F64 && to_repr != Type::F64 && Self::width(to_repr) != 64 {
+            text = self.emit_conversion("bitcast", Type::F64, &text, Type::I64);
+            current = Type::I64;
         }
-        if para == Type::F64 && atual != Type::F64 && Self::largura(atual) != 64 {
-            texto = self.emitir_conversao("zext", atual, &texto, Type::I64);
-            atual = Type::I64;
+        if to_repr == Type::F64 && current != Type::F64 && Self::width(current) != 64 {
+            text = self.emit_conversion("zext", current, &text, Type::I64);
+            current = Type::I64;
         }
-        let op = if atual == Type::F64 || para == Type::F64 {
+        let op = if current == Type::F64 || to_repr == Type::F64 {
             "bitcast"
-        } else if Self::largura(atual) < Self::largura(para) {
+        } else if Self::width(current) < Self::width(to_repr) {
             "zext"
         } else {
             "trunc"
         };
-        writeln!(self.out, "  {nome} = {op} {} {texto} to {}", atual.llvm_ir(), para.llvm_ir()).unwrap();
+        writeln!(self.out, "  {name_str} = {op} {} {text} to {}", current.llvm_ir(), to_repr.llvm_ir()).unwrap();
     }
 
-    fn emitir_conversao(&mut self, op: &str, de: Type, texto: &str, para: Type) -> String {
-        let c = self.prox_coercao;
-        self.prox_coercao += 1;
-        writeln!(self.out, "  %c{c} = {op} {} {texto} to {}", de.llvm_ir(), para.llvm_ir()).unwrap();
+    fn emit_conversion(&mut self, op: &str, de: Type, text: &str, to_repr: Type) -> String {
+        let c = self.next_coercion;
+        self.next_coercion += 1;
+        writeln!(self.out, "  %c{c} = {op} {} {text} to {}", de.llvm_ir(), to_repr.llvm_ir()).unwrap();
         format!("%c{c}")
     }
 
@@ -4053,15 +4053,15 @@ impl<'a> LlvmEmitter<'a> {
             Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => {
                 panic!("string deve ser carregada via Instruction::Const");
             }
-            Operand::Constant(Constant::Funcao(f)) => format!("ptrtoint (ptr @{f} to i64)"),
+            Operand::Constant(Constant::Function(f)) => format!("ptrtoint (ptr @{f} to i64)"),
         }
     }
 }
 
 /// Raízes por mapas: as chamadas que nunca coletam além das externs que a
-/// tabela de efeitos marca assim — os ajudantes folha ([`ajudantes_folha`]),
+/// tabela de efeitos marca assim — os ajudantes folha ([`leaf_helpers`]),
 /// o desenrolamento e a moldura da conferência dos efeitos.
-const FOLHAS_DO_MAPA: &[&str] = &[
+const MAP_LEAVES: &[&str] = &[
     "df.corpo",
     "df.barreira",
     "df.barreira_elemento",
@@ -4074,7 +4074,7 @@ const FOLHAS_DO_MAPA: &[&str] = &[
     "dartforge_efeitos_restaurar",
 ];
 
-/// A regra das raízes pelo chamado (`LlvmEmitter::chamado_enraiza_os_argumentos`)
+/// A regra das raízes pelo chamado (`LlvmEmitter::callee_roots_the_arguments`)
 /// está ligada: `DARTFORGE_RAIZES_NO_CHAMADO=1` (medida; desligada por
 /// padrão). Ela tira ~8% das gravações de raiz do new_sali/backend, mas
 /// muda a coloração dos slots: um slot compartilhado guarda o último valor
@@ -4082,45 +4082,45 @@ const FOLHAS_DO_MAPA: &[&str] = &[
 /// valor morto fica mais tempo — o núcleo `json` do `bench/comparison`
 /// terminava com 1,05 milhão de objetos vivos em vez de 650 mil (pico de
 /// 121 contra 95 MB). Falta zerar o slot do valor que morre antes de ligar.
-fn raizes_no_chamado() -> bool {
-    static LIGADA: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *LIGADA.get_or_init(|| std::env::var("DARTFORGE_RAIZES_NO_CHAMADO").is_ok_and(|v| v == "1"))
+fn roots_in_callee() -> bool {
+    static ENABLED_IN_CALLEE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED_IN_CALLEE.get_or_init(|| std::env::var("DARTFORGE_RAIZES_NO_CHAMADO").is_ok_and(|v| v == "1"))
 }
 
 /// Raízes por mapas: a chamada da linha pode coletar — a indireta, e a
 /// direta a uma função que não é intrínseco do LLVM nem folha (a extern que
 /// a tabela de efeitos marca sem coletar nem chamar Dart, salvo a sabotagem
-/// `folha:<nome>`, que a trata como folha; os ajudantes de
-/// [`FOLHAS_DO_MAPA`]). Um nome fora das tabelas (a função Dart, o
+/// `leaf:<name>`, que a trata como folha; os ajudantes de
+/// [`MAP_LEAVES`]). Um nome fora das tabelas (a função Dart, o
 /// ajudante que aloca) coleta.
-fn chamada_que_coleta(linha: &str) -> bool {
-    match rastro::alvo_da_chamada(linha) {
+fn collecting_call(line: &str) -> bool {
+    match stack_trace::call_target(line) {
         None => false,
         Some(None) => true,
-        Some(Some(nome)) => {
-            if nome.starts_with("llvm.") || FOLHAS_DO_MAPA.contains(&nome) || crate::alvo::folha_sabotada(nome) {
+        Some(Some(name_str)) => {
+            if name_str.starts_with("llvm.") || MAP_LEAVES.contains(&name_str) || crate::alvo::sabotaged_leaf(name_str) {
                 return false;
             }
-            let ef = externs::efeitos_de(nome);
-            ef.aloca || ef.chama_dart
+            let ef = externs::effects_of(name_str);
+            ef.allocates || ef.calls_dart
         }
     }
 }
 
 /// Raízes por mapas (§14.12): a linha (com ou sem o `\n`) com o operando
-/// `feixe` (`"deopt"(…)`), se ela é uma chamada que pode coletar ainda sem
+/// `beam` (`"deopt"(…)`), se ela é uma chamada que pode coletar ainda sem
 /// ele; senão, a própria linha. O operando vai depois dos atributos da
 /// chamada e antes do rótulo de um `invoke` e dos metadados.
-fn com_deopt<'a>(linha: &'a str, feixe: &str) -> std::borrow::Cow<'a, str> {
-    if linha.contains("\"deopt\"(") || !chamada_que_coleta(linha) {
-        return std::borrow::Cow::Borrowed(linha);
+fn with_deopt<'a>(line: &'a str, beam: &str) -> std::borrow::Cow<'a, str> {
+    if line.contains("\"deopt\"(") || !collecting_call(line) {
+        return std::borrow::Cow::Borrowed(line);
     }
-    let (corpo, fim) = match linha.strip_suffix('\n') {
+    let (body, end) = match line.strip_suffix('\n') {
         Some(c) => (c, "\n"),
-        None => (linha, ""),
+        None => (line, ""),
     };
-    let pos = [corpo.find(" to label "), corpo.find(", !")].into_iter().flatten().min().unwrap_or(corpo.len());
-    std::borrow::Cow::Owned(format!("{} [ {feixe} ]{}{fim}", &corpo[..pos], &corpo[pos..]))
+    let pos = [body.find(" to label "), body.find(", !")].into_iter().flatten().min().unwrap_or(body.len());
+    std::borrow::Cow::Owned(format!("{} [ {beam} ]{}{end}", &body[..pos], &body[pos..]))
 }
 
 /// Raízes por mapas (§14.12): o `"deopt"()` vazio em toda chamada que pode
@@ -4132,27 +4132,27 @@ fn com_deopt<'a>(linha: &'a str, feixe: &str) -> std::borrow::Cow<'a, str> {
 /// vira statepoint). Toda linha entre o `define` e o `}` conta: o corpo dos
 /// ajudantes sai sem indentação (a continuação `\` das strings Rust come os
 /// espaços).
-fn deopt_vazio(texto: &str) -> String {
-    let mut saida = String::with_capacity(texto.len() + texto.len() / 16);
-    let mut dentro = false;
-    let mut intermediario = false;
-    for linha in texto.split_inclusive('\n') {
-        if linha.starts_with("define ") {
-            dentro = true;
-            intermediario = linha.contains("@df.vararg.");
-            saida.push_str(linha);
+fn empty_deopt(text: &str) -> String {
+    let mut exit = String::with_capacity(text.len() + text.len() / 16);
+    let mut inside = false;
+    let mut intermediate = false;
+    for line in text.split_inclusive('\n') {
+        if line.starts_with("define ") {
+            inside = true;
+            intermediate = line.contains("@df.vararg.");
+            exit.push_str(line);
             continue;
         }
-        if linha.starts_with('}') {
-            dentro = false;
+        if line.starts_with('}') {
+            inside = false;
         }
-        if dentro && !intermediario {
-            saida.push_str(&com_deopt(linha, "\"deopt\"()"));
+        if inside && !intermediate {
+            exit.push_str(&with_deopt(line, "\"deopt\"()"));
         } else {
-            saida.push_str(linha);
+            exit.push_str(line);
         }
     }
-    saida
+    exit
 }
 
 /// Raízes por mapas: os ajudantes `@df.*` que comprovadamente não coletam
@@ -4160,38 +4160,38 @@ fn deopt_vazio(texto: &str) -> String {
 /// chamada a eles não vira ponto de coleta. Em linha o atributo não muda
 /// nada. Só os que não chamam o runtime, ou chamam uma extern que não aloca
 /// no heap do coletor (`dartforge_lembrar`).
-fn ajudantes_folha(texto: &str) -> String {
-    const FOLHAS: &[&str] = &["@df.corpo(", "@df.barreira(", "@df.barreira_elemento(", "@df.e_objeto(", "@df.filho_jovem("];
-    let mut saida = String::with_capacity(texto.len() + 256);
-    for linha in texto.split_inclusive('\n') {
-        let alvo = linha.starts_with("define internal ") && FOLHAS.iter().any(|f| linha.contains(f));
-        match linha.rfind(" {") {
+fn leaf_helpers(text: &str) -> String {
+    const LEAVES: &[&str] = &["@df.corpo(", "@df.barreira(", "@df.barreira_elemento(", "@df.e_objeto(", "@df.filho_jovem("];
+    let mut exit = String::with_capacity(text.len() + 256);
+    for line in text.split_inclusive('\n') {
+        let alvo = line.starts_with("define internal ") && LEAVES.iter().any(|f| line.contains(f));
+        match line.rfind(" {") {
             Some(i) if alvo => {
-                saida.push_str(&linha[..i]);
-                saida.push_str(" \"gc-leaf-function\"");
-                saida.push_str(&linha[i..]);
+                exit.push_str(&line[..i]);
+                exit.push_str(" \"gc-leaf-function\"");
+                exit.push_str(&line[i..]);
             }
-            _ => saida.push_str(linha),
+            _ => exit.push_str(line),
         }
     }
-    saida
+    exit
 }
 
 /// Quantas portas Rust → Dart o módulo do programa define
-/// ([`LlvmEmitter::emitir_portas`]): aridades 0 a 7, sem valor e com valor. O
+/// ([`LlvmEmitter::emit_ports`]): aridades 0 a 7, sem valor e com valor. O
 /// runtime tem o mesmo número (`PORTAS_DART`, `excecoes_tabelas.rs`).
-const N_PORTAS: usize = 16;
+const N_PORTS: usize = 16;
 
 /// O que todo módulo declara nas exceções por tabelas
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13):
 ///
 /// * a personalidade das funções com pouso (`dartforge_personalidade`, do
 ///   runtime) e o registro das portas;
-/// * `@df.lancar`, o desenrolamento: uma exceção estruturada do sistema com
+/// * `@df.throw`, o desenrolamento: uma exceção estruturada do sistema com
 ///   o código próprio `0xE0444652` (o inteiro abaixo), não continuável, sem
 ///   parâmetros — a exceção Dart em si é a pendência do runtime. `internal`:
 ///   cada módulo (e cada parte de um módulo dividido) tem a sua cópia.
-const EXCECOES_POR_TABELAS: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)\n\
+const EXCEPTIONS_BY_TABLES: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)\n\
 declare i32 @dartforge_personalidade(...)\n\
 declare void @dartforge_registrar_portas(ptr, i64)\n\
 declare dllimport void @RaiseException(i32, i32, i32, ptr)\n\
@@ -4200,7 +4200,7 @@ define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {\
   unreachable\n\
 }\n";
 
-/// O mesmo nos alvos Itanium (Linux, macOS): `@df.lancar` pede ao runtime
+/// O mesmo nos alvos Itanium (Linux, macOS): `@df.throw` pede ao runtime
 /// o objeto de exceção da thread (`excecoes_tabelas.rs`) e o entrega ele
 /// mesmo ao desenrolador do sistema (`_Unwind_RaiseException`), como o
 /// `RaiseException` do Windows: nenhum quadro Rust fica entre o lançamento
@@ -4209,7 +4209,7 @@ define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {\
 /// e a personalidade do Rust devolvia `_URC_FATAL_PHASE1_ERROR` (3) à
 /// exceção estrangeira. Se o desenrolador voltar, o código vai ao runtime,
 /// que encerra.
-const EXCECOES_POR_TABELAS_ITANIUM: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
+const EXCEPTIONS_BY_TABLES_ITANIUM: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
 declare i32 @dartforge_personalidade(...)
 declare i32 @dartforge_personalidade_cleanup_itanium(...)
 declare i32 @llvm.eh.typeid.for(ptr)
@@ -4227,35 +4227,35 @@ define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {
 
 /// A chamada, na entrada do programa, de uma função Dart sem valor: direta
 /// ou, nas exceções por tabelas, pela porta da aridade
-/// ([`LlvmEmitter::emitir_portas`]) — a entrada é chamada pelo runtime, e um
+/// ([`LlvmEmitter::emit_ports`]) — a entrada é chamada pelo runtime, e um
 /// desenrolamento não pode chegar a ele.
-fn chamada_de_entrada(por_tabelas: bool, simbolo: &str, args: &[&str]) -> String {
-    if por_tabelas {
-        let mut lista = format!("ptr @{simbolo}");
+fn entry_call(by_tables: bool, sym_name: &str, args: &[&str]) -> String {
+    if by_tables {
+        let mut list = format!("ptr @{sym_name}");
         for a in args {
-            lista.push_str(", ");
-            lista.push_str(a);
+            list.push_str(", ");
+            list.push_str(a);
         }
-        format!("call void @df.porta.v{}({lista})", args.len())
+        format!("call void @df.porta.v{}({list})", args.len())
     } else {
-        format!("call void @{simbolo}({})", args.join(", "))
+        format!("call void @{sym_name}({})", args.join(", "))
     }
 }
 
 /// O hash (FNV-1a de 64 bits) do nome de um slot ou da chave do módulo na
 /// área de globais; nunca 0, que marca o slot que não migra.
-fn hash_de_slot(nome: &str) -> i64 {
-    let h = fnv(nome.bytes()) & !(BIT_DE_CACHE as u64);
+fn slot_hash(name_str: &str) -> i64 {
+    let h = fnv(name_str.bytes()) & !(CACHE_BIT as u64);
     (if h == 0 { 1 } else { h }) as i64
 }
 
 /// O bit que marca, no descritor da área, o nome de um slot de cache de
 /// seletor (o runtime tem a mesma constante, `gc_raizes.rs`).
-pub(crate) const BIT_DE_CACHE: i64 = 1 << 62;
+pub(crate) const CACHE_BIT: i64 = 1 << 62;
 
-/// O nome da palavra `palavra` (0 ou 1) do cache `nome`, com [`BIT_DE_CACHE`].
-fn hash_de_cache(nome: &str, palavra: u8) -> i64 {
-    (fnv(nome.bytes().chain([0, palavra])) | BIT_DE_CACHE as u64) as i64
+/// O nome da palavra `word` (0 ou 1) do cache `name`, com [`CACHE_BIT`].
+fn cache_hash(name_str: &str, word: u8) -> i64 {
+    (fnv(name_str.bytes().chain([0, word])) | CACHE_BIT as u64) as i64
 }
 
 /// FNV-1a de 64 bits.
@@ -4274,7 +4274,7 @@ fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {
 /// referência que não é `Smi` (o `_Mint`, ou o `TypeError`), o runtime.
 /// `internal` em cada módulo e `alwaysinline`: o caminho comum vira três
 /// instruções no lugar da chamada.
-const OBTER_AREA: &str = "@df.area_id = internal global i64 0, align 8\n\
+const GET_AREA: &str = "@df.area_id = internal global i64 0, align 8\n\
 define internal ptr @df.obter_area() alwaysinline {\n\
   %ctx = call ptr @dartforge_contexto()\n\
   %id = load atomic i64, ptr @df.area_id monotonic, align 8\n\
@@ -4298,19 +4298,19 @@ lenta:\n\
 
 /// A classe de um valor e o cache do ponto de chamada por seletor, em
 /// linha. Um objeto do espaço (`h & 3 == 2`, `runtime/src/heap.rs`,
-/// `Cabecalho`) tem o `class_id` no cabeçalho (`bloco + 4`, e o handle é
-/// `bloco + 2`): uma carga, como o `LoadClassId` da VM. Um valor do runtime
+/// `Cabecalho`) tem o `class_id` no cabeçalho (`block + 4`, e o handle é
+/// `block + 2`): uma carga, como o `LoadClassId` da VM. Um valor do runtime
 /// num slot (`h > 0`, `h & 3 == 0`, índice `h / 4 - 1`) tem a classe no
 /// vetor denso do heap (`Heap::classes`, 8 bytes por slot, o `cid` nos 4
 /// primeiros), cujo endereço e comprimento o contexto da thread publica
-/// (deslocamentos 336 e 344, `runtime/src/heap.rs`, `Contexto`): relidos a
+/// (deslocamentos 336 e 344, `runtime/src/heap.rs`, `Context`): relidos a
 /// cada uso, porque o vetor cresce (muda de endereço) quando o heap ganha
 /// slots. Índice fora da faixa ou classe desconhecida (`i32::MIN`), e o
 /// resto (`null` e `Smi` sem o SDK da fonte), perguntam ao runtime
 /// (`dartforge_value_class`).
 ///
 /// `df.subclasse` é o `cid <: C` pelo mapa de bits do alvo que o runtime
-/// monta na primeira consulta (`runtime/src/nucleo.rs`, `MapasDeSubtipo`;
+/// monta na primeira consulta (`runtime/src/core.rs`, `MapasDeSubtipo`;
 /// deslocamentos 352–368 do contexto), o *type testing stub* da VM: sem
 /// chamada quando o mapa existe e o `cid` está na largura dele.
 /// O cache (`cache[0]` = classe + 1, `cache[1]` = entrada, na área do
@@ -4320,23 +4320,23 @@ lenta:\n\
 ///
 /// Com o SDK da fonte, `null` e o `Smi` também saem sem o runtime: as
 /// classes deles (`Null`, `_Smi`) são as da tabela `cids` do módulo
-/// (`sdk_modulo::cids_do_runtime`, a que o runtime recebe na partida).
-fn classe_do_valor(cids: &[i64]) -> String {
-    let texto = CLASSE_DO_VALOR
-        .replace("@@MASCARA@@", &MASCARA_DE_OBJETO.to_string())
+/// (`sdk_modulo::runtime_cids`, a que o runtime recebe na partida).
+fn value_class(cids: &[i64]) -> String {
+    let text = VALUE_CLASS
+        .replace("@@MASCARA@@", &OBJECT_MASK.to_string())
         .replace("@@CLASSE@@", &(layout::desl::CLASSE as i64 - layout::DESLOCAMENTO_DO_HANDLE).to_string())
         .replace("@@SUBTIPOS@@", &layout::contexto::SUBTIPOS.to_string())
         .replace("@@N_SUBTIPOS@@", &layout::contexto::N_SUBTIPOS.to_string())
         .replace("@@LARGURA@@", &layout::contexto::LARGURA_SUBTIPOS.to_string());
     // Sem o SDK da fonte (o caminho legado), `null` e o `Smi` vão ao runtime.
     if !matches!(cids, [n, s, ..] if *n >= 0 && *s >= 0) {
-        return texto.replace("@@RAPIDOS@@", "");
+        return text.replace("@@RAPIDOS@@", "");
     }
-    let rapidos = format!(
+    let fast_set = format!(
         "  %z = icmp eq i64 %h, 0\n\
   br i1 %z, label %nulo, label %s0\n\
 nulo:\n\
-  ret i64 {nulo}\n\
+  ret i64 {null}\n\
 s0:\n\
   %b = and i64 %h, 1\n\
   %i = icmp ne i64 %b, 0\n\
@@ -4344,13 +4344,13 @@ s0:\n\
 smi:\n\
   ret i64 {smi}\n\
 s1:\n",
-        nulo = layout::cid::NULL,
+        null = layout::cid::NULL,
         smi = layout::cid::SMI
     );
-    texto.replace("@@RAPIDOS@@", &rapidos)
+    text.replace("@@RAPIDOS@@", &fast_set)
 }
 
-const CLASSE_DO_VALOR: &str = "define internal i64 @df.classe(i64 %h) alwaysinline {\n\
+const VALUE_CLASS: &str = "define internal i64 @df.classe(i64 %h) alwaysinline {\n\
 @@RAPIDOS@@  %m = and i64 %h, @@MASCARA@@\n\
   %o = icmp eq i64 %m, 2\n\
   br i1 %o, label %obj, label %rt\n\
@@ -4410,33 +4410,33 @@ lento:\n\
   ret i8 %y\n\
 }\n";
 
-/// Ajudantes `@df.*` que vão fora de linha (com o `seletor` e a `classe`, o
-/// despacho dinâmico, em [`ajudantes_fora_de_linha`]): cada um é uma
+/// Ajudantes `@df.*` que vão fora de linha (com o `selector` e a `class`, o
+/// despacho dinâmico, em [`out_of_line_helpers`]): cada um é uma
 /// sequência que se repete em centenas de milhares de lugares do programa
 /// grande (docs/NATIVO-PRODUCAO-GRANDE.md §1.4).
-pub const AJUDANTES_FORA_DO_PROGRAMA_GRANDE: &[&str] =
+pub const OUTLINED_HELPERS_LARGE_PROGRAM: &[&str] =
     &["subclasse", "alocar", "barreira", "barreira_elemento", "obter_area", "nova_instancia"];
 
 /// A lista de ajudantes fora de linha: `DARTFORGE_AJUDANTES_FORA` (lista
 /// separada por vírgula; `1`, todos; vazio, nenhum); senão todos no
 /// programa grande, no desenvolvimento (`-O0`, onde o `alwaysinline` copia
 /// o ajudante em cada uso e a geração de código paga por cada cópia:
-/// `desenvolvimento_grande`) e na produção (`programa_grande`), e nenhum
+/// `large_development`) e na produção (`large_program`), e nenhum
 /// nos demais — o programa pequeno roda o dobro do tempo no `-O0` sem os
 /// ajudantes em linha (o corpus/native: 53 → 116 s).
-pub fn ajudantes_fora_de_linha(desenvolvimento_grande: bool, programa_grande: bool) -> Vec<String> {
-    let todos = || ["seletor", "classe"].iter().chain(AJUDANTES_FORA_DO_PROGRAMA_GRANDE).map(|s| (*s).to_string()).collect();
+pub fn out_of_line_helpers(large_development: bool, large_program: bool) -> Vec<String> {
+    let all = || ["seletor", "classe"].iter().chain(OUTLINED_HELPERS_LARGE_PROGRAM).map(|s| (*s).to_string()).collect();
     match std::env::var("DARTFORGE_AJUDANTES_FORA") {
-        Ok(v) if v == "1" => todos(),
+        Ok(v) if v == "1" => all(),
         Ok(v) => v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect(),
-        Err(_) if desenvolvimento_grande || programa_grande => todos(),
+        Err(_) if large_development || large_program => all(),
         Err(_) => Vec::new(),
     }
 }
 
 /// O despacho por seletor com o descritor estático (`@df.seld.<k>`), fora
-/// de linha ([`LlvmEmitter::seletor_compacto`]).
-const SELETOR_POR_DESCRITOR: &str = "define internal ptr @df.seletor_d(ptr %c, i64 %r, ptr %d) noinline {
+/// de linha ([`LlvmEmitter::compact_selector`]).
+const SELECTOR_BY_DESCRIPTOR: &str = "define internal ptr @df.seletor_d(ptr %c, i64 %r, ptr %d) noinline {
   %h = load i64, ptr %d, align 8
   %np = getelementptr inbounds i8, ptr %d, i64 8
   %n = load ptr, ptr %np, align 8
@@ -4447,12 +4447,12 @@ const SELETOR_POR_DESCRITOR: &str = "define internal ptr @df.seletor_d(ptr %c, i
 }
 ";
 
-/// A alocação de instância de `emitir_alocacao_em_linha` fora de linha:
+/// A alocação de instância de `emit_inline_allocation` fora de linha:
 /// `%cur` é o deslocamento do cursor da TLAB das palavras do objeto no
-/// contexto (o fim vem 8 bytes depois), `%tam` os bytes do bloco, `%cab` a
+/// contexto (o fim vem 8 bytes depois), `%sz` os bytes do bloco, `%hdr` a
 /// palavra do cabeçalho, `%tab` a função da tabela de métodos (null quando a
 /// classe não registra a tabela na primeira alocação).
-fn nova_instancia() -> String {
+fn new_instance() -> String {
     format!(
         "define internal i64 @df.nova_instancia(ptr %ctx, i64 %cur, i64 %tam, i64 %cab, i64 %c, i64 %n, ptr %tab) noinline {{
   %ta = getelementptr inbounds i8, ptr %ctx, i64 %cur
@@ -4498,23 +4498,23 @@ semt:
     )
 }
 
-/// `texto` com os `define internal … @df.<nome>(…) alwaysinline` de `nomes`
+/// `text` com os `define internal … @df.<name>(…) alwaysinline` de `names`
 /// trocados para `noinline`.
-fn fora_de_linha(texto: &str, nomes: &[String]) -> String {
-    if nomes.is_empty() {
-        return texto.to_string();
+fn out_of_line(text: &str, names: &[String]) -> String {
+    if names.is_empty() {
+        return text.to_string();
     }
-    let mut saida = String::with_capacity(texto.len());
-    for linha in texto.split_inclusive('\n') {
-        let alvo = linha.starts_with("define internal ")
-            && nomes.iter().any(|n| linha.contains(&format!("@df.{n}(")));
+    let mut exit = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let alvo = line.starts_with("define internal ")
+            && names.iter().any(|n| line.contains(&format!("@df.{n}(")));
         if alvo {
-            saida.push_str(&linha.replacen(" alwaysinline", " noinline", 1));
+            exit.push_str(&line.replacen(" alwaysinline", " noinline", 1));
         } else {
-            saida.push_str(linha);
+            exit.push_str(line);
         }
     }
-    saida
+    exit
 }
 
 /// Os ajudantes da fundação do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md
@@ -4522,20 +4522,20 @@ fn fora_de_linha(texto: &str, nomes: &[String]) -> String {
 ///
 /// * `@df.e_objeto(h)`: `h & (7 | i64::MIN) == 2`;
 /// * `@df.filho_jovem(v)`: o filho gravado pede a barreira (objeto jovem);
-/// * `@df.barreira(o, v)`: `o` velho recebendo filho jovem → `dartforge_lembrar`
+/// * `@df.barrier(o, v)`: `o` velho recebendo filho jovem → `dartforge_lembrar`
 ///   (peso 1:9 no ramo lento, como a barreira da Julia);
 /// * `@df.barreira_elemento(o, i, v)`: a mesma com cartões (`o` velho ou
 ///   lembrado com `CARTOES`: suja o cartão do elemento `i`);
-/// * `@df.alocar(cabecalho, w)`: a TLAB de `w ≤ TLAB_N` palavras (o cursor
+/// * `@df.allocate(header, w)`: a TLAB de `w ≤ TLAB_N` palavras (o cursor
 ///   avança `16 + 8w` e grava a palavra 0); esgotada ou `w` maior,
-///   `dartforge_alocar(cid, w, cabecalho >> 8)`.
-/// `@df.corpo(h, ctx)`: o começo do corpo de um objeto (o cabeçalho; os
-/// campos 16 bytes depois), a mesma conta de `emitir_endereco_dos_campos` em
+///   `dartforge_alocar(cid, w, header >> 8)`.
+/// `@df.body(h, ctx)`: o começo do corpo de um objeto (o cabeçalho; os
+/// campos 16 bytes depois), a mesma conta de `emit_field_addresses` em
 /// linha — um valor que não é objeto lê o objeto de reserva do contexto
 /// (`ctx + 40`), e um corpo fora do bloco (anexo, `flags & 1`) é seguido pelo
 /// ponteiro em `+16`. `alwaysinline` quando o emissor está em linha (para o
 /// otimizador ver igual); sem o atributo no desenvolvimento, uma chamada.
-fn ajudante_do_corpo(por_chamada: bool, producao: bool) -> String {
+fn body_helper(per_call: bool, production: bool) -> String {
     // Na produção por chamada: fora de linha de verdade, e sem efeito nem
     // dependência de memória (`memory(none)`): o corpo de um objeto não
     // muda durante a vida dele — o coletor não move, e o corpo de fora só
@@ -4544,14 +4544,14 @@ fn ajudante_do_corpo(por_chamada: bool, producao: bool) -> String {
     // gravações e chamadas no meio (o quadro do `$async`, o `this`).
     // Antes, `memory(read)`: duas chamadas só se juntavam sem escrita entre
     // elas. docs/NATIVO-PRODUCAO-GRANDE.md §6.3.
-    let atributo = match (por_chamada, producao) {
+    let attribute = match (per_call, production) {
         (false, _) => " alwaysinline",
         (true, false) => "",
         (true, true) => " noinline nounwind willreturn memory(none)",
     };
     format!(
-        "define internal ptr @df.corpo(i64 %o, ptr %ctx){atributo} {{
-  %k = and i64 %o, {MASCARA_DE_OBJETO}
+        "define internal ptr @df.corpo(i64 %o, ptr %ctx){attribute} {{
+  %k = and i64 %o, {OBJECT_MASK}
   %e = icmp eq i64 %k, 2
   %a = add i64 %o, -2
   %q = inttoptr i64 %a to ptr
@@ -4571,12 +4571,12 @@ fn ajudante_do_corpo(por_chamada: bool, producao: bool) -> String {
     )
 }
 
-fn ajudantes_do_espaco() -> String {
+fn space_helpers() -> String {
     use layout::{contexto, desl, estado, flags};
     let d = |x: usize| x as i64 - layout::DESLOCAMENTO_DO_HANDLE;
     format!(
         "define internal i1 @df.e_objeto(i64 %h) alwaysinline {{\n\
-  %m = and i64 %h, {mascara}\n\
+  %m = and i64 %h, {mask}\n\
   %r = icmp eq i64 %m, 2\n\
   ret i1 %r\n\
 }}\n\
@@ -4587,23 +4587,23 @@ define internal i1 @df.filho_jovem(i64 %v) alwaysinline {{\n\
   %nada = or i1 %imediato, %nulo\n\
   br i1 %nada, label %nao, label %s1\n\
 s1:\n\
-  %m = and i64 %v, {mascara}\n\
+  %m = and i64 %v, {mask}\n\
   %o = icmp eq i64 %m, 2\n\
   br i1 %o, label %obj, label %nao\n\
 obj:\n\
   %p = inttoptr i64 %v to ptr\n\
-  %ep = getelementptr inbounds i8, ptr %p, i64 {estado_h}\n\
+  %ep = getelementptr inbounds i8, ptr %p, i64 {state_h}\n\
   %e = load i8, ptr %ep, align 8\n\
-  %j = icmp eq i8 %e, {jovem}\n\
+  %j = icmp eq i8 %e, {young}\n\
   ret i1 %j\n\
 nao:\n\
   ret i1 false\n\
 }}\n\
 define internal void @df.barreira(i64 %o, i64 %v) alwaysinline {{\n\
   %p = inttoptr i64 %o to ptr\n\
-  %ep = getelementptr inbounds i8, ptr %p, i64 {estado_h}\n\
+  %ep = getelementptr inbounds i8, ptr %p, i64 {state_h}\n\
   %e = load i8, ptr %ep, align 8\n\
-  %velho = icmp eq i8 %e, {velho}\n\
+  %velho = icmp eq i8 %e, {old_one}\n\
   %x = call i1 @llvm.expect.i1(i1 %velho, i1 false)\n\
   br i1 %x, label %filho, label %fim\n\
 filho:\n\
@@ -4617,9 +4617,9 @@ fim:\n\
 }}\n\
 define internal void @df.barreira_elemento(i64 %o, i64 %i, i64 %v) alwaysinline {{\n\
   %p = inttoptr i64 %o to ptr\n\
-  %ep = getelementptr inbounds i8, ptr %p, i64 {estado_h}\n\
+  %ep = getelementptr inbounds i8, ptr %p, i64 {state_h}\n\
   %e = load i8, ptr %ep, align 8\n\
-  %e3 = sub i8 %e, {velho}\n\
+  %e3 = sub i8 %e, {old_one}\n\
   %velho = icmp ult i8 %e3, 2\n\
   %x = call i1 @llvm.expect.i1(i1 %velho, i1 false)\n\
   br i1 %x, label %filho, label %fim\n\
@@ -4629,26 +4629,26 @@ filho:\n\
 lento:\n\
   %fp = getelementptr inbounds i8, ptr %p, i64 {flags_h}\n\
   %f = load i8, ptr %fp, align 1\n\
-  %fc = and i8 %f, {cartoes}\n\
+  %fc = and i8 %f, {cards}\n\
   %temc = icmp ne i8 %fc, 0\n\
   br i1 %temc, label %cartao, label %lembrar\n\
 cartao:\n\
-  %lp = getelementptr inbounds i8, ptr %p, i64 {comprimento_h}\n\
+  %lp = getelementptr inbounds i8, ptr %p, i64 {length_h}\n\
   %len = load i64, ptr %lp, align 8\n\
-  %w = lshr i64 %i, {log_palavra}\n\
+  %w = lshr i64 %i, {log_word}\n\
   %k = add i64 %len, %w\n\
   %kb = shl i64 %k, 3\n\
-  %kd = add i64 %kb, {elementos_h}\n\
+  %kd = add i64 %kb, {elements_h}\n\
   %cp = getelementptr inbounds i8, ptr %p, i64 %kd\n\
   %cv = load i64, ptr %cp, align 8\n\
-  %s = lshr i64 %i, {log_cartao}\n\
+  %s = lshr i64 %i, {log_card}\n\
   %s63 = and i64 %s, 63\n\
   %bit = shl i64 1, %s63\n\
   %nv = or i64 %cv, %bit\n\
   store i64 %nv, ptr %cp, align 8\n\
   br label %lembrar\n\
 lembrar:\n\
-  %ev = icmp eq i8 %e, {velho}\n\
+  %ev = icmp eq i8 %e, {old_one}\n\
   br i1 %ev, label %chamar, label %fim\n\
 chamar:\n\
   call void @dartforge_lembrar(i64 %o)\n\
@@ -4669,7 +4669,7 @@ tlab:\n\
   %tfa = getelementptr inbounds i8, ptr %ctx, i64 %of\n\
   %tf = load ptr, ptr %tfa, align 8\n\
   %w8 = shl i64 %w, 3\n\
-  %tam = add i64 %w8, {cabecalho}\n\
+  %tam = add i64 %w8, {header}\n\
   %tnx = getelementptr i8, ptr %tb, i64 %tam\n\
   %esgotada = icmp ugt ptr %tnx, %tf\n\
   %x = call i1 @llvm.expect.i1(i1 %esgotada, i1 false)\n\
@@ -4678,7 +4678,7 @@ rapido:\n\
   store ptr %tnx, ptr %ta, align 8\n\
   store i64 %cab, ptr %tb, align 8\n\
   %hb = ptrtoint ptr %tb to i64\n\
-  %h = add i64 %hb, {deslocamento}\n\
+  %h = add i64 %hb, {offset}\n\
   ret i64 %h\n\
 lento:\n\
   %cid = lshr i64 %cab, 32\n\
@@ -4687,22 +4687,22 @@ lento:\n\
   %r = call i64 @dartforge_alocar(i64 %cid, i64 %w, i64 %fn)\n\
   ret i64 %r\n\
 }}\n",
-        mascara = MASCARA_DE_OBJETO,
-        estado_h = d(desl::ESTADO),
+        mask = OBJECT_MASK,
+        state_h = d(desl::ESTADO),
         flags_h = d(desl::FLAGS),
-        comprimento_h = d(desl::COMPRIMENTO),
-        elementos_h = d(desl::ELEMENTOS),
-        jovem = estado::JOVEM,
-        velho = estado::VELHO,
-        cartoes = flags::CARTOES,
-        log_palavra = layout::ELEMENTOS_POR_PALAVRA_DE_CARTAO.trailing_zeros(),
-        log_cartao = layout::ELEMENTOS_POR_CARTAO.trailing_zeros(),
+        length_h = d(desl::COMPRIMENTO),
+        elements_h = d(desl::ELEMENTOS),
+        young = estado::JOVEM,
+        old_one = estado::VELHO,
+        cards = flags::CARTOES,
+        log_word = layout::ELEMENTOS_POR_PALAVRA_DE_CARTAO.trailing_zeros(),
+        log_card = layout::ELEMENTOS_POR_CARTAO.trailing_zeros(),
         tlab_n = layout::TLAB_N,
         tlab = contexto::TLAB,
-        cabecalho = layout::TAMANHO_DO_CABECALHO,
-        deslocamento = layout::DESLOCAMENTO_DO_HANDLE,
+        header = layout::TAMANHO_DO_CABECALHO,
+        offset = layout::DESLOCAMENTO_DO_HANDLE,
     )
 }
 
 // `@df.caixa_int`, `@df.desencaixa_int` e `@df.env_ref` são da P2
-// (`caixas_ir::AJUDANTES`, docs/NATIVO-ESPACO-UNIFICADO.md §3.5).
+// (`ir_boxes::HELPERS`, docs/NATIVO-ESPACO-UNIFICADO.md §3.5).

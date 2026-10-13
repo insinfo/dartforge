@@ -5,7 +5,7 @@
 //! Uma mudança em qualquer um deles invalida os objetos do SDK em cache; a
 //! versão do pacote sozinha não bastaria (ela não muda a cada commit).
 //!
-//! E o runtime do AOT **pré-compilado** (`precompilar_runtime`): as duas
+//! E o runtime do AOT **pré-compilado** (`precompile_runtime`): as duas
 //! variantes da `staticlib` (com o `main` C e a da DLL do SDK da fonte) são
 //! compiladas aqui, pelo `cargo` do próprio build e para o alvo do build, e
 //! vão para a distribuição ao lado do executável. Quem usa o dartforge não
@@ -13,50 +13,50 @@
 
 use std::path::{Path, PathBuf};
 
-fn juntar(dir: &Path, saida: &mut Vec<PathBuf>) {
-    let Ok(entradas) = std::fs::read_dir(dir) else { return };
-    for e in entradas.flatten() {
+fn join(dir: &Path, exit: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
-            juntar(&p, saida);
+            join(&p, exit);
         } else if p.extension().is_some_and(|x| x == "rs") {
-            saida.push(p);
+            exit.push(p);
         }
     }
 }
 
 fn main() {
-    let raiz = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut arquivos = Vec::new();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
     for d in ["src", "../types/src", "../elements/src", "../frontend/src", "../runtime/src"] {
-        let dir = raiz.join(d);
+        let dir = root.join(d);
         println!("cargo::rerun-if-changed={}", dir.display());
-        juntar(&dir, &mut arquivos);
+        join(&dir, &mut files);
     }
     // A tabela de efeitos das externs decide onde a exceção pendente é
     // conferida: muda o código do SDK como uma fonte.
     // Ownership também decide retenções, limpeza e ABI dos corpos ARC.
     // Uma alteração isolada do catálogo deve invalidar o SDK em cache.
-    for tabela in ["../runtime/efeitos.tsv", "../runtime/ownership.tsv"] {
-        let caminho = raiz.join(tabela);
-        println!("cargo::rerun-if-changed={}", caminho.display());
-        arquivos.push(caminho);
+    for table in ["../runtime/efeitos.tsv", "../runtime/ownership.tsv"] {
+        let path = root.join(table);
+        println!("cargo::rerun-if-changed={}", path.display());
+        files.push(path);
     }
-    arquivos.sort();
+    files.sort();
     let mut h = blake3::Hasher::new();
-    for a in &arquivos {
-        let rel = a.strip_prefix(raiz).unwrap_or(a).to_string_lossy().replace('\\', "/");
+    for a in &files {
+        let rel = a.strip_prefix(root).unwrap_or(a).to_string_lossy().replace('\\', "/");
         h.update(rel.as_bytes());
         h.update(&[0]);
         // Fim de linha normalizado: o mesmo compilador em checkouts com
         // `core.autocrlf` diferentes tem a mesma impressão.
-        let texto = std::fs::read(a).unwrap_or_default();
-        let texto: Vec<u8> = texto.into_iter().filter(|&b| b != b'\r').collect();
-        h.update(&texto);
+        let text = std::fs::read(a).unwrap_or_default();
+        let text: Vec<u8> = text.into_iter().filter(|&b| b != b'\r').collect();
+        h.update(&text);
         h.update(&[0]);
     }
     println!("cargo::rustc-env=DARTFORGE_EMISSOR_HASH={}", h.finalize().to_hex());
-    precompilar_runtime();
+    precompile_runtime();
 }
 
 /// O perfil de uma variante da `staticlib` do runtime, por cima do `release`
@@ -72,58 +72,58 @@ fn main() {
 /// nem `join` do runtime conta com o desenrolamento (docs/NATIVO.md). A
 /// variante da DLL de desenvolvimento, que o JIT também carrega, fica como
 /// era.
-const ABORTAR: &[&str] = &["--config", "profile.release.panic=\"abort\""];
+const ABORT: &[&str] = &["--config", "profile.release.panic=\"abort\""];
 
 /// Compila as três variantes da `staticlib` do runtime
 /// (`crates/runtime_static`): a do executável sem o SDK da fonte (feature
 /// `aot`, com o `main` C), a da DLL do SDK da fonte (feature `dll`; o perfil
 /// de desenvolvimento e o JIT) e a de produção (feature `dll` com
-/// [`ABORTAR`], ligada estaticamente no executável), para o alvo do build,
+/// [`ABORT`], ligada estaticamente no executável), para o alvo do build,
 /// com um `cargo build` próprio (outro diretório de alvo: nada disputa a
 /// trava do build de fora), e publica, para o binário, o diretório e os
 /// nomes delas. O nome leva o blake3 do fonte do runtime, do `Cargo.lock`,
 /// do alvo e da variante: um runtime de outra versão nunca é confundido com
 /// o deste compilador. `DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1` pula a
 /// compilação (para `cargo check`/`clippy`, que não geram executáveis).
-fn precompilar_runtime() {
+fn precompile_runtime() {
     println!("cargo::rerun-if-env-changed=DARTFORGE_RUNTIME_SEM_PRECOMPILAR");
-    let raiz = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let workspace = raiz.join("../..");
-    let saida = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace = root.join("../..");
+    let exit = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     let alvo = std::env::var("TARGET").expect("TARGET");
     let windows = alvo.contains("windows");
-    let pular = std::env::var("DARTFORGE_RUNTIME_SEM_PRECOMPILAR").is_ok_and(|v| v == "1");
+    let skip = std::env::var("DARTFORGE_RUNTIME_SEM_PRECOMPILAR").is_ok_and(|v| v == "1");
     // macOS: o C das dependências (zlib, `ring`) sai para o mesmo mínimo que
     // o `ld64.lld` declara no executável (`ligador_macos.rs`); sem isto o
     // `cc` usa o do SDK da máquina (26.x), e o programa poderia chamar o que
     // um macOS mais antigo não tem.
     println!("cargo::rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
-    let minimo_macos = alvo.contains("apple-darwin").then(|| {
+    let macos_minimum = alvo.contains("apple-darwin").then(|| {
         std::env::var("MACOSX_DEPLOYMENT_TARGET")
             .ok()
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| if alvo.starts_with("aarch64") { "11.0" } else { "10.12" }.to_string())
     });
 
-    let mut fontes = Vec::new();
+    let mut sources = Vec::new();
     for d in ["../runtime/src", "../runtime_static/src"] {
-        juntar(&raiz.join(d), &mut fontes);
+        join(&root.join(d), &mut sources);
     }
     for f in ["../runtime/build.rs", "../runtime/Cargo.toml", "../runtime/efeitos.tsv",
         "../runtime/ownership.tsv", "../runtime_static/Cargo.toml", "../../Cargo.lock"] {
-        let p = raiz.join(f);
+        let p = root.join(f);
         println!("cargo::rerun-if-changed={}", p.display());
-        fontes.push(p);
+        sources.push(p);
     }
-    println!("cargo::rerun-if-changed={}", raiz.join("../runtime_static/src").display());
-    fontes.sort();
+    println!("cargo::rerun-if-changed={}", root.join("../runtime_static/src").display());
+    sources.sort();
 
-    let arquivo_do_cargo = if windows { "dartforge_runtime_static.lib" } else { "libdartforge_runtime_static.a" };
+    let cargo_file = if windows { "dartforge_runtime_static.lib" } else { "libdartforge_runtime_static.a" };
     let ext = if windows { "lib" } else { "a" };
-    for (variante, feature, prefixo, perfil) in [
-        ("PRINCIPAL", "aot", "dartforge_runtime_", ABORTAR),
+    for (variant, feature, prefix, profile) in [
+        ("PRINCIPAL", "aot", "dartforge_runtime_", ABORT),
         ("DLL", "dll", "dartforge_rtdll_", &[][..]),
-        ("PRODUCAO", "dll", "dartforge_rtprod_", ABORTAR),
+        ("PRODUCAO", "dll", "dartforge_rtprod_", ABORT),
     ] {
         let mut h = blake3::Hasher::new();
         h.update(b"dartforge-runtime-cargo\0");
@@ -131,31 +131,31 @@ fn precompilar_runtime() {
         h.update(b"\0");
         h.update(feature.as_bytes());
         h.update(b"\0");
-        if let Some(m) = &minimo_macos {
+        if let Some(m) = &macos_minimum {
             h.update(m.as_bytes());
             h.update(b"\0");
         }
-        for c in perfil {
+        for c in profile {
             h.update(c.as_bytes());
             h.update(b"\0");
         }
-        for f in &fontes {
-            let rel = f.strip_prefix(raiz).unwrap_or(f).to_string_lossy().replace('\\', "/");
+        for f in &sources {
+            let rel = f.strip_prefix(root).unwrap_or(f).to_string_lossy().replace('\\', "/");
             h.update(rel.as_bytes());
             h.update(&[0]);
-            let texto: Vec<u8> = std::fs::read(f).unwrap_or_default().into_iter().filter(|&b| b != b'\r').collect();
-            h.update(&texto);
+            let text: Vec<u8> = std::fs::read(f).unwrap_or_default().into_iter().filter(|&b| b != b'\r').collect();
+            h.update(&text);
             h.update(&[0]);
         }
-        let nome = format!("{prefixo}{}.{ext}", &h.finalize().to_hex()[..32]);
-        println!("cargo::rustc-env=DARTFORGE_RUNTIME_{variante}={nome}");
-        let lib = saida.join(&nome);
-        if pular || lib.is_file() {
+        let name = format!("{prefix}{}.{ext}", &h.finalize().to_hex()[..32]);
+        println!("cargo::rustc-env=DARTFORGE_RUNTIME_{variant}={name}");
+        let lib = exit.join(&name);
+        if skip || lib.is_file() {
             continue;
         }
         // Um diretório de alvo por perfil: as dependências de um não
         // invalidam as do outro.
-        let dir_alvo = saida.join(if perfil.is_empty() { "cargo-runtime" } else { "cargo-runtime-abort" });
+        let target_dir = exit.join(if profile.is_empty() { "cargo-runtime" } else { "cargo-runtime-abort" });
         let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let mut cmd = std::process::Command::new(cargo);
         cmd.arg("build")
@@ -164,9 +164,9 @@ fn precompilar_runtime() {
             .arg("--manifest-path")
             .arg(workspace.join("Cargo.toml"))
             .args(["-p", "dartforge-runtime-static", "--features", feature, "--target", &alvo])
-            .args(perfil)
+            .args(profile)
             .arg("--target-dir")
-            .arg(&dir_alvo);
+            .arg(&target_dir);
         if std::env::var_os("CARGO_NET_OFFLINE").is_some() {
             cmd.arg("--offline");
         }
@@ -177,12 +177,12 @@ fn precompilar_runtime() {
         }
         // Sem o caminho da máquina que compilou nas mensagens de pânico (e o
         // mesmo runtime em qualquer checkout).
-        let mut bandeiras = std::env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
-        if !bandeiras.is_empty() {
-            bandeiras.push('\x1f');
+        let mut flags = std::env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
+        if !flags.is_empty() {
+            flags.push('\x1f');
         }
         let ws = workspace.canonicalize().unwrap_or_else(|_| workspace.clone());
-        bandeiras.push_str(&format!("--remap-path-prefix={}=dartforge", ws.display()));
+        flags.push_str(&format!("--remap-path-prefix={}=dartforge", ws.display()));
         // Tabelas de desenrolamento em todo quadro do runtime nos alvos do
         // desenrolador Itanium, também com `panic=abort`: o percurso das
         // raízes por mapas (`_Unwind_Backtrace`, `runtime/src/heap.rs`) e o
@@ -190,18 +190,18 @@ fn precompilar_runtime() {
         // runtime; sem a tabela, o desenrolador para no primeiro deles
         // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.6).
         if alvo.contains("linux") || alvo.contains("apple") {
-            bandeiras.push_str("\x1f-Cforce-unwind-tables=yes");
+            flags.push_str("\x1f-Cforce-unwind-tables=yes");
         }
-        cmd.env("CARGO_ENCODED_RUSTFLAGS", bandeiras).env_remove("RUSTFLAGS");
-        if let Some(m) = &minimo_macos {
+        cmd.env("CARGO_ENCODED_RUSTFLAGS", flags).env_remove("RUSTFLAGS");
+        if let Some(m) = &macos_minimum {
             cmd.env("MACOSX_DEPLOYMENT_TARGET", m);
         }
         let status = cmd.status().expect("executar o cargo do build");
         assert!(status.success(), "a compilação do runtime ({feature}) para {alvo} falhou");
-        let produzido = dir_alvo.join(&alvo).join("release").join(arquivo_do_cargo);
-        let tmp = saida.join(format!("{nome}.tmp"));
-        std::fs::copy(&produzido, &tmp).unwrap_or_else(|e| panic!("copiar {}: {e}", produzido.display()));
+        let produced = target_dir.join(&alvo).join("release").join(cargo_file);
+        let tmp = exit.join(format!("{name}.tmp"));
+        std::fs::copy(&produced, &tmp).unwrap_or_else(|e| panic!("copiar {}: {e}", produced.display()));
         std::fs::rename(&tmp, &lib).expect("publicar o runtime pré-compilado");
     }
-    println!("cargo::rustc-env=DARTFORGE_RUNTIME_DIR_DO_BUILD={}", saida.display());
+    println!("cargo::rustc-env=DARTFORGE_RUNTIME_DIR_DO_BUILD={}", exit.display());
 }

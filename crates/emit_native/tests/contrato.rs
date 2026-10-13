@@ -1,22 +1,22 @@
-//! Os três defeitos que o diferencial JIT × AOT (`crates/jit/tests/execucao.rs`)
+//! Os três defeitos que o diferencial JIT × AOT (`crates/jit/tests/execution.rs`)
 //! achou no emissor nativo, cada um preso pelo IR que o contrato de
 //! representação produz (docs/NATIVO-PLANO.md §6). Sem Clang: só a emissão.
 
-use dartforge_emit_native::{CompileOptions, emitir_ir_com};
+use dartforge_emit_native::{CompileOptions, emit_ir_with};
 use std::path::Path;
 
 const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 
 /// O IR completo do programa, ou `None` sem o SDK na máquina.
-fn ir_de(fonte: &str) -> Option<String> {
+fn ir_of(source: &str) -> Option<String> {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB").unwrap_or_else(|_| SDK.to_string());
     if !Path::new(&sdk).join("libraries.json").is_file() {
         eprintln!("SDK ausente em {sdk}; teste pulado");
         return None;
     }
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("main.dart");
-    std::fs::write(&entrada, fonte).unwrap();
+    let entry = dir.path().join("main.dart");
+    std::fs::write(&entry, source).unwrap();
     let ir = std::thread::Builder::new()
         .stack_size(64 << 20)
         .spawn(move || {
@@ -33,7 +33,7 @@ fn ir_de(fonte: &str) -> Option<String> {
             };
             // Com o SDK da fonte (o único modo desde o espaço unificado,
             // docs/NATIVO-ESPACO-UNIFICADO.md §4.7).
-            emitir_ir_com(&entrada, &options)
+            emit_ir_with(&entry, &options)
                 .unwrap_or_else(|e| panic!("não compilou:\n{e}"))
                 .texto
         })
@@ -44,28 +44,28 @@ fn ir_de(fonte: &str) -> Option<String> {
 }
 
 /// O IR de `dart_main` do programa, ou `None` sem o SDK na máquina.
-fn main_de(fonte: &str) -> Option<String> {
-    let ir = ir_de(fonte)?;
+fn main_of(source: &str) -> Option<String> {
+    let ir = ir_of(source)?;
     let ini = ir.find("define void @dart_main(").expect("dart_main");
-    let fim = ir[ini..].find("\n}\n").map_or(ir.len(), |f| ini + f);
-    Some(ir[ini..fim].to_string())
+    let end = ir[ini..].find("\n}\n").map_or(ir.len(), |f| ini + f);
+    Some(ir[ini..end].to_string())
 }
 
-fn ir_de_fonte(fonte: &str) -> Option<String> {
+fn source_ir(source: &str) -> Option<String> {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB").unwrap_or_else(|_| SDK.to_string());
     if !Path::new(&sdk).join("libraries.json").is_file() { return None; }
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("main.dart");
-    std::fs::write(&entrada, fonte).unwrap();
+    let entry = dir.path().join("main.dart");
+    std::fs::write(&entry, source).unwrap();
     Some(std::thread::Builder::new().stack_size(64 << 20).spawn(move || {
         let options = CompileOptions { sdk: Some(Path::new(&sdk)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
-        emitir_ir_com(&entrada, &options).unwrap_or_else(|e| panic!("não compilou:\n{e}")).texto
+        emit_ir_with(&entry, &options).unwrap_or_else(|e| panic!("não compilou:\n{e}")).texto
     }).unwrap().join().unwrap())
 }
 
 #[test]
-fn literal_symbol_usa_classe_do_sdk_e_constante_canonica() {
-    let Some(ir) = ir_de_fonte("void main() { final a = #foo; final b = #foo; print(identical(a, b)); print(a); print(const Symbol('foo') == a); print(#_privado); }\n") else { return };
+fn symbol_literal_uses_sdk_class_and_canonical_constant() {
+    let Some(ir) = source_ir("void main() { final a = #foo; final b = #foo; print(identical(a, b)); print(a); print(const Symbol('foo') == a); print(#_privado); }\n") else { return };
     let main = ir.split("define void @dart_main(").nth(1).expect("main");
     let main = main.split("\n}\n").next().expect("fim de main");
     // As duas ocorrências de `#foo` passam pelo mesmo getter da constante
@@ -75,8 +75,8 @@ fn literal_symbol_usa_classe_do_sdk_e_constante_canonica() {
     let getters: Vec<&str> = main
         .match_indices("@dfc.")
         .map(|(i, _)| {
-            let resto = &main[i..];
-            &resto[..resto.find(".get").expect("getter da constante") + 4]
+            let rest = &main[i..];
+            &rest[..rest.find(".get").expect("getter da constante") + 4]
         })
         .collect();
     let foo = getters.first().copied().expect("constante de #foo");
@@ -94,10 +94,10 @@ fn aridade_closure_lanca_no_such_method_error_da_fonte() {
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("arity_nsm.dart");
+    let entry = dir.path().join("arity_nsm.dart");
     let exe = dir.path().join("arity_nsm.exe");
-    std::fs::write(&entrada, include_str!("fixtures/arity_nsm.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/arity_nsm.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -105,7 +105,7 @@ fn aridade_closure_lanca_no_such_method_error_da_fonte() {
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -122,10 +122,10 @@ fn getter_estatico_que_retorna_funcao_e_chamado_como_valor() {
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("static_getter_function.dart");
+    let entry = dir.path().join("static_getter_function.dart");
     let exe = dir.path().join("static_getter_function.exe");
-    std::fs::write(&entrada, include_str!("fixtures/static_getter_function.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/static_getter_function.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -133,7 +133,7 @@ fn getter_estatico_que_retorna_funcao_e_chamado_como_valor() {
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -151,10 +151,10 @@ fn factory_redirecionadora_preserva_rti_do_destino() {
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("redirect_factory_rti.dart");
+    let entry = dir.path().join("redirect_factory_rti.dart");
     let exe = dir.path().join("redirect_factory_rti.exe");
-    std::fs::write(&entrada, include_str!("fixtures/redirect_factory_rti.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/redirect_factory_rti.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -162,7 +162,7 @@ fn factory_redirecionadora_preserva_rti_do_destino() {
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -180,10 +180,10 @@ fn getter_de_interface_despacha_campo_e_getter() {
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("interface_field_getter.dart");
+    let entry = dir.path().join("interface_field_getter.dart");
     let exe = dir.path().join("interface_field_getter.exe");
-    std::fs::write(&entrada, include_str!("fixtures/interface_field_getter.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/interface_field_getter.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -191,7 +191,7 @@ fn getter_de_interface_despacha_campo_e_getter() {
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -209,10 +209,10 @@ fn escrita_covariante_em_colecoes_lanca_type_error_sem_mutar() {
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("covariant_collection_write.dart");
+    let entry = dir.path().join("covariant_collection_write.dart");
     let exe = dir.path().join("covariant_collection_write.exe");
-    std::fs::write(&entrada, include_str!("fixtures/covariant_collection_write.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/covariant_collection_write.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -220,7 +220,7 @@ fn escrita_covariante_em_colecoes_lanca_type_error_sem_mutar() {
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -238,10 +238,10 @@ fn argumento_dinamico_errado_do_sdk_lanca_type_error() {
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("dynamic_sdk_string_argument.dart");
+    let entry = dir.path().join("dynamic_sdk_string_argument.dart");
     let exe = dir.path().join("dynamic_sdk_string_argument.exe");
-    std::fs::write(&entrada, include_str!("fixtures/dynamic_sdk_string_argument.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/dynamic_sdk_string_argument.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -249,7 +249,7 @@ fn argumento_dinamico_errado_do_sdk_lanca_type_error() {
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -266,10 +266,10 @@ fn iterable_generate_testa_assinatura_generica_no_sdk() {
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("iterable_generate_function_rti.dart");
+    let entry = dir.path().join("iterable_generate_function_rti.dart");
     let exe = dir.path().join("iterable_generate_function_rti.exe");
-    std::fs::write(&entrada, include_str!("fixtures/iterable_generate_function_rti.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/iterable_generate_function_rti.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -277,7 +277,7 @@ fn iterable_generate_testa_assinatura_generica_no_sdk() {
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -290,12 +290,12 @@ fn iterable_generate_testa_assinatura_generica_no_sdk() {
 /// membro de enum do programa (especificação §13 "Enums"): o elemento
 /// resolvido é o getter implícito, sem corpo — o valor mora nos dois campos
 /// implícitos do objeto (posições 1 e 0), os mesmos que o acesso explícito
-/// (`E.a.name`, `membro_de_enum`) lê. Sem Clang: só a emissão.
+/// (`E.a.name`, `enum_member`) lê. Sem Clang: só a emissão.
 #[test]
-fn enum_name_index_implicito_le_os_campos_do_valor() {
-    let fonte = "enum E { a, b; String d() => 'v=$name'; int i() => index + 1; }\n\
+fn implicit_enum_name_index_reads_value_fields() {
+    let source = "enum E { a, b; String d() => 'v=$name'; int i() => index + 1; }\n\
         void main() { print(E.a.d()); print(E.b.i()); }\n";
-    let Some(ir) = ir_de_fonte(fonte) else { return };
+    let Some(ir) = source_ir(source) else { return };
     // O campo é lido em linha, do corpo do objeto (o cabeçalho em `h - 2`,
     // os campos 16 bytes depois, no espaço de objetos do runtime): a
     // palavra de índice 1 ou 0.
@@ -315,10 +315,10 @@ fn enum_name_index_implicito_no_sdk() {
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("enum_name_index_implicito.dart");
+    let entry = dir.path().join("enum_name_index_implicito.dart");
     let exe = dir.path().join("enum_name_index_implicito.exe");
-    std::fs::write(&entrada, include_str!("fixtures/enum_name_index_implicito.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/enum_name_index_implicito.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -326,7 +326,7 @@ fn enum_name_index_implicito_no_sdk() {
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -340,15 +340,15 @@ fn enum_name_index_implicito_no_sdk() {
 /// tem corpo — antes saía uma chamada a um símbolo nunca definido, e a
 /// ligação falhava. Sem Clang: a emissão não deixa chamada a `.values()`.
 #[test]
-fn enum_values_implicito_vira_a_lista_dos_valores() {
-    let fonte = "enum E { a, b; E get proximo => values[(index + 1) % 2]; static E primeiro() => values.first; }\n\
+fn implicit_enum_values_becomes_value_list() {
+    let source = "enum E { a, b; E get proximo => values[(index + 1) % 2]; static E primeiro() => values.first; }\n\
         void main() { print(E.a.proximo); print(E.primeiro()); }\n";
-    let Some(ir) = ir_de_fonte(fonte) else { return };
-    let chamadas = ir
+    let Some(ir) = source_ir(source) else { return };
+    let calls = ir
         .lines()
         .filter(|l| l.contains("call ") && l.contains(".values("))
         .collect::<Vec<_>>();
-    assert!(chamadas.is_empty(), "chamada a values sem define:\n{chamadas:?}\n{ir}");
+    assert!(calls.is_empty(), "chamada a values sem define:\n{calls:?}\n{ir}");
 }
 
 /// O programa acima executado (AOT com SDK da fonte).
@@ -358,10 +358,10 @@ fn enum_values_implicito_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_S
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("enum_values_implicito.dart");
+    let entry = dir.path().join("enum_values_implicito.dart");
     let exe = dir.path().join("enum_values_implicito.exe");
-    std::fs::write(&entrada, include_str!("fixtures/enum_values_implicito.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/enum_values_implicito.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -369,7 +369,7 @@ fn enum_values_implicito_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_S
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -388,10 +388,10 @@ fn classe_generica_tostring_padrao_no_sdk() {
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("classe_generica_tostring_padrao.dart");
+    let entry = dir.path().join("classe_generica_tostring_padrao.dart");
     let exe = dir.path().join("classe_generica_tostring_padrao.exe");
-    std::fs::write(&entrada, include_str!("fixtures/classe_generica_tostring_padrao.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/classe_generica_tostring_padrao.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -399,7 +399,7 @@ fn classe_generica_tostring_padrao_no_sdk() {
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -409,18 +409,18 @@ fn classe_generica_tostring_padrao_no_sdk() {
 }
 
 /// Encaminhador `noSuchMethod` estático de método só com posicionais
-/// (casos 57/216/223, primeira fatia): `p.saudacao('mundo')` com
+/// (casos 57/216/223, primeira fatia): `p.saudacao('world')` com
 /// `Servico.saudacao` abstrato e `Proxy.noSuchMethod` monta
-/// `Invocation.method(#saudacao, ['mundo'])` e chama o nsm — antes era
+/// `Invocation.method(#saudacao, ['world'])` e chama o nsm — antes era
 /// "chamada de membro sem implementação compilada". Sem Clang: só a emissão.
 #[test]
-fn nsm_encaminhador_metodo_posicional_emite_nsm() {
-    let fonte = "abstract class Servico { String saudacao(String quem); }\n\
+fn nsm_forwarder_positional_method_emits_nsm() {
+    let source = "abstract class Servico { String saudacao(String quem); }\n\
         class Proxy implements Servico {\n\
         \x20 dynamic noSuchMethod(Invocation i) => 'nsm(${i.positionalArguments.join(',')})';\n\
         }\n\
         void main() { final p = Proxy(); print(p.saudacao('mundo')); }\n";
-    let Some(ir) = ir_de_fonte(fonte) else { return };
+    let Some(ir) = source_ir(source) else { return };
     assert!(ir.contains("noSuchMethod"), "sem chamada ao nsm:\n{ir}");
 }
 
@@ -432,10 +432,10 @@ fn nsm_encaminhador_metodo_no_sdk() {
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("nsm_encaminhador_metodo.dart");
+    let entry = dir.path().join("nsm_encaminhador_metodo.dart");
     let exe = dir.path().join("nsm_encaminhador_metodo.exe");
-    std::fs::write(&entrada, include_str!("fixtures/nsm_encaminhador_metodo.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/nsm_encaminhador_metodo.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -443,7 +443,7 @@ fn nsm_encaminhador_metodo_no_sdk() {
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -452,33 +452,33 @@ fn nsm_encaminhador_metodo_no_sdk() {
                "nsm(mundo)\nSymbol(\"saudacao\")\n");
 }
 
-/// Encaminhador `noSuchMethod` estático de getter (caso 216, `p.versao`):
+/// Encaminhador `noSuchMethod` estático de getter (caso 216, `p.version`):
 /// o getter abstrato sem implementação concreta monta
-/// `Invocation.getter(#versao)` e chama o nsm — antes era "chamada de
+/// `Invocation.getter(#version)` e chama o nsm — antes era "chamada de
 /// membro sem implementação compilada". Sem Clang: só a emissão.
 #[test]
-fn nsm_encaminhador_getter_emite_nsm() {
-    let fonte = "abstract class Servico { int get versao; }\n\
+fn nsm_forwarder_getter_emits_nsm() {
+    let source = "abstract class Servico { int get versao; }\n\
         class Proxy implements Servico {\n\
         \x20 dynamic noSuchMethod(Invocation i) => 42;\n\
         }\n\
         void main() { final p = Proxy(); print(p.versao); }\n";
-    let Some(ir) = ir_de_fonte(fonte) else { return };
+    let Some(ir) = source_ir(source) else { return };
     assert!(ir.contains("noSuchMethod"), "sem chamada ao nsm:\n{ir}");
 }
 
 /// O programa acima executado (AOT com SDK da fonte): a saída bate com a VM 3.6.2.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
-fn nsm_encaminhador_getter_no_sdk() {
+fn nsm_forwarder_getter_in_sdk() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("nsm_encaminhador_getter.dart");
+    let entry = dir.path().join("nsm_encaminhador_getter.dart");
     let exe = dir.path().join("nsm_encaminhador_getter.exe");
-    std::fs::write(&entrada, include_str!("fixtures/nsm_encaminhador_getter.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/nsm_encaminhador_getter.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -486,7 +486,7 @@ fn nsm_encaminhador_getter_no_sdk() {
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -503,10 +503,10 @@ fn enum_e_subtipo_de_enum_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("SDK de teste");
     let dir = tempfile::tempdir().unwrap();
-    let entrada = dir.path().join("enum_e_subtipo_de_enum.dart");
+    let entry = dir.path().join("enum_e_subtipo_de_enum.dart");
     let exe = dir.path().join("enum_e_subtipo_de_enum.exe");
-    std::fs::write(&entrada, include_str!("fixtures/enum_e_subtipo_de_enum.dart")).unwrap();
-    let exe_para_thread = exe.clone();
+    std::fs::write(&entry, include_str!("fixtures/enum_e_subtipo_de_enum.dart")).unwrap();
+    let exe_for_thread = exe.clone();
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
@@ -514,7 +514,7 @@ fn enum_e_subtipo_de_enum_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_
             gerador: None,
             cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
+        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -526,8 +526,8 @@ fn enum_e_subtipo_de_enum_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_
 /// O getter separado impede que `late String x = x` expanda a própria AST
 /// indefinidamente; o teste também fixa a checagem de reentrância por objeto.
 #[test]
-fn campo_late_auto_referente_emite_getter_com_guarda() {
-    let Some(ir) = ir_de("class C { late String x = x; }\nvoid main() { print(C().x); }\n") else { return };
+fn self_referential_late_field_emits_guarded_getter() {
+    let Some(ir) = ir_of("class C { late String x = x; }\nvoid main() { print(C().x); }\n") else { return };
     assert!(ir.contains("@dartforge_late_field_initializing"), "{ir}");
     assert!(ir.contains("@dartforge_stack_overflow_error_new"), "{ir}");
     assert!(ir.contains("@dartforge_late_field_mark_initialized"), "{ir}");
@@ -539,8 +539,8 @@ fn campo_late_auto_referente_emite_getter_com_guarda() {
 /// `mem2reg` do otimizador da HIR promove: a leitura é um `phi` que junta o
 /// valor de antes do `if` e o `i = 7`, e é ele que o `print` e o `i++` usam.
 #[test]
-fn for_com_variavel_reatribuida_le_o_local() {
-    let Some(main) = main_de(
+fn for_with_reassigned_variable_reads_local() {
+    let Some(main) = main_of(
         "void main() {\n  for (var i = 0; i < 10; i++) {\n    if (i == 3) i = 7;\n    print(i);\n  }\n}\n",
     ) else {
         return;
@@ -549,11 +549,11 @@ fn for_com_variavel_reatribuida_le_o_local() {
     assert!(main.contains("add i64 0, 7"), "o `i = 7` chega ao `phi`:\n{main}");
 }
 
-/// (2) `c.dobro()`: chamada do método pelo elemento resolvido (N1) — antes
+/// (2) `c.double_of()`: chamada do método pelo elemento resolvido (N1) — antes
 /// caía no `Const(Int(0))` de "chamada não reconhecida" e virava `print(0)`.
 #[test]
-fn chamada_de_metodo_com_retorno() {
-    let Some(main) = main_de(
+fn method_call_with_return() {
+    let Some(main) = main_of(
         "class C {\n  int v;\n  C(this.v);\n  int dobro() => v * 2;\n}\nvoid main() {\n  final c = C(21);\n  print(c.dobro());\n}\n",
     ) else {
         return;
@@ -563,13 +563,13 @@ fn chamada_de_metodo_com_retorno() {
     assert!(main.contains(".dobro(i64") || main.contains("mul i64"), "{main}");
 }
 
-/// (3) `print(soma(40, 2))` com retorno `int`: o resultado é `I64` (R1), e o
+/// (3) `print(sum(40, 2))` com retorno `int`: o resultado é `I64` (R1), e o
 /// `print` do SDK o recebe numa posição `Ref` — antes ia a `print_handle`
 /// como se fosse handle.
 #[test]
-fn funcao_de_topo_com_retorno_int_imprime_o_escalar() {
+fn top_level_function_with_int_return_prints_scalar() {
     let Some(main) =
-        main_de("int soma(int a, int b) => a + b;\nvoid main() {\n  print(soma(40, 2));\n}\n")
+        main_of("int soma(int a, int b) => a + b;\nvoid main() {\n  print(soma(40, 2));\n}\n")
     else {
         return;
     };

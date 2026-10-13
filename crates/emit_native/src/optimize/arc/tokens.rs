@@ -5,9 +5,9 @@
 
 use super::super::{
     cfg::Cfg,
-    operandos::{operandos, operandos_do_terminador},
+    operands::{operands, terminator_operands},
 };
-use super::{OrigemOwner, Ownership};
+use super::{OwnerOrigin, Ownership};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -22,15 +22,15 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// assert!(!efeito.pode_falhar && efeito.erro.is_empty());
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct EfeitoTokens {
+pub struct TokenEffect {
     /// Consumo tanto no sucesso quanto na falha, antes do resultado.
-    pub sempre: Vec<ValueId>,
+    pub always: Vec<ValueId>,
     /// Consumo apenas no sucesso.
-    pub sucesso: Vec<ValueId>,
+    pub success: Vec<ValueId>,
     /// Consumo apenas na falha de invoke ou conferência de pendência runtime.
-    pub erro: Vec<ValueId>,
+    pub error: Vec<ValueId>,
     /// Exige saída excepcional em invoke ou no mapa de pendências do plano.
-    pub pode_falhar: bool,
+    pub may_fail: bool,
 }
 
 /// Contrato de transferência do resultado ao chamador.
@@ -40,7 +40,7 @@ pub struct EfeitoTokens {
 /// assert_ne!(RetornoTokens::Owned, RetornoTokens::Borrowed);
 /// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum RetornoTokens {
+pub enum TokenReturn {
     /// Resultado sem token gerenciado (inclusive funções void).
     #[default]
     Trivial,
@@ -62,28 +62,28 @@ pub enum RetornoTokens {
 /// assert!(PlanoTokens::default().pendencias.is_empty());
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PlanoTokens {
+pub struct TokenPlan {
     /// Efeitos exatos antes do resultado e nas saídas de invoke/pendência.
-    pub instrucoes: HashMap<ValueId, EfeitoTokens>,
+    pub instructions: HashMap<ValueId, TokenEffect>,
     /// Convenção do retorno, não deduzida da largura da representação.
-    pub retorno: RetornoTokens,
+    pub ret: TokenReturn,
     /// Chamada runtime pending e bloco de erro após conferência explícita.
     /// Não são pousos LLVM. Exige sufixo exception_pending/ICmp Ne zero e
     /// CondBranch para erro/sucesso, sem outra operação entre chamada e teste.
-    pub pendencias: HashMap<ValueId, BlockId>,
+    pub pendings: HashMap<ValueId, BlockId>,
     /// Papéis nativos de pares quadro/índice de uma família fechada verificada.
     /// Não é um owner Ref nem substitui o certificado de unwind estrangeiro.
-    pub quadros_compartilhados: Option<super::ContratoQuadrosCompartilhadosCfg>,
+    pub shared_frames: Option<super::SharedFramesCfgContract>,
     /// Parâmetros `Ptr` de função local direta que recebem o endereço de um
     /// local escalar de quem a declara (captura por endereço), com o tipo
-    /// dele; inicializado na entrada (`locais::produzir_enderecos`).
-    pub enderecos_recebidos: HashMap<ValueId, Type>,
+    /// dele; inicializado na entrada (`locals::produce_addresses`).
+    pub received_addresses: HashMap<ValueId, Type>,
     /// Chamada a função local direta → posição e tipo dos endereços de locais
     /// escalares que ela cede ao callee.
-    pub enderecos_cedidos: HashMap<ValueId, Vec<(usize, Type)>>,
+    pub yielded_addresses: HashMap<ValueId, Vec<(usize, Type)>>,
 }
 
-fn propria(inst: &Instruction) -> bool {
+fn own(inst: &Instruction) -> bool {
     matches!(
         inst,
         Instruction::ArcCopy { .. }
@@ -95,105 +95,105 @@ fn propria(inst: &Instruction) -> bool {
     )
 }
 
-fn conferir(
+fn check(
     v: ValueId,
     classes: &HashMap<ValueId, Ownership>,
-    ativos: &HashSet<ValueId>,
+    active_set: &HashSet<ValueId>,
 ) -> Result<(), String> {
-    let mut atual = v;
+    let mut current = v;
     loop {
-        match classes[&atual] {
+        match classes[&current] {
             Ownership::Trivial => return Ok(()),
-            Ownership::Owned if ativos.contains(&atual) => return Ok(()),
+            Ownership::Owned if active_set.contains(&current) => return Ok(()),
             Ownership::Owned => {
                 return Err(format!(
                     "v{} depende do token indisponível v{}",
-                    v.0, atual.0
+                    v.0, current.0
                 ));
             }
             Ownership::Borrowed {
-                owner: OrigemOwner::Chamador,
+                owner: OwnerOrigin::Caller,
                 ..
             } => return Ok(()),
             Ownership::Borrowed {
-                owner: OrigemOwner::Valor(owner),
+                owner: OwnerOrigin::Value(owner),
                 ..
-            } => atual = owner,
+            } => current = owner,
         }
     }
 }
 
-fn usar(
+fn use_value(
     op: &Operand,
     classes: &HashMap<ValueId, Ownership>,
-    ativos: &HashSet<ValueId>,
+    active_set: &HashSet<ValueId>,
 ) -> Result<(), String> {
     if let Operand::Val(v) = op {
-        conferir(*v, classes, ativos)?;
+        check(*v, classes, active_set)?;
     }
     Ok(())
 }
 
-fn consumir(
+fn consume(
     v: ValueId,
     classes: &HashMap<ValueId, Ownership>,
-    ativos: &mut HashSet<ValueId>,
+    active_set: &mut HashSet<ValueId>,
 ) -> Result<(), String> {
     if classes[&v] != Ownership::Owned {
         return Err(format!("consumo de v{} exige Owned", v.0));
     }
-    if !ativos.remove(&v) {
+    if !active_set.remove(&v) {
         return Err(format!("token v{} já consumido ou indisponível", v.0));
     }
     Ok(())
 }
 
-fn consumir_operando(
+fn consume_operand(
     op: &Operand,
     classes: &HashMap<ValueId, Ownership>,
-    ativos: &mut HashSet<ValueId>,
+    active_set: &mut HashSet<ValueId>,
 ) -> Result<(), String> {
     match op {
-        Operand::Val(v) => consumir(*v, classes, ativos),
+        Operand::Val(v) => consume(*v, classes, active_set),
         Operand::Constant(Constant::Null) => Ok(()),
         _ => Err("consumo exige token SSA ou null".into()),
     }
 }
 
-fn aplicar(
+fn apply(
     ids: &[ValueId],
     classes: &HashMap<ValueId, Ownership>,
-    ativos: &mut HashSet<ValueId>,
+    active_set: &mut HashSet<ValueId>,
 ) -> Result<(), String> {
     for &v in ids {
-        consumir(v, classes, ativos)?;
+        consume(v, classes, active_set)?;
     }
     Ok(())
 }
 
-fn produzir(
+fn produce(
     v: ValueId,
     classes: &HashMap<ValueId, Ownership>,
-    ativos: &mut HashSet<ValueId>,
+    active_set: &mut HashSet<ValueId>,
 ) -> Result<(), String> {
-    if classes[&v] == Ownership::Owned && !ativos.insert(v) {
+    if classes[&v] == Ownership::Owned && !active_set.insert(v) {
         return Err(format!(
             "nova produção de v{} com token anterior ainda disponível",
             v.0
         ));
     }
-    conferir(v, classes, ativos)
+    check(v, classes, active_set)
 }
 
-fn do_chamador(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> bool {
+fn of_caller(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> bool {
     loop {
         match classes[&v] {
             Ownership::Borrowed {
-                owner: OrigemOwner::Chamador,
+                owner: OwnerOrigin::Caller,
                 ..
             } => return true,
             Ownership::Borrowed {
-                owner: OrigemOwner::Valor(owner),
+                owner: OwnerOrigin::Value(owner),
                 ..
             } => v = owner,
             _ => return false,
@@ -202,54 +202,54 @@ fn do_chamador(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> bool {
 }
 
 /// O inventário já excluiu ciclos; aliases emprestados conservam a raiz.
-fn raiz_owner(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> Option<OrigemOwner> {
+fn owner_root(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> Option<OwnerOrigin> {
     loop {
         match classes[&v] {
             Ownership::Trivial => return None,
-            Ownership::Owned => return Some(OrigemOwner::Valor(v)),
+            Ownership::Owned => return Some(OwnerOrigin::Value(v)),
             Ownership::Borrowed {
-                owner: OrigemOwner::Chamador,
+                owner: OwnerOrigin::Caller,
                 ..
-            } => return Some(OrigemOwner::Chamador),
+            } => return Some(OwnerOrigin::Caller),
             Ownership::Borrowed {
-                owner: OrigemOwner::Valor(proximo),
+                owner: OwnerOrigin::Value(next_item),
                 ..
-            } => v = proximo,
+            } => v = next_item,
         }
     }
 }
 
 /// Limites léxicos herdados também precisam sobreviver à criação de um alias.
-fn escopos_owner(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> HashSet<u32> {
-    let mut escopos = HashSet::new();
-    while let Ownership::Borrowed { owner, escopo } = classes[&v] {
-        if escopo != 0 {
-            escopos.insert(escopo);
+fn owner_scopes(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> HashSet<u32> {
+    let mut scopes = HashSet::new();
+    while let Ownership::Borrowed { owner, scope } = classes[&v] {
+        if scope != 0 {
+            scopes.insert(scope);
         }
         match owner {
-            OrigemOwner::Chamador => break,
-            OrigemOwner::Valor(proximo) => v = proximo,
+            OwnerOrigin::Caller => break,
+            OwnerOrigin::Value(next_item) => v = next_item,
         }
     }
-    escopos
+    scopes
 }
 
-fn caminho(f: &Function, pais: &[Option<usize>], mut b: usize) -> Vec<u32> {
+fn path(f: &Function, pais: &[Option<usize>], mut b: usize) -> Vec<u32> {
     let mut r = vec![f.blocks[b].id.0];
-    while let Some(pai) = pais[b] {
-        b = pai;
+    while let Some(parent) = pais[b] {
+        b = parent;
         r.push(f.blocks[b].id.0);
     }
     r.reverse();
     r
 }
 
-fn erro_fluxo(f: &Function, pais: &[Option<usize>], b: usize, mensagem: String) -> String {
+fn flow_error(f: &Function, pais: &[Option<usize>], b: usize, message: String) -> String {
     format!(
-        "tokens em {} b{}: {mensagem}; caminho {:?}",
+        "tokens em {} b{}: {message}; caminho {:?}",
         f.symbol,
         f.blocks[b].id.0,
-        caminho(f, pais, b)
+        path(f, pais, b)
     )
 }
 
@@ -293,38 +293,38 @@ fn erro_fluxo(f: &Function, pais: &[Option<usize>], b: usize, mensagem: String) 
 /// verificar_tokens(&f, &classes, &TabelasDaFuncao::default(), &PlanoTokens::default())?;
 /// # Ok::<(), String>(())
 /// ```
-pub fn verificar_tokens(
+pub fn verify_tokens(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
-    tabelas: &TabelasDaFuncao,
-    plano: &PlanoTokens,
+    tables: &FunctionTables,
+    plan: &TokenPlan,
 ) -> Result<(), String> {
-    if plano.quadros_compartilhados != tabelas.quadros_compartilhados {
+    if plan.shared_frames != tables.shared_frames {
         return Err("tokens ARC: contratos de quadros compartilhados divergem das tabelas".into());
     }
-    analisar_tokens(f, classes, tabelas, plano, false, false).map(|_| ())
+    analyze_tokens(f, classes, tables, plan, false, false).map(|_| ())
 }
 
 /// Confere o mesmo fluxo, admitindo somente tokens restantes em Return.
 /// Não relaxa consumo duplicado, disponibilidade, convenção ou junções.
-pub(super) fn saidas_para_cleanup(
+pub(super) fn cleanup_exits(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
-    tabelas: &TabelasDaFuncao,
-    plano: &PlanoTokens,
+    tables: &FunctionTables,
+    plan: &TokenPlan,
 ) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
-    analisar_tokens(f, classes, tabelas, plano, true, false).map(|fluxo| fluxo.saidas)
+    analyze_tokens(f, classes, tables, plan, true, false).map(|flow| flow.exits)
 }
 
 // O modo de planejamento admite somente descarte de tokens mortos por aresta.
 // O verificador público continua exigindo inventários idênticos sem descarte.
-pub(super) fn arestas_para_cleanup(
+pub(super) fn cleanup_edges(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
-    tabelas: &TabelasDaFuncao,
-    plano: &PlanoTokens,
+    tables: &FunctionTables,
+    plan: &TokenPlan,
 ) -> Result<HashMap<(BlockId, BlockId), Vec<ValueId>>, String> {
-    analisar_tokens(f, classes, tabelas, plano, true, true).map(|fluxo| fluxo.arestas)
+    analyze_tokens(f, classes, tables, plan, true, true).map(|flow| flow.edges)
 }
 
 /// Entrega o inventário linear validado na entrada de cada pouso alcançável.
@@ -347,63 +347,63 @@ pub(super) fn arestas_para_cleanup(
 ///     &TabelasDaFuncao::default(), &PlanoTokens::default())?.is_empty());
 /// # Ok::<(), String>(())
 /// ```
-pub fn tokens_na_entrada_dos_pousos(
+pub fn tokens_at_landing_pad_entry(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
-    tabelas: &TabelasDaFuncao,
-    plano: &PlanoTokens,
+    tables: &FunctionTables,
+    plan: &TokenPlan,
 ) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
-    let entradas = analisar_tokens(f, classes, tabelas, plano, false, false)?.entradas;
-    let mut pousos: Vec<_> = tabelas.pousos.iter().copied().collect();
-    pousos.sort_by_key(|b| b.0);
-    let mut resultado = HashMap::new();
-    for b in pousos {
-        let owners = entradas.get(&b).ok_or_else(|| {
+    let entries = analyze_tokens(f, classes, tables, plan, false, false)?.entries;
+    let mut landing_pads: Vec<_> = tables.landing_pads.iter().copied().collect();
+    landing_pads.sort_by_key(|b| b.0);
+    let mut result = HashMap::new();
+    for b in landing_pads {
+        let owners = entries.get(&b).ok_or_else(|| {
             format!(
                 "tokens em {}: pouso b{} sem entrada alcançável",
                 f.symbol, b.0
             )
         })?;
-        resultado.insert(b, owners.clone());
+        result.insert(b, owners.clone());
     }
-    Ok(resultado)
+    Ok(result)
 }
 
-pub(super) fn conferir_saidas_excepcionais(
+pub(super) fn check_exceptional_exits(
     f: &Function,
-    tabelas: &TabelasDaFuncao,
-    exigir_canonico: bool,
+    tables: &FunctionTables,
+    require_canonical: bool,
 ) -> Result<(), String> {
-    if tabelas.saidas.is_empty() {
+    if tables.exits.is_empty() {
         return Ok(());
     }
-    let blocos: HashMap<_, _> = f.blocks.iter().map(|b| (b.id, b)).collect();
-    let destinos: HashSet<_> = tabelas.invocacoes.values().copied().collect();
-    let mut saidas: Vec<_> = tabelas.saidas.iter().collect();
-    saidas.sort_by_key(|(b, _)| b.0);
-    for (id, modo) in saidas {
-        let b = blocos
+    let blocks: HashMap<_, _> = f.blocks.iter().map(|b| (b.id, b)).collect();
+    let dests: HashSet<_> = tables.invocations.values().copied().collect();
+    let mut exits: Vec<_> = tables.exits.iter().collect();
+    exits.sort_by_key(|(b, _)| b.0);
+    for (id, mode) in exits {
+        let b = blocks
             .get(id)
             .ok_or_else(|| format!("saída excepcional obsoleta b{}", id.0))?;
         let Terminator::Return(op) = &b.terminator else {
             return Err(format!("saída excepcional b{} não é Return", id.0));
         };
-        if *modo == SaidaPorExcecao::Guarda {
+        if *mode == ExceptionExit::Guard {
             return Err(format!(
                 "saída Guarda b{} exige CFG explícito antes do ARC",
                 id.0
             ));
         }
-        if *modo == SaidaPorExcecao::Retoma {
-            if !tabelas.pousos.contains(id)
-                || !destinos.contains(id)
-                || f.blocks.first().is_some_and(|entrada| entrada.id == *id)
+        if *mode == ExceptionExit::Resume {
+            if !tables.landing_pads.contains(id)
+                || !dests.contains(id)
+                || f.blocks.first().is_some_and(|entry| entry.id == *id)
             {
                 return Err(format!("saída Retoma b{} exige pouso de invoke", id.0));
             }
             if b.instructions
                 .iter()
-                .any(|(_, i, _)| !super::instrucao_de_retoma(i))
+                .any(|(_, i, _)| !super::resume_instruction(i))
             {
                 return Err(format!(
                     "saída Retoma b{} só admite drops ARC e fechamento de quadros locais",
@@ -411,14 +411,14 @@ pub(super) fn conferir_saidas_excepcionais(
                 ));
             }
         }
-        let esperado = if f.return_ty == Type::Void {
+        let expected = if f.return_ty == Type::Void {
             None
         } else {
-            Some(super::super::operandos::constante_padrao(f.return_ty))
+            Some(super::super::operands::default_constant(f.return_ty))
         };
-        if exigir_canonico && *op != esperado {
+        if require_canonical && *op != expected {
             return Err(format!(
-                "saída {modo:?} b{} exige retorno canônico sem transferência",
+                "saída {mode:?} b{} exige retorno canônico sem transferência",
                 id.0
             ));
         }
@@ -427,76 +427,76 @@ pub(super) fn conferir_saidas_excepcionais(
 }
 
 // Só normaliza corpos temporários: o chamador publica após verificar tudo.
-pub(super) fn normalizar_saidas_lanca(
+pub(super) fn normalize_exits_throws(
     f: &mut Function,
-    tabelas: &TabelasDaFuncao,
+    tables: &FunctionTables,
 ) -> Result<(), String> {
-    super::ssa::verificar(f)?;
-    conferir_saidas_excepcionais(f, tabelas, false)?;
+    super::ssa::verify(f)?;
+    check_exceptional_exits(f, tables, false)?;
     for b in &mut f.blocks {
         if matches!(
-            tabelas.saidas.get(&b.id),
-            Some(SaidaPorExcecao::Lanca | SaidaPorExcecao::Retoma)
+            tables.exits.get(&b.id),
+            Some(ExceptionExit::Throws | ExceptionExit::Resume)
         ) {
             b.terminator = Terminator::Return(if f.return_ty == Type::Void {
                 None
             } else {
-                Some(super::super::operandos::constante_padrao(f.return_ty))
+                Some(super::super::operands::default_constant(f.return_ty))
             });
         }
     }
     Ok(())
 }
 
-struct FluxoTokens {
-    saidas: HashMap<BlockId, Vec<ValueId>>,
-    entradas: HashMap<BlockId, Vec<ValueId>>,
-    arestas: HashMap<(BlockId, BlockId), Vec<ValueId>>,
+struct TokenFlow {
+    exits: HashMap<BlockId, Vec<ValueId>>,
+    entries: HashMap<BlockId, Vec<ValueId>>,
+    edges: HashMap<(BlockId, BlockId), Vec<ValueId>>,
 }
 
-fn analisar_tokens(
+fn analyze_tokens(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
-    tabelas: &TabelasDaFuncao,
-    plano: &PlanoTokens,
-    permitir_cleanup: bool,
-    limpar_arestas: bool,
-) -> Result<FluxoTokens, String> {
-    super::locais::verificar(f, classes, plano)?;
-    super::puros::verificar(f, classes, plano)?;
-    conferir_saidas_excepcionais(f, tabelas, true)?;
-    super::conferir_retomas(f, tabelas)?;
-    let vivos = super::classificacao::vivacidade_com_saidas(f, classes, tabelas, &plano.pendencias)?;
-    let mut arestas = HashMap::new();
-    let erro_meta = |m: String| format!("tokens em {}: {m}", f.symbol);
-    let mut esperados = HashSet::new();
+    tables: &FunctionTables,
+    plan: &TokenPlan,
+    allow_cleanup: bool,
+    clear_edges: bool,
+) -> Result<TokenFlow, String> {
+    super::locals::verify(f, classes, plan)?;
+    super::pure_set::verify(f, classes, plan)?;
+    check_exceptional_exits(f, tables, true)?;
+    super::check_resumes(f, tables)?;
+    let live_set = super::classification::liveness_with_exits(f, classes, tables, &plan.pendings)?;
+    let mut edges = HashMap::new();
+    let meta_error = |m: String| format!("tokens em {}: {m}", f.symbol);
+    let mut expected_set = HashSet::new();
     for b in &f.blocks {
         for (v, inst, _) in &b.instructions {
-            if propria(inst) {
+            if own(inst) {
                 if let Instruction::ArcLoadStrong {
                     slot:
-                        SlotForte::Quadro {
-                            quadro: Operand::Val(q),
+                        StrongSlot::Quadro {
+                            frame: Operand::Val(q),
                             ..
                         },
                 }
                 | Instruction::ArcStoreStrong {
                     slot:
-                        SlotForte::Quadro {
-                            quadro: Operand::Val(q),
+                        StrongSlot::Quadro {
+                            frame: Operand::Val(q),
                             ..
                         },
                     ..
                 } = inst
                 {
                     if classes[q] != Ownership::Trivial {
-                        return Err(erro_meta(format!(
+                        return Err(meta_error(format!(
                             "v{}: ID de quadro deve ser Trivial",
                             v.0
                         )));
                     }
                 }
-                let classe = if matches!(
+                let class = if matches!(
                     inst,
                     Instruction::ArcDrop { .. } | Instruction::ArcStoreStrong { .. }
                 ) {
@@ -511,31 +511,31 @@ fn analisar_tokens(
                 } else {
                     None
                 };
-                if classe.is_some_and(|c| classes[v] != c) || tabelas.invocacoes.contains_key(v) {
-                    return Err(erro_meta(format!(
+                if class.is_some_and(|c| classes[v] != c) || tables.invocations.contains_key(v) {
+                    return Err(meta_error(format!(
                         "v{}: contrato incompatível com operação ARC/Phi",
                         v.0
                     )));
                 }
                 continue;
             }
-            esperados.insert(*v);
-            let e = plano
-                .instrucoes
+            expected_set.insert(*v);
+            let e = plan
+                .instructions
                 .get(v)
-                .ok_or_else(|| erro_meta(format!("v{} sem contrato de consumo", v.0)))?;
-            let unbox_bool = super::contratos::chamada_unbox_bool(inst);
-            let chamada = unbox_bool.as_ref().unwrap_or(inst);
-            if let Instruction::CallRuntime { name, .. } = chamada {
-                if super::contrato(name).is_ok() {
-                    let c = super::contrato_chamada_runtime(chamada).map_err(erro_meta)?;
-                    if classes[v] != c.resultado
-                        || e.sempre != c.efeito.sempre
-                        || e.sucesso != c.efeito.sucesso
-                        || e.erro != c.efeito.erro
-                        || e.pode_falhar != c.efeito.pode_falhar
+                .ok_or_else(|| meta_error(format!("v{} sem contrato de consumo", v.0)))?;
+            let unbox_bool = super::contracts::unbox_bool_call(inst);
+            let call = unbox_bool.as_ref().unwrap_or(inst);
+            if let Instruction::CallRuntime { name, .. } = call {
+                if super::contract(name).is_ok() {
+                    let c = super::runtime_call_contract(call).map_err(meta_error)?;
+                    if classes[v] != c.result
+                        || e.always != c.effect.always
+                        || e.success != c.effect.success
+                        || e.error != c.effect.error
+                        || e.may_fail != c.effect.may_fail
                     {
-                        return Err(erro_meta(format!(
+                        return Err(meta_error(format!(
                             "v{}: plano incompatível com ownership.tsv para {name}",
                             v.0
                         )));
@@ -544,30 +544,30 @@ fn analisar_tokens(
             }
             // Um invoke de callee que não falha (a análise conjunta sabe mais
             // que a do módulo que pôs o pouso) só deixa um pouso morto.
-            let invoke = tabelas.invocacoes.contains_key(v);
-            let pendencia = plano.pendencias.contains_key(v);
-            if (e.pode_falhar && !invoke && !pendencia)
-                || (!e.pode_falhar && pendencia)
-                || (!e.pode_falhar && !e.erro.is_empty())
+            let invoke = tables.invocations.contains_key(v);
+            let pending_state = plan.pendings.contains_key(v);
+            if (e.may_fail && !invoke && !pending_state)
+                || (!e.may_fail && pending_state)
+                || (!e.may_fail && !e.error.is_empty())
             {
-                let nome = match inst {
+                let name_str = match inst {
                     Instruction::CallRuntime { name, .. } | Instruction::CallStatic { symbol: name, .. } => name.clone(),
-                    outra => format!("{outra:?}").chars().take(80).collect(),
+                    another => format!("{another:?}").chars().take(80).collect(),
                 };
-                return Err(erro_meta(format!(
-                    "v{}: contrato não corresponde às saídas excepcionais {nome} (pode falhar: {})",
-                    v.0, e.pode_falhar
+                return Err(meta_error(format!(
+                    "v{}: contrato não corresponde às saídas excepcionais {name_str} (pode falhar: {})",
+                    v.0, e.may_fail
                 )));
             }
             let mut args = HashSet::new();
-            operandos(inst, &mut |o| {
+            operands(inst, &mut |o| {
                 if let Operand::Val(v) = o {
                     args.insert(*v);
                 }
             });
-            for &c in e.sempre.iter().chain(&e.sucesso).chain(&e.erro) {
+            for &c in e.always.iter().chain(&e.success).chain(&e.error) {
                 if !args.contains(&c) {
-                    return Err(erro_meta(format!(
+                    return Err(meta_error(format!(
                         "v{}: consumo de v{} não é argumento",
                         v.0, c.0
                     )));
@@ -575,26 +575,26 @@ fn analisar_tokens(
             }
         }
     }
-    let mut extras: Vec<_> = plano
-        .instrucoes
+    let mut extras: Vec<_> = plan
+        .instructions
         .keys()
-        .filter(|v| !esperados.contains(v))
+        .filter(|v| !expected_set.contains(v))
         .copied()
         .collect();
     extras.sort_by_key(|v| v.0);
     if let Some(v) = extras.first() {
-        return Err(erro_meta(format!(
+        return Err(meta_error(format!(
             "v{}: contrato obsoleto ou sobrescreve regra ARC/Phi",
             v.0
         )));
     }
     if f.blocks.is_empty() {
-        return Err(erro_meta("função sem entrada".into()));
+        return Err(meta_error("função sem entrada".into()));
     }
-    let cfg = Cfg::novo(f);
-    let mut saidas = HashMap::new();
-    let mut entradas: Vec<Option<HashSet<ValueId>>> = vec![None; f.blocks.len()];
-    entradas[0] = Some(
+    let cfg = Cfg::new(f);
+    let mut exits = HashMap::new();
+    let mut entries: Vec<Option<HashSet<ValueId>>> = vec![None; f.blocks.len()];
+    entries[0] = Some(
         f.params
             .iter()
             .filter(|(v, _, _)| classes[v] == Ownership::Owned)
@@ -602,157 +602,157 @@ fn analisar_tokens(
             .collect(),
     );
     let mut pais = vec![None; f.blocks.len()];
-    let mut fila = VecDeque::from([0]);
-    while let Some(i) = fila.pop_front() {
+    let mut queue = VecDeque::from([0]);
+    while let Some(i) = queue.pop_front() {
         let b = &f.blocks[i];
-        let mut ativos = entradas[i].clone().unwrap();
+        let mut active_set = entries[i].clone().unwrap();
         let mut invoke = None;
         for (v, inst, _) in &b.instructions {
-            let resultado = (|| -> Result<(), String> {
+            let result = (|| -> Result<(), String> {
                 if matches!(inst, Instruction::Phi { .. }) {
-                    return conferir(*v, classes, &ativos);
+                    return check(*v, classes, &active_set);
                 }
-                let mut falha = None;
-                operandos(inst, &mut |o| {
-                    if falha.is_none() {
-                        falha = usar(o, classes, &ativos).err();
+                let mut failure = None;
+                operands(inst, &mut |o| {
+                    if failure.is_none() {
+                        failure = use_value(o, classes, &active_set).err();
                     }
                 });
-                if let Some(m) = falha {
+                if let Some(m) = failure {
                     return Err(m);
                 }
                 match inst {
                     Instruction::ArcCopy { .. } | Instruction::ArcLoadStrong { .. } => {
-                        produzir(*v, classes, &mut ativos)
+                        produce(*v, classes, &mut active_set)
                     }
-                    Instruction::ArcStoreStrong { value, modo, .. } => {
-                        if *modo == ModoStoreForte::Move {
-                            consumir_operando(value, classes, &mut ativos)
+                    Instruction::ArcStoreStrong { value, mode, .. } => {
+                        if *mode == StrongStoreMode::Move {
+                            consume_operand(value, classes, &mut active_set)
                         } else {
                             Ok(())
                         }
                     }
                     Instruction::ArcMove { value } => {
-                        consumir_operando(value, classes, &mut ativos)?;
-                        produzir(*v, classes, &mut ativos)
+                        consume_operand(value, classes, &mut active_set)?;
+                        produce(*v, classes, &mut active_set)
                     }
                     Instruction::ArcDrop { value } => {
-                        consumir_operando(value, classes, &mut ativos)
+                        consume_operand(value, classes, &mut active_set)
                     }
                     _ => {
-                        let e = &plano.instrucoes[v];
-                        aplicar(&e.sempre, classes, &mut ativos)?;
+                        let e = &plan.instructions[v];
+                        apply(&e.always, classes, &mut active_set)?;
                         // Um invoke (mesmo de callee que não falha) só
                         // produz o resultado na aresta de sucesso.
-                        if e.pode_falhar || tabelas.invocacoes.contains_key(v) {
+                        if e.may_fail || tables.invocations.contains_key(v) {
                             invoke = Some(*v);
                             Ok(())
                         } else {
-                            aplicar(&e.sucesso, classes, &mut ativos)?;
-                            produzir(*v, classes, &mut ativos)
+                            apply(&e.success, classes, &mut active_set)?;
+                            produce(*v, classes, &mut active_set)
                         }
                     }
                 }
             })();
-            resultado.map_err(|m| erro_fluxo(f, &pais, i, format!("v{}: {m}", v.0)))?;
+            result.map_err(|m| flow_error(f, &pais, i, format!("v{}: {m}", v.0)))?;
         }
-        let mut falha = None;
-        operandos_do_terminador(&b.terminator, &mut |o| {
-            if falha.is_none() {
-                falha = usar(o, classes, &ativos).err();
+        let mut failure = None;
+        terminator_operands(&b.terminator, &mut |o| {
+            if failure.is_none() {
+                failure = use_value(o, classes, &active_set).err();
             }
         });
-        if let Some(m) = falha {
-            return Err(erro_fluxo(f, &pais, i, m));
+        if let Some(m) = failure {
+            return Err(flow_error(f, &pais, i, m));
         }
-        if let Terminator::Return(valor) = &b.terminator
+        if let Terminator::Return(val_ref) = &b.terminator
             && !matches!(
-                tabelas.saidas.get(&b.id),
-                Some(SaidaPorExcecao::Lanca | SaidaPorExcecao::Retoma)
+                tables.exits.get(&b.id),
+                Some(ExceptionExit::Throws | ExceptionExit::Resume)
             )
         {
-            match (plano.retorno, valor) {
-                (RetornoTokens::Owned, Some(v)) => consumir_operando(v, classes, &mut ativos)
-                    .map_err(|m| erro_fluxo(f, &pais, i, m))?,
-                (RetornoTokens::Borrowed, Some(Operand::Val(v))) if do_chamador(*v, classes) => {}
-                (RetornoTokens::Borrowed, Some(Operand::Constant(Constant::Null))) => {}
-                (RetornoTokens::Trivial, None) => {}
-                (RetornoTokens::Trivial, Some(Operand::Val(v)))
+            match (plan.ret, val_ref) {
+                (TokenReturn::Owned, Some(v)) => consume_operand(v, classes, &mut active_set)
+                    .map_err(|m| flow_error(f, &pais, i, m))?,
+                (TokenReturn::Borrowed, Some(Operand::Val(v))) if of_caller(*v, classes) => {}
+                (TokenReturn::Borrowed, Some(Operand::Constant(Constant::Null))) => {}
+                (TokenReturn::Trivial, None) => {}
+                (TokenReturn::Trivial, Some(Operand::Val(v)))
                     if classes[v] == Ownership::Trivial => {}
-                (RetornoTokens::Trivial, Some(Operand::Constant(c)))
+                (TokenReturn::Trivial, Some(Operand::Constant(c)))
                     if !matches!(c, Constant::String(_) | Constant::StringWtf8(_)) => {}
                 _ => {
-                    let classe = match valor {
+                    let class = match val_ref {
                         Some(Operand::Val(v)) => format!("v{} {:?}", v.0, classes.get(v)),
-                        outro => format!("{outro:?}"),
+                        other => format!("{other:?}"),
                     };
-                    return Err(erro_fluxo(
+                    return Err(flow_error(
                         f,
                         &pais,
                         i,
-                        format!("retorno não satisfaz a convenção de tokens {:?} ({classe})", plano.retorno),
+                        format!("retorno não satisfaz a convenção de tokens {:?} ({class})", plan.ret),
                     ));
                 }
             }
         }
         // `Unreachable` não continua (o caminho morto depois de um lançamento,
         // o fim de quem encerra o processo): um token vivo ali não vaza.
-        if cfg.sucessores[i].is_empty() && !ativos.is_empty() && !matches!(b.terminator, Terminator::Unreachable) {
-            if permitir_cleanup && matches!(b.terminator, Terminator::Return(_)) {
-                let mut restantes: Vec<_> = ativos.iter().copied().collect();
-                restantes.sort_unstable_by_key(|v| v.0);
-                saidas.insert(b.id, restantes);
+        if cfg.successors[i].is_empty() && !active_set.is_empty() && !matches!(b.terminator, Terminator::Unreachable) {
+            if allow_cleanup && matches!(b.terminator, Terminator::Return(_)) {
+                let mut remaining: Vec<_> = active_set.iter().copied().collect();
+                remaining.sort_unstable_by_key(|v| v.0);
+                exits.insert(b.id, remaining);
                 continue;
             }
-            let mut ids: Vec<_> = ativos.iter().map(|v| v.0).collect();
+            let mut ids: Vec<_> = active_set.iter().map(|v| v.0).collect();
             ids.sort_unstable();
-            return Err(erro_fluxo(
+            return Err(flow_error(
                 f,
                 &pais,
                 i,
                 format!("tokens não consumidos na saída {ids:?}"),
             ));
         }
-        for &s in &cfg.sucessores[i] {
-            let destino = &f.blocks[s];
-            let proxima = (|| -> Result<HashSet<ValueId>, String> {
-                let mut r = ativos.clone();
+        for &s in &cfg.successors[i] {
+            let dest = &f.blocks[s];
+            let next_one = (|| -> Result<HashSet<ValueId>, String> {
+                let mut r = active_set.clone();
                 if let Some(v) = invoke {
-                    let e = &plano.instrucoes[&v];
-                    if tabelas
-                        .invocacoes
+                    let e = &plan.instructions[&v];
+                    if tables
+                        .invocations
                         .get(&v)
-                        .or_else(|| plano.pendencias.get(&v))
-                        == Some(&destino.id)
+                        .or_else(|| plan.pendings.get(&v))
+                        == Some(&dest.id)
                     {
-                        aplicar(&e.erro, classes, &mut r)?;
+                        apply(&e.error, classes, &mut r)?;
                     } else {
-                        aplicar(&e.sucesso, classes, &mut r)?;
-                        produzir(v, classes, &mut r)?;
+                        apply(&e.success, classes, &mut r)?;
+                        produce(v, classes, &mut r)?;
                     }
                 }
-                let mut consumidos = Vec::new();
-                let mut produzidos = Vec::new();
-                for (v, inst, _) in &destino.instructions {
+                let mut consumed = Vec::new();
+                let mut produced = Vec::new();
+                for (v, inst, _) in &dest.instructions {
                     if let Instruction::Phi { incoming, .. } = inst {
                         for (de, op) in incoming {
                             if *de != b.id {
                                 continue;
                             }
-                            usar(op, classes, &r)?;
+                            use_value(op, classes, &r)?;
                             if matches!(classes[v], Ownership::Borrowed { .. }) {
-                                let compativel = match op {
+                                let compatible = match op {
                                     Operand::Constant(Constant::Null) => true,
-                                    Operand::Val(entrada) => {
-                                        classes[entrada] == Ownership::Trivial
-                                            || (raiz_owner(*entrada, classes)
-                                                == raiz_owner(*v, classes)
-                                                && escopos_owner(*entrada, classes)
-                                                    .is_subset(&escopos_owner(*v, classes)))
+                                    Operand::Val(entry) => {
+                                        classes[entry] == Ownership::Trivial
+                                            || (owner_root(*entry, classes)
+                                                == owner_root(*v, classes)
+                                                && owner_scopes(*entry, classes)
+                                                    .is_subset(&owner_scopes(*v, classes)))
                                     }
                                     _ => false,
                                 };
-                                if !compativel {
+                                if !compatible {
                                     return Err(format!(
                                         "Phi borrowed v{}: owner ou escopo incompatível na entrada",
                                         v.0
@@ -761,10 +761,10 @@ fn analisar_tokens(
                             }
                             if classes[v] == Ownership::Owned {
                                 match op {
-                                    Operand::Val(entrada)
-                                        if classes[entrada] == Ownership::Owned =>
+                                    Operand::Val(entry)
+                                        if classes[entry] == Ownership::Owned =>
                                     {
-                                        consumidos.push(*entrada)
+                                        consumed.push(*entry)
                                     }
                                     Operand::Constant(Constant::Null) => {}
                                     _ => {
@@ -774,87 +774,87 @@ fn analisar_tokens(
                                         ));
                                     }
                                 }
-                                produzidos.push(*v);
+                                produced.push(*v);
                             }
                         }
                     }
                 }
-                aplicar(&consumidos, classes, &mut r)?;
+                apply(&consumed, classes, &mut r)?;
                 // Resultados Phi nascem no destino. Tokens transferidos já
                 // saíram de r; nenhum dos dois recebe drop no predecessor.
                 // Os mortos saem antes das produções: o valor antigo de um
                 // Phi de laço que não volta para ele (foi copiado na aresta)
                 // é morto aqui, e o novo nasce com o mesmo ID.
-                let erro = invoke.is_some_and(|v| tabelas.invocacoes.get(&v)
-                    .or_else(|| plano.pendencias.get(&v)) == Some(&destino.id));
-                if limpar_arestas && !erro && !tabelas.pousos.contains(&destino.id) {
-                    let mut usados = vivos.entrada[&destino.id].clone();
-                    for (_, inst, _) in &destino.instructions {
+                let error = invoke.is_some_and(|v| tables.invocations.get(&v)
+                    .or_else(|| plan.pendings.get(&v)) == Some(&dest.id));
+                if clear_edges && !error && !tables.landing_pads.contains(&dest.id) {
+                    let mut used_set = live_set.entry[&dest.id].clone();
+                    for (_, inst, _) in &dest.instructions {
                         if let Instruction::Phi { incoming, .. } = inst {
                             for (de, op) in incoming {
                                 if *de != b.id { continue; }
                                 if let Operand::Val(v) = op {
-                                    let mut atual = *v;
-                                    let mut vistos = HashSet::new();
-                                    while vistos.insert(atual) {
-                                        usados.insert(atual);
-                                        if let Some(Ownership::Borrowed { owner: OrigemOwner::Valor(p), .. }) = classes.get(&atual) {
-                                            atual = *p;
+                                    let mut current = *v;
+                                    let mut seen_set = HashSet::new();
+                                    while seen_set.insert(current) {
+                                        used_set.insert(current);
+                                        if let Some(Ownership::Borrowed { owner: OwnerOrigin::Value(p), .. }) = classes.get(&current) {
+                                            current = *p;
                                         } else { break; }
                                     }
                                 }
                             }
                         }
                     }
-                    let mut mortos: Vec<_> = r.iter().copied()
-                        .filter(|v| !usados.contains(v) && (!produzidos.contains(v) || !consumidos.contains(v))).collect();
-                    mortos.sort_unstable_by_key(|v| v.0);
-                    for v in &mortos { r.remove(v); }
-                    if !mortos.is_empty() { arestas.insert((b.id, destino.id), mortos); }
+                    let mut dead_set: Vec<_> = r.iter().copied()
+                        .filter(|v| !used_set.contains(v) && (!produced.contains(v) || !consumed.contains(v))).collect();
+                    dead_set.sort_unstable_by_key(|v| v.0);
+                    for v in &dead_set { r.remove(v); }
+                    if !dead_set.is_empty() { edges.insert((b.id, dest.id), dead_set); }
                 }
-                for &v in &produzidos {
-                    produzir(v, classes, &mut r)?;
+                for &v in &produced {
+                    produce(v, classes, &mut r)?;
                 }
                 Ok(r)
             })()
             .map_err(|m| {
-                erro_fluxo(
+                flow_error(
                     f,
                     &pais,
                     i,
-                    format!("aresta b{} -> b{}: {m}", b.id.0, destino.id.0),
+                    format!("aresta b{} -> b{}: {m}", b.id.0, dest.id.0),
                 )
             })?;
-            match &entradas[s] {
-                Some(anterior) if *anterior != proxima => {
-                    let mut so_antes: Vec<_> = anterior.difference(&proxima).map(|v| v.0).collect();
-                    let mut so_agora: Vec<_> = proxima.difference(anterior).map(|v| v.0).collect();
-                    so_antes.sort_unstable();
-                    so_agora.sort_unstable();
-                    return Err(erro_fluxo(
+            match &entries[s] {
+                Some(previous) if *previous != next_one => {
+                    let mut only_before: Vec<_> = previous.difference(&next_one).map(|v| v.0).collect();
+                    let mut only_now: Vec<_> = next_one.difference(previous).map(|v| v.0).collect();
+                    only_before.sort_unstable();
+                    only_now.sort_unstable();
+                    return Err(flow_error(
                         f,
                         &pais,
                         i,
                         format!(
-                            "junção b{} com tokens diferentes (só antes {so_antes:?}, só agora {so_agora:?}); caminho anterior {:?}",
-                            destino.id.0,
-                            caminho(f, &pais, s)
+                            "junção b{} com tokens diferentes (só antes {only_before:?}, só agora {only_now:?}); caminho anterior {:?}",
+                            dest.id.0,
+                            path(f, &pais, s)
                         ),
                     ));
                 }
                 Some(_) => {}
                 None => {
-                    entradas[s] = Some(proxima);
+                    entries[s] = Some(next_one);
                     pais[s] = Some(i);
-                    fila.push_back(s);
+                    queue.push_back(s);
                 }
             }
         }
     }
-    let entradas = f
+    let entries = f
         .blocks
         .iter()
-        .zip(entradas)
+        .zip(entries)
         .filter_map(|(b, owners)| {
             owners.map(|owners| {
                 let mut owners: Vec<_> = owners.into_iter().collect();
@@ -863,9 +863,9 @@ fn analisar_tokens(
             })
         })
         .collect();
-    super::emprestimos::verificar(f, classes)?;
-    Ok(FluxoTokens { saidas, entradas, arestas })
+    super::borrows::verify(f, classes)?;
+    Ok(TokenFlow { exits, entries, edges })
 }
 
 #[cfg(test)]
-mod testes;
+mod tests;

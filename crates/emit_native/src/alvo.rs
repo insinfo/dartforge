@@ -14,7 +14,7 @@
 pub enum Sistema {
     /// COFF, MSVC ABI, `.obj`/`.lib`/`.dll`/`.exe`.
     Windows,
-    /// ELF, `.o`/`.a`/`.so`, executável sem extensão.
+    /// ELF, `.o`/`.a`/`.only`, executável sem extensão.
     Linux,
     /// Mach-O, `.o`/`.a`/`.dylib`, executável sem extensão.
     MacOs,
@@ -43,21 +43,21 @@ pub const fn sistema() -> Sistema {
 ///
 /// * ausente, vazia ou `checagem`: a exceção é uma pendência do runtime que
 ///   quem chama confere depois de cada chamada — o IR de sempre, byte a byte;
-/// * `tabelas`: a chamada Dart que lança desenrola a pilha até o
-///   `landingpad` de quem a trata (`optimize/tabelas.rs`), com a
+/// * `tables`: a chamada Dart que lança desenrola a pilha até o
+///   `landingpad` de quem a trata (`optimize/tables.rs`), com a
 ///   personalidade do runtime (`dartforge_personalidade`). Só no Windows
 ///   x86-64, o único alvo com a personalidade escrita, e sem o rastro de
 ///   funções (`DARTFORGE_RASTRO=1` conta entradas e saídas, e o
 ///   desenrolamento pula as saídas).
 ///
 /// O programa e o SDK têm de sair no mesmo modelo: a variável entra na chave
-/// do SDK compilado (`sdk_modulo::chave_do_sdk`).
+/// do SDK compilado (`sdk_modulo::sdk_key`).
 ///
 /// # Errors
-/// Valor desconhecido, ou `tabelas` onde o modo não existe.
+/// Valor desconhecido, ou `tables` onde o modo não existe.
 pub fn excecoes_por_tabelas() -> Result<bool, String> {
-    let valor = std::env::var("DARTFORGE_EXCECOES").unwrap_or_default();
-    match valor.as_str() {
+    let value = std::env::var("DARTFORGE_EXCECOES").unwrap_or_default();
+    match value.as_str() {
         "" | "checagem" => Ok(false),
         "tabelas" => {
             // Windows x86-64 (SEH) e, pela personalidade Itanium do
@@ -75,7 +75,7 @@ pub fn excecoes_por_tabelas() -> Result<bool, String> {
             }
             Ok(true)
         }
-        outro => Err(format!("DARTFORGE_EXCECOES={outro}: os modelos de exceção são `checagem` e `tabelas`")),
+        other => Err(format!("DARTFORGE_EXCECOES={other}: os modelos de exceção são `checagem` e `tabelas`")),
     }
 }
 
@@ -96,23 +96,23 @@ pub fn excecoes_por_tabelas() -> Result<bool, String> {
 ///
 /// # Errors
 /// Valor desconhecido.
-pub fn memoria_arc() -> Result<bool, String> {
-    let valor = std::env::var("DARTFORGE_MEMORIA").unwrap_or_default();
-    match valor.as_str() {
+pub fn arc_memory() -> Result<bool, String> {
+    let value = std::env::var("DARTFORGE_MEMORIA").unwrap_or_default();
+    match value.as_str() {
         "" | "tracing" => Ok(false),
         "arc" => Ok(true),
-        outro => Err(format!("DARTFORGE_MEMORIA={outro}: as políticas de memória são `tracing` e `arc`")),
+        other => Err(format!("DARTFORGE_MEMORIA={other}: as políticas de memória são `tracing` e `arc`")),
     }
 }
 
 /// A preparação ARC publicada (owners na HIR, `optimize::arc`), pela
 /// variável `DARTFORGE_ARC_PREPARADO=1`: só com a memória ARC. Ausente, o
 /// ARC segue o regime legado da CLI (sem tokens no código).
-pub fn arc_preparado() -> Result<bool, String> {
+pub fn arc_prepared() -> Result<bool, String> {
     if !std::env::var("DARTFORGE_ARC_PREPARADO").is_ok_and(|v| v == "1") {
         return Ok(false);
     }
-    if !memoria_arc()? {
+    if !arc_memory()? {
         return Err("DARTFORGE_ARC_PREPARADO=1 exige a memória ARC (`--memoria=arc`)".into());
     }
     Ok(true)
@@ -120,11 +120,11 @@ pub fn arc_preparado() -> Result<bool, String> {
 
 /// Onde ficam as raízes do coletor no código gerado
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8), pela variável
-/// `DARTFORGE_RAIZES` (o `--raizes=` de `compile-native` a define):
+/// `DARTFORGE_RAIZES` (o `--roots=` de `compile-native` a define):
 ///
 /// * ausente, vazia ou `sombra`: o quadro de raízes de cada função (a
 ///   pilha-sombra) — o IR de sempre, byte a byte;
-/// * `mapas`: os valores SSA vivos através de uma chamada saem nos mapas de
+/// * `maps`: os valores SSA vivos através de uma chamada saem nos mapas de
 ///   pilha do LLVM (`rewrite-statepoints-for-gc`), e o coletor os acha
 ///   percorrendo a pilha nativa. No Windows x86-64 (o percorredor do SEH,
 ///   `RtlVirtualUnwind`) e, desde a Etapa 4, no Linux e no macOS em x86-64 e
@@ -136,15 +136,15 @@ pub fn arc_preparado() -> Result<bool, String> {
 /// do SDK compilado.
 ///
 /// # Errors
-/// Valor desconhecido, ou `mapas` onde o modo não existe.
+/// Valor desconhecido, ou `maps` onde o modo não existe.
 pub fn raizes_por_mapas() -> Result<bool, String> {
-    let valor = std::env::var("DARTFORGE_RAIZES").unwrap_or_default();
-    match valor.as_str() {
+    let value = std::env::var("DARTFORGE_RAIZES").unwrap_or_default();
+    match value.as_str() {
         "" | "sombra" => Ok(false),
         "mapas" => {
-            let alvo_com_percorredor = (cfg!(windows) && cfg!(target_arch = "x86_64"))
+            let target_with_walker = (cfg!(windows) && cfg!(target_arch = "x86_64"))
                 || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
-            if !alvo_com_percorredor {
+            if !target_with_walker {
                 return Err(
                     "as raízes por mapas (--raizes=mapas) existem no Windows x86-64 e no Linux e no macOS em x86-64 e aarch64".to_string(),
                 );
@@ -154,18 +154,18 @@ pub fn raizes_por_mapas() -> Result<bool, String> {
             }
             Ok(true)
         }
-        outro => Err(format!("DARTFORGE_RAIZES={outro}: os modos de raízes são `sombra` e `mapas`")),
+        other => Err(format!("DARTFORGE_RAIZES={other}: os modos de raízes são `sombra` e `mapas`")),
     }
 }
 
 /// O rastro no formato da VM (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-/// §13.14), pela variável `DARTFORGE_RASTRO_VM` (o `--rastro=` de
+/// §13.14), pela variável `DARTFORGE_RASTRO_VM` (o `--stack_trace=` de
 /// `compile-native` a define):
 ///
-/// * ausente, vazia ou `nenhum`: sem tabela, o IR de sempre, e o texto do
+/// * ausente, vazia ou `none`: sem tabela, o IR de sempre, e o texto do
 ///   rastro é o de hoje;
 /// * `simbolico`: cada chamada que pode aparecer num rastro ganha um rótulo
-///   antes dela e uma entrada na seção `dfpcl` (`llvm/rastro.rs`): o
+///   antes dela e uma entrada na seção `dfpcl` (`llvm/stack_trace.rs`): o
 ///   endereço do rótulo, a função (nome e url) e a linha e a coluna. O
 ///   runtime guarda os endereços de retorno no `throw` e simboliza só quando
 ///   o texto é pedido.
@@ -176,19 +176,19 @@ pub fn raizes_por_mapas() -> Result<bool, String> {
 ///
 /// # Errors
 /// Valor desconhecido, ou `simbolico` num alvo sem o percorredor.
-pub fn rastro_simbolico() -> Result<bool, String> {
-    let valor = std::env::var("DARTFORGE_RASTRO_VM").unwrap_or_default();
-    match valor.as_str() {
+pub fn symbolic_stack_trace() -> Result<bool, String> {
+    let value = std::env::var("DARTFORGE_RASTRO_VM").unwrap_or_default();
+    match value.as_str() {
         "" | "nenhum" => Ok(false),
         "simbolico" => {
-            let com_percorredor = (cfg!(windows) && cfg!(target_arch = "x86_64"))
+            let with_walker = (cfg!(windows) && cfg!(target_arch = "x86_64"))
                 || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
-            if !com_percorredor {
+            if !with_walker {
                 return Err("o rastro simbólico (--rastro=simbolico) existe no Windows x86-64 e no Linux e no macOS em x86-64 e aarch64".to_string());
             }
             Ok(true)
         }
-        outro => Err(format!("DARTFORGE_RASTRO_VM={outro}: os rastros são `simbolico` e `nenhum`")),
+        other => Err(format!("DARTFORGE_RASTRO_VM={other}: os rastros são `simbolico` e `nenhum`")),
     }
 }
 
@@ -198,16 +198,16 @@ pub fn rastro_simbolico() -> Result<bool, String> {
 /// §3.7). `DARTFORGE_ORCAMENTO_MAPAS=<n>` muda o teto (entra na chave do SDK
 /// compilado); o padrão, 250 000, é 500 valores enraizados através de 500
 /// pontos.
-pub fn orcamento_dos_mapas() -> u64 {
+pub fn maps_budget() -> u64 {
     std::env::var("DARTFORGE_ORCAMENTO_MAPAS").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(250_000)
 }
 
 /// O build de conferência do percurso por mapas (§15.2, E2.5):
-/// `DARTFORGE_RAIZES_CONFERIR=1` na compilação, com `--raizes=mapas`. Cada
+/// `DARTFORGE_RAIZES_CONFERIR=1` na compilação, com `--roots=maps`. Cada
 /// função `gc` grava também, antes de cada ponto de coleta, os vivos dele
-/// em slots do quadro da pilha-sombra; com `DARTFORGE_GC_PERCURSO=conferir`
+/// em slots do quadro da pilha-sombra; com `DARTFORGE_GC_PERCURSO=check`
 /// na execução, o runtime exige que o percurso por mapas os tenha visitado.
-pub fn conferir_raizes() -> bool {
+pub fn check_roots() -> bool {
     std::env::var("DARTFORGE_RAIZES_CONFERIR").is_ok_and(|v| v == "1")
 }
 
@@ -216,7 +216,7 @@ pub fn conferir_raizes() -> bool {
 /// dirigido do modo mapas tem de falhar com a dele; um teste que não falha
 /// com a sabotagem não conta. As do emissor:
 ///
-/// * `folha:<extern>`: declara a extern `"gc-leaf-function"` mesmo coletando
+/// * `leaf:<extern>`: declara a extern `"gc-leaf-function"` mesmo coletando
 ///   (o mapa perde os registros das chamadas a ela);
 /// * `pouso_sem_topo`: o pouso de um `invoke` não restaura o topo da
 ///   pilha-sombra;
@@ -230,13 +230,13 @@ pub fn conferir_raizes() -> bool {
 ///   handle do coletor o recusa.
 ///
 /// A variável entra na chave do SDK compilado.
-pub fn sabotagem(nome: &str) -> bool {
-    std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim() == nome)
+pub fn sabotage(name: &str) -> bool {
+    std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim() == name)
 }
 
-/// A extern `nome` está na sabotagem `folha:<nome>`.
-pub fn folha_sabotada(nome: &str) -> bool {
-    std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim().strip_prefix("folha:") == Some(nome))
+/// A extern `name` está na sabotagem `leaf:<name>`.
+pub fn sabotaged_leaf(name: &str) -> bool {
+    std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim().strip_prefix("folha:") == Some(name))
 }
 
 /// O cabeçalho `target datalayout`/`target triple` do módulo.
@@ -263,7 +263,7 @@ pub fn cabecalho_ir() -> &'static str {
 /// (o ligador junta `.dfimg$a`, `$m` e `$z` em ordem), `dfimg` no ELF (um nome
 /// de identificador C, para o ligador definir `__start_dfimg`/`__stop_dfimg`) e
 /// `__DATA_CONST,__dfimg` no Mach-O.
-pub const fn secao_da_imagem() -> &'static str {
+pub const fn image_section() -> &'static str {
     match sistema() {
         Sistema::Windows => ".dfimg$m",
         Sistema::Linux => "dfimg",
@@ -272,12 +272,12 @@ pub const fn secao_da_imagem() -> &'static str {
 }
 
 /// Os marcadores de início e fim da seção dos estáticos de uma imagem
-/// ([`secao_da_imagem`]): as declarações de nível de módulo que os definem (ou
+/// ([`image_section`]): as declarações de nível de módulo que os definem (ou
 /// os referenciam) e os dois operandos `ptr`. Cada módulo que registra a imagem
 /// os escreve; no COFF são `linkonce_odr` em `comdat` (uma cópia por imagem), e
 /// no ELF e no Mach-O o ligador define os símbolos de início e fim de seção — a
 /// âncora garante que a seção exista mesmo sem literal nenhum.
-pub fn marcadores_da_imagem() -> (String, &'static str, &'static str) {
+pub fn image_markers() -> (String, &'static str, &'static str) {
     match sistema() {
         Sistema::Windows => (
             "$df.img.a = comdat any\n$df.img.z = comdat any\n\
@@ -308,12 +308,12 @@ pub fn marcadores_da_imagem() -> (String, &'static str, &'static str) {
 
 /// Se o formato de objeto tem `comdat`. O Mach-O não tem: lá a definição
 /// `linkonce_odr` sozinha vira símbolo fraco, e o ligador fica com uma.
-pub const fn tem_comdat() -> bool {
+pub const fn has_comdat() -> bool {
     !matches!(sistema(), Sistema::MacOs)
 }
 
 /// Extensão do objeto (sem o ponto).
-pub const fn ext_objeto() -> &'static str {
+pub const fn ext_object() -> &'static str {
     match sistema() {
         Sistema::Windows => "obj",
         _ => "o",
@@ -321,7 +321,7 @@ pub const fn ext_objeto() -> &'static str {
 }
 
 /// Extensão da biblioteca estática (sem o ponto).
-pub const fn ext_estatica() -> &'static str {
+pub const fn static_ext() -> &'static str {
     match sistema() {
         Sistema::Windows => "lib",
         _ => "a",
@@ -329,13 +329,13 @@ pub const fn ext_estatica() -> &'static str {
 }
 
 /// Nome do arquivo da biblioteca compartilhada `base` (`base.dll`,
-/// `libbase.so`, `libbase.dylib`).
+/// `libbase.only`, `libbase.dylib`).
 ///
 /// ```
 /// let n = dartforge_emit_native::alvo::nome_compartilhada("dfsdk_0");
 /// assert!(n.contains("dfsdk_0"));
 /// ```
-pub fn nome_compartilhada(base: &str) -> String {
+pub fn shared_name(base: &str) -> String {
     match sistema() {
         Sistema::Windows => format!("{base}.dll"),
         Sistema::Linux => format!("lib{base}.so"),
@@ -344,7 +344,7 @@ pub fn nome_compartilhada(base: &str) -> String {
 }
 
 /// Nome do executável `base` (`base.exe` no Windows, `base` nos outros).
-pub fn nome_executavel(base: &str) -> String {
+pub fn executable_name(base: &str) -> String {
     match sistema() {
         Sistema::Windows => format!("{base}.exe"),
         _ => base.to_string(),
@@ -365,7 +365,7 @@ pub const fn nome_clang() -> &'static str {
 /// cabeçalho COFF: sem ele, o mesmo IR dava objetos diferentes no byte 4
 /// (medido), e o objeto deixava de ser função da chave. ELF e Mach-O não têm
 /// carimbo de tempo.
-pub const fn bandeiras_objeto() -> &'static [&'static str] {
+pub const fn object_flags() -> &'static [&'static str] {
     match sistema() {
         Sistema::Windows => &["-mno-incremental-linker-compatible"],
         _ => &[],
@@ -374,7 +374,7 @@ pub const fn bandeiras_objeto() -> &'static [&'static str] {
 
 /// Bandeiras do Clang para os objetos que vão para a biblioteca
 /// compartilhada do SDK: código independente de posição fora do Windows.
-pub const fn bandeiras_objeto_compartilhado() -> &'static [&'static str] {
+pub const fn shared_object_flags() -> &'static [&'static str] {
     match sistema() {
         Sistema::Windows => &[],
         _ => &["-fPIC"],
@@ -389,7 +389,7 @@ pub const fn bandeiras_objeto_compartilhado() -> &'static [&'static str] {
 /// sistema tem o seu ligador: `ligador.rs`, `ligador_windows.rs`,
 /// `ligador_macos.rs`); a lista serve a quem liga pelo Clang numa árvore de
 /// desenvolvimento (os testes do JIT).
-pub const fn bibliotecas_do_sistema() -> &'static [&'static str] {
+pub const fn system_libraries() -> &'static [&'static str] {
     match sistema() {
         // `crypt32`: o repositório de certificados do sistema (as raízes da
         // TLS, `tls.rs`).
@@ -405,7 +405,7 @@ pub const fn bibliotecas_do_sistema() -> &'static [&'static str] {
 /// ambiente ou o SDK que o `xcrun` indica (consultado uma vez). A
 /// distribuição não a usa: leva os `.tbd` no sysroot de ligação
 /// (`ligador_macos.rs`). `None` fora do macOS ou sem Xcode.
-pub fn raiz_do_sdk_macos() -> Option<&'static std::path::Path> {
+pub fn macos_sdk_root() -> Option<&'static std::path::Path> {
     static RAIZ: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
     RAIZ.get_or_init(|| {
         if sistema() != Sistema::MacOs {
@@ -414,10 +414,10 @@ pub fn raiz_do_sdk_macos() -> Option<&'static std::path::Path> {
         if let Some(r) = std::env::var_os("SDKROOT").filter(|r| !r.is_empty()) {
             return Some(std::path::PathBuf::from(r));
         }
-        let saida = std::process::Command::new("xcrun").args(["--sdk", "macosx", "--show-sdk-path"]).output().ok()?;
-        let caminho = String::from_utf8(saida.stdout).ok()?;
-        let caminho = caminho.trim();
-        (saida.status.success() && !caminho.is_empty()).then(|| std::path::PathBuf::from(caminho))
+        let exit = std::process::Command::new("xcrun").args(["--sdk", "macosx", "--show-sdk-path"]).output().ok()?;
+        let path = String::from_utf8(exit.stdout).ok()?;
+        let path = path.trim();
+        (exit.status.success() && !path.is_empty()).then(|| std::path::PathBuf::from(path))
     })
     .as_deref()
 }
@@ -428,10 +428,10 @@ pub fn raiz_do_sdk_macos() -> Option<&'static std::path::Path> {
 /// chamado pelo Clang do LLVM nem o `ld64.lld` acham `-lSystem`.
 pub fn argumentos_de_ligacao() -> Vec<std::ffi::OsString> {
     let mut v: Vec<std::ffi::OsString> = Vec::new();
-    if let Some(raiz) = raiz_do_sdk_macos() {
+    if let Some(root) = macos_sdk_root() {
         v.push("-isysroot".into());
-        v.push(raiz.as_os_str().to_owned());
+        v.push(root.as_os_str().to_owned());
     }
-    v.extend(bibliotecas_do_sistema().iter().map(std::ffi::OsString::from));
+    v.extend(system_libraries().iter().map(std::ffi::OsString::from));
     v
 }

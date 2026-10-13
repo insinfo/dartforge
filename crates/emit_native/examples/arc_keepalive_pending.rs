@@ -13,15 +13,15 @@
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
-fn modulo() -> Result<Module, String> {
+fn module() -> Result<Module, String> {
     let mut m = Module::new();
-    m.memoria_arc = true;
+    m.arc_memory = true;
     m.entry_symbol = Some("prova_pending".into());
     let val = |n| Operand::Val(ValueId(n));
     m.functions.push(Function {
         symbol: "ler_record".into(),
         name: "ler_record".into(),
-        depuracao: None,
+        debug_info: None,
         params: vec![(ValueId(0), "record".into(), Type::Ref)],
         return_ty: Type::Ref,
         blocks: vec![
@@ -82,49 +82,49 @@ fn modulo() -> Result<Module, String> {
             },
         ],
     });
-    let mut plano = PlanoFuncaoDart::default();
-    plano.tokens.retorno = RetornoTokens::Owned;
-    let mut planos = HashMap::from([("ler_record".into(), plano)]);
-    let produzido = preparar_arc_modulo_dart(&mut m, &mut planos)?;
-    if produzido != (1, 2) || planos["ler_record"].classes[&ValueId(2)] != Ownership::Owned {
+    let mut plan = DartFunctionPlan::default();
+    plan.tokens.ret = TokenReturn::Owned;
+    let mut plans = HashMap::from([("ler_record".into(), plan)]);
+    let produced = prepare_arc_dart_module(&mut m, &mut plans)?;
+    if produced != (1, 2) || plans["ler_record"].classes[&ValueId(2)] != Ownership::Owned {
         return Err(format!(
-            "keepalive/cleanup esperado (1, 2), encontrado {produzido:?}"
+            "keepalive/cleanup esperado (1, 2), encontrado {produced:?}"
         ));
     }
-    let preparado = format!("{m:?}/{planos:?}");
-    if preparar_arc_modulo_dart(&mut m, &mut planos)? != (0, 0)
-        || format!("{m:?}/{planos:?}") != preparado
+    let prepared = format!("{m:?}/{plans:?}");
+    if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0)
+        || format!("{m:?}/{plans:?}") != prepared
     {
         return Err("preparação pending não foi idempotente".into());
     }
-    let erros = dartforge_emit_native::lower::verificador::verificar(&m);
-    if !erros.is_empty() {
-        return Err(erros.join("\n"));
+    let errors = dartforge_emit_native::lower::verifier::verify(&m);
+    if !errors.is_empty() {
+        return Err(errors.join("\n"));
     }
     Ok(m)
 }
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(outro) => return Err(format!("modo desconhecido: {outro}")),
+        Some(other) => return Err(format!("modo desconhecido: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(outro) => return Err(format!("nível desconhecido: {outro}")),
+        Some(other) => return Err(format!("nível desconhecido: {other}")),
     };
-    let erro = match args.next().as_deref() {
+    let error = match args.next().as_deref() {
         Some("erro") => true,
         Some("normal") | None => false,
-        Some(outro) => return Err(format!("caminho desconhecido: {outro}")),
+        Some(other) => return Err(format!("caminho desconhecido: {other}")),
     };
-    let controle = args.next();
-    let mut m = modulo()?;
-    m.memoria_arc = arc;
+    let control = args.next();
+    let mut m = module()?;
+    m.arc_memory = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     // O record legado pertence somente ao harness: retain imediatamente
     // após sua construção, sem alocar antes da publicação do owner. A prova
@@ -201,37 +201,37 @@ passou:
   ret void
 }
 "#
-        .replace("__ERRO__", if erro { "true" } else { "false" }),
+        .replace("__ERRO__", if error { "true" } else { "false" }),
     );
-    let chamada = "  call void @dartforge_arc_retain(i64 %v6)\n";
-    if ir.matches(chamada).count() != 1 {
+    let call = "  call void @dartforge_arc_retain(i64 %v6)\n";
+    if ir.matches(call).count() != 1 {
         return Err("cópia na aresta normal ausente no IR".into());
     }
-    match controle.as_deref() {
+    match control.as_deref() {
         None => {}
-        Some("sem-retencao") if !erro => {
-            ir = ir.replace(chamada, "");
+        Some("sem-retencao") if !error => {
+            ir = ir.replace(call, "");
         }
-        Some("sem-liberar") if !erro => {
+        Some("sem-liberar") if !error => {
             ir = ir.replace("  call void @dartforge_arc_release(i64 %retorno)\n", "");
         }
-        Some("copia-no-erro") if erro => {
+        Some("copia-no-erro") if error => {
             // O emissor lê a flag do Contexto em linha neste modo.
-            let guarda = "  %v3 = load i8, ptr %ctx, align 8\n";
-            if ir.matches(guarda).count() != 1 {
+            let guard = "  %v3 = load i8, ptr %ctx, align 8\n";
+            if ir.matches(guard).count() != 1 {
                 return Err("guarda pending ausente no IR".into());
             }
-            ir = ir.replace(guarda, &format!("{chamada}{guarda}"));
+            ir = ir.replace(guard, &format!("{call}{guard}"));
         }
-        Some(outro) => return Err(format!("controle/caminho incompatível: {outro}")),
+        Some(other) => return Err(format!("controle/caminho incompatível: {other}")),
     }
-    if let Some(dir) = saida.parent() {
+    if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
+    std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     driver::compile_and_link(
         &ir,
-        &saida,
+        &exit,
         &driver::NativeDriverOptions {
             optimize,
             ..Default::default()
@@ -241,28 +241,28 @@ passou:
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn copia_segue_o_getter_e_o_erro_solta_receiver_e_copia() {
-        let m = modulo().unwrap();
+    fn copy_follows_getter_and_error_releases_receiver_and_copy() {
+        let m = module().unwrap();
         let f = &m.functions[0];
-        let entrada = &f.blocks[0].instructions;
-        let getter = entrada.iter().position(|(v, _, _)| *v == ValueId(6)).unwrap();
+        let entry = &f.blocks[0].instructions;
+        let getter = entry.iter().position(|(v, _, _)| *v == ValueId(6)).unwrap();
         assert!(matches!(
-            entrada[getter + 1],
+            entry[getter + 1],
             (ValueId(2), Instruction::ArcCopy { value: Operand::Val(ValueId(6)) }, Type::Ref)
         ));
         let Terminator::CondBranch { then_block, .. } = f.blocks[0].terminator else {
             panic!("guarda pending ausente");
         };
-        let erro = f.blocks.iter().find(|b| b.id == then_block).unwrap();
-        let soltos: Vec<_> = erro.instructions.iter().filter_map(|(_, i, _)| match i {
+        let error = f.blocks.iter().find(|b| b.id == then_block).unwrap();
+        let released: Vec<_> = error.instructions.iter().filter_map(|(_, i, _)| match i {
             Instruction::ArcDrop { value: Operand::Val(v) } => Some(*v),
             _ => None,
         }).collect();
-        assert_eq!(soltos, [ValueId(1), ValueId(2)]);
-        assert!(erro.instructions.iter().all(|(_, i, _)| !matches!(i, Instruction::ArcCopy { .. })));
+        assert_eq!(released, [ValueId(1), ValueId(2)]);
+        assert!(error.instructions.iter().all(|(_, i, _)| !matches!(i, Instruction::ArcCopy { .. })));
     }
 }

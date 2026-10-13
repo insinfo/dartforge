@@ -5,19 +5,19 @@
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter};
 use std::path::PathBuf;
 
-fn chamada(nome: &str, args: Vec<(Operand, Type)>) -> Instruction {
+fn call(name: &str, args: Vec<(Operand, Type)>) -> Instruction {
     Instruction::CallRuntime {
-        name: nome.into(),
+        name: name.into(),
         args,
         ret_ty: Type::Void,
     }
 }
 
-fn funcao(nome: &str, ops: Vec<(Instruction, Type)>) -> Function {
+fn function(name: &str, ops: Vec<(Instruction, Type)>) -> Function {
     Function {
-        symbol: nome.into(),
-        name: nome.into(),
-        depuracao: None,
+        symbol: name.into(),
+        name: name.into(),
+        debug_info: None,
         params: vec![],
         return_ty: Type::Void,
         blocks: vec![BasicBlock {
@@ -34,23 +34,23 @@ fn funcao(nome: &str, ops: Vec<(Instruction, Type)>) -> Function {
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let mut m = Module::new();
-    m.memoria_arc = args.next().as_deref() != Some("tracing");
-    let sabotagem = args.next();
+    m.arc_memory = args.next().as_deref() != Some("tracing");
+    let sabotage = args.next();
     m.entry_symbol = Some("prova_mortal".into());
-    m.globais.push((0, Type::Ref, "dfg.mortal".into()));
-    let global = SlotForte::Global {
-        simbolo: "dfg.mortal".into(),
+    m.globals.push((0, Type::Ref, "dfg.mortal".into()));
+    let global = StrongSlot::Global {
+        symbol: "dfg.mortal".into(),
     };
-    let inteiro = |n| (Operand::Constant(Constant::Int(n)), Type::I64);
-    m.functions.push(funcao(
+    let integer = |n| (Operand::Constant(Constant::Int(n)), Type::I64);
+    m.functions.push(function(
         "produzir_mortal",
         vec![
             (
                 Instruction::CallRuntime {
                     name: "dartforge_alocar".into(),
-                    args: vec![inteiro(0), inteiro(1), inteiro(2)],
+                    args: vec![integer(0), integer(1), integer(2)],
                     ret_ty: Type::Ref,
                 },
                 Type::Ref,
@@ -65,12 +65,12 @@ fn main() -> Result<(), String> {
                 Instruction::ArcStoreStrong {
                     slot: global.clone(),
                     value: Operand::Val(ValueId(1)),
-                    modo: ModoStoreForte::Move,
+                    mode: StrongStoreMode::Move,
                 },
                 Type::Void,
             ),
             (
-                chamada(
+                call(
                     "prova_criar_fraca",
                     vec![(Operand::Val(ValueId(0)), Type::Ref)],
                 ),
@@ -78,34 +78,34 @@ fn main() -> Result<(), String> {
             ),
         ],
     ));
-    m.functions.push(funcao(
+    m.functions.push(function(
         "prova_mortal",
         vec![
             // CallRuntime preserva a fronteira no otimizador HIR. Mesmo se LLVM
             // incorporar o corpo, o fecho do quadro emitido antecede a coleta.
-            (chamada("produzir_mortal", vec![]), Type::Void),
-            (chamada("dartforge_arc_collect", vec![]), Type::Void),
+            (call("produzir_mortal", vec![]), Type::Void),
+            (call("dartforge_arc_collect", vec![]), Type::Void),
             (
-                chamada("prova_conferir_fraca", vec![inteiro(1)]),
+                call("prova_conferir_fraca", vec![integer(1)]),
                 Type::Void,
             ),
             (
                 Instruction::ArcStoreStrong {
                     slot: global,
                     value: Operand::Constant(Constant::Null),
-                    modo: ModoStoreForte::Copy,
+                    mode: StrongStoreMode::Copy,
                 },
                 Type::Void,
             ),
-            (chamada("dartforge_arc_collect", vec![]), Type::Void),
+            (call("dartforge_arc_collect", vec![]), Type::Void),
             (
-                chamada("prova_conferir_fraca", vec![inteiro(0)]),
+                call("prova_conferir_fraca", vec![integer(0)]),
                 Type::Void,
             ),
-            (chamada("prova_fechar_fraca", vec![]), Type::Void),
+            (call("prova_fechar_fraca", vec![]), Type::Void),
         ],
     ));
-    match sabotagem.as_deref() {
+    match sabotage.as_deref() {
         None => {}
         // Controles negativos: um morre cedo, o outro continua vivo.
         Some("sem-owner") => {
@@ -114,14 +114,14 @@ fn main() -> Result<(), String> {
             };
         }
         Some("sem-liberar") => {
-            m.functions[1].blocks[0].instructions[3].1 = chamada("dartforge_arc_collect", vec![]);
+            m.functions[1].blocks[0].instructions[3].1 = call("dartforge_arc_collect", vec![]);
         }
-        Some(outro) => return Err(format!("sabotagem desconhecida: {outro}")),
+        Some(other) => return Err(format!("sabotagem desconhecida: {other}")),
     }
-    dartforge_emit_native::optimize::otimizar(&mut m);
-    let erros = dartforge_emit_native::lower::verificador::verificar(&m);
-    if !erros.is_empty() {
-        return Err(erros.join("\n"));
+    dartforge_emit_native::optimize::optimize(&mut m);
+    let errors = dartforge_emit_native::lower::verifier::verify(&m);
+    if !errors.is_empty() {
+        return Err(errors.join("\n"));
     }
     let mut ir = LlvmEmitter::new(&m).emit_all();
     // A observação permanece fora da HIR: o alvo weak não ganha uma raiz
@@ -162,13 +162,13 @@ define void @prova_fechar_fraca() {
 }
 "#,
     );
-    if let Some(dir) = saida.parent() {
+    if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
+    std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     driver::compile_and_link(
         &ir,
-        &saida,
+        &exit,
         &driver::NativeDriverOptions {
             optimize: true,
             ..Default::default()

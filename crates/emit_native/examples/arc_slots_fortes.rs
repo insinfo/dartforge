@@ -9,28 +9,28 @@ use std::path::PathBuf;
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = args.next().as_deref() != Some("tracing");
-    let variante = args.next();
-    let erro_forcado = match variante.as_deref() {
+    let variant = args.next();
+    let forced_error = match variant.as_deref() {
         Some("retorno-mortal-erro-1") => Some(ValueId(9)),
         Some("retorno-mortal-erro-2") => Some(ValueId(15)),
         Some("retorno-mortal-erro-3") => Some(ValueId(19)),
         _ => None,
     };
     let auto_cleanup =
-        variante.as_deref() == Some("retorno-mortal-auto-cleanup") || erro_forcado.is_some();
-    let sem_cleanup = matches!(
-        variante.as_deref(),
+        variant.as_deref() == Some("retorno-mortal-auto-cleanup") || forced_error.is_some();
+    let without_cleanup = matches!(
+        variant.as_deref(),
         Some(
             "sem-cleanup"
                 | "retorno-sem-cleanup"
                 | "retorno-mortal-sem-cleanup"
                 | "retorno-mortal-auto-cleanup"
         )
-    ) || erro_forcado.is_some();
-    let prova_retorno = matches!(
-        variante.as_deref(),
+    ) || forced_error.is_some();
+    let return_proof = matches!(
+        variant.as_deref(),
         Some(
             "retorno"
                 | "retorno-sem-cleanup"
@@ -38,32 +38,32 @@ fn main() -> Result<(), String> {
                 | "retorno-mortal-sem-cleanup"
                 | "retorno-mortal-auto-cleanup"
         )
-    ) || erro_forcado.is_some();
-    let prova_mortal = matches!(
-        variante.as_deref(),
+    ) || forced_error.is_some();
+    let mortal_proof = matches!(
+        variant.as_deref(),
         Some("retorno-mortal" | "retorno-mortal-sem-cleanup" | "retorno-mortal-auto-cleanup")
-    ) || erro_forcado.is_some();
+    ) || forced_error.is_some();
     let mut m = Module::new();
-    m.memoria_arc = arc;
+    m.arc_memory = arc;
     m.entry_symbol = Some("prova_slots".into());
-    m.globais.push((0, Type::Ref, "dfg.prova".into()));
-    let quadro = SlotForte::Quadro {
-        quadro: Operand::Val(ValueId(0)),
-        indice: 0,
+    m.globals.push((0, Type::Ref, "dfg.prova".into()));
+    let frame = StrongSlot::Quadro {
+        frame: Operand::Val(ValueId(0)),
+        index: 0,
     };
-    let global = SlotForte::Global {
-        simbolo: "dfg.prova".into(),
+    let global = StrongSlot::Global {
+        symbol: "dfg.prova".into(),
     };
-    let valor = |v| Operand::Val(ValueId(v));
-    let chamada = |nome: &str, args, ret_ty| Instruction::CallRuntime {
-        name: nome.into(),
+    let value = |v| Operand::Val(ValueId(v));
+    let call = |name_str: &str, args, ret_ty| Instruction::CallRuntime {
+        name: name_str.into(),
         args,
         ret_ty,
     };
     m.functions.push(Function {
         symbol: "prova_slots".into(),
         name: "prova_slots".into(),
-        depuracao: None,
+        debug_info: None,
         params: vec![],
         return_ty: Type::Void,
         blocks: vec![BasicBlock {
@@ -71,7 +71,7 @@ fn main() -> Result<(), String> {
             instructions: vec![
                 (
                     ValueId(0),
-                    chamada(
+                    call(
                         "dartforge_arc_quadro_abrir_v1",
                         vec![(Operand::Constant(Constant::Int(1)), Type::I64)],
                         Type::I64,
@@ -85,44 +85,44 @@ fn main() -> Result<(), String> {
                 ),
                 (
                     ValueId(2),
-                    Instruction::ArcCopy { value: valor(1) },
+                    Instruction::ArcCopy { value: value(1) },
                     Type::Ref,
                 ),
                 (
                     ValueId(3),
                     Instruction::ArcStoreStrong {
-                        slot: quadro.clone(),
-                        value: valor(2),
-                        modo: ModoStoreForte::Move,
+                        slot: frame.clone(),
+                        value: value(2),
+                        mode: StrongStoreMode::Move,
                     },
                     Type::Void,
                 ),
                 (
                     ValueId(4),
-                    Instruction::ArcLoadStrong { slot: quadro },
+                    Instruction::ArcLoadStrong { slot: frame },
                     Type::Ref,
                 ),
                 (
                     ValueId(5),
                     Instruction::ArcStoreStrong {
                         slot: global.clone(),
-                        value: valor(4),
-                        modo: ModoStoreForte::Move,
+                        value: value(4),
+                        mode: StrongStoreMode::Move,
                     },
                     Type::Void,
                 ),
                 (
                     ValueId(6),
-                    chamada(
+                    call(
                         "dartforge_arc_quadro_fechar_v1",
-                        vec![(valor(0), Type::I64)],
+                        vec![(value(0), Type::I64)],
                         Type::Void,
                     ),
                     Type::Void,
                 ),
                 (
                     ValueId(7),
-                    chamada("dartforge_arc_collect", vec![], Type::Void),
+                    call("dartforge_arc_collect", vec![], Type::Void),
                     Type::Void,
                 ),
                 (
@@ -134,16 +134,16 @@ fn main() -> Result<(), String> {
                 ),
                 (
                     ValueId(9),
-                    chamada(
+                    call(
                         "dartforge_print_handle",
-                        vec![(valor(8), Type::Ref)],
+                        vec![(value(8), Type::Ref)],
                         Type::Void,
                     ),
                     Type::Void,
                 ),
                 (
                     ValueId(10),
-                    Instruction::ArcDrop { value: valor(8) },
+                    Instruction::ArcDrop { value: value(8) },
                     Type::Void,
                 ),
                 (
@@ -156,15 +156,15 @@ fn main() -> Result<(), String> {
                 ),
                 (
                     ValueId(12),
-                    Instruction::ArcCopy { value: valor(11) },
+                    Instruction::ArcCopy { value: value(11) },
                     Type::Ref,
                 ),
                 (
                     ValueId(13),
                     Instruction::ArcStoreStrong {
                         slot: global.clone(),
-                        value: valor(12),
-                        modo: ModoStoreForte::Move,
+                        value: value(12),
+                        mode: StrongStoreMode::Move,
                     },
                     Type::Void,
                 ),
@@ -177,16 +177,16 @@ fn main() -> Result<(), String> {
                 ),
                 (
                     ValueId(15),
-                    chamada(
+                    call(
                         "dartforge_print_handle",
-                        vec![(valor(14), Type::Ref)],
+                        vec![(value(14), Type::Ref)],
                         Type::Void,
                     ),
                     Type::Void,
                 ),
                 (
                     ValueId(16),
-                    Instruction::ArcDrop { value: valor(14) },
+                    Instruction::ArcDrop { value: value(14) },
                     Type::Void,
                 ),
                 (
@@ -194,7 +194,7 @@ fn main() -> Result<(), String> {
                     Instruction::ArcStoreStrong {
                         slot: global.clone(),
                         value: Operand::Constant(Constant::Null),
-                        modo: ModoStoreForte::Copy,
+                        mode: StrongStoreMode::Copy,
                     },
                     Type::Void,
                 ),
@@ -205,116 +205,116 @@ fn main() -> Result<(), String> {
                 ),
                 (
                     ValueId(19),
-                    chamada(
+                    call(
                         "dartforge_print_handle",
-                        vec![(valor(18), Type::Ref)],
+                        vec![(value(18), Type::Ref)],
                         Type::Void,
                     ),
                     Type::Void,
                 ),
                 (
                     ValueId(20),
-                    Instruction::ArcDrop { value: valor(18) },
+                    Instruction::ArcDrop { value: value(18) },
                     Type::Void,
                 ),
             ],
             terminator: Terminator::Return(None),
         }],
     });
-    dartforge_emit_native::optimize::otimizar(&mut m);
-    let mut resumos_dart = Vec::new();
-    if prova_retorno {
-        let mut identidade = Function {
+    dartforge_emit_native::optimize::optimize(&mut m);
+    let mut dart_summaries = Vec::new();
+    if return_proof {
+        let mut identity = Function {
             symbol: "prova_retorno".into(),
             name: "prova_retorno".into(),
-            depuracao: None,
+            debug_info: None,
             params: vec![(ValueId(0), "valor".into(), Type::Ref)],
             return_ty: Type::Ref,
             blocks: vec![BasicBlock {
                 id: BlockId(0),
                 instructions: vec![],
-                terminator: Terminator::Return(Some(valor(0))),
+                terminator: Terminator::Return(Some(value(0))),
             }],
         };
         let mut classes = HashMap::new();
-        let mut plano = PlanoTokens {
-            retorno: RetornoTokens::Owned,
+        let mut plan = TokenPlan {
+            ret: TokenReturn::Owned,
             ..Default::default()
         };
         if !auto_cleanup {
-            let copias = inserir_retencao_retornos_dart(
-                &mut identidade,
+            let copies = insert_dart_return_retention(
+                &mut identity,
                 &mut classes,
-                &mut plano,
-                &TabelasDaFuncao::default(),
-                &PlanoEscopos::default(),
+                &mut plan,
+                &FunctionTables::default(),
+                &ScopePlan::default(),
             )?;
-            if copias != 1 {
+            if copies != 1 {
                 return Err("prova de retorno exige uma retenção inserida".into());
             }
-            resumos_dart.push(verificar_contrato_funcao_dart(
-                &identidade,
+            dart_summaries.push(verify_dart_function_contract(
+                &identity,
                 &classes,
-                &plano,
-                &TabelasDaFuncao::default(),
-                &PlanoEscopos::default(),
+                &plan,
+                &FunctionTables::default(),
+                &ScopePlan::default(),
             )?);
         }
         // A função é acrescentada depois da otimização geral, para conferir
         // a chamada/retorno real sem inlining esconder essa fronteira.
-        m.functions.push(identidade);
+        m.functions.push(identity);
         for (v, inst, _) in &mut m.functions[0].blocks[0].instructions {
             if *v == ValueId(2) {
                 *inst = Instruction::CallStatic {
                     symbol: "prova_retorno".into(),
-                    args: vec![valor(1)],
+                    args: vec![value(1)],
                     ret_ty: Type::Ref,
                 };
             }
         }
     }
-    if prova_mortal {
-        let corpo = &mut m.functions[0].blocks[0].instructions;
-        for (v, inst, _) in corpo.iter_mut() {
+    if mortal_proof {
+        let body = &mut m.functions[0].blocks[0].instructions;
+        for (v, inst, _) in body.iter_mut() {
             if *v == ValueId(1) {
-                *inst = chamada(
+                *inst = call(
                     "dartforge_arc_box_int_owned_v1",
                     vec![(Operand::Constant(Constant::Int(i64::MAX)), Type::I64)],
                     Type::Ref,
                 );
             }
         }
-        let depois_do_store = corpo
+        let after_store = body
             .iter()
             .position(|(v, _, _)| *v == ValueId(3))
             .ok_or("store ausente na prova mortal")?
             + 1;
         // O slot conserva o token devolvido pelo callee; solta a ocorrência
         // inicial da fábrica antes de fechar o quadro e coletar.
-        corpo.insert(
-            depois_do_store,
+        body.insert(
+            after_store,
             (
                 ValueId(100),
-                Instruction::ArcDrop { value: valor(1) },
+                Instruction::ArcDrop { value: value(1) },
                 Type::Void,
             ),
         );
     }
     let f = &mut m.functions[0];
-    let originais = std::mem::take(&mut f.blocks[0].instructions);
+    let originals = std::mem::take(&mut f.blocks[0].instructions);
     f.blocks.clear();
-    let mut corrente = BlockId(0);
-    let mut corpo = Vec::new();
-    let mut proximo = originais.iter().map(|(v, _, _)| v.0).max().unwrap_or(0) + 1;
-    for mut instrucao in originais {
-        if erro_forcado == Some(instrucao.0) {
-            if let Instruction::CallRuntime { name, .. } = &mut instrucao.1 {
+    let mut current = BlockId(0);
+    let mut body = Vec::new();
+    let mut next_item = originals.iter().map(|(v, _, _)| v.0).max().unwrap_or(0) + 1;
+    for mut instruction in originals {
+        if forced_error == Some(instruction.0) {
+            if let Instruction::CallRuntime { name, .. } = &mut instruction.1 {
                 // Substitui a observação por lançamento Ref auditado. O teste
                 // seguinte seleciona o mesmo bloco de cleanup preparado.
                 *name = "dartforge_arc_lancar_ref_v1".into();
             }
         }
-        let impresso = match &instrucao.1 {
+        let printed = match &instruction.1 {
             Instruction::CallRuntime { name, args, .. }
                 if name == "dartforge_print_handle" || name == "dartforge_arc_lancar_ref_v1" =>
             {
@@ -322,17 +322,17 @@ fn main() -> Result<(), String> {
             }
             _ => None,
         };
-        corpo.push(instrucao);
-        if let Some(impresso) = impresso {
-            let p = ValueId(proximo);
-            let c = ValueId(proximo + 1);
-            proximo += 2;
-            corpo.push((
+        body.push(instruction);
+        if let Some(printed) = printed {
+            let p = ValueId(next_item);
+            let c = ValueId(next_item + 1);
+            next_item += 2;
+            body.push((
                 p,
-                chamada("dartforge_exception_pending", vec![], Type::I8),
+                call("dartforge_exception_pending", vec![], Type::I8),
                 Type::I8,
             ));
-            corpo.push((
+            body.push((
                 c,
                 Instruction::ICmp(
                     ICmpOp::Ne,
@@ -341,117 +341,117 @@ fn main() -> Result<(), String> {
                 ),
                 Type::I1,
             ));
-            let erro = BlockId(corrente.0 + 1);
-            let sucesso = BlockId(corrente.0 + 2);
+            let error = BlockId(current.0 + 1);
+            let success = BlockId(current.0 + 2);
             f.blocks.push(BasicBlock {
-                id: corrente,
-                instructions: std::mem::take(&mut corpo),
+                id: current,
+                instructions: std::mem::take(&mut body),
                 terminator: Terminator::CondBranch {
                     cond: Operand::Val(c),
-                    then_block: erro,
-                    else_block: sucesso,
+                    then_block: error,
+                    else_block: success,
                 },
             });
             let mut cleanup = Vec::new();
-            if !sem_cleanup {
+            if !without_cleanup {
                 cleanup.push((
-                    ValueId(proximo),
-                    Instruction::ArcDrop { value: impresso },
+                    ValueId(next_item),
+                    Instruction::ArcDrop { value: printed },
                     Type::Void,
                 ));
-                proximo += 1;
+                next_item += 1;
             }
             cleanup.push((
-                ValueId(proximo),
+                ValueId(next_item),
                 Instruction::ArcStoreStrong {
-                    slot: SlotForte::Global {
-                        simbolo: "dfg.prova".into(),
+                    slot: StrongSlot::Global {
+                        symbol: "dfg.prova".into(),
                     },
                     value: Operand::Constant(Constant::Null),
-                    modo: ModoStoreForte::Copy,
+                    mode: StrongStoreMode::Copy,
                 },
                 Type::Void,
             ));
-            proximo += 1;
-            if erro_forcado.is_some() {
+            next_item += 1;
+            if forced_error.is_some() {
                 cleanup.push((
-                    ValueId(proximo),
-                    chamada("dartforge_exception_clear", vec![], Type::Void),
+                    ValueId(next_item),
+                    call("dartforge_exception_clear", vec![], Type::Void),
                     Type::Void,
                 ));
-                proximo += 1;
+                next_item += 1;
             }
             f.blocks.push(BasicBlock {
-                id: erro,
+                id: error,
                 instructions: cleanup,
                 terminator: Terminator::Return(None),
             });
-            corrente = sucesso;
+            current = success;
         }
     }
     f.blocks.push(BasicBlock {
-        id: corrente,
-        instructions: corpo,
+        id: current,
+        instructions: body,
         terminator: Terminator::Return(None),
     });
     // A caixa de 42 é Smi imediato; o literal permanente é classificado
     // pelo produtor de constantes, sem contrato manual desta prova.
     let mut classes = HashMap::from([(ValueId(11), Ownership::Trivial)]);
-    let mut plano = PlanoTokens::default();
+    let mut plan = TokenPlan::default();
     // A chamada Dart recebe seu contrato do resumo do corpo verificado acima.
     if !auto_cleanup {
-        produzir_chamadas_dart(f, &resumos_dart, &mut classes, &mut plano)?;
+        produce_dart_calls(f, &dart_summaries, &mut classes, &mut plan)?;
     }
-    plano
-        .instrucoes
-        .insert(ValueId(11), EfeitoTokens::default());
+    plan
+        .instructions
+        .insert(ValueId(11), TokenEffect::default());
     if auto_cleanup {
         // Prepara caller e callee juntos: uma retenção no retorno do callee
         // e três drops nas saídas de erro do caller, sem publicar parcialmente.
-        let simbolo = f.symbol.clone();
-        let mut callee = PlanoFuncaoDart::default();
-        callee.tokens.retorno = RetornoTokens::Owned;
-        let mut planos = HashMap::from([
+        let symbol = f.symbol.clone();
+        let mut callee = DartFunctionPlan::default();
+        callee.tokens.ret = TokenReturn::Owned;
+        let mut plans = HashMap::from([
             (
-                simbolo,
-                PlanoFuncaoDart {
+                symbol,
+                DartFunctionPlan {
                     classes,
-                    tokens: plano,
+                    tokens: plan,
                     ..Default::default()
                 },
             ),
             ("prova_retorno".into(), callee),
         ]);
-        let inseridos = inserir_arc_funcoes_dart(&mut m.functions, &mut planos)?;
-        if inseridos != (1, 3) {
+        let inserted = insert_arc_dart_functions(&mut m.functions, &mut plans)?;
+        if inserted != (1, 3) {
             return Err(format!(
-                "preparação esperada (1, 3), encontrada {inseridos:?}"
+                "preparação esperada (1, 3), encontrada {inserted:?}"
             ));
         }
     } else {
-        produzir_e_verificar_tokens(
+        produce_and_verify_tokens(
             f,
             &mut classes,
-            &mut plano,
-            &TabelasDaFuncao::default(),
-            &PlanoEscopos::default(),
+            &mut plan,
+            &FunctionTables::default(),
+            &ScopePlan::default(),
         )?;
     }
-    let erros = dartforge_emit_native::lower::verificador::verificar(&m);
-    if !erros.is_empty() {
-        return Err(erros.join("\n"));
+    let errors = dartforge_emit_native::lower::verifier::verify(&m);
+    if !errors.is_empty() {
+        return Err(errors.join("\n"));
     }
     let mut ir = LlvmEmitter::new(&m).emit_all();
     // Auxiliar de observação do harness, exportado pelo runtime mas fora
     // do catálogo normal usado pelo lowering do SDK.
     ir.push_str("\ndeclare void @dartforge_print_handle(i64)\n");
-    if let Some(dir) = saida.parent() {
+    if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
+    std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     driver::compile_and_link(
         &ir,
-        &saida,
+        &exit,
         &driver::NativeDriverOptions {
             optimize: true,
             ..Default::default()

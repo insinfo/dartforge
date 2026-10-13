@@ -12,28 +12,28 @@ use std::{
     path::{Path, PathBuf},
 };
 
-fn modulo(entrada: &Path) -> Result<Module, String> {
+fn module(entry: &Path) -> Result<Module, String> {
     std::fs::write(
-        entrada,
+        entry,
         "Object? identidade(Object? valor) => valor;\nObject? repassar(Object? valor) => identidade(identidade(valor));\nvoid main() {}\n",
     )
     .map_err(|e| e.to_string())?;
     let lib = std::env::var_os("DARTFORGE_SDK_LIB").ok_or("defina DARTFORGE_SDK_LIB")?;
-    let sdk = dartforge_emit_native::sdk_modulo::carregar_sdk_nativo(Path::new(&lib))?;
+    let sdk = dartforge_emit_native::sdk_modulo::load_native_sdk(Path::new(&lib))?;
     let mut interner = Interner::new();
-    let (programa, diags) =
-        dartforge_elements::load::load_lenient(entrada, &sdk, None, &mut interner);
+    let (program, diags) =
+        dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
     if !diags.is_empty() {
         return Err(format!("carga: {diags:?}"));
     }
-    let mut tipos = TypeTable::new();
-    let core = CoreTypes::init(&mut tipos, &programa, &interner);
+    let mut types = TypeTable::new();
+    let core = CoreTypes::init(&mut types, &program, &interner);
     let (mut outline, diags) =
-        dartforge_types::resolve_outline(&programa, &interner, &mut tipos, &core);
-    let (corpos, diags_corpos) = dartforge_types::infer_program_bodies(
-        &programa,
+        dartforge_types::resolve_outline(&program, &interner, &mut types, &core);
+    let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(
+        &program,
         &interner,
-        &mut tipos,
+        &mut types,
         &core,
         &mut outline,
     );
@@ -42,20 +42,20 @@ fn modulo(entrada: &Path) -> Result<Module, String> {
             return Err(format!("tipagem: {d:?}"));
         }
     }
-    let te = dartforge_emit_native::apagamento::calcular(&programa, &outline, &mut tipos);
-    let mut ctx = Context::new(&programa, &interner, &tipos, &core, &outline, &corpos);
+    let te = dartforge_emit_native::erasure::compute(&program, &outline, &mut types);
+    let mut ctx = Context::new(&program, &interner, &types, &core, &outline, &bodies);
     ctx.te = te;
-    ctx.memoria_arc = true;
+    ctx.arc_memory = true;
     // O modo de depuração preserva as fronteiras das chamadas no inliner;
     // assim a prova exercita o token intermediário em vez de só o corpo copiado.
-    ctx.ligar_depuracao();
-    let fonte = dartforge_emit_native::lower::lower_program(&ctx);
-    let f = fonte
+    ctx.link_debug();
+    let source = dartforge_emit_native::lower::lower_program(&ctx);
+    let f = source
         .functions
         .iter()
         .find(|f| f.name == "repassar")
         .ok_or("corpo ausente")?;
-    if !fonte.retornos_ref_dart.contains(&f.symbol)
+    if !source.dart_ref_returns.contains(&f.symbol)
         || f.params.len() != 1
         || f.params[0].2 != Type::Ref
     {
@@ -65,41 +65,41 @@ fn modulo(entrada: &Path) -> Result<Module, String> {
     // sustenta o argumento; o produtor deve entregar outro token ao retorno
     // e liberar o token da primeira chamada, usado como argumento na segunda.
     let mut m = Module::new();
-    m.memoria_arc = true;
-    m.modo_sdk = true;
-    m.biblioteca_sdk = true;
-    for corpo in fonte
+    m.arc_memory = true;
+    m.sdk_mode = true;
+    m.sdk_library = true;
+    for body in source
         .functions
         .iter()
         .filter(|f| matches!(f.name.as_str(), "identidade" | "repassar"))
     {
-        m.functions.push(corpo.clone());
-        if fonte.retornos_ref_dart.contains(&corpo.symbol) {
-            m.retornos_ref_dart.insert(corpo.symbol.clone());
+        m.functions.push(body.clone());
+        if source.dart_ref_returns.contains(&body.symbol) {
+            m.dart_ref_returns.insert(body.symbol.clone());
         }
     }
-    optimize::otimizar(&mut m);
+    optimize::optimize(&mut m);
     optimize::excecoes_por_tabelas(&mut m);
-    let mut planos: HashMap<_, _> = m
+    let mut plans: HashMap<_, _> = m
         .functions
         .iter()
-        .map(|f| (f.symbol.clone(), PlanoFuncaoDart::default()))
+        .map(|f| (f.symbol.clone(), DartFunctionPlan::default()))
         .collect();
-    let produzido = preparar_arc_modulo_tabelado(&mut m, &mut planos)?;
-    if produzido.0 == 0 || produzido.1 == 0 {
+    let produced = prepare_arc_tabled_module(&mut m, &mut plans)?;
+    if produced.0 == 0 || produced.1 == 0 {
         return Err(format!(
-            "retenção/cleanup da cadeia não produzidos: {produzido:?}"
+            "retenção/cleanup da cadeia não produzidos: {produced:?}"
         ));
     }
-    let antes = format!("{m:?}/{planos:?}");
-    if preparar_arc_modulo_tabelado(&mut m, &mut planos)? != (0, 0)
-        || format!("{m:?}/{planos:?}") != antes
+    let before = format!("{m:?}/{plans:?}");
+    if prepare_arc_tabled_module(&mut m, &mut plans)? != (0, 0)
+        || format!("{m:?}/{plans:?}") != before
     {
         return Err("preparação não idempotente".into());
     }
-    let erros = dartforge_emit_native::lower::verificador::verificar(&m);
-    if !erros.is_empty() {
-        return Err(erros.join("\n"));
+    let errors = dartforge_emit_native::lower::verifier::verify(&m);
+    if !errors.is_empty() {
+        return Err(errors.join("\n"));
     }
     Ok(m)
 }
@@ -107,32 +107,32 @@ fn modulo(entrada: &Path) -> Result<Module, String> {
 fn main() -> Result<(), String> {
     std::thread::Builder::new()
         .stack_size(64 << 20)
-        .spawn(provar)
+        .spawn(prove)
         .map_err(|e| e.to_string())?
         .join()
         .map_err(|_| "prova entrou em panic".to_string())?
 }
 
-fn provar() -> Result<(), String> {
+fn prove() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let saida = PathBuf::from(args.next().ok_or("informe o executável")?);
+    let exit = PathBuf::from(args.next().ok_or("informe o executável")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(outro) => return Err(format!("modo desconhecido: {outro}")),
+        Some(other) => return Err(format!("modo desconhecido: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(outro) => return Err(format!("nível desconhecido: {outro}")),
+        Some(other) => return Err(format!("nível desconhecido: {other}")),
     };
-    if let Some(dir) = saida.parent() {
+    if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let mut m = modulo(&saida.with_extension("dart"))?;
+    let mut m = module(&exit.with_extension("dart"))?;
     // Tracing compara o mesmo protocolo explícito de tokens neste harness.
-    m.memoria_arc = arc;
-    let simbolo = m
+    m.arc_memory = arc;
+    let symbol = m
         .functions
         .iter()
         .find(|f| f.name == "repassar")
@@ -173,20 +173,20 @@ passou:
 }
 "#,
     );
-    ir = ir.replace("SIMBOLO_FONTE", &simbolo);
+    ir = ir.replace("SIMBOLO_FONTE", &symbol);
     ir.push_str("\ndefine void @dartforge_entry() {\n");
     if arc {
         ir.push_str("  call void @dartforge_memoria_arc_v1()\n");
     }
     ir.push_str("  call void @prova_retorno_da_fonte()\n  ret void\n}\n");
     ir.push_str("define i64 @dartforge_dispatch_toString(i64 %obj) {\n  ret i64 0\n}\n");
-    if let Some(controle) = args.next() {
-        let alvo = match controle.as_str() {
+    if let Some(control) = args.next() {
+        let alvo = match control.as_str() {
             "sem-retencao" => "  call void @dartforge_arc_retain(i64 %v0)\n".to_string(),
             "sem-drop-retorno" => "  call void @dartforge_arc_release(i64 %retorno)\n".to_string(),
             "sem-drop-intermediario" => {
-                let corpo = m.functions.iter().find(|f| f.name == "repassar").unwrap();
-                let drops: Vec<_> = corpo
+                let body = m.functions.iter().find(|f| f.name == "repassar").unwrap();
+                let drops: Vec<_> = body
                     .blocks
                     .iter()
                     .flat_map(|b| &b.instructions)
@@ -206,17 +206,17 @@ passou:
                 }
                 format!("  call void @dartforge_arc_release(i64 %v{})\n", drops[0].0)
             }
-            _ => return Err(format!("controle desconhecido: {controle}")),
+            _ => return Err(format!("controle desconhecido: {control}")),
         };
         if ir.matches(&alvo).count() != 1 {
             return Err("controle sem alvo único".into());
         }
         ir = ir.replace(&alvo, "");
     }
-    std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
+    std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     driver::compile_and_link(
         &ir,
-        &saida,
+        &exit,
         &driver::NativeDriverOptions {
             optimize,
             ..Default::default()
