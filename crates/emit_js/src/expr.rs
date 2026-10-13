@@ -318,7 +318,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Static type the common inference recorded for `e`, as a `Ty`, if it can
     /// be reified here (see [`Self::ty_comum_em_escopo`]).
-    pub fn tipo_comum(&self, e: ExprId) -> Option<Ty> {
+    pub fn common_type(&self, e: ExprId) -> Option<Ty> {
         if e.0 == u32::MAX {
             return None;
         }
@@ -372,7 +372,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if e.0 == u32::MAX || self.ctx.e_alvo_de_escrita(self.unit, e) {
             return ty;
         }
-        match self.tipo_comum(e) {
+        match self.common_type(e) {
             Some(c) if !c.is_dynamic() && c != ty && self.ctx.is_subtype(&c, &ty) => c,
             _ => ty,
         }
@@ -646,11 +646,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 (js.paren(), ty)
             }
             ExprKind::List { const_, type_args, elements } => {
-                let common = if type_args.is_empty() { self.tipo_comum(e) } else { None };
+                let common = if type_args.is_empty() { self.common_type(e) } else { None };
                 self.emit_list_literal(*const_, type_args, elements, expected, common.as_ref())
             }
             ExprKind::SetOrMap { const_, type_args, elements } => {
-                let common = if type_args.is_empty() { self.tipo_comum(e) } else { None };
+                let common = if type_args.is_empty() { self.common_type(e) } else { None };
                 self.emit_set_or_map(*const_, type_args, elements, expected, common.as_ref())
             }
             ExprKind::Record { positional, named, const_ } if *const_ && positional.len() == 1 && named.is_empty() => {
@@ -1650,7 +1650,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 // not the target of a compound write (whose read type stays on
                 // the assignment node), so as not to swap a type for `dynamic`.
                 let ty = match self.resolucao_comum(e) {
-                    Some(Resolved::Local(_) | Resolved::Parameter { .. }) if !self.ctx.e_alvo_de_escrita(self.unit, e) => self.tipo_comum(e).unwrap_or(ty),
+                    Some(Resolved::Local(_) | Resolved::Parameter { .. }) if !self.ctx.e_alvo_de_escrita(self.unit, e) => self.common_type(e).unwrap_or(ty),
                     _ => ty,
                 };
                 if let Some(l) = self.lookup_local(sym).cloned() {
