@@ -1040,3 +1040,165 @@ e o e2e 15/15; `new_sali` carrega no Chrome sem erro, com a mesma página do
 4. Os itens pequenos da §10.9 (nomes de variável de tipo curtos, regras
    compactadas) e o `addRtiResources(C, ["|x"])` de um item só (~2 KB por
    programa pequeno, pede mudar a função do runtime).
+
+## 12. Rodada de 2026-10-13, fim da manhã (macOS): o piso do runtime de verdade
+
+Medido antes de mexer (o binário do fim da §11): `void main() { print('hi'); }`
+saía com **84.695 bytes**, contra **5.076** do `dart2js -O4`. O piso não era o
+`dart:_rti` sozinho: o mundo mantinha o caminho inteiro do `noSuchMethod`
+(`InvocationImpl`, `Map.fromIterable`, as classes de mapa), as expressões
+regulares e seus iteradores, por três ou quatro chamadas dinâmicas do
+runtime. Num corpus de 241 programas isso é 80 KB × 241. Cada passo foi
+medido sozinho (bruto e gzip, corpus, `01_print`, `limitless_ui`, `new_sali`)
+e validado com o corpus diferencial 241/241 nos dois perfis.
+
+### 12.1 Chamada com argumento de parâmetro sem uso (`inline.rs`)
+
+O `checkBinding(old, new, expression, location)` do ngdart só compara os dois
+primeiros em produção, mas recebia a *string* da expressão e a localização em
+3.370 chamadas do `limitless_ui`. O *inline* recusava a função porque os
+parâmetros opcionais têm valor padrão (`n = null`). Agora um parâmetro que o
+corpo não lê pode ter valor padrão e pode faltar na chamada; o argumento dele
+precisa ser nome, literal ou `this` (some junto). Argumento que é leitura de
+propriedade deixou de ser descartado (um *getter* pode rodar ou lançar), e o
+nome livre `arguments` é recusado. `limitless_ui` −78 KB brutos, −22 KB gzip;
+`new_sali` −79 KB e −22 KB.
+
+### 12.2 `x++` com valor descartado vira `++x` (`emit_js`)
+
+Instrução de expressão e atualização de `for` não precisam do valor antigo: o
+temporário (`t$0 = i, i = t$0 + 1, t$0`) some, e com ele o `let t$0`. Corpus
+−131 KB brutos e −105 KB gzip (afeta os dois perfis).
+
+### 12.3 Constantes de enum uma a uma (`world`, `module.rs`)
+
+O enum referenciado criava todas as constantes. Agora cada constante nasce
+quando é lida, e todas quando o `values` sintético está vivo; o emissor deixa
+de fora o *getter* preguiçoso das mortas e do `values`. `new_sali` −34 KB
+brutos, −12 KB gzip; `limitless_ui` −2,4 KB.
+
+### 12.4 Promoção dos dois lados de `a && b` (`expr.rs`)
+
+As promoções do operando direito eram descartadas: em `if (t != '' && m !=
+null) m(t)`, `m` continuava anulável e uma chamada por *typedef* antigo
+(`typedef String M(String s)`) virava `dart.dcall`. As promoções negadas de
+`a && b` agora são apagadas (um `&&` falso não diz nada de cada lado). Era o
+`dcall` do `_StackTrace.toString` do runtime.
+
+### 12.5 Remendos do SDK de produção (`emit_js/src/sdk_patches.rs`)
+
+O perfil de produção compila o SDK; três funções do runtime do DDC usavam
+receptor `dynamic` e mantinham vivos `dart.dload`/`dsend`, e com eles o
+`noSuchMethod` inteiro:
+
+* `diagnoseIndexError(indexable, index)` lia `indexable.length`: todo chamador
+  passa um indexável do JavaScript, cujo `length` é o do Dart;
+* `stringContainsUnchecked` chamava `other.allMatches(...)`: `other` é o
+  `Pattern` de `String.contains`;
+* `JSNoSuchMethodError` (a extensão do `TypeError`, viva em todo programa)
+  montava a mensagem com quatro `RegExp` estáticas e cortava a pilha com
+  `String.split`: agora roda as mesmas expressões do JavaScript
+  (`new RegExp(fonte).exec(mensagem)`, que é o que o `firstMatch` faz) e o
+  `split` do JavaScript. As mensagens são as mesmas (conferido com
+  `js_util.callMethod` sobre valor que não é função e sobre `undefined`).
+
+Os arquivos remendados entram pela sobreposição do `SdkLayout` (o conteúdo
+troca, o caminho fica), escritos uma vez por conteúdo em
+`target/dartforge/js-sdk-patches/`; a chave do cache do SDK cobre o
+conteúdo. Remendo cujo texto não aparece (outro SDK) é pulado.
+`DARTFORGE_JSPROD_SDK_PATCHES=0` desliga. `print('hi')`: 84,7 → 52,0 KB;
+corpus 23,24 → 17,06 MB.
+
+### 12.6 O verificador e os nomes de *template*
+
+* O leitor de seletores do verificador (`text_selectors`) não pulava
+  comentários: o apóstrofo de `// there's no guarantee…` num *template*
+  `JS()` abria uma *string* até a próxima aspa, e os usos no meio sumiam.
+  Apareceu quando o `_bind` do rti deixou de estar vivo por outro caminho
+  (o `Future.then` quebrava com `[_bind] is not a function`).
+* Nome privado usado pelo símbolo do prelúdio (`x[_bind]` com
+  `privateName(dart_rti, "_bind")`) revive o membro daquela biblioteca mesmo
+  que o mesmo nome esteja restrito a outro cone.
+* Um nome escrito num *template* `JS()` (`#.split(#)`) é propriedade do
+  JavaScript com chave *string*: não alcança os membros das classes nativas
+  que o emissor chaveia por símbolo `dartx` ou privado (`JSString`, `JSArray`,
+  *typed data*, DOM). O mundo registra esses nomes à parte
+  (`Engine::new_template_selector`), e o verificador só revive membro dessas
+  classes por uso simbólico (`[$nome]`, símbolo privado, nome de
+  `dsend`/`dload`).
+
+### 12.7 Regras rti e recursos do programa em uma chamada (`rti_rules.rs`)
+
+* Cada biblioteca registrava as regras das suas classes no seu `JSON.parse`,
+  repetindo as das classes que compartilham (as *views* e diretivas do
+  ngdart) e comprimindo em separado: 179 chamadas no `limitless_ui`. O
+  `addRules` é um `Object.assign` nas regras do universo, e carregar uma
+  biblioteca não testa tipo; uma chamada só, no lugar da última, com o valor
+  mais tardio de cada chave, deixa as mesmas regras antes do `main`. Chave
+  tocada por `addOrUpdateRules` do programa mantém tudo como está.
+  `limitless_ui` −36 KB brutos, −8,7 KB gzip. `DARTFORGE_JSPROD_MERGE_RULES=0`
+  desliga.
+* A partir de 32 instruções, os `dart.addRtiResources(L$lib.C, [...])` do
+  programa viram uma chamada sobre uma lista plana (`C, "|a", D, ["|b",
+  "|c"]`), no lugar da última. Classe que o `applyMixin` ou o
+  `registerExtension` recebe fica onde está: eles copiam as marcas na carga
+  (com o limiar em 2 o corpus mostrou três programas de *mixin* quebrados
+  antes dessa exceção, e 241/241 depois). Abaixo de 32 o laço custa mais do
+  que economiza. `limitless_ui` −8,6 KB e −3,7 KB gzip; `new_sali` −18,7 KB e
+  −7,5 KB. `DARTFORGE_JSPROD_BATCH_RESOURCES=0` desliga.
+
+### 12.8 Resultado
+
+Corpus (240 programas com saída do `dart2js -O4`; o 229 é negativo):
+
+| | bruto | gzip -9 | mediana nosso/`dart2js` (bruto, gzip) |
+| --- | ---: | ---: | ---: |
+| §11.6 | 23.372.702 | 7.586.457 | 2,35×, 2,34× |
+| agora | **17.061.534** (−27%) | **5.664.590** (−25%) | **1,64×, 1,72×** |
+| `dart2js -O4` | 9.760.610 | 3.167.516 | |
+
+| alvo | §11.6 | agora | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| `print('hi')` | 84.695 | **52.007** | 5.076 |
+| `01_print` | 85.454 (gz 28.047) | **60.113** (gz 20.207) | 34.926 (gz 11.543) |
+| `120_convert_json` | 167.191 | **159.246** | 58.550 |
+| `135_convert_json_classes` | 232.822 | **227.638** | 101.193 |
+| `limitless_ui/example` | 3.857.125 (gz 1.136.355) | **3.726.961** (gz 1.099.111) | 3.708.482 (gz 983.819) |
+| `new_sali/frontend` | 8.024.157 (gz 2.242.506) | **7.854.243** (gz 2.188.550) | 7.616.042 (gz 2.018.951) |
+
+Os projetos ficaram a 1,005× (`limitless_ui`) e 1,03× (`new_sali`) do
+`dart2js` no bruto; no gzip, 1,12× e 1,08×.
+
+Validação: corpus diferencial 241/241 em desenvolvimento e produção depois de
+cada passo; `limitless_ui` com o e2e 15/15 e as 47 rotas sem erro nos dois
+perfis; `new_sali` carrega no Chrome sem erro.
+
+Medidos e descartados nesta rodada:
+
+* o lote dos `addRtiResources` sem limiar: o corpus crescia 5 KB brutos e
+  3 KB gzip (o laço em todo programa pequeno);
+* tirar o `dart.fn` das *closures* e as assinaturas de método só com uma
+  regra de mundo grossa: o `allowInterop` do DDC exige o rti anexado
+  (`isDartFunction`), e o `toString` de uma *closure* mostra o tipo, então
+  qualquer função que chegue a `Object` precisa dele; a regra pede análise de
+  fluxo de valores de função, que não coube.
+
+### 12.9 O que falta, por ganho esperado
+
+1. **Nomes dos campos `late`** (contrato): o `dart.lateFields(proto, {chave:
+   "nome"…})` das *views* custa 95 KB brutos no `limitless_ui` (645 chamadas);
+   tirar os nomes economiza ~64 KB brutos e ~19 KB gzip. O `dart2js -O2` já
+   faz isso (`omitLateNames`, `options.dart:1097-1100`), mas a mensagem do
+   `LateInitializationError` muda: decisão do dono.
+2. **O piso que sobra** (`print('hi')` 52 KB): é quase todo `dart:_rti`
+   (`_Universe` 21 KB, `_Parser` 15 KB não minificados), vivo porque o
+   *bootstrap* avalia receitas e regras na carga e o `Object.toString` chega
+   ao `_rtiToString`. Os operadores das classes nativas (`JSNumber` inteiro)
+   ficam vivos pela regra "operador é sempre vivo" do mundo; cortá-los pede
+   registrar os seletores de operador das chamadas dinâmicas (`dsend`,
+   `dindex`).
+3. Assinaturas de método e o `dart.fn` das *closures* (§11.7, item 1), com a
+   análise de fluxo de função descrita acima (~14 KB gzip de assinaturas no
+   `limitless_ui`).
+4. O `polyfill` do DOM (2,7 KB não minificados) em todo programa, mesmo sem
+   `dart:html`.
