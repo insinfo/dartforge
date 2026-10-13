@@ -124,11 +124,11 @@ mod tests {
         assert_eq!(classify(&vm, &s("1\n", "", 0), false).0, State::Supported);
         assert_eq!(classify(&vm, &s("2\n", "", 0), false), (State::Divergent, "stdout linha 1".into()));
         assert_eq!(classify(&vm, &s("1\n", "", 255), true).1, "PENDENTES; código de saída 255 (referência 0)");
-        let rejection = s("", "[compile-native] não suportado no backend nativo: X\ndetalhe", 1);
+        let rejection = s("", "[compile-native] não suportado no backend nativo: X\ndetail", 1);
         assert_eq!(classify(&vm, &rejection, false), (State::Rejected, "[compile-native] não suportado no backend nativo: X".into()));
         // The VM rejects it too (library missing on the platform): equal.
         let vm_rejection = s("", "main.dart:1:8: Error: Dart library 'dart:js' is not available", 254);
-        let forge_rejection = s("", "[compile-native] biblioteca indisponível", 254);
+        let forge_rejection = s("", "[compile-native] library unavailable", 254);
         assert_eq!(classify(&vm_rejection, &forge_rejection, false), (State::Rejected, "como a referência".into()));
         assert_eq!(classify(&Output::error("dart missing"), &vm, false).0, State::NotMeasured);
     }

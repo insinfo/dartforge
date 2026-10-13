@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn diverge_header() {
-        assert_eq!(read_diverge_ddc("// diverge-ddc: int de 64 bits\nvoid main() {}"), Some("int de 64 bits".into()));
+        assert_eq!(read_diverge_ddc("// diverge-ddc: 64-bit int\nvoid main() {}"), Some("64-bit int".into()));
         assert_eq!(read_diverge_ddc("void main() {}"), None);
     }
 
