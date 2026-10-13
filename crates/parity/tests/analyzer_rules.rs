@@ -433,6 +433,21 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
             ("for_in_of_invalid_element_type", 22, 32, 2),
         ],
     ),
+    // `"$"`: the scanner's synthetic identifier is interpolated, and in a
+    // constant it is not a constant (2026-10-13).
+    (
+        "cifrao_sozinho.dart",
+        "class A {\n  final String str;\n  const A(this.str);\n}\nconst d = const A(\"$\");\nvoid f() {\n  var x = \"a$\";\n  var y = 'b$ c';\n  print([x, y, \"$\"]);\n  const z = \"q$\";\n  print(z);\n}\n",
+        &[
+            ("invalid_constant", 5, 21, 0),
+            ("missing_identifier", 5, 21, 1),
+            ("missing_identifier", 7, 14, 1),
+            ("missing_identifier", 8, 14, 1),
+            ("missing_identifier", 9, 18, 1),
+            ("const_initialized_with_non_constant_value", 10, 16, 0),
+            ("missing_identifier", 10, 16, 1),
+        ],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",

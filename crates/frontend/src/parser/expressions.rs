@@ -2145,11 +2145,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             let expr = match previous {
                 // `$` without a name (the lexer goes on with the next piece):
                 // `MISSING_IDENTIFIER` at the first character after the `$`, with length 1,
-                // and no interpolation.
+                // and the interpolation of the scanner's synthetic identifier, empty, at
+                // that position (`"$"` in a constant is `INVALID_CONSTANT` there).
                 Interp::Ident if !self.at_identifier() => {
                     let s = self.span().start;
                     self.error_at(codes::scanner::MISSING_IDENTIFIER, Span { start: s, end: s + 1 }, &[]);
-                    None
+                    let at = Span { start: s, end: s };
+                    let name = self.name_from("", at);
+                    Some(self.ast.push_expr(Expr { span: at, kind: ExprKind::Identifier(name) }))
                 }
                 Interp::Ident => {
                     let start = self.span();
