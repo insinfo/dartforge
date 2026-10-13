@@ -26,6 +26,51 @@ Resta: promoção precoce do coletor (árvores 2,1× o Dart; 10% das coletas sã
 completas), cabeçalho de 16 bytes (lista ligada 4,8×), `[]=` covariante por
 faixa de ids, mapa de `String` e interpolação.
 
+## Migração para o inglês: concluída no código Rust (2026-10-13)
+
+Fases 1–3c (crates, pastas, identificadores, mensagens, ABI do runtime,
+catálogos, opções da CLI, variáveis `DARTFORGE_*`, features do Cargo,
+scripts, workflows, protocolos `dfexec`/recarga e formatos em disco), sem
+aliases para os nomes antigos. O mapa antigo → novo está em
+`docs/GLOSSARIO-PT-EN.md` (seções por fase; "Interface com usuário e CI
+(fase 3c)" tem as 73 opções, as 127 variáveis e os 57 scripts). Exemplos:
+features `native`/`native-generators`/`embedded-llvm`; `--memory`,
+`--exceptions check|tables`, `--roots shadow|maps`, `--stack-trace
+symbolic|none`, `--debug`, `dartforge pack`; `dartforge-parity scoreboard
+--details --workers 8`; `scripts/native-corpus.sh`, `scripts/prove-arc-aot.py`;
+workflows `heavy.yml`, `no-toolchain.yml`, `debug.yml`, `pub-scoreboard.yml`;
+`crates/analysis/verified.txt`. Os comandos citados nas seções antigas deste
+arquivo usam os nomes de antes. Falta a fase 4: APIs dos pacotes Dart
+(`packages/`, `native_sdk/`), nomes do corpus e de `tools/`, README.
+
+Validação da 3c num snapshot limpo: `cargo test --workspace` 2.109 (1 falha
+conhecida, `produces_object_and_bitcode`); corpus nativo 125 + `33` em tracing,
+prepared, arc e efeitos `check`; JS 241/241 nos dois perfis; differential
+nativo 241/241 em A0, A1, B0, B1 e ARC; `dart:io` 130/130; JIT × AOT 241/241;
+determinismo idêntico com 1, 4 e 8 workers; placar 22.997, FP 0; formatador
+43.000/43.000 (corpus maior com o pub-cache baixado). Achou duas regressões do
+JS de produção (`corpus/moderno/330_atalhos_ponto` e o teste ignorado
+`identity::no_filter_and_all_live_emit_the_same_text`), em correção.
+
+## Analisador (rodada de 2026-10-13, tarde, macOS)
+
+Placar 22.975 → **23.001/23.012** (FP 0, posição errada 0, mensagem errada
+9 → 5, FN 37 → 11); pub-cache (209 pacotes) FN 29 → **6** com FP 0 e mensagem
+errada 0; projetos reais FP 0. Parser: `void` e tipos sem nome nas cláusulas
+(`expected_type_name`, `expected_named_type`), `this.` sem nome, recuperação de
+`required`, `var_and_type` e `function_typed_parameter_var`. Inferência:
+anotações de membro no escopo da classe, código morto após `${throw}` e após
+`for(;;)` em elemento de coleção, captura em closure por declaração, variância
+declarada, tipo de criação sem construtor (com alias), `[] =` ambíguo entre
+extensões. `deprecated_member_use` cobre nomes de anotação, referências `[…]`
+de documentação e inicializadores de campo. `methods_without_combined_signature`
+deixou de ser quadrático no número de bibliotecas. Restam recursos
+3.13/augmentations, valor padrão em tipo de função, exibição de
+`Null?`/`Never Function(Never)`/`Comparable<Object?>` e membros de extensão
+em referências de documentação (`docs/ANALISADOR-PARIDADE-PLANO.md` §10).
+Desempenho no `new_sali/backend`: ~12 s de CPU contra 21,7 s do `dart analyze`
+frio e 2,6 s com cache; próximo ponto quente `UnitBodyTypes::new` (quadrático).
+
 ## Analisador (rodada de 2026-10-13, macOS)
 
 | medida | antes | depois |
