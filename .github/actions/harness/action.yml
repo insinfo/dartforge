@@ -39,7 +39,7 @@ inputs:
     description: Regex the report must contain to count as a valid report
     default: '^DartForge '
   sdk-313:
-    description: Also install the 3.13.4 oracle SDK (corpus/moderno)
+    description: Also install the 3.13.4 oracle SDK (corpus/modern)
     default: 'false'
   pub-get:
     description: Directory whose subdirectories with pubspec.lock get `dart pub get --enforce-lockfile` before the harness (corpus/macros)

@@ -545,7 +545,7 @@ byte. Não muda nome nenhum, então nenhuma fuga da §3.2 entra em jogo. Medido
 | runtime inteiro (`--no-prune`) | 7.089.142 → 6.264.543 (−11,6%) | 838.855 → 786.993 (−6,2%) |
 
 Mesma saída no Node com e sem compactação; o runtime inteiro compactado
-passa no `node --check` e executa; `corpus/js` 229/229 e `corpus/moderno`
+passa no `node --check` e executa; `corpus/js` 229/229 e `corpus/modern`
 22/26 (+4 pendentes) no perfil de produção com ela ligada, e o
 `determinism --production` idêntico com 1, 4 e 8 trabalhadores.
 

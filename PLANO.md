@@ -1698,7 +1698,7 @@ Registrados para não se perderem; nenhum entra antes das suas pré-condições.
   **Feito (2026-09-23), P0–P5 do plano "Dart 3.7–3.13 e macros"**: contrato
   em `docs/VERSOES-LINGUAGEM.md` (com as decisões D1–D9); versão por
   biblioteca resolvida na carga (`LibraryFeatures`, corrente 3.13, `dart:*`
-  no piso); harness e CI com os SDKs 3.6.2 e 3.13.4 e o `corpus/moderno`;
+  no piso); harness e CI com os SDKs 3.6.2 e 3.13.4 e o `corpus/modern`;
   curingas, null-aware, nomeados privados, atalhos de ponto e construtores
   primários (elaborados no parser em construtor comum, como previsto) — os
   números estão no ESTADO §1.1.1. Ao contrário do previsto acima, o `emit_js`

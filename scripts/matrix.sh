@@ -46,7 +46,7 @@ rodar() {
 
 if [ "$JS" = 1 ]; then
     rodar js --production --jobs 4
-    rodar moderno --corpus corpus/moderno --production
+    rodar moderno --corpus corpus/modern --production
 fi
 if [ "$NATIVO" = 1 ]; then
     for c in js nativo; do

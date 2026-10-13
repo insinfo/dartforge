@@ -49,7 +49,7 @@ prepared, arc e efeitos `check`; JS 241/241 nos dois perfis; differential
 nativo 241/241 em A0, A1, B0, B1 e ARC; `dart:io` 130/130; JIT × AOT 241/241;
 determinismo idêntico com 1, 4 e 8 workers; placar 22.997, FP 0; formatador
 43.000/43.000 (corpus maior com o pub-cache baixado). Achou duas regressões do
-JS de produção (`corpus/moderno/330_atalhos_ponto` e o teste ignorado
+JS de produção (`corpus/modern/330_atalhos_ponto` e o teste ignorado
 `identity::no_filter_and_all_live_emit_the_same_text`), em correção.
 
 ## Analisador (rodada de 2026-10-13, tarde, macOS)
@@ -5822,7 +5822,7 @@ commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
   * SDK: 18 diagnósticos, todos legítimos;
   * corpus da especificação: 83/95.
 * **Paridade do analisador A1–A2** (6109201): saída no formato do `dart analyze`, tabela dos 1.030 códigos do analyzer 6.11, placar sobre 9.441 arquivos, regra de publicação.
-* **Dart moderno P0–P5** (0acdf61): versões de linguagem 3.7–3.13 por biblioteca; dois SDKs de oráculo; `corpus/moderno` 22/26.
+* **Dart moderno P0–P5** (0acdf61): versões de linguagem 3.7–3.13 por biblioteca; dois SDKs de oráculo; `corpus/modern` 22/26.
 * **Nativo com async, RTI e `super` em mixin**: corpus nativo **91/223**, e o JIT também 91/223, sem divergência.
 * **Portão de custo zero**: razões pareadas, confirmação em segunda passada, média com duas casas decimais e tolerância de 10% (decisão do proprietário).
 * **`crates/runtime/README.md`**: o que falta no coletor de lixo.
@@ -5860,7 +5860,7 @@ commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
 6. **JIT**: acompanha o nativo (mesmo IR). Hot reload R1+ segue `docs/` (ORCv2, sessão persistente).
 7. **Produção JS**: segue a pesquisa de otimização (`docs/PESQUISA-OTIMIZACAO.md`).
 8. **Coletor de lixo**: os 9 itens de `crates/runtime/README.md`.
-9. **Dart moderno**: `corpus/moderno` 26/26 (JS04 fechou 347 e 350–352); `PENDENTES` vazio.
+9. **Dart moderno**: `corpus/modern` 26/26 (JS04 fechou 347 e 350–352); `PENDENTES` vazio.
 
 ### Ambiente e máquina
 
@@ -5932,7 +5932,7 @@ corrente, **3.13**), resolvida uma vez no carregamento e consultada como bits
 oráculo** (3.6.2 e 3.13.4, cada um com o seu `dartdevc` e o seu
 `dart_sdk.js`); os programas dizem a versão que exigem (`// requer-dart:`).
 
-| recurso | versão | `corpus/moderno` (VM e DDC 3.13.4; dev e produção) |
+| recurso | versão | `corpus/modern` (VM e DDC 3.13.4; dev e produção) |
 | --- | --- | --- |
 | curingas `_` | 3.7 | 300–303 passam (1 negativo; `// @dart=3.6` volta a ligar `_`) |
 | elementos null-aware | 3.8 | 310–311 passam (1 negativo); chave nula não avalia o valor |
@@ -5950,7 +5950,7 @@ desenvolvimento e produção, `PENDENTES` vazio). Na rodada do CI:
 **custo zero verde** — nada regrediu. O `corpus/js` compilado na 3.6 dá **JS idêntico
 byte a byte** ao da base (222/222), e o parser continua aceitando 426/426 do
 SDK e 1.969/1.969 do pub (cada pacote na versão do seu pubspec). Nenhum
-recurso precisou de runtime novo. O nativo não roda o `corpus/moderno`:
+recurso precisou de runtime novo. O nativo não roda o `corpus/modern`:
 curinga liga nome, entrada de mapa null-aware é recusada e atalho de ponto só sai quando é
 construção. Macros e augmentations: contratos em `docs/MACROS-PROTOCOLO.md`
 e `docs/AUGMENTATIONS.md` (executor nativo auto-hospedado), sem código.
@@ -6884,7 +6884,7 @@ gratuitos, e os runners Windows têm 4 núcleos e 16 GB. Dois workflows:
 | nativo (placar consolidado) | soma os fragmentos e funde o agrupamento de falhas | **7/214** | 0,5 min |
 | determinismo (produção) | `determinism --production --workers 1,4,8` | idêntico | 7,5 min (7 min) |
 | determinismo (nativo, IR) | `determinism --native --workers 1,4,8` | idêntico, 184 com IR | 0,6 min (5 s) |
-| moderno (3.7–3.13) | `--corpus corpus/moderno --production --jobs 4`, com o SDK 3.13.4 instalado por zip (cache pela versão); `PENDENTES` pode falhar, pendente que passa reprova | ver §1.1.1 | — |
+| moderno (3.7–3.13) | `--corpus corpus/modern --production --jobs 4`, com o SDK 3.13.4 instalado por zip (cache pela versão); `PENDENTES` pode falhar, pendente que passa reprova | ver §1.1.1 | — |
 | **rodada inteira** | | | **9,8 min** |
 
 **Critério de cada job.** JS desenvolvimento e produção: código de saída do

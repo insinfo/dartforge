@@ -287,7 +287,7 @@ Nenhum: todo programa medido é suportado ou recusado como a referência.
 | `233_geradores_tipo_inferido` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `234_this_interpolado_e_coalescencia_dinamica` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-### linux-x86_64 — corpus/moderno
+### linux-x86_64 — corpus/modern
 
 | programa | js-dev | js-prod |
 |---|:---:|:---:|

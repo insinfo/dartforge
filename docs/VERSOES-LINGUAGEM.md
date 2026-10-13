@@ -169,7 +169,7 @@ Em biblioteca < 3.7, `_` é nome comum (`// @dart=3.6`).
   função genérica também ganham nome único.
 * `emit_native`: **não muda** — `_` continua ligando nome no nativo. Só é
   observável quando o programa lê um `_` de fora com um curinga no caminho,
-  e o nativo não roda o `corpus/moderno`; o `this._`/`super._` do
+  e o nativo não roda o `corpus/modern`; o `this._`/`super._` do
   construtor nativo lê o parâmetro pelo nome, e desligá-lo exigiria o mesmo
   registro por intervalo do `emit_js`.
 
@@ -284,7 +284,7 @@ corrigido lá e vale este.
 ### 4.6 Inferência e fluxo (3.7–3.13)
 
 > Implementado em 2026-09-27 (JS04): os programas 350–352 do
-> `corpus/moderno` saíram de `PENDENTES` e passam em desenvolvimento e
+> `corpus/modern` saíram de `PENDENTES` e passam em desenvolvimento e
 > produção.
 
 * **Bounds (3.7)**: `design-document.md` de `inference-using-bounds`. Quando a
@@ -332,7 +332,7 @@ corrigido lá e vale este.
   `--language-version` com a versão desse SDK), `// erro-de-compilacao`
   (negativo: os três têm de recusar; a saída comparável é "erro de compilação
   na linha L", L = linha do primeiro erro de cada um), `// experimentos: a,b`.
-* `corpus/js` fica intacto (3.6.2, versão 3.6). `corpus/moderno` tem um
+* `corpus/js` fica intacto (3.6.2, versão 3.6). `corpus/modern` tem um
   programa por recurso e por regra da spec, mais os pares de gating. Um
   `PENDENTES` no diretório do corpus lista o que ainda falha por recurso não
   implementado: pendente que falha não reprova; pendente que passa reprova
@@ -351,7 +351,7 @@ corrigido lá e vale este.
 * CI (`.github/workflows/heavy.yml`): a ação `.github/actions/dart` instala
   o 3.6.2 (`setup-dart`) e, com `sdk-313: true`, o 3.13.4 por zip, com cache
   pela versão, exportando `DARTFORGE_DART_SDK_3_13`. Job `moderno`: o
-  `corpus/moderno` em desenvolvimento e produção, código 0 = todos passam
+  `corpus/modern` em desenvolvimento e produção, código 0 = todos passam
   (com `PENDENTES`).
 
 ## 6. Fora desta rodada
@@ -386,7 +386,7 @@ do `main` d5ca257): Pesado 35904470774 e CI 35904470762, os dois verdes.
 | Atalhos de ponto (3.10) | 330–332 (2 negativos) | 3/3 | 3/3 |
 | Construtores primários (3.13) | 340–349 (4 negativos) | 10/10 | 10/10 |
 | Inferência e fluxo (P6) | 350–352 (1 negativo) | 3/3 | 3/3 |
-| **Total `corpus/moderno`** | **26** | **26/26** | **26/26** |
+| **Total `corpus/modern`** | **26** | **26/26** | **26/26** |
 
 As linhas de 347 e 350–352 são da rodada JS04 (2026-09-27, local): antes,
 22/26 com os quatro em `PENDENTES`; depois, 26/26 em desenvolvimento e em

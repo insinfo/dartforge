@@ -266,10 +266,10 @@ jobs:
           path: work/lui/out-producao/main.dart.js
           retention-days: 1
 
-  # 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §5): corpus/moderno against
+  # 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §5): corpus/modern against
   # the 3.13.4 oracle SDK (dart run and dartdevc+node, each with its own
   # dart_sdk.js), in the development and production profiles. Code 0 = all
-  # pass; what is in corpus/moderno/PENDENTES may fail, but passing without
+  # pass; what is in corpus/modern/PENDENTES may fail, but passing without
   # leaving the list fails the job.
   modern:
     name: modern (3.7–3.13)
@@ -283,7 +283,7 @@ jobs:
         with:
           name: modern
           title: Modern (3.7–3.13) — VM and DDC 3.13.4 × dartforge dev and production
-          args: --corpus corpus/moderno --production --jobs 4
+          args: --corpus corpus/modern --production --jobs 4
           sdk-313: 'true'
 
   # Augmentations and macros (docs/AUGMENTATIONS.md, docs/MACROS-PROTOCOLO.md):

@@ -357,7 +357,7 @@ receptor `dynamic` (`Resolved::Dynamic`; o emissor ainda usa os membros de
 próprios, antes), `super` (`via_super`), nó sintético, a leitura da
 composta `a.b op= v` (o nó guarda uma resolução só, a do setter) e `a[i] = v`
 (a comum registra o `[]` da leitura no nó). Medido com a conferência sobre
-`corpus/js` e `corpus/moderno`: **5.442** acessos pela resolução comum,
+`corpus/js` e `corpus/modern`: **5.442** acessos pela resolução comum,
 **327** pela busca própria; em **67** as duas acham declarações diferentes
 da mesma cadeia, e a comum é a mais específica (`Record.hashCode` em vez de
 `Object.hashCode`, `EfficientLengthIterable.length` em vez de
@@ -415,7 +415,7 @@ acha no ambiente); senão fica a dedução própria.
 Efeito observável: `crates/emit_js/tests/programas/p10_tipos_reificados.dart`
 (os casos do §4 e mais) — 12 linhas divergiam da VM, agora nenhuma.
 `corpus/js` 229/229 nos perfis de desenvolvimento e produção e
-`corpus/moderno` 22/26 com os 4 de `PENDENTES`, como antes.
+`corpus/modern` 22/26 com os 4 de `PENDENTES`, como antes.
 
 ### O que ainda é do emissor
 

@@ -2,7 +2,7 @@
 //!
 //! There are **two oracle SDKs** (`docs/VERSOES-LINGUAGEM.md` §5): 3.6.2, the
 //! floor, which is the oracle of `corpus/js`, and 3.13.4, the one for the new
-//! features (`corpus/moderno`). Each program goes to the smallest SDK whose
+//! features (`corpus/modern`). Each program goes to the smallest SDK whose
 //! version covers its `// requer-dart:`; the DDC column uses **that** SDK's
 //! `dartdevc` linked to **its** `dart_sdk.js`. DartForge still links the 3.6.2
 //! `dart_sdk.js` (D1) and receives a `--language-version` equal to the

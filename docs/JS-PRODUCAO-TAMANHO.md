@@ -1208,7 +1208,7 @@ Medidos e descartados nesta rodada:
 Medido antes de mexer (o binário do fim da §12): `print('hi')` 52.007 bytes,
 `limitless_ui` 3.726.961 (gz 1.099.111), `new_sali` 7.854.243 (gz 2.188.550).
 Cada passo foi validado sozinho com o corpus diferencial 241/241 nos dois
-perfis (e o `corpus/moderno` 26/26 a partir da §13.6), o `limitless_ui` com o
+perfis (e o `corpus/modern` 26/26 a partir da §13.6), o `limitless_ui` com o
 e2e 15/15 e as 47 rotas sem erro no Chrome, e o `new_sali` carregando sem
 erro.
 
@@ -1298,7 +1298,7 @@ as dart2js -O2)`). No corpus, só o `56_late` imprime a mensagem.
 
 * Constante de enum citada por atalho de ponto (`opcional(.vermelho)`) não
   nascia: desde a §12.3 as constantes vivem uma a uma, e o `static_member`
-  do mundo só olhava as funções estáticas (`corpus/moderno/330`).
+  do mundo só olhava as funções estáticas (`corpus/modern/330`).
 * O teste ignorado `tests/identity.rs` do `emit_js_production` (sem filtro e
   com `AllLive` emitem o mesmo texto) quebrou com os literais estáticos
   ansiosos da §11.3: as escolhas de emissão do perfil de produção que não
