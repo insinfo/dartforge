@@ -378,10 +378,10 @@ fn state_saved_through_the_vm() {
     let (first, rel, ms) = process(true);
     println!("first process: {ms:.0} ms — {}", rel.text());
     assert!(rel.dart > 0);
-    let state = std::fs::read_to_string(dir.join(".dart_tool/dartforge/build/estado/estado.json"))
+    let state = std::fs::read_to_string(dir.join(".dart_tool/dartforge/build/state/state.json"))
         .expect("state written");
     assert!(
-        state.contains("builders.dart") || state.contains("\"codigo_dart\":["),
+        state.contains("builders.dart") || state.contains("\"dart_code\":["),
         "builders' code recorded"
     );
     let (second, rel, ms) = process(true);

@@ -177,7 +177,7 @@ pub enum Consulta {
 
 ### 4.1 Estado entre processos (B04, opcional)
 
-O equivalente do `asset_graph.json`: `.dart_tool/dartforge/build/estado/`
+O equivalente do `asset_graph.json`: `.dart_tool/dartforge/build/state/`
 (`persistencia.rs`). **Só quando o usuário pede** — `dartforge build
 --state`, ou `DARTFORGE_BUILD_STATE=1` para `build`, `compile-js`, `dev` e
 `serve` —, pela regra governante 6 do `PLANO.md` ("o disco só recebe o que o

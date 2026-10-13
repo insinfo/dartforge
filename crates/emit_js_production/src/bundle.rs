@@ -193,7 +193,7 @@ pub const STUB_PREAMBLE: &str = "function dart_podado(nome) {\n  const m = 'DART
 /// in normal mode).
 pub fn assemble(sdk: &str, modules: &[Module], entry: &str, preamble: &str) -> String {
     let mut out = String::with_capacity(sdk.len() + modules.iter().map(|m| m.body.len() + 64).sum::<usize>());
-    out.push_str("// dartforge — perfil de produção (docs/JS-PRODUCAO.md)\n");
+    out.push_str("// dartforge — production profile (docs/JS-PRODUCAO.md)\n");
     out.push_str(preamble);
     // DDC's `dart_sdk.js` is the browser one: `self` is the global object.
     out.push_str("if (typeof self === 'undefined') globalThis.self = globalThis;\n");

@@ -468,7 +468,7 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     join(&overlay, &mut files);
     files.sort();
     let mut h = blake3::Hasher::new();
-    h.update(b"dartforge-sdk-fonte\0");
+    h.update(b"dartforge-sdk-source\0");
     h.update(env!("CARGO_PKG_VERSION").as_bytes());
     h.update(b"\0");
     h.update(env!("DARTFORGE_EMITTER_HASH").as_bytes());
@@ -489,12 +489,12 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     // ARC memory changes the code (the stores through the runtime, the activation at the
     // entry); the default does not enter. The version is that of the memory ABI.
     if std::env::var("DARTFORGE_MEMORY").is_ok_and(|v| v == "arc") {
-        h.update(b"memoria=arc_v1\0");
+        h.update(b"memory=arc_v1\0");
     }
     // The published ARC preparation changes the bodies (tokens, cleanup); the
     // prepared program only links with this SDK.
     if crate::target::arc_prepared().unwrap_or(false) {
-        h.update(b"arc=preparado_v1\0");
+        h.update(b"arc=prepared_v1\0");
     }
     // The roots mode changes the code (`llvm/mod.rs`); the default does not enter.
     if std::env::var("DARTFORGE_ROOTS").is_ok_and(|v| v == "maps") {

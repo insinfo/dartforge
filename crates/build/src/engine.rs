@@ -44,7 +44,7 @@ pub struct EngineOptions {
     /// measure them (`--compare`).
     pub measure_unchecked: bool,
     /// Reads and writes the state across processes in
-    /// `.dart_tool/dartforge/build/estado` (§4.1). Off by default: only when
+    /// `.dart_tool/dartforge/build/state` (§4.1). Off by default: only when
     /// the user asks for it (`dartforge build --state`,
     /// `DARTFORGE_BUILD_STATE=1`), per governing rule 6 of `PLANO.md`.
     pub persist: bool,

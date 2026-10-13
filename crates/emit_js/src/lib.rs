@@ -669,7 +669,7 @@ pub fn compile_with_options<R>(
                         compiler: std::path::PathBuf::from(compiler),
                         sdk_lib: sdk.root.clone(),
                         api: cfg.api.clone(),
-                        work_dir: cfg.work_dir.join("nativo"),
+                        work_dir: cfg.work_dir.join("native"),
                     };
                     Some(dartforge_macros_host::native::start(&native, &pending, package_config_path.as_deref())?)
                 }

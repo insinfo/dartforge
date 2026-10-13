@@ -23,7 +23,7 @@ pub fn native_cache_dir() -> PathBuf {
     if dartforge_elements::distribution::root().is_some()
         && let Some(c) = dartforge_elements::distribution::user_cache()
     {
-        return c.join("nativo");
+        return c.join("native");
     }
     if let Some(t) = std::env::var_os("CARGO_TARGET_DIR") {
         return PathBuf::from(t).join("native_cache");

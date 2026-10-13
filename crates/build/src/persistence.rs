@@ -50,7 +50,7 @@ pub fn directory(root_dir: &Path) -> PathBuf {
         .join(".dart_tool")
         .join("dartforge")
         .join("build")
-        .join("estado")
+        .join("state")
 }
 
 /// Who produced the saved action.
@@ -123,17 +123,17 @@ fn path_str(p: &Path) -> Option<String> {
 /// A query that can be persisted as JSON; `None` for the semantic ones.
 fn query_json(c: &Query) -> Option<Value> {
     Some(match c {
-        Query::File(p) => json!({"t": "arquivo", "p": path_str(p)?}),
-        Query::Exists(p) => json!({"t": "existe", "p": path_str(p)?}),
+        Query::File(p) => json!({"t": "file", "p": path_str(p)?}),
+        Query::Exists(p) => json!({"t": "exists", "p": path_str(p)?}),
         Query::Glob { dir, pattern } => {
-            json!({"t": "glob", "p": path_str(dir)?, "padrao": pattern})
+            json!({"t": "glob", "p": path_str(dir)?, "pattern": pattern})
         }
         Query::ActiveGlobs {
             dir,
             pattern,
             candidates,
         } => {
-            json!({"t": "glob_ativos", "p": path_str(dir)?, "padrao": pattern, "candidatos": candidates})
+            json!({"t": "glob_assets", "p": path_str(dir)?, "pattern": pattern, "candidates": candidates})
         }
         _ => return None,
     })
@@ -141,17 +141,17 @@ fn query_json(c: &Query) -> Option<Value> {
 
 fn query_from_json(v: &Value) -> Option<Query> {
     let p = || v.get("p").and_then(Value::as_str).map(PathBuf::from);
-    let pattern = || v.get("padrao").and_then(Value::as_str).map(str::to_string);
+    let pattern = || v.get("pattern").and_then(Value::as_str).map(str::to_string);
     Some(match v.get("t")?.as_str()? {
-        "arquivo" => Query::File(p()?),
-        "existe" => Query::Exists(p()?),
+        "file" => Query::File(p()?),
+        "exists" => Query::Exists(p()?),
         "glob" => Query::Glob {
             dir: p()?,
             pattern: pattern()?,
         },
-        "glob_ativos" => {
+        "glob_assets" => {
             let mut candidates = Vec::new();
-            for c in v.get("candidatos")?.as_array()? {
+            for c in v.get("candidates")?.as_array()? {
                 candidates.push((c.get(0)?.as_str()?.to_string(), c.get(1)?.as_bool()?));
             }
             Query::ActiveGlobs {
@@ -182,10 +182,10 @@ fn ids_from(v: Option<&Value>) -> Option<Vec<AssetId>> {
 
 fn action_json(a: &SavedAction) -> Option<Value> {
     let origin = match &a.origin {
-        SavedOrigin::Native(n) => json!({"nativo": n}),
+        SavedOrigin::Native(n) => json!({"native": n}),
         SavedOrigin::Dart => json!("dart"),
-        SavedOrigin::Support => json!("apoio"),
-        SavedOrigin::Skipped => json!("omitida"),
+        SavedOrigin::Support => json!("support"),
+        SavedOrigin::Skipped => json!("skipped"),
     };
     let mut queries = Vec::with_capacity(a.queries.len());
     for (c, d) in &a.queries {
@@ -202,25 +202,25 @@ fn action_json(a: &SavedAction) -> Option<Value> {
         .map(|(id, d)| json!([id.text(), d.as_ref().map(hex)]))
         .collect();
     Some(json!({
-        "chave": a.key,
-        "origem": origin,
-        "motivo": a.reason,
-        "consultas": queries,
-        "saidas": outputs,
-        "do_apoio": ids(&a.from_support),
-        "apagados": ids(&a.deleted_outputs),
+        "key": a.key,
+        "origin": origin,
+        "reason": a.reason,
+        "queries": queries,
+        "outputs": outputs,
+        "from_support": ids(&a.from_support),
+        "deleted": ids(&a.deleted_outputs),
     }))
 }
 
 fn action_from_json(v: &Value) -> Option<SavedAction> {
-    let origin = match v.get("origem")? {
+    let origin = match v.get("origin")? {
         Value::String(s) if s == "dart" => SavedOrigin::Dart,
-        Value::String(s) if s == "apoio" => SavedOrigin::Support,
-        Value::String(s) if s == "omitida" => SavedOrigin::Skipped,
-        o => SavedOrigin::Native(o.get("nativo")?.as_str()?.to_string()),
+        Value::String(s) if s == "support" => SavedOrigin::Support,
+        Value::String(s) if s == "skipped" => SavedOrigin::Skipped,
+        o => SavedOrigin::Native(o.get("native")?.as_str()?.to_string()),
     };
     let mut queries = Vec::new();
-    for c in v.get("consultas")?.as_array()? {
+    for c in v.get("queries")?.as_array()? {
         let d = match c.get("d")? {
             Value::Null => None,
             d => Some(from_hex(d.as_str()?)?),
@@ -228,7 +228,7 @@ fn action_from_json(v: &Value) -> Option<SavedAction> {
         queries.push((query_from_json(c)?, d));
     }
     let mut outputs = Vec::new();
-    for s in v.get("saidas")?.as_array()? {
+    for s in v.get("outputs")?.as_array()? {
         let id = AssetId::from_text(s.get(0)?.as_str()?)?;
         let d = match s.get(1)? {
             Value::Null => None,
@@ -237,25 +237,25 @@ fn action_from_json(v: &Value) -> Option<SavedAction> {
         outputs.push((id, d));
     }
     Some(SavedAction {
-        key: v.get("chave")?.as_str()?.to_string(),
+        key: v.get("key")?.as_str()?.to_string(),
         origin,
-        reason: v.get("motivo").and_then(Value::as_str).map(str::to_string),
+        reason: v.get("reason").and_then(Value::as_str).map(str::to_string),
         queries,
         outputs,
-        from_support: ids_from(v.get("do_apoio"))?,
-        deleted_outputs: ids_from(v.get("apagados"))?,
+        from_support: ids_from(v.get("from_support"))?,
+        deleted_outputs: ids_from(v.get("deleted"))?,
     })
 }
 
 /// Reads the saved state. A missing file, one of another format or a
 /// corrupted one: `None` (the engine starts from scratch, as without state).
 pub fn read(dir: &Path) -> Option<State> {
-    let text = std::fs::read_to_string(dir.join("estado.json")).ok()?;
+    let text = std::fs::read_to_string(dir.join("state.json")).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
-    if v.get("formato")?.as_u64()? != FORMAT {
+    if v.get("format")?.as_u64()? != FORMAT {
         return None;
     }
-    let dart_code = match v.get("codigo_dart")? {
+    let dart_code = match v.get("dart_code")? {
         Value::Null => None,
         c => {
             let mut l = Vec::new();
@@ -269,13 +269,13 @@ pub fn read(dir: &Path) -> Option<State> {
         }
     };
     let actions = v
-        .get("acoes")?
+        .get("actions")?
         .as_array()?
         .iter()
         .map(action_from_json)
         .collect::<Option<Vec<_>>>()?;
     Some(State {
-        key: v.get("chave")?.as_str()?.to_string(),
+        key: v.get("key")?.as_str()?.to_string(),
         dart_code,
         actions,
     })
@@ -321,13 +321,13 @@ pub fn write_state(
         )
     });
     let v = json!({
-        "formato": FORMAT,
-        "chave": state.key,
-        "codigo_dart": code,
-        "acoes": actions,
+        "format": FORMAT,
+        "key": state.key,
+        "dart_code": code,
+        "actions": actions,
     });
-    let file = dir.join("estado.json");
-    let tmp = dir.join("estado.json.tmp");
+    let file = dir.join("state.json");
+    let tmp = dir.join("state.json.tmp");
     std::fs::write(&tmp, serde_json::to_vec(&v).map_err(|e| e.to_string())?)
         .map_err(|e| format!("{}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, &file).map_err(|e| format!("{}: {e}", file.display()))?;

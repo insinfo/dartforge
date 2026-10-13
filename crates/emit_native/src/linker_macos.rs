@@ -762,7 +762,7 @@ const LIBRARIES: &[&str] = &["-lSystem", "-framework", "CoreFoundation", "-frame
 /// The file with the SDK version (the `-platform_version`) of the sysroots that
 /// copied the SDK `.tbd` files; in the generated ones it does not exist, and the version is the
 /// minimum.
-const VERSION_FILE: &str = "versao-do-sdk";
+const VERSION_FILE: &str = "sdk-version";
 
 /// The `.tbd` (TAPI v4) of `b` for `arch`.
 ///

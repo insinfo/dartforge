@@ -233,18 +233,18 @@ fn state_saved_across_processes() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("cadeia_configuracao");
     copy_case(&corpus_root().join("cadeia_configuracao"), &dir);
-    let state = dir.join(".dart_tool/dartforge/build/estado");
+    let state = dir.join(".dart_tool/dartforge/build/state");
 
     // Without `persist`, nothing is written.
     let (from_scratch, all, _) = process(&dir, false);
     assert!(all > 0);
-    assert!(!state.exists(), "engine without persistir wrote state");
+    assert!(!state.exists(), "engine without persist wrote state");
 
     // The first process writes; the second runs nothing and reaches the same
     // state.
     let (first, n, _) = process(&dir, true);
     assert_eq!((first.as_str(), n), (from_scratch.as_str(), all));
-    assert!(state.join("estado.json").is_file());
+    assert!(state.join("state.json").is_file());
     let (second, n, _) = process(&dir, true);
     assert_eq!(n, 0, "new process reran valid actions");
     assert_eq!(second, from_scratch, "restored state ≠ from scratch");
@@ -298,7 +298,7 @@ fn state_saved_across_processes() {
     assert!(n >= 1, "source output deleted and nothing reran");
 
     // A corrupted state is ignored: everything runs.
-    std::fs::write(state.join("estado.json"), b"{corrupted").unwrap();
+    std::fs::write(state.join("state.json"), b"{corrupted").unwrap();
     let (after, n, _) = process(&dir, true);
     assert_eq!((after, n), (zero, n_zero));
 }

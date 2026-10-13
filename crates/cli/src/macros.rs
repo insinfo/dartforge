@@ -123,7 +123,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
                 compiler: std::env::current_exe()?,
                 sdk_lib: sdk.root.clone(),
                 api,
-                work_dir: root.join(".dart_tool").join("dartforge").join("macros").join("nativo"),
+                work_dir: root.join(".dart_tool").join("dartforge").join("macros").join("native"),
             };
             Box::new(dartforge_macros_host::native::start(&cfg, &apps, packages.as_deref())?)
         }
