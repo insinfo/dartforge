@@ -198,15 +198,15 @@ pub fn diagnosticos_das_opcoes(raiz: &Path) -> Vec<json::DiagJson> {
         }
     };
     let root_text = raiz.to_string_lossy();
-    let ctx = dartforge_analysis::naodart::options::Contexto {
-        arquivo: &file,
-        raiz_do_contexto: root_text.as_ref(),
+    let ctx = dartforge_analysis::naodart::options::OptionsContext {
+        file: &file,
+        context_root: root_text.as_ref(),
         resolver: &resolver,
-        sdk_permite: None,
+        sdk_allows: None,
     };
     let lines = json::Linhas::new(&text);
     let path = file.to_string_lossy();
-    dartforge_analysis::naodart::options::analisar(&text, &ctx).iter().map(|r| report_to_json(&path, &lines, r)).collect()
+    dartforge_analysis::naodart::options::analyze(&text, &ctx).iter().map(|r| report_to_json(&path, &lines, r)).collect()
 }
 
 /// The diagnostics of the `pubspec.yaml` of `raiz` (the analyzer's

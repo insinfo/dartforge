@@ -1,20 +1,20 @@
-//! A validação do `analysis_options.yaml`: `analyzeAnalysisOptions` e os
-//! validadores de `analyzer/lib/src/task/options.dart` e
-//! `analyzer/lib/src/lint/options_rule_validator.dart`, lidos na 6.11.0
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md, lote II.10).
+//! The validation of `analysis_options.yaml`: `analyzeAnalysisOptions` and the
+//! validators of `analyzer/lib/src/task/options.dart` and
+//! `analyzer/lib/src/lint/options_rule_validator.dart`, read in 6.11.0
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md, batch II.10).
 //!
-//! Cobre: o erro de sintaxe do YAML, a cadeia de `include:` (não achado,
-//! recursivo, avisos e erro de sintaxe do incluído, relatados no `include:`
-//! do arquivo inicial), as seções `analyzer` (chaves, `strong-mode`,
-//! `errors`, `language`, `optional-checks`, `cannot-ignore`, `plugins`),
-//! `code-style`, `formatter`, `linter` e as regras de `linter: rules:`.
+//! Covers: the YAML syntax error, the `include:` chain (not found, recursive,
+//! warnings and syntax error of the included file, reported on the initial
+//! file's `include:`), the `analyzer` sections (keys, `strong-mode`, `errors`,
+//! `language`, `optional-checks`, `cannot-ignore`, `plugins`), `code-style`,
+//! `formatter`, `linter` and the rules of `linter: rules:`.
 //!
-//! Diferenças: o texto do erro de sintaxe é o do `yaml-rust2`, não o do
-//! `package:yaml`, e o intervalo dele tem comprimento zero; os nomes de
-//! `enable-experiment` não são conferidos (só o formato da seção); uma regra
-//! removida sai sempre como `removed_lint`, porque a tabela de regras não
-//! guarda a substituta (`replaced_lint`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Differences: the syntax error text is `yaml-rust2`'s, not `package:yaml`'s,
+//! and its range has length zero; the `enable-experiment` names are not
+//! checked (only the section's format); a removed rule always comes out as
+//! `removed_lint`, because the rule table does not keep the replacement
+//! (`replaced_lint`).
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g::opcoes as c;
 use super::nomes_g::NOMES_DE_CODIGO;
@@ -24,21 +24,21 @@ use crate::lints::{self, EstadoDaRegra};
 use dartforge_diagnostics::Span;
 use std::path::{Path, PathBuf};
 
-/// O que a validação precisa saber de fora do arquivo.
-pub struct Contexto<'a> {
-    /// O arquivo de opções inicial.
-    pub arquivo: &'a Path,
-    /// A raiz do contexto de análise, para a mensagem do include não achado.
-    pub raiz_do_contexto: &'a str,
-    /// `sourceFactory.resolveUri(de, uri)`: o arquivo de um `include:`.
+/// What the validation needs to know from outside the file.
+pub struct OptionsContext<'a> {
+    /// The initial options file.
+    pub file: &'a Path,
+    /// The root of the analysis context, for the include-not-found message.
+    pub context_root: &'a str,
+    /// `sourceFactory.resolveUri(from, uri)`: the file of an `include:`.
     pub resolver: &'a dyn Fn(&Path, &str) -> Option<PathBuf>,
-    /// `sdkVersionConstraint.allows(versão)`; `None` sem restrição de SDK.
-    pub sdk_permite: Option<&'a dyn Fn((u32, u32, u32)) -> bool>,
+    /// `sdkVersionConstraint.allows(version)`; `None` without an SDK constraint.
+    pub sdk_allows: Option<&'a dyn Fn((u32, u32, u32)) -> bool>,
 }
 
 /// `quotedAndCommaSeparatedWithAnd`.
-fn entre_aspas(itens: &[&str]) -> String {
-    let citados: Vec<String> = itens.iter().map(|i| format!("'{i}'")).collect();
+fn quoted_list(items: &[&str]) -> String {
+    let citados: Vec<String> = items.iter().map(|i| format!("'{i}'")).collect();
     match citados.len() {
         0 => String::new(),
         1 => citados[0].clone(),
@@ -47,283 +47,283 @@ fn entre_aspas(itens: &[&str]) -> String {
     }
 }
 
-/// O valor de um escalar como texto (`value.toString()`); `None` para nulo,
-/// lista e mapa.
-fn texto_de(no: &No) -> Option<&str> {
-    match &no.valor {
+/// The value of a scalar as text (`value.toString()`); `None` for null, list
+/// and map.
+fn text_of(node: &No) -> Option<&str> {
+    match &node.valor {
         Valor::Texto(t) | Valor::Outro(t) => Some(t),
         _ => None,
     }
 }
 
-const TOPO_DO_ANALYZER: [&str; 8] =
+const ANALYZER_TOP_LEVEL: [&str; 8] =
     ["cannot-ignore", "enable-experiment", "errors", "exclude", "language", "optional-checks", "plugins", "strong-mode"];
-const DE_STRONG_MODE: [&str; 3] = ["declaration-casts", "implicit-casts", "implicit-dynamic"];
-const DE_LINGUAGEM: [&str; 3] = ["strict-casts", "strict-inference", "strict-raw-types"];
-const DE_CHECAGENS: [&str; 2] = ["chrome-os-manifest-checks", "propagate-linter-exceptions"];
-const VERDADEIRO_OU_FALSO: [&str; 2] = ["true", "false"];
+const STRONG_MODE_KEYS: [&str; 3] = ["declaration-casts", "implicit-casts", "implicit-dynamic"];
+const LANGUAGE_KEYS: [&str; 3] = ["strict-casts", "strict-inference", "strict-raw-types"];
+const OPTIONAL_CHECKS: [&str; 2] = ["chrome-os-manifest-checks", "propagate-linter-exceptions"];
+const TRUE_OR_FALSE: [&str; 2] = ["true", "false"];
 const SEVERIDADES: [&str; 3] = ["error", "info", "warning"];
-const VALORES_DE_ERRO: [&str; 7] = ["ignore", "false", "include", "true", "error", "info", "warning"];
+const ERROR_VALUES: [&str; 7] = ["ignore", "false", "include", "true", "error", "info", "warning"];
 
-/// O nome (em maiúsculas) é de um código de diagnóstico, de uma regra de
-/// lint, ou do código removido que ainda se aceita.
-fn codigo_conhecido(maiusculo: &str) -> bool {
-    NOMES_DE_CODIGO.binary_search(&maiusculo).is_ok()
-        || lints::tabela_g::REGRAS.iter().any(|r| r.nome.eq_ignore_ascii_case(maiusculo))
-        || maiusculo == "MISSING_RETURN"
+/// The name (in upper case) is that of a diagnostic code, of a lint rule, or of
+/// the removed code that is still accepted.
+fn is_known_code(upper: &str) -> bool {
+    NOMES_DE_CODIGO.binary_search(&upper).is_ok()
+        || lints::tabela_g::REGRAS.iter().any(|r| r.nome.eq_ignore_ascii_case(upper))
+        || upper == "MISSING_RETURN"
 }
 
-struct Validador<'a> {
+struct Validator<'a> {
     out: Vec<Relato>,
-    sdk_permite: Option<&'a dyn Fn((u32, u32, u32)) -> bool>,
-    e_o_da_raiz: bool,
+    sdk_allows: Option<&'a dyn Fn((u32, u32, u32)) -> bool>,
+    is_root_file: bool,
 }
 
-impl Validador<'_> {
-    fn relatar(&mut self, codigo: &'static CodigoNaoDart, no: &No, args: &[&str]) {
-        self.out.push(Relato::novo(codigo, no.span, args));
+impl Validator<'_> {
+    fn report(&mut self, code: &'static CodigoNaoDart, node: &No, args: &[&str]) {
+        self.out.push(Relato::novo(code, node.span, args));
     }
 
-    /// `ErrorBuilder.reportError`: a opção não suportada, com a proposta.
-    fn nao_suportada(&mut self, escopo: &str, no: &No, suportadas: &[&str]) {
-        let Some(valor) = texto_de(no) else { return };
-        let proposta = entre_aspas(suportadas);
-        match suportadas.len() {
-            0 => self.relatar(&c::UNSUPPORTED_OPTION_WITHOUT_VALUES, no, &[escopo, valor]),
-            1 => self.relatar(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUE, no, &[escopo, valor, proposta.as_str()]),
-            _ => self.relatar(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUES, no, &[escopo, valor, proposta.as_str()]),
+    /// `ErrorBuilder.reportError`: the unsupported option, with the proposal.
+    fn unsupported(&mut self, scope: &str, node: &No, supported: &[&str]) {
+        let Some(value) = text_of(node) else { return };
+        let proposta = quoted_list(supported);
+        match supported.len() {
+            0 => self.report(&c::UNSUPPORTED_OPTION_WITHOUT_VALUES, node, &[scope, value]),
+            1 => self.report(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUE, node, &[scope, value, proposta.as_str()]),
+            _ => self.report(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUES, node, &[scope, value, proposta.as_str()]),
         }
     }
 
-    /// `TopLevelOptionValidator`: as chaves de uma seção de topo.
-    fn chaves_de_topo(&mut self, opcoes: &No, secao: &str, suportadas: &[&str]) {
-        let Some(pares) = opcoes.campo(secao).and_then(No::mapa) else { return };
-        for (k, _) in pares {
-            if k.escalar() && !texto_de(k).is_some_and(|t| suportadas.contains(&t)) {
-                self.nao_suportada(secao, k, suportadas);
+    /// `TopLevelOptionValidator`: the keys of a top-level section.
+    fn top_level_keys(&mut self, options: &No, section: &str, supported: &[&str]) {
+        let Some(pairs) = options.campo(section).and_then(No::mapa) else { return };
+        for (k, _) in pairs {
+            if k.escalar() && !text_of(k).is_some_and(|t| supported.contains(&t)) {
+                self.unsupported(section, k, supported);
             }
         }
     }
 
-    /// Um valor que tem de ser `true` ou `false`.
-    fn booleano(&mut self, chave: &str, v: &No) {
+    /// A value that must be `true` or `false`.
+    fn boolean(&mut self, key: &str, v: &No) {
         if !v.escalar() {
             return;
         }
-        let ok = texto_de(v).is_some_and(|t| VERDADEIRO_OU_FALSO.contains(&t.to_lowercase().as_str()));
-        if !ok && let Some(valor) = texto_de(v) {
-            let proposta = entre_aspas(&VERDADEIRO_OU_FALSO);
-            self.relatar(&c::UNSUPPORTED_VALUE, v, &[chave, valor, proposta.as_str()]);
+        let ok = text_of(v).is_some_and(|t| TRUE_OR_FALSE.contains(&t.to_lowercase().as_str()));
+        if !ok && let Some(value) = text_of(v) {
+            let proposta = quoted_list(&TRUE_OR_FALSE);
+            self.report(&c::UNSUPPORTED_VALUE, v, &[key, value, proposta.as_str()]);
         }
     }
 
     /// `StrongModeOptionValueValidator`.
     fn strong_mode(&mut self, analyzer: &No) {
-        let Some(no) = analyzer.campo("strong-mode") else { return };
-        let Some(pares) = no.mapa() else {
-            self.relatar(&c::INVALID_SECTION_FORMAT, no, &["strong-mode"]);
+        let Some(node) = analyzer.campo("strong-mode") else { return };
+        let Some(pairs) = node.mapa() else {
+            self.report(&c::INVALID_SECTION_FORMAT, node, &["strong-mode"]);
             return;
         };
-        for (k, v) in pares {
+        for (k, v) in pairs {
             if !k.escalar() {
                 continue;
             }
-            match texto_de(k) {
-                Some(chave) if DE_STRONG_MODE.contains(&chave) => {
-                    if chave == "declaration-casts" {
-                        if let Some(valor) = texto_de(v) {
-                            let proposta = entre_aspas(&VERDADEIRO_OU_FALSO);
-                            self.relatar(&c::UNSUPPORTED_VALUE, v, &["strong-mode", valor, proposta.as_str()]);
+            match text_of(k) {
+                Some(key) if STRONG_MODE_KEYS.contains(&key) => {
+                    if key == "declaration-casts" {
+                        if let Some(value) = text_of(v) {
+                            let proposta = quoted_list(&TRUE_OR_FALSE);
+                            self.report(&c::UNSUPPORTED_VALUE, v, &["strong-mode", value, proposta.as_str()]);
                         }
                     } else {
-                        self.booleano(chave, v);
+                        self.boolean(key, v);
                     }
                 }
-                _ => self.nao_suportada("strong-mode", k, &DE_STRONG_MODE),
+                _ => self.unsupported("strong-mode", k, &STRONG_MODE_KEYS),
             }
         }
     }
 
-    /// `ErrorFilterOptionValidator`. O argumento do formato inválido é
-    /// `enable-experiment`, como no original.
-    fn filtros_de_erro(&mut self, analyzer: &No) {
-        let Some(no) = analyzer.campo("errors") else { return };
-        let Some(pares) = no.mapa() else {
-            self.relatar(&c::INVALID_SECTION_FORMAT, no, &["enable-experiment"]);
+    /// `ErrorFilterOptionValidator`. The argument of the invalid format is
+    /// `enable-experiment`, as in the original.
+    fn error_filters(&mut self, analyzer: &No) {
+        let Some(node) = analyzer.campo("errors") else { return };
+        let Some(pairs) = node.mapa() else {
+            self.report(&c::INVALID_SECTION_FORMAT, node, &["enable-experiment"]);
             return;
         };
-        for (k, v) in pares {
+        for (k, v) in pairs {
             if k.escalar()
-                && let Some(nome) = texto_de(k)
-                && !codigo_conhecido(&nome.to_uppercase())
+                && let Some(name) = text_of(k)
+                && !is_known_code(&name.to_uppercase())
             {
-                self.relatar(&c::UNRECOGNIZED_ERROR_CODE, k, &[nome]);
+                self.report(&c::UNRECOGNIZED_ERROR_CODE, k, &[name]);
             }
             if v.escalar() {
-                let valor = texto_de(v).unwrap_or("null");
-                if !VALORES_DE_ERRO.contains(&valor.to_lowercase().as_str()) {
-                    let proposta = entre_aspas(&VALORES_DE_ERRO);
-                    self.relatar(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUES, v, &["errors", valor, proposta.as_str()]);
+                let value = text_of(v).unwrap_or("null");
+                if !ERROR_VALUES.contains(&value.to_lowercase().as_str()) {
+                    let proposta = quoted_list(&ERROR_VALUES);
+                    self.report(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUES, v, &["errors", value, proposta.as_str()]);
                 }
             } else {
-                self.relatar(&c::INVALID_SECTION_FORMAT, v, &["enable-experiment"]);
+                self.report(&c::INVALID_SECTION_FORMAT, v, &["enable-experiment"]);
             }
         }
     }
 
-    /// `EnabledExperimentsValidator`: só o formato da seção.
-    fn experimentos(&mut self, analyzer: &No) {
-        if let Some(no) = analyzer.campo("enable-experiment")
-            && no.lista().is_none()
+    /// `EnabledExperimentsValidator`: only the section's format.
+    fn experiments(&mut self, analyzer: &No) {
+        if let Some(node) = analyzer.campo("enable-experiment")
+            && node.lista().is_none()
         {
-            self.relatar(&c::INVALID_SECTION_FORMAT, no, &["enable-experiment"]);
+            self.report(&c::INVALID_SECTION_FORMAT, node, &["enable-experiment"]);
         }
     }
 
     /// `LanguageOptionValidator`.
-    fn linguagem(&mut self, analyzer: &No) {
-        let Some(no) = analyzer.campo("language") else { return };
-        let Some(pares) = no.mapa() else {
-            // Um escalar não nulo ou uma lista.
-            if !no.nulo() {
-                self.relatar(&c::INVALID_SECTION_FORMAT, no, &["language"]);
+    fn language(&mut self, analyzer: &No) {
+        let Some(node) = analyzer.campo("language") else { return };
+        let Some(pairs) = node.mapa() else {
+            // A non-null scalar or a list.
+            if !node.nulo() {
+                self.report(&c::INVALID_SECTION_FORMAT, node, &["language"]);
             }
             return;
         };
-        for (k, v) in pares {
+        for (k, v) in pairs {
             if !k.escalar() {
                 continue;
             }
-            match texto_de(k) {
-                Some(chave) if DE_LINGUAGEM.contains(&chave) => self.booleano(chave, v),
-                _ => self.nao_suportada("language", k, &DE_LINGUAGEM),
+            match text_of(k) {
+                Some(key) if LANGUAGE_KEYS.contains(&key) => self.boolean(key, v),
+                _ => self.unsupported("language", k, &LANGUAGE_KEYS),
             }
         }
     }
 
     /// `OptionalChecksValueValidator`.
-    fn checagens_opcionais(&mut self, analyzer: &No) {
-        let Some(no) = analyzer.campo("optional-checks") else { return };
-        let escopo = "chrome-os-manifest-checks";
-        if no.escalar() {
-            if texto_de(no).map(str::to_lowercase).as_deref() != Some(escopo) {
-                self.nao_suportada(escopo, no, &DE_CHECAGENS);
+    fn optional_checks(&mut self, analyzer: &No) {
+        let Some(node) = analyzer.campo("optional-checks") else { return };
+        let scope = "chrome-os-manifest-checks";
+        if node.escalar() {
+            if text_of(node).map(str::to_lowercase).as_deref() != Some(scope) {
+                self.unsupported(scope, node, &OPTIONAL_CHECKS);
             }
-        } else if let Some(pares) = no.mapa() {
-            for (k, v) in pares {
+        } else if let Some(pairs) = node.mapa() {
+            for (k, v) in pairs {
                 if !k.escalar() {
                     continue;
                 }
-                if texto_de(k) == Some(escopo) {
-                    self.booleano(escopo, v);
+                if text_of(k) == Some(scope) {
+                    self.boolean(scope, v);
                 } else {
-                    self.nao_suportada(escopo, k, &DE_CHECAGENS);
+                    self.unsupported(scope, k, &OPTIONAL_CHECKS);
                 }
             }
         } else {
-            self.relatar(&c::INVALID_SECTION_FORMAT, no, &["enable-experiment"]);
+            self.report(&c::INVALID_SECTION_FORMAT, node, &["enable-experiment"]);
         }
     }
 
     /// `CannotIgnoreOptionValidator`.
-    fn nao_ignoraveis(&mut self, analyzer: &No) {
-        let Some(no) = analyzer.campo("cannot-ignore") else { return };
-        let Some(itens) = no.lista() else {
-            self.relatar(&c::INVALID_SECTION_FORMAT, no, &["cannot-ignore"]);
+    fn cannot_ignore(&mut self, analyzer: &No) {
+        let Some(node) = analyzer.campo("cannot-ignore") else { return };
+        let Some(items) = node.lista() else {
+            self.report(&c::INVALID_SECTION_FORMAT, node, &["cannot-ignore"]);
             return;
         };
-        for item in itens {
+        for item in items {
             match item.texto() {
-                Some(nome) => {
-                    if !SEVERIDADES.contains(&nome) && !codigo_conhecido(&nome.to_uppercase()) {
-                        self.relatar(&c::UNRECOGNIZED_ERROR_CODE, item, &[nome]);
+                Some(name) => {
+                    if !SEVERIDADES.contains(&name) && !is_known_code(&name.to_uppercase()) {
+                        self.report(&c::UNRECOGNIZED_ERROR_CODE, item, &[name]);
                     }
                 }
-                None => self.relatar(&c::INVALID_SECTION_FORMAT, item, &["cannot-ignore"]),
+                None => self.report(&c::INVALID_SECTION_FORMAT, item, &["cannot-ignore"]),
             }
         }
     }
 
     /// `CodeStyleOptionsValidator`.
-    fn estilo_de_codigo(&mut self, opcoes: &No, fonte: &str) {
-        let Some(no) = opcoes.campo("code-style") else { return };
-        let Some(pares) = no.mapa() else {
-            if !no.nulo() {
-                self.relatar(&c::INVALID_SECTION_FORMAT, no, &["code-style"]);
+    fn code_style(&mut self, options: &No, source: &str) {
+        let Some(node) = options.campo("code-style") else { return };
+        let Some(pairs) = node.mapa() else {
+            if !node.nulo() {
+                self.report(&c::INVALID_SECTION_FORMAT, node, &["code-style"]);
             }
             return;
         };
-        for (k, v) in pares {
-            if texto_de(k) == Some("format") {
+        for (k, v) in pairs {
+            if text_of(k) == Some("format") {
                 if !v.escalar() {
-                    self.relatar(&c::INVALID_SECTION_FORMAT, v, &["format"]);
+                    self.report(&c::INVALID_SECTION_FORMAT, v, &["format"]);
                 } else {
-                    self.booleano("format", v);
+                    self.boolean("format", v);
                 }
             } else {
-                let chave = fonte.get(k.span.start..k.span.end).unwrap_or("");
-                self.relatar(&c::UNSUPPORTED_OPTION_WITHOUT_VALUES, k, &["code-style", chave]);
+                let key = source.get(k.span.start..k.span.end).unwrap_or("");
+                self.report(&c::UNSUPPORTED_OPTION_WITHOUT_VALUES, k, &["code-style", key]);
             }
         }
     }
 
     /// `FormatterOptionsValidator`.
-    fn formatador(&mut self, opcoes: &No, fonte: &str) {
-        let Some(no) = opcoes.campo("formatter") else { return };
-        let Some(pares) = no.mapa() else {
-            if !no.nulo() {
-                self.relatar(&c::INVALID_SECTION_FORMAT, no, &["formatter"]);
+    fn formatter(&mut self, options: &No, source: &str) {
+        let Some(node) = options.campo("formatter") else { return };
+        let Some(pairs) = node.mapa() else {
+            if !node.nulo() {
+                self.report(&c::INVALID_SECTION_FORMAT, node, &["formatter"]);
             }
             return;
         };
-        for (k, v) in pares {
-            let chave = fonte.get(k.span.start..k.span.end).unwrap_or("");
-            if texto_de(k) == Some("page_width") {
-                let positivo = matches!(&v.valor, Valor::Outro(t) if t.parse::<i64>().is_ok_and(|n| n > 0));
-                if !positivo {
-                    self.relatar(&c::INVALID_OPTION, v, &[chave, "\"page_width\" must be a positive integer."]);
+        for (k, v) in pairs {
+            let key = source.get(k.span.start..k.span.end).unwrap_or("");
+            if text_of(k) == Some("page_width") {
+                let positive = matches!(&v.valor, Valor::Outro(t) if t.parse::<i64>().is_ok_and(|n| n > 0));
+                if !positive {
+                    self.report(&c::INVALID_OPTION, v, &[key, "\"page_width\" must be a positive integer."]);
                 }
             } else {
-                self.relatar(&c::UNSUPPORTED_OPTION_WITHOUT_VALUES, k, &["formatter", chave]);
+                self.report(&c::UNSUPPORTED_OPTION_WITHOUT_VALUES, k, &["formatter", key]);
             }
         }
     }
 
     /// `LinterRuleOptionsValidator._validateRules`.
-    fn regras(&mut self, opcoes: &No) {
-        let Some(regras) = opcoes.campo("linter").filter(|l| l.mapa().is_some()).and_then(|l| l.campo("rules")) else { return };
-        let mut vistas: Vec<&str> = Vec::new();
-        let entradas: Vec<(&No, bool)> = match &regras.valor {
-            Valor::Lista(itens) => itens.iter().map(|n| (n, true)).collect(),
-            Valor::Mapa(pares) => pares.iter().map(|(k, v)| (k, matches!(&v.valor, Valor::Outro(t) if t.eq_ignore_ascii_case("true")))).collect(),
+    fn lint_rules(&mut self, options: &No) {
+        let Some(regras) = options.campo("linter").filter(|l| l.mapa().is_some()).and_then(|l| l.campo("rules")) else { return };
+        let mut seen: Vec<&str> = Vec::new();
+        let entries: Vec<(&No, bool)> = match &regras.valor {
+            Valor::Lista(items) => items.iter().map(|n| (n, true)).collect(),
+            Valor::Mapa(pairs) => pairs.iter().map(|(k, v)| (k, matches!(&v.valor, Valor::Outro(t) if t.eq_ignore_ascii_case("true")))).collect(),
             _ => Vec::new(),
         };
-        for (no, ligada) in entradas {
-            let Some(nome) = texto_de(no) else { continue };
-            let Some(regra) = lints::regra(nome) else {
-                self.relatar(&c::UNDEFINED_LINT, no, &[nome]);
+        for (node, enabled) in entries {
+            let Some(name) = text_of(node) else { continue };
+            let Some(rule) = lints::regra(name) else {
+                self.report(&c::UNDEFINED_LINT, node, &[name]);
                 continue;
             };
-            if ligada {
-                if let Some(outra) = regra.incompativeis.iter().copied().find(|i| vistas.contains(i)) {
-                    self.relatar(&c::INCOMPATIBLE_LINT, no, &[nome, outra]);
-                } else if vistas.contains(&regra.nome) {
-                    self.relatar(&c::DUPLICATE_RULE, no, &[nome]);
+            if enabled {
+                if let Some(other) = rule.incompativeis.iter().copied().find(|i| seen.contains(i)) {
+                    self.report(&c::INCOMPATIBLE_LINT, node, &[name, other]);
+                } else if seen.contains(&rule.nome) {
+                    self.report(&c::DUPLICATE_RULE, node, &[name]);
                 } else {
-                    vistas.push(regra.nome);
+                    seen.push(rule.nome);
                 }
             }
-            if self.e_o_da_raiz {
-                // `currentSdkAllows`: sem `since`, sim; sem restrição, não.
-                let no_sdk = match regra.desde {
+            if self.is_root_file {
+                // `currentSdkAllows`: without `since`, yes; without a constraint, no.
+                let in_sdk = match rule.desde {
                     None => true,
-                    Some(v) => self.sdk_permite.is_some_and(|f| f(v)),
+                    Some(v) => self.sdk_allows.is_some_and(|f| f(v)),
                 };
-                match regra.estado {
-                    EstadoDaRegra::Depreciada if no_sdk => self.relatar(&c::DEPRECATED_LINT, no, &[nome]),
-                    EstadoDaRegra::Removida if no_sdk => {
-                        let desde = regra.desde.map_or_else(|| "null".to_string(), |(a, b, k)| format!("{a}.{b}.{k}"));
-                        self.relatar(&c::REMOVED_LINT, no, &[nome, desde.as_str()]);
+                match rule.estado {
+                    EstadoDaRegra::Depreciada if in_sdk => self.report(&c::DEPRECATED_LINT, node, &[name]),
+                    EstadoDaRegra::Removida if in_sdk => {
+                        let desde = rule.desde.map_or_else(|| "null".to_string(), |(a, b, k)| format!("{a}.{b}.{k}"));
+                        self.report(&c::REMOVED_LINT, node, &[name, desde.as_str()]);
                     }
                     _ => {}
                 }
@@ -331,54 +331,54 @@ impl Validador<'_> {
         }
     }
 
-    /// `OptionsFileValidator.validate`, na ordem dos validadores.
-    fn arquivo(&mut self, opcoes: &No, fonte: &str) {
-        self.chaves_de_topo(opcoes, "analyzer", &TOPO_DO_ANALYZER);
-        if let Some(analyzer) = opcoes.campo("analyzer").filter(|a| a.mapa().is_some()) {
+    /// `OptionsFileValidator.validate`, in validator order.
+    fn file_options(&mut self, options: &No, source: &str) {
+        self.top_level_keys(options, "analyzer", &ANALYZER_TOP_LEVEL);
+        if let Some(analyzer) = options.campo("analyzer").filter(|a| a.mapa().is_some()) {
             self.strong_mode(analyzer);
-            self.filtros_de_erro(analyzer);
-            self.experimentos(analyzer);
-            self.linguagem(analyzer);
-            self.checagens_opcionais(analyzer);
-            self.nao_ignoraveis(analyzer);
+            self.error_filters(analyzer);
+            self.experiments(analyzer);
+            self.language(analyzer);
+            self.optional_checks(analyzer);
+            self.cannot_ignore(analyzer);
         }
-        self.estilo_de_codigo(opcoes, fonte);
-        self.formatador(opcoes, fonte);
-        self.chaves_de_topo(opcoes, "linter", &["rules"]);
-        self.regras(opcoes);
+        self.code_style(options, source);
+        self.formatter(options, source);
+        self.top_level_keys(options, "linter", &["rules"]);
+        self.lint_rules(options);
     }
 
-    /// `PluginsOptionValidator`: mais de um plugin legado.
-    fn plugins(&mut self, opcoes: &No, primeiro_incluido: Option<&str>) {
-        let Some(plugins) = opcoes.campo("analyzer").filter(|a| a.mapa().is_some()).and_then(|a| a.campo("plugins")) else { return };
-        let nos: Vec<&No> = match &plugins.valor {
-            Valor::Lista(itens) => itens.iter().collect(),
-            Valor::Mapa(pares) => pares.iter().map(|(k, _)| k).collect(),
+    /// `PluginsOptionValidator`: more than one legacy plugin.
+    fn plugins(&mut self, options: &No, first_included: Option<&str>) {
+        let Some(plugins) = options.campo("analyzer").filter(|a| a.mapa().is_some()).and_then(|a| a.campo("plugins")) else { return };
+        let nodes: Vec<&No> = match &plugins.valor {
+            Valor::Lista(items) => items.iter().collect(),
+            Valor::Mapa(pairs) => pairs.iter().map(|(k, _)| k).collect(),
             Valor::Nulo => return,
-            // Um escalar: só conflita com o plugin de um arquivo incluído.
+            // A scalar: it only conflicts with the plugin of an included file.
             _ => {
-                if let Some(p) = primeiro_incluido
-                    && texto_de(plugins) != Some(p)
+                if let Some(p) = first_included
+                    && text_of(plugins) != Some(p)
                 {
-                    self.relatar(&c::MULTIPLE_PLUGINS, plugins, &[p]);
+                    self.report(&c::MULTIPLE_PLUGINS, plugins, &[p]);
                 }
                 return;
             }
         };
-        match primeiro_incluido {
+        match first_included {
             Some(p) => {
-                for no in nos {
-                    if texto_de(no) != Some(p) {
-                        self.relatar(&c::MULTIPLE_PLUGINS, no, &[p]);
+                for node in nodes {
+                    if text_of(node) != Some(p) {
+                        self.report(&c::MULTIPLE_PLUGINS, node, &[p]);
                     }
                 }
             }
-            None if nos.len() > 1 => {
-                let mut primeiro: Option<&str> = None;
-                for no in nos {
-                    match primeiro {
-                        None => primeiro = no.texto(),
-                        Some(p) if texto_de(no) != Some(p) => self.relatar(&c::MULTIPLE_PLUGINS, no, &[p]),
+            None if nodes.len() > 1 => {
+                let mut first: Option<&str> = None;
+                for node in nodes {
+                    match first {
+                        None => first = node.texto(),
+                        Some(p) if text_of(node) != Some(p) => self.report(&c::MULTIPLE_PLUGINS, node, &[p]),
                         Some(_) => {}
                     }
                 }
@@ -389,169 +389,169 @@ impl Validador<'_> {
 }
 
 /// `_firstPluginName`.
-fn primeiro_plugin(opcoes: &No) -> Option<String> {
-    let plugins = opcoes.campo("analyzer").filter(|a| a.mapa().is_some())?.campo("plugins")?;
+fn first_plugin(options: &No) -> Option<String> {
+    let plugins = options.campo("analyzer").filter(|a| a.mapa().is_some())?.campo("plugins")?;
     match &plugins.valor {
         Valor::Texto(t) => Some(t.clone()),
-        Valor::Lista(itens) => itens.first().and_then(No::texto).map(str::to_string),
-        Valor::Mapa(pares) => pares.first().and_then(|(k, _)| k.texto()).map(str::to_string),
+        Valor::Lista(items) => items.first().and_then(No::texto).map(str::to_string),
+        Valor::Mapa(pairs) => pairs.first().and_then(|(k, _)| k.texto()).map(str::to_string),
         _ => None,
     }
 }
 
-/// `getOptionsFromString`: o mapa do texto; um documento que não é mapa
-/// (ou vazio) é um mapa vazio.
-fn mapa_de(texto: &str) -> Result<No, yaml::YamlError> {
-    let vazio = No { span: Span { start: 0, end: 0 }, valor: Valor::Mapa(Vec::new()) };
-    Ok(match yaml::ler(texto)? {
-        Some(no) if no.mapa().is_some() => no,
-        _ => vazio,
+/// `getOptionsFromString`: the text's map; a document that is not a map (or
+/// is empty) is an empty map.
+fn map_of(text: &str) -> Result<No, yaml::YamlError> {
+    let empty = No { span: Span { start: 0, end: 0 }, valor: Valor::Mapa(Vec::new()) };
+    Ok(match yaml::ler(text)? {
+        Some(node) if node.mapa().is_some() => node,
+        _ => empty,
     })
 }
 
-struct Analise<'a> {
-    ctx: &'a Contexto<'a>,
-    erros: Vec<Relato>,
-    /// O intervalo do `include:` do arquivo inicial.
-    include_inicial: Option<Span>,
-    primeiro_plugin: Option<String>,
-    /// Os arquivos já incluídos, com o intervalo do `include:` que os trouxe.
-    cadeia: Vec<(PathBuf, Span)>,
+struct OptionsAnalysis<'a> {
+    ctx: &'a OptionsContext<'a>,
+    errors: Vec<Relato>,
+    /// The range of the initial file's `include:`.
+    initial_include: Option<Span>,
+    first_plugin: Option<String>,
+    /// The files already included, with the range of the `include:` that brought them.
+    chain: Vec<(PathBuf, Span)>,
 }
 
-impl Analise<'_> {
+impl OptionsAnalysis<'_> {
     /// `addDirectErrorOrIncludedError`.
-    fn acrescentar(&mut self, relatos: Vec<Relato>, arquivo: &Path, e_o_da_raiz: bool) {
-        match (e_o_da_raiz, self.include_inicial) {
-            (false, Some(onde)) => {
-                for r in relatos {
-                    let nome = arquivo.to_string_lossy();
-                    let (de, ate) = (r.span.start.to_string(), (r.span.end.saturating_sub(1)).to_string());
-                    let mensagem = r.mensagem();
-                    self.erros.push(Relato::novo(&c::INCLUDED_FILE_WARNING, onde, &[nome.as_ref(), de.as_str(), ate.as_str(), mensagem.as_str()]));
+    fn append(&mut self, reports: Vec<Relato>, file: &Path, is_root_file: bool) {
+        match (is_root_file, self.initial_include) {
+            (false, Some(where_)) => {
+                for r in reports {
+                    let name = file.to_string_lossy();
+                    let (de, until) = (r.span.start.to_string(), (r.span.end.saturating_sub(1)).to_string());
+                    let message = r.mensagem();
+                    self.errors.push(Relato::novo(&c::INCLUDED_FILE_WARNING, where_, &[name.as_ref(), de.as_str(), until.as_str(), message.as_str()]));
                 }
             }
-            _ => self.erros.extend(relatos),
+            _ => self.errors.extend(reports),
         }
     }
 
-    /// `validate`: as opções de `arquivo` e, pelo `include:`, as incluídas.
-    fn validar(&mut self, arquivo: &Path, opcoes: &No, fonte: &str) {
-        let e_o_da_raiz = self.include_inicial.is_none();
-        let mut v = Validador { out: Vec::new(), sdk_permite: self.ctx.sdk_permite, e_o_da_raiz };
-        v.arquivo(opcoes, fonte);
-        self.acrescentar(v.out, arquivo, e_o_da_raiz);
-        let Some(include) = opcoes.campo("include") else {
-            let mut v = Validador { out: Vec::new(), sdk_permite: None, e_o_da_raiz };
-            v.plugins(opcoes, None);
-            self.acrescentar(v.out, arquivo, e_o_da_raiz);
+    /// `validate`: the options of `file` and, through `include:`, the included ones.
+    fn validate(&mut self, file: &Path, options: &No, source: &str) {
+        let is_root_file = self.initial_include.is_none();
+        let mut v = Validator { out: Vec::new(), sdk_allows: self.ctx.sdk_allows, is_root_file };
+        v.file_options(options, source);
+        self.append(v.out, file, is_root_file);
+        let Some(include) = options.campo("include") else {
+            let mut v = Validator { out: Vec::new(), sdk_allows: None, is_root_file };
+            v.plugins(options, None);
+            self.append(v.out, file, is_root_file);
             return;
         };
-        let onde = *self.include_inicial.get_or_insert(include.span);
-        // `includeSpan.text`: o texto do nó como está escrito (com aspas,
-        // se houver).
-        let uri = fonte.get(include.span.start..include.span.end).unwrap_or("");
-        let nome = arquivo.to_string_lossy();
-        let incluido = (self.ctx.resolver)(arquivo, uri);
-        if incluido.as_deref() == Some(self.ctx.arquivo) {
-            self.erros.push(Relato::novo(&c::RECURSIVE_INCLUDE_FILE, onde, &[uri, nome.as_ref()]));
+        let where_ = *self.initial_include.get_or_insert(include.span);
+        // `includeSpan.text`: the node's text as written (with quotes, if
+        // any).
+        let uri = source.get(include.span.start..include.span.end).unwrap_or("");
+        let name = file.to_string_lossy();
+        let included = (self.ctx.resolver)(file, uri);
+        if included.as_deref() == Some(self.ctx.file) {
+            self.errors.push(Relato::novo(&c::RECURSIVE_INCLUDE_FILE, where_, &[uri, name.as_ref()]));
             return;
         }
-        let Some(incluido) = incluido.filter(|p| p.is_file()) else {
-            self.erros.push(Relato::novo(&c::INCLUDE_FILE_NOT_FOUND, onde, &[uri, nome.as_ref(), self.ctx.raiz_do_contexto]));
+        let Some(included) = included.filter(|p| p.is_file()) else {
+            self.errors.push(Relato::novo(&c::INCLUDE_FILE_NOT_FOUND, where_, &[uri, name.as_ref(), self.ctx.context_root]));
             return;
         };
-        if let Some((_, anterior)) = self.cadeia.iter().find(|(p, _)| *p == incluido) {
-            let (caminho, de, comprimento) =
-                (incluido.to_string_lossy().into_owned(), anterior.start.to_string(), (anterior.end - anterior.start).to_string());
-            self.erros.push(Relato::novo(
+        if let Some((_, previous)) = self.chain.iter().find(|(p, _)| *p == included) {
+            let (path, de, length) =
+                (included.to_string_lossy().into_owned(), previous.start.to_string(), (previous.end - previous.start).to_string());
+            self.errors.push(Relato::novo(
                 &c::INCLUDED_FILE_WARNING,
-                onde,
-                &[caminho.as_str(), de.as_str(), comprimento.as_str(), "The file includes itself recursively."],
+                where_,
+                &[path.as_str(), de.as_str(), length.as_str(), "The file includes itself recursively."],
             ));
             return;
         }
-        self.cadeia.push((incluido.clone(), include.span));
-        let texto = std::fs::read_to_string(&incluido).unwrap_or_default();
-        match mapa_de(&texto) {
+        self.chain.push((included.clone(), include.span));
+        let text = std::fs::read_to_string(&included).unwrap_or_default();
+        match map_of(&text) {
             Ok(incluidas) => {
-                self.validar(&incluido, &incluidas, &texto);
-                if self.primeiro_plugin.is_none() {
-                    self.primeiro_plugin = primeiro_plugin(&incluidas);
+                self.validate(&included, &incluidas, &text);
+                if self.first_plugin.is_none() {
+                    self.first_plugin = first_plugin(&incluidas);
                 }
-                let mut v = Validador { out: Vec::new(), sdk_permite: None, e_o_da_raiz };
-                v.plugins(opcoes, self.primeiro_plugin.as_deref());
-                self.acrescentar(v.out, arquivo, e_o_da_raiz);
+                let mut v = Validator { out: Vec::new(), sdk_allows: None, is_root_file };
+                v.plugins(options, self.first_plugin.as_deref());
+                self.append(v.out, file, is_root_file);
             }
             Err(e) => {
-                let (caminho, posicao) = (incluido.to_string_lossy().into_owned(), e.offset.to_string());
-                self.erros.push(Relato::novo(
+                let (path, pos) = (included.to_string_lossy().into_owned(), e.offset.to_string());
+                self.errors.push(Relato::novo(
                     &c::INCLUDED_FILE_PARSE_ERROR,
-                    onde,
-                    &[caminho.as_str(), posicao.as_str(), posicao.as_str(), e.message.as_str()],
+                    where_,
+                    &[path.as_str(), pos.as_str(), pos.as_str(), e.message.as_str()],
                 ));
             }
         }
     }
 }
 
-/// `analyzeAnalysisOptions`: os relatos do arquivo de opções de texto
-/// `conteudo`, todos com intervalo no arquivo inicial.
-pub fn analisar(conteudo: &str, ctx: &Contexto<'_>) -> Vec<Relato> {
-    let mut analise = Analise { ctx, erros: Vec::new(), include_inicial: None, primeiro_plugin: None, cadeia: Vec::new() };
-    match mapa_de(conteudo) {
-        Ok(opcoes) => analise.validar(ctx.arquivo, &opcoes, conteudo),
-        Err(e) => analise.erros.push(Relato::novo(&c::PARSE_ERROR, Span { start: e.offset, end: e.offset }, &[e.message.as_str()])),
+/// `analyzeAnalysisOptions`: the reports of the options file with text
+/// `contents`, all with a range in the initial file.
+pub fn analyze(contents: &str, ctx: &OptionsContext<'_>) -> Vec<Relato> {
+    let mut analysis = OptionsAnalysis { ctx, errors: Vec::new(), initial_include: None, first_plugin: None, chain: Vec::new() };
+    match map_of(contents) {
+        Ok(options) => analysis.validate(ctx.file, &options, contents),
+        Err(e) => analysis.errors.push(Relato::novo(&c::PARSE_ERROR, Span { start: e.offset, end: e.offset }, &[e.message.as_str()])),
     }
-    analise.erros
+    analysis.errors
 }
 
 #[cfg(test)]
 mod testes {
     use super::*;
 
-    /// `(nome do código, texto do intervalo)` de cada relato, sem includes.
-    fn achados(fonte: &str) -> Vec<(&'static str, String)> {
-        let sem_includes = |_: &Path, _: &str| None;
-        let ctx = Contexto { arquivo: Path::new("analysis_options.yaml"), raiz_do_contexto: ".", resolver: &sem_includes, sdk_permite: None };
-        analisar(fonte, &ctx).into_iter().map(|r| (r.codigo.nome, fonte[r.span.start..r.span.end].to_string())).collect()
+    /// `(code name, range text)` of each report, without includes.
+    fn findings(source: &str) -> Vec<(&'static str, String)> {
+        let without_includes = |_: &Path, _: &str| None;
+        let ctx = OptionsContext { file: Path::new("analysis_options.yaml"), context_root: ".", resolver: &without_includes, sdk_allows: None };
+        analyze(source, &ctx).into_iter().map(|r| (r.codigo.nome, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]
     fn secao_do_analyzer() {
-        assert_eq!(achados("analyzer:\n  exclude: [a]\n  erros: {}\n"), vec![("unsupported_option_with_legal_values", "erros".to_string())]);
+        assert_eq!(findings("analyzer:\n  exclude: [a]\n  erros: {}\n"), vec![("unsupported_option_with_legal_values", "erros".to_string())]);
         assert_eq!(
-            achados("analyzer:\n  errors:\n    nao_existe: ignore\n    dead_code: fatal\n"),
+            findings("analyzer:\n  errors:\n    nao_existe: ignore\n    dead_code: fatal\n"),
             vec![("unrecognized_error_code", "nao_existe".to_string()), ("unsupported_option_with_legal_values", "fatal".to_string())]
         );
-        assert_eq!(achados("analyzer:\n  language:\n    strict-casts: sim\n"), vec![("unsupported_value", "sim".to_string())]);
-        assert!(achados("analyzer:\n  language:\n    strict-casts: true\n  errors:\n    dead_code: ignore\n    todo: warning\n").is_empty());
+        assert_eq!(findings("analyzer:\n  language:\n    strict-casts: sim\n"), vec![("unsupported_value", "sim".to_string())]);
+        assert!(findings("analyzer:\n  language:\n    strict-casts: true\n  errors:\n    dead_code: ignore\n    todo: warning\n").is_empty());
     }
 
     #[test]
     fn regras_de_lint() {
-        assert_eq!(achados("linter:\n  rules:\n    - regra_que_nao_existe\n"), vec![("undefined_lint", "regra_que_nao_existe".to_string())]);
+        assert_eq!(findings("linter:\n  rules:\n    - regra_que_nao_existe\n"), vec![("undefined_lint", "regra_que_nao_existe".to_string())]);
         assert_eq!(
-            achados("linter:\n  rules:\n    - annotate_overrides\n    - annotate_overrides\n"),
+            findings("linter:\n  rules:\n    - annotate_overrides\n    - annotate_overrides\n"),
             vec![("duplicate_rule", "annotate_overrides".to_string())]
         );
         assert_eq!(
-            achados("linter:\n  rules:\n    - always_use_package_imports\n    - prefer_relative_imports\n"),
+            findings("linter:\n  rules:\n    - always_use_package_imports\n    - prefer_relative_imports\n"),
             vec![("incompatible_lint", "prefer_relative_imports".to_string())]
         );
-        assert_eq!(achados("linter:\n  regras: []\n"), vec![("unsupported_option_with_legal_value", "regras".to_string())]);
+        assert_eq!(findings("linter:\n  regras: []\n"), vec![("unsupported_option_with_legal_value", "regras".to_string())]);
     }
 
     #[test]
     fn include_e_sintaxe() {
-        assert_eq!(achados("include: nao_existe.yaml\n"), vec![("include_file_not_found", "nao_existe.yaml".to_string())]);
-        assert_eq!(achados("analyzer: [\n").first().map(|r| r.0), Some("parse_error"));
+        assert_eq!(findings("include: nao_existe.yaml\n"), vec![("include_file_not_found", "nao_existe.yaml".to_string())]);
+        assert_eq!(findings("analyzer: [\n").first().map(|r| r.0), Some("parse_error"));
     }
 
     #[test]
     fn lista_entre_aspas() {
-        assert_eq!(entre_aspas(&["a"]), "'a'");
-        assert_eq!(entre_aspas(&["a", "b"]), "'a' and 'b'");
-        assert_eq!(entre_aspas(&["a", "b", "c"]), "'a', 'b', and 'c'");
+        assert_eq!(quoted_list(&["a"]), "'a'");
+        assert_eq!(quoted_list(&["a", "b"]), "'a' and 'b'");
+        assert_eq!(quoted_list(&["a", "b", "c"]), "'a', 'b', and 'c'");
     }
 }
