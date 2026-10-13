@@ -664,7 +664,7 @@ impl Motor {
                 found.extend(with_phase(phase::TODO_FINDER, dartforge_analysis::todos::check(u.fonte).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::LANGUAGE_VERSION, dartforge_analysis::language_version::check(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::records::check(u, &interner, library.features).into_iter().map(|d| (i, d))));
-                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::inicializacao::constantes_nao_inicializadas(u, &interner).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::inicializacao::uninitialized_constants(u, &interner).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::PARSER,
                     dartforge_analysis::phases::colon_for_default_value(*u, library.features.versao().major < 3).into_iter().map(|d| (i, d)),
                 ));
@@ -932,7 +932,7 @@ impl Motor {
                 let nullable = dartforge_types::subtyping::is_subtype(core.null, t, &mut env);
                 non_nullable.insert((ui, v.name.span.start), !nullable);
             }
-            let found = dartforge_analysis::inicializacao::finais_nao_inicializados_com(&units, &interner, &|u, s| non_nullable.get(&(u, s)).copied());
+            let found = dartforge_analysis::inicializacao::uninitialized_finals_with(&units, &interner, &|u, s| non_nullable.get(&(u, s)).copied());
             attributed.extend(with_phase(phase::ERROR_VERIFIER, found.into_iter().map(|(i, d)| (ids[i], d))));
         }
         // Invalid overrides, in the classes where the `verify()` of the
