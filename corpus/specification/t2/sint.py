@@ -1,6 +1,6 @@
 import json,re,collections,io,sys
 sys.stdout=io.TextIOWrapper(sys.stdout.buffer,encoding='utf-8')
-base='E:/MyRustProjects/dartforge/corpus/diagnosticos/'
+base='E:/MyRustProjects/dartforge/corpus/diagnostics/'
 sint=set(); tipos=collections.Counter()
 porarq=collections.defaultdict(list)
 for g in ['analyzer','linguagem','analyzer-3.13','linguagem-3.13']:

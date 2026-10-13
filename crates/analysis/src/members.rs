@@ -1166,7 +1166,7 @@ mod tests {
     }
 
     /// Cases from the analyzer corpus, with what `dart analyze` 3.6.2 reports
-    /// (`corpus/diagnosticos/analyzer/oracle.jsonl`).
+    /// (`corpus/diagnostics/analyzer/oracle.jsonl`).
     #[test]
     fn conflicting_type_parameters() {
         let v = run(

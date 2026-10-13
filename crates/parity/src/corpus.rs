@@ -1,9 +1,9 @@
-//! The parity corpus, `corpus/diagnosticos/<group>/`.
+//! The parity corpus, `corpus/diagnostics/<group>/`.
 //!
 //! Each group is a Dart package (versioned `pubspec.yaml`; the
 //! `.dart_tool/package_config.json` is written by [`prepare`] and stays out of
 //! git) with a `group.json` that says which SDK is the oracle and which
-//! support packages (`corpus/diagnosticos/pacotes/<name>`) it sees. The
+//! support packages (`corpus/diagnostics/pacotes/<name>`) it sees. The
 //! expectation is **always** what the oracle recorded (`oracle.jsonl`); the
 //! annotations in the sources the cases came from (`// [analyzer] ...`,
 //! `[diag.x]`) are from SDK `main` and only served as seeds.
@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Group {
     pub sdk: OracleSdk,
-    /// Support packages in `corpus/diagnosticos/pacotes/`.
+    /// Support packages in `corpus/diagnostics/pacotes/`.
     #[serde(default)]
     pub packages: Vec<String>,
     /// Where the cases came from (free text, for the report).
@@ -37,7 +37,7 @@ pub struct Group {
 
 /// The corpus root in the repository.
 pub fn corpus_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnostics")
 }
 
 /// The corpus groups, in name order.

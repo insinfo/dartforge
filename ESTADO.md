@@ -5352,7 +5352,7 @@ sobre os grupos 3.6 **sem mudar a versão do pacote**, escolhe pelo próprio
 oráculo os arquivos em que ele acusa um recurso desconhecido do 3.6.2
 (`dot-shorthands`, `primary-constructors`, `private-named-parameters`) e
 troca só os registros deles: **498 em `analyzer` e 68 em `linguagem`**
-(`corpus/diagnosticos/new-syntax.json`). O `oraculo` respeita a lista ao
+(`corpus/diagnostics/new-syntax.json`). O `oraculo` respeita a lista ao
 regravar, e a linha de cada grupo do placar diz quantos arquivos são do
 3.13.4. Não foi `// @dart=3.13` por arquivo: os arquivos continuam
 bibliotecas 3.6.
@@ -6195,7 +6195,7 @@ português na saída**). A tabela (`diagnostics/src/codigos_g.rs`) é gerada do
     `argument_type_not_assignable` e `unused_local_variable`.
   * Os outros 3 são do T1 (`types`): `undefined_function`,
     `return_of_invalid_type` (posição) e `unchecked_use_of_nullable_value`.
-* **Placar no corpus** (`corpus/diagnosticos`, oráculo gravado em disco):
+* **Placar no corpus** (`corpus/diagnostics`, oráculo gravado em disco):
   9.441 arquivos e 26.133 diagnósticos do oráculo, 376 s com 2
   trabalhadores.
   * **5.343 na posição exata (20,4%), 5.054 com mensagem igual**, medidos

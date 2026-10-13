@@ -6,7 +6,7 @@
 //! * [`bridge`]: codes for the diagnostics that still come out as text only.
 //! * [`filters`]: `analysis_options.yaml` and `// ignore:`.
 //! * [`oracle`]: running and recording the oracle (SDK 3.6.2 and 3.13.4).
-//! * [`corpus`]: the groups of `corpus/diagnosticos/`.
+//! * [`corpus`]: the groups of `corpus/diagnostics/`.
 //! * [`scoreboard`]: the per-code comparison.
 //!
 //! Publication rule (plan §2.3): syntax is always published; a semantic code

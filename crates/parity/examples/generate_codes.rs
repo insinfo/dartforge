@@ -32,7 +32,7 @@ const CLASSES: &[(&str, &str, &str)] = &[
 /// Transcribed from the reference `messages.yaml`
 /// (`references/dart-sdk/pkg/_fe_analyzer_shared` and `pkg/analyzer`) and
 /// checked, text and type, against the 3.13.4 oracle recorded in
-/// `corpus/diagnosticos`. They go at the end of the table: the indices of the
+/// `corpus/diagnostics`. They go at the end of the table: the indices of the
 /// 6.11 codes do not change.
 ///
 /// (class, module, constant, name, unique, message, correction, type)
@@ -140,7 +140,7 @@ const SUPPLEMENT_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
         "COMPILE_TIME_ERROR",
     ),
     // Codes only 3.13.4 has (docs/ANALYZER-ESPECIFICACAO.md, T2 §1.3 (c)); texts
-    // checked against the 3.13.4 oracle recorded in `corpus/diagnosticos`.
+    // checked against the 3.13.4 oracle recorded in `corpus/diagnostics`.
     (
         "CompileTimeErrorCode",
         "compile_time_error",

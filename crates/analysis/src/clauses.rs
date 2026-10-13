@@ -1961,7 +1961,7 @@ mod tests {
     fn corpus(path: &str) -> String {
         fs::read_to_string(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../corpus/diagnosticos/analyzer")
+                .join("../../corpus/diagnostics/analyzer")
                 .join(path),
         )
         .unwrap()

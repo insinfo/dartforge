@@ -1,17 +1,17 @@
-# Avisos de terceiros
+# Third-party notices
 
-O DartForge é MIT. A formatação abreviada de Iterable em
-`crates/codegen/src/core.js` adapta o algoritmo de
+DartForge is MIT licensed. The abbreviated formatting of Iterable in
+`crates/codegen/src/core.js` adapts the algorithm of
 [Dart SDK 3.6.2 core/iterable.dart](https://github.com/dart-lang/sdk/blob/3.6.2/sdk/lib/core/iterable.dart),
 Copyright (c) 2011, the Dart project authors. All rights reserved.
-O aviso abaixo é preservado também na saída JS que inclui esse runtime.
+The notice below is also preserved in the JS output that includes that runtime.
 
-`corpus/diagnosticos/` (placar de paridade do `crates/parity`) contém
-cópias de `tests/language` e trechos de `pkg/analyzer/test/src/diagnostics`
-do SDK Dart, `pkg/expect` do mesmo SDK e o `lib/` do pacote `meta` 1.16.0,
-todos do Dart project authors sob a mesma licença abaixo. A tabela
-`crates/diagnostics/src/codigos_g.rs` é gerada dos moldes de mensagem do
-`analyzer` 6.11.0 e do `_fe_analyzer_shared` 76.0.0, idem.
+`corpus/diagnostics/` (the parity scoreboard of `crates/parity`) contains
+copies of `tests/language` and excerpts of `pkg/analyzer/test/src/diagnostics`
+from the Dart SDK, `pkg/expect` from the same SDK and the `lib/` of the `meta`
+1.16.0 package, all by the Dart project authors under the same license below.
+The table `crates/diagnostics/src/codes_g.rs` is generated from the message
+templates of `analyzer` 6.11.0 and `_fe_analyzer_shared` 76.0.0, likewise.
 
 ```text
 Copyright 2012, the Dart project authors.

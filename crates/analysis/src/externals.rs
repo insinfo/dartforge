@@ -118,28 +118,28 @@ mod tests {
     fn three_shapes_match_recorded_oracle() {
         for (source, code, start, message, correction) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__topLevelVariabl_9e68b99b.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__topLevelVariabl_9e68b99b.dart")),
                 c::EXTERNAL_VARIABLE_INITIALIZER,
                 13,
                 "External variables can't have initializers.",
                 "Try removing the initializer or the 'external' keyword.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_2eafc447.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_2eafc447.dart")),
                 c::EXTERNAL_FIELD_INITIALIZER,
                 31,
                 "External fields can't have initializers.",
                 "Try removing the initializer or the 'external' keyword.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/external_field_constructor_initializer/ExternalFieldConstructorInitializer__ex_7c1a26a5.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/external_field_constructor_initializer/ExternalFieldConstructorInitializer__ex_7c1a26a5.dart")),
                 c::EXTERNAL_FIELD_CONSTRUCTOR_INITIALIZER,
                 43,
                 "External fields can't have initializers.",
                 "Try removing the field initializer or the 'external' keyword from the field declaration.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/external_field_constructor_initializer/ExternalFieldConstructorInitializer__ex_4fd7b47b.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/external_field_constructor_initializer/ExternalFieldConstructorInitializer__ex_4fd7b47b.dart")),
                 c::EXTERNAL_FIELD_CONSTRUCTOR_INITIALIZER,
                 42,
                 "External fields can't have initializers.",
@@ -173,25 +173,25 @@ mod tests {
     fn abstract_field_initializers_match_oracle() {
         for (source, code, fragment, correction) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/abstract_field_initializer/AbstractFieldInitializer__abstract_fiel_92732177.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/abstract_field_initializer/AbstractFieldInitializer__abstract_fiel_92732177.dart")),
                 c::ABSTRACT_FIELD_INITIALIZER,
                 "x = 0",
                 "Try removing the initializer or the 'abstract' keyword.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/abstract_field_initializer/AbstractFieldInitializer__abstract_fiel_2551b9f0.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/abstract_field_initializer/AbstractFieldInitializer__abstract_fiel_2551b9f0.dart")),
                 c::ABSTRACT_FIELD_INITIALIZER,
                 "x = 0",
                 "Try removing the initializer or the 'abstract' keyword.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/abstract_field_constructor_initializer/AbstractFieldConstructorInitializer__ab_d542ca00.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/abstract_field_constructor_initializer/AbstractFieldConstructorInitializer__ab_d542ca00.dart")),
                 c::ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER,
                 "x);",
                 "Try removing the field initializer or the 'abstract' keyword from the field declaration.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/abstract_field_constructor_initializer/AbstractFieldConstructorInitializer__ab_204a2986.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/abstract_field_constructor_initializer/AbstractFieldConstructorInitializer__ab_204a2986.dart")),
                 c::ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER,
                 "x = 0",
                 "Try removing the field initializer or the 'abstract' keyword from the field declaration.",

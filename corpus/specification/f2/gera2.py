@@ -423,7 +423,7 @@ for n,s in C.items():
     p=os.path.join(base,n); os.makedirs(os.path.dirname(p),exist_ok=True)
     io.open(p,'w',encoding='utf-8',newline='\n').write(s)
 # cópias do corpus
-corp='E:/MyRustProjects/dartforge/corpus/diagnosticos/'
+corp='E:/MyRustProjects/dartforge/corpus/diagnostics/'
 cop=['analyzer/unused_element/UnusedElement__extension_unnamed_operat_83235816.dart',
 'analyzer/unused_element/UnusedElement__method_isUsed_privateExt_75655fd4.dart',
 'analyzer/unused_element/UnusedElement__method_isUsed_privateExt_d8f24a17.dart',

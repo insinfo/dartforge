@@ -7,7 +7,7 @@
 //! `target/scratch-parity/projects/<name>` (only the `.dart` files, the
 //! `pubspec.yaml`, the `analysis_options.yaml` and a `package_config.json` with
 //! absolute roots), and the copy is what gets mutated. The record lives in
-//! `corpus/diagnosticos/projects.json` and `corpus/diagnosticos/mutations.jsonl`;
+//! `corpus/diagnostics/projects.json` and `corpus/diagnostics/mutations.jsonl`;
 //! a mutation whose original file changed (hash) is flagged as stale.
 
 use crate::oracle::{FNV_START, Record, OracleSdk, fnv};

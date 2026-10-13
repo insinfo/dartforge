@@ -1,6 +1,6 @@
 import re,os,sys,io,json,collections
 sys.stdout=io.TextIOWrapper(sys.stdout.buffer,encoding='utf-8')
-base=r'E:\MyRustProjects\dartforge\corpus\diagnosticos'
+base=r'E:\MyRustProjects\dartforge\corpus\diagnostics'
 nova=json.load(open(os.path.join(base,'sintaxe-nova.json'),encoding='utf-8'))
 novaset=set()
 for g,l in nova.items():

@@ -1,10 +1,10 @@
 import json,re,collections,io,sys,os
 sys.stdout=io.TextIOWrapper(sys.stdout.buffer,encoding='utf-8')
 B=chr(92)
-sn=json.load(open('E:/MyRustProjects/dartforge/corpus/diagnosticos/sintaxe-nova.json',encoding='utf-8'))
+sn=json.load(open('E:/MyRustProjects/dartforge/corpus/diagnostics/sintaxe-nova.json',encoding='utf-8'))
 novos=set(sn['analyzer'])|set(sn['linguagem'])
 for g in ['analyzer-3.13','linguagem-3.13']:
-    base='E:/MyRustProjects/dartforge/corpus/diagnosticos/'+g
+    base='E:/MyRustProjects/dartforge/corpus/diagnostics/'+g
     for r,d,f in os.walk(base):
         for x in f:
             if x.endswith('.dart'): novos.add(os.path.relpath(os.path.join(r,x),base).replace(B,'/'))

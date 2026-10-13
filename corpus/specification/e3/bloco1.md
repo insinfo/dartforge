@@ -6,7 +6,7 @@ Fonte: parser fasta e AstBuilder do **3.6.2**, lidos nesta sessão. Abreviaçõe
 `ab:` = `analyzer/lib/src/fasta/ast_builder.dart`, `an:` = `analyzer/lib/src/`, `fm:` =
 `pkg/front_end/messages.yaml`, `am:` = `pkg/analyzer/messages.yaml`. O que vem do checkout
 main/3.14 (`E:\references\dart-sdk`) está marcado **[main]** e serve só para os arquivos julgados
-pelo 3.13.4; quando há, cito o **oráculo gravado** (`corpus/diagnosticos/<grupo>/oraculo.jsonl`,
+pelo 3.13.4; quando há, cito o **oráculo gravado** (`corpus/diagnostics/<grupo>/oraculo.jsonl`,
 saída do 3.13.4) porque não há binário 3.13.4 nesta máquina. Todo exemplo "entrada → diagnósticos"
 foi rodado no oráculo vivo 3.6.2 (`C:\tools\dartsdk-3.6.2`, casos em
 `E:\dftemp\analise\spec-r4\casos\e3\{a,b}\`); formato das saídas: `código · offset+length ·

@@ -1,6 +1,6 @@
 //! A2 acceptance: the 7-error probe produces **the same JSON, byte for byte**,
 //! as the one `dart analyze --format=json` of SDK 3.6.2 recorded
-//! (`corpus/diagnosticos/sonda/dart-analyze.json`, with the file path replaced
+//! (`corpus/diagnostics/sonda/dart-analyze.json`, with the file path replaced
 //! by `<SONDA>`), given each diagnostic's code, arguments and range — that is:
 //! the generated table, template rendering, severity, type, documentation
 //! URL, UTF-16/line/column conversion and reporting order are right. The
@@ -17,7 +17,7 @@ fn d(unique: &str, start: usize, end: usize, args: &[&str]) -> Diagnostic {
 
 #[test]
 fn seven_error_probe_matches_the_oracle() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/sonda");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnostics/sonda");
     let source = std::fs::read_to_string(root.join("lib/a.dart")).expect("probe");
     let expected = std::fs::read_to_string(root.join("dart-analyze.json")).expect("recorded oracle");
     let lines = json::LineIndex::new(&source);

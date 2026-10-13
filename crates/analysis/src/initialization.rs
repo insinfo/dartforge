@@ -352,8 +352,8 @@ mod tests {
     #[test]
     fn three_sources_from_official_corpus() {
         for (source, name) in [
-            (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__topLevelVariabl_dd6c7267.dart")), "v"),
-            (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_5d207b49.dart")), "v"),
+            (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__topLevelVariabl_dd6c7267.dart")), "v"),
+            (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_5d207b49.dart")), "v"),
         ] {
             assert_eq!(run(source), vec![(
                 name.into(),
@@ -367,7 +367,7 @@ mod tests {
     /// reported here (the 3.6.2 oracle only has `not_initialized_non_nullable_variable`).
     #[test]
     fn static_with_generative_constructor_not_reported() {
-        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_staticFie_99366e40.dart"));
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__class_staticFie_99366e40.dart"));
         assert!(run(source).iter().all(|(_, m)| !m.starts_with("The final variable")));
     }
 
@@ -393,7 +393,7 @@ mod tests {
     #[test]
     fn primary_constructor_reports_on_class_name_like_3_13_oracle() {
         // A new-syntax file: the oracle is 3.13, which checks the primary.
-        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_01f4790b.dart"));
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_01f4790b.dart"));
         assert_eq!(run(source), vec![("A".into(), "All final variables must be initialized, but 'v2' isn't.".into())]);
     }
 
@@ -401,19 +401,19 @@ mod tests {
     fn secondary_constructors_match_3_6_oracle() {
         for (source, offset, code, message) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_0811e46c.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_0811e46c.dart")),
                 60,
                 c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_3_PLUS,
                 "All final variables must be initialized, but 'v1', 'v2', and 1 others aren't.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_568a572a.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_568a572a.dart")),
                 45,
                 c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_1,
                 "All final variables must be initialized, but 'v' isn't.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__enum_instanceFi_5eb8f155.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__enum_instanceFi_5eb8f155.dart")),
                 70,
                 c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_1,
                 "All final variables must be initialized, but 'v' isn't.",
@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn enum_index_uses_own_diagnostic() {
-        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/illegal_concrete_enum_member_declaration/IllegalConcreteEnumMemberDeclarationEnu_9000f3c7.dart"));
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/illegal_concrete_enum_member_declaration/IllegalConcreteEnumMemberDeclarationEnu_9000f3c7.dart"));
         assert!(run(source).is_empty());
         assert!(run("enum E { v; final int index; }").is_empty());
         assert_eq!(run("enum E { v; static final int index; }"), vec![(
@@ -444,8 +444,8 @@ mod tests {
     #[test]
     fn non_final_non_nullable_instance_fields_from_oracle() {
         for source in [
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_87a3792e.dart")),
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__mixin_instanceF_fa8a8f5a.dart")),
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_87a3792e.dart")),
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__mixin_instanceF_fa8a8f5a.dart")),
         ] {
             assert_eq!(run(source), vec![(
                 "v".into(), "Non-nullable instance field 'v' must be initialized.".into(),
@@ -467,12 +467,12 @@ mod tests {
     fn constructors_with_non_final_non_nullable_fields_from_oracle() {
         for (source, offset, field) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_50a84c0d.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_50a84c0d.dart")),
                 31,
                 "v2",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_b270bd6f.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_b270bd6f.dart")),
                 40,
                 "v",
             ),

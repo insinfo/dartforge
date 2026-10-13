@@ -124,19 +124,19 @@ mod tests {
     fn real_operators_from_the_corpus() {
         for (source, code, operator, message) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__tri_89062d24.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__tri_89062d24.dart")),
                 c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR,
                 ">>>",
                 "Operator '>>>' should declare exactly 1 parameters, but 0 found.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__tilde_rP_rP.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__tilde_rP_rP.dart")),
                 c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR,
                 "~",
                 "Operator '~' should declare exactly 0 parameters, but 2 found.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__star_rP_rP.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__star_rP_rP.dart")),
                 c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR,
                 "*",
                 "Operator '*' should declare exactly 1 parameters, but 2 found.",

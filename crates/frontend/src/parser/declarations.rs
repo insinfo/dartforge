@@ -14,7 +14,7 @@
 //!   superset with `experiment_not_enabled`, and **not** fasta 3.6.2's
 //!   cascade: the tool is 3.13 (D2), and the 3.13.4 analyzer reports the
 //!   same in the same library and keeps analyzing (probed on 2026-09-25; the
-//!   oracle for those files is 3.13.4, `corpus/diagnosticos/new-syntax.json`).
+//!   oracle for those files is 3.13.4, `corpus/diagnostics/new-syntax.json`).
 //!   The exception is `augment` without the experiment: fasta's scanner
 //!   makes it a plain identifier, and the cascade applies in both SDKs. The
 //!   declaration lookahead still rejects `]`/`}` as a continuation
@@ -4065,14 +4065,14 @@ mod tests {
         use dartforge_diagnostics::codes::parser as c;
         for (src, code, start_offset, message, correction) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_0c2b43e4.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_0c2b43e4.dart")),
                 c::EXTERNAL_METHOD_WITH_BODY,
                 25,
                 "An external or native method can't have a body.",
                 None,
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_42cae48d.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_42cae48d.dart")),
                 c::EXTERNAL_FACTORY_WITH_BODY,
                 39,
                 "External factories can't have a body.",
@@ -4091,7 +4091,7 @@ mod tests {
     #[test]
     fn external_top_level_function_points_to_external_like_fasta() {
         use dartforge_diagnostics::codes::parser as c;
-        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/executable_body/ExecutableBody__topLevelFunction_extern_0464d54b.dart"));
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/executable_body/ExecutableBody__topLevelFunction_extern_0464d54b.dart"));
         let mut names = Interner::new();
         let out = parse(source, &mut names);
         assert!(out.diagnostics.iter().any(|d|
@@ -4107,7 +4107,7 @@ mod tests {
         use crate::parser::parse_with;
         use dartforge_diagnostics::codes::parser as c;
 
-        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/executable_body/ExecutableBody__class_staticField_abstr_5d2b9f54.dart"));
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/executable_body/ExecutableBody__class_staticField_abstr_5d2b9f54.dart"));
         let span = source.find("abstract int foo").unwrap();
         let mut names = Interner::new();
         let without_feature = parse_with(source, &mut names, LibraryFeatures::new(LanguageVersion::FLOOR, &[]));
@@ -4127,17 +4127,17 @@ mod tests {
         use dartforge_diagnostics::codes::parser as c;
         for (source, start_offset, end_offset) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_482771f3.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_482771f3.dart")),
                 41,
                 43,
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_4a7cd473.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_4a7cd473.dart")),
                 50,
                 52,
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_79e52946.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_79e52946.dart")),
                 50,
                 51,
             ),
@@ -4162,15 +4162,15 @@ mod tests {
         use dartforge_diagnostics::codes::parser as c;
         for (source, start_offset) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_6ecedb96.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_6ecedb96.dart")),
                 12,
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_c135c0a2.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_c135c0a2.dart")),
                 25,
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_d7023785.dart")),
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_d7023785.dart")),
                 55,
             ),
         ] {
@@ -4192,7 +4192,7 @@ mod tests {
         let parsed = parse(sdk, &mut names);
         assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)), "{:?}", parsed.diagnostics);
 
-        let corpus = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/linguagem/const/native_factory_test.dart"));
+        let corpus = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/linguagem/const/native_factory_test.dart"));
         let parsed = parse(corpus, &mut names);
         assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)), "{:?}", parsed.diagnostics);
     }

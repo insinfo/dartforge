@@ -835,7 +835,7 @@ jobs:
           args: determinism --native --workers 1,4,8
           requires: '^determinism \(IR\): '
   # Diagnostic parity with `dart analyze` (crates/parity, plan A1): our
-  # analyzer over corpus/diagnosticos against the oracle RECORDED on disk
+  # analyzer over corpus/diagnostics against the oracle RECORDED on disk
   # (each group's oracle.jsonl, re-recorded locally by `dartforge-parity
   # oracle` with the 3.6.2 and 3.13.4 SDKs) — the runner does not run
   # `dart analyze`. setup-dart's 3.6.2 SDK only gives the `lib/` our side
@@ -873,7 +873,7 @@ jobs:
           $line = $text | Where-Object { $_ -match '^parity scoreboard: ' } | Select-Object -First 1
           $det = $text | Where-Object { $_ -match '^determinism: ' } | Select-Object -First 1
           $table = $text | Where-Object { $_ -notmatch '^\s+\[' }
-          $md = @('### Parity with dart analyze (corpus/diagnosticos)', '', "$det", '', '```text') + $table + @('```', '', "Exit code: $code. Time: $time.")
+          $md = @('### Parity with dart analyze (corpus/diagnostics)', '', "$det", '', '```text') + $table + @('```', '', "Exit code: $code. Time: $time.")
           Add-Content $env:GITHUB_STEP_SUMMARY ($md -join "`n") -Encoding utf8
           Write-Host ($text -join "`n")
           Write-Host "::notice title=Scoreboard analysis::$line; $det ($time)"

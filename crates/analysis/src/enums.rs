@@ -57,7 +57,7 @@ mod tests {
 
     #[test]
     fn empty_enum_matches_the_3_6_oracle() {
-        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/enum_without_constants/EnumWithoutConstants__noConstants.dart"));
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/enum_without_constants/EnumWithoutConstants__noConstants.dart"));
         let mut names = Interner::new();
         let parsed = parse(source, &mut names);
         let found = without_constants(&[Unit {

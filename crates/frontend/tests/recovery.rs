@@ -1,6 +1,6 @@
 //! Parser error recovery as in the fasta of `dart analyze` 3.6.2
 //! (`_fe_analyzer_shared` 76.0.0 and the analyzer 6.11.0 `AstBuilder`): each
-//! case is an oracle sample (`corpus/diagnosticos`), with the exact code and
+//! case is an oracle sample (`corpus/diagnostics`), with the exact code and
 //! excerpt the analyzer reports.
 use dartforge_frontend::parser::{Parsed, parse_with};
 use dartforge_frontend::{LanguageVersion, LibraryFeatures};

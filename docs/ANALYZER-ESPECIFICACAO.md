@@ -70,7 +70,7 @@ F (`undefined_class` em `augment mixin/extension`), A (membros resolvidos).
 
 ### T2. Qual oráculo julga cada arquivo (3.6.2 × 3.13.4)
 
-Os arquivos de sintaxe nova são julgados pelo 3.13.4 (`corpus/diagnosticos/new-syntax.json`
+Os arquivos de sintaxe nova são julgados pelo 3.13.4 (`corpus/diagnostics/new-syntax.json`
 e a regra do parser em §E: versão da biblioteca > 3.6, ou uso de
 dot-shorthands/primary-constructors/private-named-parameters). Códigos e
 mensagens mudaram entre as versões: `unused_element_parameter` (3.13) ×
@@ -781,7 +781,7 @@ O `assert(…)` como expressão é `FunctionExpressionInvocation` e o avaliador 
 - **No DartForge:** existe (66). FN `static_extension_internal_basename_shadowing:402-410`: campo `final` estático de **extensão** atribuído por nome implícito dentro de membro da extensão. **Mudança:** procurar os campos estáticos da extensão envolvente no lookup de escrita.
 
 ##### `assignment_to_primary_constructor_parameter` (perda 40: FN 40; feito, 40/40)
-- **Não existe no analyzer 3.6.2** (ausente de `analyzer/messages.yaml` e de `codes.g.dart` da 3.6.2). Todos os casos vêm de arquivos com **construtores primários** (sintaxe nova, `primary_constructors/*`, `AssignmentToPrimaryConstructorParameter_*`), classificados em `corpus/diagnosticos/new-syntax.json` e julgados pelo oráculo 3.13.4.
+- **Não existe no analyzer 3.6.2** (ausente de `analyzer/messages.yaml` e de `codes.g.dart` da 3.6.2). Todos os casos vêm de arquivos com **construtores primários** (sintaxe nova, `primary_constructors/*`, `AssignmentToPrimaryConstructorParameter_*`), classificados em `corpus/diagnostics/new-syntax.json` e julgados pelo oráculo 3.13.4.
 - **Mensagem (3.13):** `A primary constructor parameter can't be assigned to in an initializer.` — o parâmetro de construtor primário (declarado no cabeçalho `class C(int x)`) atribuído (`x = …`, `x++`, `x += …`) dentro de inicializador de campo/inicializador do construtor.
 - **Posição (pelo oráculo):** o identificador atribuído (ou a expressão de atribuição; `2:27`, `65:6`/`65:11` = duas atribuições na mesma linha).
 - **Emissor (checkout main, `pkg/analyzer/lib/src/generated/error_verifier.dart:3302-3327`):** `_checkForAssignmentToPrimaryConstructorParameter(node, element)`: o elemento escrito (o `writeElement` da atribuição, do `++`/`--` e do `??=`, ou o do `AssignedVariablePattern`) é um `FormalParameterElement` cujo dono é o construtor primário, e `_thisContext` é `constructorInitializers` ou `instanceFieldDeclaration`. O contexto não muda ao entrar numa função dentro do inicializador (`var f = () { x = 0; };` e `this : f = (() { x = 0; })` relatam). O corpo `this { x = 0; }` não relata; o campo `late` não vê o parâmetro (`undefined_identifier`). Chamadas: `visitAssignedVariablePattern` (`:443-446`), `visitAssignmentExpression` (`:456-457`), atribuição composta e `??=` (`:725-735`, `:948-956`, `:1598-1608`) e `++`/`--` (`:1712-1719`).
@@ -6726,7 +6726,7 @@ registrar/implementar.
 
 Fonte: `E:\references\dart-sdk-3.6.2\pkg` (citado como `analyzer/lib/...:linha`,
 `_fe_analyzer_shared/lib/...:linha`). Amostras: `placar-base-r3.txt`. "SN" = arquivo listado em
-`corpus/diagnosticos/new-syntax.json` (oráculo **3.13.4**, não 3.6.2).
+`corpus/diagnostics/new-syntax.json` (oráculo **3.13.4**, não 3.6.2).
 
 **Estado em 2026-10-05 (escrito, não compilado).** Em `crates/types/src/inferencia/funcoes.rs`:
 - `alvo_de_factory_redirecionadora` foi reescrita sobre `resolver_alvo_escrito`, que resolve o nome do
@@ -15817,7 +15817,7 @@ Base r3: placar 18535/23030.
 
 **T1 — Qual analyzer é o oráculo de um arquivo.** O oráculo é o 3.13.4 quando (a) a biblioteca tem
 versão de linguagem > 3.6 (grupo `*-3.13`, marcador `@dart` novo) ou (b) a unidade usa sintaxe que o
-3.6.2 não conhece (`corpus/diagnosticos/new-syntax.json`); senão é o 3.6.2. O parser consegue
+3.6.2 não conhece (`corpus/diagnostics/new-syntax.json`); senão é o 3.6.2. O parser consegue
 decidir isso sozinho no fim da unidade: (a) é `features.versao() > PISO`; (b) é "há algum
 `experiment_not_enabled` com recurso em {dot-shorthands, primary-constructors,
 private-named-parameters}" (a mesma lista de `analise::duplicatas::RECURSOS_POSTERIORES_AO_3_6`).
@@ -18351,7 +18351,7 @@ Fonte: parser fasta e AstBuilder do **3.6.2**, lidos nesta sessão. Abreviaçõe
 `ab:` = `analyzer/lib/src/fasta/ast_builder.dart`, `an:` = `analyzer/lib/src/`, `fm:` =
 `pkg/front_end/messages.yaml`, `am:` = `pkg/analyzer/messages.yaml`. O que vem do checkout
 main/3.14 (`E:\references\dart-sdk`) está marcado **[main]** e serve só para os arquivos julgados
-pelo 3.13.4; quando há, cito o **oráculo gravado** (`corpus/diagnosticos/<grupo>/oracle.jsonl`,
+pelo 3.13.4; quando há, cito o **oráculo gravado** (`corpus/diagnostics/<grupo>/oracle.jsonl`,
 saída do 3.13.4) porque não há binário 3.13.4 nesta máquina. Todo exemplo "entrada → diagnósticos"
 foi rodado no oráculo vivo 3.6.2 (`C:\tools\dartsdk-3.6.2`, casos em
 `corpus\specification\e3\{a,b,c}\`); formato das saídas: `código · offset+length ·
@@ -27407,7 +27407,7 @@ oraculo(arquivo, grupo):
   senão                                                   -> 3.6.2, linguagem do pacote 3.6
 ```
 
-- `corpus/diagnosticos/new-syntax.json`: objeto `{ "<grupo>": ["<caminho relativo ao grupo>", …] }`,
+- `corpus/diagnostics/new-syntax.json`: objeto `{ "<grupo>": ["<caminho relativo ao grupo>", …] }`,
   duas chaves: `analyzer` (498 arquivos) e `linguagem` (68) — 566 no total. Gravado por
   `oraculo::gravar_sintaxe_nova` (`crates/parity/src/oraculo.rs:276`), lido por `ler_sintaxe_nova` (`:268`).
 - Grupos `*-3.13` (`group.json` com `"sdk": "3.13.4"`): `analyzer-3.13` tem 2 arquivos
@@ -27933,7 +27933,7 @@ Fontes: `analyzer/lib/src/dart/analysis/library_analyzer.dart` (3.6.2, lido inte
 `analyzer/lib/error/listener.dart`, `analyzer/lib/error/error.dart`,
 `analyzer/lib/src/ignore_comments/ignore_info.dart`, `analysis_server/lib/src/protocol_server.dart`;
 oráculo vivo 3.6.2 nos casos de `corpus\specification\t2\t5` (pacote 3.6, sem
-`analysis_options.yaml` — os grupos do corpus também não têm nenhum: `find corpus/diagnosticos
+`analysis_options.yaml` — os grupos do corpus também não têm nenhum: `find corpus/diagnostics
 -maxdepth 2 -name analysis_options.yaml` não acha nada). A ordenação da saída do `dart analyze` é do
 `dartdev`, que **não** está na cópia 3.6.2; o trecho citado é de `E:\references\dart-sdk` (main) e a
 ordem foi conferida no oráculo vivo 3.6.2.

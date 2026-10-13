@@ -410,8 +410,8 @@ fn missing_static_getter_in_extension_per_oracle() {
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
     for (source, offset) in [
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_getter/UndefinedExtensionGetter__static_withou_8f374a5b.dart")), 40),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_getter/UndefinedExtensionGetter__static_withInference.dart")), 35),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_getter/UndefinedExtensionGetter__static_withou_8f374a5b.dart")), 40),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_getter/UndefinedExtensionGetter__static_withInference.dart")), 35),
     ] {
         let mut interner = Interner::new();
         fs::write(&main_dart, source).unwrap();
@@ -434,7 +434,7 @@ fn missing_static_setter_in_extension_per_oracle() {
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_setter/UndefinedExtensionSetter__static_undefined.dart"));
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_setter/UndefinedExtensionSetter__static_undefined.dart"));
     fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
@@ -455,9 +455,9 @@ fn static_access_to_extension_instance_members_per_oracle() {
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
     for (source, the_name) in [
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_getter.dart")), "g"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_method.dart")), "m"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_setter.dart")), "s"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_getter.dart")), "g"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_method.dart")), "m"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_setter.dart")), "s"),
     ] {
         let mut interner = Interner::new();
         fs::write(&main_dart, source).unwrap();
@@ -482,12 +482,12 @@ fn static_access_to_class_instance_members_per_oracle() {
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
     let positives = [
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__method_invocation.dart")), "m"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__method_reference.dart")), "m"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_5eff7611.dart")), "t"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_618b8c7e.dart")), "f"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_baf43dcf.dart")), "f"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_dfc9b0ea.dart")), "f"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__method_invocation.dart")), "m"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__method_reference.dart")), "m"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_5eff7611.dart")), "t"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_618b8c7e.dart")), "f"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_baf43dcf.dart")), "f"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_dfc9b0ea.dart")), "f"),
     ];
     for (source, the_name) in positives {
         let mut interner = Interner::new();
@@ -509,12 +509,12 @@ fn static_access_to_class_instance_members_per_oracle() {
             && other.message.starts_with(UNDEFINED_GETTER.template)), "{diags:?}");
     }
     for source in [
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_method.dart")),
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_pr_24220736.dart")),
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_pr_d7df5494.dart")),
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__alias.dart")),
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceMember.dart")),
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceSetter.dart")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_method.dart")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_pr_24220736.dart")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_pr_d7df5494.dart")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__alias.dart")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceMember.dart")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceSetter.dart")),
         // Dart 3.13.4 oracle: a named constructor and a same-named instance
         // method coexist; `A.named` is the constructor's tear-off.
         "class A { A.named(); void named() {} } var tearoff = A.named;",
@@ -546,7 +546,7 @@ fn write_to_instance_method_via_type_and_undefined_setter() {
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/linguagem/static/field3_test.dart"));
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/linguagem/static/field3_test.dart"));
     fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
@@ -567,7 +567,7 @@ fn missing_new_after_instantiated_type_keeps_constructor_diagnostic() {
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/linguagem/constructor/unnamed_new_error_test.dart"));
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/linguagem/constructor/unnamed_new_error_test.dart"));
     fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
@@ -595,9 +595,9 @@ fn enum_generative_constructor_reference_is_not_missing_constructor() {
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
     for (source, expr, suffix) in [
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_f77bae06.dart")), "E.new", ";"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_24430155.dart")), "E.named", ";"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_3e9c8dca.dart")), "E.named", "();"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_f77bae06.dart")), "E.new", ";"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_24430155.dart")), "E.named", ";"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_3e9c8dca.dart")), "E.named", "();"),
     ] {
         let mut interner = Interner::new();
         fs::write(&main_dart, source).unwrap();
@@ -612,7 +612,7 @@ fn enum_generative_constructor_reference_is_not_missing_constructor() {
         assert!(target[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{expr}: {diags:?}");
         assert_eq!(target[0].span.end as usize, offset + expr.len());
     }
-    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_4790a320.dart"));
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_4790a320.dart"));
     let mut interner = Interner::new();
     fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
@@ -635,7 +635,7 @@ fn enum_generative_constructor_invocation_with_new_const_and_unnamed() {
         ("InvalidReferenceToGenerativeEnumConstru_b2744770.dart", "  new E();", 6, 1),
         ("InvalidReferenceToGenerativeEnumConstru_3b68350d.dart", "  const E();", 8, 1),
     ] {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(file);
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnostics/analyzer/invalid_reference_to_generative_enum_constructor").join(file);
         let source = fs::read_to_string(&path).unwrap();
         let mut interner = Interner::new();
         fs::write(&main_dart, &source).unwrap();
@@ -661,7 +661,7 @@ fn enum_generative_constructor_invocation_with_new_const_and_unnamed() {
         "../const_with_undefined_constructor/ConstWithUndefinedConstructor__enum_not_a082a644.dart",
         "../const_with_undefined_constructor/ConstWithUndefinedConstructor__enum_unresolved.dart",
     ] {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(file);
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnostics/analyzer/invalid_reference_to_generative_enum_constructor").join(file);
         let source = fs::read_to_string(&path).unwrap();
         let mut interner = Interner::new();
         fs::write(&main_dart, &source).unwrap();
@@ -685,7 +685,7 @@ fn redirecting_factory_to_enum_generative_reports_at_target() {
         ("InvalidReferenceToGenerativeEnumConstru_31f7f2b6.dart", " = E.named;", 3, 7),
         ("InvalidReferenceToGenerativeEnumConstru_f6f82211.dart", " = E;", 3, 1),
     ] {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(file);
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnostics/analyzer/invalid_reference_to_generative_enum_constructor").join(file);
         let source = fs::read_to_string(&path).unwrap();
         let mut interner = Interner::new();
         fs::write(&main_dart, &source).unwrap();
@@ -724,9 +724,9 @@ fn instance_member_in_explicit_instantiation_has_own_code_and_span() {
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
     for (source, access) in [
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__alias.dart")), "TA<int>.i"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceMember.dart")), "A<int>.i"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceSetter.dart")), "A<int>.i"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__alias.dart")), "TA<int>.i"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceMember.dart")), "A<int>.i"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceSetter.dart")), "A<int>.i"),
     ] {
         let mut interner = Interner::new();
         fs::write(&main_dart, source).unwrap();
@@ -749,9 +749,9 @@ fn static_or_unknown_member_in_explicit_instantiation() {
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
     for (source, code, argument) in [
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__staticMember.dart")), CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER, "'i'"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__staticSetter.dart")), CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER, "'i'"),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__exten_0fa28792.dart")), CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER, "'A', 'i'"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__staticMember.dart")), CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER, "'i'"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__staticSetter.dart")), CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER, "'i'"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__exten_0fa28792.dart")), CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER, "'A', 'i'"),
     ] {
         let mut interner = Interner::new();
         fs::write(&main_dart, source).unwrap();
@@ -794,8 +794,8 @@ fn missing_static_method_in_extension_per_oracle() {
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
     for (source, offset) in [
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_method/UndefinedExtensionMethod__static_withInference.dart")), 35),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_method/UndefinedExtensionMethod__static_withou_709c4429.dart")), 40),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_method/UndefinedExtensionMethod__static_withInference.dart")), 35),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_method/UndefinedExtensionMethod__static_withou_709c4429.dart")), 40),
     ] {
         let mut interner = Interner::new();
         fs::write(&main_dart, source).unwrap();
@@ -890,7 +890,7 @@ fn override_without_call_per_oracle() {
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invocation_of_extension_without_call/InvocationOfExtensionWithoutCall__insta_ae18bfa4.dart"));
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/invocation_of_extension_without_call/InvocationOfExtensionWithoutCall__insta_ae18bfa4.dart"));
     fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
@@ -908,8 +908,8 @@ fn unary_operator_in_override_per_oracle() {
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
     for (source, missing_) in [
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__prefix_minu_99f91916.dart")), true),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__prefix_minus_defined.dart")), false),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__prefix_minu_99f91916.dart")), true),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__prefix_minus_defined.dart")), false),
     ] {
         let mut interner = Interner::new();
         fs::write(&main_dart, source).unwrap();
@@ -933,8 +933,8 @@ fn binary_operator_in_override_per_oracle() {
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
     for (source, missing_) in [
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__binary_undefined.dart")), true),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__binary_defined.dart")), false),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__binary_undefined.dart")), true),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__binary_defined.dart")), false),
     ] {
         let mut interner = Interner::new();
         fs::write(&main_dart, source).unwrap();
@@ -966,16 +966,16 @@ fn binary_operator_in_override_per_oracle() {
 #[test]
 fn index_operators_in_override_per_oracle() {
     let cases: &[(&str, &[&str])] = &[
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasGetter.dart")), &[]),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasNone.dart")), &["[]"]),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasSetter.dart")), &["[]"]),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSe_517d7597.dart")), &["[]"]),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSe_eb3ada23.dart")), &["[]="]),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSet_hasBoth.dart")), &[]),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSet_hasNone.dart")), &["[]", "[]="]),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_set_hasGetter.dart")), &["[]="]),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_set_hasNone.dart")), &["[]="]),
-        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_set_hasSetter.dart")), &[]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasGetter.dart")), &[]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasNone.dart")), &["[]"]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasSetter.dart")), &["[]"]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSe_517d7597.dart")), &["[]"]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSe_eb3ada23.dart")), &["[]="]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSet_hasBoth.dart")), &[]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_getSet_hasNone.dart")), &["[]", "[]="]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_set_hasGetter.dart")), &["[]="]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_set_hasNone.dart")), &["[]="]),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_set_hasSetter.dart")), &[]),
     ];
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

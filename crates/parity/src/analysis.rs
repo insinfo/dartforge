@@ -1747,7 +1747,7 @@ mod tests {
         std::fs::write(root.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
         std::fs::write(root.join("sdk/lib/core/core.dart"), "class Object {} class int extends Object {}").unwrap();
         let entry = root.join("main.dart");
-        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/conflicting_static_and_instance/ConflictingStaticAndInstanceClass__inSu_7966ede4.dart"));
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/conflicting_static_and_instance/ConflictingStaticAndInstanceClass__inSu_7966ede4.dart"));
         std::fs::write(&entry, source).unwrap();
         let engine = Engine::new(&root.join("sdk/lib")).unwrap();
         let result = engine.analyze(&root, std::slice::from_ref(&entry), None);

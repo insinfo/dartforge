@@ -292,7 +292,7 @@ pub fn marker_3_13(dir: &Path, sources: &[std::path::PathBuf]) -> std::collectio
     marked
 }
 
-/// `corpus/diagnosticos/new-syntax.json`: per group, the files whose oracle
+/// `corpus/diagnostics/new-syntax.json`: per group, the files whose oracle
 /// is 3.13.4 (see [`uses_new_syntax`]).
 pub fn read_new_syntax(root: &Path) -> std::collections::BTreeMap<String, Vec<String>> {
     std::fs::read_to_string(root.join("new-syntax.json"))

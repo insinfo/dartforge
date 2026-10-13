@@ -337,9 +337,9 @@ corrigido lá e vale este.
   `PENDENTES` no diretório do corpus lista o que ainda falha por recurso não
   implementado: pendente que falha não reprova; pendente que passa reprova
   (a lista só encolhe).
-* Placar do analyzer (`crates/parity`, `corpus/diagnosticos`): os grupos
+* Placar do analyzer (`crates/parity`, `corpus/diagnostics`): os grupos
   `analyzer` e `linguagem` são bibliotecas 3.6 com oráculo 3.6.2, exceto os
-  arquivos listados em `corpus/diagnosticos/new-syntax.json`, gravados
+  arquivos listados em `corpus/diagnostics/new-syntax.json`, gravados
   pelo **3.13.4 sobre o mesmo pacote 3.6**. São os que usam sintaxe que o
   3.6.2 não conhece (atalhos de ponto, construtores primários, nomeados
   privados): o 3.6.2 responde com cascata de sintaxe, o 3.13.4 com
