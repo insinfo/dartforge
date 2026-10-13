@@ -1,18 +1,18 @@
-//! O vigésimo quarto lote de regras de lint
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`), pela
-//! semântica da unidade:
+//! The twenty-fourth batch of lint rules
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the 3.6.2
+//! emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`),
+//! through the unit's semantics:
 //!
-//! * `specify_nonobvious_local_variable_types`: as variáveis locais (também
-//!   as de `for` e `for-in`, de declaração por padrão e de `case`) sem tipo
-//!   cujo inicializador não tem tipo óbvio (`super::obvious`).
-//! * `use_string_buffers`: o `s += …` (de variável que não é local do corpo)
-//!   e o `s = s + …` de `String` direto no corpo de um laço. Como no
-//!   analyzer, o identificador do lado esquerdo de uma atribuição não tem
-//!   elemento, então o segundo caso só casa um identificador não resolvido.
-//! * `use_enums`: a classe que é um enum escrito à mão.
+//! * `specify_nonobvious_local_variable_types`: the untyped local variables
+//!   (also those of `for` and `for-in`, of pattern declarations and of
+//!   `case`) whose initializer has no obvious type (`super::obvious`).
+//! * `use_string_buffers`: `s += …` (of a variable that is not a local of the
+//!   body) and `s = s + …` of a `String` directly in a loop body. As in the
+//!   analyzer, the identifier on the left side of an assignment has no
+//!   element, so the second case only matches an unresolved identifier.
+//! * `use_enums`: a class that is a hand-written enum.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -28,105 +28,105 @@ use dartforge_types::resolved::Resolved;
 use dartforge_types::table::Type;
 use std::collections::HashSet;
 
-fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
+fn class_of_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
     (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
 }
 
-/// Os padrões de variável declarada sem tipo (ou `dynamic`/`Null`) dentro de
+/// The declared variable patterns without a type (or `dynamic`/`Null`) inside
 /// `p`.
-fn padroes_sem_tipo(s: &super::Semantics<'_>, a: &Ast, p: PatternId, saida: &mut Vec<Span>) {
+fn untyped_patterns(s: &super::Semantics<'_>, a: &Ast, p: PatternId, out: &mut Vec<Span>) {
     let mut vs = Vec::new();
     super::rules9::pattern_variables(a, p, &mut vs);
     for x in vs {
         let PatternKind::Variable { ty, .. } = &a.pattern(x).kind else { continue };
-        let sem_tipo = match ty {
+        let untyped = match ty {
             None => true,
             Some(t) => s.body.tipos_de_anotacoes.get(t).is_none_or(|t| matches!(s.table.get(*t), Type::Dynamic | Type::Null)),
         };
-        if sem_tipo {
-            saida.push(a.pattern(x).span);
+        if untyped {
+            out.push(a.pattern(x).span);
         }
     }
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let program = s.program;
     let table = s.table;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `specify_nonobvious_local_variable_types`.
-    if ligada("specify_nonobvious_local_variable_types") {
-        let mut achados: Vec<Span> = Vec::new();
-        let obvio = |e: ExprId| super::obvious::has_obvious_type(s, interner, a, e);
-        let lista = |l: &dartforge_frontend::ast::VariableList, inicio: usize, achados: &mut Vec<Span>| {
+    if enabled("specify_nonobvious_local_variable_types") {
+        let mut findings: Vec<Span> = Vec::new();
+        let is_obvious = |e: ExprId| super::obvious::has_obvious_type(s, interner, a, e);
+        let list = |l: &dartforge_frontend::ast::VariableList, start: usize, findings: &mut Vec<Span>| {
             if let Some(t) = l.ty
                 && s.body.tipos_de_anotacoes.get(&t).is_some_and(|x| !matches!(table.get(*x), Type::Null))
             {
                 return;
             }
-            let precisam: Vec<&dartforge_frontend::ast::Variable> = l.variables.iter().filter(|v| v.initializer.is_none_or(|i| !obvio(i))).collect();
-            if precisam.is_empty() {
+            let needing: Vec<&dartforge_frontend::ast::Variable> = l.variables.iter().filter(|v| v.initializer.is_none_or(|i| !is_obvious(i))).collect();
+            if needing.is_empty() {
                 return;
             }
             if l.variables.len() == 1 {
                 let v = &l.variables[0];
-                let fim = v.initializer.map_or(v.name.span.end, |i| a.expr(i).span.end);
-                achados.push(Span { start: inicio, end: fim });
+                let end = v.initializer.map_or(v.name.span.end, |i| a.expr(i).span.end);
+                findings.push(Span { start: start, end: end });
             } else {
-                for v in precisam {
-                    let fim = v.initializer.map_or(v.name.span.end, |i| a.expr(i).span.end);
-                    achados.push(Span { start: v.name.span.start, end: fim });
+                for v in needing {
+                    let end = v.initializer.map_or(v.name.span.end, |i| a.expr(i).span.end);
+                    findings.push(Span { start: v.name.span.start, end: end });
                 }
             }
         };
-        let metadados = |k: usize| a.metadados_locais.iter().find(|(x, _)| x.0 as usize == k).map_or(&[][..], |(_, m)| &m[..]);
-        let inicio_da_lista = |st_inicio: usize, meta: &[dartforge_frontend::ast::Annotation]| match meta.last() {
+        let metadata_of = |k: usize| a.metadados_locais.iter().find(|(x, _)| x.0 as usize == k).map_or(&[][..], |(_, m)| &m[..]);
+        let list_start = |stmt_start: usize, meta: &[dartforge_frontend::ast::Annotation]| match meta.last() {
             Some(m) => dartforge_frontend::fonte::pular_brancos(u.fonte.as_bytes(), m.span.end),
-            None => st_inicio,
+            None => stmt_start,
         };
         for (k, st) in a.stmts.iter().enumerate() {
             match &st.kind {
-                StmtKind::Variables(l) => lista(l, inicio_da_lista(st.span.start, metadados(k)), &mut achados),
+                StmtKind::Variables(l) => list(l, list_start(st.span.start, metadata_of(k)), &mut findings),
                 StmtKind::For { init: Some(ForInit::Variables(l)), .. } => {
-                    // A lista começa depois do `(`.
-                    let ini = u.fonte[st.span.start..].find('(').map_or(st.span.start, |i| dartforge_frontend::fonte::pular_brancos(u.fonte.as_bytes(), st.span.start + i + 1));
-                    lista(l, ini, &mut achados);
+                    // The list starts after the `(`.
+                    let start_pos = u.fonte[st.span.start..].find('(').map_or(st.span.start, |i| dartforge_frontend::fonte::pular_brancos(u.fonte.as_bytes(), st.span.start + i + 1));
+                    list(l, start_pos, &mut findings);
                 }
                 StmtKind::ForIn { target: ForInTarget::Declared { ty, name, .. }, iterable, .. } => {
-                    let tipado = ty.and_then(|t| s.body.tipos_de_anotacoes.get(&t)).is_some_and(|x| !matches!(table.get(*x), Type::Dynamic));
-                    if tipado || obvio(*iterable) {
+                    let typed = ty.and_then(|t| s.body.tipos_de_anotacoes.get(&t)).is_some_and(|x| !matches!(table.get(*x), Type::Dynamic));
+                    if typed || is_obvious(*iterable) {
                         continue;
                     }
-                    let ini = u.fonte[st.span.start..].find('(').map_or(name.span.start, |i| dartforge_frontend::fonte::pular_brancos(u.fonte.as_bytes(), st.span.start + i + 1));
-                    achados.push(Span { start: ini, end: name.span.end });
+                    let start_pos = u.fonte[st.span.start..].find('(').map_or(name.span.start, |i| dartforge_frontend::fonte::pular_brancos(u.fonte.as_bytes(), st.span.start + i + 1));
+                    findings.push(Span { start: start_pos, end: name.span.end });
                 }
                 StmtKind::PatternVariables { pattern, value, .. } => {
-                    if !obvio(*value) {
-                        padroes_sem_tipo(s, a, *pattern, &mut achados);
+                    if !is_obvious(*value) {
+                        untyped_patterns(s, a, *pattern, &mut findings);
                     }
                 }
                 StmtKind::Switch { value, cases } => {
-                    if obvio(*value) {
+                    if is_obvious(*value) {
                         continue;
                     }
-                    for caso in cases.iter() {
-                        let Some(p) = caso.pattern else { continue };
-                        // Os padrões de declaração do caso inteiro (o padrão e
-                        // as declarações por padrão do corpo).
-                        padroes_sem_tipo(s, a, p, &mut achados);
+                    for case in cases.iter() {
+                        let Some(p) = case.pattern else { continue };
+                        // The declaration patterns of the whole case (the pattern
+                        // and the body's pattern declarations).
+                        untyped_patterns(s, a, p, &mut findings);
                         for (k2, st2) in a.stmts.iter().enumerate() {
                             let _ = k2;
-                            if st2.span.start >= caso.span.start
-                                && st2.span.end <= caso.span.end
+                            if st2.span.start >= case.span.start
+                                && st2.span.end <= case.span.end
                                 && let StmtKind::PatternVariables { pattern, .. } = &st2.kind
                             {
-                                padroes_sem_tipo(s, a, *pattern, &mut achados);
+                                untyped_patterns(s, a, *pattern, &mut findings);
                             }
                         }
                     }
@@ -134,18 +134,18 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 _ => {}
             }
         }
-        achados.sort_by_key(|x| (x.start, x.end));
-        achados.dedup();
-        for sp in achados {
-            relatar(&c::SPECIFY_NONOBVIOUS_LOCAL_VARIABLE_TYPES, sp, &[]);
+        findings.sort_by_key(|x| (x.start, x.end));
+        findings.dedup();
+        for sp in findings {
+            report(&c::SPECIFY_NONOBVIOUS_LOCAL_VARIABLE_TYPES, sp, &[]);
         }
     }
 
     // `use_string_buffers`.
-    if ligada("use_string_buffers") {
-        let e_string = |t: dartforge_types::table::TypeId| matches!(table.get(t), Type::Interface { class, .. } if Some(*class) == s.core.string_class);
-        // Os corpos de laço (`do`, `for`, `for-in`, `while`).
-        let corpos: Vec<StmtId> = a
+    if enabled("use_string_buffers") {
+        let is_string = |t: dartforge_types::table::TypeId| matches!(table.get(t), Type::Interface { class, .. } if Some(*class) == s.core.string_class);
+        // The loop bodies (`do`, `for`, `for-in`, `while`).
+        let bodies: Vec<StmtId> = a
             .stmts
             .iter()
             .filter_map(|st| match &st.kind {
@@ -153,19 +153,19 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 _ => None,
             })
             .collect();
-        let mut achados: Vec<Span> = Vec::new();
-        for corpo in corpos {
-            // As instruções visitadas: as do bloco (em ordem) ou a única.
-            let instrucoes: Vec<StmtId> = match &a.stmt(corpo).kind {
+        let mut findings: Vec<Span> = Vec::new();
+        for body in bodies {
+            // The visited statements: those of the block (in order) or the only one.
+            let stmts: Vec<StmtId> = match &a.stmt(body).kind {
                 StmtKind::Block(cmds) => cmds.to_vec(),
-                _ => vec![corpo],
+                _ => vec![body],
             };
-            let mut locais: HashSet<usize> = HashSet::new();
-            for st in instrucoes {
+            let mut locals: HashSet<usize> = HashSet::new();
+            for st in stmts {
                 match &a.stmt(st).kind {
                     StmtKind::Variables(l) => {
                         for v in l.variables.iter() {
-                            locais.insert(v.name.span.start);
+                            locals.insert(v.name.span.start);
                         }
                     }
                     StmtKind::Expression(e) => {
@@ -180,22 +180,22 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                         if !matches!(a.expr(*target).kind, ExprKind::Identifier(_)) {
                             continue;
                         }
-                        let Some(&escrita) = s.body.tipos_de_escrita.get(&x) else { continue };
-                        if !e_string(escrita) {
+                        let Some(&write_type) = s.body.tipos_de_escrita.get(&x) else { continue };
+                        if !is_string(write_type) {
                             continue;
                         }
                         if matches!(op, AssignOp::Compound(_)) {
-                            // O elemento escrito é uma local do corpo?
+                            // Is the written element a local of the body?
                             let local = match s.body.get_resolved(*target) {
-                                Some(Resolved::Local(_)) => s.body.declaracao_local(*target).is_some_and(|d| locais.contains(&d)),
+                                Some(Resolved::Local(_)) => s.body.declaracao_local(*target).is_some_and(|d| locals.contains(&d)),
                                 _ => false,
                             };
                             if !local {
-                                achados.push(a.expr(x).span);
+                                findings.push(a.expr(x).span);
                             }
                         } else {
-                            // `_IdentifierIsPrefixVisitor`: o elemento do lado
-                            // esquerdo é nulo.
+                            // `_IdentifierIsPrefixVisitor`: the element of the left
+                            // side is null.
                             let mut y = *value;
                             loop {
                                 match &a.expr(y).kind {
@@ -207,7 +207,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                                     },
                                     ExprKind::Identifier(_) => {
                                         if s.body.get_resolved(y).is_none() {
-                                            achados.push(a.expr(*target).span);
+                                            findings.push(a.expr(*target).span);
                                         }
                                         break;
                                     }
@@ -220,35 +220,35 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 }
             }
         }
-        achados.sort_by_key(|x| x.start);
-        for sp in achados {
-            relatar(&c::USE_STRING_BUFFERS, sp, &[]);
+        findings.sort_by_key(|x| x.start);
+        for sp in findings {
+            report(&c::USE_STRING_BUFFERS, sp, &[]);
         }
     }
 
-    // `use_enums` (com `enhanced-enums`, 2.17).
-    if ligada("use_enums") && program.library(program.unit(s.unit).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(2, 17) {
+    // `use_enums` (with `enhanced-enums`, 2.17).
+    if enabled("use_enums") && program.library(program.unit(s.unit).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(2, 17) {
         for (k, d) in a.decls.iter().enumerate() {
             let DeclKind::Class(x) = &d.kind else { continue };
             if d.augment || x.modifiers.abstract_ || x.mixin_application {
                 continue;
             }
-            let Some(classe) = classe_da_decl(s, DeclId(k as u32)) else { continue };
-            if program.class(classe).supertype_class != s.core.object_class {
+            let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else { continue };
+            if program.class(class_id).supertype_class != s.core.object_class {
                 continue;
             }
-            let publica = !interner.resolve(x.name.sym).starts_with('_');
-            let mut candidatas: Vec<ExprId> = Vec::new();
-            let mut invalida = false;
+            let public = !interner.resolve(x.name.sym).starts_with('_');
+            let mut candidates: Vec<ExprId> = Vec::new();
+            let mut invalid = false;
             for &mid in &x.members {
                 let m = a.member(mid);
-                let nome_e = |n: &str| match &m.kind {
+                let named = |n: &str| match &m.kind {
                     MemberKind::Method(f) => a.function(*f).name.is_some_and(|q| interner.resolve(q.sym) == n),
                     MemberKind::Field(l) => l.variables.iter().any(|v| interner.resolve(v.name.sym) == n),
                     MemberKind::Constructor(_) => false,
                 };
-                if nome_e("hashCode") || nome_e("index") || nome_e("==") || nome_e("values") {
-                    invalida = true;
+                if named("hashCode") || named("index") || named("==") || named("values") {
+                    invalid = true;
                     break;
                 }
                 match &m.kind {
@@ -263,59 +263,59 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                                 continue;
                             }
                             let g = program.function(*f);
-                            if g.factory || g.class != Some(classe) {
+                            if g.factory || g.class != Some(class_id) {
                                 continue;
                             }
-                            candidatas.push(i);
+                            candidates.push(i);
                         }
                     }
                     MemberKind::Constructor(kc) => {
                         if !kc.factory && !kc.const_ {
-                            invalida = true;
+                            invalid = true;
                             break;
                         }
-                        if publica && kc.name.is_none_or(|n| !interner.resolve(n.sym).starts_with('_')) {
-                            invalida = true;
+                        if public && kc.name.is_none_or(|n| !interner.resolve(n.sym).starts_with('_')) {
+                            invalid = true;
                             break;
                         }
                     }
                     _ => {}
                 }
             }
-            if invalida || candidatas.len() < 2 {
+            if invalid || candidates.len() < 2 {
                 continue;
             }
-            // Nenhuma outra criação geradora da classe (na unidade, fora as
-            // das constantes), nem subclasse que a estenda, implemente ou
-            // misture.
-            let geradora = |e: ExprId| match s.body.get_resolved(e) {
+            // No other generative creation of the class (in the unit, except
+            // those of the constants), nor a subclass that extends, implements
+            // or mixes it in.
+            let is_generative = |e: ExprId| match s.body.get_resolved(e) {
                 Some(Resolved::Constructor(f)) => {
                     let g = program.function(*f);
-                    !g.factory && g.class == Some(classe)
+                    !g.factory && g.class == Some(class_id)
                 }
                 _ => false,
             };
-            let mut outras = false;
+            let mut others = false;
             for (i, _) in a.exprs.iter().enumerate() {
                 let e = ExprId(i as u32);
-                if geradora(e) && !candidatas.contains(&e) {
-                    outras = true;
+                if is_generative(e) && !candidates.contains(&e) {
+                    others = true;
                     break;
                 }
             }
-            if outras {
+            if others {
                 continue;
             }
-            let usada = (0..program.classes.len()).map(|i| ClassId(i as u32)).any(|cl| {
+            let used = (0..program.classes.len()).map(|i| ClassId(i as u32)).any(|cl| {
                 let kx = program.class(cl);
-                cl != classe
+                cl != class_id
                     && kx.decl.is_some_and(|r| r.unit == s.unit)
-                    && (kx.supertype_class == Some(classe) || kx.interface_classes.contains(&classe) || kx.mixin_classes.contains(&classe))
+                    && (kx.supertype_class == Some(class_id) || kx.interface_classes.contains(&class_id) || kx.mixin_classes.contains(&class_id))
             });
-            if usada {
+            if used {
                 continue;
             }
-            relatar(&c::USE_ENUMS, x.name.span, &[]);
+            report(&c::USE_ENUMS, x.name.span, &[]);
         }
     }
 
