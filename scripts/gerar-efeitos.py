@@ -30,14 +30,14 @@ assert len(nomes) == len(set(nomes))
 
 ext = open(R + 'emit_native/src/llvm/externs.rs', encoding='utf-8').read()
 marcas = {}
-for m in re.finditer(r'decl: "declare [^"]*?@(\w+)\([^"]*",\s*(?://[^\n]*\n\s*)*efeitos: ([^\n]*)', ext):
+for m in re.finditer(r'decl: "declare [^"]*?@(\w+)\([^"]*",\s*(?://[^\n]*\n\s*)*effects: ([^\n]*)', ext):
     nome, e = m.group(1), m.group(2).strip().rstrip(',')
-    if e == 'CONSERVADOR':
+    if e == 'CONSERVATIVE':
         v = (1, 1, 0)
-    elif e == 'ALOCA_SEM_LANCAR':
+    elif e == 'ALLOCATES_WITHOUT_THROWING':
         v = (1, 0, 0)
     else:
-        k = re.match(r'Efeitos \{ aloca: (true|false), lanca: (true|false), chama_dart: (true|false) \}', e)
+        k = re.match(r'Effects \{ allocates: (true|false), throws: (true|false), calls_dart: (true|false) \}', e)
         assert k, (nome, e)
         v = tuple(int(x == 'true') for x in k.groups())
     marcas[nome] = v

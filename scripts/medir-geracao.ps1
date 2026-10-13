@@ -26,4 +26,4 @@ $env:DARTFORGE_AVISOS = '0'
 $saida = Join-Path $raiz 'target/scratch-build/dev-geracao'
 $a = @("$Projeto/web/main.dart", "$Projeto/.dart_tool/package_config.json", $saida, "$Repeticoes")
 if ($SemMotor) { $a += 'sem-motor' }
-& (Join-Path $alvo 'release/examples/medir_geracao.exe') @a 2>&1 | Where-Object { $_ -notmatch '^aviso: (Refer|Um valor|Nome|FutureOr)' }
+& (Join-Path $alvo 'release/examples/medir_geracao.exe') @a 2>&1 | Where-Object { $_ -notmatch '^warning: (Invalid reference|A value|Nome|FutureOr)' }

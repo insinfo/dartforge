@@ -8,7 +8,7 @@
 //       tools/oraculo_tipos/oraculo.dart <raiz do projeto> <arquivos.txt> <saida.tsv>
 //
 // `arquivos.txt` é a lista de unidades que o nosso despejo cobriu
-// (`cargo run -p dartforge-types --example despejo_tipos`), um caminho por
+// (`cargo run -p dartforge-types --example dump_types`), um caminho por
 // linha; a saída tem o mesmo formato do nosso despejo:
 //
 //   caminho \t offset \t comprimento \t nó \t tipo \t elemento

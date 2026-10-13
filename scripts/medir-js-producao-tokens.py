@@ -4,7 +4,7 @@
     python3 scripts/medir-js-producao-tokens.py saida.js [--top 30]
 
 Lê o JS (minificado ou não) com um tokenizador simples (o mesmo critério de
-regex × divisão de `crates/emit_js_production/src/minificar.rs`) e imprime:
+regex × divisão de `crates/emit_js_production/src/minify.rs`) e imprime:
 
 * bytes por categoria: nomes de propriedade (`.x` e chaves `x:`), strings,
   *template literals*, identificadores, palavras-chave, números, pontuação;

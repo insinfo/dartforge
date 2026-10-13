@@ -269,19 +269,19 @@ def nivel_de(d):
 # ---------------------------------------------------------------- declaradas pelo emissor
 decl = {}
 ext = open(os.path.join(EN, "llvm/externs.rs"), encoding="utf-8").read()
-RE_DECL = re.compile(r'decl:\s*"declare [^@"]*@(dartforge_\w+)\(([^"]*)"\s*,(.*?)efeitos:\s*(ALOCA_SEM_LANCAR|CONSERVADOR|Efeitos\s*\{[^}]*\})', re.S)
+RE_DECL = re.compile(r'decl:\s*"declare [^@"]*@(dartforge_\w+)\(([^"]*)"\s*,(.*?)effects:\s*(ALLOCATES_WITHOUT_THROWING|CONSERVATIVE|Effects\s*\{[^}]*\})', re.S)
 for m in RE_DECL.finditer(ext):
     e = m.group(4)
-    if e == "CONSERVADOR":
+    if e == "CONSERVATIVE":
         ef = (1, 1, 0)
-    elif e == "ALOCA_SEM_LANCAR":
+    elif e == "ALLOCATES_WITHOUT_THROWING":
         ef = (1, 0, 0)
     else:
-        ef = tuple(int(re.search(k + r":\s*(true|false)", e).group(1) == "true") for k in ("aloca", "lanca", "chama_dart"))
+        ef = tuple(int(re.search(k + r":\s*(true|false)", e).group(1) == "true") for k in ("allocates", "throws", "calls_dart"))
     decl[m.group(1)] = ("externs.rs:%d" % (ext.count("\n", 0, m.start()) + 1), ef)
-nat = open(os.path.join(EN, "nativos.rs"), encoding="utf-8").read()
+nat = open(os.path.join(EN, "natives.rs"), encoding="utf-8").read()
 for m in re.finditer(r'\bruntime\("(\w+)"\)', nat):
-    decl.setdefault("dartforge_nativo_" + m.group(1), ("nativos.rs:%d" % (nat.count("\n", 0, m.start()) + 1), (1, 1, 0)))
+    decl.setdefault("dartforge_nativo_" + m.group(1), ("natives.rs:%d" % (nat.count("\n", 0, m.start()) + 1), (1, 1, 0)))
 prefixos = {}
 for base, _, arqs in os.walk(EN):
     for a in sorted(arqs):
@@ -363,11 +363,11 @@ for n, (o, e) in sorted(decl.items()):
         div.append("%s\t%d,%d,%d\t%d,%d,%d\t%s\t%s" % (n, e[0], e[1], e[2], c, l, d, t, "; ".join(x for x in (uniao(n, coleta), uniao(n, lanca), uniao(n, dart)) if x)[:500]))
 w("divergencias.tsv", div)
 d_ext = {n for n, (o, e) in decl.items() if o.startswith("externs.rs") and e is not None}
-d_nat = {n for n, (o, e) in decl.items() if o.startswith("nativos.rs")}
+d_nat = {n for n, (o, e) in decl.items() if o.startswith("natives.rs")}
 res = []
 res.append("funcoes do runtime analisadas (fora de testes): %d; arestas: %d" % (len(funcs), sum(len(v) for v in grafo.values())))
 res.append("externs definidas no runtime: %d nomes (%d definicoes)" % (len(defs), sum(len(v) for v in defs.values())))
-res.append("declaradas pelo emissor: %d (EXTERNS: %d; natives Runtime de nativos.rs fora de EXTERNS: %d; outros nomes literais em EN/: %d); prefixos de format!: %d" % (len(decl), len(d_ext), len(d_nat), len(decl) - len(d_ext) - len(d_nat), len(prefixos)))
+res.append("declaradas pelo emissor: %d (EXTERNS: %d; natives Runtime de natives.rs fora de EXTERNS: %d; outros nomes literais em EN/: %d); prefixos de format!: %d" % (len(decl), len(d_ext), len(d_nat), len(decl) - len(d_ext) - len(d_nat), len(prefixos)))
 res.append("intersecao (definidas e citadas pelo emissor, contando prefixos): %d" % len(usadas))
 so_decl = sorted(n for n in decl if n not in defs)
 so_def = sorted(n for n in defs if n not in usadas)
