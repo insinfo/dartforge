@@ -412,9 +412,9 @@ impl Project {
             let lib = p.unit(unit).library;
             let prefixed = a.name.len() >= 2 && crate::project::is_prefix(p, lib, a.name[0].sym);
             let (class_index, binding) = if prefixed {
-                (1, p.lookup_prefixed_na_unidade(unit, a.name[0].sym, a.name[1].sym))
+                (1, p.lookup_prefixed_in_unit(unit, a.name[0].sym, a.name[1].sym))
             } else {
-                (0, p.lookup_na_unidade(unit, a.name[0].sym))
+                (0, p.lookup_in_unit(unit, a.name[0].sym))
             };
             return match binding.and_then(|b| b.getter) {
                 Some(Element::Class(c)) if i == class_index => self.top_element_name(Element::Class(c)),

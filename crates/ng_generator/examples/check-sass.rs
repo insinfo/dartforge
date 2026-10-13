@@ -18,7 +18,7 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     };
     let root =
-        dartforge_elements::config::sem_verbatim(std::fs::canonicalize(&root).unwrap_or(root));
+        dartforge_elements::config::without_verbatim(std::fs::canonicalize(&root).unwrap_or(root));
     let generated = root.join(".dart_tool/build/generated");
     let package = root
         .file_name()

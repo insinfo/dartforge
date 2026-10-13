@@ -3117,7 +3117,7 @@ impl<A: Analyzer> Server<A> {
                 roots.push(root);
             }
             if let Some(text) = self.documents.get(open) {
-                open_texts.insert(dartforge_elements::gerado::chave(&file), (open.to_string(), text.to_string()));
+                open_texts.insert(dartforge_elements::generated::key(&file), (open.to_string(), text.to_string()));
             }
             if file.extension().is_some_and(|x| x == "dart") {
                 loose.push(file);

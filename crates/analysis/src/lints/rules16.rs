@@ -749,8 +749,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                             ExprKind::InstanceCreation { ty, .. } => match &a.ty(*ty).kind {
                                 dartforge_frontend::ast::TypeKind::Named { name, .. } => {
                                     let element = match &name[..] {
-                                        [n] => program.lookup_na_unidade(s.unit, n.sym),
-                                        [p, n] => program.lookup_prefixed_na_unidade(s.unit, p.sym, n.sym),
+                                        [n] => program.lookup_in_unit(s.unit, n.sym),
+                                        [p, n] => program.lookup_prefixed_in_unit(s.unit, p.sym, n.sym),
                                         _ => None,
                                     };
                                     matches!(element.and_then(|b| b.getter), Some(Element::Typedef(_)))
@@ -766,7 +766,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                                     },
                                     _ => None,
                                 };
-                                root.is_some_and(|n| matches!(program.lookup_na_unidade(s.unit, n.sym).and_then(|b| b.getter), Some(Element::Typedef(_))))
+                                root.is_some_and(|n| matches!(program.lookup_in_unit(s.unit, n.sym).and_then(|b| b.getter), Some(Element::Typedef(_))))
                             }
                             _ => false,
                         };
@@ -1026,7 +1026,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             }
             let reported = if found_entries.is_empty() {
                 // The unit's scope.
-                match program.lookup_na_unidade(s.unit, name.sym) {
+                match program.lookup_in_unit(s.unit, name.sym) {
                     // A top-level element (the requested one or the other
                     // accessor) is not the member, nor is it a class's.
                     None => true,

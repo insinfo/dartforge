@@ -237,7 +237,7 @@ impl Cx<'_> {
                 let x = self.program.extension(e);
                 x.instance_members.get(&name).or_else(|| x.static_members.get(&name)).copied()
             }
-            _ => match self.program.lookup_na_unidade(self.s.unit, name)?.getter? {
+            _ => match self.program.lookup_in_unit(self.s.unit, name)?.getter? {
                 Element::Function(h) => Some(h),
                 Element::Variable(v) => return Some(Ref::Variable(v)),
                 _ => None,
@@ -256,8 +256,8 @@ impl Cx<'_> {
             return None;
         }
         let b = match &name[..] {
-            [n] => self.program.lookup_na_unidade(u, n.sym),
-            [p, n] => self.program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+            [n] => self.program.lookup_in_unit(u, n.sym),
+            [p, n] => self.program.lookup_prefixed_in_unit(u, p.sym, n.sym),
             _ => None,
         }?;
         match b.getter? {
@@ -641,7 +641,7 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
         let mut actions: Vec<Ref> = Vec::new();
         let element = |b: Option<dartforge_elements::model::Binding>| b.and_then(|b| b.getter);
         match &m.name[..] {
-            [n] => match element(program.lookup_na_unidade(u, n.sym)) {
+            [n] => match element(program.lookup_in_unit(u, n.sym)) {
                 Some(Element::Class(c)) => {
                     actions.push(Ref::Class(c));
                     if let Some(k) = cx.constructor(c, None) {
@@ -652,7 +652,7 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
                 Some(Element::Function(f)) => actions.push(Ref::Function(f)),
                 _ => {}
             },
-            [p, n] => match element(program.lookup_prefixed_na_unidade(u, p.sym, n.sym)) {
+            [p, n] => match element(program.lookup_prefixed_in_unit(u, p.sym, n.sym)) {
                 Some(Element::Class(c)) => {
                     actions.push(Ref::Class(c));
                     if let Some(k) = cx.constructor(c, None) {
@@ -663,7 +663,7 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
                 Some(Element::Function(f)) => actions.push(Ref::Function(f)),
                 _ => {
                     // `Class.name`: the named constructor or the static member.
-                    if let Some(Element::Class(c)) = element(program.lookup_na_unidade(u, p.sym)) {
+                    if let Some(Element::Class(c)) = element(program.lookup_in_unit(u, p.sym)) {
                         actions.push(Ref::Class(c));
                         if let Some(k) = cx.constructor(c, Some(n.sym)) {
                             actions.push(Ref::Function(k));
@@ -674,7 +674,7 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
                 }
             },
             [p, k, n] => {
-                if let Some(Element::Class(c)) = element(program.lookup_prefixed_na_unidade(u, p.sym, k.sym)) {
+                if let Some(Element::Class(c)) = element(program.lookup_prefixed_in_unit(u, p.sym, k.sym)) {
                     actions.push(Ref::Class(c));
                     if let Some(f) = cx.constructor(c, Some(n.sym)) {
                         actions.push(Ref::Function(f));
@@ -833,8 +833,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             return false;
         }
         let b = match &m.name[..] {
-            [n] => program.lookup_na_unidade(x, n.sym),
-            [p, n] => program.lookup_prefixed_na_unidade(x, p.sym, n.sym),
+            [n] => program.lookup_in_unit(x, n.sym),
+            [p, n] => program.lookup_prefixed_in_unit(x, p.sym, n.sym),
             _ => None,
         };
         let Some(Element::Class(c)) = b.and_then(|b| b.getter) else { return false };

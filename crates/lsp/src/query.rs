@@ -33,7 +33,7 @@ pub(crate) enum SwapMode {
 
 /// What [`Query::swap_unit`] replaced.
 pub(crate) struct Swap {
-    previous: dartforge_elements::incremental::Anterior,
+    previous: dartforge_elements::incremental::Previous,
     tables: dartforge_types::UnitBodyTypes,
     scope: Option<EscopoSondado>,
 }
@@ -95,19 +95,19 @@ impl Query {
     /// refused (the signature, directives or shape changed, or completion fell
     /// outside a body); the query stays as it was.
     pub fn swap_unit(&mut self, u: UnitId, text: &str, mode: SwapMode) -> Option<Swap> {
-        use dartforge_elements::incremental::{restaurar_unidade, substituir_unidade};
+        use dartforge_elements::incremental::{restore_unit, swap_unit};
         let speculative = matches!(mode, SwapMode::Speculative { .. });
-        let previous = substituir_unidade(&mut self.program, &mut self.names, u, text, speculative).ok()?;
-        if !self.outline.remapear_tipos_escritos(u, previous.mapa_de_tipos()) {
-            restaurar_unidade(&mut self.program, previous);
+        let previous = swap_unit(&mut self.program, &mut self.names, u, text, speculative).ok()?;
+        if !self.outline.remapear_tipos_escritos(u, previous.type_map()) {
+            restore_unit(&mut self.program, previous);
             return None;
         }
         let (bodies, metadata, probe, register) = match mode {
             SwapMode::Speculative { offset } => {
                 // §16.7 rule 1: only with the sentinel inside a body.
                 let Some(c) = dartforge_types::corpo_no_offset(&self.program, u, offset) else {
-                    self.outline.remapear_tipos_escritos(u, &previous.mapa_inverso());
-                    restaurar_unidade(&mut self.program, previous);
+                    self.outline.remapear_tipos_escritos(u, &previous.inverse_map());
+                    restore_unit(&mut self.program, previous);
                     return None;
                 };
                 (vec![c], false, Some((u, offset)), false)
@@ -127,11 +127,11 @@ impl Query {
     /// by the speculative inference stay, which is harmless).
     pub fn undo(&mut self, swap: Swap) {
         let Swap { previous, tables, scope } = swap;
-        let u = previous.unidade();
+        let u = previous.unit();
         self.bodies.units[u.0 as usize] = tables;
         self.scope = scope;
-        self.outline.remapear_tipos_escritos(u, &previous.mapa_inverso());
-        dartforge_elements::incremental::restaurar_unidade(&mut self.program, previous);
+        self.outline.remapear_tipos_escritos(u, &previous.inverse_map());
+        dartforge_elements::incremental::restore_unit(&mut self.program, previous);
     }
 
     /// Infers the bodies of more `libraries` over the retained outline and

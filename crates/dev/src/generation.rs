@@ -9,7 +9,7 @@
 //! iterating over an empty `Vec`.
 use dartforge_build::query::{SemanticDb, Query, Digest};
 use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions, EngineReport};
-use dartforge_elements::gerado::{chave, Geracao};
+use dartforge_elements::generated::{key, Generation};
 use dartforge_elements::model::Program;
 use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
@@ -24,7 +24,7 @@ pub struct SessionCtx<'a> {
 }
 
 pub struct StageUpdate {
-    pub generation: Arc<Geracao>,
+    pub generation: Arc<Generation>,
     /// Natural paths whose generated text changed: only those units are
     /// invalidated.
     pub changed: Vec<PathBuf>,
@@ -192,7 +192,7 @@ impl GenerationStage for BuildStage {
     }
 
     fn expects(&self, p: &Path) -> bool {
-        self.expected.contains(&chave(p))
+        self.expected.contains(&key(p))
     }
 
     fn watched(&self) -> Vec<PathBuf> {
@@ -206,13 +206,13 @@ impl GenerationStage for BuildStage {
     fn update(&mut self, ctx: &SessionCtx<'_>, changed: &[PathBuf]) -> Result<StageUpdate, String> {
         // The `LibrarySource` memo loses the libraries that changed.
         if !changed.is_empty() {
-            let dirty: HashSet<PathBuf> = changed.iter().map(|p| chave(p)).collect();
+            let dirty: HashSet<PathBuf> = changed.iter().map(|p| key(p)).collect();
             let mut f = self.sources.lock().map_err(|_| "database memo poisoned")?;
             for l in &ctx.program.libraries {
                 let is_dirty = l
                     .units
                     .iter()
-                    .any(|&u| ctx.program.unit(u).path.as_ref().is_some_and(|p| dirty.contains(&chave(p))));
+                    .any(|&u| ctx.program.unit(u).path.as_ref().is_some_and(|p| dirty.contains(&key(p))));
                 if is_dirty {
                     f.remove(&l.uri);
                     f.remove(&format!("api {}", l.uri));

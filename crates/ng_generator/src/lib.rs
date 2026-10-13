@@ -36,7 +36,7 @@ pub mod selector;
 pub mod shadow_css;
 pub mod view;
 
-use dartforge_elements::gerado::{Construtor, Geracao};
+use dartforge_elements::generated::{GenerationBuilder, Generation};
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 pub use incremental::{FileOutput, NgQuery, analisar_arquivo, gerar_arquivo};
@@ -416,7 +416,7 @@ pub fn generate_in(
     package: &Pacote,
     directories: &[PathBuf],
     interner: &mut Interner,
-    c: &mut Construtor,
+    c: &mut GenerationBuilder,
     scoreboard: &mut Scoreboard,
     program: Option<&resolucao::Resolvedor>,
 ) {
@@ -494,9 +494,9 @@ pub fn generate_in(
                     continue;
                 }
             };
-        c.por(caminho_do_template(p), text, "ngdart", inputs.clone());
+        c.put(caminho_do_template(p), text, "ngdart", inputs.clone());
         for (destination, content) in extras {
-            c.por(destination, content, "ngdart", inputs.clone());
+            c.put(destination, content, "ngdart", inputs.clone());
         }
         scoreboard.gerados += 1;
     }
@@ -513,7 +513,7 @@ pub fn generate_in(
         };
         for (destination, r) in gerar_folha(package, &css) {
             match r {
-                Ok(content) => c.por(destination, content, "ngdart", vec![input.clone()]),
+                Ok(content) => c.put(destination, content, "ngdart", vec![input.clone()]),
                 Err(refusal) => {
                     *scoreboard.reasons.entry(refusal.reason).or_default() += 1;
                     scoreboard
@@ -673,7 +673,7 @@ impl Indice {
     pub fn remover(&mut self, file: &Path) {
         let Some(keys) = self
             .by_file
-            .remove(&dartforge_elements::gerado::chave(file))
+            .remove(&dartforge_elements::generated::key(file))
         else {
             return;
         };
@@ -858,7 +858,7 @@ impl Indice {
         }
         if let Some(c) = path {
             self.by_file
-                .entry(dartforge_elements::gerado::chave(c))
+                .entry(dartforge_elements::generated::key(c))
                 .or_default()
                 .extend(keys);
         }
@@ -2081,10 +2081,10 @@ fn file_reasons(
 pub fn gerar_com_apoio(
     package: &Pacote,
     interner: &mut Interner,
-    fallback: Option<&Geracao>,
+    fallback: Option<&Generation>,
     program: Option<&resolucao::Resolvedor>,
-) -> (Arc<Geracao>, Scoreboard) {
-    let mut c = Construtor::nova();
+) -> (Arc<Generation>, Scoreboard) {
+    let mut c = GenerationBuilder::new();
     let mut scoreboard = Scoreboard::default();
     let dirs: Vec<PathBuf> = ["lib", "web", "test"]
         .iter()
@@ -2096,22 +2096,22 @@ pub fn gerar_com_apoio(
         // The fallback only enters where we do not generate: pending files of
         // this package and everything outside it.
         for (path, f) in fallback.iter() {
-            if c.contem(path) {
+            if c.contains(path) {
                 continue;
             }
-            c.por(
+            c.put(
                 path.clone(),
-                f.conteudo.to_string(),
-                f.gerador,
-                f.entradas.to_vec(),
+                f.content.to_string(),
+                f.generator,
+                f.inputs.to_vec(),
             );
         }
     }
-    let g = c.concluir(1).unwrap_or_else(|errors| {
+    let g = c.finish(1).unwrap_or_else(|errors| {
         for m in errors {
             eprintln!("ngdart generator error: {m}");
         }
-        Arc::new(Geracao::default())
+        Arc::new(Generation::default())
     });
     (g, scoreboard)
 }

@@ -210,12 +210,12 @@ pub fn parametros_nao_usados(
         for an in annotations {
             let Some(args) = &an.arguments else { continue };
             let (class, ctor) = match &an.name[..] {
-                [c] => (program.lookup_na_unidade(u, c.sym), None),
-                [c, n] => match program.lookup_na_unidade(u, c.sym) {
+                [c] => (program.lookup_in_unit(u, c.sym), None),
+                [c, n] => match program.lookup_in_unit(u, c.sym) {
                     Some(b) if matches!(b.getter, Some(Element::Class(_))) => (Some(b), Some(*n)),
-                    _ => (program.lookup_prefixed_na_unidade(u, c.sym, n.sym), None),
+                    _ => (program.lookup_prefixed_in_unit(u, c.sym, n.sym), None),
                 },
-                [p, c, n] => (program.lookup_prefixed_na_unidade(u, p.sym, c.sym), Some(*n)),
+                [p, c, n] => (program.lookup_prefixed_in_unit(u, p.sym, c.sym), Some(*n)),
                 _ => (None, None),
             };
             if let Some(Element::Class(c)) = class.and_then(|b| b.getter) {
@@ -262,13 +262,13 @@ pub fn parametros_nao_usados(
                 let ast_u = &program.unit(unit).ast;
                 if let ast::TypeKind::Named { name, .. } = &ast_u.ty(rd.ty).kind {
                     let tgt = match (&name[..], rd.constructor) {
-                        ([cn], ctor) => (program.lookup_na_unidade(unit, cn.sym), ctor),
-                        ([a, b], None) => match program.lookup_na_unidade(unit, a.sym) {
+                        ([cn], ctor) => (program.lookup_in_unit(unit, cn.sym), ctor),
+                        ([a, b], None) => match program.lookup_in_unit(unit, a.sym) {
                             Some(x) if matches!(x.getter, Some(Element::Class(_))) => (Some(x), Some(*b)),
-                            _ => (program.lookup_prefixed_na_unidade(unit, a.sym, b.sym), None),
+                            _ => (program.lookup_prefixed_in_unit(unit, a.sym, b.sym), None),
                         },
-                        ([p, cn], ctor) => (program.lookup_prefixed_na_unidade(unit, p.sym, cn.sym), ctor),
-                        ([p, cn, n], None) => (program.lookup_prefixed_na_unidade(unit, p.sym, cn.sym), Some(*n)),
+                        ([p, cn], ctor) => (program.lookup_prefixed_in_unit(unit, p.sym, cn.sym), ctor),
+                        ([p, cn, n], None) => (program.lookup_prefixed_in_unit(unit, p.sym, cn.sym), Some(*n)),
                         _ => (None, None),
                     };
                     if let (Some(Element::Class(dc)), ctor) = (tgt.0.and_then(|b| b.getter), tgt.1) {

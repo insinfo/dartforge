@@ -36,7 +36,7 @@ fn the_kind(program: &Program, c: ClassId) -> &'static str {
 /// A context message at a point of `u` (the file, when it is not the
 /// error's).
 fn context(program: &Program, error_unit: UnitId, u: UnitId, span: Span, message: String) -> ContextMessage {
-    ContextMessage { file: (u != error_unit).then(|| program.caminho_da_unidade(u).into()), span, message: message.into() }
+    ContextMessage { file: (u != error_unit).then(|| program.unit_path(u).into()), span, message: message.into() }
 }
 
 impl BodyInferrer<'_> {
@@ -218,7 +218,7 @@ impl BodyInferrer<'_> {
                     return Vec::new();
                 }
                 let text = self.interner.resolve(*name).to_string();
-                let where_ = program.nome_nao_sintetico_da_funcao(*member);
+                let where_ = program.non_synthetic_function_name(*member);
                 let unavailable = format!("'{text}' couldn't be promoted because field promotion is only available in Dart 3.2 and above.");
                 let mut r = Vec::new();
                 match inherent {
@@ -247,17 +247,17 @@ impl BodyInferrer<'_> {
                                 format!("'{text}' couldn't be promoted because there is a conflicting {ty} in {k} '{n}'")
                             };
                             for &v in &i.fields {
-                                if let Some((u, s)) = program.nome_da_variavel(v) {
+                                if let Some((u, s)) = program.variable_name(v) {
                                     r.push(context(program, cx.unit, u, s, conflict("non-promotable field", program.variable(v).class)));
                                 }
                             }
                             for &g in &i.getters {
-                                if let Some((u, s)) = program.nome_nao_sintetico_da_funcao(g) {
+                                if let Some((u, s)) = program.non_synthetic_function_name(g) {
                                     r.push(context(program, cx.unit, u, s, conflict("getter", program.function(g).class)));
                                 }
                             }
                             for &c in &i.nsm_classes {
-                                if let Some((u, s)) = program.nome_da_classe(c) {
+                                if let Some((u, s)) = program.class_name(c) {
                                     r.push(context(program, cx.unit, u, s, conflict("noSuchMethod forwarder", Some(c))));
                                 }
                             }

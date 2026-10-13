@@ -378,13 +378,13 @@ pub fn annotation_element(program: &Program, interner: &Interner, u: UnitId, m: 
     if sombreado(a, interner, pos, first.sym) {
         return None;
     }
-    let in_scope = program.lookup_na_unidade(u, first.sym).and_then(|b| b.getter);
+    let in_scope = program.lookup_in_unit(u, first.sym).and_then(|b| b.getter);
     match &m.name[..] {
         [_] => in_scope,
         // `p.x` with `p` an import prefix, or `C.x`.
         [p, x, ..] => match in_scope {
             Some(e) => Some(e),
-            None => program.lookup_prefixed_na_unidade(u, p.sym, x.sym).and_then(|b| b.getter),
+            None => program.lookup_prefixed_in_unit(u, p.sym, x.sym).and_then(|b| b.getter),
         },
         [] => None,
     }
@@ -410,12 +410,12 @@ pub fn invoked_element(program: &Program, interner: &Interner, u: UnitId, m: &as
         return InvokedElement::Other;
     }
     let (tgt, member) = match &m.name[..] {
-        [c] => (program.lookup_na_unidade(u, c.sym).and_then(|b| b.getter), None),
-        [x, y] => match program.lookup_na_unidade(u, x.sym).and_then(|b| b.getter) {
+        [c] => (program.lookup_in_unit(u, c.sym).and_then(|b| b.getter), None),
+        [x, y] => match program.lookup_in_unit(u, x.sym).and_then(|b| b.getter) {
             Some(el @ Element::Class(_)) => (Some(el), Some(y.sym)),
-            _ => (program.lookup_prefixed_na_unidade(u, x.sym, y.sym).and_then(|b| b.getter), None),
+            _ => (program.lookup_prefixed_in_unit(u, x.sym, y.sym).and_then(|b| b.getter), None),
         },
-        [x, c, n] => (program.lookup_prefixed_na_unidade(u, x.sym, c.sym).and_then(|b| b.getter), Some(n.sym)),
+        [x, c, n] => (program.lookup_prefixed_in_unit(u, x.sym, c.sym).and_then(|b| b.getter), Some(n.sym)),
         _ => (None, None),
     };
     let getter = |f: dartforge_elements::model::FunctionElementId| {

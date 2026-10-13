@@ -203,3 +203,16 @@ outras já em inglês ficam.
 | `Ast::{metadados_locais, invocacoes_de_assert, criacoes_implicitas, raiz_de_atalho}` | `Ast::{local_metadata, assert_invocations, implicit_creations, shorthand_root}` |
 | `Parameter::{declarante, nome_externo}`, `parte_primaria` | `Parameter::{declaring, external_name}`, `primary_body_part` |
 | `ExprKind::NaoBinario`, `StrFlags::aberta` | `ExprKind::NotBinary`, `StrFlags::unterminated` |
+| `elements::unidades::CacheUnidades` (`nova`, `invalidar`, `alterados`, `recolher`, `reaproveitadas`) | `unit_cache::AnalyzedUnitCache` (`new`, `invalidate`, `changed`, `reclaim`, `reused`) |
+| `unidades::Marca` (`ler`, `tamanho`) | `unit_cache::FileStamp` (`read`, `size`) |
+| `elements::gerado` (`Geracao`, `Construtor`, `chave`, `por`, `concluir`, `do_build_runner`) | `generated` (`Generation`, `GenerationBuilder`, `key`, `put`, `finish`, `from_build_runner`) |
+| `GeneratedSource { conteudo, entradas, gerador }` | `GeneratedSource { content, inputs, generator }` |
+| `elements::distribuicao` (`MARCA`, `raiz`, `em_lib`, `sdk_do_dart`, `sobreposicao_nativa`, `ferramenta_llvm`, `cache_do_usuario`) | `distribution` (`MARKER`, `root`, `in_lib`, `dart_sdk`, `native_overlay`, `llvm_tool`, `user_cache`) |
+| `incremental::{Recusa, Anterior, substituir_unidade, restaurar_unidade}` | `incremental::{Refusal, Previous, swap_unit, restore_unit}` |
+| `PackageConfig { gerados, ocultos }`, `sem_verbatim`, `gerado_no_lugar_de` | `PackageConfig { generated_sources, hidden }`, `without_verbatim`, `generated_in_place_of` |
+| `load_lenient_{com_cache, entradas, entradas_ocultando, gerados}`, `load_com_sobreposicao`, `load_como_analyzer` | `load_lenient_{with_cache, entries, entries_hiding, generated}`, `load_with_overlay`, `load_as_analyzer` |
+| `sdk::Linguagem` (`versao_corrente`, `experimentos`, `ler_opcao`) | `sdk::LanguageOptions` (`current_version`, `experiments`, `read_option`) |
+| `model::TemposCarga`, `Program::tempos` | `model::LoadTimes`, `Program::times` |
+| `lookup_na_unidade`, `lookup_prefixed_na_unidade`, `prefixos_na_unidade` | `lookup_in_unit`, `lookup_prefixed_in_unit`, `prefixes_in_unit` |
+| `dono_da_classe`, `dono_do_grupo`, `representante(_da_classe)`, `publico`, `declaracao_publica` | `class_owner`, `group_owner`, `representative`/`class_representative`, `public`, `public_declaration` |
+| `Library { pais, escopos_de_unidade }`, `instancia_sobrepostos`, `augmentacoes` | `Library { unit_parents, unit_scopes }`, `shadowed_instance_members`, `augmentations` |

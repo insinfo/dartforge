@@ -142,8 +142,8 @@ impl Ctx<'_> {
             TypeKind::Void => true,
             TypeKind::Named { name, args } if args.is_empty() && depth < 8 => {
                 let b = match &name[..] {
-                    [n] => self.program.lookup_na_unidade(u, n.sym),
-                    [p, n] => self.program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+                    [n] => self.program.lookup_in_unit(u, n.sym),
+                    [p, n] => self.program.lookup_prefixed_in_unit(u, p.sym, n.sym),
                     _ => None,
                 };
                 let Some(Element::Typedef(tid)) = b.and_then(|b| b.getter) else {
@@ -895,8 +895,8 @@ pub fn check(
                     Some(t) => match &ast_.ty(t).kind {
                         TypeKind::Named { name, .. } => {
                             let b = match &name[..] {
-                                [n] => program.lookup_na_unidade(u, n.sym),
-                                [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+                                [n] => program.lookup_in_unit(u, n.sym),
+                                [p, n] => program.lookup_prefixed_in_unit(u, p.sym, n.sym),
                                 _ => None,
                             };
                             match b.filter(|b| !b.ambiguous).and_then(|b| b.getter) {

@@ -161,7 +161,7 @@ fn compare_uris(a: &str, b: &str) -> std::cmp::Ordering {
 fn path_uri(path: &Path) -> String {
     let configuration = dartforge_elements::config::PackageConfig::discover(path).and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
     let canonical = match (path.parent().and_then(|p| p.canonicalize().ok()), path.file_name()) {
-        (Some(folder), Some(name)) => dartforge_elements::config::sem_verbatim(folder.join(name)),
+        (Some(folder), Some(name)) => dartforge_elements::config::without_verbatim(folder.join(name)),
         _ => path.to_path_buf(),
     };
     if let Some(c) = &configuration {

@@ -9,7 +9,7 @@
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
-use dartforge_elements::load::load_lenient_com_cache;
+use dartforge_elements::load::load_lenient_with_cache;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_elements::SdkCache;
 use dartforge_intern::Interner;
@@ -70,11 +70,11 @@ fn main() {
 
     let sdk_dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
     let sdk = SdkLayout::load(&sdk_dir, "dartdevc").expect("libraries.json");
-    let (cache, read) = SdkCache::abrir_ou_construir(&sdk, "dartdevc").expect("SDK cache");
+    let (cache, read) = SdkCache::open_or_build(&sdk, "dartdevc").expect("SDK cache");
     probe.phase(if read { "SDK cache (read)" } else { "SDK cache (built)" });
 
     let mut interner = Interner::new();
-    let (program, diags) = load_lenient_com_cache(&entry, &sdk, packages.as_deref(), &mut interner, Some(cache));
+    let (program, diags) = load_lenient_with_cache(&entry, &sdk, packages.as_deref(), &mut interner, Some(cache));
     probe.phase("load program");
     if !diags.is_empty() {
         eprintln!("{} load diagnostic(s); the first: {}", diags.len(), diags[0]);
@@ -83,12 +83,12 @@ fn main() {
     let sdk_units = program.units.iter().filter(|u| program.library(u.library).is_sdk).count();
     let user_units = program.units.len() - sdk_units;
     {
-        let c = &program.tempos;
+        let c = &program.times;
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         println!(
             "load: parallel read+lex {:.1} ms ({} waves), serial {:.1} ms ({} files, {:.2} MiB), parse {:.1} ms, SDK from cache {:.1} ms, directives {:.1} ms, outline decl {:.1} / reexports {:.1} / scopes {:.1} / supertypes {:.1} ms",
-            ms(c.leitura_lex_paralelo), c.ondas, ms(c.leitura), c.arquivos_lidos, c.bytes_lidos as f64 / MB, ms(c.parse), ms(c.sdk_cache), ms(c.diretivas),
-            ms(c.outline_declaracoes), ms(c.outline_reexports), ms(c.outline_escopos), ms(c.outline_supertipos)
+            ms(c.parallel_read_lex), c.waves, ms(c.read), c.files_read, c.bytes_read as f64 / MB, ms(c.parse), ms(c.sdk_cache), ms(c.directives),
+            ms(c.outline_declarations), ms(c.outline_reexports), ms(c.outline_scopes), ms(c.outline_supertypes)
         );
     }
 

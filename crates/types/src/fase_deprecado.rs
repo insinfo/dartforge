@@ -42,7 +42,7 @@ fn constant_text(program: &Program, u: UnitId, e: ExprId, prof: u32) -> Option<S
         ExprKind::String(lit) => dartforge_elements::load::string_lit_value(lit),
         ExprKind::Parenthesized(x) => constant_text(program, u, *x, prof),
         ExprKind::Identifier(n) if prof < 8 => {
-            let Some(Element::Variable(v)) = program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter) else { return None };
+            let Some(Element::Variable(v)) = program.lookup_in_unit(u, n.sym).and_then(|b| b.getter) else { return None };
             let x = program.variable(v);
             if !x.const_ {
                 return None;
@@ -73,13 +73,13 @@ fn deprecated_annotation(program: &Program, interner: &Interner, u: UnitId, m: &
     // (`INVALID_ANNOTATION`, without `isDeprecated`), like
     // `@Deprecated.extend()` in 3.6.2.
     let (element, the_name, the_constructor) = match &m.name[..] {
-        [n] => (do_core(program.lookup_na_unidade(u, n.sym)), n.sym, None),
-        [p, n] => match do_core(program.lookup_prefixed_na_unidade(u, p.sym, n.sym)) {
+        [n] => (do_core(program.lookup_in_unit(u, n.sym)), n.sym, None),
+        [p, n] => match do_core(program.lookup_prefixed_in_unit(u, p.sym, n.sym)) {
             Some(e) => (Some(e), n.sym, None),
             // `Deprecated.new(…)`, `Deprecated.the_name(…)`.
-            None => (do_core(program.lookup_na_unidade(u, p.sym)), p.sym, Some(n.sym)),
+            None => (do_core(program.lookup_in_unit(u, p.sym)), p.sym, Some(n.sym)),
         },
-        [p, c, k] => (do_core(program.lookup_prefixed_na_unidade(u, p.sym, c.sym)), c.sym, Some(k.sym)),
+        [p, c, k] => (do_core(program.lookup_prefixed_in_unit(u, p.sym, c.sym)), c.sym, Some(k.sym)),
         _ => return None,
     };
     if let (Some(Element::Class(c)), Some(k)) = (element, the_constructor) {
@@ -307,8 +307,8 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
     for (k, t) in a.types.iter().enumerate() {
         let TypeKind::Named { name, .. } = &t.kind else { continue };
         let binding = match &name[..] {
-            [n] => program.lookup_na_unidade(u, n.sym),
-            [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+            [n] => program.lookup_in_unit(u, n.sym),
+            [p, n] => program.lookup_prefixed_in_unit(u, p.sym, n.sym),
             _ => None,
         };
         // A type parameter of the same name hides the top-level declaration.
@@ -723,7 +723,7 @@ pub fn lint_do_mesmo_pacote(
 ///
 /// Our `dart:core` is 3.6.2, which does not have these constructors: the
 /// rule only applies to the library judged by 3.13.4
-/// ([`Program::referencia_da_biblioteca`]), in which the oracle resolves the
+/// ([`Program::library_reference`]), in which the oracle resolves the
 /// annotation against its own SDK.
 fn deprecation_type(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Option<String> {
     let do_core = |b: Option<dartforge_elements::model::Binding>| -> Option<Element> {
@@ -736,12 +736,12 @@ fn deprecation_type(program: &Program, interner: &Interner, u: UnitId, m: &ast::
         (program.library(lib).uri == "dart:core").then_some(e)
     };
     let (element, the_name, the_constructor) = match &m.name[..] {
-        [n] => (do_core(program.lookup_na_unidade(u, n.sym)), n.sym, None),
-        [p, n] => match do_core(program.lookup_prefixed_na_unidade(u, p.sym, n.sym)) {
+        [n] => (do_core(program.lookup_in_unit(u, n.sym)), n.sym, None),
+        [p, n] => match do_core(program.lookup_prefixed_in_unit(u, p.sym, n.sym)) {
             Some(e) => (Some(e), n.sym, None),
-            None => (do_core(program.lookup_na_unidade(u, p.sym)), p.sym, Some(n.sym)),
+            None => (do_core(program.lookup_in_unit(u, p.sym)), p.sym, Some(n.sym)),
         },
-        [p, c, k] => (do_core(program.lookup_prefixed_na_unidade(u, p.sym, c.sym)), c.sym, Some(k.sym)),
+        [p, c, k] => (do_core(program.lookup_prefixed_in_unit(u, p.sym, c.sym)), c.sym, Some(k.sym)),
         _ => return None,
     };
     let text = interner.resolve(the_name);
@@ -795,7 +795,7 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
     use dartforge_diagnostics::codes::warning::DEPRECATED_OPTIONAL;
     let mut out: Vec<Diagnostic> = Vec::new();
     let unit_id = program.unit(u);
-    if program.referencia_da_biblioteca(unit_id.library) != dartforge_diagnostics::AnalyzerReference::V3_13 {
+    if program.library_reference(unit_id.library) != dartforge_diagnostics::AnalyzerReference::V3_13 {
         return out;
     }
     if interner.lookup("Deprecated").is_none() {
@@ -1029,8 +1029,8 @@ fn redirect_target(program: &Program, interner: &Interner, u: UnitId, r: &ast::R
     let a = &program.unit(u).ast;
     let TypeKind::Named { name, .. } = &a.ty(r.ty).kind else { return None };
     let binding = match &name[..] {
-        [n] => program.lookup_na_unidade(u, n.sym),
-        [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+        [n] => program.lookup_in_unit(u, n.sym),
+        [p, n] => program.lookup_prefixed_in_unit(u, p.sym, n.sym),
         _ => None,
     }?;
     let Element::Class(c) = binding.getter? else { return None };

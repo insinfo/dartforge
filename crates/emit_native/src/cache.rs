@@ -20,8 +20,8 @@ pub fn native_cache_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("DARTFORGE_CACHE_NATIVO") {
         return PathBuf::from(d);
     }
-    if dartforge_elements::distribuicao::raiz().is_some()
-        && let Some(c) = dartforge_elements::distribuicao::cache_do_usuario()
+    if dartforge_elements::distribution::root().is_some()
+        && let Some(c) = dartforge_elements::distribution::user_cache()
     {
         return c.join("nativo");
     }
@@ -61,7 +61,7 @@ pub fn distribution_lib_dir() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("DARTFORGE_LIB") {
         return Some(PathBuf::from(d));
     }
-    dartforge_elements::distribuicao::em_lib("runtime")
+    dartforge_elements::distribution::in_lib("runtime")
 }
 
 /// The precompiled runtime `name`: in the distribution, otherwise in the build

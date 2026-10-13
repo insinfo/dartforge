@@ -34,7 +34,7 @@ fn dart_in(d: &Path, output: &mut Vec<PathBuf>) {
 }
 
 fn uri_of(p: &Path) -> String {
-    url::Url::from_file_path(dartforge_elements::config::sem_verbatim(p.to_path_buf())).unwrap().to_string()
+    url::Url::from_file_path(dartforge_elements::config::without_verbatim(p.to_path_buf())).unwrap().to_string()
 }
 
 fn main() {
@@ -51,7 +51,7 @@ fn main() {
     dart_in(&root.join("bin"), &mut files);
     files.sort();
     let lib = SdkLayout::discover().expect("Dart SDK not found");
-    let sdk = SdkLayout::load_como_analyzer(&lib).expect("SDK");
+    let sdk = SdkLayout::load_as_analyzer(&lib).expect("SDK");
     let mut server = Server::with_analyzer(SemanticAnalyzer::new(Some(sdk)));
     let mut id = 0;
     let mut request = |server: &mut Server<SemanticAnalyzer>, method: &str, params: Value| {

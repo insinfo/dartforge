@@ -28,7 +28,7 @@ fn run() -> Result<(), String> {
     let mut packages: Option<PathBuf> = None;
     let mut dart_sdk_js: Option<PathBuf> = None;
     let mut op = Options::default();
-    let mut language = dartforge_elements::sdk::Linguagem::default();
+    let mut language = dartforge_elements::sdk::LanguageOptions::default();
     let mut i = 0;
     while i < args.len() {
         let next = |i: &mut usize| -> Result<PathBuf, String> {
@@ -60,7 +60,7 @@ fn run() -> Result<(), String> {
             other if other.starts_with("--versao-linguagem") || other.starts_with("--enable-experiment") => {
                 let mut rest = args[i + 1..].iter().map(String::as_str);
                 let before = rest.len();
-                language.ler_opcao(other, &mut rest)?;
+                language.read_option(other, &mut rest)?;
                 i += before - rest.len();
             }
             other if input.is_none() && !other.starts_with('-') => input = Some(PathBuf::from(other)),

@@ -373,7 +373,7 @@ impl Heranca {
     /// `getInterface`.
     pub fn interface<'p>(&mut self, p: &mut dyn Provider<'p>, c: ClassId) -> Rc<Interface> {
         // T1.1: same-named members of the same kind are a single key.
-        let c = p.program().dono_da_classe(c);
+        let c = p.program().class_owner(c);
         if let Some(i) = self.interfaces.get(&c) {
             return i.clone();
         }
@@ -395,7 +395,7 @@ impl Heranca {
     /// Drops the interface of `c` from the cache (the types of its members
     /// changed).
     pub fn forget(&mut self, program: &Program, c: ClassId) {
-        let c = program.dono_da_classe(c);
+        let c = program.class_owner(c);
         self.interfaces.remove(&c);
         self.the_inherited.remove(&c);
     }
@@ -433,7 +433,7 @@ impl Heranca {
 
     /// `getInheritedMap2`.
     pub fn inherited_map<'p>(&mut self, p: &mut dyn Provider<'p>, c: ClassId) -> Rc<Map<Membro>> {
-        let c = p.program().dono_da_classe(c);
+        let c = p.program().class_owner(c);
         if let Some(m) = self.the_inherited.get(&c) {
             return m.clone();
         }
@@ -614,8 +614,8 @@ impl Heranca {
         // Duplicate declaration: the last one in `_getTypeMembers` order wins
         // (methods; field accessors; written accessors), not the source order
         // (`int get foo` followed by the field `foo = 1`: the written getter).
-        if !k.instancia_sobrepostos.is_empty() {
-            for &(key, old) in k.instancia_sobrepostos.iter() {
+        if !k.shadowed_instance_members.is_empty() {
+            for &(key, old) in k.shadowed_instance_members.iter() {
                 if let Some(current) = members.iter_mut().find(|(s, _)| *s == key)
                     && member_order(prog, old) > member_order(prog, current.1)
                 {

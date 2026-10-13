@@ -232,7 +232,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
 #[cfg(feature = "nativo")]
 pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     set_memory_policy("tracing")?;
-    use dartforge_elements::sdk::Linguagem;
+    use dartforge_elements::sdk::LanguageOptions;
     let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--depuracao] [--cpu <cpu>] [--excecoes checagem|tabelas] [--memoria tracing|arc] [--rastro simbolico|nenhum] [--versao-linguagem x.y] [--enable-experiment=a,b]
        dartforge compile-native <input.dart> --emit-ir -o <output.ll> [--resumo] [...]
        dartforge compile-native <input.dart> --resumo [...]
@@ -260,7 +260,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     let mut debug = false;
     let mut emit_ir = false;
     let mut digest = false;
-    let mut language = Linguagem::default();
+    let mut language = LanguageOptions::default();
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -307,11 +307,11 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             }
             Some("--versao-linguagem" | "--enable-experiment") => {
                 let value = it.next().and_then(|v| v.to_str()).ok_or(usage)?;
-                language.ler_opcao(a.to_str().unwrap_or_default(), &mut std::iter::once(value))?;
+                language.read_option(a.to_str().unwrap_or_default(), &mut std::iter::once(value))?;
             }
             Some(option) if option.starts_with("--versao-linguagem=")
                 || option.starts_with("--enable-experiment=") => {
-                language.ler_opcao(option, &mut std::iter::empty::<&str>())?;
+                language.read_option(option, &mut std::iter::empty::<&str>())?;
             }
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
@@ -342,8 +342,8 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                     packages: p2.as_deref(),
                     timings,
                     optimize,
-                    versao_linguagem: language.versao_corrente,
-                    experimentos: language.experimentos,
+                    versao_linguagem: language.current_version,
+                    experimentos: language.experiments,
                     depuracao: debug,
                     gerador: generator,
                     cpu,
@@ -369,7 +369,7 @@ fn emit_native_ir(
     packages: Option<PathBuf>,
     timings: bool,
     digest: bool,
-    language: dartforge_elements::sdk::Linguagem,
+    language: dartforge_elements::sdk::LanguageOptions,
     debug: bool,
     // The production IR (`--optimize`): static literals, the large program
     // with fields and per-call helpers. Link-time pruning comes later.
@@ -383,8 +383,8 @@ fn emit_native_ir(
                 packages: packages.as_deref(),
                 timings,
                 optimize,
-                versao_linguagem: language.versao_corrente,
-                experimentos: language.experimentos,
+                versao_linguagem: language.current_version,
+                experimentos: language.experiments,
                 depuracao: debug,
                 gerador: None,
                 cpu: None,

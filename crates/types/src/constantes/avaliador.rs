@@ -329,7 +329,7 @@ impl<'a> Motor<'a> {
         if !matches!(self.program.function(f).node, FunctionRef::Constructor { .. }) {
             return None;
         }
-        let (u, span) = self.program.nome_nao_sintetico_da_funcao(f)?;
+        let (u, span) = self.program.non_synthetic_function_name(f)?;
         let who = self.constructor_display(f);
         let text = format!("The evaluated constructor '{}' is called by '{who}' and '{who}' is defined here.", self.constructor_display(super_));
         Some((u, span, text))
@@ -1970,12 +1970,12 @@ impl<'a> Motor<'a> {
         let cx = Ctx::simples(u, lib);
         let names: Vec<SymbolId> = m.name.iter().map(|n| n.sym).collect();
         let (tgt, mem) = match names.as_slice() {
-            [c] => (self.program.lookup_na_unidade(u, *c).and_then(|b| b.getter), None),
-            [a, b] => match self.program.lookup_na_unidade(u, *a).and_then(|x| x.getter) {
+            [c] => (self.program.lookup_in_unit(u, *c).and_then(|b| b.getter), None),
+            [a, b] => match self.program.lookup_in_unit(u, *a).and_then(|x| x.getter) {
                 Some(el @ Element::Class(_)) => (Some(el), Some(*b)),
-                _ => (self.program.lookup_prefixed_na_unidade(u, *a, *b).and_then(|x| x.getter), None),
+                _ => (self.program.lookup_prefixed_in_unit(u, *a, *b).and_then(|x| x.getter), None),
             },
-            [p, c, n] => (self.program.lookup_prefixed_na_unidade(u, *p, *c).and_then(|x| x.getter), Some(*n)),
+            [p, c, n] => (self.program.lookup_prefixed_in_unit(u, *p, *c).and_then(|x| x.getter), Some(*n)),
             _ => (None, None),
         };
         match (tgt?, &m.arguments) {
@@ -2434,7 +2434,7 @@ impl<'a> Motor<'a> {
         // T3: the `const` is that of the public declaration (in the SDK, the
         // patch of `bool.fromEnvironment` and its siblings is a factory without
         // `const`).
-        let fe = self.program.function(self.program.publico(f));
+        let fe = self.program.function(self.program.public(f));
         if !fe.const_ {
             let span = the_keyword.unwrap_or(error.span);
             return Constante::Invalid(Box::new(self.error(error.unidade, span, c::CONST_WITH_NON_CONST)));
@@ -2529,7 +2529,7 @@ impl<'a> Motor<'a> {
                 break;
             }
             let Some((g, t)) = self.redirection_target(f, typ) else { break };
-            if !self.program.function(self.program.publico(g)).const_ || seen.contains(&g) {
+            if !self.program.function(self.program.public(g)).const_ || seen.contains(&g) {
                 break;
             }
             seen.push(g);
@@ -2550,12 +2550,12 @@ impl<'a> Motor<'a> {
         // (the parser does not tell it apart from a prefixed type).
         let mut the_constructor = r.constructor.map(|n| n.sym);
         let b = match &name[..] {
-            [n] => self.program.lookup_na_unidade(unit, n.sym),
-            [p, n] => match self.program.lookup_prefixed_na_unidade(unit, p.sym, n.sym) {
+            [n] => self.program.lookup_in_unit(unit, n.sym),
+            [p, n] => match self.program.lookup_prefixed_in_unit(unit, p.sym, n.sym) {
                 Some(b) => Some(b),
                 None if the_constructor.is_none() => {
                     the_constructor = Some(n.sym);
-                    self.program.lookup_na_unidade(unit, p.sym)
+                    self.program.lookup_in_unit(unit, p.sym)
                 }
                 None => None,
             },
@@ -2808,7 +2808,7 @@ impl<'a> Motor<'a> {
         });
         let the_key = super_name.flatten().or_else(|| self.interner.lookup(""))?;
         let g = *self.program.class(sup).constructors.get(&the_key)?;
-        let g = self.program.publico(g);
+        let g = self.program.public(g);
         let FunctionRef::Constructor { unit: gu, member: gm } = self.program.function(g).node else { return None };
         let ast::MemberKind::Constructor(gc) = &self.ast(gu).member(gm).kind else { return None };
         let tgt = if named_one {
@@ -2897,7 +2897,7 @@ impl<'a> Motor<'a> {
                         let the_key = constructor.map(|n| n.sym).or_else(|| self.interner.lookup(""));
                         let tgt = the_key.and_then(|c| self.program.class(k).constructors.get(&c).copied());
                         if let Some(g) = tgt {
-                            if self.program.function(self.program.publico(g)).const_ {
+                            if self.program.function(self.program.public(g)).const_ {
                                 let r = self.evaluate_call(&cxi, error, g, typ, &Argumentos::Ast(arguments), None, false);
                                 return Generator::ready(r);
                             }
@@ -2961,7 +2961,7 @@ impl<'a> Motor<'a> {
                 let the_key = super_name.or_else(|| self.interner.lookup(""));
                 let tgt = the_key.and_then(|c| self.program.class(sup).constructors.get(&c).copied());
                 if let Some(g) = tgt {
-                    if self.program.function(self.program.publico(g)).const_ {
+                    if self.program.function(self.program.public(g)).const_ {
                         let super_type = self.outline.classes.get(k.0 as usize).and_then(|d| d.supertype).unwrap_or(self.core.dynamic_);
                         let super_type = match cxi.types.as_ref() {
                             Some(m) if !m.is_empty() => crate::ops::substitute(super_type, m, self.table),

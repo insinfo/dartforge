@@ -138,7 +138,7 @@ fn exhaustive_cases(
         }
         // Only private non-factory constructors (with none declared, the
         // default one is public).
-        let constructors = k.construtores();
+        let constructors = k.constructors();
         if constructors.is_empty() {
             continue;
         }

@@ -1182,14 +1182,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                 };
                 let target = if self.kind(n) == "SuperConstructorInvocation" { p.class(class).supertype_class? } else { class };
                 let name = constructor.map(|k| self.real_name(k).to_string()).unwrap_or_default();
-                p.class(target).construtores().into_iter().find(|(s, _)| self.query.name(*s) == name).map(|(_, f)| f)
+                p.class(target).constructors().into_iter().find(|(s, _)| self.query.name(*s) == name).map(|(_, f)| f)
             }
             "EnumConstantArguments" => {
                 let constant = self.parent(n)?;
                 let e = self.parent(constant)?;
                 let class = self.node_class(e)?;
                 let name = self.child(n, "ConstructorSelector").map(|s| self.source[self.start(s)..self.end(s)].trim_start_matches('.').trim().to_string()).unwrap_or_default();
-                p.class(class).construtores().into_iter().find(|(s, _)| self.query.name(*s) == name).map(|(_, f)| f)
+                p.class(class).constructors().into_iter().find(|(s, _)| self.query.name(*s) == name).map(|(_, f)| f)
             }
             "Annotation" => {
                 let text = self.source[self.start(n)..self.end(n)].trim_start_matches('@');
@@ -1201,7 +1201,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     _ => None,
                 })?;
                 let ctor = parts.get(1).copied().unwrap_or("");
-                p.class(class).construtores().into_iter().find(|(s, _)| self.query.name(*s) == ctor).map(|(_, f)| f)
+                p.class(class).constructors().into_iter().find(|(s, _)| self.query.name(*s) == ctor).map(|(_, f)| f)
             }
             _ => None,
         }

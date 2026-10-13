@@ -5,7 +5,7 @@
 
 use crate::{Analyzer, SyntacticAnalyzer, DocumentStore, Hover, References};
 use dartforge_diagnostics::{Diagnostic, Span};
-use dartforge_elements::{gerado::Construtor, load::load_lenient_gerados, model::{Program, UnitId}, sdk::SdkLayout};
+use dartforge_elements::{generated::GenerationBuilder, load::load_lenient_generated, model::{Program, UnitId}, sdk::SdkLayout};
 use dartforge_intern::Interner;
 use url::Url;
 
@@ -120,7 +120,7 @@ impl SemanticAnalyzer {
     pub fn discover() -> Self {
         // The SDK as the analyzer sees it (M1): without patches, with the dart2js
         // internal libraries.
-        let sdk = SdkLayout::discover().and_then(|p| SdkLayout::load_como_analyzer(&p).ok());
+        let sdk = SdkLayout::discover().and_then(|p| SdkLayout::load_as_analyzer(&p).ok());
         Self::new(sdk)
     }
 
@@ -132,15 +132,15 @@ impl SemanticAnalyzer {
 
     /// In-memory generation with the current texts of the open `.dart`
     /// documents: during the load, they win over the disk.
-    pub(crate) fn open(documents: &DocumentStore) -> Construtor {
-        let mut generator = Construtor::nova();
+    pub(crate) fn open(documents: &DocumentStore) -> GenerationBuilder {
+        let mut generator = GenerationBuilder::new();
         for open in documents.uris() {
             let Some(source) = documents.get(open) else { continue };
             // The canonical path (the disk's case on a case-insensitive file system),
             // the same as `uri_file`'s.
             let Some(file) = crate::project::uri_file(open) else { continue };
             if file.extension().is_some_and(|e| e == "dart") {
-                generator.por(file, source.to_owned(), "lsp", vec![]);
+                generator.put(file, source.to_owned(), "lsp", vec![]);
             }
         }
         generator
@@ -255,20 +255,20 @@ fn references_in(project: &crate::project::Project, uri: &str, offset: usize) ->
 pub(crate) fn load(sdk: &SdkLayout, uri: &str, text: &str, documents: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
     let path = crate::project::uri_file(uri)?;
     if path.extension().is_none_or(|e| e != "dart") { return None; }
-    let mut generator = documents.map_or_else(Construtor::nova, SemanticAnalyzer::open);
+    let mut generator = documents.map_or_else(GenerationBuilder::new, SemanticAnalyzer::open);
     // A direct trait call also uses the received text, even without a
     // DocumentStore. The request's file wins over the collection.
-    generator.por(path.clone(), text.to_owned(), "lsp", vec![]);
+    generator.put(path.clone(), text.to_owned(), "lsp", vec![]);
     // A part is not a library: the load goes through the owner, which includes
     // it. If the owner does not declare it (missing `part`), the part comes in
     // alone.
     let owning = owning_library(&path, text, documents);
-    let generation = generator.concluir(1).ok()?;
-    let key = dartforge_elements::gerado::chave(&path);
+    let generation = generator.finish(1).ok()?;
+    let key = dartforge_elements::generated::key(&path);
     for entry in owning.iter().chain([&path]) {
         let mut names = Interner::new();
-        let (program, _) = load_lenient_gerados(entry, sdk, None, &mut names, None, None, Some(generation.clone()));
-        let unit = program.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&key));
+        let (program, _) = load_lenient_generated(entry, sdk, None, &mut names, None, None, Some(generation.clone()));
+        let unit = program.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::generated::key).as_ref() == Some(&key));
         if let Some(unit) = unit {
             return Some((program, names, UnitId(unit as u32)));
         }
@@ -280,7 +280,7 @@ pub(crate) fn load(sdk: &SdkLayout, uri: &str, text: &str, documents: Option<&Do
 /// the written URI (relative or `package:`), or, in the old `part of name;`
 /// form, through the project file that declares `part` for it.
 pub(crate) fn owning_library(path: &std::path::Path, text: &str, documents: Option<&DocumentStore>) -> Option<std::path::PathBuf> {
-    use dartforge_elements::gerado::chave;
+    use dartforge_elements::generated::key;
     use dartforge_frontend::ast::DirectiveKind;
     if !text.contains("part") {
         return None;
@@ -296,9 +296,9 @@ pub(crate) fn owning_library(path: &std::path::Path, text: &str, documents: Opti
             let config = dartforge_elements::config::PackageConfig::discover(path)?;
             return dartforge_elements::config::PackageConfig::load(&config).ok()?.resolve_package_uri(&uri).ok();
         }
-        return Some(chave(&path.parent()?.join(uri)));
+        return Some(key(&path.parent()?.join(uri)));
     }
-    let target = chave(path);
+    let target = key(path);
     let root = crate::project::project_root(path);
     crate::project::project_files(&root).into_iter().find(|candidate| {
         let open = documents
@@ -311,7 +311,7 @@ pub(crate) fn owning_library(path: &std::path::Path, text: &str, documents: Opti
         let analyzed = dartforge_frontend::parser::parse(&source, &mut names);
         analyzed.unit.directives.iter().any(|d| match &d.kind {
             DirectiveKind::Part { uri } => dartforge_elements::load::string_lit_value(uri)
-                .and_then(|u| candidate.parent().map(|dir| chave(&dir.join(u))))
+                .and_then(|u| candidate.parent().map(|dir| key(&dir.join(u))))
                 .is_some_and(|p| p == target),
             _ => false,
         })

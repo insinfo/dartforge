@@ -517,8 +517,8 @@ impl Project {
         }
         let path = url::Url::parse(uri).ok()?.to_file_path().ok()?;
         let root = crate::project::project_root(&path);
-        let relative = dartforge_elements::config::sem_verbatim(path.clone());
-        let relative = relative.strip_prefix(dartforge_elements::config::sem_verbatim(root.clone())).ok()?;
+        let relative = dartforge_elements::config::without_verbatim(path.clone());
+        let relative = relative.strip_prefix(dartforge_elements::config::without_verbatim(root.clone())).ok()?;
         let parts: Vec<String> = relative.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
         // In a package's `lib/`, the analyzer sees the `package:` URI.
         if parts.first().is_some_and(|c| c == "lib")

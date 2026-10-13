@@ -56,7 +56,7 @@ fn one_file_at_a_time_gives_the_same_as_the_package() {
     };
 
     // The whole package, through the usual path.
-    let mut c = dartforge_elements::gerado::Construtor::nova();
+    let mut c = dartforge_elements::generated::GenerationBuilder::new();
     let mut scoreboard = Scoreboard::default();
     let mut i1 = Interner::new();
     generate_in(
@@ -67,7 +67,7 @@ fn one_file_at_a_time_gives_the_same_as_the_package() {
         &mut scoreboard,
         Some(&resolver),
     );
-    let whole_package = c.concluir(1).expect("generation");
+    let whole_package = c.finish(1).expect("generation");
 
     // One at a time: the program index, and each file put back by
     // `atualizar` as the engine does when it changes.
@@ -86,7 +86,7 @@ fn one_file_at_a_time_gives_the_same_as_the_package() {
         let expected = whole_package
             .iter()
             .find(|(k, _)| k.file_name() == caminho_do_template(p).file_name())
-            .map(|(_, f)| f.conteudo.to_string());
+            .map(|(_, f)| f.content.to_string());
         match gerar_arquivo(&package, p, a, Some(&resolver), &mut i2, &index) {
             Ok(s) => {
                 generated += 1;

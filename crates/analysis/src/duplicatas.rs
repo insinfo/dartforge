@@ -159,7 +159,7 @@ fn function_elem_kind(k: FunctionKind) -> ElemKind {
 /// element and the members of one are checked against those of the other
 /// (`ElementKey`). 3.13.4 does not merge (checked with both SDKs): pass
 /// `false` for a library whose reference is 3.13.4
-/// (`dartforge_elements::Program::referencia_da_biblioteca`, or
+/// (`dartforge_elements::Program::library_reference`, or
 /// `dartforge_frontend::parser::Parsed::referencia` for a single file).
 pub fn duplicatas(
     units: &[Unidade<'_>],

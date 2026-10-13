@@ -451,10 +451,10 @@ impl Project {
             _ => None,
         };
         let (class, name) = match a.name.as_slice() {
-            [c] => (class_of(p.lookup_na_unidade(unit, c.sym))?, None),
-            [x, y] if crate::project::is_prefix(p, lib, x.sym) => (class_of(p.lookup_prefixed_na_unidade(unit, x.sym, y.sym))?, None),
-            [x, y] => (class_of(p.lookup_na_unidade(unit, x.sym))?, Some(y.sym)),
-            [x, y, z] => (class_of(p.lookup_prefixed_na_unidade(unit, x.sym, y.sym))?, Some(z.sym)),
+            [c] => (class_of(p.lookup_in_unit(unit, c.sym))?, None),
+            [x, y] if crate::project::is_prefix(p, lib, x.sym) => (class_of(p.lookup_prefixed_in_unit(unit, x.sym, y.sym))?, None),
+            [x, y] => (class_of(p.lookup_in_unit(unit, x.sym))?, Some(y.sym)),
+            [x, y, z] => (class_of(p.lookup_prefixed_in_unit(unit, x.sym, y.sym))?, Some(z.sym)),
             _ => return None,
         };
         let name = match name {
@@ -468,7 +468,7 @@ impl Project {
     /// declaration of an SDK patch member).
     fn positional_names(&self, f: FunctionElementId) -> Vec<String> {
         let p = self.program();
-        let f = p.function(f).declaracao_publica.unwrap_or(f);
+        let f = p.function(f).public_declaration.unwrap_or(f);
         let (unit, ps): (UnitId, &[ast::Parameter]) = match p.function(f).node {
             FunctionRef::Function { unit, function } => (unit, p.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[])),
             FunctionRef::Constructor { unit, member } => match &p.unit(unit).ast.member(member).kind {

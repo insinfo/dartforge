@@ -25,7 +25,7 @@
 //! type arena is filled in parse order, by signatures and bodies: a new type
 //! in a body shifts the ids of what comes after). The types outline keeps
 //! the same pairs (`OutlineTypes::tipos_escritos`); whoever keeps it applies
-//! [`Anterior::mapa_de_tipos`] (and the inverse, when undoing).
+//! [`Previous::type_map`] (and the inverse, when undoing).
 
 use crate::model::{Program, UnitId};
 use dartforge_diagnostics::Span;
@@ -36,64 +36,64 @@ use std::collections::HashMap;
 
 /// Why the swap was refused (the caller reloads the program).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Recusa {
+pub enum Refusal {
     /// The declaration, member or function arenas do not correspond one to one,
     /// or the signatures' type annotations do not line up.
     ShapeChanged(&'static str),
     /// One of the versions has a lexical error: the signature is not
     /// comparable.
-    Lexico,
+    Lexical,
     /// The declarations' API signature changed.
     Signature,
     /// The directives changed.
-    Diretivas,
+    Directives,
 }
 
 /// A body of the unit, by arena ids (stable in an accepted swap).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnitBody {
     /// Top-level function, method, getter, setter or operator.
-    Funcao(ast::FunctionId),
+    Function(ast::FunctionId),
     /// Constructor body (the initializers are signature).
-    Construtor(ast::MemberId),
+    Constructor(ast::MemberId),
     /// Top-level variable initializer.
-    VariavelDeTopo { decl: ast::DeclId, index: usize },
+    TopLevelVariable { decl: ast::DeclId, index: usize },
     /// Field initializer.
-    Campo { member: ast::MemberId, index: usize },
+    Field { member: ast::MemberId, index: usize },
 }
 
-/// What the swap replaced, to undo it with [`restaurar_unidade`].
-pub struct Anterior {
-    unidade: UnitId,
+/// What the swap replaced, to undo it with [`restore_unit`].
+pub struct Previous {
+    unit_id: UnitId,
     source: String,
     ast: Ast,
     unit: CompilationUnit,
-    pulados: Vec<Span>,
-    referencia: dartforge_diagnostics::AnalyzerReference,
+    skipped: Vec<Span>,
+    reference: dartforge_diagnostics::AnalyzerReference,
     /// Old → new `TypeId` of the signatures' annotations.
     map: HashMap<TypeId, TypeId>,
-    alterados: Vec<UnitBody>,
+    changed: Vec<UnitBody>,
 }
 
-impl Anterior {
+impl Previous {
     /// The swapped unit.
-    pub fn unidade(&self) -> UnitId {
-        self.unidade
+    pub fn unit(&self) -> UnitId {
+        self.unit_id
     }
 
     /// The bodies whose text changed.
     pub fn changed_bodies(&self) -> &[UnitBody] {
-        &self.alterados
+        &self.changed
     }
 
     /// The old tree's `TypeId` → the new one's, for the signatures' annotations
     /// (the only ones the outline keeps).
-    pub fn mapa_de_tipos(&self) -> &HashMap<TypeId, TypeId> {
+    pub fn type_map(&self) -> &HashMap<TypeId, TypeId> {
         &self.map
     }
 
-    /// The inverse of [`Anterior::mapa_de_tipos`] (the map is a bijection).
-    pub fn mapa_inverso(&self) -> HashMap<TypeId, TypeId> {
+    /// The inverse of [`Previous::type_map`] (the map is a bijection).
+    pub fn inverse_map(&self) -> HashMap<TypeId, TypeId> {
         self.map.iter().map(|(&a, &b)| (b, a)).collect()
     }
 }
@@ -105,35 +105,35 @@ impl Anterior {
 /// count as body (completion, §16.7 rule 5: a variable's inferred type does
 /// not matter for the suggestions inside its own initializer, and nothing
 /// the speculative swap produces is written).
-pub fn substituir_unidade(
+pub fn swap_unit(
     program: &mut Program,
     names_: &mut Interner,
     u: UnitId,
     text: &str,
     initializers_as_body: bool,
-) -> Result<Anterior, Recusa> {
+) -> Result<Previous, Refusal> {
     let features = program.unit(u).features;
     let new_ = dartforge_frontend::parser::parse_with(text, names_, features);
-    let (map, alterados) = {
+    let (map, changed) = {
         let old_ = program.unit(u);
         verify_shape(&old_.ast, &old_.unit, &new_.ast, &new_.unit)?;
         let (Ok(tv), Ok(tn)) = (dartforge_frontend::lexer::lex(&old_.source), dartforge_frontend::lexer::lex(text)) else {
-            return Err(Recusa::Lexico);
+            return Err(Refusal::Lexical);
         };
         let rv = regions(&old_.ast, initializers_as_body);
         let rn = regions(&new_.ast, initializers_as_body);
         if rv.len() != rn.len() || rv.iter().zip(rn.iter()).any(|(a, b)| a.owner != b.owner) {
-            return Err(Recusa::Signature);
+            return Err(Refusal::Signature);
         }
         let (dir_v, sig_v) = split(&old_.source, &tv, &directive_spans(&old_.unit), &rv);
         let (dir_n, sig_n) = split(text, &tn, &directive_spans(&new_.unit), &rn);
         if dir_v != dir_n {
-            return Err(Recusa::Diretivas);
+            return Err(Refusal::Directives);
         }
         if sig_v != sig_n {
-            return Err(Recusa::Signature);
+            return Err(Refusal::Signature);
         }
-        let alterados: Vec<UnitBody> = rv
+        let changed: Vec<UnitBody> = rv
             .iter()
             .zip(rn.iter())
             .filter(|(a, b)| old_.source.get(a.span.start..a.span.end) != text.get(b.span.start..b.span.end))
@@ -141,21 +141,21 @@ pub fn substituir_unidade(
             .collect();
         let (lv, ln) = (signature_types(&old_.ast), signature_types(&new_.ast));
         if lv.len() != ln.len() {
-            return Err(Recusa::ShapeChanged("signature types"));
+            return Err(Refusal::ShapeChanged("signature types"));
         }
         for (a, b) in lv.iter().zip(ln.iter()) {
             let (ta, tb) = (old_.ast.ty(*a), new_.ast.ty(*b));
             if ta.nullable != tb.nullable || std::mem::discriminant(&ta.kind) != std::mem::discriminant(&tb.kind) {
-                return Err(Recusa::ShapeChanged("signature types"));
+                return Err(Refusal::ShapeChanged("signature types"));
             }
         }
         let map: HashMap<TypeId, TypeId> = lv.into_iter().zip(ln).collect();
-        (map, alterados)
+        (map, changed)
     };
     {
         let mut ps = pairs(program);
         if ps.iter().any(|p| p.0 == u && !map.contains_key(&p.1)) {
-            return Err(Recusa::ShapeChanged("element types"));
+            return Err(Refusal::ShapeChanged("element types"));
         }
         for p in ps.iter_mut() {
             if p.0 == u {
@@ -164,23 +164,23 @@ pub fn substituir_unidade(
         }
     }
     let un = &mut program.units[u.0 as usize];
-    Ok(Anterior {
-        unidade: u,
+    Ok(Previous {
+        unit_id: u,
         source: std::mem::replace(&mut un.source, text.to_string()),
         ast: std::mem::replace(&mut un.ast, new_.ast),
         unit: std::mem::replace(&mut un.unit, new_.unit),
-        pulados: std::mem::replace(&mut un.pulados, new_.skipped),
-        referencia: std::mem::replace(&mut un.referencia, new_.reference),
+        skipped: std::mem::replace(&mut un.skipped, new_.skipped),
+        reference: std::mem::replace(&mut un.reference, new_.reference),
         map,
-        alterados,
+        changed,
     })
 }
 
-/// Undoes a [`substituir_unidade`] (the elements' pairs go back to the old
+/// Undoes a [`swap_unit`] (the elements' pairs go back to the old
 /// tree's ids).
-pub fn restaurar_unidade(program: &mut Program, previous: Anterior) {
-    let u = previous.unidade;
-    let inverse = previous.mapa_inverso();
+pub fn restore_unit(program: &mut Program, previous: Previous) {
+    let u = previous.unit_id;
+    let inverse = previous.inverse_map();
     for p in pairs(program) {
         if p.0 == u
             && let Some(&t) = inverse.get(&p.1)
@@ -192,48 +192,48 @@ pub fn restaurar_unidade(program: &mut Program, previous: Anterior) {
     un.source = previous.source;
     un.ast = previous.ast;
     un.unit = previous.unit;
-    un.pulados = previous.pulados;
-    un.referencia = previous.referencia;
+    un.skipped = previous.skipped;
+    un.reference = previous.reference;
 }
 
 /// The one-to-one correspondence of the arenas the elements cite.
-fn verify_shape(old_: &Ast, old_unit: &CompilationUnit, a: &Ast, new_unit: &CompilationUnit) -> Result<(), Recusa> {
+fn verify_shape(old_: &Ast, old_unit: &CompilationUnit, a: &Ast, new_unit: &CompilationUnit) -> Result<(), Refusal> {
     if old_.decls.len() != a.decls.len() {
-        return Err(Recusa::ShapeChanged("declarations"));
+        return Err(Refusal::ShapeChanged("declarations"));
     }
     if old_.members.len() != a.members.len() {
-        return Err(Recusa::ShapeChanged("members"));
+        return Err(Refusal::ShapeChanged("members"));
     }
     if old_.functions.len() != a.functions.len() {
-        return Err(Recusa::ShapeChanged("functions"));
+        return Err(Refusal::ShapeChanged("functions"));
     }
     for (d0, d1) in old_.decls.iter().zip(a.decls.iter()) {
         if std::mem::discriminant(&d0.kind) != std::mem::discriminant(&d1.kind) || decl_name(&d0.kind) != decl_name(&d1.kind) {
-            return Err(Recusa::ShapeChanged("declaration"));
+            return Err(Refusal::ShapeChanged("declaration"));
         }
         if let (DeclKind::Variables(l0), DeclKind::Variables(l1)) = (&d0.kind, &d1.kind)
             && !same_names(l0, l1)
         {
-            return Err(Recusa::ShapeChanged("variables"));
+            return Err(Refusal::ShapeChanged("variables"));
         }
     }
     for (m0, m1) in old_.members.iter().zip(a.members.iter()) {
         if std::mem::discriminant(&m0.kind) != std::mem::discriminant(&m1.kind) || member_name(&m0.kind) != member_name(&m1.kind) {
-            return Err(Recusa::ShapeChanged("member"));
+            return Err(Refusal::ShapeChanged("member"));
         }
         if let (MemberKind::Field(l0), MemberKind::Field(l1)) = (&m0.kind, &m1.kind)
             && !same_names(l0, l1)
         {
-            return Err(Recusa::ShapeChanged("fields"));
+            return Err(Refusal::ShapeChanged("fields"));
         }
     }
     for (f0, f1) in old_.functions.iter().zip(a.functions.iter()) {
         if f0.name.map(|n| n.sym) != f1.name.map(|n| n.sym) {
-            return Err(Recusa::ShapeChanged("function"));
+            return Err(Refusal::ShapeChanged("function"));
         }
     }
     if old_unit.declarations != new_unit.declarations {
-        return Err(Recusa::ShapeChanged("unit declarations"));
+        return Err(Refusal::ShapeChanged("unit declarations"));
     }
     Ok(())
 }
@@ -263,14 +263,14 @@ fn regions(a: &Ast, initializers_as_body: bool) -> Vec<Region> {
     let members_ = |v: &mut Vec<Region>, members_: &[ast::MemberId], has_const: bool| {
         for &m in members_ {
             match &a.member(m).kind {
-                MemberKind::Method(f) => body_node(v, UnitBody::Funcao(*f), &a.function(*f).body),
-                MemberKind::Constructor(k) => body_node(v, UnitBody::Construtor(m), &k.body),
+                MemberKind::Method(f) => body_node(v, UnitBody::Function(*f), &a.function(*f).body),
+                MemberKind::Constructor(k) => body_node(v, UnitBody::Constructor(m), &k.body),
                 MemberKind::Field(l) => {
                     let signature = l.ty.is_none() || l.const_ || (l.final_ && !l.static_ && has_const);
                     if initializers_as_body || !signature {
                         for (k, x) in l.variables.iter().enumerate() {
                             if let Some(e) = x.initializer {
-                                v.push(Region { owner: UnitBody::Campo { member: m, index: k }, span: a.expr(e).span, strict: false });
+                                v.push(Region { owner: UnitBody::Field { member: m, index: k }, span: a.expr(e).span, strict: false });
                             }
                         }
                     }
@@ -282,12 +282,12 @@ fn regions(a: &Ast, initializers_as_body: bool) -> Vec<Region> {
     for (i, d) in a.decls.iter().enumerate() {
         let decl = ast::DeclId(i as u32);
         match &d.kind {
-            DeclKind::Function(f) => body_node(&mut v, UnitBody::Funcao(*f), &a.function(*f).body),
+            DeclKind::Function(f) => body_node(&mut v, UnitBody::Function(*f), &a.function(*f).body),
             DeclKind::Variables(l) => {
                 if initializers_as_body || (l.ty.is_some() && !l.const_) {
                     for (k, x) in l.variables.iter().enumerate() {
                         if let Some(e) = x.initializer {
-                            v.push(Region { owner: UnitBody::VariavelDeTopo { decl, index: k }, span: a.expr(e).span, strict: false });
+                            v.push(Region { owner: UnitBody::TopLevelVariable { decl, index: k }, span: a.expr(e).span, strict: false });
                         }
                     }
                 }
@@ -322,13 +322,13 @@ fn inside(excerpts: &[(Span, bool)], t: Span) -> bool {
 type Lexeme<'s> = (Kind, &'s str, bool);
 
 /// The directives' tokens and the declarations' signature tokens.
-fn split<'s>(source: &'s str, tokens: &[Token], diretivas: &[(Span, bool)], bodies: &[Region]) -> (Vec<Lexeme<'s>>, Vec<Lexeme<'s>>) {
+fn split<'s>(source: &'s str, tokens: &[Token], directives: &[(Span, bool)], bodies: &[Region]) -> (Vec<Lexeme<'s>>, Vec<Lexeme<'s>>) {
     let mut excerpts: Vec<(Span, bool)> = bodies.iter().map(|r| (r.span, r.strict)).collect();
     excerpts.sort_by_key(|(s, _)| s.start);
     let (mut d, mut s) = (Vec::new(), Vec::new());
     for t in tokens {
         let lexeme = (t.kind, source.get(t.span.start..t.span.end).unwrap_or(""), t.glued && matches!(t.kind, Kind::Op(Op::Gt)));
-        if inside(diretivas, t.span) {
+        if inside(directives, t.span) {
             d.push(lexeme);
         } else if !inside(&excerpts, t.span) {
             s.push(lexeme);

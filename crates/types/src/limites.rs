@@ -523,10 +523,10 @@ impl Verifier<'_> {
                 _ => continue,
             };
             let el = match &a.expr(tgt).kind {
-                ExprKind::Identifier(n) => self.program.lookup_na_unidade(self.unit, n.sym).filter(|b| !b.ambiguous).and_then(|b| b.getter),
+                ExprKind::Identifier(n) => self.program.lookup_in_unit(self.unit, n.sym).filter(|b| !b.ambiguous).and_then(|b| b.getter),
                 ExprKind::Property { target: p, name, .. } => match &a.expr(*p).kind {
-                    ExprKind::Identifier(p) if self.program.prefixos_na_unidade(self.unit).contains_key(&p.sym) => {
-                        self.program.lookup_prefixed_na_unidade(self.unit, p.sym, name.sym).filter(|b| !b.ambiguous).and_then(|b| b.getter)
+                    ExprKind::Identifier(p) if self.program.prefixes_in_unit(self.unit).contains_key(&p.sym) => {
+                        self.program.lookup_prefixed_in_unit(self.unit, p.sym, name.sym).filter(|b| !b.ambiguous).and_then(|b| b.getter)
                     }
                     _ => None,
                 },
@@ -555,8 +555,8 @@ impl Verifier<'_> {
             return None;
         }
         let b = match name {
-            [n] => self.program.lookup_na_unidade(self.unit, n.sym),
-            [p, n] => self.program.lookup_prefixed_na_unidade(self.unit, p.sym, n.sym),
+            [n] => self.program.lookup_in_unit(self.unit, n.sym),
+            [p, n] => self.program.lookup_prefixed_in_unit(self.unit, p.sym, n.sym),
             _ => None,
         }?;
         if b.ambiguous {

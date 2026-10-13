@@ -196,7 +196,7 @@ pub(crate) fn resolve_name(inf: &mut BodyInferrer<'_>, cx: &Body, the_name: Symb
             }
         }
     }
-    if let Some(b) = inf.program.lookup_na_unidade(cx.unit, the_name) {
+    if let Some(b) = inf.program.lookup_in_unit(cx.unit, the_name) {
         let el = if setter { b.setter.or(b.getter) } else { b.getter.or(b.setter) };
         if let Some(el) = el {
             if let Element::Prefix(..) = el {
@@ -205,7 +205,7 @@ pub(crate) fn resolve_name(inf: &mut BodyInferrer<'_>, cx: &Body, the_name: Symb
             return NameRef::Elemento(el);
         }
     }
-    if inf.program.prefixos_na_unidade(cx.unit).contains_key(&the_name) {
+    if inf.program.prefixes_in_unit(cx.unit).contains_key(&the_name) {
         return NameRef::Prefixo;
     }
     if matches!(inf.interner.resolve(the_name), "dynamic" | "Never") {
@@ -270,7 +270,7 @@ fn lexical_read_lookup(inf: &mut BodyInferrer<'_>, cx: &Body, the_name: SymbolId
         NameRef::Elemento(Element::Function(f)) if inf.program.function(f).kind == FunctionKind::Setter => {
             // Top-level setter (declared or imported) without a getter of the same
             // name.
-            match inf.program.lookup_na_unidade(cx.unit, the_name) {
+            match inf.program.lookup_in_unit(cx.unit, the_name) {
                 Some(b) if b.getter.is_none() => Lexical::StandaloneSetter,
                 _ => Lexical::Getter,
             }
@@ -609,7 +609,7 @@ pub(crate) fn type_reference(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -
             if !matches!(resolve_name(inf, cx, p.sym, false), NameRef::Prefixo) {
                 return None;
             }
-            inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym)?.getter?
+            inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, name.sym)?.getter?
         }
         ExprKind::TypeArguments { target, type_args } => {
             let targs = type_args.to_vec();
@@ -646,7 +646,7 @@ pub(crate) fn alias_without_class(inf: &mut BodyInferrer<'_>, cx: &Body, e: Expr
             if !matches!(resolve_name(inf, cx, p.sym, false), NameRef::Prefixo) {
                 return false;
             }
-            match inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
+            match inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
                 Some(el) => el,
                 None => return false,
             }
@@ -712,7 +712,7 @@ fn named_alias_target(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> Optio
             _ => return None,
         },
         ExprKind::Property { target, name, .. } => match &ast(inf, cx).expr(*target).kind {
-            ExprKind::Identifier(p) => inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter)?,
+            ExprKind::Identifier(p) => inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, name.sym).and_then(|b| b.getter)?,
             _ => return None,
         },
         _ => return None,
@@ -730,7 +730,7 @@ pub(crate) fn alias_of_null_or_futureor(inf: &mut BodyInferrer<'_>, cx: &Body, e
             _ => return false,
         },
         ExprKind::Property { target, name, .. } => match &ast(inf, cx).expr(*target).kind {
-            ExprKind::Identifier(p) => match inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
+            ExprKind::Identifier(p) => match inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
                 Some(el) => el,
                 None => return false,
             },
@@ -786,7 +786,7 @@ fn record_type_ref(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) {
     let tt = inf.core.type_;
     match &a.expr(e).kind {
         ExprKind::Identifier(n) => {
-            if let Some(b) = inf.program.lookup_na_unidade(cx.unit, n.sym) {
+            if let Some(b) = inf.program.lookup_in_unit(cx.unit, n.sym) {
                 if let Some(el) = b.getter {
                     resolver(inf, cx, e, Resolved::Element(el));
                 }
@@ -796,7 +796,7 @@ fn record_type_ref(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) {
         ExprKind::Property { target, name, .. } => {
             if let ExprKind::Identifier(p) = &a.expr(*target).kind {
                 resolver(inf, cx, *target, Resolved::Prefix(cx.lib));
-                if let Some(el) = inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
+                if let Some(el) = inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
                     resolver(inf, cx, e, Resolved::Element(el));
                 }
             }
@@ -2516,7 +2516,7 @@ fn property(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: ExprId
             if ambiguous_import(inf, cx, Some(p.sym), name) {
                 return (inf.table.invalid(inf.core.dynamic_), false);
             }
-            match inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter.or(b.setter)) {
+            match inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, name.sym).and_then(|b| b.getter.or(b.setter)) {
                 Some(el) => {
                     resolver(inf, cx, e, Resolved::Element(el));
                     if let Element::Extension(_) = el {
@@ -2716,7 +2716,7 @@ pub(crate) fn check_literal_arguments(inf: &mut BodyInferrer<'_>, cx: &Body, e: 
             if !matches!(resolve_name(inf, cx, p.sym, false), NameRef::Prefixo) {
                 return;
             }
-            let Some(el) = inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter) else { return };
+            let Some(el) = inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, name.sym).and_then(|b| b.getter) else { return };
             (el, *name)
         }
         _ => return,
@@ -4087,8 +4087,8 @@ fn read_for_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, short_
 /// reported.
 pub(crate) fn ambiguous_import(inf: &mut BodyInferrer<'_>, cx: &Body, prefix: Option<SymbolId>, the_name: ast::Name) -> bool {
     let b = match prefix {
-        Some(p) => inf.program.lookup_prefixed_na_unidade(cx.unit, p, the_name.sym),
-        None => inf.program.lookup_na_unidade(cx.unit, the_name.sym),
+        Some(p) => inf.program.lookup_prefixed_in_unit(cx.unit, p, the_name.sym),
+        None => inf.program.lookup_in_unit(cx.unit, the_name.sym),
     };
     if !b.is_some_and(|b| b.ambiguous) {
         return false;
@@ -4545,7 +4545,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
             if ambiguous_import(inf, cx, Some(p.sym), name) {
                 return inf.table.invalid(inf.core.dynamic_);
             }
-            if let Some(el) = inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.setter.or(b.getter)) {
+            if let Some(el) = inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, name.sym).and_then(|b| b.setter.or(b.getter)) {
                 resolver(inf, cx, tgt, Resolved::Element(el));
                 return match el {
                     Element::Variable(v) => inf.variable_type(v),
@@ -5448,8 +5448,8 @@ fn unnecessary_type_test(
         let self_referencing_alias = match &ast(inf, cx).ty(ty).kind {
             ast::TypeKind::Named { name, .. } => {
                 let b = match &name[..] {
-                    [n] => inf.program.lookup_na_unidade(cx.unit, n.sym),
-                    [p, n] => inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, n.sym),
+                    [n] => inf.program.lookup_in_unit(cx.unit, n.sym),
+                    [p, n] => inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, n.sym),
                     _ => None,
                 };
                 matches!(b.and_then(|b| b.getter), Some(Element::Typedef(tid))
@@ -5659,7 +5659,7 @@ impl<'a> BodyInferrer<'a> {
 
     fn const_constructor(&self, r: Option<&Resolved>) -> bool {
         match r {
-            Some(Resolved::Constructor(f)) => self.program.function(self.program.publico(*f)).const_,
+            Some(Resolved::Constructor(f)) => self.program.function(self.program.public(*f)).const_,
             _ => false,
         }
     }

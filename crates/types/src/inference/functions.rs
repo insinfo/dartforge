@@ -433,7 +433,7 @@ fn name_in_constructor_scope(inf: &BodyInferrer<'_>, unit: UnitId, cls: Option<C
             return InScope::Other;
         }
     }
-    if let Some(b) = inf.program.lookup_na_unidade(unit, the_name)
+    if let Some(b) = inf.program.lookup_in_unit(unit, the_name)
         && let Some(el) = b.getter.or(b.setter)
     {
         if let Element::Prefix(..) = el {
@@ -441,7 +441,7 @@ fn name_in_constructor_scope(inf: &BodyInferrer<'_>, unit: UnitId, cls: Option<C
         }
         return InScope::Elemento(el);
     }
-    if inf.program.prefixos_na_unidade(unit).contains_key(&the_name) {
+    if inf.program.prefixes_in_unit(unit).contains_key(&the_name) {
         return InScope::Prefixo;
     }
     if matches!(inf.interner.resolve(the_name), "dynamic" | "Never") {
@@ -521,7 +521,7 @@ fn resolve_written_target(inf: &mut BodyInferrer<'_>, unit: UnitId, cls: Option<
             }
         },
         Some(p) => match name_in_constructor_scope(inf, unit, cls, params, p.sym) {
-            InScope::Prefixo => match inf.program.lookup_prefixed_na_unidade(unit, p.sym, typ.sym).and_then(|b| b.getter) {
+            InScope::Prefixo => match inf.program.lookup_prefixed_in_unit(unit, p.sym, typ.sym).and_then(|b| b.getter) {
                 Some(el) => element_type(inf, el, typ.sym),
                 None if crate::scope::should_ignore_undefined(inf.program, inf.interner, unit, Some(p.sym), typ.sym) => TargetType::Nada,
                 None => TargetType::NonClass(typ.sym),
@@ -875,9 +875,9 @@ fn redirecting_factory_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, red: &a
     let written_via_alias = match &inf.program.unit(cx.unit).ast.ty(red.ty).kind {
         ast::TypeKind::Named { name, .. } => {
             let binding = if name.len() == 2 {
-                inf.program.lookup_prefixed_na_unidade(cx.unit, name[0].sym, name[1].sym)
+                inf.program.lookup_prefixed_in_unit(cx.unit, name[0].sym, name[1].sym)
             } else {
-                name.first().and_then(|n| inf.program.lookup_na_unidade(cx.unit, n.sym))
+                name.first().and_then(|n| inf.program.lookup_in_unit(cx.unit, n.sym))
             };
             matches!(binding.and_then(|b| b.getter), Some(Element::Typedef(_)))
         }
@@ -1115,7 +1115,7 @@ fn super_initializer(inf: &mut BodyInferrer<'_>, cx: &mut Body, cls: Option<Clas
         return;
     };
     if factory_and_const(inf, s, k).0 && !only_factories(inf, s) {
-        let v313 = inf.program.referencia(cx.unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
+        let v313 = inf.program.reference(cx.unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
         let displayed = display_constructor(inf, s, k, st, v313);
         inf.warning_with_code(ce::NON_GENERATIVE_CONSTRUCTOR, span, &[&displayed]);
     }
@@ -1270,7 +1270,7 @@ fn super_parameters(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
     // In 3.13.4 (`error_verifier.dart:2391-2408` of the main checkout), without
     // the `superConstructor` the check stops; in 3.6.2 each `super.x` reports.
     let unit_id = inf.program.class(c).decl.map(|d| d.unit);
-    let v313 = unit_id.is_some_and(|u| inf.program.referencia(u) == dartforge_diagnostics::AnalyzerReference::V3_13);
+    let v313 = unit_id.is_some_and(|u| inf.program.reference(u) == dartforge_diagnostics::AnalyzerReference::V3_13);
     if associated.is_none() && v313 && !without_parameters {
         return;
     }
@@ -1360,7 +1360,7 @@ fn super_parameters(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
 /// (`PrimaryConstructorDeclaration.errorRange`).
 fn implicit_super_range(inf: &BodyInferrer<'_>, ctor: &ast::Constructor, unit: UnitId, member: ast::MemberId) -> dartforge_diagnostics::Span {
     use dartforge_diagnostics::Span;
-    if inf.program.referencia(unit) != dartforge_diagnostics::AnalyzerReference::V3_13 {
+    if inf.program.reference(unit) != dartforge_diagnostics::AnalyzerReference::V3_13 {
         return ctor.class_name.span;
     }
     let u = inf.program.unit(unit);
@@ -1424,7 +1424,7 @@ fn implicit_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructo
         // `{0}` = the element: `superElement.unnamedConstructor`, without
         // substitution (the type is the class's over its own parameters).
         let own = inf.class_this_type(s);
-        let v313 = inf.program.referencia(unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
+        let v313 = inf.program.reference(unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
         let displayed = display_constructor(inf, s, k, own, v313);
         inf.warning_with_code(ce::NON_GENERATIVE_CONSTRUCTOR, typ, &[&displayed]);
         return;
@@ -2700,9 +2700,9 @@ pub(crate) fn validate_annotation_at(
             return;
         }
     }
-    let b1 = inf.program.lookup_na_unidade(unit, n1.sym);
+    let b1 = inf.program.lookup_in_unit(unit, n1.sym);
     let mut e1 = classify_in_annotation(inf, b1);
-    if matches!(e1, InAnnotation::Nada) && inf.program.prefixos_na_unidade(unit).contains_key(&n1.sym) {
+    if matches!(e1, InAnnotation::Nada) && inf.program.prefixes_in_unit(unit).contains_key(&n1.sym) {
         e1 = InAnnotation::Prefixo;
     }
     // For a prefix: the second name resolved in it, and the third is the
@@ -2713,7 +2713,7 @@ pub(crate) fn validate_annotation_at(
                 inf.warning_with_code(c::INVALID_ANNOTATION, span, &[]);
                 return;
             };
-            let b2 = inf.program.lookup_prefixed_na_unidade(unit, n1.sym, n2.sym);
+            let b2 = inf.program.lookup_prefixed_in_unit(unit, n1.sym, n2.sym);
             match classify_in_annotation(inf, b2) {
                 InAnnotation::Prefixo | InAnnotation::Outro => {
                     inf.warning_with_code(c::INVALID_ANNOTATION, span, &[]);
@@ -2752,7 +2752,7 @@ pub(crate) fn validate_annotation_at(
                     let key = n.map(|n| n.sym).or(inf.sym.empty);
                     let e_const = key
                         .and_then(|ch| inf.program.class(k).constructors.get(&ch).copied())
-                        .is_some_and(|f| inf.program.function(inf.program.publico(f)).const_);
+                        .is_some_and(|f| inf.program.function(inf.program.public(f)).const_);
                     if !e_const {
                         inf.warning_with_code(c::NON_CONSTANT_ANNOTATION_CONSTRUCTOR, span, &[]);
                     }
@@ -2768,7 +2768,7 @@ pub(crate) fn validate_annotation_at(
                     let key = n.map(|n| n.sym).or(inf.sym.empty);
                     key
                         .and_then(|ch| inf.program.class(k).constructors.get(&ch).copied())
-                        .is_some_and(|f| inf.program.function(inf.program.publico(f)).const_)
+                        .is_some_and(|f| inf.program.function(inf.program.public(f)).const_)
                 };
                 let of_member = match mem {
                     Some(n) => match static_getter(inf, Some(k), None, n.sym) {
@@ -2853,12 +2853,12 @@ fn unvalidated_annotation_with(
     let names: Vec<dartforge_intern::SymbolId> = m.name.iter().map(|n| n.sym).collect();
     // Class and constructor.
     let (c, ctor) = match names.as_slice() {
-        [c] => (inf.program.lookup_na_unidade(unit, *c).and_then(|b| b.getter), None),
-        [a, b] => match inf.program.lookup_na_unidade(unit, *a).and_then(|x| x.getter) {
+        [c] => (inf.program.lookup_in_unit(unit, *c).and_then(|b| b.getter), None),
+        [a, b] => match inf.program.lookup_in_unit(unit, *a).and_then(|x| x.getter) {
             Some(el @ Element::Class(_)) => (Some(el), Some(*b)),
-            _ => (inf.program.lookup_prefixed_na_unidade(unit, *a, *b).and_then(|x| x.getter), None),
+            _ => (inf.program.lookup_prefixed_in_unit(unit, *a, *b).and_then(|x| x.getter), None),
         },
-        [p, c, n] => (inf.program.lookup_prefixed_na_unidade(unit, *p, *c).and_then(|x| x.getter), Some(*n)),
+        [p, c, n] => (inf.program.lookup_prefixed_in_unit(unit, *p, *c).and_then(|x| x.getter), Some(*n)),
         _ => (None, None),
     };
     let u = inf.core.unknown;
@@ -2925,7 +2925,7 @@ fn unvalidated_annotation_with(
             // `identifier` of the prefixed name (`@A.the_name` → `the_name`, `@p.A` → `A`),
             // or `<the_name>.new`; `MISSING_REQUIRED_ARGUMENT` goes at the constructor's
             // identifier, or at the class's.
-            let prefix0 = m.name.first().is_some_and(|n| inf.program.prefixos_na_unidade(unit).contains_key(&n.sym));
+            let prefix0 = m.name.first().is_some_and(|n| inf.program.prefixes_in_unit(unit).contains_key(&n.sym));
             let cited_name = match m.name.as_slice() {
                 [a] => format!("{}.new", inf.interner.resolve(a.sym)),
                 [a, b] if !m.type_args.is_empty() && !prefix0 => {

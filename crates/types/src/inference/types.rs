@@ -426,7 +426,7 @@ impl<'a> BodyInferrer<'a> {
                     }
                 }
                 let binding = if name.len() == 2 {
-                    self.program.lookup_prefixed_na_unidade(unit, name[0].sym, name[1].sym)
+                    self.program.lookup_prefixed_in_unit(unit, name[0].sym, name[1].sym)
                 } else {
                     let sym = name[0].sym;
                     if let Some(&pid) = scope.get(&sym) {
@@ -463,15 +463,15 @@ impl<'a> BodyInferrer<'a> {
                         return self.table.invalid(self.core.dynamic_);
                     }
                     if matches!(self.interner.resolve(sym), "dynamic" | "Never")
-                        && self.program.lookup_na_unidade(unit, sym).and_then(|b| b.getter).is_none()
+                        && self.program.lookup_in_unit(unit, sym).and_then(|b| b.getter).is_none()
                         && !args.is_empty()
                     {
                         self.report_type_arguments(&text, 0, args.len(), span);
                     }
                     match self.interner.resolve(sym) {
-                        "dynamic" if self.program.lookup_na_unidade(unit, sym).is_none() => return self.core.dynamic_,
+                        "dynamic" if self.program.lookup_in_unit(unit, sym).is_none() => return self.core.dynamic_,
                         "void" => return self.core.void_,
-                        "Never" if self.program.lookup_na_unidade(unit, sym).and_then(|b| b.getter).is_none() => {
+                        "Never" if self.program.lookup_in_unit(unit, sym).and_then(|b| b.getter).is_none() => {
                             return if is_nullable { self.table.decorate(self.core.null, crate::table::Exibicao::NeverAnulavel) } else { self.core.never };
                         }
                         _ => {}
@@ -489,7 +489,7 @@ impl<'a> BodyInferrer<'a> {
                             Some(crate::resolve::InContainer::OnlySetter) | None => {}
                         }
                     }
-                    self.program.lookup_na_unidade(unit, sym)
+                    self.program.lookup_in_unit(unit, sym)
                 };
                 let args: Vec<ast::TypeId> = args.to_vec();
                 let resolved: Vec<TypeId> = args

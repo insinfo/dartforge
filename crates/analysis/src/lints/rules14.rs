@@ -820,10 +820,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         // `@pragma('dart2js:late:trust')`: the `pragma` constructor of
         // `dart:core` with the constant name.
         let pragma_late_trust = |m: &Annotation| -> bool {
-            let simple = |n: ast::Name| program.lookup_na_unidade(s.unit, n.sym).and_then(|b| b.getter);
+            let simple = |n: ast::Name| program.lookup_in_unit(s.unit, n.sym).and_then(|b| b.getter);
             let element = match &m.name[..] {
                 [n] => simple(*n),
-                [p, n] => program.lookup_prefixed_na_unidade(s.unit, p.sym, n.sym).and_then(|b| b.getter),
+                [p, n] => program.lookup_prefixed_in_unit(s.unit, p.sym, n.sym).and_then(|b| b.getter),
                 _ => None,
             };
             let Some(Element::Class(cl)) = element else { return false };
@@ -931,7 +931,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 // (local, member, or setter only) is not.
                 return found.iter().any(|r| r.kind == super::scope::EntryKind::TypeParameter);
             }
-            let Some(b) = program.lookup_na_unidade(s.unit, name) else { return false };
+            let Some(b) = program.lookup_in_unit(s.unit, name) else { return false };
             if b.ambiguous {
                 return false;
             }
@@ -982,7 +982,7 @@ fn constant_string_value(
         ExprKind::String(lit) => lit.constant_value().map(|v| v.to_string_lossy()),
         ExprKind::Parenthesized(x) => constant_string_value(program, interner, u, a, *x),
         ExprKind::Identifier(n) => {
-            let b = program.lookup_na_unidade(u, n.sym)?;
+            let b = program.lookup_in_unit(u, n.sym)?;
             let v = match b.getter? {
                 Element::Variable(v) => v,
                 Element::Function(f) => program.function(f).variable?,

@@ -1161,7 +1161,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let enum_constants: Vec<(UnitId, &ast::EnumConstant)> = match &d.kind {
         DeclKind::Enum(ed) => {
             let mut v: Vec<(UnitId, &ast::EnumConstant)> = ed.constants.iter().map(|k| (unit, k)).collect();
-            for a in ctx.program.augmentacoes.get(&c).into_iter().flatten() {
+            for a in ctx.program.augmentations.get(&c).into_iter().flatten() {
                 if let DeclKind::Enum(ea) = &ctx.program.unit(a.unit).ast.decl(a.decl).kind {
                     v.extend(ea.constants.iter().map(|k| (a.unit, k)));
                 }
@@ -1531,7 +1531,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
 
     // Constructor tear-offs (`C.new == C.new`).
     if !is_mixin {
-        for (csym, cfid) in class.construtores() {
+        for (csym, cfid) in class.constructors() {
             let cf = ctx.program.function(cfid);
             let cn = ctx.name(csym);
             let jsname = if cn.is_empty() { "new".to_string() } else { static_member_name(cn) };
@@ -1678,7 +1678,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             .map(|s| {
                 ctx.program
                     .class(s)
-                    .construtores()
+                    .constructors()
                     .into_iter()
                     .filter(|(_, f)| !ctx.program.function(*f).factory && ctx.fn_state(*f) != crate::filter::State::Dead)
                     .map(|(n, _)| {
@@ -2060,7 +2060,7 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             MemberKind::Field(_) => {}
         }
     }
-    for (csym, cfid) in class.construtores() {
+    for (csym, cfid) in class.constructors() {
         let cf = ctx.program.function(cfid);
         let cn = ctx.name(csym);
         let jsname = if cn.is_empty() { "new".to_string() } else { static_member_name(cn) };
@@ -2182,7 +2182,7 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
             Some(b) if Some(b) != ctx.object => ctx
                 .program
                 .class(b)
-                .construtores()
+                .constructors()
                 .into_iter()
                 // With a filter: only forwards to a base constructor that is live.
                 .filter(|(_, f)| !ctx.program.function(*f).factory && ctx.fn_state(*f) != crate::filter::State::Dead)

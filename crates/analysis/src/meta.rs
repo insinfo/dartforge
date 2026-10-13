@@ -425,15 +425,15 @@ impl<'a> Ctx<'a> {
     fn annotation_class(&self, m: &ast::Annotation) -> Option<(ClassId, String)> {
         let program = self.program;
         let u = self.unit;
-        let simple = |n: ast::Name| program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter);
+        let simple = |n: ast::Name| program.lookup_in_unit(u, n.sym).and_then(|b| b.getter);
         let (element, constructor) = match &m.name[..] {
             [n] => (simple(*n)?, None),
-            [p, n] => match program.lookup_prefixed_na_unidade(u, p.sym, n.sym).and_then(|b| b.getter) {
+            [p, n] => match program.lookup_prefixed_in_unit(u, p.sym, n.sym).and_then(|b| b.getter) {
                 Some(e) => (e, None),
                 // `Classe.construtor`.
                 None => (simple(*p)?, Some(*n)),
             },
-            [p, n, k] => (program.lookup_prefixed_na_unidade(u, p.sym, n.sym).and_then(|b| b.getter)?, Some(*k)),
+            [p, n, k] => (program.lookup_prefixed_in_unit(u, p.sym, n.sym).and_then(|b| b.getter)?, Some(*k)),
             _ => return None,
         };
         match element {
@@ -478,7 +478,7 @@ impl<'a> Ctx<'a> {
                         }
                     }
                 };
-                match program.lookup_na_unidade(unit, type_name.sym).and_then(|b| b.getter)? {
+                match program.lookup_in_unit(unit, type_name.sym).and_then(|b| b.getter)? {
                     Element::Class(c) => Some((c, self.interner.resolve(variable_span.name).to_string())),
                     _ => None,
                 }
@@ -781,8 +781,8 @@ fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out:
                 for t in types {
                     let ast::TypeKind::Named { name, .. } = &a.types[t.0 as usize].kind else { continue };
                     let found = match &name[..] {
-                        [n] => program.lookup_na_unidade(unit, n.sym),
-                        [p, n] => program.lookup_prefixed_na_unidade(unit, p.sym, n.sym),
+                        [n] => program.lookup_in_unit(unit, n.sym),
+                        [p, n] => program.lookup_prefixed_in_unit(unit, p.sym, n.sym),
                         _ => None,
                     };
                     if let Some(alias @ Element::Typedef(td)) = found.and_then(|b| b.getter)

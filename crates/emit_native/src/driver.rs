@@ -36,7 +36,7 @@ impl Default for NativeDriverOptions {
 /// and finally the `clang` on `PATH` (`scripts/env.ps1` points to the one of the
 /// development machine on Windows).
 fn default_clang() -> PathBuf {
-    if let Some(c) = dartforge_elements::distribuicao::ferramenta_llvm("clang") {
+    if let Some(c) = dartforge_elements::distribution::llvm_tool("clang") {
         return c;
     }
     for var in ["DARTFORGE_LLVM_DIR", "LLVM_SYS_221_PREFIX"] {

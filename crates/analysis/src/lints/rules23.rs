@@ -112,10 +112,10 @@ fn resolve_simple(s: &super::Semantics<'_>, interner: &Interner, owner: &DocOwne
         if owner.own_names.contains(&sym) || owner.class_names.contains(&sym) {
             return ResolvedElem::Other;
         }
-        if program.prefixos_na_unidade(s.unit).contains_key(&sym) {
+        if program.prefixes_in_unit(s.unit).contains_key(&sym) {
             return ResolvedElem::Prefix;
         }
-        if let Some(b) = program.lookup_na_unidade(s.unit, sym)
+        if let Some(b) = program.lookup_in_unit(s.unit, sym)
             && let Some(e) = b.getter.or(b.setter)
         {
             return match e {
@@ -159,7 +159,7 @@ fn resolve(s: &super::Semantics<'_>, interner: &Interner, owner: &DocOwner<'_>, 
         [p, x] => match resolve_simple(s, interner, owner, p) {
             ResolvedElem::Prefix => {
                 let (Some(ps), Some(xs)) = (interner.lookup(p), interner.lookup(x)) else { return false };
-                program.lookup_prefixed_na_unidade(s.unit, ps, xs).is_some()
+                program.lookup_prefixed_in_unit(s.unit, ps, xs).is_some()
             }
             ResolvedElem::Class(c) => has_class_member(s, interner, c, x, true),
             ResolvedElem::Extension(e) => has_extension_member(s, interner, e, x),
@@ -170,7 +170,7 @@ fn resolve(s: &super::Semantics<'_>, interner: &Interner, owner: &DocOwner<'_>, 
                 return false;
             }
             let (Some(ps), Some(ks)) = (interner.lookup(p), interner.lookup(k)) else { return false };
-            match program.lookup_prefixed_na_unidade(s.unit, ps, ks).and_then(|b| b.getter.or(b.setter)) {
+            match program.lookup_prefixed_in_unit(s.unit, ps, ks).and_then(|b| b.getter.or(b.setter)) {
                 Some(Element::Class(c)) => has_class_member(s, interner, c, x, false),
                 Some(Element::Extension(e)) => has_extension_member(s, interner, e, x),
                 _ => false,

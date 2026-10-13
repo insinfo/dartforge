@@ -33,8 +33,8 @@ impl SelfReferenceFinder<'_> {
     fn declaration(&self, u: UnitId, the_name: &[ast::Name], scope: &[SymbolId]) -> Option<DeclRef> {
         let b = match the_name {
             [n] if scope.contains(&n.sym) => return None,
-            [n] => self.program.lookup_na_unidade(u, n.sym),
-            [p, n] => self.program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+            [n] => self.program.lookup_in_unit(u, n.sym),
+            [p, n] => self.program.lookup_prefixed_in_unit(u, p.sym, n.sym),
             _ => None,
         }?;
         let (lib, decl) = match b.getter? {

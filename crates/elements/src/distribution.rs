@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! <root>/bin/dartforge[.exe]
-//! <root>/lib/dartforge-distribuicao.json   distribution marker and version
+//! <root>/lib/dartforge-distribution.json   distribution marker and version
 //! <root>/lib/dart-sdk/lib/…                the Dart SDK libraries (source)
 //! <root>/lib/native_sdk/…                  the native backend overlay
 //! <root>/lib/runtime/…                     the precompiled runtime (staticlib)
@@ -18,47 +18,47 @@
 use std::path::{Path, PathBuf};
 
 /// The name of the file that marks the root of a distribution.
-pub const MARCA: &str = "dartforge-distribuicao.json";
+pub const MARKER: &str = "dartforge-distribuicao.json";
 
 /// The distribution root of the running executable: `DARTFORGE_HOME`, or
 /// the directory above the executable's `bin/` when `lib/` has the
-/// [`MARCA`]. `None` in a development tree.
-pub fn raiz() -> Option<PathBuf> {
+/// [`MARKER`]. `None` in a development tree.
+pub fn root() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("DARTFORGE_HOME").filter(|d| !d.is_empty()) {
         return Some(PathBuf::from(d));
     }
     let exe = std::env::current_exe().ok()?;
     let exe = exe.canonicalize().unwrap_or(exe);
-    let raiz = exe.parent()?.parent()?;
-    raiz.join("lib").join(MARCA).is_file().then(|| raiz.to_path_buf())
+    let root = exe.parent()?.parent()?;
+    root.join("lib").join(MARKER).is_file().then(|| root.to_path_buf())
 }
 
 /// `<root>/lib/<rel>`, if the distribution exists and so does the path.
-pub fn em_lib(rel: &str) -> Option<PathBuf> {
-    let p = raiz()?.join("lib").join(rel);
+pub fn in_lib(rel: &str) -> Option<PathBuf> {
+    let p = root()?.join("lib").join(rel);
     p.exists().then_some(p)
 }
 
 /// The Dart SDK libraries the distribution carries.
-pub fn sdk_do_dart() -> Option<PathBuf> {
-    em_lib("dart-sdk/lib").filter(|p| p.join("libraries.json").is_file())
+pub fn dart_sdk() -> Option<PathBuf> {
+    in_lib("dart-sdk/lib").filter(|p| p.join("libraries.json").is_file())
 }
 
 /// The native backend overlay (`native_sdk/`).
-pub fn sobreposicao_nativa() -> Option<PathBuf> {
-    em_lib("native_sdk").filter(|p| p.join("libraries.json").is_file())
+pub fn native_overlay() -> Option<PathBuf> {
+    in_lib("native_sdk").filter(|p| p.join("libraries.json").is_file())
 }
 
 /// An LLVM executable of the distribution (`clang`, `ld.lld`…), with the
 /// system's extension.
-pub fn ferramenta_llvm(name_: &str) -> Option<PathBuf> {
+pub fn llvm_tool(name_: &str) -> Option<PathBuf> {
     let file = if cfg!(windows) { format!("{name_}.exe") } else { name_.to_string() };
-    em_lib(&format!("llvm/bin/{file}")).filter(|p| p.is_file())
+    in_lib(&format!("llvm/bin/{file}")).filter(|p| p.is_file())
 }
 
 /// The user's cache directory for dartforge: `%LOCALAPPDATA%` on Windows,
 /// `~/Library/Caches` on macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere.
-pub fn cache_do_usuario() -> Option<PathBuf> {
+pub fn user_cache() -> Option<PathBuf> {
     let base = if cfg!(windows) {
         std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
     } else if cfg!(target_os = "macos") {

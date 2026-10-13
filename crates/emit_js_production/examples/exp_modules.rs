@@ -8,7 +8,7 @@ fn main() {
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let l = dartforge_elements::sdk::Linguagem::default();
+            let l = dartforge_elements::sdk::LanguageOptions::default();
             let (e, _) = dartforge_emit_js::compile_with(&input, None, None, &l, |a| a.emit(None)).unwrap();
             std::fs::create_dir_all(&output).unwrap();
             for (p, t) in &e.modules {

@@ -56,7 +56,7 @@ fn no_marker_and_no_package_uses_current() {
             .has(Feature::PrimaryConstructors)
     );
 
-    sdk.versao_corrente = v(3, 6);
+    sdk.current_version = v(3, 6);
     let (p, _) = load_lenient(&main, &sdk, None, &mut Interner::new());
     assert_eq!(version_of(&p, "main.dart"), v(3, 6));
     assert!(
@@ -145,9 +145,9 @@ fn part_with_different_version_is_error() {
 fn marker_out_of_range_is_error() {
     let tmp = tempdir().unwrap();
     let sdk = fake_sdk(tmp.path());
-    let alto = tmp.path().join("alto.dart");
-    fs::write(&alto, "// @dart=3.99\nvoid main() {}").unwrap();
-    let (p, d) = load_lenient(&alto, &sdk, None, &mut Interner::new());
+    let high = tmp.path().join("alto.dart");
+    fs::write(&high, "// @dart=3.99\nvoid main() {}").unwrap();
+    let (p, d) = load_lenient(&high, &sdk, None, &mut Interner::new());
     assert_eq!(d.len(), 1, "{d:?}");
     assert!(
         d[0].message.contains("greater than the latest known language version"),

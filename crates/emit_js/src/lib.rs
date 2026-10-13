@@ -178,7 +178,7 @@ pub mod ty;
 
 /// Language options (`--language-version`, `--enable-experiment`) of the caller of
 /// [`compile_with`]; see `docs/VERSOES-LINGUAGEM.md`.
-pub use dartforge_elements::sdk::Linguagem;
+pub use dartforge_elements::sdk::LanguageOptions;
 
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::Program;
@@ -352,7 +352,7 @@ pub struct Report {
     /// `"read"`, `"built"` or `""` (disabled/unavailable).
     pub sdk_cache: &'static str,
     /// Sub-phases of `load_lenient` (printed under "load program").
-    pub load: dartforge_elements::model::TemposCarga,
+    pub load: dartforge_elements::model::LoadTimes,
 }
 
 impl Report {
@@ -372,15 +372,15 @@ impl Report {
             if *name == "load program" {
                 let c = &self.load;
                 let sub = [
-                    ("parallel read+lex", c.leitura_lex_paralelo),
-                    ("serial read+lex", c.leitura),
+                    ("parallel read+lex", c.parallel_read_lex),
+                    ("serial read+lex", c.read),
                     ("parse", c.parse),
                     ("SDK from cache", c.sdk_cache),
-                    ("directives/URIs", c.diretivas),
-                    ("outline: declarations", c.outline_declaracoes),
+                    ("directives/URIs", c.directives),
+                    ("outline: declarations", c.outline_declarations),
                     ("outline: reexports", c.outline_reexports),
-                    ("outline: scopes", c.outline_escopos),
-                    ("outline: supertypes", c.outline_supertipos),
+                    ("outline: scopes", c.outline_scopes),
+                    ("outline: supertypes", c.outline_supertypes),
                 ];
                 for (n, d) in sub {
                     out.push_str(&format!("  {n:<22}{:>9.1} ms\n", ms(d)));
@@ -388,9 +388,9 @@ impl Report {
                 out.push_str(&format!(
                     "  {:<22}{:>9} files, {:.2} MiB, {} waves\n",
                     "read",
-                    c.arquivos_lidos,
-                    c.bytes_lidos as f64 / 1_048_576.0,
-                    c.ondas
+                    c.files_read,
+                    c.bytes_read as f64 / 1_048_576.0,
+                    c.waves
                 ));
             }
         }
@@ -440,7 +440,7 @@ pub fn compile_with_report(
     entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
-    language: &dartforge_elements::sdk::Linguagem,
+    language: &dartforge_elements::sdk::LanguageOptions,
 ) -> Result<(Emitted, Report), String> {
     compile_with_report_and_generator(entry, sdk_lib, packages, language, None)
 }
@@ -450,7 +450,7 @@ pub fn compile_with_report(
 pub type Generator<'a> = &'a dyn Fn(
     &dartforge_elements::model::Program,
     &Interner,
-) -> Result<std::sync::Arc<dartforge_elements::gerado::Geracao>, String>;
+) -> Result<std::sync::Arc<dartforge_elements::generated::Generation>, String>;
 
 /// Locates the Dart API used by the macro executor, without looking it up for
 /// programs that do not apply macros.
@@ -473,7 +473,7 @@ pub fn compile_with_report_and_generator(
     entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
-    language: &dartforge_elements::sdk::Linguagem,
+    language: &dartforge_elements::sdk::LanguageOptions,
     generator: Option<Generator<'_>>,
 ) -> Result<(Emitted, Report), String> {
     let (emitted, mut rel) = compile_with_generator(entry, sdk_lib, packages, language, generator, |a| {
@@ -491,7 +491,7 @@ pub fn compile_with<R>(
     entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
-    language: &dartforge_elements::sdk::Linguagem,
+    language: &dartforge_elements::sdk::LanguageOptions,
     finish: impl FnOnce(&Analysis<'_>) -> Result<R, String>,
 ) -> Result<(R, Report), String> {
     compile_with_generator(entry, sdk_lib, packages, language, None, finish)
@@ -502,7 +502,7 @@ pub fn compile_with_generator<R>(
     entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
-    language: &dartforge_elements::sdk::Linguagem,
+    language: &dartforge_elements::sdk::LanguageOptions,
     generator: Option<Generator<'_>>,
     finish: impl FnOnce(&Analysis<'_>) -> Result<R, String>,
 ) -> Result<(R, Report), String> {
@@ -520,7 +520,7 @@ pub fn compile_with_options<R>(
     entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
-    language: &dartforge_elements::sdk::Linguagem,
+    language: &dartforge_elements::sdk::LanguageOptions,
     generator: Option<Generator<'_>>,
     infer_sdk: bool,
     finish: impl FnOnce(&Analysis<'_>) -> Result<R, String>,
@@ -534,7 +534,7 @@ pub fn compile_with_options<R>(
         None => SdkLayout::discover().unwrap_or_else(|| std::path::PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
     };
     let mut sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
-    language.aplicar(&mut sdk);
+    language.apply(&mut sdk);
     rel.phase("SDK layout", t);
     // Cache of the analyzed SDK (`target/dartforge/sdk-<hash>.bin`); the first
     // compilation builds it. `DARTFORGE_SDK_CACHE=0` turns it off.
@@ -542,7 +542,7 @@ pub fn compile_with_options<R>(
     let cache = if std::env::var("DARTFORGE_SDK_CACHE").is_ok_and(|v| v == "0") {
         None
     } else {
-        match dartforge_elements::SdkCache::abrir_ou_construir(&sdk, "dartdevc") {
+        match dartforge_elements::SdkCache::open_or_build(&sdk, "dartdevc") {
             Ok((c, opened)) => {
                 rel.sdk_cache = if opened { "read" } else { "built" };
                 Some(c)
@@ -587,7 +587,7 @@ pub fn compile_with_options<R>(
         (Some("build_runner"), _) => {
             let cfg = package_config(entry, packages);
             cfg.map(|c| {
-                dartforge_elements::gerado::do_build_runner(
+                dartforge_elements::generated::from_build_runner(
                     &c,
                     &[".template.dart", ".css.shim.dart"],
                     package_filter().as_ref(),
@@ -599,7 +599,7 @@ pub fn compile_with_options<R>(
     if let Some(g) = &generated {
         rel.generated_sources = g.len();
         if std::env::var("DARTFORGE_GERADOS_DEBUG").is_ok() {
-            let mut v: Vec<String> = g.caminhos().map(|p| p.display().to_string()).collect();
+            let mut v: Vec<String> = g.paths().map(|p| p.display().to_string()).collect();
             v.sort();
             eprintln!("generation: {} sources", v.len());
             for c in v.iter().take(3) { eprintln!("  {c}"); }
@@ -607,7 +607,7 @@ pub fn compile_with_options<R>(
         }
     }
     let generated_for_macros = generated.clone();
-    let (program, elements_diags) = dartforge_elements::load::load_lenient_gerados(
+    let (program, elements_diags) = dartforge_elements::load::load_lenient_generated(
         entry,
         &sdk,
         packages,
@@ -617,7 +617,7 @@ pub fn compile_with_options<R>(
         generated,
     );
     rel.phase("load program", t);
-    rel.load = program.tempos.clone();
+    rel.load = program.times.clone();
     // Parts of the SDK have URI `file:///…/lib/core/int.dart`; what decides is the library.
     rel.sdk_units = program.units.iter().filter(|u| program.library(u.library).is_sdk).count();
     rel.user_units = program.units.len() - rel.sdk_units;
@@ -683,8 +683,8 @@ pub fn compile_with_options<R>(
         };
         // Incremental reload: between one application and the next only the macro
         // augmentation changes; the other units are reused.
-        let mut reload = |i: &mut Interner, g, u: &mut dartforge_elements::unidades::CacheUnidades| {
-            dartforge_elements::load::load_lenient_gerados(entry, &sdk, packages, i, None, Some(u), g)
+        let mut reload = |i: &mut Interner, g, u: &mut dartforge_elements::unit_cache::AnalyzedUnitCache| {
+            dartforge_elements::load::load_lenient_generated(entry, &sdk, packages, i, None, Some(u), g)
         };
         match dartforge_macros_host::apply_incremental(program, &mut interner, generated_for_macros, &mut reload, executor, None) {
             Ok(s) => {

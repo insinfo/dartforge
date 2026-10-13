@@ -205,9 +205,9 @@ fn constant_type(m: &Motor<'_>, u: dartforge_elements::model::UnitId, t: ast::Ty
             }
             let lib = m.program.unit(u).library;
             let (binding, deferred) = match &name[..] {
-                [n] => (m.program.lookup_na_unidade(u, n.sym), false),
+                [n] => (m.program.lookup_in_unit(u, n.sym), false),
                 [p, n] => (
-                    m.program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+                    m.program.lookup_prefixed_in_unit(u, p.sym, n.sym),
                     m.program.library(lib).imports.iter().any(|i| i.prefix == Some(p.sym) && i.deferred),
                 ),
                 _ => (None, false),

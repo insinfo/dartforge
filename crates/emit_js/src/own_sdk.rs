@@ -466,9 +466,9 @@ impl SdkMode {
 
 /// The members of a class together with those of its `@patch` declarations (in
 /// SDK mode); outside it, the usual ones
-/// ([`dartforge_elements::model::Program::membros_da_classe`]).
+/// ([`dartforge_elements::model::Program::class_members`]).
 pub fn class_members(ctx: &Ctx, c: ClassId) -> Vec<(UnitId, ast::MemberId)> {
-    let mut out = ctx.program.membros_da_classe(c);
+    let mut out = ctx.program.class_members(c);
     if let Some(ps) = ctx.sdk.as_ref().and_then(|s| s.patches.get(&c)) {
         for &(u, d) in ps {
             if let ast::DeclKind::Class(cd) = &ctx.program.unit(u).ast.decl(d).kind {
@@ -683,7 +683,7 @@ fn constant_string(e: &FnEmitter, x: ExprId) -> Option<String> {
             // `prefix.CONST`
             if let ExprKind::Identifier(id) = &e.expr(*target).kind {
                 if let crate::expr::IdentTarget::Prefix(pf) = e.ident_target(id.sym, *target) {
-                    let b = e.ctx.program.lookup_prefixed_na_unidade(e.unit, pf, name.sym)?;
+                    let b = e.ctx.program.lookup_prefixed_in_unit(e.unit, pf, name.sym)?;
                     if let Some(Element::Variable(v)) = b.getter {
                         return variable_string(e.ctx, v);
                     }
@@ -733,7 +733,7 @@ fn literal_class(e: &FnEmitter, x: ExprId) -> Option<ClassId> {
         ExprKind::Property { target, name, .. } => {
             let ExprKind::Identifier(id) = &e.expr(*target).kind else { return None };
             let crate::expr::IdentTarget::Prefix(pf) = e.ident_target(id.sym, *target) else { return None };
-            let b = e.ctx.program.lookup_prefixed_na_unidade(e.unit, pf, name.sym)?;
+            let b = e.ctx.program.lookup_prefixed_in_unit(e.unit, pf, name.sym)?;
             match b.getter {
                 Some(Element::Class(c)) => Some(c),
                 _ => None,
@@ -962,7 +962,7 @@ fn called_function(e: &FnEmitter, callee: ExprId) -> Option<FunctionElementId> {
         ExprKind::Property { target, name, .. } => {
             let ExprKind::Identifier(id) = &e.expr(*target).kind else { return None };
             let crate::expr::IdentTarget::Prefix(pf) = e.ident_target(id.sym, *target) else { return None };
-            match e.ctx.program.lookup_prefixed_na_unidade(e.unit, pf, name.sym)?.getter {
+            match e.ctx.program.lookup_prefixed_in_unit(e.unit, pf, name.sym)?.getter {
                 Some(Element::Function(f)) => Some(f),
                 _ => None,
             }

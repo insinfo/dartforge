@@ -32,7 +32,7 @@ fn main() {
     let n: usize = args.next().and_then(|v| v.parse().ok()).unwrap_or(20);
     let path = std::fs::canonicalize(&file).expect("file");
     let text = std::fs::read_to_string(&path).expect("read");
-    let uri = url::Url::from_file_path(dartforge_elements::config::sem_verbatim(path.clone())).unwrap().to_string();
+    let uri = url::Url::from_file_path(dartforge_elements::config::without_verbatim(path.clone())).unwrap().to_string();
     let lib = SdkLayout::discover().expect("Dart SDK not found");
     let sdk = SdkLayout::load(&lib, "dartdevc").expect("SDK");
     let mut server = Server::with_analyzer(SemanticAnalyzer::new(Some(sdk)));

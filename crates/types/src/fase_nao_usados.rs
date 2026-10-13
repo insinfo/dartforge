@@ -835,9 +835,9 @@ pub fn elementos_nao_usados(
                     if crate::anotacoes::sombreado(a, interner, n.span.start, n.sym) {
                         continue;
                     }
-                    program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter)
+                    program.lookup_in_unit(u, n.sym).and_then(|b| b.getter)
                 }
-                [p, n, ..] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym).and_then(|b| b.getter),
+                [p, n, ..] => program.lookup_prefixed_in_unit(u, p.sym, n.sym).and_then(|b| b.getter),
                 [] => None,
             };
             let Some(el) = element.and_then(|e| cx.of_element(e)) else { continue };

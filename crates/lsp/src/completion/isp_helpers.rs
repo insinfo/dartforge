@@ -226,7 +226,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// in the superclass chain (with the mixins).
     pub(super) fn implemented_super(&self, c: ClassId, name: SymbolId) -> bool {
         let p = &self.query.program;
-        let mut current = p.class(p.dono_da_classe(c)).supertype_class;
+        let mut current = p.class(p.class_owner(c)).supertype_class;
         let mut seen = HashSet::new();
         while let Some(x) = current {
             if !seen.insert(x) {
@@ -253,7 +253,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `computeOverridesFor(interfaceElement, SourceRange(offset, 0), skipAt)`.
     pub(super) fn overrides(&mut self, c: ClassId, without_at_sign: bool) {
         let p = &self.query.program;
-        let owning = p.dono_da_classe(c);
+        let owning = p.class_owner(c);
         let lib_c = p.class(owning).library;
         let declared: HashSet<SymbolId> = p.class(owning).instance_members.keys().copied().collect();
         let members = self.interface_members(c, false, false);

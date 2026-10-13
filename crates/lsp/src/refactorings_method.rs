@@ -1678,7 +1678,7 @@ fn element_exits(cx: &Context<'_>, m: usize) -> bool {
     match cx.identifier_element(m, true) {
         Elem::Function(f) => {
             let p = cx.p;
-            let declared = p.program().function(f).declaracao_publica.unwrap_or(f);
+            let declared = p.program().function(f).public_declaration.unwrap_or(f);
             let never = p
                 .query
                 .outline

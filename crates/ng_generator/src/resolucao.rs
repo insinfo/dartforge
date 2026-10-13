@@ -193,7 +193,7 @@ impl<'a> Resolvedor<'a> {
                 continue;
             };
             by_path
-                .entry(dartforge_elements::gerado::chave(path))
+                .entry(dartforge_elements::generated::key(path))
                 .or_insert(unit.library);
         }
         // The generation's dialect is that of the program (`ngdart` 8 or
@@ -288,7 +288,7 @@ impl<'a> Resolvedor<'a> {
     /// Library of the file, if it was loaded.
     pub fn library(&self, file: &Path) -> Option<LibraryId> {
         self.by_path
-            .get(&dartforge_elements::gerado::chave(file))
+            .get(&dartforge_elements::generated::key(file))
             .copied()
     }
 

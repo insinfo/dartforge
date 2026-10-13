@@ -141,7 +141,7 @@ pub fn compile_own_sdk(
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
     op: Options,
-    language: &dartforge_elements::sdk::Linguagem,
+    language: &dartforge_elements::sdk::LanguageOptions,
 ) -> Result<Production, String> {
     let ((e, report, names, rti), _) = dartforge_emit_js::compile_with_options(input, sdk_lib, packages, language, None, true, |a| {
         let (e, report) = own_sdk::emit(a, op)?;
@@ -169,7 +169,7 @@ pub fn compile(
     packages: Option<&std::path::Path>,
     dart_sdk_js: &std::path::Path,
     op: Options,
-    language: &dartforge_elements::sdk::Linguagem,
+    language: &dartforge_elements::sdk::LanguageOptions,
 ) -> Result<Production, String> {
     let sdk_text = std::fs::read_to_string(dart_sdk_js).map_err(|e| format!("{}: {e}", dart_sdk_js.display()))?;
     // The runtime index depends only on the text and on the granularity: it

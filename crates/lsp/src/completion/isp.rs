@@ -297,7 +297,7 @@ pub(super) fn run(
         && !request_prefix.is_empty()
         && let Some(candidates) = not_imported
     {
-        let key = |c: &std::path::Path| dartforge_elements::gerado::chave(c);
+        let key = |c: &std::path::Path| dartforge_elements::generated::key(c);
         let mut by_path: HashMap<PathBuf, LibraryId> = HashMap::new();
         for (i, l) in isp.query.program.libraries.iter().enumerate() {
             if let Some(&u) = l.units.first()

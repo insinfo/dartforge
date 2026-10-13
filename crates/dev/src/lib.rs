@@ -15,10 +15,10 @@ pub mod hashes;
 pub mod server;
 pub mod ws;
 
-use dartforge_elements::load::load_lenient_entradas;
+use dartforge_elements::load::load_lenient_entries;
 use dartforge_elements::model::{LibraryId, Program};
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_elements::{CacheUnidades, SdkCache};
+use dartforge_elements::{AnalyzedUnitCache, SdkCache};
 use dartforge_intern::Interner;
 use dartforge_types::table::{CoreTypes, TypeTable};
 use hashes::{library_hashes, LibraryHashes};
@@ -59,7 +59,7 @@ pub struct Report {
     /// First compilation of the session (nothing reused).
     pub first: bool,
     /// Load sub-phases (read, parse, directives, outline).
-    pub load_detail: dartforge_elements::model::TemposCarga,
+    pub load_detail: dartforge_elements::model::LoadTimes,
     /// Code generation engine (`crates/build`): `None` when the project
     /// uses no builders — that is what the zero-cost gate checks.
     pub engine: Option<dartforge_build::EngineReport>,
@@ -84,14 +84,14 @@ impl Report {
         let c = &self.load_detail;
         for (n, d) in [
             ("load", self.load),
-            ("  parallel read+lex", c.leitura_lex_paralelo),
-            ("  serial read+lex", c.leitura),
+            ("  parallel read+lex", c.parallel_read_lex),
+            ("  serial read+lex", c.read),
             ("  parse", c.parse),
-            ("  directives/URIs", c.diretivas),
-            ("  outline: declarations", c.outline_declaracoes),
+            ("  directives/URIs", c.directives),
+            ("  outline: declarations", c.outline_declarations),
             ("  outline: reexports", c.outline_reexports),
-            ("  outline: scopes", c.outline_escopos),
-            ("  outline: supertypes", c.outline_supertipos),
+            ("  outline: scopes", c.outline_scopes),
+            ("  outline: supertypes", c.outline_supertypes),
             ("outline (types)", self.outline),
             ("body inference", self.bodies),
             ("  emission: context", self.emit_context),
@@ -142,7 +142,7 @@ pub struct Session {
     dart_sdk_js: PathBuf,
     /// Name arena: the `SymbolId`s of the stored trees belong to it.
     interner: Interner,
-    units: CacheUnidades,
+    units: AnalyzedUnitCache,
     /// `library uri` → hashes of the previous compilation.
     hashes: HashMap<String, LibraryHashes>,
     /// JS of each module of the last compilation (path → text).
@@ -157,7 +157,7 @@ pub struct Session {
     /// project uses none: zero cost per edit.
     stages: Vec<Box<dyn generation::GenerationStage>>,
     /// Current generation of the stages (in-memory sources).
-    generated: Option<std::sync::Arc<dartforge_elements::gerado::Geracao>>,
+    generated: Option<std::sync::Arc<dartforge_elements::generated::Generation>>,
 }
 
 impl Session {
@@ -211,7 +211,7 @@ impl Session {
             output: output.to_path_buf(),
             dart_sdk_js: dartforge_emit_js::default_dart_sdk_js(),
             interner: Interner::new(),
-            units: CacheUnidades::nova(),
+            units: AnalyzedUnitCache::new(),
             hashes: HashMap::new(),
             modules: HashMap::new(),
             dependents: HashMap::new(),
@@ -234,7 +234,7 @@ impl Session {
 
     /// Source bytes retained by the unit cache (for the plateau test).
     pub fn retained_bytes(&self) -> usize {
-        self.units.bytes_fonte() + self.interner.payload_bytes()
+        self.units.source_bytes() + self.interner.payload_bytes()
     }
 
     pub fn cached_units(&self) -> usize {
@@ -245,7 +245,7 @@ impl Session {
     /// `dartforge dev` checks at every interval (one `stat` per unit, without
     /// reading contents).
     pub fn changes(&mut self) -> Vec<PathBuf> {
-        let mut v = self.units.alterados();
+        let mut v = self.units.changed();
         for e in &mut self.stages {
             v.extend(e.changes());
         }
@@ -254,7 +254,7 @@ impl Session {
 
     /// Files watched by the session.
     pub fn watched(&self) -> Vec<PathBuf> {
-        let mut v = self.units.caminhos();
+        let mut v = self.units.paths();
         for e in &self.stages {
             v.extend(e.watched());
         }
@@ -268,11 +268,11 @@ impl Session {
     /// covers the case of an edit with the same size within the clock
     /// granularity.
     pub fn file_changed(&mut self, path: &Path) {
-        let p = dartforge_elements::config::sem_verbatim(
+        let p = dartforge_elements::config::without_verbatim(
             std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
         );
-        self.units.invalidar(&p);
-        self.units.invalidar(path);
+        self.units.invalidate(&p);
+        self.units.invalidate(path);
         self.dirty.insert(p);
         self.dirty.insert(path.to_path_buf());
     }
@@ -290,7 +290,7 @@ impl Session {
         // The SDK comes from the artifact in `target/dartforge` on the first
         // compilation; afterwards its units are already in the session cache.
         let sdk_cache = if self.units.is_empty() {
-            SdkCache::abrir_ou_construir(&self.sdk, "dartdevc").ok().map(|(c, _)| c)
+            SdkCache::open_or_build(&self.sdk, "dartdevc").ok().map(|(c, _)| c)
         } else {
             None
         };
@@ -305,7 +305,7 @@ impl Session {
             .chain(self.stages.iter().flat_map(|e| e.roots()))
             .collect();
         let roots: Vec<&Path> = roots.iter().map(PathBuf::as_path).collect();
-        let (mut program, mut diags) = load_lenient_entradas(
+        let (mut program, mut diags) = load_lenient_entries(
             &roots,
             &self.sdk,
             self.packages.as_deref(),
@@ -314,7 +314,7 @@ impl Session {
             Some(&mut self.units),
             self.generated.clone(),
         );
-        let mut read = program.tempos.arquivos_lidos;
+        let mut read = program.times.files_read;
         if !self.stages.is_empty() {
             let t_stages = Instant::now();
             // First pass: an expected output that has not been generated yet
@@ -338,7 +338,7 @@ impl Session {
                         new_generation = Some(up.generation);
                     }
                     Err(e) => {
-                        self.units.recolher(program);
+                        self.units.reclaim(program);
                         return Err(format!("build engine: {e}"));
                     }
                 }
@@ -350,12 +350,12 @@ impl Session {
                 // The units go back to the cache and only the generated ones
                 // whose text changed leave it: the reload reanalyzes those and
                 // reuses the rest.
-                self.units.recolher(program);
+                self.units.reclaim(program);
                 for p in &altered {
-                    self.units.invalidar(p);
+                    self.units.invalidate(p);
                     self.dirty.insert(p.clone());
                 }
-                let (p2, d2) = load_lenient_entradas(
+                let (p2, d2) = load_lenient_entries(
                     &roots,
                     &self.sdk,
                     self.packages.as_deref(),
@@ -366,14 +366,14 @@ impl Session {
                 );
                 program = p2;
                 diags = d2;
-                read += program.tempos.arquivos_lidos;
+                read += program.times.files_read;
             }
             rel.generation_reload = t_reload.elapsed();
             rel.stages = t_stages.elapsed();
         }
         rel.load = t.elapsed();
-        rel.load_detail = program.tempos.clone();
-        rel.reused_units = program.tempos.unidades_reaproveitadas;
+        rel.load_detail = program.times.clone();
+        rel.reused_units = program.times.reused_units;
         // Reanalyzed = files the load actually had to read and analyze (the
         // `Program` may have units that came from the SDK artifact, which
         // are neither one thing nor the other).
@@ -382,7 +382,7 @@ impl Session {
         if !diags.is_empty() {
             let msg = format!("{} error(s) while loading: {}", diags.len(), diags[0]);
             // A failed load must not leave the cache with half the units.
-            self.units.recolher(program);
+            self.units.reclaim(program);
             return Err(msg);
         }
 
@@ -475,7 +475,7 @@ impl Session {
         drop(bodies);
         drop(outline);
         drop(table);
-        self.units.recolher(program);
+        self.units.reclaim(program);
         self.first = false;
         Ok(rel)
     }

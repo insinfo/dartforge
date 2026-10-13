@@ -22,7 +22,7 @@ on:
       - 'crates/runtime/**'
       - 'crates/llvm/src/**'
       - 'crates/cli/src/empacotar.rs'
-      - 'crates/elements/src/distribuicao.rs'
+      - 'crates/elements/src/distribution.rs'
       - 'corpus/native/**'
       - '.github/workflows/sem-toolchain.yml'
 permissions:

@@ -18,9 +18,9 @@
 //!   materialization executor: the same API on a Dart 3.6.2 VM
 //!   (DARTFORGE_DART_SDK) with the case's `pub get`.
 //!   `DARTFORGE_GRAVAR_SESSAO=1` records the session again.
-use dartforge_elements::load::load_lenient_gerados;
+use dartforge_elements::load::load_lenient_generated;
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_elements::unidades::CacheUnidades;
+use dartforge_elements::unit_cache::AnalyzedUnitCache;
 use dartforge_frontend::{Feature, LanguageVersion};
 use dartforge_intern::Interner;
 use dartforge_macros_host::Output;
@@ -41,8 +41,8 @@ fn root() -> PathBuf {
 fn sdk() -> Option<SdkLayout> {
     let lib = SdkLayout::discover()?;
     let mut sdk = SdkLayout::load(&lib, "dartdevc").ok()?;
-    sdk.versao_corrente = LanguageVersion::new(3, 6);
-    sdk.experimentos = vec![Feature::Macros];
+    sdk.current_version = LanguageVersion::new(3, 6);
+    sdk.experiments = vec![Feature::Macros];
     Some(sdk)
 }
 
@@ -62,9 +62,9 @@ fn case(name: &str) -> Option<Case> {
 /// augmented library.
 fn apply(c: &Case, sdk: &SdkLayout, executor: &mut dyn MacroExecutor) -> Vec<(PathBuf, String)> {
     let mut names = Interner::new();
-    let (p, d) = load_lenient_gerados(&c.input, sdk, Some(&c.config), &mut names, None, None, None);
+    let (p, d) = load_lenient_generated(&c.input, sdk, Some(&c.config), &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
-    let mut load = |i: &mut Interner, g| load_lenient_gerados(&c.input, sdk, Some(&c.config), i, None, None, g);
+    let mut load = |i: &mut Interner, g| load_lenient_generated(&c.input, sdk, Some(&c.config), i, None, None, g);
     let output = match dartforge_macros_host::apply(p, &mut names, None, &mut load, executor) {
         Ok(s) => s,
         Err(ds) => panic!("{}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n")),
@@ -106,10 +106,10 @@ fn recorded_session_reproduces_the_cfe_text() {
 /// Like [`apply`], with the expansion cache and the diff-based reload.
 fn apply_with_cache(c: &Case, sdk: &SdkLayout, executor: &mut dyn MacroExecutor, cache: &mut MacroCache) -> Output {
     let mut names = Interner::new();
-    let (p, d) = load_lenient_gerados(&c.input, sdk, Some(&c.config), &mut names, None, None, None);
+    let (p, d) = load_lenient_generated(&c.input, sdk, Some(&c.config), &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
     let mut load =
-        |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(&c.input, sdk, Some(&c.config), i, None, Some(u), g);
+        |i: &mut Interner, g, u: &mut AnalyzedUnitCache| load_lenient_generated(&c.input, sdk, Some(&c.config), i, None, Some(u), g);
     match dartforge_macros_host::apply_incremental(p, &mut names, None, &mut load, executor, Some(cache)) {
         Ok(s) => s,
         Err(ds) => panic!("{}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n")),
@@ -178,7 +178,7 @@ fn vm_runs_the_macro_and_matches_the_cfe() {
     };
     let apps = {
         let mut names = Interner::new();
-        let (p, _) = load_lenient_gerados(&c.input, &sdk, Some(&c.config), &mut names, None, None, None);
+        let (p, _) = load_lenient_generated(&c.input, &sdk, Some(&c.config), &mut names, None, None, None);
         dartforge_macros_host::applications::detect(&View { program: &p, interner: &names })
     };
     assert_eq!(apps.len(), 4, "{apps:?}");
@@ -216,7 +216,7 @@ fn native_executor_matches_the_cfe() {
         let Some(c) = case(name) else { panic!("no pub get of corpus/macros/{name}") };
         let apps = {
             let mut names = Interner::new();
-            let (p, _) = load_lenient_gerados(&c.input, &sdk, Some(&c.config), &mut names, None, None, None);
+            let (p, _) = load_lenient_generated(&c.input, &sdk, Some(&c.config), &mut names, None, None, None);
             dartforge_macros_host::applications::detect(&View { program: &p, interner: &names })
         };
         assert!(!apps.is_empty(), "{name}: no application");

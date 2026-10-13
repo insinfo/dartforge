@@ -91,7 +91,7 @@ fn check_hash(text: &str) -> u64 {
 
 /// The cache directory (the same as the Dart SDK cache).
 pub fn directory() -> PathBuf {
-    dartforge_elements::sdk_cache::SdkCache::diretorio()
+    dartforge_elements::sdk_cache::SdkCache::directory()
 }
 
 /// The index file of `text` with `per_member` in `dir`.

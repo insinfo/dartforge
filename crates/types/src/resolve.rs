@@ -300,8 +300,8 @@ pub(crate) fn top_level_shadowed_prefix(program: &Program, unit: UnitId, p: Symb
     let lib = program.library(program.unit(unit).library);
     let b = match lib.declared.get(&p) {
         Some(b) => *b,
-        None if program.prefixos_na_unidade(unit).contains_key(&p) => return false,
-        None => match program.lookup_na_unidade(unit, p) {
+        None if program.prefixes_in_unit(unit).contains_key(&p) => return false,
+        None => match program.lookup_in_unit(unit, p) {
             Some(b) => b,
             None => return false,
         },
@@ -789,7 +789,7 @@ impl<'a> OutlineResolver<'a> {
         // same-named classes are the same element as key). The type's
         // identity remains that of each class.
         for i in 0..hierarchy_inputs.len() {
-            let owner = self.program.dono_da_classe(ClassId(i as u32));
+            let owner = self.program.class_owner(ClassId(i as u32));
             if owner.0 as usize != i && (owner.0 as usize) < hierarchy_inputs.len() {
                 hierarchy_inputs[i] = hierarchy_inputs[owner.0 as usize].clone();
             }
@@ -838,7 +838,7 @@ impl<'a> OutlineResolver<'a> {
                 hierarchy_inputs[i] = Some((d.type_params.clone(), all));
             }
             for i in 0..hierarchy_inputs.len() {
-                let owner = self.program.dono_da_classe(ClassId(i as u32));
+                let owner = self.program.class_owner(ClassId(i as u32));
                 if owner.0 as usize != i && (owner.0 as usize) < hierarchy_inputs.len() {
                     hierarchy_inputs[i] = hierarchy_inputs[owner.0 as usize].clone();
                 }
@@ -1849,7 +1849,7 @@ impl<'a> OutlineResolver<'a> {
                     // (`dart:core` does not export it): without an import, the name is
                     // undefined like any other.
                     let futureor_in_scope = matches!(
-                        self.program.lookup_na_unidade(unit_id, sym).and_then(|b| b.getter),
+                        self.program.lookup_in_unit(unit_id, sym).and_then(|b| b.getter),
                         Some(Element::Class(c)) if self.program.library(self.program.class(c).library).uri == "dart:async"
                     );
                     if self.interner.lookup("FutureOr") == Some(sym) && futureor_in_scope {
@@ -1899,7 +1899,7 @@ impl<'a> OutlineResolver<'a> {
                     }
 
                     // 4. Resolution in the library scope
-                    let binding = self.program.lookup_na_unidade(unit_id, sym);
+                    let binding = self.program.lookup_in_unit(unit_id, sym);
                     match binding {
                         Some(b) => {
                             if b.ambiguous {
@@ -2035,7 +2035,7 @@ impl<'a> OutlineResolver<'a> {
                             return self.table.invalid(self.core.dynamic_);
                         }
                     }
-                    let binding = self.program.lookup_prefixed_na_unidade(unit_id, prefix, member);
+                    let binding = self.program.lookup_prefixed_in_unit(unit_id, prefix, member);
                     match binding {
                         Some(b) => match b.getter {
                             Some(Element::Class(cid)) => {
@@ -2134,7 +2134,7 @@ impl<'a> OutlineResolver<'a> {
                             // `NOT_A_TYPE` with `A.foo`, from the prefix to the end of the
                             // name, in any context; never the undefined name.
                             let prefix_and_type = matches!(
-                                self.program.lookup_na_unidade(unit_id, prefix).and_then(|b| b.getter),
+                                self.program.lookup_in_unit(unit_id, prefix).and_then(|b| b.getter),
                                 Some(Element::Class(_) | Element::Typedef(_))
                             );
                             if prefix_and_type {

@@ -1,7 +1,7 @@
 //! Reading `.dart_tool/package_config.json` v2 and resolving `package:`
 //! URIs.
 use std::collections::HashMap;
-use crate::gerado::Geracao;
+use crate::generated::Generation;
 use dartforge_frontend::LanguageVersion;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -45,18 +45,18 @@ pub struct PackageConfig {
     /// When the generation has a file's natural path, it wins: it is the
     /// authority on what it generates itself, and the disk is not even
     /// consulted.
-    pub gerados: Option<Arc<Geracao>>,
-    /// Paths (by [`crate::gerado::chave`]) this load does not see, whether or
+    pub generated_sources: Option<Arc<Generation>>,
+    /// Paths (by [`crate::generated::key`]) this load does not see, whether or
     /// not they are on disk: the outputs of `build_runner` phases that the
     /// loading builder cannot read yet (a builder only sees the outputs of the
     /// phases before its own). Importing one of them stays unresolved, as in the
     /// official `BuildStep.resolver`.
-    pub ocultos: Option<Arc<std::collections::HashSet<PathBuf>>>,
+    pub hidden: Option<Arc<std::collections::HashSet<PathBuf>>>,
 }
 
 /// Strips the `\\?\` verbatim prefix `canonicalize` returns on Windows, so
 /// that `strip_prefix` and comparisons with plain paths work.
-pub fn sem_verbatim(p: PathBuf) -> PathBuf {
+pub fn without_verbatim(p: PathBuf) -> PathBuf {
     match p.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
         Some(r) => PathBuf::from(r),
         None => p,
@@ -64,18 +64,18 @@ pub fn sem_verbatim(p: PathBuf) -> PathBuf {
 }
 
 impl PackageConfig {
-    /// Is the path among this load's [`PackageConfig::ocultos`]?
-    pub fn oculto(&self, path: &Path) -> bool {
-        self.ocultos
+    /// Is the path among this load's [`PackageConfig::hidden`]?
+    pub fn is_hidden(&self, path: &Path) -> bool {
+        self.hidden
             .as_ref()
-            .is_some_and(|o| o.contains(&crate::gerado::chave(path)))
+            .is_some_and(|o| o.contains(&crate::generated::key(path)))
     }
 
     /// The package the library with URI `uri` (file at `path`) belongs to, by
     /// the rule of `accepted/2.8/language-versioning`: `package:x/…` belongs to
     /// `x`; a file belongs to the package whose root (`rootUri`) contains it,
     /// the innermost one when they nest.
-    pub fn pacote_da_biblioteca(&self, uri: &str, path: Option<&Path>) -> Option<&PackageInfo> {
+    pub fn library_package(&self, uri: &str, path: Option<&Path>) -> Option<&PackageInfo> {
         if let Some(rest) = uri.strip_prefix("package:") {
             let name_ = rest.split('/').next().unwrap_or("");
             return self.packages.get(name_);
@@ -106,29 +106,29 @@ impl PackageConfig {
     /// ```
     /// use dartforge_elements::PackageConfig;
     /// // Without `.dart_tool/build/generated`, nothing is overlaid.
-    /// assert!(PackageConfig::default().gerado_no_lugar_de(std::path::Path::new("/p/test/a.template.dart")).is_none());
+    /// assert!(PackageConfig::default().generated_in_place_of(std::path::Path::new("/p/test/a.template.dart")).is_none());
     /// ```
-    pub fn gerado_no_lugar_de(&self, path: &Path) -> Option<PathBuf> {
-        if self.oculto(path) {
+    pub fn generated_in_place_of(&self, path: &Path) -> Option<PathBuf> {
+        if self.is_hidden(path) {
             return None;
         }
         let generated_root_dir = self.generated_root.as_ref()?;
-        let (name_, raiz) = self.root_dirs.iter().find(|(_, dir)| path.starts_with(dir))?;
-        let rel = path.strip_prefix(raiz).ok()?;
+        let (name_, root) = self.root_dirs.iter().find(|(_, dir)| path.starts_with(dir))?;
+        let rel = path.strip_prefix(root).ok()?;
         let candidate = generated_root_dir.join(name_).join(rel);
         candidate.is_file().then_some(candidate)
     }
 
     /// The original place of a generated file (the inverse of
-    /// [`PackageConfig::gerado_no_lugar_de`]): `…/generated/<package>/<rel>` →
+    /// [`PackageConfig::generated_in_place_of`]): `…/generated/<package>/<rel>` →
     /// `<package root>/<rel>`. A generated file's relative imports resolve from
     /// there, as in the analyzer.
     pub fn generated_origin(&self, path: &Path) -> Option<PathBuf> {
         let rel = path.strip_prefix(self.generated_root.as_ref()?).ok()?;
-        let mut partes = rel.iter();
-        let name_ = partes.next()?.to_str()?;
-        let raiz = &self.root_dirs.iter().find(|(n, _)| n == name_)?.1;
-        Some(raiz.join(partes.as_path()))
+        let mut parts = rel.iter();
+        let name_ = parts.next()?.to_str()?;
+        let root = &self.root_dirs.iter().find(|(n, _)| n == name_)?.1;
+        Some(root.join(parts.as_path()))
     }
 
     /// Finds the `package_config.json` file, searching from the directory of
@@ -233,7 +233,7 @@ impl PackageConfig {
             .values()
             .filter_map(|pkg| {
                 let dir = pkg.root_uri.to_file_path().ok()?;
-                let dir = sem_verbatim(std::fs::canonicalize(&dir).unwrap_or(dir));
+                let dir = without_verbatim(std::fs::canonicalize(&dir).unwrap_or(dir));
                 Some((pkg.name.clone(), dir))
             })
             .collect();
@@ -243,7 +243,7 @@ impl PackageConfig {
             .values()
             .filter_map(|pkg| {
                 let dir = pkg.package_uri.to_file_path().ok()?;
-                let dir = sem_verbatim(std::fs::canonicalize(&dir).unwrap_or(dir));
+                let dir = without_verbatim(std::fs::canonicalize(&dir).unwrap_or(dir));
                 Some((pkg.name.clone(), dir))
             })
             .collect();
@@ -251,7 +251,7 @@ impl PackageConfig {
         // specific one.
         package_dirs.sort_by(|a, b| b.1.as_os_str().len().cmp(&a.1.as_os_str().len()).then(a.0.cmp(&b.0)));
 
-        let generated_root = path.parent().map(|dart_tool| dart_tool.join("build").join("generated")).filter(|g| g.is_dir()).map(|g| sem_verbatim(std::fs::canonicalize(&g).unwrap_or(g)));
+        let generated_root = path.parent().map(|dart_tool| dart_tool.join("build").join("generated")).filter(|g| g.is_dir()).map(|g| without_verbatim(std::fs::canonicalize(&g).unwrap_or(g)));
 
         Ok(Self {
             origin: Some(path.to_path_buf()),
@@ -259,8 +259,8 @@ impl PackageConfig {
             package_dirs,
             root_dirs,
             generated_root,
-            gerados: None,
-            ocultos: None,
+            generated_sources: None,
+            hidden: None,
         })
     }
 
@@ -284,7 +284,7 @@ impl PackageConfig {
             let path = file_url
                 .to_file_path()
                 .map_err(|_| format!("URL does not represent a local file: {file_url}"))?;
-            if self.gerados.as_ref().is_some_and(|g| g.contem(&path)) {
+            if self.generated_sources.as_ref().is_some_and(|g| g.contains(&path)) {
                 return Ok(path);
             }
             if path.is_file() {
@@ -292,8 +292,8 @@ impl PackageConfig {
             }
             // Overlay of build_runner generated files (ngdart's `.template.dart`…):
             // `<project root>/.dart_tool/build/generated/<package>/lib/<x>`.
-            if let Some(gerado) = self.generated_path(pkg_name, rel_path) {
-                return Ok(gerado);
+            if let Some(generated) = self.generated_path(pkg_name, rel_path) {
+                return Ok(generated);
             }
             Ok(path)
         } else {

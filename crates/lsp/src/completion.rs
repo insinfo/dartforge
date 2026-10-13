@@ -397,7 +397,7 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
         let Some((file, own, imported)) = &filter else { return Vec::new() };
         let root = crate::project::project_root(file);
         let package = crate::index::package_name(&root);
-        let key = |x: &std::path::Path| dartforge_elements::gerado::chave(x);
+        let key = |x: &std::path::Path| dartforge_elements::generated::key(x);
         let mut v = Vec::new();
         for candidate in crate::known_libraries::candidates(file, Some(sdk), c, documents) {
             let k = key(&candidate.path);
@@ -564,7 +564,7 @@ fn candidates_filter(query: &Query, unit: dartforge_elements::model::UnitId) -> 
     let lib = program.library(program.unit(unit).library);
     let file = program.unit(unit).path.clone()?;
     let defining = lib.units.first().copied();
-    let key = |c: &std::path::Path| dartforge_elements::gerado::chave(c);
+    let key = |c: &std::path::Path| dartforge_elements::generated::key(c);
     let imported: HashSet<PathBuf> = lib
         .imports
         .iter()

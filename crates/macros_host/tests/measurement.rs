@@ -21,9 +21,9 @@
 //! ```text
 //! cargo test --release -p dartforge-macros-host --test measurement -- --ignored --nocapture
 //! ```
-use dartforge_elements::load::load_lenient_gerados;
+use dartforge_elements::load::load_lenient_generated;
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_elements::unidades::CacheUnidades;
+use dartforge_elements::unit_cache::AnalyzedUnitCache;
 use dartforge_frontend::{Feature, LanguageVersion};
 use dartforge_intern::Interner;
 use dartforge_macros_host::cache::MacroCache;
@@ -41,8 +41,8 @@ fn root() -> PathBuf {
 fn sdk() -> SdkLayout {
     let lib = SdkLayout::discover().expect("SDK (DARTFORGE_SDK_LIB)");
     let mut sdk = SdkLayout::load(&lib, "dartdevc").unwrap();
-    sdk.versao_corrente = LanguageVersion::new(3, 6);
-    sdk.experimentos = vec![Feature::Macros];
+    sdk.current_version = LanguageVersion::new(3, 6);
+    sdk.experiments = vec![Feature::Macros];
     sdk
 }
 
@@ -57,7 +57,7 @@ fn dart() -> PathBuf {
 /// The VM as executor, with the bootstrap of the applications of `input`.
 fn vm(input: &Path, config: &Path, sdk: &SdkLayout, work: &Path) -> DfexecExecutor<CanalDeProcesso> {
     let mut names = Interner::new();
-    let (p, _) = load_lenient_gerados(input, sdk, Some(config), &mut names, None, None, None);
+    let (p, _) = load_lenient_generated(input, sdk, Some(config), &mut names, None, None, None);
     let apps = dartforge_macros_host::applications::detect(&View { program: &p, interner: &names });
     let cfg = dartforge_macros_host::vm::VmConfig {
         dart: dart(),
@@ -81,14 +81,14 @@ fn compile(
     by_diff: bool,
 ) -> Output {
     let mut names = Interner::new();
-    let (p, d) = load_lenient_gerados(input, sdk, Some(config), &mut names, None, None, None);
+    let (p, d) = load_lenient_generated(input, sdk, Some(config), &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
     if by_diff {
         let mut load =
-            |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(input, sdk, Some(config), i, None, Some(u), g);
+            |i: &mut Interner, g, u: &mut AnalyzedUnitCache| load_lenient_generated(input, sdk, Some(config), i, None, Some(u), g);
         apply_incremental(p, &mut names, None, &mut load, executor, cache).unwrap_or_else(|d| failed(d))
     } else {
-        let mut load = |i: &mut Interner, g| load_lenient_gerados(input, sdk, Some(config), i, None, None, g);
+        let mut load = |i: &mut Interner, g| load_lenient_generated(input, sdk, Some(config), i, None, None, g);
         apply(p, &mut names, None, &mut load, executor).unwrap_or_else(|d| failed(d))
     }
 }

@@ -81,7 +81,7 @@ impl PackageGraph {
             let root = info
                 .root_uri
                 .to_file_path()
-                .map(dartforge_elements::config::sem_verbatim)
+                .map(dartforge_elements::config::without_verbatim)
                 .map_err(|_| format!("invalid rootUri for {name}"))?;
             by_name.insert(name.clone(), nodes.len());
             nodes.push(PackageNode {

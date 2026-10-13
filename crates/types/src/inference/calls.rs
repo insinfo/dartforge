@@ -1416,7 +1416,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     // `UNDEFINED_FUNCTION`, except `loadLibrary` of a deferred import and the
                     // ignored name of an import that does not exist.
                     let p = *p;
-                    if inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter).is_none()
+                    if inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, name.sym).and_then(|b| b.getter).is_none()
                         && expr::load_library(inf, cx, p.sym, name.sym).is_none()
                     {
                         expr::resolver(inf, cx, recv, Resolved::Prefix(cx.lib));
@@ -1962,7 +1962,7 @@ fn record_reference(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) {
     let tt = inf.core.type_;
     match &a.expr(e).kind {
         ExprKind::Identifier(n) => {
-            if let Some(el) = inf.program.lookup_na_unidade(cx.unit, n.sym).and_then(|b| b.getter) {
+            if let Some(el) = inf.program.lookup_in_unit(cx.unit, n.sym).and_then(|b| b.getter) {
                 resolver(inf, cx, e, Resolved::Element(el));
             }
             registrar(inf, cx, e, tt);
@@ -1971,7 +1971,7 @@ fn record_reference(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) {
             let (target, name) = (*target, *name);
             if let ExprKind::Identifier(p) = &a.expr(target).kind {
                 resolver(inf, cx, target, Resolved::Prefix(cx.lib));
-                if let Some(el) = inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
+                if let Some(el) = inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
                     resolver(inf, cx, e, Resolved::Element(el));
                 }
             }
@@ -2278,7 +2278,7 @@ fn stays_implicit_creation(inf: &mut BodyInferrer<'_>, cx: &Body, base: ExprId) 
                 return false;
             }
             !matches!(
-                inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter),
+                inf.program.lookup_prefixed_in_unit(cx.unit, p.sym, name.sym).and_then(|b| b.getter),
                 Some(Element::Function(f)) if inf.program.function(f).kind == FunctionKind::Function
             )
         }
@@ -2300,7 +2300,7 @@ fn creation_without_class(inf: &mut BodyInferrer<'_>, cx: &Body, name: &[ast::Na
     let (Some(first), Some(last)) = (name.first(), name.last()) else { return };
     let mut prefix = false;
     if name.len() == 2 {
-        if inf.program.prefixos_na_unidade(cx.unit).contains_key(&first.sym) {
+        if inf.program.prefixes_in_unit(cx.unit).contains_key(&first.sym) {
             // `shouldIgnoreUndefinedNamedType`
             // (`an611:src/dart/resolver/named_type_resolver.dart:310`): the prefix
             // of an import that does not exist.
@@ -2308,7 +2308,7 @@ fn creation_without_class(inf: &mut BodyInferrer<'_>, cx: &Body, name: &[ast::Na
                 return;
             }
             prefix = true;
-        } else if inf.program.lookup_na_unidade(cx.unit, first.sym).is_some_and(|b| {
+        } else if inf.program.lookup_in_unit(cx.unit, first.sym).is_some_and(|b| {
             !matches!(b.getter, Some(Element::Class(_)))
         }) || unresolved_import_prefix(inf, cx, first.sym)
         {
@@ -2316,7 +2316,7 @@ fn creation_without_class(inf: &mut BodyInferrer<'_>, cx: &Body, name: &[ast::Na
         }
     }
     if name.len() == 1
-        && inf.program.lookup_na_unidade(cx.unit, first.sym).is_none()
+        && inf.program.lookup_in_unit(cx.unit, first.sym).is_none()
         && crate::scope::should_ignore_undefined(inf.program, inf.interner, cx.unit, None, first.sym)
     {
         return;
@@ -2344,7 +2344,7 @@ fn creation_without_class(inf: &mut BodyInferrer<'_>, cx: &Body, name: &[ast::Na
 /// did not reach the scope (the import's target does not exist).
 fn unresolved_import_prefix(inf: &BodyInferrer<'_>, cx: &Body, p: dartforge_intern::SymbolId) -> bool {
     let lib = inf.program.library(cx.lib);
-    !inf.program.prefixos_na_unidade(cx.unit).contains_key(&p)
+    !inf.program.prefixes_in_unit(cx.unit).contains_key(&p)
         && lib.units.iter().any(|u| {
             inf.program.unit(*u).unit.directives.iter().any(|d| {
                 matches!(&d.kind, ast::DirectiveKind::Import { prefix: Some(n), .. } if n.sym == p)
@@ -2446,13 +2446,13 @@ pub(crate) fn instantiation(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId
         return inf.table.invalid(inf.core.dynamic_);
     }
     let binding = if name.len() == 2 {
-        inf.program.lookup_prefixed_na_unidade(cx.unit, name[0].sym, name[1].sym)
+        inf.program.lookup_prefixed_in_unit(cx.unit, name[0].sym, name[1].sym)
     } else {
-        inf.program.lookup_na_unidade(cx.unit, name[0].sym)
+        inf.program.lookup_in_unit(cx.unit, name[0].sym)
     };
     // `new C.the_name()` arrives as a two-part type when `C` is not a prefix.
     let (binding, constructor, ctor_of_name) = match (binding, name.len()) {
-        (None, 2) => match inf.program.lookup_na_unidade(cx.unit, name[0].sym) {
+        (None, 2) => match inf.program.lookup_in_unit(cx.unit, name[0].sym) {
             Some(b) if matches!(b.getter, Some(Element::Class(_))) && constructor.is_none() => (Some(b), Some(name[1]), true),
             _ => (binding, constructor, false),
         },
@@ -2468,7 +2468,7 @@ pub(crate) fn instantiation(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId
         };
         let range = if parameter_alias(inf, binding.and_then(|b| b.getter)) {
             name.first().zip(name.last()).map(|(p, n)| Span { start: p.span.start, end: n.span.end })
-        } else if binding.is_none() && name.len() == 2 && parameter_alias(inf, inf.program.lookup_na_unidade(cx.unit, name[0].sym).and_then(|b| b.getter)) {
+        } else if binding.is_none() && name.len() == 2 && parameter_alias(inf, inf.program.lookup_in_unit(cx.unit, name[0].sym).and_then(|b| b.getter)) {
             Some(name[0].span)
         } else {
             None

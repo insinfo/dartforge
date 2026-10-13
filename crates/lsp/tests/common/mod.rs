@@ -341,7 +341,7 @@ impl Drop for Project {
         // The typed analysis writes the cache of the minimal SDK (one per project,
         // by path): removes it, so it does not accumulate across runs.
         if let Ok(sdk) = SdkLayout::load(&self.root.join("sdk/lib"), "dartdevc") {
-            let _ = fs::remove_file(dartforge_elements::SdkCache::caminho(&sdk, "dartdevc"));
+            let _ = fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         }
         let _ = fs::remove_dir_all(&self.root);
     }

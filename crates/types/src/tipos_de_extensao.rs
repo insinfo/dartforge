@@ -340,8 +340,8 @@ pub fn verificar(
             let member = text.strip_suffix("_=").map_or_else(|| text.to_string(), |s| format!("{s}="));
             let mut d = Diagnostic::with_code(c::EXTENSION_TYPE_INHERITED_MEMBER_CONFLICT, et.name.span, [the_name.as_str(), member.as_str()]);
             for m in candidates {
-                let Some((mu, span)) = program.nome_nao_sintetico_da_funcao(m.funcao) else { continue };
-                let file = (mu != u).then(|| program.caminho_da_unidade(mu).into());
+                let Some((mu, span)) = program.non_synthetic_function_name(m.funcao) else { continue };
+                let file = (mu != u).then(|| program.unit_path(mu).into());
                 let message = format!("Inherited from '{}'", interner.resolve(program.class(m.class).name));
                 d.context.push(dartforge_diagnostics::ContextMessage { file: file, span, message: message.into() });
             }

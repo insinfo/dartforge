@@ -2,7 +2,7 @@
 //! diagnostics of each file, already with codes (through [`crate::bridge`]).
 //!
 //! A set of files becomes **a single program**: a synthetic in-memory entry
-//! (`__dartforge_analise__.dart`, through the `Geracao` of `elements`) imports
+//! (`__dartforge_analise__.dart`, through the `Generation` of `elements`) imports
 //! each library with its own prefix. Each file is still its own library, as in
 //! `dart analyze` of a directory, and the SDK and the packages are loaded and
 //! typed once per batch instead of once per file. Until the semantic database
@@ -135,7 +135,7 @@ impl Analise {
 
 /// Normalized path (lexical, without `\\?\`), the comparison key of files.
 pub fn chave(p: &Path) -> PathBuf {
-    dartforge_elements::gerado::chave(p)
+    dartforge_elements::generated::key(p)
 }
 
 /// Is the file a part (`part of`)? Looks at the directives before the first
@@ -315,7 +315,7 @@ fn is_generated(uri: &str) -> bool {
 /// (`.dart_tool/build/generated/<package>/<rel>`, from `lib/` or any other
 /// folder of the package)? The analyzer sees them.
 fn generated_by_build(c: &dartforge_elements::PackageConfig, target: &Path) -> bool {
-    c.gerado_no_lugar_de(target).is_some()
+    c.generated_in_place_of(target).is_some()
         || c.package_dirs.iter().any(|(name, dir)| {
             target.strip_prefix(dir)
                 .ok()
@@ -347,7 +347,7 @@ impl Motor {
         // patches): the internal ones that none of the profiles above bring
         // (`dart:_wasm`), so that `import 'dart:_wasm'` resolves and reports
         // `import_internal_library`.
-        if let Ok(analyzer) = SdkLayout::load_como_analyzer(sdk_lib) {
+        if let Ok(analyzer) = SdkLayout::load_as_analyzer(sdk_lib) {
             for (name, lib) in analyzer.libraries {
                 if !sdk.libraries.contains_key(&name) && lib.path.is_file() {
                     sdk.libraries.insert(name, lib);
@@ -464,15 +464,15 @@ impl Motor {
             return Some(analysis);
         }
         let entry = root.join(ENTRY);
-        let mut c = dartforge_elements::gerado::Construtor::nova();
+        let mut c = dartforge_elements::generated::GenerationBuilder::new();
         for (path, text) in texts {
-            c.por(path.clone(), text.clone(), "lsp", vec![]);
+            c.put(path.clone(), text.clone(), "lsp", vec![]);
         }
-        c.por(entry.clone(), imports, "paridade", vec![]);
-        let generation = c.concluir(1).ok();
-        let cache = dartforge_elements::SdkCache::abrir_ou_construir(&self.sdk, "dartdevc").ok().map(|(c, _)| c);
+        c.put(entry.clone(), imports, "paridade", vec![]);
+        let generation = c.finish(1).ok();
+        let cache = dartforge_elements::SdkCache::open_or_build(&self.sdk, "dartdevc").ok().map(|(c, _)| c);
         let mut interner = dartforge_intern::Interner::new();
-        let (program, load_diags) = dartforge_elements::load::load_lenient_gerados(
+        let (program, load_diags) = dartforge_elements::load::load_lenient_generated(
             &entry,
             &self.sdk,
             packages,
@@ -641,8 +641,8 @@ impl Motor {
             // The library's reference is the highest among its units (T2): the
             // parser marks the unit that uses syntax 3.6.2 does not know, and
             // a version above 3.6 marks all of them.
-            let new_syntax = program.referencia_da_biblioteca(*lib) == dartforge_diagnostics::AnalyzerReference::V3_13;
-            let paths: Vec<String> = ids.iter().map(|u| program.caminho_da_unidade(*u)).collect();
+            let new_syntax = program.library_reference(*lib) == dartforge_diagnostics::AnalyzerReference::V3_13;
+            let paths: Vec<String> = ids.iter().map(|u| program.unit_path(*u)).collect();
             let mut found: Vec<(usize, Diagnostic, u16)> =
                 with_phase(phase::ERROR_VERIFIER, dartforge_analysis::duplicatas::duplicates_with_paths(&units, &paths, &interner, wildcard, !new_syntax)).collect();
             found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::enums::sem_constantes(&units)));
@@ -651,7 +651,7 @@ impl Motor {
 
             found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::constructors::check(&units, &interner)));
             for (i, u) in units.iter().enumerate() {
-                let skipped = dartforge_analysis::Pulados { fonte: u.fonte, trechos: &program.unit(ids[i]).pulados };
+                let skipped = dartforge_analysis::Pulados { fonte: u.fonte, trechos: &program.unit(ids[i]).skipped };
                 found.extend(with_phase(
                     phase::UNUSED_LOCAL_ELEMENTS,
                     dartforge_analysis::locais::nao_usados_com_pulados(*u, &interner, wildcard, skipped).into_iter().map(|d| (i, d)),
@@ -686,7 +686,7 @@ impl Motor {
             // reported (fasta would have read it).
             let skipped: Vec<dartforge_analysis::Pulados<'_>> = ids
                 .iter()
-                .map(|u| dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados })
+                .map(|u| dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).skipped })
                 .collect();
             let deferred = dartforge_analysis::private_decls::unused_with_skipped(&units, &interner, &skipped);
             deferred_privates.insert(*lib, deferred.into_iter().map(|(i, d)| (ids[i], d, phase::UNUSED_LOCAL_ELEMENTS)).collect());
@@ -1009,7 +1009,7 @@ impl Motor {
                         unused.retain(|(u, d)| {
                             let name = program.unit(*u).source.get(d.span.start..d.span.end).unwrap_or("");
                             !units.iter().any(|x| {
-                                dartforge_analysis::Pulados { fonte: &program.unit(*x).source, trechos: &program.unit(*x).pulados }.mentions(name)
+                                dartforge_analysis::Pulados { fonte: &program.unit(*x).source, trechos: &program.unit(*x).skipped }.mentions(name)
                             })
                         });
                         attributed.extend(with_phase(phase::UNUSED_LOCAL_ELEMENTS, unused));
@@ -1163,7 +1163,7 @@ impl Motor {
             // (`@Deprecated.optional()` only exists after 3.6.2): in a library
             // judged by 3.13.4, our 3.6.2 SDK does not decide.
             if coded.code.is_some_and(|c| matches!(c.info().name, "invalid_annotation" | "undefined_annotation"))
-                && program.referencia_da_biblioteca(program.unit(unit).library) == dartforge_diagnostics::AnalyzerReference::V3_13
+                && program.library_reference(program.unit(unit).library) == dartforge_diagnostics::AnalyzerReference::V3_13
             {
                 continue;
             }
@@ -1220,7 +1220,7 @@ impl Motor {
                 let Some(units) = library_units.get(k) else { continue };
                 let Some(&own_unit) = unit_of.get(k) else { continue };
                 let source = program.unit(own_unit).source.as_str();
-                let own_skipped = dartforge_analysis::Pulados { fonte: source, trechos: &program.unit(own_unit).pulados };
+                let own_skipped = dartforge_analysis::Pulados { fonte: source, trechos: &program.unit(own_unit).skipped };
                 let n = a.syntactic_count;
                 let mut i = 0;
                 a.diags.retain(|d| {
@@ -1232,7 +1232,7 @@ impl Motor {
                     if depends_on_declarations(c) {
                         let name = source.get(d.span.start..d.span.end).unwrap_or("");
                         return !units.iter().any(|u| {
-                            dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados }.mentions(name)
+                            dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).skipped }.mentions(name)
                         });
                     }
                     if depends_on_line(c) {
@@ -1251,7 +1251,7 @@ impl Motor {
             // and arguments of the analyzer that is the file's reference. No
             // emitter consults the reference; they just pass, after the 3.6
             // template's arguments, those only 3.13 uses.
-            let reference = unit_of.get(k).map_or(dartforge_diagnostics::AnalyzerReference::V3_6, |u| program.referencia(*u));
+            let reference = unit_of.get(k).map_or(dartforge_diagnostics::AnalyzerReference::V3_6, |u| program.reference(*u));
             if reference == dartforge_diagnostics::AnalyzerReference::V3_13 {
                 let n = a.syntactic_count;
                 let mut syntactic_dropped = 0;
@@ -1616,7 +1616,7 @@ mod tests {
         assert_eq!(non_bool(&memory), 1, "{:?}", memory.arquivos[&chave(&a)].diags);
         assert!(engine.analisar_com(&root, std::slice::from_ref(&a), None, &texts, &|| true).is_none());
         let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
-        let _ = std::fs::remove_file(dartforge_elements::SdkCache::caminho(&sdk, "dartdevc"));
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&root).unwrap();
     }
 

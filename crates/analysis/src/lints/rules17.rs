@@ -114,8 +114,8 @@ impl PrivateTypeValidator<'_, '_> {
             TypeKind::Named { name, args } => {
                 let last = name[name.len() - 1];
                 let exists = match &name[..] {
-                    [n] => self.tps.contains(&n.sym) || self.s.program.lookup_na_unidade(self.s.unit, n.sym).is_some(),
-                    [p, n] => self.s.program.lookup_prefixed_na_unidade(self.s.unit, p.sym, n.sym).is_some(),
+                    [n] => self.tps.contains(&n.sym) || self.s.program.lookup_in_unit(self.s.unit, n.sym).is_some(),
+                    [p, n] => self.s.program.lookup_prefixed_in_unit(self.s.unit, p.sym, n.sym).is_some(),
                     _ => false,
                 };
                 if exists && is_private(self.name_of(last.sym)) {

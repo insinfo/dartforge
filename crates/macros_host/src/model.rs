@@ -400,7 +400,7 @@ impl<'p> View<'p> {
         let lib = self.library_json(t, self.program.class(c).library);
         let definer = self.ident(t, class_key);
         let mut out = Vec::new();
-        for (unit, mid) in self.program.membros_da_classe(c) {
+        for (unit, mid) in self.program.class_members(c) {
             let ast = &self.program.unit(unit).ast;
             let m = ast.member(mid);
             if m.augment {

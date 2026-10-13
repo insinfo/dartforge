@@ -206,7 +206,7 @@ fn constant_element(m: &Motor<'_>, v: VariableId) -> bool {
     let cls = program.class(k);
     match cls.kind {
         ClassKind::Enum => true,
-        ClassKind::Class => cls.constructors.values().any(|f| program.function(program.publico(*f)).const_),
+        ClassKind::Class => cls.constructors.values().any(|f| program.function(program.public(*f)).const_),
         _ => false,
     }
 }
@@ -277,7 +277,7 @@ impl<'a> G<'_, 'a> {
             if let Some(k) = var.class {
                 let the_key = cst.constructor.map(|n| n.sym).or_else(|| m.interner.lookup(""));
                 if let Some(g) = the_key.and_then(|c| program.class(k).constructors.get(&c).copied()) {
-                    if program.function(program.publico(g)).const_ {
+                    if program.function(program.public(g)).const_ {
                         deps.push(Target::Ctor(g));
                     }
                 }
@@ -300,7 +300,7 @@ impl<'a> G<'_, 'a> {
     fn of_constructor(&mut self, f: FunctionElementId) -> Vec<Target> {
         let m = self.m;
         let program = m.program;
-        let public = program.function(program.publico(f));
+        let public = program.function(program.public(f));
         if !public.const_ {
             return Vec::new();
         }
@@ -323,7 +323,7 @@ impl<'a> G<'_, 'a> {
             }
             let tgt = no.and_then(|(unit, k)| redirection_target(m, unit, k));
             return match tgt {
-                Some(g) if program.function(program.publico(g)).const_ => vec![Target::Ctor(g)],
+                Some(g) if program.function(program.public(g)).const_ => vec![Target::Ctor(g)],
                 _ => Vec::new(),
             };
         }
@@ -380,7 +380,7 @@ impl<'a> G<'_, 'a> {
             if let Some(sup) = declared_superclass(program, cls) {
                 if Some(sup) != m.core.object_class {
                     if let Some(g) = empty.and_then(|c| program.class(sup).constructors.get(&c).copied()) {
-                        if program.function(program.publico(g)).const_ {
+                        if program.function(program.public(g)).const_ {
                             deps.push(Target::Ctor(g));
                         }
                     }
@@ -450,7 +450,7 @@ impl Graph for G<'_, '_> {
                 matches!(m.program.variable(v).node, VariableRef::EnumConstant { .. }) || the_initializer(m, v).is_some()
             }
             // Only a `const` constructor becomes computed.
-            Target::Ctor(f) => m.program.function(m.program.publico(f)).const_,
+            Target::Ctor(f) => m.program.function(m.program.public(f)).const_,
             Target::Param(..) | Target::Annot(_) | Target::Values(_) => true,
             Target::Local(u, offset) => matches!(self.st.local_initializer(m, u, offset), Some(Some(_))),
         };
@@ -766,13 +766,13 @@ impl<'p, 'a> Walk<'p, 'a> {
                 if let Some(v) = self.class.and_then(|k| static_(k, n.sym)) {
                     return Some(Target::Var(v));
                 }
-                of_element(program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter), None)
+                of_element(program.lookup_in_unit(u, n.sym).and_then(|b| b.getter), None)
             }
-            [x, y] => match program.lookup_prefixed_na_unidade(u, x.sym, y.sym) {
+            [x, y] => match program.lookup_prefixed_in_unit(u, x.sym, y.sym) {
                 Some(b) => of_element(b.getter, None),
-                None => of_element(program.lookup_na_unidade(u, x.sym).and_then(|b| b.getter), Some(y.sym)),
+                None => of_element(program.lookup_in_unit(u, x.sym).and_then(|b| b.getter), Some(y.sym)),
             },
-            [p, k, n] => of_element(program.lookup_prefixed_na_unidade(u, p.sym, k.sym).and_then(|b| b.getter), Some(n.sym)),
+            [p, k, n] => of_element(program.lookup_prefixed_in_unit(u, p.sym, k.sym).and_then(|b| b.getter), Some(n.sym)),
             _ => None,
         }
     }
@@ -914,7 +914,7 @@ impl<'p, 'a> Walk<'p, 'a> {
             // constant with that name, as the verifier reads it.
             PatternKind::Variable { final_: false, var_: false, ty: None, name } if self.patterns_enabled => {
                 let program = self.m.program;
-                if let Some(Element::Variable(v)) = program.lookup_na_unidade(self.u, name.sym).and_then(|b| b.getter) {
+                if let Some(Element::Variable(v)) = program.lookup_in_unit(self.u, name.sym).and_then(|b| b.getter) {
                     if program.variable(v).const_ {
                         if self.references {
                             self.output.push(Target::Var(v));
@@ -1025,7 +1025,7 @@ impl<'p, 'a> Walk<'p, 'a> {
             if e_const {
                 if let Some(Resolved::Constructor(f)) = self.m.resolved(self.u, e) {
                     let program = self.m.program;
-                    if program.function(program.publico(*f)).const_ {
+                    if program.function(program.public(*f)).const_ {
                         self.output.push(Target::Ctor(*f));
                     }
                 }

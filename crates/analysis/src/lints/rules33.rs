@@ -320,11 +320,11 @@ impl AsyncStateVisitor<'_, '_> {
         }
         let f = match self.cx.resolved(n) {
             Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) | Some(Resolved::ExtensionMember { member: f, .. }) => {
-                Some(self.cx.s.program.publico(*f))
+                Some(self.cx.s.program.public(*f))
             }
             _ => None,
         };
-        if f == Some(self.cx.s.program.publico(self.mounted)) {
+        if f == Some(self.cx.s.program.public(self.mounted)) {
             return Some(AsyncState::Mounted);
         }
         self.unrelated = true;

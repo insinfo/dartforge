@@ -9,15 +9,15 @@
 
 pub mod augmentation;
 pub mod config;
-pub mod distribuicao;
-pub mod gerado;
+pub mod distribution;
+pub mod generated;
 pub mod incremental;
 pub mod load;
 pub mod model;
 pub mod outline;
 pub mod sdk;
 pub mod sdk_cache;
-pub mod unidades;
+pub mod unit_cache;
 
 pub use config::*;
 pub use load::*;
@@ -25,4 +25,4 @@ pub use model::*;
 pub use outline::*;
 pub use sdk::*;
 pub use sdk_cache::SdkCache;
-pub use unidades::CacheUnidades;
+pub use unit_cache::AnalyzedUnitCache;

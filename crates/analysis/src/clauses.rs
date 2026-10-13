@@ -101,8 +101,8 @@ impl Reader<'_> {
     /// unit `u` (with `parts-with-imports`, its own).
     fn element(&self, u: UnitId, name: &[ast::Name]) -> Option<Element> {
         let b = match name {
-            [n] => self.program.lookup_na_unidade(u, n.sym),
-            [p, n] => self.program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+            [n] => self.program.lookup_in_unit(u, n.sym),
+            [p, n] => self.program.lookup_prefixed_in_unit(u, p.sym, n.sym),
             _ => None,
         }?;
         if b.ambiguous {
@@ -335,8 +335,8 @@ impl Reader<'_> {
         }
         // Ambiguous name (`ambiguous_import`): not decided.
         let binding = match &name[..] {
-            [n] => self.program.lookup_na_unidade(u, n.sym),
-            [p, n] => self.program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+            [n] => self.program.lookup_in_unit(u, n.sym),
+            [p, n] => self.program.lookup_prefixed_in_unit(u, p.sym, n.sym),
             _ => None,
         };
         if binding.is_some_and(|b| b.ambiguous) {
@@ -382,7 +382,7 @@ impl Reader<'_> {
             }
             None => match &name[..] {
                 [n] if matches!(self.name(n.sym), "dynamic" | "Never")
-                    && self.program.lookup_na_unidade(u, n.sym).is_none() =>
+                    && self.program.lookup_in_unit(u, n.sym).is_none() =>
                 {
                     ClauseResolution::NonClass
                 }
@@ -1309,7 +1309,7 @@ fn cycle(l: &Reader<'_>, target: ClassId, el: ClassId, path: &mut Vec<ClassId>, 
     // T1.1 c: same-named declarations of the same kind are the same element
     // for the analyzer's hierarchy; `augment class A extends A` (without the
     // experiment: the second `A` extends the first) is "A implements itself".
-    let same = el == target || l.program.representante_da_classe(el) == l.program.representante_da_classe(target);
+    let same = el == target || l.program.class_representative(el) == l.program.class_representative(target);
     if !path.is_empty() && same {
         return Some(path.clone());
     }

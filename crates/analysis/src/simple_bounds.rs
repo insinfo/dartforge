@@ -66,8 +66,8 @@ fn collect_from_function(ret: Option<ast::TypeId>, tps: &[TypeParameter], ps: &[
 /// The type element of a name (`p.Name` or `Name`) in the unit's scope.
 fn element(program: &Program, u: UnitId, name: &[ast::Name]) -> Option<Element> {
     let b = match name {
-        [n] => program.lookup_na_unidade(u, n.sym),
-        [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+        [n] => program.lookup_in_unit(u, n.sym),
+        [p, n] => program.lookup_prefixed_in_unit(u, p.sym, n.sym),
         _ => None,
     }?;
     b.getter

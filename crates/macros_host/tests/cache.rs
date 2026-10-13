@@ -16,9 +16,9 @@
 //! same cache; the second compilation must give **the same** as a clean
 //! compilation (texts, order of the expansions, diagnostics) and only talk
 //! to the executor when something observed changed.
-use dartforge_elements::load::load_lenient_gerados;
+use dartforge_elements::load::load_lenient_generated;
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_elements::unidades::CacheUnidades;
+use dartforge_elements::unit_cache::AnalyzedUnitCache;
 use dartforge_frontend::{Feature, LanguageVersion};
 use dartforge_intern::Interner;
 use dartforge_macros_host::assembly::{Code, ExecutionResult, Part};
@@ -32,8 +32,8 @@ use std::path::{Path, PathBuf};
 fn sdk() -> Option<SdkLayout> {
     let lib = SdkLayout::discover()?;
     let mut sdk = SdkLayout::load(&lib, "dartdevc").ok()?;
-    sdk.versao_corrente = LanguageVersion::new(3, 6);
-    sdk.experimentos = vec![Feature::Macros];
+    sdk.current_version = LanguageVersion::new(3, 6);
+    sdk.experiments = vec![Feature::Macros];
     Some(sdk)
 }
 
@@ -210,9 +210,9 @@ fn product(s: &Output) -> Product {
 
 fn compile(input: &Path, sdk: &SdkLayout, executor: &mut dyn MacroExecutor, cache: Option<&mut MacroCache>) -> Output {
     let mut names = Interner::new();
-    let (p, d) = load_lenient_gerados(input, sdk, None, &mut names, None, None, None);
+    let (p, d) = load_lenient_generated(input, sdk, None, &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
-    let mut load = |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(input, sdk, None, i, None, Some(u), g);
+    let mut load = |i: &mut Interner, g, u: &mut AnalyzedUnitCache| load_lenient_generated(input, sdk, None, i, None, Some(u), g);
     match apply_incremental(p, &mut names, None, &mut load, executor, cache) {
         Ok(s) => s,
         Err(ds) => panic!("{}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n")),
@@ -369,8 +369,8 @@ fn with_and_without_cache_give_the_same() {
     let source = Source { extra_field_in_b: true, to_json_in_a: true, ..Source::default() };
     std::fs::write(&input, source.text()).unwrap();
     let mut names = Interner::new();
-    let (p, _) = load_lenient_gerados(&input, &sdk, None, &mut names, None, None, None);
-    let mut load = |i: &mut Interner, g| load_lenient_gerados(&input, &sdk, None, i, None, None, g);
+    let (p, _) = load_lenient_generated(&input, &sdk, None, &mut names, None, None, None);
+    let mut load = |i: &mut Interner, g| load_lenient_generated(&input, &sdk, None, i, None, None, g);
     let full = apply(p, &mut names, None, &mut load, &mut Fake::new()).unwrap_or_else(|_| panic!("error"));
     let by_diff = compile(&input, &sdk, &mut Fake::new(), None);
     assert_eq!(product(&full), product(&by_diff));
@@ -381,9 +381,9 @@ fn with_and_without_cache_give_the_same() {
 /// Compiles without panicking on error: what the host returns.
 fn try_compile(input: &Path, sdk: &SdkLayout, executor: &mut dyn MacroExecutor, cache: &mut MacroCache) -> Result<Output, String> {
     let mut names = Interner::new();
-    let (p, d) = load_lenient_gerados(input, sdk, None, &mut names, None, None, None);
+    let (p, d) = load_lenient_generated(input, sdk, None, &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
-    let mut load = |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(input, sdk, None, i, None, Some(u), g);
+    let mut load = |i: &mut Interner, g, u: &mut AnalyzedUnitCache| load_lenient_generated(input, sdk, None, i, None, Some(u), g);
     apply_incremental(p, &mut names, None, &mut load, executor, Some(cache))
         .map_err(|ds| ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n"))
 }
@@ -444,10 +444,10 @@ fn materialized_in_both_forms_does_not_duplicate() {
         std::fs::write(&path, format!("{header}\n{body}")).unwrap();
         std::fs::write(&input, source.replacen("import 'macros.dart';", &format!("import 'macros.dart';\n{directive}"), 1)).unwrap();
         let mut names = Interner::new();
-        let (p, d) = load_lenient_gerados(&input, &sdk, None, &mut names, None, None, None);
+        let (p, d) = load_lenient_generated(&input, &sdk, None, &mut names, None, None, None);
         assert!(d.is_empty(), "{directive}: {d:?}");
         let mut load =
-            |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(&input, &sdk, None, i, None, Some(u), g);
+            |i: &mut Interner, g, u: &mut AnalyzedUnitCache| load_lenient_generated(&input, &sdk, None, i, None, Some(u), g);
         let s = apply_incremental(p, &mut names, None, &mut load, &mut Fake::forbidden(), None)
             .unwrap_or_else(|ds| panic!("{directive}: {:?}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>()));
         assert_eq!(s.executed_macros, 0, "{directive}");

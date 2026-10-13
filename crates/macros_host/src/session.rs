@@ -11,7 +11,7 @@
 //!
 //! The text of each library is **a single one**, assembled from all results
 //! in execution order (Rules 1–4), and lives in memory as
-//! `<library>.macro.dart` (`elements/src/gerado.rs`), attached by the loader
+//! `<library>.macro.dart` (`elements/src/generated.rs`), attached by the loader
 //! after the parts. It is the same text that materialization writes
 //! (docs/MACROS-COMPATIBILIDADE.md).
 //!
@@ -30,9 +30,9 @@ use crate::executor::{ExecutionRequest, MacroExecutor, Phase, QueryError, QueryS
 use crate::model::{Key, Table, View};
 use crate::queries::{ProgramResolver, QueryHandler};
 use dartforge_diagnostics::Diagnostic;
-use dartforge_elements::gerado::{Construtor, Geracao};
+use dartforge_elements::generated::{GenerationBuilder, Generation};
 use dartforge_elements::model::Program;
-use dartforge_elements::unidades::CacheUnidades;
+use dartforge_elements::unit_cache::AnalyzedUnitCache;
 use dartforge_intern::Interner;
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -52,17 +52,17 @@ pub fn sessions() -> usize {
 }
 
 /// Reloads the program with the given generated sources.
-pub type Load<'c> = dyn FnMut(&mut Interner, Option<Arc<Geracao>>) -> (Program, Vec<Diagnostic>) + 'c;
+pub type Load<'c> = dyn FnMut(&mut Interner, Option<Arc<Generation>>) -> (Program, Vec<Diagnostic>) + 'c;
 
 /// Reloads the program with the given generated sources, reusing the units
-/// kept in the [`CacheUnidades`] (the one from `dartforge_elements`, the
+/// kept in the [`AnalyzedUnitCache`] (the one from `dartforge_elements`, the
 /// same as in the resident `dartforge dev` session): the macro session
 /// stores there the units of the previous program, takes out the macro
 /// augmentation (which changed) and the loader only analyzes again what is
 /// not stored. The `Interner` is always the session's own, a condition of
 /// the unit cache.
 pub type LoadByDiff<'c> =
-    dyn FnMut(&mut Interner, Option<Arc<Geracao>>, &mut CacheUnidades) -> (Program, Vec<Diagnostic>) + 'c;
+    dyn FnMut(&mut Interner, Option<Arc<Generation>>, &mut AnalyzedUnitCache) -> (Program, Vec<Diagnostic>) + 'c;
 
 /// The assembled text of a library.
 #[derive(Debug, Clone)]
@@ -77,7 +77,7 @@ pub struct GeneratedText {
 /// `texts`, `executed_macros` and `warnings`).
 pub struct Output {
     pub program: Program,
-    pub generation: Option<Arc<Geracao>>,
+    pub generation: Option<Arc<Generation>>,
     /// The texts of the augmented libraries.
     pub texts: Vec<GeneratedText>,
     /// Executions actually sent to the executor (those reused from the cache
@@ -242,8 +242,8 @@ fn generate(
     table: &mut Table,
     program: &Program,
     interner: &Interner,
-    base: Option<&Arc<Geracao>>,
-) -> Result<(Vec<GeneratedText>, Arc<Geracao>), String> {
+    base: Option<&Arc<Generation>>,
+) -> Result<(Vec<GeneratedText>, Arc<Generation>), String> {
     let mut by_library: Vec<(String, Vec<ExecutionResult>)> = Vec::new();
     for (lib, r) in results {
         match by_library.iter_mut().find(|(l, _)| l == lib) {
@@ -260,20 +260,20 @@ fn generate(
         let lib_id = view.library_by_uri(&lib).ok_or_else(|| format!("library {lib} disappeared from the program"))?;
         let main = program.library(lib_id).units.first().and_then(|u| program.unit(*u).path.clone());
         let main = main.ok_or_else(|| format!("library {lib} has no file"))?;
-        let path = dartforge_elements::load::caminho_da_augmentation_de_macro(&main);
+        let path = dartforge_elements::load::macro_augmentation_path(&main);
         texts.push(GeneratedText { library: lib, path, text });
     }
-    let mut c = Construtor::nova();
+    let mut c = GenerationBuilder::new();
     if let Some(b) = base {
         for (p, f) in b.iter() {
-            c.por(p.clone(), f.conteudo.clone(), f.gerador, f.entradas.to_vec());
+            c.put(p.clone(), f.content.clone(), f.generator, f.inputs.to_vec());
         }
     }
     for t in &texts {
-        c.por(t.path.clone(), t.text.as_str(), "macros", vec![]);
+        c.put(t.path.clone(), t.text.as_str(), "macros", vec![]);
     }
     let id = base.map_or(0, |b| b.id) + 1;
-    let g = c.concluir(id).map_err(|e| e.join("; "))?;
+    let g = c.finish(id).map_err(|e| e.join("; "))?;
     Ok((texts, g))
 }
 
@@ -297,7 +297,7 @@ pub fn pending_applications(program: &Program, interner: &Interner) -> Vec<Appli
 pub fn apply(
     program: Program,
     interner: &mut Interner,
-    base: Option<Arc<Geracao>>,
+    base: Option<Arc<Generation>>,
     load: &mut Load<'_>,
     executor: &mut dyn MacroExecutor,
 ) -> Result<Output, Vec<Diagnostic>> {
@@ -317,7 +317,7 @@ pub fn apply(
 pub fn apply_incremental(
     program: Program,
     interner: &mut Interner,
-    base: Option<Arc<Geracao>>,
+    base: Option<Arc<Generation>>,
     load: &mut LoadByDiff<'_>,
     executor: &mut dyn MacroExecutor,
     cache: Option<&mut MacroCache>,
@@ -330,7 +330,7 @@ pub fn apply_incremental(
             &mut disabled
         }
     };
-    run_session(program, interner, base, Reload::ByDiff(load, CacheUnidades::nova()), executor, cache)
+    run_session(program, interner, base, Reload::ByDiff(load, AnalyzedUnitCache::new()), executor, cache)
 }
 
 /// How the session reloads the program.
@@ -338,7 +338,7 @@ enum Reload<'r, 'c> {
     /// A whole load every time.
     Full(&'r mut Load<'c>),
     /// Reusing the units of the previous program.
-    ByDiff(&'r mut LoadByDiff<'c>, CacheUnidades),
+    ByDiff(&'r mut LoadByDiff<'c>, AnalyzedUnitCache),
 }
 
 impl Reload<'_, '_> {
@@ -348,19 +348,19 @@ impl Reload<'_, '_> {
         &mut self,
         program: &mut Program,
         interner: &mut Interner,
-        g: Arc<Geracao>,
+        g: Arc<Generation>,
         texts: &[GeneratedText],
         measurement: &mut Measurement,
     ) -> Vec<Diagnostic> {
         let (p, d) = match self {
             Reload::Full(load) => load(interner, Some(g)),
             Reload::ByDiff(load, units) => {
-                units.recolher(std::mem::take(program));
+                units.reclaim(std::mem::take(program));
                 for t in texts {
-                    units.invalidar(&t.path);
+                    units.invalidate(&t.path);
                 }
                 let r = load(interner, Some(g), units);
-                measurement.reused_units += units.reaproveitadas;
+                measurement.reused_units += units.reused;
                 r
             }
         };
@@ -422,7 +422,7 @@ impl LazyExecutor<'_> {
 fn run_session(
     program: Program,
     interner: &mut Interner,
-    base: Option<Arc<Geracao>>,
+    base: Option<Arc<Generation>>,
     mut reload: Reload<'_, '_>,
     executor: &mut dyn MacroExecutor,
     cache: &mut MacroCache,
@@ -481,7 +481,7 @@ fn run_session(
     let mut generation = base.clone();
 
     let mut reload_with = |program: &mut Program,
-                           generation: &mut Option<Arc<Geracao>>,
+                           generation: &mut Option<Arc<Generation>>,
                            interner: &mut Interner,
                            table: &mut Table,
                            results: &[(String, ExecutionResult)],
@@ -730,6 +730,6 @@ fn report(app: &Application, r: &ExecutionResult, errors: &mut Vec<Diagnostic>, 
 fn already_materialized(program: &Program, uri: &str) -> bool {
     let Some(lib) = program.libraries.iter().find(|l| l.uri == uri) else { return false };
     let Some(main) = lib.units.first().and_then(|u| program.unit(*u).path.clone()) else { return false };
-    let target = dartforge_elements::gerado::chave(&dartforge_elements::load::caminho_da_augmentation_de_macro(&main));
-    lib.units.iter().skip(1).any(|u| program.unit(*u).path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&target))
+    let target = dartforge_elements::generated::key(&dartforge_elements::load::macro_augmentation_path(&main));
+    lib.units.iter().skip(1).any(|u| program.unit(*u).path.as_deref().map(dartforge_elements::generated::key).as_ref() == Some(&target))
 }

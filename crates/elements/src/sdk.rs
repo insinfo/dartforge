@@ -35,31 +35,31 @@ pub struct SdkLayout {
     /// (`docs/VERSOES-LINGUAGEM.md`, D2). Default 3.13; the CLI changes it with
     /// `--version-linguagem`. The `dart:*` libraries always stay at the floor
     /// ([`LanguageVersion::FLOOR`]), because they are those of SDK 3.6.2 (D1).
-    pub versao_corrente: LanguageVersion,
+    pub current_version: LanguageVersion,
     /// `--enable-experiment=…`: they only apply to libraries without a marker
     /// whose default version is the current one.
-    pub experimentos: Vec<Feature>,
-    /// Overlay (`load_com_sobreposicao`): SDK file, by normalized path → the
+    pub experiments: Vec<Feature>,
+    /// Overlay (`load_with_overlay`): SDK file, by normalized path → the
     /// file that replaces it. Empty without an overlay.
-    pub substituicoes: HashMap<PathBuf, PathBuf>,
+    pub replacements: HashMap<PathBuf, PathBuf>,
 }
 
 /// Command-line language options: `--version-linguagem x.y` (the current
 /// version, D2) and `--enable-experiment=a,b`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Linguagem {
-    pub versao_corrente: Option<LanguageVersion>,
-    pub experimentos: Vec<Feature>,
+pub struct LanguageOptions {
+    pub current_version: Option<LanguageVersion>,
+    pub experiments: Vec<Feature>,
 }
 
-impl Linguagem {
+impl LanguageOptions {
     /// Consumes `arg` (and the next value, in `rest`) if it is a language
     /// option. `Ok(false)` when `arg` is not one.
     ///
     /// # Errors
     /// A version not in the `x.y` format, above the current one or below 2.12,
     /// and an unknown experiment.
-    pub fn ler_opcao<'a>(&mut self, arg: &str, rest: &mut impl Iterator<Item = &'a str>) -> Result<bool, String> {
+    pub fn read_option<'a>(&mut self, arg: &str, rest: &mut impl Iterator<Item = &'a str>) -> Result<bool, String> {
         if arg == "--versao-linguagem" || arg.starts_with("--versao-linguagem=") {
             let value = match arg.split_once('=') {
                 Some((_, v)) => v.to_string(),
@@ -73,7 +73,7 @@ impl Linguagem {
                     LanguageVersion::CURRENT
                 ));
             }
-            self.versao_corrente = Some(v);
+            self.current_version = Some(v);
             return Ok(true);
         }
         if arg == "--enable-experiment" || arg.starts_with("--enable-experiment=") {
@@ -83,8 +83,8 @@ impl Linguagem {
             };
             for name_ in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
                 let f = Feature::from_name(name_).ok_or_else(|| format!("--enable-experiment: unknown experiment '{name_}'"))?;
-                if !self.experimentos.contains(&f) {
-                    self.experimentos.push(f);
+                if !self.experiments.contains(&f) {
+                    self.experiments.push(f);
                 }
             }
             return Ok(true);
@@ -93,13 +93,13 @@ impl Linguagem {
     }
 
     /// Applies to the layout (what was not requested stays as it is).
-    pub fn aplicar(&self, sdk: &mut SdkLayout) {
-        if let Some(v) = self.versao_corrente {
-            sdk.versao_corrente = v;
+    pub fn apply(&self, sdk: &mut SdkLayout) {
+        if let Some(v) = self.current_version {
+            sdk.current_version = v;
         }
-        for f in &self.experimentos {
-            if !sdk.experimentos.contains(f) {
-                sdk.experimentos.push(*f);
+        for f in &self.experiments {
+            if !sdk.experiments.contains(f) {
+                sdk.experiments.push(*f);
             }
         }
     }
@@ -127,9 +127,9 @@ impl SdkLayout {
         Ok(SdkLayout {
             root: lib_dir.to_path_buf(),
             libraries,
-            versao_corrente: LanguageVersion::CURRENT,
-            experimentos: Vec::new(),
-            substituicoes: HashMap::new(),
+            current_version: LanguageVersion::CURRENT,
+            experiments: Vec::new(),
+            replacements: HashMap::new(),
         })
     }
 
@@ -142,7 +142,7 @@ impl SdkLayout {
     ///
     /// # Errors
     /// Those of [`SdkLayout::load`], when it falls back to it.
-    pub fn load_como_analyzer(lib_dir: &Path) -> Result<Self, String> {
+    pub fn load_as_analyzer(lib_dir: &Path) -> Result<Self, String> {
         let metadata = lib_dir.join("_internal/sdk_library_metadata/lib/libraries.dart");
         let Ok(text) = std::fs::read_to_string(&metadata) else {
             return Self::load(lib_dir, "dartdevc");
@@ -172,7 +172,7 @@ impl SdkLayout {
                 continue;
             }
             let Some(end) = text[j + 1..].find(q as char) else { break };
-            let mut caminho = &text[j + 1..j + 1 + end];
+            let mut path = &text[j + 1..j + 1 + end];
             // `dart2jsPath:` replaces the path (the `SdkLibrariesReader`'s
             // `_LibraryBuilder` writes the named argument over the positional one):
             // `dart:html_common` is `html_common_dart2js.dart`.
@@ -183,13 +183,13 @@ impl SdkLayout {
                     if let Some(q2) = rest.chars().next().filter(|c| *c == '\'' || *c == '"')
                         && let Some(f2) = rest[1..].find(q2)
                     {
-                        caminho = &rest[1..1 + f2];
+                        path = &rest[1..1 + f2];
                     }
                 }
             }
             libraries.insert(
                 name_.clone(),
-                SdkLibrary { name: name_, path: lib_dir.join(caminho), patches: Vec::new(), supported: true },
+                SdkLibrary { name: name_, path: lib_dir.join(path), patches: Vec::new(), supported: true },
             );
         }
         if libraries.is_empty() {
@@ -198,9 +198,9 @@ impl SdkLayout {
         Ok(SdkLayout {
             root: lib_dir.to_path_buf(),
             libraries,
-            versao_corrente: LanguageVersion::CURRENT,
-            experimentos: Vec::new(),
-            substituicoes: HashMap::new(),
+            current_version: LanguageVersion::CURRENT,
+            experiments: Vec::new(),
+            replacements: HashMap::new(),
         })
     }
 
@@ -220,7 +220,7 @@ impl SdkLayout {
     /// Those of [`SdkLayout::load`], a missing section, and a file (original
     /// or substitute) that does not exist — a swap that silently does not
     /// happen is an SDK different from the declared one.
-    pub fn load_com_sobreposicao(lib_dir: &Path, overlay_dir: &Path, target: &str) -> Result<Self, String> {
+    pub fn load_with_overlay(lib_dir: &Path, overlay_dir: &Path, target: &str) -> Result<Self, String> {
         let path = overlay_dir.join("libraries.json");
         let text = std::fs::read_to_string(&path)
             .map_err(|e| format!("could not read {}: {e}", path.display()))?;
@@ -247,18 +247,18 @@ impl SdkLayout {
                 if !new_.is_file() {
                     return Err(format!("the overlay points to {}, which does not exist", new_.display()));
                 }
-                sdk.substituicoes.insert(original, new_);
+                sdk.replacements.insert(original, new_);
             }
         }
         Ok(sdk)
     }
 
     /// The file to read in place of `path`, if the overlay swaps it.
-    pub fn substituto(&self, path: &Path) -> Option<&Path> {
-        if self.substituicoes.is_empty() {
+    pub fn replacement(&self, path: &Path) -> Option<&Path> {
+        if self.replacements.is_empty() {
             return None;
         }
-        self.substituicoes.get(&crate::load::normalize(path)).map(PathBuf::as_path)
+        self.replacements.get(&crate::load::normalize(path)).map(PathBuf::as_path)
     }
 
     /// Reads a section and, before it, the ones it includes (`"include":
@@ -330,7 +330,7 @@ impl SdkLayout {
     }
 
     /// Finds the SDK's `lib/`: `DARTFORGE_SDK_LIB`, the distribution's
-    /// (`distribuicao::sdk_do_dart`), `DART_SDK/lib`, or the `dart` on the
+    /// (`distribution::dart_sdk`), `DART_SDK/lib`, or the `dart` on the
     /// `PATH` (`<bin>/../lib`).
     pub fn discover() -> Option<PathBuf> {
         if let Ok(explicit) = std::env::var("DARTFORGE_SDK_LIB") {
@@ -341,7 +341,7 @@ impl SdkLayout {
         }
         // The SDK the distribution carries (the version the native overlay knows),
         // before any SDK on the machine.
-        if let Some(path) = crate::distribuicao::sdk_do_dart() {
+        if let Some(path) = crate::distribution::dart_sdk() {
             return Some(path);
         }
         if let Ok(sdk) = std::env::var("DART_SDK") {
@@ -401,17 +401,17 @@ mod tests {
             return;
         };
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native_sdk");
-        let sdk = SdkLayout::load_com_sobreposicao(&lib, &dir, "dartforge_nativo").unwrap();
+        let sdk = SdkLayout::load_with_overlay(&lib, &dir, "dartforge_nativo").unwrap();
         // One substitution per entry of `substitui` in libraries.json.
         let json: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("libraries.json")).unwrap()).unwrap();
         let expected_ones = json["dartforge_nativo"]["substitui"].as_object().unwrap().len();
-        assert_eq!(sdk.substituicoes.len(), expected_ones);
+        assert_eq!(sdk.replacements.len(), expected_ones);
         assert!(expected_ones >= 20);
         let async_patch = &sdk.library("async").unwrap().patches[0];
-        let new_ = sdk.substituto(async_patch).expect("async_patch swapped");
+        let new_ = sdk.replacement(async_patch).expect("async_patch swapped");
         assert!(new_.ends_with("async_patch.dart") && new_.starts_with(crate::load::normalize(&dir)));
-        assert!(sdk.substituto(&sdk.library("core").unwrap().path).is_none());
+        assert!(sdk.replacement(&sdk.library("core").unwrap().path).is_none());
 
         let tmp = tempfile::tempdir().unwrap();
         let entry_path = tmp.path().join("main.dart");

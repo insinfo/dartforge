@@ -1501,7 +1501,7 @@ impl Project {
 /// The simple name `n` of unit `u` resolves to the element that library
 /// `target` exports (the unprefixed import brings it).
 fn import_type(p: &dartforge_elements::model::Program, u: UnitId, n: SymbolId, target: LibraryId) -> bool {
-    match (p.lookup_na_unidade(u, n).and_then(|b| b.getter), p.library(target).exported.get(&n).and_then(|b| b.getter)) {
+    match (p.lookup_in_unit(u, n).and_then(|b| b.getter), p.library(target).exported.get(&n).and_then(|b| b.getter)) {
         (Some(a), Some(b)) => a == b,
         _ => false,
     }

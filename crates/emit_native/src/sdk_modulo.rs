@@ -5,7 +5,7 @@
 //! `native_sdk/` at the root of the repository, which replaces only the files that depend
 //! on the VM's internal machinery (`_SuspendState`, `Timer`/microtasks tied to
 //! `dart:isolate`, the `Finalizer` of the weak GC). The replacement is done at
-//! load time (`SdkLayout::load_com_sobreposicao`, `crates/elements`).
+//! load time (`SdkLayout::load_with_overlay`, `crates/elements`).
 //!
 //! This module gathers what belongs to the SDK as a compilation unit: where the
 //! overlay is, which libraries come from source, and the 5a measurement — the
@@ -47,7 +47,7 @@ pub fn dir_sobreposicao() -> PathBuf {
     if let Some(d) = std::env::var_os("DARTFORGE_SDK_NATIVO") {
         return PathBuf::from(d);
     }
-    if let Some(d) = dartforge_elements::distribuicao::sobreposicao_nativa() {
+    if let Some(d) = dartforge_elements::distribution::native_overlay() {
         return d;
     }
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native_sdk")
@@ -55,7 +55,7 @@ pub fn dir_sobreposicao() -> PathBuf {
 
 /// The native SDK: the `vm` section of `lib_dir` with the overlay.
 pub fn load_native_sdk(lib_dir: &Path) -> Result<SdkLayout, String> {
-    SdkLayout::load_com_sobreposicao(lib_dir, &dir_sobreposicao(), OVERLAY_TARGET)
+    SdkLayout::load_with_overlay(lib_dir, &dir_sobreposicao(), OVERLAY_TARGET)
 }
 
 /// Inference diagnostics in the bodies of an SDK library.
@@ -1084,7 +1084,7 @@ mod tests {
         // runner, corpus/native/45); 29 with `double.dart`, `integers.dart`
         // and `convert_patch.dart` (JSON, docs/NATIVO-PLANO.md); 30 with
         // `convert/json.dart` (writing in UTF-8, §13.2).
-        assert_eq!(sdk.substituicoes.len(), 30);
+        assert_eq!(sdk.replacements.len(), 30);
         for b in SOURCE_LIBRARIES {
             assert!(sdk.library(b).is_some(), "dart:{b} outside the layout");
         }

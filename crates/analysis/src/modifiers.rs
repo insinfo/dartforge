@@ -246,7 +246,7 @@ pub fn outside_library(program: &Program, lib: LibraryId, names: &Interner) -> V
                     // The context message points at the declaration's file
                     // when it is not the error's.
                     let context = context.map(|(u, span, message)| dartforge_diagnostics::ContextMessage {
-                        file: (u != decl.unit).then(|| program.caminho_da_unidade(u).into()),
+                        file: (u != decl.unit).then(|| program.unit_path(u).into()),
                         span,
                         message: message.into(),
                     });
@@ -287,7 +287,7 @@ fn restriction(
     if cx.may_ignore(lib_bf, false) {
         return None;
     }
-    let context = cx.program.nome_da_classe(bf).map(|(u, span)| {
+    let context = cx.program.class_name(bf).map(|(u, span)| {
         let (s, b) = (cx.name_of(sup), cx.name_of(bf));
         (u, span, format!("The type '{s}' is a subtype of '{b}', and '{b}' is defined here."))
     });
@@ -374,8 +374,8 @@ fn class_of_type_in(program: &Program, u: UnitId, ast: &ast::Ast, t: ast::TypeId
     }
     let TypeKind::Named { name, .. } = &ast.ty(t).kind else { return None };
     let b = match &name[..] {
-        [n] => program.lookup_na_unidade(u, n.sym),
-        [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+        [n] => program.lookup_in_unit(u, n.sym),
+        [p, n] => program.lookup_prefixed_in_unit(u, p.sym, n.sym),
         _ => None,
     }?;
     if b.ambiguous {

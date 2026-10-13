@@ -470,7 +470,7 @@ fn sass_release_css_on_demand_without_support() {
         program: None,
     };
     m.update(&ctx, &[], Demand::Loader).unwrap();
-    let target = dartforge_elements::gerado::chave(&dir.join("web/principal.css"));
+    let target = dartforge_elements::generated::key(&dir.join("web/principal.css"));
     assert!(
         m.natural_paths_map
             .keys()

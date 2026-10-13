@@ -19,16 +19,16 @@ use std::sync::Arc;
 /// A Dart source produced by a generator.
 #[derive(Debug, Clone)]
 pub struct GeneratedSource {
-    pub conteudo: Arc<str>,
+    pub content: Arc<str>,
     /// Files that produced it (`.dart`, `.html`, `.css`): through them the
     /// `serve` watcher knows what to invalidate.
-    pub entradas: Arc<[PathBuf]>,
-    pub gerador: &'static str,
+    pub inputs: Arc<[PathBuf]>,
+    pub generator: &'static str,
 }
 
 /// Immutable set of generated sources.
 #[derive(Debug, Default)]
-pub struct Geracao {
+pub struct Generation {
     pub id: u64,
     sources: HashMap<PathBuf, GeneratedSource>,
 }
@@ -36,20 +36,20 @@ pub struct Geracao {
 /// Normalizes the path to serve as a key: lexically (without touching the
 /// disk, since the file does not exist) and without Windows' verbatim
 /// prefix.
-pub fn chave(caminho: &Path) -> PathBuf {
-    crate::config::sem_verbatim(crate::load::normalize(caminho))
+pub fn key(path: &Path) -> PathBuf {
+    crate::config::without_verbatim(crate::load::normalize(path))
 }
 
-impl Geracao {
-    pub fn obter(&self, caminho: &Path) -> Option<&GeneratedSource> {
-        self.sources.get(&chave(caminho))
+impl Generation {
+    pub fn get(&self, path: &Path) -> Option<&GeneratedSource> {
+        self.sources.get(&key(path))
     }
 
-    pub fn contem(&self, caminho: &Path) -> bool {
-        self.sources.contains_key(&chave(caminho))
+    pub fn contains(&self, path: &Path) -> bool {
+        self.sources.contains_key(&key(path))
     }
 
-    pub fn vazia(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.sources.is_empty()
     }
 
@@ -57,7 +57,7 @@ impl Geracao {
         self.sources.len()
     }
 
-    pub fn caminhos(&self) -> impl Iterator<Item = &PathBuf> {
+    pub fn paths(&self) -> impl Iterator<Item = &PathBuf> {
         self.sources.keys()
     }
 
@@ -66,47 +66,47 @@ impl Geracao {
     }
 }
 
-/// Accumulates a generation. It only becomes a `Geracao` if it closes
+/// Accumulates a generation. It only becomes a `Generation` if it closes
 /// without errors.
 #[derive(Default)]
-pub struct Construtor {
+pub struct GenerationBuilder {
     sources: HashMap<PathBuf, GeneratedSource>,
     errors: Vec<String>,
 }
 
-impl Construtor {
-    pub fn nova() -> Self {
+impl GenerationBuilder {
+    pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn por(
+    pub fn put(
         &mut self,
-        caminho: PathBuf,
-        conteudo: impl Into<Arc<str>>,
-        gerador: &'static str,
-        entradas: Vec<PathBuf>,
+        path: PathBuf,
+        content: impl Into<Arc<str>>,
+        generator: &'static str,
+        inputs: Vec<PathBuf>,
     ) {
         self.sources.insert(
-            chave(&caminho),
-            GeneratedSource { conteudo: conteudo.into(), entradas: entradas.into(), gerador },
+            key(&path),
+            GeneratedSource { content: content.into(), inputs: inputs.into(), generator },
         );
     }
 
-    pub fn contem(&self, caminho: &Path) -> bool {
-        self.sources.contains_key(&chave(caminho))
+    pub fn contains(&self, path: &Path) -> bool {
+        self.sources.contains_key(&key(path))
     }
 
-    pub fn erro(&mut self, message: String) {
+    pub fn error(&mut self, message: String) {
         self.errors.push(message);
     }
 
     /// Closes the generation. With any error nothing is published — the caller
     /// keeps the previous generation.
-    pub fn concluir(self, id: u64) -> Result<Arc<Geracao>, Vec<String>> {
+    pub fn finish(self, id: u64) -> Result<Arc<Generation>, Vec<String>> {
         if !self.errors.is_empty() {
             return Err(self.errors);
         }
-        Ok(Arc::new(Geracao { id, sources: self.sources }))
+        Ok(Arc::new(Generation { id, sources: self.sources }))
     }
 }
 
@@ -118,28 +118,28 @@ impl Construtor {
 /// compiling while reading from here must give byte for byte the same JS as
 /// compiling while reading from disk. When the Angular generator in Rust
 /// arrives, only who produces the strings changes.
-pub fn do_build_runner(
+pub fn from_build_runner(
     cfg: &crate::config::PackageConfig,
     suffixes: &[&str],
     packages_: Option<&std::collections::HashSet<String>>,
-) -> Arc<Geracao> {
-    let mut c = Construtor::nova();
+) -> Arc<Generation> {
+    let mut c = GenerationBuilder::new();
     let Some(origin) = cfg.origin.as_ref().and_then(|o| o.parent()) else {
-        return c.concluir(0).unwrap_or_default_arc();
+        return c.finish(0).unwrap_or_default_arc();
     };
-    let raiz = origin.join("build").join("generated");
+    let root = origin.join("build").join("generated");
     for (name_, pkg) in &cfg.packages {
         if packages_.is_some_and(|p| !p.contains(name_)) {
             continue;
         }
-        let dir = raiz.join(name_).join("lib");
+        let dir = root.join(name_).join("lib");
         if !dir.is_dir() {
             continue;
         }
         let mut stack = vec![dir.clone()];
         while let Some(d) = stack.pop() {
-            let Ok(entradas) = std::fs::read_dir(&d) else { continue };
-            for e in entradas.flatten() {
+            let Ok(inputs) = std::fs::read_dir(&d) else { continue };
+            for e in inputs.flatten() {
                 let p = e.path();
                 if p.is_dir() {
                     stack.push(p);
@@ -157,51 +157,51 @@ pub fn do_build_runner(
                     continue;
                 };
                 match std::fs::read_to_string(&p) {
-                    Ok(text) => c.por(destination, text, "build_runner", vec![p]),
-                    Err(e) => c.erro(format!("could not read {}: {e}", p.display())),
+                    Ok(text) => c.put(destination, text, "build_runner", vec![p]),
+                    Err(e) => c.error(format!("could not read {}: {e}", p.display())),
                 }
             }
         }
     }
-    c.concluir(0).unwrap_or_default_arc()
+    c.finish(0).unwrap_or_default_arc()
 }
 
 trait OrEmpty {
-    fn unwrap_or_default_arc(self) -> Arc<Geracao>;
+    fn unwrap_or_default_arc(self) -> Arc<Generation>;
 }
 
-impl OrEmpty for Result<Arc<Geracao>, Vec<String>> {
-    fn unwrap_or_default_arc(self) -> Arc<Geracao> {
+impl OrEmpty for Result<Arc<Generation>, Vec<String>> {
+    fn unwrap_or_default_arc(self) -> Arc<Generation> {
         self.unwrap_or_else(|e| {
             for m in e {
                 eprintln!("warning: {m}");
             }
-            Arc::new(Geracao::default())
+            Arc::new(Generation::default())
         })
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
     fn key_is_lexical() {
         let g = {
-            let mut c = Construtor::nova();
-            c.por(PathBuf::from("/p/lib/./a/../foo.template.dart"), "// x", "teste", vec![]);
-            c.concluir(1).unwrap()
+            let mut c = GenerationBuilder::new();
+            c.put(PathBuf::from("/p/lib/./a/../foo.template.dart"), "// x", "teste", vec![]);
+            c.finish(1).unwrap()
         };
-        assert!(g.contem(Path::new("/p/lib/foo.template.dart")));
-        assert_eq!(g.obter(Path::new("/p/lib/foo.template.dart")).unwrap().conteudo.as_ref(), "// x");
-        assert!(!g.contem(Path::new("/p/lib/other.dart")));
+        assert!(g.contains(Path::new("/p/lib/foo.template.dart")));
+        assert_eq!(g.get(Path::new("/p/lib/foo.template.dart")).unwrap().content.as_ref(), "// x");
+        assert!(!g.contains(Path::new("/p/lib/other.dart")));
     }
 
     #[test]
     fn error_aborts_generation() {
-        let mut c = Construtor::nova();
-        c.por(PathBuf::from("/p/lib/foo.template.dart"), "// x", "teste", vec![]);
-        c.erro("broken template".into());
-        assert!(c.concluir(2).is_err());
+        let mut c = GenerationBuilder::new();
+        c.put(PathBuf::from("/p/lib/foo.template.dart"), "// x", "teste", vec![]);
+        c.error("broken template".into());
+        assert!(c.finish(2).is_err());
     }
 }

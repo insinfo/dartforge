@@ -23,7 +23,7 @@
 //! elements with `patched_by == None`.
 //!
 //! What emitters see of an augmented class: the members of the chain's
-//! declarations ([`Program::membros_da_classe`]), one element per member,
+//! declarations ([`Program::class_members`]), one element per member,
 //! and the added supertypes (`implements`/`with`/`extends`).
 use crate::model::*;
 use crate::outline::{extract_members, ElementPools};
@@ -42,39 +42,39 @@ pub(crate) struct Merge<'a> {
     pub interner: &'a mut Interner,
     pub diagnostics: &'a mut Vec<Diagnostic>,
     /// Augmentation declarations of each class, in application order.
-    pub cadeias: &'a mut Vec<(ClassId, DeclRef)>,
+    pub chains: &'a mut Vec<(ClassId, DeclRef)>,
 }
 
 impl Merge<'_> {
-    fn erro(&mut self, unit: UnitId, msg: impl Into<String>, span: Span) {
+    fn error(&mut self, unit: UnitId, msg: impl Into<String>, span: Span) {
         let u = &self.units[unit.0 as usize];
         self.diagnostics.push(Diagnostic::new(format!("{}: {}", u.uri, msg.into()), span));
     }
 }
 
 /// Applies the top-level `augment` declaration `decl_id` of unit `unit_id`.
-pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: UnitId, decl_id: ast::DeclId) {
+pub(crate) fn apply(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: UnitId, decl_id: ast::DeclId) {
     let ast = &f.units[unit_id.0 as usize].ast;
     let decl = ast.decl(decl_id);
     let span = decl.span;
     match &decl.kind {
         DeclKind::Class(c) => {
             if c.mixin_application {
-                f.erro(unit_id, "a mixin application ('class C = S with M') cannot be augmented", span);
+                f.error(unit_id, "a mixin application ('class C = S with M') cannot be augmented", span);
                 return;
             }
             let Some(cid) = introductory_class(f, pools, unit_id, c.name, ClassKind::Class) else { return };
             let class_elem = &mut pools.classes[cid.0 as usize];
             if let Some(t) = c.extends {
                 if class_elem.supertype.is_some() {
-                    f.erro(unit_id, format!("class '{}' already has an 'extends' clause", name_(f, c.name.sym)), span);
+                    f.error(unit_id, format!("class '{}' already has an 'extends' clause", name_(f, c.name.sym)), span);
                 } else {
                     class_elem.supertype = Some((unit_id, t));
                 }
             }
             class_elem.mixins.extend(c.with.iter().map(|t| (unit_id, *t)));
             class_elem.interfaces.extend(c.implements.iter().map(|t| (unit_id, *t)));
-            f.cadeias.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
+            f.chains.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
             apply_members(f, pools, cid, unit_id, &c.members);
         }
         DeclKind::Mixin(m) => {
@@ -82,7 +82,7 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
             let class_elem = &mut pools.classes[cid.0 as usize];
             class_elem.on.extend(m.on.iter().map(|t| (unit_id, *t)));
             class_elem.interfaces.extend(m.implements.iter().map(|t| (unit_id, *t)));
-            f.cadeias.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
+            f.chains.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
             apply_members(f, pools, cid, unit_id, &m.members);
         }
         DeclKind::Function(fid) => {
@@ -95,7 +95,7 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
                 _ => entry_path.getter,
             };
             let Some(Element::Function(old)) = previous else {
-                f.erro(
+                f.error(
                     unit_id,
                     format!("'augment' of '{}' without an introductory declaration before it", name_(f, n.sym)),
                     n.span,
@@ -117,7 +117,7 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
                 node: FunctionRef::Function { unit: unit_id, function: *fid },
                 variable: None,
                 patched_by: None,
-                declaracao_publica: None,
+                public_declaration: None,
             });
             if link(f, pools, unit_id, old, new_, full_function(func), n.span) {
                 let e = f.library.declared.entry(n.sym).or_default();
@@ -129,7 +129,7 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
         }
         DeclKind::Enum(e) => {
             if e.primary_constructor.is_some() {
-                f.erro(unit_id, "augmenting an enum with a primary constructor is not supported yet", span);
+                f.error(unit_id, "augmenting an enum with a primary constructor is not supported yet", span);
                 return;
             }
             let Some(cid) = introductory_class(f, pools, unit_id, e.name, ClassKind::Enum) else { return };
@@ -145,7 +145,7 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
                     || c.static_members.contains_key(&k.name.sym);
                 if repeated {
                     let n = name_(f, k.name.sym);
-                    f.erro(unit_id, format!("'{n}' is already declared; to augment it, use 'augment'"), k.name.span);
+                    f.error(unit_id, format!("'{n}' is already declared; to augment it, use 'augment'"), k.name.span);
                     continue;
                 }
                 let id = VariableId(pools.variables.len() as u32);
@@ -165,17 +165,17 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
                 });
                 pools.classes[cid.0 as usize].enum_constants.push(id);
             }
-            f.cadeias.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
+            f.chains.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
             apply_members(f, pools, cid, unit_id, &e.members);
         }
         DeclKind::Extension(_) | DeclKind::ExtensionType(_) => {
-            f.erro(unit_id, "augmenting extensions and extension types is not supported yet", span);
+            f.error(unit_id, "augmenting extensions and extension types is not supported yet", span);
         }
         DeclKind::Variables(_) => {
-            f.erro(unit_id, "augmenting top-level variables is not supported yet", span);
+            f.error(unit_id, "augmenting top-level variables is not supported yet", span);
         }
         DeclKind::Typedef(_) => {
-            f.erro(unit_id, "a typedef cannot be augmented", span);
+            f.error(unit_id, "a typedef cannot be augmented", span);
         }
     }
 }
@@ -192,11 +192,11 @@ fn introductory_class(
     match found_one {
         Some(Element::Class(cid)) if pools.classes[cid.0 as usize].kind == kind => Some(cid),
         Some(_) => {
-            f.erro(unit_id, format!("'augment' of '{}' with a different kind of declaration", name_(f, n.sym)), n.span);
+            f.error(unit_id, format!("'augment' of '{}' with a different kind of declaration", name_(f, n.sym)), n.span);
             None
         }
         None => {
-            f.erro(unit_id, format!("'augment' of '{}' without an introductory declaration before it", name_(f, n.sym)), n.span);
+            f.error(unit_id, format!("'augment' of '{}' without an introductory declaration before it", name_(f, n.sym)), n.span);
             None
         }
     }
@@ -225,7 +225,7 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                 };
                 if exists_ {
                     let n = name_(f, sym);
-                    f.erro(unit_id, format!("'{n}' is already declared; to augment it, use 'augment'"), span);
+                    f.error(unit_id, format!("'{n}' is already declared; to augment it, use 'augment'"), span);
                     continue;
                 }
             }
@@ -244,7 +244,7 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                 {
                     sym = f.interner.intern("unary-");
                 }
-                let chave = if kind == FunctionKind::Setter {
+                let key = if kind == FunctionKind::Setter {
                     let s = format!("{}_=", f.interner.resolve(sym));
                     f.interner.intern(&s)
                 } else {
@@ -252,9 +252,9 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                 };
                 let c = &pools.classes[cid.0 as usize];
                 let map = if func.static_ { &c.static_members } else { &c.instance_members };
-                let Some(&old) = map.get(&chave) else {
+                let Some(&old) = map.get(&key) else {
                     let t = name_(f, n.sym);
-                    f.erro(unit_id, format!("'augment' of '{t}' without an introductory member before it"), n.span);
+                    f.error(unit_id, format!("'augment' of '{t}' without an introductory member before it"), n.span);
                     continue;
                 };
                 let new_ = FunctionElementId(pools.functions.len() as u32);
@@ -272,19 +272,19 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                     node: FunctionRef::Function { unit: unit_id, function: *fid },
                     variable: None,
                     patched_by: None,
-                    declaracao_publica: None,
+                    public_declaration: None,
                 });
                 if link(f, pools, unit_id, old, new_, full_function(func), n.span) {
                     let c = &mut pools.classes[cid.0 as usize];
                     let map = if func.static_ { &mut c.static_members } else { &mut c.instance_members };
-                    map.insert(chave, new_);
+                    map.insert(key, new_);
                 }
             }
             MemberKind::Constructor(k) => {
                 let sym = k.name.map(|n| n.sym).unwrap_or(f.empty_sym);
                 let span = k.name.map(|n| n.span).unwrap_or(k.class_name.span);
                 let Some(&old) = pools.classes[cid.0 as usize].constructors.get(&sym) else {
-                    f.erro(unit_id, "constructor 'augment' without an introductory constructor before it", span);
+                    f.error(unit_id, "constructor 'augment' without an introductory constructor before it", span);
                     continue;
                 };
                 let new_ = FunctionElementId(pools.functions.len() as u32);
@@ -302,14 +302,14 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                     node: FunctionRef::Constructor { unit: unit_id, member: mid },
                     variable: None,
                     patched_by: None,
-                    declaracao_publica: None,
+                    public_declaration: None,
                 });
                 if link(f, pools, unit_id, old, new_, full_constructor(k), span) {
                     pools.classes[cid.0 as usize].constructors.insert(sym, new_);
                 }
             }
             MemberKind::Field(_) => {
-                f.erro(unit_id, "augmenting fields is not supported yet", m.span);
+                f.error(unit_id, "augmenting fields is not supported yet", m.span);
             }
         }
     }
@@ -348,7 +348,7 @@ fn link(
         return false;
     }
     if has_body(f.units, &pools.functions[old.0 as usize]) && !augmentation_with_macros(f.units, unit_id) {
-        f.erro(unit_id, "the augmented declaration already has a body; an augmentation cannot replace it", span);
+        f.error(unit_id, "the augmented declaration already has a body; an augmentation cannot replace it", span);
         pools.functions[new_.0 as usize].patched_by = Some(old);
         return false;
     }
@@ -438,7 +438,7 @@ fn empty_class(library: LibraryId, name: SymbolId) -> ClassElement {
         interface_classes: Vec::new(),
         on_classes: Vec::new(),
         instance_members: HashMap::new(),
-        instancia_sobrepostos: Vec::new(),
+        shadowed_instance_members: Vec::new(),
         static_members: HashMap::new(),
         constructors: BTreeMap::new(),
         fields: Vec::new(),

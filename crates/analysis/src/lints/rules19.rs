@@ -162,7 +162,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     // `p.C()` or `p.C.name()`.
                     match &a.expr(t).kind {
                         ExprKind::Property { target: t3, .. } => match &a.expr(*t3).kind {
-                            ExprKind::Identifier(p) if matches!(program.lookup_na_unidade(s.unit, p.sym).and_then(|b| b.getter), Some(Element::Prefix(..))) => Some(p.sym),
+                            ExprKind::Identifier(p) if matches!(program.lookup_in_unit(s.unit, p.sym).and_then(|b| b.getter), Some(Element::Prefix(..))) => Some(p.sym),
                             ExprKind::Property { target: t4, .. } => match &a.expr(*t4).kind {
                                 ExprKind::Identifier(p) => Some(p.sym),
                                 _ => None,

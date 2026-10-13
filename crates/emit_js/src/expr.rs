@@ -103,13 +103,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return IdentTarget::Static(c, MemberKind::Field(vid));
                 }
             }
-            if !self.is_static && self.ctx.program.lookup_na_unidade(self.unit, sym).is_none() {
+            if !self.is_static && self.ctx.program.lookup_in_unit(self.unit, sym).is_none() {
                 if self.find_extension_member(&self.ctx.this_ty(c), n, false).is_some() {
                     return IdentTarget::ThisExt;
                 }
             }
         }
-        if let Some(b) = self.ctx.program.lookup_na_unidade(self.unit, sym) {
+        if let Some(b) = self.ctx.program.lookup_in_unit(self.unit, sym) {
             if let Some(Element::Prefix(_, p)) = b.getter {
                 return IdentTarget::Prefix(p);
             }
@@ -120,7 +120,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return IdentTarget::Element(e);
             }
         }
-        if self.ctx.program.prefixos_na_unidade(self.unit).contains_key(&sym) {
+        if self.ctx.program.prefixes_in_unit(self.unit).contains_key(&sym) {
             return IdentTarget::Prefix(sym);
         }
         IdentTarget::Unknown
@@ -2307,7 +2307,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         IdentTarget::Prefix(p) => self
                             .ctx
                             .program
-                            .lookup_prefixed_na_unidade(self.unit, p, name.sym)
+                            .lookup_prefixed_in_unit(self.unit, p, name.sym)
                             .and_then(|b| match b.getter {
                                 Some(Element::Extension(ext)) => Some(ext),
                                 _ => None,
@@ -2343,7 +2343,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         return None;
                     }
                     let sym = self.ctx.sym(name)?;
-                    let b = self.ctx.program.lookup_prefixed_na_unidade(self.unit, p, sym)?;
+                    let b = self.ctx.program.lookup_prefixed_in_unit(self.unit, p, sym)?;
                     let el = b.getter.or(b.setter)?;
                     Some(self.emit_element_get(el, name))
                 }
@@ -2375,7 +2375,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
                     if let IdentTarget::Prefix(p) = self.ident_target(id.sym, *t2) {
                         let sym = self.ctx.sym(self.name(n2.sym))?;
-                        let b = self.ctx.program.lookup_prefixed_na_unidade(self.unit, p, sym)?;
+                        let b = self.ctx.program.lookup_prefixed_in_unit(self.unit, p, sym)?;
                         if let Some(Element::Class(c)) = b.getter {
                             return self.static_member_get(c, name);
                         }
@@ -3122,7 +3122,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::Identifier(id) => match self.ident_target(id.sym, recv) {
                 IdentTarget::Prefix(p) => {
                     let sym = self.ctx.sym(name)?;
-                    let b = self.ctx.program.lookup_prefixed_na_unidade(self.unit, p, sym)?;
+                    let b = self.ctx.program.lookup_prefixed_in_unit(self.unit, p, sym)?;
                     match b.setter.or(b.getter)? {
                         Element::Variable(vid) if self.ctx.is_js_var(vid) => {
                             let var = self.ctx.program.variable(vid);
@@ -3457,7 +3457,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if !matches!(t, Ty::Iface { .. }) && constructor.is_none() {
             if let ast::TypeKind::Named { name: parts, .. } = &self.ast().ty(ty).kind {
                 if parts.len() == 2 {
-                    if let Some(Element::Class(c)) = self.ctx.program.lookup_na_unidade(self.unit, parts[0].sym).and_then(|b| b.getter) {
+                    if let Some(Element::Class(c)) = self.ctx.program.lookup_in_unit(self.unit, parts[0].sym).and_then(|b| b.getter) {
                         t = self.ctx.this_ty_default(c);
                         ctor_name = self.name(parts[1].sym).to_string();
                     }
@@ -3701,7 +3701,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if !matches!(t, Ty::Iface { .. }) && redirect.constructor.is_none() {
             if let ast::TypeKind::Named { name: parts, .. } = &sub.ast().ty(redirect.ty).kind {
                 if parts.len() == 2 {
-                    if let Some(b) = self.ctx.program.lookup_na_unidade(sub.unit, parts[0].sym) {
+                    if let Some(b) = self.ctx.program.lookup_in_unit(sub.unit, parts[0].sym) {
                         if let Some(Element::Class(c)) = b.getter {
                             t = Ty::iface(c);
                             name = self.name(parts[1].sym).to_string();

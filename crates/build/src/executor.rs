@@ -109,7 +109,7 @@ impl<'a> GeneratorCtx<'a> {
     }
 
     pub fn read(&mut self, p: &Path) -> Option<Arc<[u8]>> {
-        let key = dartforge_elements::gerado::chave(p);
+        let key = dartforge_elements::generated::key(p);
         let v = (self.memory)(&key).or_else(|| std::fs::read(p).ok().map(Arc::from));
         let d = v.as_deref().map(digest_bytes);
         self.queries.push((Query::File(key), d));
@@ -117,7 +117,7 @@ impl<'a> GeneratorCtx<'a> {
     }
 
     pub fn exists(&mut self, p: &Path) -> bool {
-        let key = dartforge_elements::gerado::chave(p);
+        let key = dartforge_elements::generated::key(p);
         let yes = (self.memory)(&key).is_some() || p.is_file();
         self.queries
             .push((Query::Exists(key), yes.then(|| digest_bytes(b"1"))));
@@ -189,7 +189,7 @@ pub(crate) fn query_digest(
             let list = candidates
                 .iter()
                 .filter_map(|(rel, generated)| {
-                    let path = dartforge_elements::gerado::chave(&dir.join(rel));
+                    let path = dartforge_elements::generated::key(&dir.join(rel));
                     (if *generated {
                         memory(&path).is_some()
                     } else {
@@ -347,7 +347,7 @@ impl<'a> ActionService<'a> {
         {
             return None;
         }
-        Some(dartforge_elements::gerado::chave(
+        Some(dartforge_elements::generated::key(
             &node.root.join(id.path.as_ref()),
         ))
     }

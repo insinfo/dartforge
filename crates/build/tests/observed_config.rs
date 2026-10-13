@@ -36,6 +36,6 @@ fn watches_dependency_build_yaml_and_overrides() {
         .collect();
     assert!(!missing.is_empty(), "no missing build.yaml is watched");
     // The root directory (`<package>.build.yaml` overrides).
-    let canonical_root = dartforge_elements::gerado::chave(&root);
+    let canonical_root = dartforge_elements::generated::key(&root);
     assert!(has(&|p| *p == canonical_root), "root is not watched");
 }

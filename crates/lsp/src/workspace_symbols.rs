@@ -633,7 +633,7 @@ fn parts(unit: &ast::CompilationUnit, path: &Path) -> Vec<PathBuf> {
             && !relative.contains(':')
             && let Some(folder) = path.parent()
         {
-            output.push(dartforge_elements::gerado::chave(&folder.join(relative)));
+            output.push(dartforge_elements::generated::key(&folder.join(relative)));
         }
     }
     output
@@ -692,7 +692,7 @@ fn index(path: &Path, read_: &Reader<'_>, uri_of: &dyn Fn(&Path) -> String) -> (
 impl Index {
     /// The library at `path`, from the cache when none of its files changed.
     fn library(&mut self, path: &Path, read: &Reader<'_>, open: &HashMap<PathBuf, Fingerprint>, uri_of: &dyn Fn(&Path) -> String) -> Option<Arc<Library>> {
-        let current = |p: &Path| open.get(&dartforge_elements::gerado::chave(p)).cloned().or_else(|| disk_fingerprint(p));
+        let current = |p: &Path| open.get(&dartforge_elements::generated::key(p)).cloned().or_else(|| disk_fingerprint(p));
         if let Some(e) = self.entries.get(path)
             && e.files.iter().all(|(p, i)| current(p).as_ref() == Some(i))
         {
@@ -736,7 +736,7 @@ impl Index {
         // client's URI.
         let open: HashMap<PathBuf, Fingerprint> = open_texts.iter().map(|(k, (_, t))| (k.clone(), text_fingerprint(t))).collect();
         let read = |p: &Path| -> Option<(String, Fingerprint)> {
-            let k = dartforge_elements::gerado::chave(p);
+            let k = dartforge_elements::generated::key(p);
             if let (Some((_, t)), Some(i)) = (open_texts.get(&k), open.get(&k)) {
                 return Some((t.clone(), i.clone()));
             }
@@ -747,7 +747,7 @@ impl Index {
         let read: &Reader<'_> = &read;
         let open = &open;
         let uri_of = |p: &Path| -> String {
-            match open_texts.get(&dartforge_elements::gerado::chave(p)) {
+            match open_texts.get(&dartforge_elements::generated::key(p)) {
                 Some((uri, _)) => uri.clone(),
                 None => url::Url::from_file_path(p).map(|u| u.to_string()).unwrap_or_default(),
             }
@@ -757,7 +757,7 @@ impl Index {
         let mut paths: Vec<PathBuf> = Vec::new();
         let mut seen: HashSet<PathBuf> = HashSet::new();
         let mut include = |p: PathBuf, paths: &mut Vec<PathBuf>| {
-            if seen.insert(dartforge_elements::gerado::chave(&p)) {
+            if seen.insert(dartforge_elements::generated::key(&p)) {
                 paths.push(p);
             }
         };
@@ -892,7 +892,7 @@ fn read_libraries_dart(lib: &Path) -> Vec<PathBuf> {
         let content = &entry_text[1..];
         let Some(f) = content.find(quotes) else { continue };
         let relative = &content[..f];
-        output.push(dartforge_elements::gerado::chave(&lib.join(relative)));
+        output.push(dartforge_elements::generated::key(&lib.join(relative)));
     }
     output
 }
@@ -909,7 +909,7 @@ pub(crate) fn package_folders(root: &Path) -> Vec<PathBuf> {
         if let Ok(u) = url::Url::parse(uri) {
             return u.to_file_path().ok();
         }
-        Some(dartforge_elements::gerado::chave(&relative_to.join(uri.trim_end_matches('/'))))
+        Some(dartforge_elements::generated::key(&relative_to.join(uri.trim_end_matches('/'))))
     };
     let mut output = Vec::new();
     for p in packages {

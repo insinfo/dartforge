@@ -334,9 +334,9 @@ impl Ctx<'_> {
                 // `invalidOverride`: the overridden member, at its non-synthetic
                 // name (in its own file, if it is a different one).
                 let mut d = Diagnostic::with_code(code, m.span, args);
-                if let Some((u, span)) = self.program.nome_nao_sintetico_da_funcao(finding.function) {
-                    let error_unit = self.program.nome_nao_sintetico_da_funcao(m.funcao).map(|(x, _)| x);
-                    let file = (Some(u) != error_unit).then(|| self.program.caminho_da_unidade(u).into());
+                if let Some((u, span)) = self.program.non_synthetic_function_name(finding.function) {
+                    let error_unit = self.program.non_synthetic_function_name(m.funcao).map(|(x, _)| x);
+                    let file = (Some(u) != error_unit).then(|| self.program.unit_path(u).into());
                     let text = if the_kind == Kind::Setter { "The setter being overridden." } else { "The member being overridden." };
                     d.context.push(dartforge_diagnostics::ContextMessage { file: file, span, message: text.into() });
                 }
@@ -1027,7 +1027,7 @@ pub fn membros_abstratos(
         let decl_text = source.get(sp.start..sp.end).unwrap_or("");
         // Without the experiment, the parser reads `augment` as an identifier
         // and the recovery is the analyzer's (T1.1 f): nothing to skip.
-        let augment_in_text = program.biblioteca_com_augmentations(cls.library)
+        let augment_in_text = program.library_has_augmentations(cls.library)
             && decl_text.lines().any(|l| l.trim_start().starts_with("augment "));
         if recovered || augment_in_text || ast_.decl(decl.decl).augment {
             continue;
@@ -1036,7 +1036,7 @@ pub fn membros_abstratos(
         // analyzer's cache is per element), and the abstract member is looked for
         // in the tree of the declaration itself
         // (`_reportConcreteClassWithAbstractMember`).
-        let intf = program.dono_da_classe(cid);
+        let intf = program.class_owner(cid);
         let Some(this_one) = cx.own_type(intf) else { continue };
         // An implemented `noSuchMethod` other than `Object`'s: the name without a
         // concrete implementation gets the forwarder (the interface member
@@ -1435,7 +1435,7 @@ pub fn valores_padrao_com(
             d.unit == unit && line_starts_with_augment(program.unit(unit).ast.decl(d.decl).span.start)
         });
         let the_augmented =
-            program.biblioteca_com_augmentations(program.unit(unit).library) && (line_starts_with_augment(start) || of_class);
+            program.library_has_augmentations(program.unit(unit).library) && (line_starts_with_augment(start) || of_class);
         if the_augmented {
             continue;
         }
@@ -1517,7 +1517,7 @@ pub fn membros_em_conflito(
             continue;
         }
         let source = &program.unit(decl.unit).source;
-        if program.biblioteca_com_augmentations(lib) && source.lines().any(|l| l.trim_start().starts_with("augment ")) {
+        if program.library_has_augmentations(lib) && source.lines().any(|l| l.trim_start().starts_with("augment ")) {
             continue;
         }
         let (class_name, members): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind {
@@ -1528,7 +1528,7 @@ pub fn membros_em_conflito(
         };
         // T1.1 e: the inherited interface is that of the owner of the same-named
         // group; the declared members are those of the declaration itself.
-        let intf = program.dono_da_classe(cid);
+        let intf = program.class_owner(cid);
         let Some(this_one) = cx.own_type(intf) else { continue };
         let class_text = interner.resolve(cls.name).to_string();
         let visible_inherited = |cx: &mut Ctx<'_>, the_name: &str| -> Option<Finding> {
@@ -1648,8 +1648,8 @@ pub fn membros_em_conflito(
                         K::ExtensionType => "extension type",
                         _ => "class",
                     };
-                    let Some((u, span)) = p.nome_nao_sintetico_da_funcao(f) else { continue };
-                    let file = (u != decl.unit).then(|| p.caminho_da_unidade(u).into());
+                    let Some((u, span)) = p.non_synthetic_function_name(f) else { continue };
+                    let file = (u != decl.unit).then(|| p.unit_path(u).into());
                     let text = format!("{template} {owner_kind} '{}'.", interner.resolve(p.class(owner).name));
                     d.context.push(dartforge_diagnostics::ContextMessage { file: file, span, message: text.into() });
                 }
@@ -1683,7 +1683,7 @@ pub fn estaticos_de_enum(
         let Some(decl) = cls.decl else { continue };
         let ast_ = &program.unit(decl.unit).ast;
         let DeclKind::Enum(d) = &ast_.decl(decl.decl).kind else { continue };
-        let owner = program.dono_da_classe(ClassId(ci as u32));
+        let owner = program.class_owner(ClassId(ci as u32));
         let enum_text = interner.resolve(program.class(owner).name).to_string();
         let in_interface = |cx: &mut Ctx<'_>, the_name: &str| -> bool {
             // The model's synthetic `name` getter (`outline.rs`, for the back ends)
@@ -1847,7 +1847,7 @@ pub fn membros_de_enum(
         }
         let ast_ = &program.unit(decl.unit).ast;
         let source = &program.unit(decl.unit).source;
-        if program.biblioteca_com_augmentations(cls.library) && source.lines().any(|l| l.trim_start().starts_with("augment ")) {
+        if program.library_has_augmentations(cls.library) && source.lines().any(|l| l.trim_start().starts_with("augment ")) {
             continue;
         }
         let (class_name, members): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind {

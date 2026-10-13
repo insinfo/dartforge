@@ -903,12 +903,12 @@ impl<'a> V<'a> {
         }
         let p = self.program;
         let (tgt, mem) = match &m.name[..] {
-            [c] => (p.lookup_na_unidade(u, c.sym).and_then(|b| b.getter), None),
-            [x, y] => match p.lookup_na_unidade(u, x.sym).and_then(|b| b.getter) {
+            [c] => (p.lookup_in_unit(u, c.sym).and_then(|b| b.getter), None),
+            [x, y] => match p.lookup_in_unit(u, x.sym).and_then(|b| b.getter) {
                 Some(el @ (Element::Class(_) | Element::Typedef(_))) => (Some(el), Some(y.sym)),
-                _ => (p.lookup_prefixed_na_unidade(u, x.sym, y.sym).and_then(|b| b.getter), None),
+                _ => (p.lookup_prefixed_in_unit(u, x.sym, y.sym).and_then(|b| b.getter), None),
             },
-            [x, c, n] => (p.lookup_prefixed_na_unidade(u, x.sym, c.sym).and_then(|b| b.getter), Some(n.sym)),
+            [x, c, n] => (p.lookup_prefixed_in_unit(u, x.sym, c.sym).and_then(|b| b.getter), Some(n.sym)),
             _ => (None, None),
         };
         // `@DWORD()` with `typedef DWORD = Uint32;`: the annotation's element is
@@ -1343,9 +1343,9 @@ impl<'a> V<'a> {
                 if tps.iter().any(|p| p.name.sym == n.sym) {
                     return None;
                 }
-                self.program.lookup_na_unidade(self.u, n.sym).and_then(|b| b.getter)
+                self.program.lookup_in_unit(self.u, n.sym).and_then(|b| b.getter)
             }
-            [p, n] => self.program.lookup_prefixed_na_unidade(self.u, p.sym, n.sym).and_then(|b| b.getter),
+            [p, n] => self.program.lookup_prefixed_in_unit(self.u, p.sym, n.sym).and_then(|b| b.getter),
             _ => None,
         }
     }
@@ -1782,7 +1782,7 @@ impl<'a> V<'a> {
         // `RangeError` — the library ends up without diagnostics
         // ([`QuebraDoAnalyzer`]). In 3.13.4 (`:2171-2220`), the last argument
         // that exists up to `i`, and the annotation when there are no arguments.
-        let reference_313 = self.program.referencia(self.u) == dartforge_diagnostics::AnalyzerReference::V3_13;
+        let reference_313 = self.program.reference(self.u) == dartforge_diagnostics::AnalyzerReference::V3_13;
         let mut error_node = the_first.span;
         for (i, d) in dimensions.iter().enumerate() {
             if reference_313 && let Some(&s) = nodes.get(i) {
@@ -2174,7 +2174,7 @@ impl<'a> V<'a> {
         let Some(c) = g.class else { return };
         let sup = self.program.class(c).supertype_class;
         if sup.is_some_and(|s| self.compound(s)) && self.e_class_element(c) {
-            if !self.program.function(self.program.publico(f)).factory {
+            if !self.program.function(self.program.public(f)).factory {
                 self.report(cf::CREATION_OF_STRUCT_OR_UNION, constructor_name, &[]);
             }
         } else if self.ffi_class(c, "NativeCallable") {

@@ -1149,7 +1149,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn interface_members(&self, c: ClassId, only_super: bool, inherited: bool) -> Vec<FunctionElementId> {
         let mut cache = HashMap::new();
         let mut processing = HashSet::new();
-        let i = interface_of(self.query, self.query.core.object_class, self.query.program.dono_da_classe(c), &mut cache, &mut processing);
+        let i = interface_of(self.query, self.query.core.object_class, self.query.program.class_owner(c), &mut cache, &mut processing);
         let map = if only_super {
             &i.implemented_super
         } else if inherited {
@@ -2088,7 +2088,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         if self.fl().assignable {
             return;
         }
-        let list = self.query.program.class(c).construtores();
+        let list = self.query.program.class(c).constructors();
         for (n, f) in list {
             let fe = self.query.program.function(f);
             if self.visible_in(fe.library, self.query.name(n)) && (non_factories || fe.factory) {
@@ -2109,7 +2109,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let Some(c) = fe.class else { return };
-        let class = self.query.name(self.query.program.class(self.query.program.dono_da_classe(c)).name).to_string();
+        let class = self.query.name(self.query.program.class(self.query.program.class_owner(c)).name).to_string();
         // The tracker: the class becomes known (or, if not imported, has to be
         // visible).
         if imp.is_some_and(|i| i.not_imported) {
@@ -2179,7 +2179,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `addConstructorNamesForElement`.
     pub(super) fn dh_element_constructor_names(&mut self, c: ClassId) {
-        let list = self.query.program.class(c).construtores();
+        let list = self.query.program.class(c).constructors();
         for (_, f) in list {
             self.suggest_constructor(f, true, None, false);
         }
@@ -2193,7 +2193,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             _ => return,
         };
         let constant = self.fl().constant;
-        let list = self.query.program.class(c).construtores();
+        let list = self.query.program.class(c).constructors();
         for (n, f) in list {
             let name = self.query.name(n).to_string();
             if !name.is_empty() && Some(&name) != exclude.as_ref() && !(constant && !self.query.program.function(f).const_) {
@@ -2280,7 +2280,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         if !self.fl().assignable {
             if constructors && let Some(c) = c {
-                let list = self.query.program.class(c).construtores();
+                let list = self.query.program.class(c).constructors();
                 for (n, f) in list {
                     let fe = self.query.program.function(f);
                     if self.visible_in(fe.library, self.query.name(n)) && (non_factories || fe.factory) {
@@ -2302,7 +2302,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn dh_redirections(&mut self, redirecting: FunctionElementId) {
         use dartforge_elements::model::ClassKind as K;
         let Some(c) = self.query.program.function(redirecting).class else { return };
-        let c = self.query.program.dono_da_classe(c);
+        let c = self.query.program.class_owner(c);
         let type_c = self.type_this(c);
         let lib = self.library();
         let units = self.query.program.library(lib).units.clone();
@@ -2316,7 +2316,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 if !self.subtype(type_k, type_c) {
                     continue;
                 }
-                let list = self.query.program.class(k).construtores();
+                let list = self.query.program.class(k).constructors();
                 for (n, f) in list {
                     let fe = self.query.program.function(f);
                     let accessible = fe.library == lib || !self.query.name(n).starts_with('_');
@@ -2401,7 +2401,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 _ => None,
             })
             .unwrap_or_default();
-        let Some(f_sup) = p.class(p.dono_da_classe(sup)).construtores().into_iter().find(|(s, _)| self.query.name(*s) == name_sup).map(|(_, f)| f) else {
+        let Some(f_sup) = p.class(p.class_owner(sup)).constructors().into_iter().find(|(s, _)| self.query.name(*s) == name_sup).map(|(_, f)| f) else {
             return;
         };
         let parameters_sup = self.query.outline.functions[f_sup.0 as usize].parameters.clone();
@@ -2524,7 +2524,7 @@ fn declared(q: &Query, c: ClassId, include_abstract: bool) -> Vec<(Key, Function
 }
 
 fn from_object(p: &dartforge_elements::model::Program, object: Option<ClassId>, f: FunctionElementId) -> bool {
-    object.is_some() && p.function(f).class.map(|c| p.dono_da_classe(c)) == object
+    object.is_some() && p.function(f).class.map(|c| p.class_owner(c)) == object
 }
 
 /// `getInterface`: `_getInterfaceClass`, `_getInterfaceMixin` and
@@ -2545,7 +2545,7 @@ fn interface_of(
     let p = &q.program;
     let cl = p.class(c);
     let sub = |x: ClassId, cache: &mut HashMap<ClassId, std::rc::Rc<Interface>>, processing: &mut HashSet<ClassId>| {
-        interface_of(q, object, p.dono_da_classe(x), cache, processing)
+        interface_of(q, object, p.class_owner(x), cache, processing)
     };
     let i = match cl.kind {
         ClassKind::Mixin => {
@@ -2642,13 +2642,13 @@ fn interface_of(
             }
             let mut implemented_super = implemented.clone();
             for &m in &cl.mixin_classes {
-                let owner_m = p.dono_da_classe(m);
+                let owner_m = p.class_owner(m);
                 let im = sub(m, cache, processing);
                 for (k, f) in im.map.entries() {
                     // A member declared in the mixin itself replaces the superclass's; what the
                     // mixin inherits from `on` keeps the most specific one, which is the one
                     // already present.
-                    if !candidates.contains(&k) || p.function(f).class.map(|d| p.dono_da_classe(d)) == Some(owner_m) {
+                    if !candidates.contains(&k) || p.function(f).class.map(|d| p.class_owner(d)) == Some(owner_m) {
                         candidates.insert(k, f);
                     }
                 }

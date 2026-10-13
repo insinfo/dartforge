@@ -2046,8 +2046,8 @@ fn dead_code_snippets_like_analyzer() {
 fn augmentation_inherits_omitted_types() {
     let tmp = tempdir().unwrap();
     let mut sdk = mock_sdk(tmp.path());
-    sdk.experimentos.push(dartforge_frontend::features::Feature::Augmentations);
-    sdk.experimentos.push(dartforge_frontend::features::Feature::EnhancedParts);
+    sdk.experiments.push(dartforge_frontend::features::Feature::Augmentations);
+    sdk.experiments.push(dartforge_frontend::features::Feature::EnhancedParts);
     let mut interner = Interner::new();
     let the_proj = tmp.path().join("proj");
     fs::create_dir_all(&the_proj).unwrap();
@@ -2104,8 +2104,8 @@ fn augmentation_inherits_omitted_types() {
 fn enum_augmentation_adds_values_and_members() {
     let tmp = tempdir().unwrap();
     let mut sdk = mock_sdk(tmp.path());
-    sdk.experimentos.push(dartforge_frontend::features::Feature::Augmentations);
-    sdk.experimentos.push(dartforge_frontend::features::Feature::EnhancedParts);
+    sdk.experiments.push(dartforge_frontend::features::Feature::Augmentations);
+    sdk.experiments.push(dartforge_frontend::features::Feature::EnhancedParts);
     let mut interner = Interner::new();
     let the_proj = tmp.path().join("proj");
     fs::create_dir_all(&the_proj).unwrap();

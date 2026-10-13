@@ -9,8 +9,8 @@
 //! **The caller decides what changed**, not the loader: asking the file
 //! system for every unit cost one `stat` per file inside the load (2,423 in
 //! `new_sali`, 7–20 s of wall clock on Windows with an antivirus). The
-//! session calls [`CacheUnidades::alterados`] — which does the scan **in
-//! parallel** — or [`CacheUnidades::invalidar`] when it already knows the
+//! session calls [`AnalyzedUnitCache::changed`] — which does the scan **in
+//! parallel** — or [`AnalyzedUnitCache::invalidate`] when it already knows the
 //! file.
 //!
 //! Condition of use: the same [`dartforge_intern::Interner`] as the previous
@@ -21,15 +21,15 @@ use std::path::{Path, PathBuf};
 
 /// Cheap identity of a file: what the `mtime` and the size say.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Marca {
+pub struct FileStamp {
     /// Modification time in nanoseconds since the epoch (0 when unavailable).
     pub mtime_ns: u128,
-    pub tamanho: u64,
+    pub size: u64,
 }
 
-impl Marca {
+impl FileStamp {
     /// Reads the stamp of a path; `None` if the file does not exist.
-    pub fn ler(path: &Path) -> Option<Marca> {
+    pub fn read(path: &Path) -> Option<FileStamp> {
         let md = std::fs::metadata(path).ok()?;
         let mtime_ns = md
             .modified()
@@ -37,53 +37,53 @@ impl Marca {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        Some(Marca { mtime_ns, tamanho: md.len() })
+        Some(FileStamp { mtime_ns, size: md.len() })
     }
 }
 
 /// Units kept between compilations, by path.
 #[derive(Default)]
-pub struct CacheUnidades {
-    unidades: HashMap<PathBuf, Unit>,
+pub struct AnalyzedUnitCache {
+    units: HashMap<PathBuf, Unit>,
     /// The file's stamp when the unit was analyzed.
-    marks: HashMap<PathBuf, Marca>,
+    marks: HashMap<PathBuf, FileStamp>,
     /// Units reused in the current load.
-    pub reaproveitadas: usize,
+    pub reused: usize,
 }
 
-impl CacheUnidades {
-    pub fn nova() -> Self {
+impl AnalyzedUnitCache {
+    pub fn new() -> Self {
         Self::default()
     }
 
     pub fn len(&self) -> usize {
-        self.unidades.len()
+        self.units.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.unidades.is_empty()
+        self.units.is_empty()
     }
 
     /// Forgets a unit (edited or deleted file).
-    pub fn invalidar(&mut self, path: &Path) {
-        self.unidades.remove(path);
+    pub fn invalidate(&mut self, path: &Path) {
+        self.units.remove(path);
         self.marks.remove(path);
     }
 
-    pub fn limpar(&mut self) {
-        self.unidades.clear();
+    pub fn clear(&mut self) {
+        self.units.clear();
         self.marks.clear();
     }
 
     /// Source bytes retained — the share that grows with the project, not with
     /// the number of edits (the `medir` example watches this).
-    pub fn bytes_fonte(&self) -> usize {
-        self.unidades.values().map(|u| u.source.len()).sum()
+    pub fn source_bytes(&self) -> usize {
+        self.units.values().map(|u| u.source.len()).sum()
     }
 
     /// Resets the load counters (the loader calls this when starting).
     pub fn start_load(&mut self) {
-        self.reaproveitadas = 0;
+        self.reused = 0;
     }
 
     /// Kept paths whose file changed (or disappeared) since the analysis.
@@ -91,13 +91,13 @@ impl CacheUnidades {
     /// It is the `dartforge dev` watcher's scan: one `stat` per unit, **in
     /// parallel** (on Windows each `stat` goes through the antivirus and in
     /// series would cost seconds), without reading content.
-    pub fn alterados(&self) -> Vec<PathBuf> {
-        let caminhos: Vec<(&PathBuf, Marca)> = self.marks.iter().map(|(p, m)| (p, *m)).collect();
+    pub fn changed(&self) -> Vec<PathBuf> {
+        let paths: Vec<(&PathBuf, FileStamp)> = self.marks.iter().map(|(p, m)| (p, *m)).collect();
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
-        if caminhos.len() < 32 || threads < 2 {
-            return caminhos
+        if paths.len() < 32 || threads < 2 {
+            return paths
                 .into_iter()
-                .filter(|(p, m)| Marca::ler(p).is_none_or(|current| current != *m))
+                .filter(|(p, m)| FileStamp::read(p).is_none_or(|current| current != *m))
                 .map(|(p, _)| p.clone())
                 .collect();
         }
@@ -109,8 +109,8 @@ impl CacheUnidades {
                         let mut mine = Vec::new();
                         loop {
                             let i = next_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            let Some((p, m)) = caminhos.get(i) else { break };
-                            if Marca::ler(p).is_none_or(|current| current != *m) {
+                            let Some((p, m)) = paths.get(i) else { break };
+                            if FileStamp::read(p).is_none_or(|current| current != *m) {
                                 mine.push((*p).clone());
                             }
                         }
@@ -124,21 +124,21 @@ impl CacheUnidades {
     }
 
     /// Kept paths (what the session watches).
-    pub fn caminhos(&self) -> Vec<PathBuf> {
-        self.unidades.keys().cloned().collect()
+    pub fn paths(&self) -> Vec<PathBuf> {
+        self.units.keys().cloned().collect()
     }
 
     /// Whether there is a kept unit for `path` (without touching the disk).
-    pub fn contem(&self, path: &Path) -> bool {
-        self.unidades.contains_key(path)
+    pub fn contains(&self, path: &Path) -> bool {
+        self.units.contains_key(path)
     }
 
     /// Takes out the unit of `path`, if any. Does not check the disk: what was
     /// invalidated has already left.
     pub(crate) fn take(&mut self, path: &Path) -> Option<Unit> {
-        let u = self.unidades.remove(path);
+        let u = self.units.remove(path);
         if u.is_some() {
-            self.reaproveitadas += 1;
+            self.reused += 1;
         }
         u
     }
@@ -146,18 +146,18 @@ impl CacheUnidades {
     /// Records the stamp of a freshly read file (one `stat`, at read time — it
     /// is the only disk query the load makes per new file).
     pub(crate) fn annotate_marker(&mut self, path: &Path) {
-        if let Some(m) = Marca::ler(path) {
+        if let Some(m) = FileStamp::read(path) {
             self.marks.insert(path.to_path_buf(), m);
         }
     }
 
     /// Collects the units of a [`Program`] that is no longer used — including
     /// those of the SDK, which do not change between edits either.
-    pub fn recolher(&mut self, program: Program) {
+    pub fn reclaim(&mut self, program: Program) {
         let Program { units, .. } = program;
         for u in units {
             let Some(path) = u.path.clone() else { continue };
-            self.unidades.insert(path, u);
+            self.units.insert(path, u);
         }
     }
 }

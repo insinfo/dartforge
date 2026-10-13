@@ -88,11 +88,11 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut timings = false;
-    let mut language = dartforge_emit_js::Linguagem::default();
+    let mut language = dartforge_emit_js::LanguageOptions::default();
     let texts: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
     let mut it = texts.iter().map(String::as_str);
     while let Some(a) = it.next() {
-        if language.ler_opcao(a, &mut it)? {
+        if language.read_option(a, &mut it)? {
             continue;
         }
         match a {

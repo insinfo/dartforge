@@ -480,7 +480,7 @@ impl NativeGenerator for I18nNative {
         for folder in SOURCE_FOLDERS {
             let dir = request.package_root.join(folder);
             ctx.register(Query::Glob {
-                dir: dartforge_elements::gerado::chave(&dir),
+                dir: dartforge_elements::generated::key(&dir),
                 pattern: "**.i18n.yaml".into(),
             });
             all.extend(

@@ -67,7 +67,7 @@ pub fn load_lenient(
     package_config_path: Option<&Path>,
     interner: &mut Interner,
 ) -> (Program, Vec<Diagnostic>) {
-    load_lenient_com_cache(entry, sdk, package_config_path, interner, None)
+    load_lenient_with_cache(entry, sdk, package_config_path, interner, None)
 }
 
 /// Like [`load_lenient`], taking the units of the `dart:` libraries from
@@ -76,7 +76,7 @@ pub fn load_lenient(
 /// The cache is only used if its symbols fit in `interner` with the same
 /// ids (an empty interner, or one already prepared by this same cache);
 /// otherwise the load goes through the files.
-pub fn load_lenient_com_cache(
+pub fn load_lenient_with_cache(
     entry: &Path,
     sdk: &SdkLayout,
     package_config_path: Option<&Path>,
@@ -86,7 +86,7 @@ pub fn load_lenient_com_cache(
     load_lenient_incremental(entry, sdk, package_config_path, interner, cache, None)
 }
 
-/// Like [`load_lenient_com_cache`], reusing from `unidades` the units whose
+/// Like [`load_lenient_with_cache`], reusing from `units` the units whose
 /// files did not change (resident session).
 ///
 /// The `interner` must be the same as that of the analyses that filled the
@@ -97,28 +97,28 @@ pub fn load_lenient_incremental(
     package_config_path: Option<&Path>,
     interner: &mut Interner,
     cache: Option<crate::sdk_cache::SdkCache>,
-    unidades: Option<&mut crate::unidades::CacheUnidades>,
+    units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
 ) -> (Program, Vec<Diagnostic>) {
-    load_lenient_gerados(entry, sdk, package_config_path, interner, cache, unidades, None)
+    load_lenient_generated(entry, sdk, package_config_path, interner, cache, units, None)
 }
 
 /// Like `load_lenient_incremental`, with an in-memory source generation
 /// (ngdart's `.template.dart` and the like): what is in it wins over the
 /// disk and is not even read from there.
 #[allow(clippy::too_many_arguments)]
-pub fn load_lenient_gerados(
+pub fn load_lenient_generated(
     entry: &Path,
     sdk: &SdkLayout,
     package_config_path: Option<&Path>,
     interner: &mut Interner,
     cache: Option<crate::sdk_cache::SdkCache>,
-    unidades: Option<&mut crate::unidades::CacheUnidades>,
-    gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
+    units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
+    generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
 ) -> (Program, Vec<Diagnostic>) {
-    load_lenient_entradas(&[entry], sdk, package_config_path, interner, cache, unidades, gerados)
+    load_lenient_entries(&[entry], sdk, package_config_path, interner, cache, units, generated_sources)
 }
 
-/// Like [`load_lenient_gerados`], with several entry libraries in the same
+/// Like [`load_lenient_generated`], with several entry libraries in the same
 /// program: the first one is [`Program::entry`] and the others only go into
 /// the queue, with what they import. It is the load of a whole project (the
 /// LSP's rename needs to see the libraries that import the declaration, not
@@ -129,41 +129,41 @@ pub fn load_lenient_gerados(
 ///
 /// When `entries` is empty.
 #[allow(clippy::too_many_arguments)]
-pub fn load_lenient_entradas(
+pub fn load_lenient_entries(
     entries: &[&Path],
     sdk: &SdkLayout,
     package_config_path: Option<&Path>,
     interner: &mut Interner,
     cache: Option<crate::sdk_cache::SdkCache>,
-    unidades: Option<&mut crate::unidades::CacheUnidades>,
-    gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
+    units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
+    generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
 ) -> (Program, Vec<Diagnostic>) {
-    load_lenient_(entries, sdk, package_config_path, interner, cache, unidades, gerados, None)
+    load_lenient_(entries, sdk, package_config_path, interner, cache, units, generated_sources, None)
 }
 
-/// Like [`load_lenient`], without seeing `ocultos` (keys from
-/// [`crate::gerado::chave`]): the load a `build_runner` builder makes of the
+/// Like [`load_lenient`], without seeing `hidden` (keys from
+/// [`crate::generated::key`]): the load a `build_runner` builder makes of the
 /// program, without the outputs of the phases that have not run for it yet.
 pub fn load_lenient_hiding(
     entry: &Path,
     sdk: &SdkLayout,
     package_config_path: Option<&Path>,
     interner: &mut Interner,
-    ocultos: std::sync::Arc<std::collections::HashSet<PathBuf>>,
+    hidden: std::sync::Arc<std::collections::HashSet<PathBuf>>,
 ) -> (Program, Vec<Diagnostic>) {
-    load_lenient_(&[entry], sdk, package_config_path, interner, None, None, None, Some(ocultos))
+    load_lenient_(&[entry], sdk, package_config_path, interner, None, None, None, Some(hidden))
 }
 
 /// Like [`load_lenient_hiding`], with several roots: the first one is the
 /// program's entry point; the others go into the queue as libraries. A root
 /// that is a part (`part of`) is dropped — it comes in through its owning
 /// library, and loading it as a library too would duplicate it.
-pub fn load_lenient_entradas_ocultando(
+pub fn load_lenient_entries_hiding(
     entries: &[&Path],
     sdk: &SdkLayout,
     package_config_path: Option<&Path>,
     interner: &mut Interner,
-    ocultos: std::sync::Arc<std::collections::HashSet<PathBuf>>,
+    hidden: std::sync::Arc<std::collections::HashSet<PathBuf>>,
 ) -> (Program, Vec<Diagnostic>) {
     let mut roots: Vec<&Path> = Vec::with_capacity(entries.len());
     for (i, e) in entries.iter().enumerate() {
@@ -171,12 +171,12 @@ pub fn load_lenient_entradas_ocultando(
             roots.push(e);
         }
     }
-    load_lenient_(&roots, sdk, package_config_path, interner, None, None, None, Some(ocultos))
+    load_lenient_(&roots, sdk, package_config_path, interner, None, None, None, Some(hidden))
 }
 
 /// Does the file have the `part of` directive? Unreadable counts as no.
-fn is_part_on_disk(caminho: &Path, interner: &mut Interner) -> bool {
-    let Ok(text) = std::fs::read_to_string(caminho) else {
+fn is_part_on_disk(path: &Path, interner: &mut Interner) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
         return false;
     };
     let tokens = dartforge_frontend::lexer::lex(&text);
@@ -195,12 +195,12 @@ fn load_lenient_(
     package_config_path: Option<&Path>,
     interner: &mut Interner,
     cache: Option<crate::sdk_cache::SdkCache>,
-    mut unidades: Option<&mut crate::unidades::CacheUnidades>,
-    gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
-    ocultos: Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>,
+    mut units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
+    generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
+    hidden: Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>,
 ) -> (Program, Vec<Diagnostic>) {
     let entry = *entries.first().expect("at least one entry");
-    if let Some(u) = unidades.as_deref_mut() {
+    if let Some(u) = units.as_deref_mut() {
         u.start_load();
     }
     let mut diagnostics = Vec::new();
@@ -217,8 +217,8 @@ fn load_lenient_(
     } else {
         PackageConfig::default()
     };
-    package_config.gerados = gerados;
-    package_config.ocultos = ocultos;
+    package_config.generated_sources = generated_sources;
+    package_config.hidden = hidden;
 
     let mut program = Program::default();
     let mut uri_to_library: HashMap<String, LibraryId> = HashMap::new();
@@ -238,10 +238,10 @@ fn load_lenient_(
             exported: HashMap::new(),
             scope: HashMap::new(),
             prefixes: HashMap::new(),
-            pais: HashMap::new(),
-            representante: Default::default(),
-            dono_do_grupo: Default::default(),
-            escopos_de_unidade: HashMap::new(),
+            unit_parents: HashMap::new(),
+            representative: Default::default(),
+            group_owner: Default::default(),
+            unit_scopes: HashMap::new(),
             is_sdk: true,
             features: LibraryFeatures::floor(),
         });
@@ -255,8 +255,8 @@ fn load_lenient_(
     // everything derived from it — parts and relative imports — is resolved
     // lexically, as Dart's `Uri.resolve` does.
     let mut prefetch = Prefetch {
-        gerados: package_config.gerados.clone(),
-        ocultos: package_config.ocultos.clone(),
+        generated_sources: package_config.generated_sources.clone(),
+        hidden: package_config.hidden.clone(),
         ..Default::default()
     };
     let mut considered = 0usize;
@@ -264,7 +264,7 @@ fn load_lenient_(
     // library's turn in the queue.
     let mut decoded_sdk: HashMap<String, Vec<crate::sdk_cache::UnitCache>> = HashMap::new();
     for (i, entry_path) in entries.iter().enumerate() {
-        let canonical_entry = crate::config::sem_verbatim(
+        let canonical_entry = crate::config::without_verbatim(
             std::fs::canonicalize(entry_path).unwrap_or_else(|_| entry_path.to_path_buf()),
         );
         let entry_uri = canonical_file_uri(&canonical_entry, &package_config);
@@ -283,10 +283,10 @@ fn load_lenient_(
                 exported: HashMap::new(),
                 scope: HashMap::new(),
                 prefixes: HashMap::new(),
-                pais: HashMap::new(),
-                representante: Default::default(),
-                dono_do_grupo: Default::default(),
-                escopos_de_unidade: HashMap::new(),
+                unit_parents: HashMap::new(),
+                representative: Default::default(),
+                group_owner: Default::default(),
+                unit_scopes: HashMap::new(),
                 is_sdk,
                 features: if is_sdk { LibraryFeatures::floor() } else { LibraryFeatures::current() },
             });
@@ -309,7 +309,7 @@ fn load_lenient_(
         // times — 11 s in `new_sali`.)
         if prefetch.empty() && considered < program.libraries.len() {
             let t = std::time::Instant::now();
-            let mut caminhos: Vec<PathBuf> = Vec::new();
+            let mut paths: Vec<PathBuf> = Vec::new();
             for i in considered..program.libraries.len() {
                 let uri = &program.libraries[i].uri;
                 if !uri.starts_with("dart:") {
@@ -319,8 +319,8 @@ fn load_lenient_(
                         // itself — it is one file. (Checking the stamp here cost one `stat` per
                         // queued library **on every wave**: 34 thousand in `new_sali`, 13 s of wall
                         // clock on Windows.)
-                        if !unidades.as_deref().is_some_and(|u| u.contem(&p)) {
-                            caminhos.push(p);
+                        if !units.as_deref().is_some_and(|u| u.contains(&p)) {
+                            paths.push(p);
                         }
                     }
                 }
@@ -333,17 +333,17 @@ fn load_lenient_(
                 let names_: Vec<&str> = program.libraries[considered..]
                     .iter()
                     .filter_map(|l| l.uri.strip_prefix("dart:"))
-                    .filter(|n| c.tem(n))
+                    .filter(|n| c.has(n))
                     .collect();
                 if !names_.is_empty() {
                     decoded_sdk.extend(c.remove_several(&names_));
                 }
-                program.tempos.sdk_cache += t_cache.elapsed();
+                program.times.sdk_cache += t_cache.elapsed();
             }
             considered = program.libraries.len();
-            prefetch.load_(caminhos);
-            program.tempos.leitura_lex_paralelo += t.elapsed();
-            program.tempos.ondas += 1;
+            prefetch.load_(paths);
+            program.times.parallel_read_lex += t.elapsed();
+            program.times.waves += 1;
         }
         let lib_uri = program.libraries[lib_id.0 as usize].uri.clone();
 
@@ -353,10 +353,10 @@ fn load_lenient_(
             let t_cache = std::time::Instant::now();
             let from_cache = decoded_sdk
                 .remove(lib_name)
-                .or_else(|| cache.as_mut().and_then(|c| c.retirar(lib_name)));
-            program.tempos.sdk_cache += t_cache.elapsed();
-            if let Some(unidades) = from_cache {
-                for u in unidades {
+                .or_else(|| cache.as_mut().and_then(|c| c.take(lib_name)));
+            program.times.sdk_cache += t_cache.elapsed();
+            if let Some(units) = from_cache {
+                for u in units {
                     let unit_id = UnitId(program.units.len() as u32);
                     program.units.push(Unit {
                         uri: u.uri,
@@ -367,8 +367,8 @@ fn load_lenient_(
                         library: lib_id,
                         role: u.role,
                         features: LibraryFeatures::floor(),
-                        pulados: Vec::new(),
-                        referencia: dartforge_diagnostics::AnalyzerReference::V3_6,
+                        skipped: Vec::new(),
+                        reference: dartforge_diagnostics::AnalyzerReference::V3_6,
                     });
                     program.libraries[lib_id.0 as usize].units.push(unit_id);
                 }
@@ -385,7 +385,7 @@ fn load_lenient_(
                     &mut program,
                     &mut diagnostics,
                     read_substitute(sdk, &sdk_lib.path),
-                    unidades.as_deref_mut(),
+                    units.as_deref_mut(),
                 );
                 if let Some(uid) = main_unit {
                     program.libraries[lib_id.0 as usize].units.push(uid);
@@ -407,7 +407,7 @@ fn load_lenient_(
                         &mut program,
                         &mut diagnostics,
                         read_substitute(sdk, patch_path),
-                        unidades.as_deref_mut(),
+                        units.as_deref_mut(),
                     );
                     if let Some(uid) = patch_unit {
                         program.libraries[lib_id.0 as usize].units.push(uid);
@@ -429,12 +429,12 @@ fn load_lenient_(
                     &lib_uri,
                     lib_id,
                     UnitRole::Library,
-                    Version::Library { config: &package_config, current_version: sdk.versao_corrente, experimentos: &sdk.experimentos },
+                    Version::Library { config: &package_config, current_version: sdk.current_version, experiments: &sdk.experiments },
                     interner,
                     &mut program,
                     &mut diagnostics,
                     prefetch.take(&path),
-                    unidades.as_deref_mut(),
+                    units.as_deref_mut(),
                 );
                 if let Some(uid) = main_unit {
                     program.libraries[lib_id.0 as usize].units.push(uid);
@@ -449,7 +449,7 @@ fn load_lenient_(
 
         // 5. Analyzes the directives in every loaded unit of this library
         let t_dir = std::time::Instant::now();
-        let (read_before, parse_before) = (program.tempos.leitura, program.tempos.parse);
+        let (read_before, parse_before) = (program.times.read, program.times.parse);
         let mut unit_idx = 0;
         // The augmentation the macro host built for this library (in memory,
         // `<name>.macro.dart` next to it) comes in last, after every part — like
@@ -462,7 +462,7 @@ fn load_lenient_(
                     break;
                 }
                 attached_macro = true;
-                match attach_macro_augmentation(&mut program, lib_id, &package_config, sdk.versao_corrente, interner, &mut diagnostics, &mut prefetch) {
+                match attach_macro_augmentation(&mut program, lib_id, &package_config, sdk.current_version, interner, &mut diagnostics, &mut prefetch) {
                     Some(uid) => {
                         program.libraries[lib_id.0 as usize].units.push(uid);
                         continue;
@@ -588,7 +588,7 @@ fn load_lenient_(
                         let part_version = if program.libraries[lib_id.0 as usize].is_sdk {
                             Version::Sdk
                         } else {
-                            Version::Part { of_library, config: &package_config, current_version: sdk.versao_corrente }
+                            Version::Part { of_library, config: &package_config, current_version: sdk.current_version }
                         };
 
                         let role_ = if augmentation { UnitRole::Augmentation } else { part_roles };
@@ -602,7 +602,7 @@ fn load_lenient_(
                             &mut program,
                             &mut diagnostics,
                             read_substitute(sdk, &canonical_part).or_else(|| prefetch.take(&canonical_part)),
-                            unidades.as_deref_mut(),
+                            units.as_deref_mut(),
                         );
 
                         if let Some(p_uid) = part_unit {
@@ -614,7 +614,7 @@ fn load_lenient_(
                             // The SDK stays in the usual discovery order (the same as the SDK cache's):
                             // there are no augmentations there.
                             let libr = &mut program.libraries[lib_id.0 as usize];
-                            libr.pais.insert(p_uid, unit_id);
+                            libr.unit_parents.insert(p_uid, unit_id);
                             if libr.is_sdk {
                                 libr.units.push(p_uid);
                             } else {
@@ -697,10 +697,10 @@ fn load_lenient_(
             }
         }
         // Parts loaded here were already counted in read/parse.
-        program.tempos.diretivas += t_dir
+        program.times.directives += t_dir
             .elapsed()
-            .saturating_sub(program.tempos.leitura - read_before)
-            .saturating_sub(program.tempos.parse - parse_before);
+            .saturating_sub(program.times.read - read_before)
+            .saturating_sub(program.times.parse - parse_before);
     }
 
     // 6. Builds the outline and namespaces and resolves supertypes
@@ -740,10 +740,10 @@ type ReadFile = std::io::Result<(String, Result<Vec<dartforge_frontend::token::T
 struct Prefetch {
     ready: HashMap<PathBuf, ReadFile>,
     /// Current generation: sources from here never come from the disk.
-    gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
-    /// What the load does not see ([`PackageConfig::ocultos`]): read as a
+    generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
+    /// What the load does not see ([`PackageConfig::hidden`]): read as a
     /// nonexistent file.
-    ocultos: Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>,
+    hidden: Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>,
 }
 
 impl Prefetch {
@@ -752,38 +752,38 @@ impl Prefetch {
     }
 
     fn take(&mut self, path: &Path) -> Option<ReadFile> {
-        if let Some(f) = self.gerados.as_ref().and_then(|g| g.obter(path)) {
-            let source = f.conteudo.to_string();
+        if let Some(f) = self.generated_sources.as_ref().and_then(|g| g.get(path)) {
+            let source = f.content.to_string();
             let tokens = dartforge_frontend::lexer::lex(&source);
             return Some(Ok((source, tokens)));
         }
         self.ready.remove(path)
     }
 
-    /// Reads and lexes `caminhos` with up to 8 threads (`std::thread::scope`);
+    /// Reads and lexes `paths` with up to 8 threads (`std::thread::scope`);
     /// a few files stay on the current thread, since the cost of creating
     /// threads does not pay off.
-    fn load_(&mut self, caminhos: Vec<PathBuf>) {
+    fn load_(&mut self, paths: Vec<PathBuf>) {
         // What the generation has in memory is not read from the disk.
-        let caminhos: Vec<PathBuf> = match &self.gerados {
-            Some(g) => caminhos.into_iter().filter(|p| !g.contem(p)).collect(),
-            None => caminhos,
+        let paths: Vec<PathBuf> = match &self.generated_sources {
+            Some(g) => paths.into_iter().filter(|p| !g.contains(p)).collect(),
+            None => paths,
         };
-        let (ocultos, caminhos): (Vec<PathBuf>, Vec<PathBuf>) = caminhos.into_iter().partition(|p| {
-            self.ocultos.as_ref().is_some_and(|o| o.contains(&crate::gerado::chave(p)))
+        let (hidden, paths): (Vec<PathBuf>, Vec<PathBuf>) = paths.into_iter().partition(|p| {
+            self.hidden.as_ref().is_some_and(|o| o.contains(&crate::generated::key(p)))
         });
-        for p in ocultos {
+        for p in hidden {
             self.ready.insert(p, Err(std::io::ErrorKind::NotFound.into()));
         }
-        let ler = |p: &Path| -> ReadFile {
+        let read = |p: &Path| -> ReadFile {
             let s = std::fs::read_to_string(p)?;
             let t = dartforge_frontend::lexer::lex(&s);
             Ok((s, t))
         };
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
-        if caminhos.len() < 4 || threads < 2 {
-            for p in caminhos {
-                let l = ler(&p);
+        if paths.len() < 4 || threads < 2 {
+            for p in paths {
+                let l = read(&p);
                 self.ready.insert(p, l);
             }
             return;
@@ -796,8 +796,8 @@ impl Prefetch {
                         let mut mine = Vec::new();
                         loop {
                             let i = next_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            let Some(p) = caminhos.get(i) else { break };
-                            let l = ler(p);
+                            let Some(p) = paths.get(i) else { break };
+                            let l = read(p);
                             mine.push((p.clone(), l));
                         }
                         mine
@@ -806,8 +806,8 @@ impl Prefetch {
                 .collect();
             handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
         });
-        for lote in results {
-            for (p, l) in lote {
+        for batch in results {
+            for (p, l) in batch {
                 self.ready.insert(p, l);
             }
         }
@@ -815,12 +815,12 @@ impl Prefetch {
 }
 
 /// The text of an SDK file the overlay swaps
-/// (`SdkLayout::load_com_sobreposicao`): read from the substitute, with the
+/// (`SdkLayout::load_with_overlay`): read from the substitute, with the
 /// original's logical path — that is what makes a `part` of it resolve next
 /// to the original. `None` when there is no swap (reading follows the normal
 /// path).
 fn read_substitute(sdk: &SdkLayout, path: &Path) -> Option<ReadFile> {
-    let new_ = sdk.substituto(path)?;
+    let new_ = sdk.replacement(path)?;
     Some(std::fs::read_to_string(new_).map(|s| {
         let t = dartforge_frontend::lexer::lex(&s);
         (s, t)
@@ -837,10 +837,10 @@ fn library_path(lib_uri: &str, package_config: &PackageConfig) -> Option<PathBuf
         // any.
         if package_config.generated_root.is_some()
             && !p.is_file()
-            && !package_config.gerados.as_ref().is_some_and(|g| g.contem(&p))
+            && !package_config.generated_sources.as_ref().is_some_and(|g| g.contains(&p))
         {
-            if let Some(gerado) = package_config.gerado_no_lugar_de(&p) {
-                return Some(gerado);
+            if let Some(generated) = package_config.generated_in_place_of(&p) {
+                return Some(generated);
             }
         }
         Some(p)
@@ -876,7 +876,7 @@ enum Version<'c> {
     /// SDK library, patch or part: always the floor (D1).
     Sdk,
     /// Main unit of a user or package library.
-    Library { config: &'c PackageConfig, current_version: LanguageVersion, experimentos: &'c [Feature] },
+    Library { config: &'c PackageConfig, current_version: LanguageVersion, experiments: &'c [Feature] },
     /// Part: parsed with the library's features; the part's own version (marker
     /// or package) must be the same, otherwise it is an error
     /// (`LanguageVersionMismatchInPart`).
@@ -893,9 +893,9 @@ fn unit_features(
 ) -> LibraryFeatures {
     match version {
         Version::Sdk => LibraryFeatures::floor(),
-        Version::Library { config, current_version, experimentos } => {
+        Version::Library { config, current_version, experiments } => {
             let (default_version, marker) = own_version(source, uri, path, config, current_version, diagnostics);
-            LibraryFeatures::for_library(marker.map(|m| m.0), default_version, current_version, experimentos)
+            LibraryFeatures::for_library(marker.map(|m| m.0), default_version, current_version, experiments)
         }
         Version::Part { of_library, config, current_version } => {
             let (default_version, marker) = own_version(source, uri, path, config, current_version, diagnostics);
@@ -938,7 +938,7 @@ fn own_version(
         diagnostics.push(d);
     };
     let zero = Span { start: 0, end: 0 };
-    let default_version = match config.pacote_da_biblioteca(uri, Some(path)) {
+    let default_version = match config.library_package(uri, Some(path)) {
         Some(p) => {
             if let Some(t) = &p.invalid_language_version {
                 error_code(Diagnostic::new(format!("The languageVersion '{t}' of package '{}' in package_config.json isn't a valid x.y version.", p.name), zero));
@@ -966,8 +966,8 @@ fn own_version(
             None
         } else if v < LanguageVersion::MINIMUM {
             // CompileTimeErrorCode.ILLEGAL_LANGUAGE_VERSION_OVERRIDE.
-            let minima = format!(">={}.0", LanguageVersion::MINIMUM);
-            error_code(Diagnostic::with_code(codes::compile_time_error::ILLEGAL_LANGUAGE_VERSION_OVERRIDE, span, [minima.as_str()]));
+            let minimum = format!(">={}.0", LanguageVersion::MINIMUM);
+            error_code(Diagnostic::with_code(codes::compile_time_error::ILLEGAL_LANGUAGE_VERSION_OVERRIDE, span, [minimum.as_str()]));
             None
         } else {
             Some((v, span))
@@ -987,20 +987,20 @@ fn load_unit(
     program: &mut Program,
     diagnostics: &mut Vec<Diagnostic>,
     read_file: Option<ReadFile>,
-    unidades: Option<&mut crate::unidades::CacheUnidades>,
+    units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
 ) -> Option<UnitId> {
     // Resident session: an already analyzed unit comes straight in (what
     // changed was already invalidated by the cache's owner; the load does not
     // consult the disk for that). The version is recomputed from the stored
     // source (the marker) and the current `package_config`: if the package's
     // `languageVersion` changed, the unit is analyzed again.
-    let mut unidades = unidades;
-    if let Some(cache) = unidades.as_deref_mut() {
+    let mut units = units;
+    if let Some(cache) = units.as_deref_mut() {
         let removed = cache.take(path);
         if let Some(mut u) = removed {
             let mut version_diags = Vec::new();
             let features = unit_features(&u.source, uri, path, version, &mut version_diags);
-            let ok = crate::unidades::serve(&u, uri, role) && u.features == features;
+            let ok = crate::unit_cache::serve(&u, uri, role) && u.features == features;
             if ok {
                 diagnostics.extend(version_diags);
                 if role == UnitRole::Library {
@@ -1009,7 +1009,7 @@ fn load_unit(
                 u.library = lib_id;
                 let unit_id = UnitId(program.units.len() as u32);
                 program.units.push(u);
-                program.tempos.unidades_reaproveitadas += 1;
+                program.times.reused_units += 1;
                 return Some(unit_id);
             }
         }
@@ -1032,11 +1032,11 @@ fn load_unit(
             return None;
         }
     };
-    program.tempos.leitura += t.elapsed();
-    program.tempos.arquivos_lidos += 1;
-    program.tempos.bytes_lidos += source.len();
+    program.times.read += t.elapsed();
+    program.times.files_read += 1;
+    program.times.bytes_read += source.len();
     // A single `stat` per file read, so the session knows when it changes.
-    if let Some(cache) = unidades.as_deref_mut() {
+    if let Some(cache) = units.as_deref_mut() {
         cache.annotate_marker(path);
     }
 
@@ -1046,7 +1046,7 @@ fn load_unit(
     }
     let t = std::time::Instant::now();
     let parsed = dartforge_frontend::parser::parse_lexed_with(&source, tokens, interner, features);
-    program.tempos.parse += t.elapsed();
+    program.times.parse += t.elapsed();
     for mut d in parsed.diagnostics {
         d.message = format!("{}:{}: {}", path.display(), d.span.start, d.message);
         diagnostics.push(d);
@@ -1062,8 +1062,8 @@ fn load_unit(
         library: lib_id,
         role,
         features,
-        pulados: parsed.skipped,
-        referencia: parsed.reference,
+        skipped: parsed.skipped,
+        reference: parsed.reference,
     });
 
     Some(unit_id)
@@ -1090,10 +1090,10 @@ fn get_or_create_library(
             exported: HashMap::new(),
             scope: HashMap::new(),
             prefixes: HashMap::new(),
-            pais: HashMap::new(),
-            representante: Default::default(),
-            dono_do_grupo: Default::default(),
-            escopos_de_unidade: HashMap::new(),
+            unit_parents: HashMap::new(),
+            representative: Default::default(),
+            group_owner: Default::default(),
+            unit_scopes: HashMap::new(),
             is_sdk,
             features: if is_sdk { LibraryFeatures::floor() } else { LibraryFeatures::current() },
         });
@@ -1116,7 +1116,7 @@ fn get_or_create_library(
 fn canonical_file_uri(canonical: &Path, package_config: &PackageConfig) -> String {
     // On Windows `canonicalize` returns `\?\C:\…`; the package directories are
     // without the prefix, so the path is too.
-    let canonical = crate::config::sem_verbatim(canonical.to_path_buf());
+    let canonical = crate::config::without_verbatim(canonical.to_path_buf());
     if let Some(gen_root) = &package_config.generated_root {
         if let Ok(rel) = canonical.strip_prefix(gen_root) {
             let parts: Vec<String> = rel.iter().map(|c| c.to_string_lossy().into_owned()).collect();
@@ -1245,9 +1245,9 @@ fn resolve_directive_target(
         let canonical_uri = canonical_file_uri(&canonical, package_config);
         // Outside `lib/` (`test/`, `web/`), the `build_runner` generated file takes
         // the place of the missing file, with the place's URI.
-        if !canonical.is_file() && !package_config.gerados.as_ref().is_some_and(|g| g.contem(&canonical)) {
-            if let Some(gerado) = package_config.gerado_no_lugar_de(&canonical) {
-                return Ok((canonical_uri, Some(gerado)));
+        if !canonical.is_file() && !package_config.generated_sources.as_ref().is_some_and(|g| g.contains(&canonical)) {
+            if let Some(generated) = package_config.generated_in_place_of(&canonical) {
+                return Ok((canonical_uri, Some(generated)));
             }
         }
         Ok((canonical_uri, Some(canonical)))
@@ -1293,7 +1293,7 @@ fn evaluate_configuration(
 /// The path of a library's macro augmentation: `x.macro.dart` next to
 /// `x.dart` (the same name as the materialization,
 /// docs/MACROS-COMPATIBILIDADE.md).
-pub fn caminho_da_augmentation_de_macro(library: &Path) -> PathBuf {
+pub fn macro_augmentation_path(library: &Path) -> PathBuf {
     let stem = library.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     library.with_file_name(format!("{stem}.macro.dart"))
 }
@@ -1310,24 +1310,24 @@ fn attach_macro_augmentation(
     diagnostics: &mut Vec<Diagnostic>,
     prefetch: &mut Prefetch,
 ) -> Option<UnitId> {
-    let gerados = package_config.gerados.as_ref().filter(|g| !g.vazia())?;
+    let generated_sources = package_config.generated_sources.as_ref().filter(|g| !g.is_empty())?;
     let lib = &program.libraries[lib_id.0 as usize];
     if lib.is_sdk {
         return None;
     }
     let principal = program.units[lib.units.first()?.0 as usize].path.clone()?;
-    let caminho = caminho_da_augmentation_de_macro(&principal);
-    if !gerados.contem(&caminho) {
+    let path = macro_augmentation_path(&principal);
+    if !generated_sources.contains(&path) {
         return None;
     }
-    let chave = crate::gerado::chave(&caminho);
-    if lib.units.iter().any(|u| program.units[u.0 as usize].path.as_deref().map(crate::gerado::chave).as_ref() == Some(&chave)) {
+    let key = crate::generated::key(&path);
+    if lib.units.iter().any(|u| program.units[u.0 as usize].path.as_deref().map(crate::generated::key).as_ref() == Some(&key)) {
         return None;
     }
-    let uri = canonical_file_uri(&caminho, package_config);
+    let uri = canonical_file_uri(&path, package_config);
     let version = Version::Part { of_library: lib.features, config: package_config, current_version };
-    let read_file = prefetch.take(&caminho);
-    let uid = load_unit(&caminho, &uri, lib_id, UnitRole::Augmentation, version, interner, program, diagnostics, read_file, None)?;
+    let read_file = prefetch.take(&path);
+    let uid = load_unit(&path, &uri, lib_id, UnitRole::Augmentation, version, interner, program, diagnostics, read_file, None)?;
     Some(uid)
 }
 
@@ -1340,22 +1340,22 @@ fn verify_augment_library(
     importers: Option<&Path>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let unidade = &program.units[aug_unit_id.0 as usize];
-    let header = unidade.unit.directives.iter().find_map(|d| match &d.kind {
+    let unit = &program.units[aug_unit_id.0 as usize];
+    let header = unit.unit.directives.iter().find_map(|d| match &d.kind {
         DirectiveKind::AugmentLibrary { uri } => Some((d.span, uri)),
         _ => None,
     });
     let Some((span, uri)) = header else {
         diagnostics.push(Diagnostic::new(
-            format!("augmentation library '{}' does not start with 'augment library'", unidade.uri),
+            format!("augmentation library '{}' does not start with 'augment library'", unit.uri),
             Span { start: 0, end: 0 },
         ));
         return;
     };
-    let (Some(target), Some(caminho), Some(importer)) = (string_lit_value(uri), &unidade.path, importers) else {
+    let (Some(target), Some(path), Some(importer)) = (string_lit_value(uri), &unit.path, importers) else {
         return;
     };
-    let expected = normalize(&caminho.parent().unwrap_or(Path::new(".")).join(&target));
+    let expected = normalize(&path.parent().unwrap_or(Path::new(".")).join(&target));
     if expected != normalize(importer) {
         diagnostics.push(Diagnostic::new(
             format!(

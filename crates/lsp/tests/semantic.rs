@@ -215,6 +215,6 @@ fn imported_uses_types_and_current_text_without_retaining_versions() {
     // The background typed analysis wrote the cache of this minimal SDK.
     server.await_diagnostics(std::time::Duration::from_secs(120));
     let layout = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
-    let _ = fs::remove_file(dartforge_elements::SdkCache::caminho(&layout, "dartdevc"));
+    let _ = fs::remove_file(dartforge_elements::SdkCache::path(&layout, "dartdevc"));
     fs::remove_dir_all(&root).unwrap();
 }

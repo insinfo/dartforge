@@ -49,7 +49,7 @@ fn normalize(p: &Path) -> PathBuf {
 
 /// The path comparison key (the loader's).
 fn key(p: &Path) -> PathBuf {
-    dartforge_elements::gerado::chave(&normalize(p))
+    dartforge_elements::generated::key(&normalize(p))
 }
 
 /// `_isRelativeUri`: neither an absolute URI (with a scheme) nor an absolute

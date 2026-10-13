@@ -439,17 +439,17 @@ fn build_runner_output_outside_lib() {
     let entry_path = proj.join("test/x_test.dart");
     let config = proj.join(".dart_tool/package_config.json");
     let prog = load(&entry_path, &sdk, Some(&config), &mut interner).expect("loading failed");
-    let gerado = prog.libraries.iter().find(|l| l.uri.ends_with("test/x_test.template.dart")).expect("generated library");
-    assert!(gerado.uri.starts_with("file://"), "{}", gerado.uri);
-    let unidade = &prog.units[gerado.units[0].0 as usize];
-    let caminho = unidade.path.as_ref().unwrap().to_string_lossy().replace('\\', "/");
-    assert!(caminho.contains(".dart_tool/build/generated/gentest/test/x_test.template.dart"), "{caminho}");
+    let generated = prog.libraries.iter().find(|l| l.uri.ends_with("test/x_test.template.dart")).expect("generated library");
+    assert!(generated.uri.starts_with("file://"), "{}", generated.uri);
+    let unit = &prog.units[generated.units[0].0 as usize];
+    let path = unit.path.as_ref().unwrap().to_string_lossy().replace('\\', "/");
+    assert!(path.contains(".dart_tool/build/generated/gentest/test/x_test.template.dart"), "{path}");
     let value = interner.intern("valor");
-    assert!(gerado.declared.contains_key(&value));
+    assert!(generated.declared.contains_key(&value));
     // The generated file's relative import (`x_test.dart`) is the `test/`
     // library, not a nonexistent file in the generated folder.
     let orig = interner.intern("orig");
-    let target = gerado.imports.iter().find(|i| i.prefix == Some(orig)).expect("import from the generated file");
+    let target = generated.imports.iter().find(|i| i.prefix == Some(orig)).expect("import from the generated file");
     assert!(prog.library(target.library).uri.ends_with("/proj/test/x_test.dart"), "{}", prog.library(target.library).uri);
 }
 
@@ -461,7 +461,7 @@ fn build_runner_output_outside_lib() {
 fn import_scope_per_unit() {
     let tmp = tempdir().unwrap();
     let mut sdk = empty_sdk(tmp.path());
-    sdk.experimentos.push(dartforge_frontend::features::Feature::EnhancedParts);
+    sdk.experiments.push(dartforge_frontend::features::Feature::EnhancedParts);
     let mut interner = Interner::new();
     let proj = tmp.path().join("proj");
     fs::create_dir_all(&proj).unwrap();
@@ -474,11 +474,11 @@ fn import_scope_per_unit() {
     fs::write(proj.join("outra.dart"), "part of 'parte.dart';\nimport 'c.dart';\n").unwrap();
     let prog = load(&proj.join("main.dart"), &sdk, None, &mut interner).expect("loading failed");
     let lib = prog.libraries.iter().position(|l| l.uri.ends_with("/main.dart")).map(|i| LibraryId(i as u32)).unwrap();
-    let unidade = |suffix: &str| {
+    let unit = |suffix: &str| {
         *prog.library(lib).units.iter().find(|u| prog.unit(**u).uri.ends_with(suffix)).expect(suffix)
     };
     let from = |u: UnitId, name_: &str| -> String {
-        let b = prog.lookup_na_unidade(u, interner.lookup(name_).unwrap()).expect(name_);
+        let b = prog.lookup_in_unit(u, interner.lookup(name_).unwrap()).expect(name_);
         assert!(!b.ambiguous, "{name_}");
         match b.getter {
             Some(Element::Function(f)) => prog.library(prog.function(f).library).uri.rsplit('/').next().unwrap().to_string(),
@@ -487,13 +487,13 @@ fn import_scope_per_unit() {
     };
     let prefixed = |u: UnitId| -> String {
         let (p, n) = (interner.lookup("p").unwrap(), interner.lookup("nome").unwrap());
-        let b = prog.lookup_prefixed_na_unidade(u, p, n).expect("p.nome");
+        let b = prog.lookup_prefixed_in_unit(u, p, n).expect("p.nome");
         match b.getter {
             Some(Element::Function(f)) => prog.library(prog.function(f).library).uri.rsplit('/').next().unwrap().to_string(),
             other => format!("{other:?}"),
         }
     };
-    let (m, pa, ne, either) = (unidade("/main.dart"), unidade("/parte.dart"), unidade("/neta.dart"), unidade("/outra.dart"));
+    let (m, pa, ne, either) = (unit("/main.dart"), unit("/parte.dart"), unit("/neta.dart"), unit("/outra.dart"));
     assert_eq!((from(m, "nome"), from(pa, "nome"), from(ne, "nome"), from(either, "nome")), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "c.dart".into()));
     assert_eq!((prefixed(m), prefixed(pa), prefixed(ne), prefixed(either)), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "b.dart".into()));
     // The library's declaration wins over the part's import.
@@ -506,7 +506,7 @@ fn import_scope_per_unit() {
     fs::write(proj2.join("a.dart"), "int nome() => 1;\n").unwrap();
     fs::write(proj2.join("parte.dart"), "part of 'main.dart';\n").unwrap();
     let prog2 = load(&proj2.join("main.dart"), &sdk, None, &mut interner).expect("loading failed");
-    assert!(prog2.libraries.iter().all(|l| l.escopos_de_unidade.is_empty()));
+    assert!(prog2.libraries.iter().all(|l| l.unit_scopes.is_empty()));
 }
 
 /// A `part` of the file itself (the language's `part/self_test.dart`): the

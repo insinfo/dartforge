@@ -324,12 +324,12 @@ impl Verifier<'_, '_> {
                 // `C.the_name` comes out of the parser as a two-part name (`p.C` or
                 // `C.the_name`): the first part as a class is `C`, with the constructor.
                 let (el, ctor) = match &name[..] {
-                    [n] => (program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter), the_constructor),
-                    [a1, b1] => match program.lookup_na_unidade(u, a1.sym).and_then(|b| b.getter) {
+                    [n] => (program.lookup_in_unit(u, n.sym).and_then(|b| b.getter), the_constructor),
+                    [a1, b1] => match program.lookup_in_unit(u, a1.sym).and_then(|b| b.getter) {
                         Some(el @ dartforge_elements::model::Element::Class(_)) => (Some(el), Some(*b1)),
-                        _ => (program.lookup_prefixed_na_unidade(u, a1.sym, b1.sym).and_then(|b| b.getter), the_constructor),
+                        _ => (program.lookup_prefixed_in_unit(u, a1.sym, b1.sym).and_then(|b| b.getter), the_constructor),
                     },
-                    [p, c, n] => (program.lookup_prefixed_na_unidade(u, p.sym, c.sym).and_then(|b| b.getter), Some(*n)),
+                    [p, c, n] => (program.lookup_prefixed_in_unit(u, p.sym, c.sym).and_then(|b| b.getter), Some(*n)),
                     _ => (None, None),
                 };
                 the_constructor = ctor;
@@ -365,7 +365,7 @@ impl Verifier<'_, '_> {
         let k = program.class(c);
         if k.kind != dartforge_elements::model::ClassKind::MixinApplication {
             let f = *k.constructors.get(&the_key)?;
-            let f = program.publico(f);
+            let f = program.public(f);
             if program.function(f).factory {
                 return None;
             }
@@ -403,7 +403,7 @@ impl Verifier<'_, '_> {
             .and_then(|s| program.class(cls).constructors.get(&s).copied());
         let f = named_one.or_else(|| interner.lookup("").and_then(|k| program.class(cls).constructors.get(&k).copied()));
         let Some(f) = f else { return };
-        if !program.function(program.publico(f)).const_ {
+        if !program.function(program.public(f)).const_ {
             return;
         }
         for x in args.args.iter() {
@@ -424,7 +424,7 @@ impl Verifier<'_, '_> {
     fn report_with_context(&mut self, i: &Invalid) {
         let mut d = Diagnostic::with_code(i.code, i.span, i.args.clone());
         for (u, span, text) in &i.context {
-            let file = (*u != self.unit).then(|| self.m.program.caminho_da_unidade(*u).into());
+            let file = (*u != self.unit).then(|| self.m.program.unit_path(*u).into());
             d.context.push(dartforge_diagnostics::ContextMessage { file: file, span: *span, message: text.as_str().into() });
         }
         self.output.push((self.unit, d));
@@ -710,7 +710,7 @@ impl Verifier<'_, '_> {
                     let the_key = super_name.or_else(|| interner.lookup(""));
                     let tgt = the_key.and_then(|ch| program.class(sup).constructors.get(&ch).copied());
                     let non_const = match tgt {
-                        Some(g) => !program.function(program.publico(g)).const_,
+                        Some(g) => !program.function(program.public(g)).const_,
                         // A superclass without a declared constructor: the implicit
                         // default one, which is not `const`.
                         None => program.class(sup).constructors.is_empty() && super_name.is_none(),
@@ -737,7 +737,7 @@ impl Verifier<'_, '_> {
         // `const`. In 3.13.4 (`link.dart:284-323`, `_computeHasNonFinalField`)
         // only a field with storage counts: `abstract int x;` does not (in
         // 3.6.2, `element.dart:329-356`, it does).
-        let reference_313 = program.referencia(self.unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
+        let reference_313 = program.reference(self.unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
         if data.kind == ClassKind::Class {
             let mut queue: Vec<ClassId> = vec![cls];
             let mut seen: Vec<ClassId> = Vec::new();
@@ -786,7 +786,7 @@ impl Verifier<'_, '_> {
             let primary = self.is_primary(a, mid, k);
             if in_cycle && !k.factory && !primary {
                 let span = match k.name {
-                    Some(n) if self.m.program.referencia(self.unit) == dartforge_diagnostics::AnalyzerReference::V3_13 => {
+                    Some(n) if self.m.program.reference(self.unit) == dartforge_diagnostics::AnalyzerReference::V3_13 => {
                         Span { start: k.class_name.span.start, end: n.span.end }
                     }
                     _ => k.class_name.span,
@@ -1275,7 +1275,7 @@ impl Verifier<'_, '_> {
                 }
                 let program = self.m.program;
                 if let Some(dartforge_elements::model::Element::Variable(v)) =
-                    program.lookup_na_unidade(self.unit, name.sym).and_then(|b| b.getter)
+                    program.lookup_in_unit(self.unit, name.sym).and_then(|b| b.getter)
                 {
                     if let Some(Constante::Valor(val)) = self.m.valor_de_variavel(v) {
                         self.the_default_values.insert(p, val);
@@ -1956,9 +1956,9 @@ impl Verifier<'_, '_> {
         let program = self.m.program;
         let u = self.unit;
         let el = match &a.expr(base).kind {
-            ExprKind::Identifier(n) => program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter),
+            ExprKind::Identifier(n) => program.lookup_in_unit(u, n.sym).and_then(|b| b.getter),
             ExprKind::Property { target: p, name: n, .. } => match &a.expr(*p).kind {
-                ExprKind::Identifier(p) => program.lookup_prefixed_na_unidade(u, p.sym, n.sym).and_then(|b| b.getter),
+                ExprKind::Identifier(p) => program.lookup_prefixed_in_unit(u, p.sym, n.sym).and_then(|b| b.getter),
                 _ => None,
             },
             _ => None,

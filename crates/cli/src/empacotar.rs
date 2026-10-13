@@ -1,6 +1,6 @@
 //! `dartforge empacotar <destination>`: assembles the dartforge distribution —
 //! the executable and everything it needs at run time, in the layout of
-//! `dartforge_elements::distribuicao` — from the development tree that built
+//! `dartforge_elements::distribution` — from the development tree that built
 //! this binary. Whoever receives the distribution does not install Rust,
 //! LLVM or the Dart SDK.
 //!
@@ -124,7 +124,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
         std::env::consts::OS,
         std::fs::read_to_string(lib.join("dart-sdk").join("version")).unwrap_or_default().trim(),
     );
-    std::fs::write(lib.join(dartforge_elements::distribuicao::MARCA), marker)?;
+    std::fs::write(lib.join(dartforge_elements::distribution::MARKER), marker)?;
     println!("distribution in {}", destination.display());
     Ok(())
 }

@@ -181,7 +181,7 @@ impl NativeGenerator for NgStageA {
         for d in ["lib", "web", "test"] {
             let dir = root.join(d);
             ctx.register(Query::Glob {
-                dir: dartforge_elements::gerado::chave(&dir),
+                dir: dartforge_elements::generated::key(&dir),
                 pattern: "**".into(),
             });
             collect_files(&dir, &mut v);
@@ -199,13 +199,13 @@ impl NativeGenerator for NgStageA {
             .filter_map(|u| {
                 let p = u.path.as_ref()?;
                 Some((
-                    dartforge_elements::gerado::chave(p),
+                    dartforge_elements::generated::key(p),
                     program.library(u.library).uri.as_str(),
                 ))
             })
             .collect();
         for p in &v {
-            let k = dartforge_elements::gerado::chave(p);
+            let k = dartforge_elements::generated::key(p);
             let dart = p.extension().is_some_and(|x| x == "dart");
             let uri = library_of.get(&k).copied();
             match (dart, uri) {
@@ -279,17 +279,17 @@ impl NativeGenerator for NgStageA {
         // `web/assets/`).
         let planned = planned_outputs(request);
         for (p, f) in g.iter() {
-            if f.gerador == "ngdart" && planned.contains(&dartforge_elements::gerado::chave(p)) {
-                s.outputs.insert(p.clone(), f.conteudo.as_bytes().to_vec());
+            if f.generator == "ngdart" && planned.contains(&dartforge_elements::generated::key(p)) {
+                s.outputs.insert(p.clone(), f.content.as_bytes().to_vec());
                 if p.to_string_lossy().ends_with(".template.dart") {
-                    if let Some(source) = f.entradas.first() {
-                        for resource in f.entradas.iter().filter(|e| {
+                    if let Some(source) = f.inputs.first() {
+                        for resource in f.inputs.iter().filter(|e| {
                             e.extension().is_some_and(|x| {
                                 matches!(x.to_str(), Some("html" | "css" | "scss" | "sass"))
                             })
                         }) {
                             resource_readers
-                                .entry(dartforge_elements::gerado::chave(resource))
+                                .entry(dartforge_elements::generated::key(resource))
                                 .or_default()
                                 .push(source.clone());
                         }
@@ -333,7 +333,7 @@ fn planned_outputs(request: &NativeRequest) -> std::collections::HashSet<PathBuf
         .flat_map(|a| {
             a.outputs
                 .iter()
-                .map(|(_, p)| dartforge_elements::gerado::chave(p))
+                .map(|(_, p)| dartforge_elements::generated::key(p))
         })
         .collect()
 }
@@ -460,7 +460,7 @@ impl NgStageA {
             };
             let generated = c.to_string_lossy().ends_with(".template.dart");
             if c.starts_with(&canon_root) && !generated {
-                closure.push(dartforge_elements::gerado::chave(p));
+                closure.push(dartforge_elements::generated::key(p));
             }
         }
         closure.sort();
@@ -528,7 +528,7 @@ impl NgStageA {
                         matches!(x.to_str(), Some("html" | "css" | "scss" | "sass"))
                     })
                 })
-                .map(|e| dartforge_elements::gerado::chave(e))
+                .map(|e| dartforge_elements::generated::key(e))
                 .collect();
             resources.push((source.clone(), read));
         }
@@ -566,13 +566,13 @@ impl NgStageA {
             .iter()
             .filter_map(|u| {
                 Some((
-                    dartforge_elements::gerado::chave(u.path.as_ref()?),
+                    dartforge_elements::generated::key(u.path.as_ref()?),
                     program.library(u.library).uri.as_str(),
                 ))
             })
             .collect();
         for p in ctx.changed_paths.clone().iter() {
-            let k = dartforge_elements::gerado::chave(p);
+            let k = dartforge_elements::generated::key(p);
             ctx.register(Query::File(k.clone()));
             ctx.register(Query::Exists(k.clone()));
             if let Some(uri) = library_of.get(&k) {

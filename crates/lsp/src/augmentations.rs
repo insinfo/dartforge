@@ -52,7 +52,7 @@ impl Project {
             current.insert(key, i);
         };
         for (li, lib) in p.libraries.iter().enumerate() {
-            if !p.biblioteca_com_augmentations(dartforge_elements::model::LibraryId(li as u32)) {
+            if !p.library_has_augmentations(dartforge_elements::model::LibraryId(li as u32)) {
                 continue;
             }
             // The top level, in application order.
@@ -72,11 +72,11 @@ impl Project {
         // The members, along each class's chain.
         for ci in 0..p.classes.len() {
             let c = ClassId(ci as u32);
-            if !p.biblioteca_com_augmentations(p.class(c).library) || p.class(c).decl.is_none() {
+            if !p.library_has_augmentations(p.class(c).library) || p.class(c).decl.is_none() {
                 continue;
             }
             let mut current: HashMap<String, usize> = HashMap::new();
-            for (u, mid) in p.membros_da_classe(c) {
+            for (u, mid) in p.class_members(c) {
                 let a = &p.unit(u).ast;
                 let m = a.member(mid);
                 for (name, key) in member_names(a, m, |s| self.name(s).to_string()) {

@@ -128,8 +128,8 @@ fn cache_key(cfg: &NativeConfig, main: &Path, pc: &Path) -> Result<String, Strin
     h.update(format!("{}|{}|{date}\n", cfg.compiler.display(), meta.len()).as_bytes());
     h.update(cfg.sdk_lib.to_string_lossy().as_bytes());
     let mut sdk = dartforge_elements::sdk::SdkLayout::load(&cfg.sdk_lib, "vm")?;
-    sdk.versao_corrente = dartforge_frontend::LanguageVersion::new(3, 6);
-    sdk.experimentos.push(dartforge_frontend::Feature::Macros);
+    sdk.current_version = dartforge_frontend::LanguageVersion::new(3, 6);
+    sdk.experiments.push(dartforge_frontend::Feature::Macros);
     let mut names = dartforge_intern::Interner::new();
     let (program, diags) = dartforge_elements::load::load_lenient(main, &sdk, Some(pc), &mut names);
     if let Some(d) = diags.first() {

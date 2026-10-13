@@ -24,11 +24,11 @@ struct StepReader<'a> {
 
 impl Leitor for StepReader<'_> {
     fn existe(&self, path: &Path) -> bool {
-        (self.memory)(&dartforge_elements::gerado::chave(path)).is_some() || path.is_file()
+        (self.memory)(&dartforge_elements::generated::key(path)).is_some() || path.is_file()
     }
 
     fn ler(&self, path: &Path) -> std::io::Result<String> {
-        match (self.memory)(&dartforge_elements::gerado::chave(path)) {
+        match (self.memory)(&dartforge_elements::generated::key(path)) {
             Some(b) => String::from_utf8(b.to_vec())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
             None => std::fs::read_to_string(path),
@@ -123,7 +123,7 @@ impl NativeGenerator for SassNative {
                 }
             };
             for file in sheet.lidos.iter().chain(&sheet.sondados) {
-                ctx.register(Query::File(dartforge_elements::gerado::chave(
+                ctx.register(Query::File(dartforge_elements::generated::key(
                     file,
                 )));
             }

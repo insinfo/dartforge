@@ -4,7 +4,7 @@
 //!
 //! The engine asks two questions — **when** (phase plan, schedule,
 //! fingerprint) and **what** (executors) — and publishes the result in an
-//! in-memory `Geracao` (`dartforge_elements::gerado`).
+//! in-memory `Generation` (`dartforge_elements::generated`).
 //!
 //! **Zero cost for those who do not use it** (PLANO.md, governing rule):
 //! nothing in this crate is built if no resolved package defines builders

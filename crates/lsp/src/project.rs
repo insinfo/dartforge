@@ -196,7 +196,7 @@ pub(crate) fn is_part(text: &str) -> bool {
 /// Canonical path (without `\\?\`) of the file of a `file:` URI.
 pub(crate) fn uri_file(uri: &str) -> Option<PathBuf> {
     let file = Url::parse(uri).ok()?.to_file_path().ok()?;
-    Some(dartforge_elements::config::sem_verbatim(
+    Some(dartforge_elements::config::without_verbatim(
         std::fs::canonicalize(&file).unwrap_or(file),
     ))
 }
@@ -349,7 +349,7 @@ fn load_project_with(
     let mut generator = SemanticAnalyzer::open(documents);
     let synthetic_path = synthetic.as_ref().map(|(c, _)| c.clone());
     if let Some((c, t)) = synthetic {
-        generator.por(c, t, "lsp", vec![]);
+        generator.put(c, t, "lsp", vec![]);
     }
     let mut entries: Vec<PathBuf> = Vec::new();
     let text_of = |path: &Path| -> Option<String> {
@@ -386,10 +386,10 @@ fn load_project_with(
         // Only parts: the owning library is outside the root.
         return None;
     }
-    let generation = generator.concluir(1).ok()?;
+    let generation = generator.finish(1).ok()?;
     let mut names = dartforge_intern::Interner::new();
     let references: Vec<&Path> = entries.iter().map(PathBuf::as_path).collect();
-    let (program, _) = dartforge_elements::load::load_lenient_entradas(
+    let (program, _) = dartforge_elements::load::load_lenient_entries(
         &references,
         sdk,
         None,
@@ -446,7 +446,7 @@ pub(crate) fn load_library(
 
 /// `path` is under `root` (comparison by canonical keys).
 pub(crate) fn inside(path: &Path, root: &Path) -> bool {
-    dartforge_elements::gerado::chave(path).starts_with(dartforge_elements::gerado::chave(root))
+    dartforge_elements::generated::key(path).starts_with(dartforge_elements::generated::key(root))
 }
 
 /// Byte that can be part of a Dart identifier.
@@ -523,14 +523,14 @@ impl Project {
     /// The unit loaded from the file of `uri` (canonical path).
     pub(crate) fn uri_unit(&self, uri: &str) -> Option<UnitId> {
         let path = uri_file(uri)?;
-        let key = dartforge_elements::gerado::chave(&path);
+        let key = dartforge_elements::generated::key(&path);
         self.program()
             .units
             .iter()
             .position(|u| {
                 u.path
                     .as_deref()
-                    .map(dartforge_elements::gerado::chave)
+                    .map(dartforge_elements::generated::key)
                     .as_ref()
                     == Some(&key)
             })
@@ -2229,7 +2229,7 @@ impl Project {
             let mut named_constructors = Vec::new();
             let mut symbol = None;
             for c in &family.classes {
-                for (u, m) in self.program().membros_da_classe(*c) {
+                for (u, m) in self.program().class_members(*c) {
                     let MemberKind::Constructor(k) = &self.program().unit(u).ast.member(m).kind
                     else {
                         continue;
@@ -2275,7 +2275,7 @@ impl Project {
                 }
             }
             for c in classes {
-                for (u, m) in self.program().membros_da_classe(c) {
+                for (u, m) in self.program().class_members(c) {
                     let MemberKind::Constructor(k) = &self.program().unit(u).ast.member(m).kind else { continue };
                     let Some(f) = self.node_constructor(u, m) else { continue };
                     let positional: Vec<&ast::Parameter> = k.parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).collect();
@@ -2897,7 +2897,7 @@ impl Project {
             }
             // Constructors written with the class name.
             if let Element::Class(c) = e {
-                for (u, m) in p.membros_da_classe(*c) {
+                for (u, m) in p.class_members(*c) {
                     if let MemberKind::Constructor(k) = &p.unit(u).ast.member(m).kind
                         && k.class_name.sym == symbol
                     {
@@ -3025,8 +3025,8 @@ impl Project {
             for t in types {
                 let ast::TypeKind::Named { name, .. } = &ast.ty(t).kind else { continue };
                 let binding = match &name[..] {
-                    [n] => p.lookup_na_unidade(d.unit, n.sym),
-                    [pf, n] => p.lookup_prefixed_na_unidade(d.unit, pf.sym, n.sym),
+                    [n] => p.lookup_in_unit(d.unit, n.sym),
+                    [pf, n] => p.lookup_prefixed_in_unit(d.unit, pf.sym, n.sym),
                     _ => None,
                 };
                 if let Some(Element::Class(s)) = binding.and_then(|b| b.getter) {

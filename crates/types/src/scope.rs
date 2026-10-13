@@ -451,7 +451,7 @@ impl<'a> MemberResolver<'a> {
     ) -> Option<(Resolved, TypeId)> {
         // T1.1 d: the interface of a same-named class is that of the group's
         // owner (the analyzer's `InheritanceManager3._interfaces` is per element).
-        let class_id = self.program.dono_da_classe(class_id);
+        let class_id = self.program.class_owner(class_id);
         let class_elem = &self.program.classes[class_id.0 as usize];
 
         // 1. Looks for a member declared directly in the class

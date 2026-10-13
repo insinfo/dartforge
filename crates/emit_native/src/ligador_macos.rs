@@ -830,7 +830,7 @@ impl SysrootMacos {
         static S: std::sync::OnceLock<Result<SysrootMacos, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
             let arch = Arquitetura::do_hospedeiro();
-            if let Some(dir) = dartforge_elements::distribuicao::em_lib(&format!("sysroot/{}", arch.triple_do_sysroot()))
+            if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{}", arch.triple_do_sysroot()))
                 && dir.join(SYSTEM_LIBRARIES[0].file).is_file()
             {
                 let version = std::fs::read_to_string(dir.join(VERSION_FILE)).unwrap_or_default().trim().to_string();
@@ -897,7 +897,7 @@ pub struct Linkage<'a> {
 
 /// `ld64.lld`: the distribution one, the one next to Clang, or the one on `PATH`.
 pub fn ld64_lld(clang: &Path) -> PathBuf {
-    if let Some(l) = dartforge_elements::distribuicao::ferramenta_llvm("ld64.lld") {
+    if let Some(l) = dartforge_elements::distribution::llvm_tool("ld64.lld") {
         return l;
     }
     let alongside = clang.with_file_name("ld64.lld");

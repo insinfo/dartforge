@@ -783,7 +783,7 @@ impl SysrootWindows {
     pub fn locate(clang: &Path) -> Result<&'static SysrootWindows, String> {
         static S: std::sync::OnceLock<Result<SysrootWindows, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
-            if let Some(dir) = dartforge_elements::distribuicao::em_lib(&format!("sysroot/{TRIPLE}"))
+            if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{TRIPLE}"))
                 && dir.join("dfcrt_comum.obj").is_file()
             {
                 return Ok(SysrootWindows { dir });
@@ -849,7 +849,7 @@ pub struct Linkage<'a> {
 
 /// `lld-link`: the distribution one, the one next to Clang, or the one on `PATH`.
 pub fn lld_link(clang: &Path) -> PathBuf {
-    if let Some(l) = dartforge_elements::distribuicao::ferramenta_llvm("lld-link") {
+    if let Some(l) = dartforge_elements::distribution::llvm_tool("lld-link") {
         return l;
     }
     let alongside = clang.with_file_name(if cfg!(windows) { "lld-link.exe" } else { "lld-link" });

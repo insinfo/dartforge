@@ -1,5 +1,5 @@
 //! The engine: plan + graph + per-action fingerprint + deterministic
-//! schedule + executors, publishing into an in-memory `Geracao`.
+//! schedule + executors, publishing into an in-memory `Generation`.
 //!
 //! * Phases run in series; the actions of a phase run in parallel
 //!   (`std::thread::scope`, atomic index, up to `workers`), with results
@@ -24,9 +24,9 @@ use crate::graph::{AssetId, Graph};
 use crate::packages::PackageGraph;
 use crate::plan::{Configs, Phase, TargetNode, Plan, phases};
 use dartforge_elements::config::PackageConfig;
-use dartforge_elements::gerado::{Construtor, Geracao, chave};
+use dartforge_elements::generated::{GenerationBuilder, Generation, key};
 use dartforge_elements::model::Program;
-use dartforge_elements::unidades::Marca;
+use dartforge_elements::unit_cache::FileStamp;
 use dartforge_intern::Interner;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -229,7 +229,7 @@ impl EngineReport {
 }
 
 pub struct Update {
-    pub generation: Arc<Geracao>,
+    pub generation: Arc<Generation>,
     /// Natural paths whose content changed (or disappeared) in this update.
     pub altered_outputs: Vec<PathBuf>,
     pub rel: EngineReport,
@@ -285,10 +285,10 @@ pub struct Engine {
     dirs: Vec<PathBuf>,
     /// Configuration files: when one changes, the plan is rebuilt.
     config_files: Vec<PathBuf>,
-    marks: HashMap<PathBuf, Option<Marca>>,
+    marks: HashMap<PathBuf, Option<FileStamp>>,
     /// What [`Engine::changes`] looks at (recomputed on every update).
     watched: Vec<PathBuf>,
-    generation: Arc<Geracao>,
+    generation: Arc<Generation>,
     warned: HashSet<PathBuf>,
     labels: HashMap<String, &'static str>,
     /// Outputs that the graph rebuild removed from memory (the action or the
@@ -322,7 +322,7 @@ fn natural_path(graph: &PackageGraph, id: &AssetId) -> PathBuf {
         .node(&id.package)
         .map(|n| n.root.clone())
         .unwrap_or_default();
-    chave(&root.join(id.path.as_ref()))
+    key(&root.join(id.path.as_ref()))
 }
 
 struct Indices {
@@ -360,7 +360,7 @@ fn build_indices(gp: &PackageGraph, graph: &Graph, phase_count: usize) -> Indice
             if c.contains('$') {
                 continue;
             }
-            let n = chave(&node.root.join(c.as_ref()));
+            let n = key(&node.root.join(c.as_ref()));
             if node.name == root.name {
                 let mut d = n.parent();
                 while let Some(x) = d {
@@ -392,7 +392,7 @@ fn canonical(p: &Path) -> Option<PathBuf> {
             .ok()?
             .join(p.file_name()?),
     };
-    Some(chave(&dartforge_elements::config::sem_verbatim(c)))
+    Some(key(&dartforge_elements::config::without_verbatim(c)))
 }
 
 /// Could the query have changed with these events?
@@ -412,7 +412,7 @@ fn affected(
             structural.iter().any(|m| m.starts_with(dir))
                 || candidates
                     .iter()
-                    .any(|(rel, _)| changed.contains(&chave(&dir.join(rel))))
+                    .any(|(rel, _)| changed.contains(&key(&dir.join(rel))))
         }
         _ => c.path().is_some_and(|p| changed.contains(p)) || (c.semantic() && dart_changed),
     }
@@ -443,8 +443,8 @@ impl Engine {
             dirs,
         } = build_indices(&package_graph, &graph, phases.len());
         let mut config_files = vec![
-            chave(&package_graph.root_dir.join("pubspec.lock")),
-            chave(
+            key(&package_graph.root_dir.join("pubspec.lock")),
+            key(
                 &package_graph
                     .root_dir
                     .join(".dart_tool")
@@ -452,22 +452,22 @@ impl Engine {
             ),
         ];
         let r = &package_graph.nodes[package_graph.root].root;
-        config_files.push(chave(&r.join("pubspec.yaml")));
+        config_files.push(key(&r.join("pubspec.yaml")));
         // Each package's `build.yaml`, whether it exists or not (creating it
         // changes the plan), and the root directory, whose mark changes when
         // a `<package>.build.yaml` override appears or disappears
         // (DF-BUILD-018).
         for node in &package_graph.nodes {
-            config_files.push(chave(&node.root.join("build.yaml")));
+            config_files.push(key(&node.root.join("build.yaml")));
         }
-        config_files.push(chave(r));
+        config_files.push(key(r));
         if let Some(k) = &options.config {
-            config_files.push(chave(&r.join(format!("build.{k}.yaml"))));
+            config_files.push(key(&r.join(format!("build.{k}.yaml"))));
         }
         if let Ok(ls) = std::fs::read_dir(r) {
             for e in ls.flatten() {
                 if e.file_name().to_string_lossy().ends_with(".build.yaml") {
-                    config_files.push(chave(&e.path()));
+                    config_files.push(key(&e.path()));
                 }
             }
         }
@@ -498,7 +498,7 @@ impl Engine {
             config_files,
             marks: HashMap::new(),
             watched: Vec::new(),
-            generation: Arc::new(Geracao::default()),
+            generation: Arc::new(Generation::default()),
             warned: HashSet::new(),
             labels: HashMap::new(),
             removed: Vec::new(),
@@ -509,7 +509,7 @@ impl Engine {
         };
         m.request_by_filters();
         for c in m.config_files.iter().chain(&m.dirs) {
-            m.marks.insert(c.clone(), Marca::ler(c));
+            m.marks.insert(c.clone(), FileStamp::read(c));
         }
         m.recompute_watched();
         if m.options.persist {
@@ -538,7 +538,7 @@ impl Engine {
         self.dart_prepared.store(false, Ordering::Release);
     }
 
-    pub fn generation(&self) -> Arc<Geracao> {
+    pub fn generation(&self) -> Arc<Generation> {
         self.generation.clone()
     }
 
@@ -565,7 +565,7 @@ impl Engine {
         let v = self.compute_watched();
         for p in &v {
             if !self.marks.contains_key(p) {
-                self.marks.insert(p.clone(), Marca::ler(p));
+                self.marks.insert(p.clone(), FileStamp::read(p));
             }
         }
         self.watched = v;
@@ -603,21 +603,21 @@ impl Engine {
 
     /// Watched paths whose mark changed since the last look (mtime and size).
     pub fn changes(&mut self) -> Vec<PathBuf> {
-        // One `stat` per watched path, in parallel like `CacheUnidades` (on
+        // One `stat` per watched path, in parallel like `AnalyzedUnitCache` (on
         // Windows each `stat` goes through the antivirus).
         let paths = &self.watched;
         let threads = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4)
             .min(8);
-        let now: Vec<Option<Marca>> = if paths.len() < 64 || threads < 2 {
-            paths.iter().map(|p| Marca::ler(p)).collect()
+        let now: Vec<Option<FileStamp>> = if paths.len() < 64 || threads < 2 {
+            paths.iter().map(|p| FileStamp::read(p)).collect()
         } else {
             let chunk = paths.len().div_ceil(threads);
             std::thread::scope(|s| {
                 let hs: Vec<_> = paths
                     .chunks(chunk)
-                    .map(|c| s.spawn(move || c.iter().map(|p| Marca::ler(p)).collect::<Vec<_>>()))
+                    .map(|c| s.spawn(move || c.iter().map(|p| FileStamp::read(p)).collect::<Vec<_>>()))
                     .collect();
                 hs.into_iter()
                     .flat_map(|h| h.join().unwrap_or_default())
@@ -687,7 +687,7 @@ impl Engine {
 
     /// The outputs that builder `key` (e.g. `ngdart:ngdart`) does not see
     /// when resolving the program: those of every phase from its first one
-    /// on, by natural path ([`dartforge_elements::gerado::chave`]). In
+    /// on, by natural path ([`dartforge_elements::generated::key`]). In
     /// `build_runner` an action only reads outputs of phases before its own;
     /// a `build_to: source` output already on disk (the `i18n`'s
     /// `messages.i18n.dart`, a phase after ngdart in limitless_ui) does not
@@ -708,7 +708,7 @@ impl Engine {
             .iter()
             .filter(|(_, g)| g.phase >= first)
             .map(|(id, _)| {
-                dartforge_elements::gerado::chave(&natural_path(&self.package_graph, id))
+                dartforge_elements::generated::key(&natural_path(&self.package_graph, id))
             })
             .collect()
     }
@@ -856,7 +856,7 @@ impl Engine {
             changed.insert(k);
         }
         for d in &dirs {
-            self.marks.entry(d.clone()).or_insert_with(|| Marca::ler(d));
+            self.marks.entry(d.clone()).or_insert_with(|| FileStamp::read(d));
         }
         self.graph = graph;
         self.per_phase = per_phase;
@@ -985,7 +985,7 @@ impl Engine {
                     } => {
                         for (rel, generated) in candidates {
                             if *generated
-                                && let Some(id) = by_natural.get(chave(&dir.join(rel)).as_path())
+                                && let Some(id) = by_natural.get(key(&dir.join(rel)).as_path())
                             {
                                 request(id);
                             }
@@ -1016,7 +1016,7 @@ impl Engine {
         let mut changed: HashSet<PathBuf> = {
             let mut m = HashSet::with_capacity(changed.len() * 2);
             for p in changed {
-                m.insert(chave(p));
+                m.insert(key(p));
                 if let Some(c) = canonical(p) {
                     m.insert(c);
                 }
@@ -1390,7 +1390,7 @@ impl Engine {
             }
         }
         rel.changed_outputs = altered.len();
-        if !altered.is_empty() || self.generation.vazia() {
+        if !altered.is_empty() || self.generation.is_empty() {
             self.publish();
         }
         if self.options.persist && self.state_dirty {
@@ -2386,9 +2386,9 @@ impl Engine {
                 outputs: s
                     .outputs
                     .into_iter()
-                    .map(|(p, b)| (chave(&p), Arc::from(b)))
+                    .map(|(p, b)| (key(&p), Arc::from(b)))
                     .collect(),
-                refusals: s.refusals.into_iter().map(|(p, m)| (chave(&p), m)).collect(),
+                refusals: s.refusals.into_iter().map(|(p, m)| (key(&p), m)).collect(),
                 error: None,
                 generated_units: s.generated_unit_count,
             },
@@ -2677,7 +2677,7 @@ impl Engine {
             let loc = self.support_path(s, f.hidden);
             let c: Option<Arc<[u8]>> = std::fs::read(&loc).ok().map(Arc::from);
             queries.push((
-                Query::File(chave(&loc)),
+                Query::File(key(&loc)),
                 c.as_deref().map(digest_bytes),
             ));
             outputs.push((s.clone(), c));
@@ -2732,7 +2732,7 @@ impl Engine {
             .flat_map(|r| r.deleted_outputs.iter())
             .collect();
         let deleted: HashSet<AssetId> = deleted.into_iter().cloned().collect();
-        let mut c = Construtor::nova();
+        let mut c = GenerationBuilder::new();
         let mut h = blake3::Hasher::new();
         let mut items: Vec<(PathBuf, Arc<[u8]>, &'static str, PathBuf)> = Vec::new();
         let mut labels: Vec<(usize, String)> = Vec::new();
@@ -2770,10 +2770,10 @@ impl Engine {
             };
             h.update(n.to_string_lossy().as_bytes());
             h.update(&digest_bytes(&content));
-            c.por(n, text, labels[i], vec![input]);
+            c.put(n, text, labels[i], vec![input]);
         }
         let id = u64::from_le_bytes(h.finalize().as_bytes()[..8].try_into().unwrap_or([0; 8]));
-        match c.concluir(id) {
+        match c.finish(id) {
             Ok(g) => self.generation = g,
             Err(e) => {
                 for m in e {
@@ -2786,7 +2786,7 @@ impl Engine {
     /// Content of an output by natural path, computing it if it has not been
     /// computed yet (the demand for a `.css` requested by the browser).
     pub fn materialize(&mut self, ctx: &UpdateContext<'_>, path: &Path) -> Option<Arc<[u8]>> {
-        let mut k = chave(path);
+        let mut k = key(path);
         if let Some(c) = self.memory.get(&k) {
             return Some(c.clone());
         }
@@ -2797,7 +2797,7 @@ impl Engine {
         if !self.natural_paths_map.values().any(|n| n == &k) {
             if let (Some(parent), Some(name)) = (path.parent(), path.file_name()) {
                 if let Ok(parent) = std::fs::canonicalize(parent) {
-                    k = chave(&dartforge_elements::config::sem_verbatim(parent).join(name));
+                    k = key(&dartforge_elements::config::without_verbatim(parent).join(name));
                 }
             }
         }
@@ -2938,7 +2938,7 @@ impl Engine {
                     .replace('\\', "/");
                 format!(
                     "generated {rel} {}",
-                    &blake3::hash(f.conteudo.as_bytes()).to_hex()[..16]
+                    &blake3::hash(f.content.as_bytes()).to_hex()[..16]
                 )
             })
             .collect();
@@ -3141,7 +3141,7 @@ fn resolve_uri(uri: &str, from: &AssetId) -> Option<AssetId> {
 }
 
 fn is_newer(input: &Path, fallback: &Path) -> bool {
-    let (Some(e), Some(a)) = (Marca::ler(input), Marca::ler(fallback)) else {
+    let (Some(e), Some(a)) = (FileStamp::read(input), FileStamp::read(fallback)) else {
         return false;
     };
     e.mtime_ns > a.mtime_ns

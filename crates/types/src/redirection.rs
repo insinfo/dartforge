@@ -16,13 +16,13 @@ use dartforge_frontend::ast;
 pub fn class_and_constructor(program: &Program, unit: UnitId, r: &ast::RedirectTarget) -> Option<(ClassId, Option<ast::Name>)> {
     let ast::TypeKind::Named { name, .. } = &program.unit(unit).ast.ty(r.ty).kind else { return None };
     let (b, constructor) = match (&name[..], r.constructor) {
-        ([n], ctor) => (program.lookup_na_unidade(unit, n.sym), ctor),
-        ([p, n], None) => match program.lookup_prefixed_na_unidade(unit, p.sym, n.sym) {
+        ([n], ctor) => (program.lookup_in_unit(unit, n.sym), ctor),
+        ([p, n], None) => match program.lookup_prefixed_in_unit(unit, p.sym, n.sym) {
             Some(b) => (Some(b), None),
-            None => (program.lookup_na_unidade(unit, p.sym), Some(*n)),
+            None => (program.lookup_in_unit(unit, p.sym), Some(*n)),
         },
-        ([p, n], ctor) => (program.lookup_prefixed_na_unidade(unit, p.sym, n.sym), ctor),
-        ([p, n, c], None) => (program.lookup_prefixed_na_unidade(unit, p.sym, n.sym), Some(*c)),
+        ([p, n], ctor) => (program.lookup_prefixed_in_unit(unit, p.sym, n.sym), ctor),
+        ([p, n, c], None) => (program.lookup_prefixed_in_unit(unit, p.sym, n.sym), Some(*c)),
         _ => (None, None),
     };
     match b?.getter? {

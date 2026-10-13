@@ -172,8 +172,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             continue;
         }
         let b = match &name[..] {
-            [n] => program.lookup_na_unidade(s.unit, n.sym),
-            [p, n] => program.lookup_prefixed_na_unidade(s.unit, p.sym, n.sym),
+            [n] => program.lookup_in_unit(s.unit, n.sym),
+            [p, n] => program.lookup_prefixed_in_unit(s.unit, p.sym, n.sym),
             _ => None,
         };
         let Some(el) = b.and_then(|b| b.getter) else { continue };

@@ -717,7 +717,7 @@ impl SyntacticAnalyzer {
             .ok()
             .filter(|u| u.scheme() == "file")
             .and_then(|u| u.to_file_path().ok())
-            .map(|p| dartforge_elements::config::sem_verbatim(std::fs::canonicalize(&p).unwrap_or(p)));
+            .map(|p| dartforge_elements::config::without_verbatim(std::fs::canonicalize(&p).unwrap_or(p)));
         let pattern = path
             .as_deref()
             .and_then(|p| {
@@ -726,7 +726,7 @@ impl SyntacticAnalyzer {
                     let read = dartforge_elements::config::PackageConfig::load(&cfg).ok()?;
                     self.configs.insert(cfg.clone(), read);
                 }
-                self.configs.get(&cfg)?.pacote_da_biblioteca(uri, Some(p))?.language_version
+                self.configs.get(&cfg)?.library_package(uri, Some(p))?.language_version
             })
             .unwrap_or(LanguageVersion::CURRENT);
         self.patterns.insert(uri.to_string(), pattern);

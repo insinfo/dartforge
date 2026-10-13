@@ -280,8 +280,8 @@ fn new_elements_rule(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'
     for t in a.types.iter() {
         let dartforge_frontend::ast::TypeKind::Named { name, .. } = &t.kind else { continue };
         let b = match &name[..] {
-            [n] => program.lookup_na_unidade(s.unit, n.sym),
-            [p, n] => program.lookup_prefixed_na_unidade(s.unit, p.sym, n.sym),
+            [n] => program.lookup_in_unit(s.unit, n.sym),
+            [p, n] => program.lookup_prefixed_in_unit(s.unit, p.sym, n.sym),
             _ => None,
         };
         if let Some(dartforge_elements::model::Element::Class(c)) = b.and_then(|b| b.getter)

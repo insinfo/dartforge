@@ -42,32 +42,32 @@ id!(/// Index into [`Program::variables`] (top-level variables and fields).
 
 /// Timings of the `load_lenient` sub-phases, for `compile-js --timings`.
 #[derive(Debug, Default, Clone)]
-pub struct TemposCarga {
+pub struct LoadTimes {
     /// Serial reading and lexing (parts and SDK from files), plus the cost of
     /// taking from the prefetch what already came ready.
-    pub leitura: std::time::Duration,
+    pub read: std::time::Duration,
     /// Parallel read + lex waves (wall time).
-    pub leitura_lex_paralelo: std::time::Duration,
-    pub ondas: usize,
+    pub parallel_read_lex: std::time::Duration,
+    pub waves: usize,
     /// Parsing (sequential: it needs the `Interner`).
     pub parse: std::time::Duration,
     /// Decoding of the SDK units coming from the cache.
     pub sdk_cache: std::time::Duration,
     /// Directive resolution: URIs, `canonicalize`, `verify_part_of`, queue.
-    pub diretivas: std::time::Duration,
+    pub directives: std::time::Duration,
     /// `build_outline` phase 1: declarations and members.
-    pub outline_declaracoes: std::time::Duration,
+    pub outline_declarations: std::time::Duration,
     /// `build_outline` phase 2: `exported` with the reexport fixpoint.
     pub outline_reexports: std::time::Duration,
     /// `build_outline` phase 3: lexical scope and prefixes per library.
-    pub outline_escopos: std::time::Duration,
+    pub outline_scopes: std::time::Duration,
     /// `build_outline` phase 4: supertypes and cycles.
-    pub outline_supertipos: std::time::Duration,
+    pub outline_supertypes: std::time::Duration,
     /// Files read and source bytes (user and packages).
-    pub arquivos_lidos: usize,
-    pub bytes_lidos: usize,
+    pub files_read: usize,
+    pub bytes_read: usize,
     /// Units that came ready from the resident session's cache.
-    pub unidades_reaproveitadas: usize,
+    pub reused_units: usize,
 }
 
 /// The whole program: SDK, packages and the project, in a single library
@@ -75,7 +75,7 @@ pub struct TemposCarga {
 #[derive(Debug, Default)]
 pub struct Program {
     /// Timings of the load sub-phases (filled in by `load_lenient`).
-    pub tempos: TemposCarga,
+    pub times: LoadTimes,
     pub units: Vec<Unit>,
     pub libraries: Vec<Library>,
     pub classes: Vec<ClassElement>,
@@ -91,7 +91,7 @@ pub struct Program {
     /// The `augment class`/`augment mixin` declarations of each class, in
     /// application order (docs/AUGMENTATIONS.md). Empty in a program without
     /// augmentations.
-    pub augmentacoes: HashMap<ClassId, Vec<DeclRef>>,
+    pub augmentations: HashMap<ClassId, Vec<DeclRef>>,
     /// The classes declared with `macro` (`macros` experiment), recorded in the
     /// same pass that creates the elements. Empty ⇒ no annotation can be a macro
     /// application, and the macro host is not even consulted (zero-cost rule,
@@ -131,13 +131,13 @@ pub struct Unit {
     /// only reuses the unit if they stay the same.
     pub features: LibraryFeatures,
     /// The source ranges the parser's error recovery discarded
-    /// (`dartforge_frontend::parser::Parsed::pulados`); empty in a unit without
+    /// (`dartforge_frontend::parser::Parsed::skipped`); empty in a unit without
     /// syntax errors and in those coming from the SDK cache.
-    pub pulados: Vec<dartforge_diagnostics::Span>,
+    pub skipped: Vec<dartforge_diagnostics::Span>,
     /// Which analyzer is the reference for this file's code names and texts
-    /// (`dartforge_frontend::parser::Parsed::referencia`). SDK units are
+    /// (`dartforge_frontend::parser::Parsed::reference`). SDK units are
     /// 3.6.2's.
-    pub referencia: dartforge_diagnostics::AnalyzerReference,
+    pub reference: dartforge_diagnostics::AnalyzerReference,
 }
 
 /// An import already resolved to a library of the program.
@@ -254,13 +254,13 @@ pub struct Library {
     pub features: LibraryFeatures,
     /// The file that included each part (or augmentation) of the library: the
     /// parts tree (`part` inside `part`, `parts-with-imports`).
-    pub pais: HashMap<UnitId, UnitId>,
+    pub unit_parents: HashMap<UnitId, UnitId>,
     /// The scope of each unit when some part has its own imports
     /// (`parts-with-imports`): a file's imports apply to it and to its parts,
     /// and the inner ones hide the outer ones. Empty when only the library file
     /// imports — then [`Library::scope`] applies to all. Query it through
-    /// [`Program::lookup_na_unidade`].
-    pub escopos_de_unidade: HashMap<UnitId, UnitScope>,
+    /// [`Program::lookup_in_unit`].
+    pub unit_scopes: HashMap<UnitId, UnitScope>,
     /// For each top-level element with a homonym of the SAME kind in the
     /// library (two classes `A`, two functions `f`): the group's representative,
     /// the first in source order — itself included. Without a homonym, absent.
@@ -269,15 +269,15 @@ pub struct Library {
     /// already seen) are a single one for the group
     /// (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 c–d). Type identity remains that
     /// of each element.
-    pub representante: HashMap<Element, Element>,
+    pub representative: HashMap<Element, Element>,
     /// T1.1 d: for each class with a homonym of the same kind, the class whose
     /// interface and hierarchy computation applies to the whole group — the one
     /// the analyzer consults first (`outline::compute_homonym_owners`). Without
     /// a homonym, absent.
-    pub dono_do_grupo: HashMap<ClassId, ClassId>,
+    pub group_owner: HashMap<ClassId, ClassId>,
 }
 
-/// Top-level name scope of a unit (see [`Library::escopos_de_unidade`]).
+/// Top-level name scope of a unit (see [`Library::unit_scopes`]).
 #[derive(Debug, Clone, Default)]
 pub struct UnitScope {
     /// Like [`Library::scope`], with the imports of the unit's chain.
@@ -340,13 +340,13 @@ pub struct ClassElement {
     /// interface's declared map (`_getTypeMembers`) does not follow source
     /// order: methods, then the fields' accessors, then the written accessors
     /// (`_visitPropertyFirst`), with the last one winning.
-    pub instancia_sobrepostos: Vec<(SymbolId, FunctionElementId)>,
+    pub shadowed_instance_members: Vec<(SymbolId, FunctionElementId)>,
     pub static_members: HashMap<SymbolId, FunctionElementId>,
     /// Constructors by name; the unnamed one uses the empty symbol `""`. The key
     /// is the `SymbolId`, whose order is that of **interning**: in a resident
     /// session (`dartforge dev`) it depends on the order of the edits, so
     /// walking the map directly makes a recompilation's output diverge from a
-    /// clean compilation's. Emitters walk [`ClassElement::construtores`].
+    /// clean compilation's. Emitters walk [`ClassElement::constructors`].
     pub constructors: BTreeMap<SymbolId, FunctionElementId>,
     /// Instance and static fields, in declaration order.
     pub fields: Vec<VariableId>,
@@ -360,7 +360,7 @@ impl ClassElement {
     /// The constructors in source declaration order (the outline numbers the
     /// functions in that order), which does not depend on the interning order
     /// of the names.
-    pub fn construtores(&self) -> Vec<(SymbolId, FunctionElementId)> {
+    pub fn constructors(&self) -> Vec<(SymbolId, FunctionElementId)> {
         let mut v: Vec<(SymbolId, FunctionElementId)> = self.constructors.iter().map(|(&s, &f)| (s, f)).collect();
         v.sort_by_key(|&(_, f)| f);
         v
@@ -437,7 +437,7 @@ pub struct FunctionElement {
     /// public declaration — the patch only provides the body
     /// (docs/ANALYZER-ESPECIFICACAO.md §G, T3). `None` in user code and in
     /// members that only exist in the patch.
-    pub declaracao_publica: Option<FunctionElementId>,
+    pub public_declaration: Option<FunctionElementId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -491,13 +491,13 @@ impl Program {
     }
     /// The reference of file `u` (docs/ANALYZER-ESPECIFICACAO.md, T2): the
     /// corpus rule is per file.
-    pub fn referencia(&self, u: UnitId) -> dartforge_diagnostics::AnalyzerReference {
-        self.unit(u).referencia
+    pub fn reference(&self, u: UnitId) -> dartforge_diagnostics::AnalyzerReference {
+        self.unit(u).reference
     }
     /// The reference of a library, for the rules that belong to the whole
     /// library (merging homonymous classes): the highest among its units'.
-    pub fn referencia_da_biblioteca(&self, l: LibraryId) -> dartforge_diagnostics::AnalyzerReference {
-        self.library(l).units.iter().map(|&u| self.unit(u).referencia).max().unwrap_or_default()
+    pub fn library_reference(&self, l: LibraryId) -> dartforge_diagnostics::AnalyzerReference {
+        self.library(l).units.iter().map(|&u| self.unit(u).reference).max().unwrap_or_default()
     }
     pub fn library(&self, id: LibraryId) -> &Library {
         &self.libraries[id.0 as usize]
@@ -515,10 +515,10 @@ impl Program {
         &self.functions[id.0 as usize]
     }
     /// The element whose SIGNATURE analysis sees: the public declaration when
-    /// `f` is an SDK patch member ([`FunctionElement::declaracao_publica`]);
+    /// `f` is an SDK patch member ([`FunctionElement::public_declaration`]);
     /// otherwise `f` itself. Emitters keep `f` (the body is the patch's).
-    pub fn publico(&self, f: FunctionElementId) -> FunctionElementId {
-        self.function(f).declaracao_publica.unwrap_or(f)
+    pub fn public(&self, f: FunctionElementId) -> FunctionElementId {
+        self.function(f).public_declaration.unwrap_or(f)
     }
     pub fn variable(&self, id: VariableId) -> &VariableElement {
         &self.variables[id.0 as usize]
@@ -531,8 +531,8 @@ impl Program {
     /// analyzer caches for the whole group (`ElementImpl.==` by kind and
     /// location): the checkers compute the representative's interface and walk
     /// each declaration's tree.
-    pub fn representante_da_classe(&self, c: ClassId) -> ClassId {
-        match self.library(self.class(c).library).representante.get(&Element::Class(c)) {
+    pub fn class_representative(&self, c: ClassId) -> ClassId {
+        match self.library(self.class(c).library).representative.get(&Element::Class(c)) {
             Some(Element::Class(r)) => *r,
             _ => c,
         }
@@ -542,18 +542,18 @@ impl Program {
     /// of the homonym group's cache); without a homonym, `c` itself. The types
     /// stay distinct: only the supertypes and the interface members come from
     /// the owner.
-    pub fn dono_da_classe(&self, c: ClassId) -> ClassId {
+    pub fn class_owner(&self, c: ClassId) -> ClassId {
         let lib = self.library(self.class(c).library);
-        if lib.dono_do_grupo.is_empty() {
+        if lib.group_owner.is_empty() {
             return c;
         }
-        lib.dono_do_grupo.get(&c).copied().unwrap_or(c)
+        lib.group_owner.get(&c).copied().unwrap_or(c)
     }
 
     /// T1: does class `c` have a homonym of the same kind in the library (is it
     /// one of the repeated declarations, the first included)?
     pub fn class_with_homonym(&self, c: ClassId) -> bool {
-        self.library(self.class(c).library).representante.contains_key(&Element::Class(c))
+        self.library(self.class(c).library).representative.contains_key(&Element::Class(c))
     }
 
     /// The library really has augmentations: the `augmentations` (or `macros`)
@@ -561,7 +561,7 @@ impl Program {
     /// parser reads `augment class A {}` as the top-level variable `augment`
     /// followed by a second declaration `A` — and no "augmented declaration"
     /// filter applies (T1.1 f).
-    pub fn biblioteca_com_augmentations(&self, lib: LibraryId) -> bool {
+    pub fn library_has_augmentations(&self, lib: LibraryId) -> bool {
         let f = self.library(lib).features;
         f.has(dartforge_frontend::Feature::Augmentations) || f.has(dartforge_frontend::Feature::Macros)
     }
@@ -573,7 +573,7 @@ impl Program {
     /// member map and skip the member whose element is not the effective one.
     /// `source.fullName`: the native path of the unit's file (the URI, without
     /// a file).
-    pub fn caminho_da_unidade(&self, u: UnitId) -> String {
+    pub fn unit_path(&self, u: UnitId) -> String {
         let unit = self.unit(u);
         match &unit.path {
             Some(p) => p.display().to_string(),
@@ -583,7 +583,7 @@ impl Program {
 
     /// The declared name of a class (`nameOffset`/`nameLength`); none for a
     /// synthetic one.
-    pub fn nome_da_classe(&self, c: ClassId) -> Option<(UnitId, Span)> {
+    pub fn class_name(&self, c: ClassId) -> Option<(UnitId, Span)> {
         let d = self.class(c).decl?;
         let n = match &self.unit(d.unit).ast.decl(d.decl).kind {
             ast::DeclKind::Class(x) => x.name,
@@ -597,7 +597,7 @@ impl Program {
 
     /// The declared name of a variable (top-level, field, enum constant,
     /// representation).
-    pub fn nome_da_variavel(&self, v: VariableId) -> Option<(UnitId, Span)> {
+    pub fn variable_name(&self, v: VariableId) -> Option<(UnitId, Span)> {
         match self.variable(v).node {
             VariableRef::TopLevel { unit, decl, index } => match &self.unit(unit).ast.decl(decl).kind {
                 ast::DeclKind::Variables(l) => Some((unit, l.variables.get(index)?.name.span)),
@@ -624,7 +624,7 @@ impl Program {
     /// `intervalo_de_relato`): an implicit accessor counts through the variable;
     /// a synthetic constructor, through the class; the unnamed constructor,
     /// through the class name written in it.
-    pub fn nome_nao_sintetico_da_funcao(&self, f: FunctionElementId) -> Option<(UnitId, Span)> {
+    pub fn non_synthetic_function_name(&self, f: FunctionElementId) -> Option<(UnitId, Span)> {
         let fe = self.function(f);
         match fe.node {
             FunctionRef::Function { unit, function } => Some((unit, self.unit(unit).ast.function(function).name?.span)),
@@ -633,18 +633,18 @@ impl Program {
                 _ => None,
             },
             FunctionRef::None => match (fe.variable, fe.class) {
-                (Some(v), _) => self.nome_da_variavel(v),
-                (None, Some(c)) => self.nome_da_classe(c),
+                (Some(v), _) => self.variable_name(v),
+                (None, Some(c)) => self.class_name(c),
                 _ => None,
             },
         }
     }
 
-    pub fn membros_da_classe(&self, id: ClassId) -> Vec<(UnitId, MemberId)> {
+    pub fn class_members(&self, id: ClassId) -> Vec<(UnitId, MemberId)> {
         let class = self.class(id);
         let Some(decl) = class.decl else { return Vec::new() };
         let mut out = Vec::new();
-        let decls = std::iter::once(decl).chain(self.augmentacoes.get(&id).into_iter().flatten().copied());
+        let decls = std::iter::once(decl).chain(self.augmentations.get(&id).into_iter().flatten().copied());
         for d in decls {
             let ast = &self.unit(d.unit).ast;
             let members_: &[MemberId] = match &ast.decl(d.decl).kind {
@@ -668,23 +668,23 @@ impl Program {
     /// `parts-with-imports`, each file sees its own imports (and those of the
     /// files that included it, which the inner ones hide); without imports in
     /// parts, it is the library's [`Program::lookup`].
-    pub fn lookup_na_unidade(&self, unit: UnitId, name: SymbolId) -> Option<Binding> {
+    pub fn lookup_in_unit(&self, unit: UnitId, name: SymbolId) -> Option<Binding> {
         let lib = self.library(self.unit(unit).library);
-        match lib.escopos_de_unidade.get(&unit) {
+        match lib.unit_scopes.get(&unit) {
             Some(e) => e.scope.get(&name).copied(),
             None => lib.scope.get(&name).copied(),
         }
     }
 
-    /// `prefix.name` in a unit's scope (see [`Program::lookup_na_unidade`]).
-    pub fn lookup_prefixed_na_unidade(&self, unit: UnitId, prefix: SymbolId, name: SymbolId) -> Option<Binding> {
-        self.prefixos_na_unidade(unit).get(&prefix).and_then(|ns| ns.get(&name).copied())
+    /// `prefix.name` in a unit's scope (see [`Program::lookup_in_unit`]).
+    pub fn lookup_prefixed_in_unit(&self, unit: UnitId, prefix: SymbolId, name: SymbolId) -> Option<Binding> {
+        self.prefixes_in_unit(unit).get(&prefix).and_then(|ns| ns.get(&name).copied())
     }
 
     /// The import prefixes visible in a unit.
-    pub fn prefixos_na_unidade(&self, unit: UnitId) -> &HashMap<SymbolId, Namespace> {
+    pub fn prefixes_in_unit(&self, unit: UnitId) -> &HashMap<SymbolId, Namespace> {
         let lib = self.library(self.unit(unit).library);
-        match lib.escopos_de_unidade.get(&unit) {
+        match lib.unit_scopes.get(&unit) {
             Some(e) => &e.prefixes,
             None => &lib.prefixes,
         }

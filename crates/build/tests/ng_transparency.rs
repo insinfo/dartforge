@@ -9,7 +9,7 @@
 //! hence `#[ignore]`, in the group that `ci.yml` satisfies.
 use dartforge_build::query::NoDb;
 use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions};
-use dartforge_elements::config::{PackageConfig, sem_verbatim};
+use dartforge_elements::config::{PackageConfig, without_verbatim};
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
@@ -71,17 +71,17 @@ fn ng_through_the_engine_equals_direct_generator_and_oracle() {
         dartforge_ng_generator::gerar_com_apoio(&package, &mut i, None, Some(&resolver));
     let expected: std::collections::HashSet<&PathBuf> = m.natural_paths_map.values().collect();
     let mut equal = 0;
-    for (path, f) in direct.iter().filter(|(_, f)| f.gerador == "ngdart") {
-        let k = dartforge_elements::gerado::chave(path);
+    for (path, f) in direct.iter().filter(|(_, f)| f.generator == "ngdart") {
+        let k = dartforge_elements::generated::key(path);
         if !expected.contains(&k) {
             continue; // outside the plan (build_runner would not generate it either)
         }
-        let via_engine = g.obter(&k).unwrap_or_else(|| {
+        let via_engine = g.get(&k).unwrap_or_else(|| {
             panic!("{}: generated directly and missing in the engine", k.display())
         });
         assert_eq!(
-            via_engine.conteudo,
-            f.conteudo,
+            via_engine.content,
+            f.content,
             "{}: engine ≠ direct generator",
             k.display()
         );
@@ -93,7 +93,7 @@ fn ng_through_the_engine_equals_direct_generator_and_oracle() {
     let oracle = root.join("oraculo");
     let mut checked = 0;
     let mut different = Vec::new();
-    for (path, f) in g.iter().filter(|(_, f)| f.gerador == "ngdart:ngdart") {
+    for (path, f) in g.iter().filter(|(_, f)| f.generator == "ngdart:ngdart") {
         let Some(name) = path.file_name() else {
             continue;
         };
@@ -101,7 +101,7 @@ fn ng_through_the_engine_equals_direct_generator_and_oracle() {
             continue;
         };
         checked += 1;
-        if expected.replace("\r\n", "\n") != *f.conteudo {
+        if expected.replace("\r\n", "\n") != *f.content {
             different.push(path.display().to_string());
         }
     }
@@ -314,7 +314,7 @@ fn ng_dependency_through_the_engine_equals_oracle() {
     // The generation keys start from the canonical roots of `package_config`
     // (on Windows, the long name: the runner's temporary directory comes as
     // `C:\Users\RUNNER~1\…`, and the package root as `…\runneradmin\…`).
-    let base = sem_verbatim(std::fs::canonicalize(tmp.path()).unwrap());
+    let base = without_verbatim(std::fs::canonicalize(tmp.path()).unwrap());
     for d in ["app", "dep"] {
         copy_case(&origin.join(d), &base.join(d));
     }
@@ -367,13 +367,13 @@ fn ng_dependency_through_the_engine_equals_oracle() {
         }
         for o in files {
             let rel = o.strip_prefix(&dir).unwrap();
-            let k = dartforge_elements::gerado::chave(&root.join(rel));
+            let k = dartforge_elements::generated::key(&root.join(rel));
             let generated = g
-                .obter(&k)
+                .get(&k)
                 .unwrap_or_else(|| panic!("{}: missing from the generation", k.display()));
             let expected = std::fs::read_to_string(&o).unwrap();
             assert_eq!(
-                *generated.conteudo,
+                *generated.content,
                 expected,
                 "{package}/{}: native ≠ oracle",
                 rel.display()

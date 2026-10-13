@@ -63,7 +63,7 @@ pub struct CompileOptions<'a> {
 pub type Gerador<'a> = &'a (dyn Fn(
     &dartforge_elements::model::Program,
     &Interner,
-) -> Result<std::sync::Arc<dartforge_elements::gerado::Geracao>, String>
+) -> Result<std::sync::Arc<dartforge_elements::generated::Generation>, String>
          + Sync);
 
 /// Time of each phase of the emission (everything before Clang).
@@ -309,11 +309,11 @@ fn emit_ir_internal(
     let mut sdk = sdk_modulo::load_native_sdk(&sdk_dir)
         .map_err(|e| format!("failed to load the VM SDK: {e}"))?;
     if let Some(v) = options.versao_linguagem {
-        sdk.versao_corrente = v;
+        sdk.current_version = v;
     }
     for experiment in &options.experimentos {
-        if !sdk.experimentos.contains(experiment) {
-            sdk.experimentos.push(*experiment);
+        if !sdk.experiments.contains(experiment) {
+            sdk.experiments.push(*experiment);
         }
     }
 
@@ -326,7 +326,7 @@ fn emit_ir_internal(
             let mut resolution_names = Interner::new();
             let (resolution, _) = load_lenient(entry, &sdk, options.packages, &mut resolution_names);
             let generation = gerar(&resolution, &resolution_names)?;
-            dartforge_elements::load::load_lenient_gerados(
+            dartforge_elements::load::load_lenient_generated(
                 entry,
                 &sdk,
                 options.packages,

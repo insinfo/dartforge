@@ -3,7 +3,7 @@
 use dartforge_build::query::NoDb;
 use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions};
 use dartforge_elements::config::PackageConfig;
-use dartforge_elements::gerado::Geracao;
+use dartforge_elements::generated::Generation;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -67,7 +67,7 @@ pub fn generate_once(
     cfg_path: &Path,
     program: &dartforge_elements::model::Program,
     names: &dartforge_intern::Interner,
-) -> Result<(Arc<Geracao>, String), String> {
+) -> Result<(Arc<Generation>, String), String> {
     let mut m = Engine::new(
         root,
         cfg,
@@ -340,7 +340,7 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
                     .map(|p| p.as_path()),
             );
             Some(
-                dartforge_elements::load::load_lenient_entradas_ocultando(
+                dartforge_elements::load::load_lenient_entries_hiding(
                     &roots,
                     &layout,
                     packages.as_deref(),

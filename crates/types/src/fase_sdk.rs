@@ -204,8 +204,8 @@ pub fn restricao_de_sdk(
     for t in a.types.iter() {
         let TypeKind::Named { name, .. } = &t.kind else { continue };
         let binding = match &name[..] {
-            [n] => program.lookup_na_unidade(u, n.sym),
-            [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+            [n] => program.lookup_in_unit(u, n.sym),
+            [p, n] => program.lookup_prefixed_in_unit(u, p.sym, n.sym),
             _ => None,
         };
         if let (Some(Element::Class(c)), Some(last)) = (binding.and_then(|b| b.getter), name.last()) {

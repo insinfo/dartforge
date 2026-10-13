@@ -39,7 +39,7 @@ fn run(a: Vec<String>) {
             (SdkLayout::load(&dir, "dartdevc").unwrap(), PathBuf::from(&a[1]), Some(PathBuf::from(&a[2])), Vec::new())
         }
         "sdk" => {
-            let sdk = SdkLayout::load_com_sobreposicao(Path::new(&a[1]), Path::new(&a[2]), &a[3]).unwrap();
+            let sdk = SdkLayout::load_with_overlay(Path::new(&a[1]), Path::new(&a[2]), &a[3]).unwrap();
             let libs: Vec<String> = a[4..].to_vec();
             let tmp = std::env::temp_dir().join(format!("dartforge-avisos-sdk-{}", std::process::id()));
             std::fs::create_dir_all(&tmp).unwrap();

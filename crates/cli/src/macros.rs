@@ -7,7 +7,7 @@
 //! `--dart`, the same macro runs with our API on a Dart VM (the
 //! materialization executor, `macros_host::vm`) — the compatibility path with
 //! the official toolchain, not a dependency of the compiler.
-use dartforge_elements::sdk::{Linguagem, SdkLayout};
+use dartforge_elements::sdk::{LanguageOptions, SdkLayout};
 use dartforge_intern::Interner;
 use dartforge_macros_host::executor::{MacroExecutor, Unavailable};
 use std::path::{Path, PathBuf};
@@ -66,9 +66,9 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
     let mut api: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut sdk_lib: Option<PathBuf> = None;
-    let mut language = Linguagem::default();
+    let mut language = LanguageOptions::default();
     while let Some(a) = it.next() {
-        if language.ler_opcao(a, &mut it)? {
+        if language.read_option(a, &mut it)? {
             continue;
         }
         match a {
@@ -92,12 +92,12 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
     let input = input.ok_or(USAGE)?;
     let sdk_dir = sdk_lib.or_else(SdkLayout::discover).ok_or("SDK not found (use --sdk)")?;
     let mut sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
-    language.aplicar(&mut sdk);
+    language.apply(&mut sdk);
     let packages = packages.or_else(|| dartforge_elements::config::PackageConfig::discover(&input));
 
     let mut names = Interner::new();
     let (program, diags) =
-        dartforge_elements::load::load_lenient_gerados(&input, &sdk, packages.as_deref(), &mut names, None, None, None);
+        dartforge_elements::load::load_lenient_generated(&input, &sdk, packages.as_deref(), &mut names, None, None, None);
     if !diags.is_empty() {
         for d in &diags {
             eprintln!("error: {d}");
@@ -140,7 +140,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
         None => Box::new(Unavailable::default()),
     };
     let mut load = |i: &mut Interner, g| {
-        dartforge_elements::load::load_lenient_gerados(&input, &sdk, packages.as_deref(), i, None, None, g)
+        dartforge_elements::load::load_lenient_generated(&input, &sdk, packages.as_deref(), i, None, None, g)
     };
     let output = match dartforge_macros_host::apply(program, &mut names, None, &mut load, executor.as_mut()) {
         Ok(s) => s,

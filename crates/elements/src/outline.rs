@@ -44,7 +44,7 @@ enum Species {
     Getter,
     Setter,
     Variable,
-    Funcao,
+    Function,
     Enum,
     Extension,
     ExtensionType,
@@ -62,7 +62,7 @@ impl Species {
     fn order(self) -> u8 {
         match self {
             Species::Getter | Species::Setter | Species::Variable => 0,
-            Species::Funcao => 1,
+            Species::Function => 1,
             Species::Enum => 2,
             Species::Extension => 3,
             Species::ExtensionType => 4,
@@ -78,7 +78,7 @@ impl Species {
 /// the earlier kind in [`Species::order`] and, within the same kind, the
 /// first in the source —, and not the last one, which is what the
 /// declaration loop leaves. Getter and setter are separate slots. Homonyms
-/// of the same kind get the [`Library::representante`]. Without a repeated
+/// of the same kind get the [`Library::representative`]. Without a repeated
 /// name, nothing changes.
 fn resolve_homonyms(lib: &mut Library, candidates: &[(SymbolId, bool, Species, Element, u32)]) {
     let mut per_slot: HashMap<(SymbolId, bool), Vec<usize>> = HashMap::new();
@@ -116,7 +116,7 @@ fn resolve_homonyms(lib: &mut Library, candidates: &[(SymbolId, bool, Species, E
         for &k in group {
             let (_, _, species, element, _) = candidates[k];
             if how_many[&species] > 1 {
-                lib.representante.insert(element, first[&species]);
+                lib.representative.insert(element, first[&species]);
             }
         }
     }
@@ -156,7 +156,7 @@ pub fn build_outline(
             variables: &mut program.variables,
         };
 
-        let mut cadeias: Vec<(ClassId, DeclRef)> = Vec::new();
+        let mut chains: Vec<(ClassId, DeclRef)> = Vec::new();
         let mut classes_macro: Vec<ClassId> = Vec::new();
         // T1: each top-level declaration of the source units, in source order —
         // (name, is it the setter slot?, kind, element). With a repeated name, what
@@ -182,9 +182,9 @@ pub fn build_outline(
                         empty_sym,
                         interner,
                         diagnostics,
-                        cadeias: &mut cadeias,
+                        chains: &mut chains,
                     };
-                    crate::augmentation::aplicar(&mut merge, &mut pools, unit_id, decl_id);
+                    crate::augmentation::apply(&mut merge, &mut pools, unit_id, decl_id);
                     continue;
                 }
                 let is_patch =
@@ -349,13 +349,13 @@ pub fn build_outline(
                                 },
                                 variable: None,
                                 patched_by: None,
-                                declaracao_publica: None,
+                                public_declaration: None,
                             });
 
                             candidates.push(match fn_kind {
                                 FunctionKind::Getter => (fn_sym, false, Species::Getter, Element::Function(fn_id), unit_order),
                                 FunctionKind::Setter => (fn_sym, true, Species::Setter, Element::Function(fn_id), unit_order),
-                                _ => (fn_sym, false, Species::Funcao, Element::Function(fn_id), unit_order),
+                                _ => (fn_sym, false, Species::Function, Element::Function(fn_id), unit_order),
                             });
                             let entry = program.libraries[lib_idx]
                                 .declared
@@ -367,7 +367,7 @@ pub fn build_outline(
                                         if let Some(Element::Function(old_id)) = entry.getter {
                                             pools.functions[old_id.0 as usize].patched_by =
                                                 Some(fn_id);
-                                            pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[old_id.0 as usize].declaracao_publica.unwrap_or(old_id));
+                                            pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[old_id.0 as usize].public_declaration.unwrap_or(old_id));
                                         }
                                     }
                                     entry.getter = Some(Element::Function(fn_id));
@@ -377,7 +377,7 @@ pub fn build_outline(
                                         if let Some(Element::Function(old_id)) = entry.setter {
                                             pools.functions[old_id.0 as usize].patched_by =
                                                 Some(fn_id);
-                                            pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[old_id.0 as usize].declaracao_publica.unwrap_or(old_id));
+                                            pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[old_id.0 as usize].public_declaration.unwrap_or(old_id));
                                         }
                                     }
                                     entry.setter = Some(Element::Function(fn_id));
@@ -387,7 +387,7 @@ pub fn build_outline(
                                         if let Some(Element::Function(old_id)) = entry.getter {
                                             pools.functions[old_id.0 as usize].patched_by =
                                                 Some(fn_id);
-                                            pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[old_id.0 as usize].declaracao_publica.unwrap_or(old_id));
+                                            pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[old_id.0 as usize].public_declaration.unwrap_or(old_id));
                                         }
                                     }
                                     entry.getter = Some(Element::Function(fn_id));
@@ -416,7 +416,7 @@ pub fn build_outline(
                                 node: FunctionRef::None,
                                 variable: Some(var_id),
                                 patched_by: None,
-                                declaracao_publica: None,
+                                public_declaration: None,
                             });
 
                             // Implicit setter if not const/final
@@ -436,7 +436,7 @@ pub fn build_outline(
                                     node: FunctionRef::None,
                                     variable: Some(var_id),
                                     patched_by: None,
-                                    declaracao_publica: None,
+                                    public_declaration: None,
                                 });
                                 Some(sid)
                             } else {
@@ -482,15 +482,15 @@ pub fn build_outline(
         if !has_patch {
             resolve_homonyms(&mut program.libraries[lib_idx], &candidates);
         }
-        for (c, d) in cadeias {
-            program.augmentacoes.entry(c).or_default().push(d);
+        for (c, d) in chains {
+            program.augmentations.entry(c).or_default().push(d);
         }
         program.classes_macro.append(&mut classes_macro);
     }
 
     // -----------------------------------------------------------------------
     // Phase 2: building Library::exported (with a fixpoint for reexports)
-    program.tempos.outline_declaracoes += t_phase.elapsed();
+    program.times.outline_declarations += t_phase.elapsed();
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
     // Initializes `exported` with what is declared locally and not private
@@ -536,7 +536,7 @@ pub fn build_outline(
 
     // -----------------------------------------------------------------------
     // Phase 3: building each library's lexical scope (Library::scope)
-    program.tempos.outline_reexports += t_phase.elapsed();
+    program.times.outline_reexports += t_phase.elapsed();
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
     for lib_idx in 0..program.libraries.len() {
@@ -605,13 +605,13 @@ pub fn build_outline(
 
         program.libraries[lib_idx].scope = scope;
         program.libraries[lib_idx].prefixes = prefixes;
-        let scopes = escopos_de_unidade(program, LibraryId(lib_idx as u32));
-        program.libraries[lib_idx].escopos_de_unidade = scopes;
+        let scopes = unit_scopes(program, LibraryId(lib_idx as u32));
+        program.libraries[lib_idx].unit_scopes = scopes;
     }
 
     // -----------------------------------------------------------------------
     // Phase 4: supertype resolution and cycle checking
-    program.tempos.outline_escopos += t_phase.elapsed();
+    program.times.outline_scopes += t_phase.elapsed();
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
     let object_sym = interner.intern("Object");
@@ -693,7 +693,7 @@ pub fn build_outline(
         }
     }
     compute_homonym_owners(program);
-    program.tempos.outline_supertipos += t_phase.elapsed();
+    program.times.outline_supertypes += t_phase.elapsed();
 }
 
 /// T1 (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 d): the owner of the
@@ -710,11 +710,11 @@ pub fn build_outline(
 fn compute_homonym_owners(program: &mut Program) {
     let inside = |a: Span, b: Span| a.start >= b.start && a.end <= b.end;
     for li in 0..program.libraries.len() {
-        if program.libraries[li].representante.is_empty() {
+        if program.libraries[li].representative.is_empty() {
             continue;
         }
         let mut groups: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
-        for (e, r) in &program.libraries[li].representante {
+        for (e, r) in &program.libraries[li].representative {
             if let (Element::Class(c), Element::Class(rc)) = (e, r) {
                 groups.entry(*rc).or_default().push(*c);
             }
@@ -728,9 +728,9 @@ fn compute_homonym_owners(program: &mut Program) {
             };
             let mut owner = None;
             'unidades: for &u in &program.libraries[li].units {
-                let unidade = &program.units[u.0 as usize];
-                let a = &unidade.ast;
-                for &d in &unidade.unit.declarations {
+                let unit = &program.units[u.0 as usize];
+                let a = &unit.ast;
+                for &d in &unit.unit.declarations {
                     let span = a.decl(d).span;
                     let of_group = members_
                         .iter()
@@ -770,7 +770,7 @@ fn compute_homonym_owners(program: &mut Program) {
                 owners.insert(c, owner);
             }
         }
-        program.libraries[li].dono_do_grupo = owners;
+        program.libraries[li].group_owner = owners;
     }
 }
 
@@ -786,7 +786,7 @@ fn compute_homonym_owners(program: &mut Program) {
 ///
 /// Empty when only the library file imports: then the library scope
 /// applies to every unit.
-fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, UnitScope> {
+fn unit_scopes(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, UnitScope> {
     let lib = &program.libraries[lib_id.0 as usize];
     if lib.is_sdk {
         return patch_scopes(program, lib);
@@ -821,14 +821,14 @@ fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, U
             }
         }
     }
-    for &unidade in &lib.units {
-        if program.units[unidade.0 as usize].role == UnitRole::Patch {
+    for &unit in &lib.units {
+        if program.units[unit.0 as usize].role == UnitRole::Patch {
             continue;
         }
         // The chain from the file up to the library's, from outside in.
-        let mut chain = vec![unidade];
-        let mut current = unidade;
-        while let Some(&parent) = lib.pais.get(&current) {
+        let mut chain = vec![unit];
+        let mut current = unit;
+        while let Some(&parent) = lib.unit_parents.get(&current) {
             if chain.contains(&parent) {
                 break;
             }
@@ -860,7 +860,7 @@ fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, U
                 }
             }
         }
-        output.insert(unidade, scope_);
+        output.insert(unit, scope_);
     }
     output
 }
@@ -955,7 +955,7 @@ fn create_class_element(
         interface_classes: Vec::new(),
         on_classes: Vec::new(),
         instance_members: HashMap::new(),
-        instancia_sobrepostos: Vec::new(),
+        shadowed_instance_members: Vec::new(),
         static_members: HashMap::new(),
         constructors: std::collections::BTreeMap::new(),
         fields: Vec::new(),
@@ -984,7 +984,7 @@ fn create_class_element(
             node: FunctionRef::None,
             variable: None,
             patched_by: None,
-            declaracao_publica: None,
+            public_declaration: None,
         });
         elem.constructors.insert(empty_sym, synth_id);
     }
@@ -1030,7 +1030,7 @@ fn create_mixin_element(
         interface_classes: Vec::new(),
         on_classes: Vec::new(),
         instance_members: HashMap::new(),
-        instancia_sobrepostos: Vec::new(),
+        shadowed_instance_members: Vec::new(),
         static_members: HashMap::new(),
         constructors: std::collections::BTreeMap::new(),
         fields: Vec::new(),
@@ -1079,7 +1079,7 @@ fn create_enum_element(
         interface_classes: Vec::new(),
         on_classes: Vec::new(),
         instance_members: HashMap::new(),
-        instancia_sobrepostos: Vec::new(),
+        shadowed_instance_members: Vec::new(),
         static_members: HashMap::new(),
         constructors: std::collections::BTreeMap::new(),
         fields: Vec::new(),
@@ -1107,7 +1107,7 @@ fn create_enum_element(
         node: FunctionRef::None,
         variable: None,
         patched_by: None,
-        declaracao_publica: None,
+        public_declaration: None,
     });
     elem.static_members.insert(values_sym, values_fn);
 
@@ -1126,7 +1126,7 @@ fn create_enum_element(
         node: FunctionRef::None,
         variable: None,
         patched_by: None,
-        declaracao_publica: None,
+        public_declaration: None,
     });
     elem.instance_members.insert(index_sym, index_fn);
 
@@ -1145,7 +1145,7 @@ fn create_enum_element(
         node: FunctionRef::None,
         variable: None,
         patched_by: None,
-        declaracao_publica: None,
+        public_declaration: None,
     });
     elem.instance_members.insert(name_sym, name_fn);
 
@@ -1292,7 +1292,7 @@ fn extension_members(
                         },
                         variable: None,
                         patched_by: None,
-                        declaracao_publica: None,
+                        public_declaration: None,
                     });
                     let key = if fn_kind == FunctionKind::Setter {
                         let setter_str = format!("{}_=", interner.resolve(fn_sym));
@@ -1309,7 +1309,7 @@ fn extension_members(
                     let old_ = members_.insert(key, fn_id);
                     if is_patch && let Some(old_) = old_ {
                         pools.functions[old_.0 as usize].patched_by = Some(fn_id);
-                        pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[old_.0 as usize].declaracao_publica.unwrap_or(old_));
+                        pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[old_.0 as usize].public_declaration.unwrap_or(old_));
                     }
                 }
             }
@@ -1340,7 +1340,7 @@ fn extension_members(
                                 node: FunctionRef::None,
                                 variable: Some(var_id),
                                 patched_by: None,
-                                declaracao_publica: None,
+                                public_declaration: None,
                             });
                             id
                         };
@@ -1348,8 +1348,8 @@ fn extension_members(
                         ext_elem.instance_members.insert(var.name.sym, g);
                         let s = if !vars.final_ && !vars.const_ {
                             let s = accessor(pools);
-                            let chave = interner.intern(&format!("{}_=", interner.resolve(var.name.sym)));
-                            ext_elem.instance_members.insert(chave, s);
+                            let key = interner.intern(&format!("{}_=", interner.resolve(var.name.sym)));
+                            ext_elem.instance_members.insert(key, s);
                             Some(s)
                         } else {
                             None
@@ -1436,7 +1436,7 @@ fn create_extension_type_element(
         interface_classes: Vec::new(),
         on_classes: Vec::new(),
         instance_members: HashMap::new(),
-        instancia_sobrepostos: Vec::new(),
+        shadowed_instance_members: Vec::new(),
         static_members: HashMap::new(),
         constructors: std::collections::BTreeMap::new(),
         fields: vec![rep_id],
@@ -1523,7 +1523,7 @@ pub(crate) fn extract_members(
                         },
                         variable: None,
                         patched_by: None,
-                        declaracao_publica: None,
+                        public_declaration: None,
                     });
 
                     let key = if fn_kind == FunctionKind::Setter {
@@ -1536,7 +1536,7 @@ pub(crate) fn extract_members(
                     if ast_fn.static_ {
                         elem.static_members.insert(key, fn_id);
                     } else if let Some(old) = elem.instance_members.insert(key, fn_id) {
-                        elem.instancia_sobrepostos.push((key, old));
+                        elem.shadowed_instance_members.push((key, old));
                     }
                 }
             }
@@ -1562,7 +1562,7 @@ pub(crate) fn extract_members(
                     },
                     variable: None,
                     patched_by: None,
-                    declaracao_publica: None,
+                    public_declaration: None,
                 });
                 // Repeated constructor (`DUPLICATE_CONSTRUCTOR`): the name resolves to the
                 // first one declared (`InterfaceElement.getNamedConstructor`, the first of
@@ -1589,7 +1589,7 @@ pub(crate) fn extract_members(
                         node: FunctionRef::None,
                         variable: Some(var_id),
                         patched_by: None,
-                        declaracao_publica: None,
+                        public_declaration: None,
                     });
 
                     let setter_id = if !vars.final_ && !vars.const_ {
@@ -1608,7 +1608,7 @@ pub(crate) fn extract_members(
                             node: FunctionRef::None,
                             variable: Some(var_id),
                             patched_by: None,
-                            declaracao_publica: None,
+                            public_declaration: None,
                         });
                         Some(sid)
                     } else {
@@ -1644,13 +1644,13 @@ pub(crate) fn extract_members(
                         }
                     } else {
                         if let Some(old) = elem.instance_members.insert(var_sym, getter_id) {
-                            elem.instancia_sobrepostos.push((var_sym, old));
+                            elem.shadowed_instance_members.push((var_sym, old));
                         }
                         if let Some(sid) = setter_id {
                             let setter_key =
                                 interner.intern(&format!("{}_=", interner.resolve(var_sym)));
                             if let Some(old) = elem.instance_members.insert(setter_key, sid) {
-                                elem.instancia_sobrepostos.push((setter_key, old));
+                                elem.shadowed_instance_members.push((setter_key, old));
                             }
                         }
                     }
@@ -1711,7 +1711,7 @@ fn merge_class_patch(
                         },
                         variable: None,
                         patched_by: None,
-                        declaracao_publica: None,
+                        public_declaration: None,
                     });
 
                     let key = if fn_kind == FunctionKind::Setter {
@@ -1730,7 +1730,7 @@ fn merge_class_patch(
                     if let Some(&existing_fn_id) = target_map.get(&key) {
                         // A member replaces an external member
                         pools.functions[existing_fn_id.0 as usize].patched_by = Some(fn_id);
-                        pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[existing_fn_id.0 as usize].declaracao_publica.unwrap_or(existing_fn_id));
+                        pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[existing_fn_id.0 as usize].public_declaration.unwrap_or(existing_fn_id));
                         target_map.insert(key, fn_id);
                     } else {
                         // A new member is added
@@ -1760,12 +1760,12 @@ fn merge_class_patch(
                     },
                     variable: None,
                     patched_by: None,
-                    declaracao_publica: None,
+                    public_declaration: None,
                 });
                 let constructors = &mut pools.classes[class_id.0 as usize].constructors;
                 if let Some(&existing_ctor_id) = constructors.get(&ctor_sym) {
                     pools.functions[existing_ctor_id.0 as usize].patched_by = Some(fn_id);
-                    pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[existing_ctor_id.0 as usize].declaracao_publica.unwrap_or(existing_ctor_id));
+                    pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[existing_ctor_id.0 as usize].public_declaration.unwrap_or(existing_ctor_id));
                 }
                 constructors.insert(ctor_sym, fn_id);
             }
@@ -1791,7 +1791,7 @@ fn merge_class_patch(
                     interface_classes: Vec::new(),
                     on_classes: Vec::new(),
                     instance_members: std::mem::take(&mut c.instance_members),
-                    instancia_sobrepostos: std::mem::take(&mut c.instancia_sobrepostos),
+                    shadowed_instance_members: std::mem::take(&mut c.shadowed_instance_members),
                     static_members: std::mem::take(&mut c.static_members),
                     constructors: std::mem::take(&mut c.constructors),
                     fields: std::mem::take(&mut c.fields),
@@ -1801,7 +1801,7 @@ fn merge_class_patch(
                 extract_members(pools, ast, &mut tmp, class_id, unit_id, &[mid], empty_sym, interner);
                 let c = &mut pools.classes[idx];
                 c.instance_members = tmp.instance_members;
-                c.instancia_sobrepostos = tmp.instancia_sobrepostos;
+                c.shadowed_instance_members = tmp.shadowed_instance_members;
                 c.static_members = tmp.static_members;
                 c.constructors = tmp.constructors;
                 c.fields = tmp.fields;
@@ -1890,7 +1890,7 @@ fn resolve_type_to_class(
                 let prefix_sym = name[0].sym;
                 let target_sym = name[1].sym;
                 program
-                    .lookup_prefixed_na_unidade(unit_id, prefix_sym, target_sym)
+                    .lookup_prefixed_in_unit(unit_id, prefix_sym, target_sym)
                     .and_then(|b| {
                         if b.ambiguous {
                             diagnostics.push(Diagnostic::new(
@@ -1929,8 +1929,8 @@ fn typedef_class(program: &Program, tid: TypedefId, depth: u32) -> Option<ClassI
     let ast::TypedefKind::Alias(ty) = d.kind else { return None };
     let ast::TypeKind::Named { name, .. } = &ast.ty(ty).kind else { return None };
     let b = match &name[..] {
-        [n] => program.lookup_na_unidade(t.decl.unit, n.sym),
-        [p, n] => program.lookup_prefixed_na_unidade(t.decl.unit, p.sym, n.sym),
+        [n] => program.lookup_in_unit(t.decl.unit, n.sym),
+        [p, n] => program.lookup_prefixed_in_unit(t.decl.unit, p.sym, n.sym),
         _ => None,
     }?;
     match b.getter {
@@ -1950,7 +1950,7 @@ fn resolve_name_to_class(
     core_id: Option<LibraryId>,
 ) -> Option<ClassId> {
     let found = match unit {
-        Some(u) => program.lookup_na_unidade(u, name_sym),
+        Some(u) => program.lookup_in_unit(u, name_sym),
         None => program.lookup(lib_id, name_sym),
     };
     if let Some(b) = found {

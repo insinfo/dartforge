@@ -120,7 +120,7 @@ fn what_we_generate_equals_the_official_output() {
     let (program, _) = load_lenient(&entry, &sdk, Some(&cfg), &mut names);
     let resolver = Resolvedor::novo(&program, &names);
     let mut interner = Interner::new();
-    let mut c = dartforge_elements::gerado::Construtor::nova();
+    let mut c = dartforge_elements::generated::GenerationBuilder::new();
     let mut scoreboard = Scoreboard::default();
     generate_in(
         &package,
@@ -130,7 +130,7 @@ fn what_we_generate_equals_the_official_output() {
         &mut scoreboard,
         Some(&resolver),
     );
-    let ours = c.concluir(1).expect("generation");
+    let ours = c.finish(1).expect("generation");
 
     let mut checked = 0usize;
     let mut different = Vec::new();
@@ -141,11 +141,11 @@ fn what_we_generate_equals_the_official_output() {
             continue;
         };
         checked += 1;
-        if expected.replace("\r\n", "\n") != f.conteudo.as_ref() {
+        if expected.replace("\r\n", "\n") != f.content.as_ref() {
             different.push((
                 path.clone(),
                 expected.replace("\r\n", "\n"),
-                f.conteudo.to_string(),
+                f.content.to_string(),
             ));
         }
     }

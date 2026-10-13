@@ -89,9 +89,9 @@ fn main() {
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         println!(
             "   {n}: read+lex {:.1} par / {:.1} serial, parse {:.1}, directives {:.1}, outline {:.1}+{:.1}+{:.1}+{:.1} ms ({} files read)",
-            ms(c.leitura_lex_paralelo), ms(c.leitura), ms(c.parse), ms(c.diretivas),
-            ms(c.outline_declaracoes), ms(c.outline_reexports), ms(c.outline_escopos), ms(c.outline_supertipos),
-            c.arquivos_lidos
+            ms(c.parallel_read_lex), ms(c.read), ms(c.parse), ms(c.directives),
+            ms(c.outline_declarations), ms(c.outline_reexports), ms(c.outline_scopes), ms(c.outline_supertypes),
+            c.files_read
         );
     };
     detail("load of the first", &r);

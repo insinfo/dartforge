@@ -2,7 +2,7 @@
 //! produces the same `Program` as loading from the files and is faster. It
 //! needs SDK 3.6.2; without it the test is skipped.
 
-use dartforge_elements::load::{load_lenient, load_lenient_com_cache};
+use dartforge_elements::load::{load_lenient, load_lenient_with_cache};
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_elements::SdkCache;
 use dartforge_intern::Interner;
@@ -41,14 +41,14 @@ fn sdk_cache_reproduces_the_program_and_is_faster() {
     assert!(d1.is_empty(), "{d1:?}");
 
     // 2. Builds the cache (once) and loads through it.
-    let caminho = tmp.path().join("sdk.bin");
+    let path = tmp.path().join("sdk.bin");
     let t1 = Instant::now();
-    SdkCache::build_and_write(&sdk, &caminho).expect("builds the cache");
+    SdkCache::build_and_write(&sdk, &path).expect("builds the cache");
     let t_build = t1.elapsed();
-    assert!(caminho.exists());
-    let cache = SdkCache::abrir(&caminho).expect("opens the cache");
+    assert!(path.exists());
+    let cache = SdkCache::open(&path).expect("opens the cache");
     let mut i2 = Interner::new();
-    let (p2, d2) = load_lenient_com_cache(&entry, &sdk, None, &mut i2, Some(cache));
+    let (p2, d2) = load_lenient_with_cache(&entry, &sdk, None, &mut i2, Some(cache));
     assert!(d2.is_empty(), "{d2:?}");
 
     // 3. Time: the minimum of N runs of each path, interleaved (the runner's
@@ -65,8 +65,8 @@ fn sdk_cache_reproduces_the_program_and_is_faster() {
         let _ = load_lenient(&entry, &sdk, None, &mut Interner::new());
         t_files = t_files.min(t.elapsed());
         let t = Instant::now();
-        let cache = SdkCache::abrir(&caminho).expect("opens the cache");
-        let _ = load_lenient_com_cache(&entry, &sdk, None, &mut Interner::new(), Some(cache));
+        let cache = SdkCache::open(&path).expect("opens the cache");
+        let _ = load_lenient_with_cache(&entry, &sdk, None, &mut Interner::new(), Some(cache));
         t_cache = t_cache.min(t.elapsed());
     }
 
@@ -117,9 +117,9 @@ fn invalid_cache_is_ignored() {
         return;
     };
     let tmp = tempdir().unwrap();
-    let caminho = tmp.path().join("sdk.bin");
-    fs::write(&caminho, b"garbage").unwrap();
-    assert!(SdkCache::abrir(&caminho).is_none());
+    let path = tmp.path().join("sdk.bin");
+    fs::write(&path, b"garbage").unwrap();
+    assert!(SdkCache::open(&path).is_none());
     assert!(!SdkCache::hash(&sdk, "dartdevc").is_empty());
     assert_ne!(SdkCache::hash(&sdk, "dartdevc"), SdkCache::hash(&sdk, "dart2js"));
 }

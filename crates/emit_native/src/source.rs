@@ -98,11 +98,11 @@ pub fn split_core_parts(program: &mut Program) -> Option<LibraryId> {
         features: origin.features,
         // The scope of each unit (A04) and the part that included it follow the
         // units that come into the new library.
-        pais: origin.pais.iter().filter(|(u, _)| units.contains(u)).map(|(u, p)| (*u, *p)).collect(),
-        representante: Default::default(),
-        dono_do_grupo: Default::default(),
-        escopos_de_unidade: origin
-            .escopos_de_unidade
+        unit_parents: origin.unit_parents.iter().filter(|(u, _)| units.contains(u)).map(|(u, p)| (*u, *p)).collect(),
+        representative: Default::default(),
+        group_owner: Default::default(),
+        unit_scopes: origin
+            .unit_scopes
             .iter()
             .filter(|(u, _)| units.contains(u))
             .map(|(u, e)| (*u, e.clone()))

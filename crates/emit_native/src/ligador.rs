@@ -66,7 +66,7 @@ impl SysrootLinux {
     pub fn locate(clang: &Path) -> Result<&'static SysrootLinux, String> {
         static S: std::sync::OnceLock<Result<SysrootLinux, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
-            if let Some(dir) = dartforge_elements::distribuicao::em_lib(&format!("sysroot/{}", triple_do_sysroot())) {
+            if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{}", triple_do_sysroot())) {
                 return Self::from_dir(&dir);
             }
             Self::do_sistema(clang)
@@ -148,7 +148,7 @@ pub struct Linkage<'a> {
 
 /// `ld.lld`: the distribution one, the one next to Clang, or the one on `PATH`.
 pub fn ld_lld(clang: &Path) -> PathBuf {
-    if let Some(l) = dartforge_elements::distribuicao::ferramenta_llvm("ld.lld") {
+    if let Some(l) = dartforge_elements::distribution::llvm_tool("ld.lld") {
         return l;
     }
     let alongside = clang.with_file_name("ld.lld");

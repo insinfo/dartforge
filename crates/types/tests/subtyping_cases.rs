@@ -36,10 +36,10 @@ impl TestHarness {
             exported: HashMap::new(),
             scope: HashMap::new(),
             prefixes: HashMap::new(),
-            pais: HashMap::new(),
-            representante: Default::default(),
-            dono_do_grupo: Default::default(),
-            escopos_de_unidade: HashMap::new(),
+            unit_parents: HashMap::new(),
+            representative: Default::default(),
+            group_owner: Default::default(),
+            unit_scopes: HashMap::new(),
             is_sdk: true,
             features: dartforge_frontend::LibraryFeatures::floor(),
         };
@@ -80,7 +80,7 @@ impl TestHarness {
                     fields: Vec::new(),
                     enum_constants: Vec::new(),
                     representation: None,
-                    instancia_sobrepostos: Vec::new(),
+                    shadowed_instance_members: Vec::new(),
                 });
 
             core_lib.scope.insert(
@@ -123,10 +123,10 @@ impl TestHarness {
             exported: HashMap::new(),
             scope: HashMap::new(),
             prefixes: HashMap::new(),
-            pais: HashMap::new(),
-            representante: Default::default(),
-            dono_do_grupo: Default::default(),
-            escopos_de_unidade: HashMap::new(),
+            unit_parents: HashMap::new(),
+            representative: Default::default(),
+            group_owner: Default::default(),
+            unit_scopes: HashMap::new(),
             is_sdk: true,
             features: dartforge_frontend::LibraryFeatures::floor(),
         };
@@ -159,7 +159,7 @@ impl TestHarness {
                 fields: Vec::new(),
                 enum_constants: Vec::new(),
                 representation: None,
-                instancia_sobrepostos: Vec::new(),
+                shadowed_instance_members: Vec::new(),
             });
 
         async_lib.scope.insert(

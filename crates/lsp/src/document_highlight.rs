@@ -314,14 +314,14 @@ fn type_element(p: &Project, cx: &Context<'_>, n: usize) -> Option<(Key, usize)>
             let t = cx.node_text(k);
             let pf = t.trim_end_matches('.').trim();
             let ps = p.query.names.lookup(pf)?;
-            prog.lookup_prefixed_na_unidade(cx.unit, ps, s)
+            prog.lookup_prefixed_in_unit(cx.unit, ps, s)
         }
         None => {
             // A type parameter in scope comes before the unit scope.
             if let Some(d) = crate::project::type_parameter_declaration(cx.ast, node.inicio, s) {
                 return Some((Key::TypeParameter(d), name.len()));
             }
-            prog.lookup_na_unidade(cx.unit, s)
+            prog.lookup_in_unit(cx.unit, s)
         }
     }?;
     let key = match binding.getter? {
