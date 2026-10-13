@@ -835,7 +835,8 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
     strings.visit_program(&program);
     if std::env::var("DARTFORGE_JSPROD_COMPRESS").map_or(true, |v| v != "0") {
         let mut c = oxc_minifier::CompressOptions::smallest();
-        c.treeshake.manual_pure_functions = ["dart.privateName", "dart.fnType", "dart.gFnType", "dart$$privateName", "dart$$fnType", "dart$$gFnType", "t$R"].iter().map(|s| s.to_string()).collect();
+        // `Object.create(dart.library)` of a namespace nobody cites: no effect.
+        c.treeshake.manual_pure_functions = ["dart.privateName", "dart.fnType", "dart.gFnType", "dart$$privateName", "dart$$fnType", "dart$$gFnType", "t$R", "Object.create"].iter().map(|s| s.to_string()).collect();
         let _ = Minifier::new(MinifierOptions { mangle: None, mangle_properties: None, compress: Some(c) }).minify(&allocator, &mut program);
     }
     strings.before = false;
