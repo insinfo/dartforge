@@ -1,7 +1,7 @@
 //! Measures the memory consumption, peak and resolution time of the type system and body inference.
 //!
 //! Run:
-//! `cargo run -q --release -p dartforge-types --example memoria_types -- C:/MyDartProjects/new_sali/frontend/web/main.dart`
+//! `cargo run -q --release -p dartforge-types --example memory_types -- C:/MyDartProjects/new_sali/frontend/web/main.dart`
 
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;

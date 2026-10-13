@@ -840,10 +840,10 @@ impl NgIndex {
         if !findings.injectors.is_empty()
             && let Some(r) = program
         {
-            for (name, lido) in crate::metadata::read_injectors(r, uri) {
+            for (name, read) in crate::metadata::read_injectors(r, uri) {
                 let k = (uri.to_string(), name);
                 self.injectors
-                    .insert(k.clone(), lido.map(std::sync::Arc::new));
+                    .insert(k.clone(), read.map(std::sync::Arc::new));
                 keys.push(k);
             }
         }

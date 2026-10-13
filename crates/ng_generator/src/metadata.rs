@@ -1854,12 +1854,12 @@ pub fn read_injectors(r: &Resolver, uri: &str) -> Vec<(String, Result<Injector, 
         let Some(a) = annotation else {
             continue;
         };
-        let lido = reader.injector(unit, a);
+        let read = reader.injector(unit, a);
         for v in l.variables.iter() {
             let name = reader.name(&v.name).to_string();
             output.push((
                 name.clone(),
-                lido.clone().map(|providers| Injector { name, providers }),
+                read.clone().map(|providers| Injector { name, providers }),
             ));
         }
     }

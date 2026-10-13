@@ -788,7 +788,7 @@ impl Converter<'_> {
             } => {
                 let target = self.expr(*target, root)?;
                 let name = self.interner.resolve(name.sym);
-                let ponto = if *null_aware { "?." } else { "." };
+                let dot = if *null_aware { "?." } else { "." };
                 // `Class.name` of an `exports:` class: a `const`/`final` field
                 // (and an enum value) is immutable, a getter is not, and a
                 // method is ("methods are immutable",
@@ -802,7 +802,7 @@ impl Converter<'_> {
                         ty: Some("dynamic".into()),
                         locals: target.locals,
                         ..Converted::new(
-                            format!("{}{ponto}{name}", target.text),
+                            format!("{}{dot}{name}", target.text),
                             "member of an enum or mixin",
                         )
                     });
@@ -824,7 +824,7 @@ impl Converter<'_> {
                         immutable,
                         ty: Some("dynamic".into()),
                         locals: target.locals,
-                        ..Converted::new(format!("{}{ponto}{name}", target.text), "static member")
+                        ..Converted::new(format!("{}{dot}{name}", target.text), "static member")
                     });
                 }
                 // The type at the end of the chain is in another class: the
@@ -863,7 +863,7 @@ impl Converter<'_> {
                     scope,
                     locals: target.locals,
                     ..Converted::new(
-                        format!("{}{ponto}{name}", target.text),
+                        format!("{}{dot}{name}", target.text),
                         if *null_aware { "`?.`" } else { "propriedade" },
                     )
                 })

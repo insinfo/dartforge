@@ -1,6 +1,6 @@
 //! Measures memory (live and peak) and time of each `compile-js` phase, with the
 //! counting allocator from `crates/instrument` — the same harness as the earlier
-//! phases (`crates/frontend/examples/memoria_frontend.rs`, `crates/types/examples/memoria_types.rs`).
+//! phases (`crates/frontend/examples/memory_frontend.rs`, `crates/types/examples/memory_types.rs`).
 //!
 //! `cargo run -q --release -p dartforge-emit-js --example memory_emit_js -- <entry.dart> [package_config.json] [out_dir]`
 //!
