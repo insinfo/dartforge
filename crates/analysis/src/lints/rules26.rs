@@ -20,7 +20,7 @@
 use super::walk::Node;
 use super::codigos_g as c;
 use super::rules::LintReport;
-use super::rules16::{is_nullable, e_invocacao_de_metodo, pais_da_unidade, tipo_de_variavel, Pais};
+use super::rules16::{is_method_invocation, is_nullable, declared_variable_type, unit_parents, NodeParents};
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -245,7 +245,7 @@ fn argumentos_por_intervalo(a: &Ast) -> HashMap<(usize, usize), &ast::Arguments>
 }
 
 /// O pai (do analyzer) dos parênteses `eu`.
-fn pai_de(s: &super::Semantics<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMap<(usize, usize), &ast::Arguments>, eu: ExprId) -> Pai {
+fn pai_de(s: &super::Semantics<'_>, a: &Ast, pais: &NodeParents, por_intervalo: &HashMap<(usize, usize), &ast::Arguments>, eu: ExprId) -> Pai {
     let Some(no) = pais.expr.get(&eu).copied() else { return Pai::Outro };
     match no {
         Node::Expr(p) => match &a.expr(p).kind {
@@ -263,7 +263,7 @@ fn pai_de(s: &super::Semantics<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMa
                 // O alvo de `(x).m(…)` é o do `MethodInvocation`.
                 if let Some(Node::Expr(ch)) = pais.expr.get(&p).copied()
                     && matches!(&a.expr(ch).kind, ExprKind::Call { target, .. } if *target == p)
-                    && e_invocacao_de_metodo(s, a, p)
+                    && is_method_invocation(s, a, p)
                 {
                     Pai::InvocacaoDeMetodo { chamada: ch, nome: p }
                 } else {
@@ -334,14 +334,14 @@ fn pai_de(s: &super::Semantics<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMa
                 Pai::Outro
             }
             MemberKind::Field(l) => match l.variables.iter().position(|v| v.initializer == Some(eu)) {
-                Some(index) => Pai::Variavel(tipo_de_variavel(s, VariableRef::Field { unit: s.unit, member: m, index })),
+                Some(index) => Pai::Variavel(declared_variable_type(s, VariableRef::Field { unit: s.unit, member: m, index })),
                 None => Pai::Outro,
             },
             _ => Pai::Outro,
         },
         Node::Decl(d) => match &a.decl(d).kind {
             DeclKind::Variables(l) => match l.variables.iter().position(|v| v.initializer == Some(eu)) {
-                Some(index) => Pai::Variavel(tipo_de_variavel(s, VariableRef::TopLevel { unit: s.unit, decl: d, index })),
+                Some(index) => Pai::Variavel(declared_variable_type(s, VariableRef::TopLevel { unit: s.unit, decl: d, index })),
                 None => Pai::Outro,
             },
             _ => Pai::Outro,
@@ -367,7 +367,7 @@ fn cadeia_null_aware(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> bool {
             }
             !matches!(a.expr(*target).kind, ExprKind::Identifier(_)) && cadeia_null_aware(s, a, *target)
         }
-        ExprKind::Call { target, .. } if e_invocacao_de_metodo(s, a, *target) => match &a.expr(*target).kind {
+        ExprKind::Call { target, .. } if is_method_invocation(s, a, *target) => match &a.expr(*target).kind {
             ExprKind::Property { target: t, null_aware, .. } => *null_aware || cadeia_null_aware(s, a, *t),
             _ => false,
         },
@@ -382,7 +382,7 @@ fn tem_espaco(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> bool {
         ExprKind::As { .. } | ExprKind::Assign { .. } | ExprKind::Await(_) | ExprKind::Binary { .. } | ExprKind::Is { .. } => true,
         ExprKind::InstanceCreation { keyword, .. } => keyword.is_some(),
         ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } => *const_,
-        ExprKind::Call { target, .. } if e_invocacao_de_metodo(s, a, *target) => match &a.expr(*target).kind {
+        ExprKind::Call { target, .. } if is_method_invocation(s, a, *target) => match &a.expr(*target).kind {
             ExprKind::Property { target: t, .. } => tem_espaco(s, a, *t),
             _ => false,
         },
@@ -443,7 +443,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     // `unnecessary_parenthesis`.
     if ligada("unnecessary_parenthesis") {
         let e_parenteses = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Parenthesized(_));
-        let pais = pais_da_unidade(u, &e_parenteses);
+        let pais = unit_parents(u, &e_parenteses);
         let por_intervalo = argumentos_por_intervalo(a);
         let e_registro = |t: Option<dartforge_types::table::TypeId>| t.is_some_and(|t| matches!(table.get(t), Type::Record { .. }));
         for (k, e) in a.exprs.iter().enumerate() {
@@ -530,7 +530,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 relatar(&c::UNNECESSARY_PARENTHESIS, e.span, &[]);
                 continue;
             }
-            let ancestrais: &[Node] = pais.ancestrais.get(&no).map(|v| &v[..]).unwrap_or(&[]);
+            let ancestrais: &[Node] = pais.ancestors.get(&no).map(|v| &v[..]).unwrap_or(&[]);
             // `a..b = (c..d)`: a cascata, ou a cascata antes da instrução.
             if matches!(interno, ExprKind::Cascade { .. }) {
                 continue;
@@ -556,7 +556,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     Node::Function(_) => break,
                     Node::Expr(p) => {
                         if let ExprKind::Call { target, .. } = &a.expr(*p).kind
-                            && e_invocacao_de_metodo(s, a, *target)
+                            && is_method_invocation(s, a, *target)
                         {
                             break;
                         }

@@ -142,7 +142,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 
     // `prefer_const_constructors`.
     if ligada("prefer_const_constructors") {
-        let pais = super::rules16::pais_da_unidade(u, &|e| pode.criacoes.contains(&e));
+        let pais = super::rules16::unit_parents(u, &|e| pode.criacoes.contains(&e));
         let mut criacoes: Vec<ExprId> = pode.criacoes.iter().copied().collect();
         criacoes.sort_by_key(|e| a.expr(*e).span.start);
         for e in criacoes {
@@ -204,8 +204,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             };
             let params = s.outline.classes.get(classe.0 as usize).map(|x| x.type_params.len()).unwrap_or(0);
             if params > 0 && !tem_argumentos {
-                let ctx = super::rules16::contexto_aproximado(s, interner, a, &pais, e);
-                if let super::rules16::Contexto::Tipo(t) = ctx
+                let ctx = super::rules16::approximate_context(s, interner, a, &pais, e);
+                if let super::rules16::ApproxContext::Typed(t) = ctx
                     && let Type::Interface { class: cc, args: cargs, .. } = table.get(t)
                 {
                     // `asInstanceOf(classe)`: os argumentos vistos na classe.
@@ -237,7 +237,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 
     // `prefer_const_literals_to_create_immutables`.
     if ligada("prefer_const_literals_to_create_immutables") {
-        let pais = super::rules16::pais_da_unidade(u, &|_| false);
+        let pais = super::rules16::unit_parents(u, &|_| false);
         let mut literais: Vec<ExprId> = pode.literais.iter().copied().collect();
         literais.sort_by_key(|e| a.expr(*e).span.start);
         for lit in literais {

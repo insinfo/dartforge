@@ -19,7 +19,7 @@
 
 use super::codigos_g as c;
 use super::rules::LintReport;
-use super::rules16::e_invocacao_de_metodo;
+use super::rules16::is_method_invocation;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -167,7 +167,7 @@ fn de_expressao(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> Cascavel {
             };
             Cascavel { elemento: variavel, criticos, junta: true, recebe: *op != AssignOp::Compound(dartforge_frontend::ast::BinaryOp::IfNull) && e_variavel_de_instancia, cascateavel: true, critico: false }
         }
-        ExprKind::Call { target, arguments } if e_invocacao_de_metodo(s, a, *target) => {
+        ExprKind::Call { target, arguments } if is_method_invocation(s, a, *target) => {
             // `_getExecutableElementFromMethodInvocation`: só com `.`.
             let ExprKind::Property { target: alvo, null_aware: false, .. } = &a.expr(*target).kind else { return Cascavel::default() };
             let nao_estatico = match elemento(s, a, *target) {

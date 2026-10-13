@@ -22,7 +22,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::rules::LintReport;
-use super::rules16::e_invocacao_de_metodo;
+use super::rules16::is_method_invocation;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_elements::model::{ClassId, ClassKind};
@@ -200,7 +200,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     continue;
                 }
                 // `visitMethodInvocation`.
-                if !e_invocacao_de_metodo(s, a, *target) {
+                if !is_method_invocation(s, a, *target) {
                     continue;
                 }
                 let (tipo, nome) = match &a.expr(*target).kind {
@@ -295,7 +295,7 @@ fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'_>
     let mut nomes_de_metodo: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     for (k, e) in a.exprs.iter().enumerate() {
         let ExprKind::Call { target, .. } = &e.kind else { continue };
-        if matches!(s.body.get_resolved(ExprId(k as u32)), Some(Resolved::Constructor(_))) || !e_invocacao_de_metodo(s, a, *target) {
+        if matches!(s.body.get_resolved(ExprId(k as u32)), Some(Resolved::Constructor(_))) || !is_method_invocation(s, a, *target) {
             continue;
         }
         nomes_de_metodo.insert(*target);

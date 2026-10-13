@@ -20,7 +20,7 @@
 
 use super::codigos_g as c;
 use super::rules::LintReport;
-use super::rules16::{nao_anulavel, tipo_de_variavel};
+use super::rules16::{declared_variable_type, is_non_nullable};
 use crate::Unidade;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{Element, UnitId, VariableId, VariableRef};
@@ -111,7 +111,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 }
                 ExprKind::Assign { op, target, value } => {
                     if let Some(v) = variavel(s, corpo, *target) {
-                        let nao_nulo = *op == AssignOp::Assign && s.bodies.units[x.0 as usize].get_type(*value).is_some_and(|t| nao_anulavel(table, t));
+                        let nao_nulo = *op == AssignOp::Assign && s.bodies.units[x.0 as usize].get_type(*value).is_some_and(|t| is_non_nullable(table, t));
                         if !nao_nulo {
                             anulaveis.insert(v);
                         }
@@ -131,8 +131,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             return;
         }
         let Some(v) = program.variables.iter().position(|x| x.node == r).map(|i| VariableId(i as u32)) else { return };
-        let Some(t) = tipo_de_variavel(s, r) else { return };
-        if nao_anulavel(table, t) {
+        let Some(t) = declared_variable_type(s, r) else { return };
+        if is_non_nullable(table, t) {
             return;
         }
         if !anulaveis.contains(&v) {

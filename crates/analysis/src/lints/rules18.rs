@@ -27,7 +27,7 @@
 //!   cujo nome é de um membro das interfaces implementadas.
 //! * `avoid_types_on_closure_parameters`: os tipos escritos nos parâmetros
 //!   de uma closure com contexto de tipo de função
-//!   (`super::rules16::contexto_aproximado`).
+//!   (`super::rules16::approximate_context`).
 //! * `deprecated_consistency`: o construtor de classe obsoleta e o parâmetro
 //!   `this.x` que não concordam com o campo.
 //!
@@ -219,7 +219,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 
     // `avoid_unnecessary_containers`.
     if ligada("avoid_unnecessary_containers") {
-        let pais = super::rules16::pais_da_unidade(u, &|e| matches!(s.body.get_resolved(e), Some(Resolved::Constructor(_))));
+        let pais = super::rules16::unit_parents(u, &|e| matches!(s.body.get_resolved(e), Some(Resolved::Constructor(_))));
         for &(e, _) in &criacoes {
             if !s.body.get_type(e).is_some_and(|t| super::flutter::is_widget_type(s, interner, t)) {
                 continue;
@@ -234,7 +234,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             let dona = if matches!(s.body.get_resolved(p), Some(Resolved::Constructor(_))) {
                 Some(p)
             } else {
-                pais.ancestrais.get(&e).and_then(|anc| {
+                pais.ancestors.get(&e).and_then(|anc| {
                     anc.iter().rev().find_map(|n| match n {
                         Node::Expr(x) if matches!(s.body.get_resolved(*x), Some(Resolved::Constructor(_))) => Some(*x),
                         _ => None,
@@ -429,11 +429,11 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 
     // `avoid_types_on_closure_parameters`.
     if ligada("avoid_types_on_closure_parameters") {
-        let pais = super::rules16::pais_da_unidade(u, &|e| matches!(a.expr(e).kind, ExprKind::FunctionExpression(_) | ExprKind::Call { .. } | ExprKind::InstanceCreation { .. }));
+        let pais = super::rules16::unit_parents(u, &|e| matches!(a.expr(e).kind, ExprKind::FunctionExpression(_) | ExprKind::Call { .. } | ExprKind::InstanceCreation { .. }));
         for (k, e) in a.exprs.iter().enumerate() {
             let ExprKind::FunctionExpression(f) = &e.kind else { continue };
-            let ctx = super::rules16::contexto_aproximado(s, interner, a, &pais, ExprId(k as u32));
-            let super::rules16::Contexto::Tipo(t) = ctx else { continue };
+            let ctx = super::rules16::approximate_context(s, interner, a, &pais, ExprId(k as u32));
+            let super::rules16::ApproxContext::Typed(t) = ctx else { continue };
             if !matches!(table.get(t), Type::Function { .. }) {
                 continue;
             }
