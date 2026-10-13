@@ -102,10 +102,10 @@ pub(super) fn analyze_shared(
             };
             match inst {
                 Instruction::ArcLoadStrong {
-                    slot: StrongSlot::Quadro { frame, index: i },
+                    slot: StrongSlot::Frame { frame, index: i },
                 }
                 | Instruction::ArcStoreStrong {
-                    slot: StrongSlot::Quadro { frame, index: i },
+                    slot: StrongSlot::Frame { frame, index: i },
                     ..
                 } => {
                     let q = use_value(frame, &active_set)?;
@@ -282,7 +282,7 @@ mod tests {
         f.blocks[0].instructions.push((
             ValueId(2),
             Instruction::ArcLoadStrong {
-                slot: StrongSlot::Quadro {
+                slot: StrongSlot::Frame {
                     frame: Operand::Val(ValueId(0)),
                     index: 0,
                 },
@@ -346,7 +346,7 @@ mod tests {
             (
                 ValueId(2),
                 Instruction::ArcLoadStrong {
-                    slot: StrongSlot::Quadro {
+                    slot: StrongSlot::Frame {
                         frame: Operand::Val(ValueId(0)),
                         index: 0,
                     },
@@ -356,7 +356,7 @@ mod tests {
         );
         verify(&f).unwrap();
         f.blocks[0].instructions[1].1 = Instruction::ArcLoadStrong {
-            slot: StrongSlot::Quadro {
+            slot: StrongSlot::Frame {
                 frame: Operand::Val(ValueId(0)),
                 index: 1,
             },

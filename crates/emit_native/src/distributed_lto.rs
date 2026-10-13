@@ -167,7 +167,7 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
         return Err(failure_of("o ligador (índices do ThinLTO)", &exit));
     }
     // 2 and 3. The ThinLTO backend of each bitcode and the closing with the maps.
-    let identity = format!("{}|{}", dartforge_llvm::identity()?, object_cache::clang_identity(p.clang)?);
+    let identity = format!("{}|{}", dartforge_llvm::identidade()?, object_cache::clang_identity(p.clang)?);
     let level = format!("-O{}", crate::driver::lto_level());
     let cpu_description = p.cpu.map_or(String::new(), Cpu::description);
     let convert_map = crate::gcmap::convert_here();
@@ -203,7 +203,7 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
         let bitcode = std::fs::read(&pos).map_err(|e| format!("{}: {e}", pos.display()))?;
         let name = format!("parte{i}");
         let close = |dest: &Path| -> Result<(), String> {
-            let (mut object, with_maps) = dartforge_llvm::generate_from_bitcode(&name, &bitcode, p.cpu.map(Cpu::name))?;
+            let (mut object, with_maps) = dartforge_llvm::gerar_de_bitcode(&name, &bitcode, p.cpu.map(Cpu::name))?;
             if with_maps && convert_map {
                 crate::gcmap::convert(&mut object)?;
             }

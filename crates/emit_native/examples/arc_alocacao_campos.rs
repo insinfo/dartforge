@@ -72,7 +72,7 @@ fn module(frame: bool, typed: bool) -> Result<Module, String> {
                 (
                     ValueId(1),
                     Instruction::AllocObject {
-                        class_id: if frame { dartforge_emit_native::lower::async_sm::ID_QUADRO_ASYNC } else { 123 },
+                        class_id: if frame { dartforge_emit_native::lower::async_sm::ASYNC_FRAME_ID } else { 123 },
                         fields,
                     },
                     Type::Ref,
@@ -116,7 +116,7 @@ fn module(frame: bool, typed: bool) -> Result<Module, String> {
                 terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) }] });
         m.arc_uniform_returns.insert("entrada_objeto".into());
         m.dart_vector_parameters.insert("entrada_objeto".into(), HashMap::from([
-            (ValueId(1), DartEntryVector::Argumentos), (ValueId(2), DartEntryVector::Descriptor),
+            (ValueId(1), DartEntryVector::Arguments), (ValueId(2), DartEntryVector::Descriptor),
         ]));
         m.functions.push(Function { symbol: "criar_closure".into(), name: "criar_closure".into(), debug_info: None,
             params: vec![], return_ty: Type::Ref,
@@ -202,7 +202,7 @@ fn main() -> Result<(), String> {
     m.arc_memory = arc;
     if !arc { m.arc_aot_ports = None; }
     let mut ir = LlvmEmitter::new(&m).emit_all();
-    let cid = if frame { dartforge_emit_native::lower::async_sm::ID_QUADRO_ASYNC } else { 123 };
+    let cid = if frame { dartforge_emit_native::lower::async_sm::ASYNC_FRAME_ID } else { 123 };
     let owned = format!("call i64 @dartforge_arc_objeto_owned_v1(i64 {cid}, i64 40)");
     let without_owner = format!("call i64 @dartforge_object_new(i64 {cid}, i64 40)");
     let retain_read = m.functions.iter().find(|f| f.symbol == "ler_quadro")

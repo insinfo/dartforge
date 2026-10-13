@@ -18,7 +18,7 @@ pub(super) fn tuple_read(
     let Instruction::LoadIndexed { base: Operand::Val(base), index: Operand::Val(i) } = inst else {
         return false;
     };
-    if ty != Type::I64 || roles.get(base) != Some(&DartEntryVector::Argumentos) {
+    if ty != Type::I64 || roles.get(base) != Some(&DartEntryVector::Arguments) {
         return false;
     }
     let def = |x: &ValueId| f.blocks.iter().flat_map(|b| &b.instructions).find(|(v, _, _)| v == x).map(|(_, i, _)| i);
@@ -33,7 +33,7 @@ pub(super) fn checked_read(inst: &Instruction, roles: &HashMap<ValueId, DartEntr
     matches!(inst, Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
         if name == READ_ARGUMENT && matches!(args.as_slice(),
             [(Operand::Val(a), Type::Ptr), (Operand::Val(d), Type::Ptr), (_, Type::I64)]
-                if roles.get(a) == Some(&DartEntryVector::Argumentos)
+                if roles.get(a) == Some(&DartEntryVector::Arguments)
                     && roles.get(d) == Some(&DartEntryVector::Descriptor)))
 }
 
@@ -43,7 +43,7 @@ pub(super) fn prepare_reads(module: &Module, functions: &mut [Function]) -> Resu
         let descriptors: Vec<_> = roles.iter().filter(|(_, p)| **p == DartEntryVector::Descriptor).map(|(v, _)| *v).collect();
         for (v, inst, ty) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
             let Instruction::LoadIndexed { base: Operand::Val(base), index } = inst else { continue; };
-            if *ty != Type::Ref || roles.get(base) != Some(&DartEntryVector::Argumentos) { continue; }
+            if *ty != Type::Ref || roles.get(base) != Some(&DartEntryVector::Arguments) { continue; }
             let [descriptor] = descriptors.as_slice() else {
                 return Err(format!("vetores ABI: {} v{} sem descritor único", f.symbol, v.0));
             };
@@ -123,7 +123,7 @@ pub(super) fn produce(
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if let Instruction::LoadIndexed { base: Operand::Val(base), index: Operand::Val(_) } = inst
                 && *ty == Type::I64
-                && roles.get(base) == Some(&DartEntryVector::Argumentos)
+                && roles.get(base) == Some(&DartEntryVector::Arguments)
             {
                 if !tuple_read(f, inst, *ty, roles) {
                     return Err(format!("vetores ABI: {sym_name} v{} lê palavra escalar fora do slot da tupla", v.0));
@@ -243,7 +243,7 @@ mod tests {
                     (ValueId(5), Instruction::LoadIndexed { base: val(tuple_base), index: index }, Type::I64),
                 ], terminator: Terminator::Return(Some(val(5))) }] });
             m.dart_vector_parameters.insert("generica".into(), HashMap::from([
-                (ValueId(0), DartEntryVector::Argumentos), (ValueId(1), DartEntryVector::Descriptor)]));
+                (ValueId(0), DartEntryVector::Arguments), (ValueId(1), DartEntryVector::Descriptor)]));
             let mut plans = HashMap::from([("generica".into(), DartFunctionPlan::default())]);
             let r = produce(&m, &mut plans);
             if case == 0 {
@@ -265,7 +265,7 @@ mod tests {
                     (ValueId(2), Instruction::LoadIndexed { base: Operand::Val(ValueId(0)), index: Operand::Constant(Constant::Int(0)) }, Type::Ref),
                 ], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) }] });
             m.dart_vector_parameters.insert("entrada".into(), HashMap::from([
-                (ValueId(0), DartEntryVector::Argumentos), (ValueId(1), DartEntryVector::Descriptor)]));
+                (ValueId(0), DartEntryVector::Arguments), (ValueId(1), DartEntryVector::Descriptor)]));
             let mut p = DartFunctionPlan::default(); p.tokens.ret = TokenReturn::Owned;
             let mut plans = HashMap::from([("entrada".into(), p)]);
             prepare_arc_dart_module(&mut m, &mut plans).unwrap();
@@ -326,7 +326,7 @@ mod tests {
                 "entrada".into(),
                 HashMap::from([
                     (ValueId(0), DartEntryVector::Descriptor),
-                    (ValueId(1), DartEntryVector::Argumentos),
+                    (ValueId(1), DartEntryVector::Arguments),
                 ]),
             );
             let mut ps = HashMap::from([("entrada".into(), DartFunctionPlan::default())]);

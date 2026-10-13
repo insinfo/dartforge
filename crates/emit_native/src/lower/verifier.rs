@@ -325,7 +325,7 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
             if ty != result {
                 c.error(format!("slot ARC: resultado {ty:?}, esperado {result:?}"));
             }
-            if let StrongSlot::Quadro { frame, .. } = slot {
+            if let StrongSlot::Frame { frame, .. } = slot {
                 if c.ty(frame) != Type::I64 || !matches!(frame, Operand::Val(_)) {
                     c.error(format!("slot ARC exige ID de quadro SSA I64: {frame:?}"));
                 }

@@ -176,7 +176,7 @@ fn check_vectors(m: &Module) -> Result<(), String> {
                     } => {
                         !uses(recv)
                             && match role {
-                                DartEntryVector::Argumentos => uses(args) && !uses(desc),
+                                DartEntryVector::Arguments => uses(args) && !uses(desc),
                                 DartEntryVector::Descriptor => uses(desc) && !uses(args),
                             }
                     }
@@ -198,7 +198,7 @@ fn check_vectors(m: &Module) -> Result<(), String> {
                             && matches!(index, Operand::Constant(Constant::Int(0 | 1)))
                             && *t == Type::I64)
                             // The slot of the type tuple, through the descriptor.
-                            || (*role == DartEntryVector::Argumentos
+                            || (*role == DartEntryVector::Arguments
                                 && super::vectors::tuple_read(f, i, *t, roles))
                     }
                     Instruction::CallRuntime { name, args, .. } => {
@@ -545,7 +545,7 @@ mod tests {
             m.dart_vector_parameters.insert(
                 s.into(),
                 HashMap::from([
-                    (ValueId(1), DartEntryVector::Argumentos),
+                    (ValueId(1), DartEntryVector::Arguments),
                     (ValueId(2), DartEntryVector::Descriptor),
                 ]),
             );

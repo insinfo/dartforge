@@ -98,7 +98,7 @@ fn module(with_frames: bool, resume: bool) -> Result<Module, String> {
                 Type::Void,
             )
         };
-        let slot = |frame| StrongSlot::Quadro {
+        let slot = |frame| StrongSlot::Frame {
             frame: val(frame),
             index: 0,
         };

@@ -93,10 +93,10 @@ pub fn measure_sdk_inference(lib_dir: &Path) -> Result<Vec<LibraryInference>, St
     std::fs::write(&entry, source).map_err(|e| format!("{}: {e}", entry.display()))?;
 
     let mut interner = Interner::new();
-    let (program, diags_carga) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+    let (program, load_diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
     let _ = std::fs::remove_dir_all(&tmp);
-    if let Some(d) = diags_carga.first() {
-        return Err(format!("carga do SDK com a sobreposição: {} ({} diagnósticos)", d.message, diags_carga.len()));
+    if let Some(d) = load_diags.first() {
+        return Err(format!("carga do SDK com a sobreposição: {} ({} diagnósticos)", d.message, load_diags.len()));
     }
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
@@ -197,9 +197,9 @@ fn load_source_libraries(
     source.push_str("void main() {}\n");
     std::fs::write(&entry, source).map_err(|e| format!("{}: {e}", entry.display()))?;
     let mut interner = dartforge_intern::Interner::new();
-    let (program, diags_carga) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+    let (program, load_diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
     let _ = std::fs::remove_dir_all(&tmp);
-    if let Some(d) = diags_carga.first() {
+    if let Some(d) = load_diags.first() {
         return Err(format!("carga do SDK com a sobreposição: {}", d.message));
     }
     Ok((program, interner))
@@ -565,7 +565,7 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
 /// ```
 pub fn sdk_generation(profile: SdkProfile) -> Generation {
     match profile {
-        SdkProfile::Development => Generation { optimize: false, format: Format::Objeto, shared: true, cpu: None, prelink: 2 },
+        SdkProfile::Development => Generation { optimize: false, format: Format::Object, shared: true, cpu: None, prelink: 2 },
         SdkProfile::Production => Generation { optimize: true, format: Format::Bitcode, shared: false, cpu: None, prelink: 2 },
     }
 }
@@ -853,9 +853,9 @@ pub fn measure_sdk_lowering(lib_dir: &Path) -> Result<Vec<SdkMember>, String> {
     source.push_str("void main() {}\n");
     std::fs::write(&entry, source).map_err(|e| format!("{}: {e}", entry.display()))?;
     let mut interner = Interner::new();
-    let (program, diags_carga) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+    let (program, load_diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
     let _ = std::fs::remove_dir_all(&tmp);
-    if let Some(d) = diags_carga.first() {
+    if let Some(d) = load_diags.first() {
         return Err(format!("carga do SDK com a sobreposição: {}", d.message));
     }
     let mut table = TypeTable::new();

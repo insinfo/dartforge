@@ -119,7 +119,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let name = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
             let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), name, Type::Ref);
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
-            let args = Operand::Val(e.add_param_vector(DartEntryVector::Argumentos));
+            let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
             let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
             e.declare_arc_uniform_return();
             let env = e.closure_context(clo);

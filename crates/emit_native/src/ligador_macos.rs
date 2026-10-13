@@ -75,10 +75,10 @@ pub struct SystemLibrary {
     /// The names (with the Mach-O `_`) on both architectures.
     pub symbols: &'static [&'static str],
     /// Those only arm64 uses.
-    pub so_arm64: &'static [&'static str],
+    pub arm64_only: &'static [&'static str],
     /// Those only x86-64 uses: the suffixed variants the SDK headers
     /// choose there (`$INODE64`, `$NOCANCEL`).
-    pub so_x86_64: &'static [&'static str],
+    pub x86_64_only: &'static [&'static str],
 }
 
 /// The system libraries and the names that the runtime (both `staticlib`s),
@@ -407,7 +407,7 @@ pub const SYSTEM_LIBRARIES: &[SystemLibrary] = &[
             "_unsetenv",
             "_waitpid",
         ],
-        so_arm64: &[
+        arm64_only: &[
             "_bzero",
             "_fstat",
             "_fstatat",
@@ -418,7 +418,7 @@ pub const SYSTEM_LIBRARIES: &[SystemLibrary] = &[
             "_stat",
             "_sys_icache_invalidate",
         ],
-        so_x86_64: &[
+        x86_64_only: &[
             "___bzero",
             "_close$NOCANCEL",
             "_fstat$INODE64",
@@ -487,8 +487,8 @@ pub const SYSTEM_LIBRARIES: &[SystemLibrary] = &[
             "_kCFTypeDictionaryKeyCallBacks",
             "_kCFTypeDictionaryValueCallBacks",
         ],
-        so_arm64: &[],
-        so_x86_64: &[],
+        arm64_only: &[],
+        x86_64_only: &[],
     },
     // The system keychain: the TLS roots (`tls.rs`, `rustls-native-certs`).
     SystemLibrary {
@@ -749,8 +749,8 @@ pub const SYSTEM_LIBRARIES: &[SystemLibrary] = &[
             "_kSecValueData",
             "_kSecValueRef",
         ],
-        so_arm64: &[],
-        so_x86_64: &[],
+        arm64_only: &[],
+        x86_64_only: &[],
     },
 ];
 
@@ -774,8 +774,8 @@ const VERSION_FILE: &str = "versao-do-sdk";
 pub fn tbd(b: &SystemLibrary, arch: Arquitetura) -> String {
     let alvo = format!("{}-macos", arch.name());
     let own_set = match arch {
-        Arquitetura::Arm64 => b.so_arm64,
-        Arquitetura::X86_64 => b.so_x86_64,
+        Arquitetura::Arm64 => b.arm64_only,
+        Arquitetura::X86_64 => b.x86_64_only,
     };
     let mut names: Vec<&str> = b.symbols.iter().chain(own_set).copied().collect();
     names.sort_unstable();
@@ -1036,7 +1036,7 @@ mod tests {
             let mut all: Vec<&str> = Vec::new();
             for b in SYSTEM_LIBRARIES {
                 all.extend(b.symbols);
-                all.extend(if arch == Arquitetura::Arm64 { b.so_arm64 } else { b.so_x86_64 });
+                all.extend(if arch == Arquitetura::Arm64 { b.arm64_only } else { b.x86_64_only });
             }
             let total = all.len();
             all.sort_unstable();
@@ -1120,7 +1120,7 @@ mod tests {
         for b in SYSTEM_LIBRARIES {
             let names = names_in_sdk(root, b.file);
             assert!(names.contains(b.install_name), "{}: install-name {} fora do SDK", b.file, b.install_name);
-            let own_set = if Arquitetura::do_hospedeiro() == Arquitetura::Arm64 { b.so_arm64 } else { b.so_x86_64 };
+            let own_set = if Arquitetura::do_hospedeiro() == Arquitetura::Arm64 { b.arm64_only } else { b.x86_64_only };
             for n in b.symbols.iter().chain(own_set) {
                 if !names.contains(*n) {
                     missing_set.push(format!("{}: {n}", b.file));

@@ -176,7 +176,7 @@ mod tests {
         m.dart_ref_returns.extend(["invocar".into(), "corpo".into(), "capturar".into()]);
         m.arc_uniform_returns.insert("entrada".into());
         m.dart_vector_parameters.insert("entrada".into(), HashMap::from([
-            (ValueId(1), DartEntryVector::Argumentos), (ValueId(2), DartEntryVector::Descriptor),
+            (ValueId(1), DartEntryVector::Arguments), (ValueId(2), DartEntryVector::Descriptor),
         ]));
         let p = m.functions.iter().map(|f| (f.symbol.clone(), DartFunctionPlan::default())).collect();
         (m, p)

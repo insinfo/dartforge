@@ -14,13 +14,13 @@ dartforge-intern = { path = "../intern" }
 dartforge-frontend = { path = "../frontend" }
 dartforge-elements = { path = "../elements" }
 dartforge-types = { path = "../types" }
-# O mundo fechado (RTA) do programa: o que o lowering poda (`src/mundo_nativo.rs`).
+# The closed world (RTA) of the program: what the lowering prunes (`src/native_world.rs`).
 dartforge-world = { path = "../world" }
 dartforge-runtime = { path = "../runtime" }
 dartforge-instrument = { path = "../instrument" }
 blake3 = "1"
-# O gerador de objetos embutido (`src/gerador.rs`): o LLVM no processo, sem o
-# Clang na máquina de quem usa o dartforge.
+# The embedded object generator (`src/gerador.rs`): LLVM in the process, without
+# Clang on the machine of whoever uses dartforge.
 dartforge-llvm = { path = "../llvm", optional = true }
 
 [features]

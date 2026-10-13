@@ -681,7 +681,7 @@ pub enum Cause {
     /// Cited by the node.
     Ref(u32),
     /// A table pair (node) through the selector.
-    Tabela(u32, i64),
+    Table(u32, i64),
 }
 
 /// The result of the fixpoint over several summaries (§3.5).
@@ -796,21 +796,21 @@ impl Graph {
             if by_name.contains(&node) && !all {
                 all = true;
                 for (h, v) in pending_set.drain() {
-                    queue.extend(v.into_iter().map(|(t, f)| (f, Cause::Tabela(t, h))));
+                    queue.extend(v.into_iter().map(|(t, f)| (f, Cause::Table(t, h))));
                 }
             }
             for &h in &self.calls[node as usize] {
                 if let std::collections::hash_map::Entry::Vacant(e) = callees.entry(h) {
                     e.insert(Some(node));
                     if let Some(v) = pending_set.remove(&h) {
-                        queue.extend(v.into_iter().map(|(t, f)| (f, Cause::Tabela(t, h))));
+                        queue.extend(v.into_iter().map(|(t, f)| (f, Cause::Table(t, h))));
                     }
                 }
             }
             if let Some((_, pairs)) = self.tables.get(&node) {
                 for &(h, f) in pairs {
                     if all || callees.contains_key(&h) {
-                        queue.push((f, Cause::Tabela(node, h)));
+                        queue.push((f, Cause::Table(node, h)));
                     } else {
                         pending_set.entry(h).or_default().push((node, f));
                     }
@@ -982,7 +982,7 @@ pub fn report(reachability: &Reach) -> String {
         .map(|(&node, cause)| match cause {
             Cause::Root => format!("{}\traiz\t-\t-\t-", name(node)),
             Cause::Ref(p) => format!("{}\tref\t{}\t-\t-", name(node), name(*p)),
-            Cause::Tabela(t, h) => {
+            Cause::Table(t, h) => {
                 let who = reachability.callees.get(h).copied().flatten().map_or("raiz", name);
                 format!("{}\ttabela\t{}\t{}\t{}", name(node), name(*t), text(*h), who)
             }

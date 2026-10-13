@@ -62,10 +62,10 @@ macro_rules! visit {
                     args.$name_t().for_each(|(a, _)| f(a));
                 }
                 Instruction::Load { ptr, .. } => f(ptr),
-                Instruction::ArcLoadStrong { slot: StrongSlot::Quadro { frame, .. } } => f(frame),
+                Instruction::ArcLoadStrong { slot: StrongSlot::Frame { frame, .. } } => f(frame),
                 Instruction::ArcLoadStrong { slot: StrongSlot::Global { .. } } => {},
                 Instruction::ArcStoreStrong { slot: StrongSlot::Global { .. }, value, .. } => f(value),
-                Instruction::ArcStoreStrong { slot: StrongSlot::Quadro { frame, .. }, value, .. } => {
+                Instruction::ArcStoreStrong { slot: StrongSlot::Frame { frame, .. }, value, .. } => {
                     f(frame);
                     f(value);
                 }

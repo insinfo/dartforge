@@ -30,14 +30,14 @@ fn module(entry: &Path) -> Result<Module, String> {
     let core = CoreTypes::init(&mut types, &program, &interner);
     let (mut outline, diags) =
         dartforge_types::resolve_outline(&program, &interner, &mut types, &core);
-    let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(
+    let (bodies, body_diags) = dartforge_types::infer_program_bodies(
         &program,
         &interner,
         &mut types,
         &core,
         &mut outline,
     );
-    for d in diags.iter().chain(&diags_corpos) {
+    for d in diags.iter().chain(&body_diags) {
         if dartforge_types::codes::e_erro_de_compilacao(&d.message) {
             return Err(format!("tipagem: {d:?}"));
         }

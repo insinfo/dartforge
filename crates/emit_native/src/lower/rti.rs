@@ -1328,7 +1328,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         }
         let mut equality = FnBuilder::new(ctx, u, "df.$tipo.$3d$3d$c".to_string(), "==".to_string(), Type::Ref);
         let recv = Operand::Val(equality.add_param("this".to_string(), Type::Ref));
-        let args = Operand::Val(equality.add_param_vector(DartEntryVector::Argumentos));
+        let args = Operand::Val(equality.add_param_vector(DartEntryVector::Arguments));
         equality.add_param_vector(DartEntryVector::Descriptor);
         equality.declare_arc_uniform_return();
         let other = equality.emit(
@@ -1341,7 +1341,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         equality.finish(module);
         let mut text = FnBuilder::new(ctx, u, "df.$tipo.toString$c".to_string(), "toString".to_string(), Type::Ref);
         let recv = Operand::Val(text.add_param("this".to_string(), Type::Ref));
-        text.add_param_vector(DartEntryVector::Argumentos);
+        text.add_param_vector(DartEntryVector::Arguments);
         text.add_param_vector(DartEntryVector::Descriptor);
         text.declare_arc_uniform_return();
         let value = text.emit_call_with_check(

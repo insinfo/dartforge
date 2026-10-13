@@ -47,7 +47,7 @@ fn main() -> Result<(), String> {
     m.arc_memory = arc;
     m.entry_symbol = Some("prova_slots".into());
     m.globals.push((0, Type::Ref, "dfg.prova".into()));
-    let frame = StrongSlot::Quadro {
+    let frame = StrongSlot::Frame {
         frame: Operand::Val(ValueId(0)),
         index: 0,
     };

@@ -34,7 +34,7 @@ fn module(ty: Type, value: Constant, abi: i64) -> Result<Module, String> {
     ];
     m.dart_ref_returns.insert("capturar".into()); m.arc_uniform_returns.insert("entrada".into());
     m.dart_vector_parameters.insert("entrada".into(), HashMap::from([
-        (ValueId(1), DartEntryVector::Argumentos), (ValueId(2), DartEntryVector::Descriptor),
+        (ValueId(1), DartEntryVector::Arguments), (ValueId(2), DartEntryVector::Descriptor),
     ]));
     let mut plans = m.functions.iter().map(|f| (f.symbol.clone(), DartFunctionPlan::default())).collect();
     assert_eq!(prepare_arc_dart_module(&mut m, &mut plans)?, (1, 3));

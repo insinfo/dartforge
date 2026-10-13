@@ -816,7 +816,7 @@ mod tests {
                 m.dart_vector_parameters.insert(
                     symbol.into(),
                     HashMap::from([
-                        (ValueId(1), DartEntryVector::Argumentos),
+                        (ValueId(1), DartEntryVector::Arguments),
                         (ValueId(2), DartEntryVector::Descriptor),
                     ]),
                 );

@@ -11,12 +11,12 @@ use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*}
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Clone, Copy)]
-enum Scenario { Field, Capture, Neighbor, CaptureNeighbor, Argumento, Nullable, Mixed, Cycle, Cell, Context, Global, Late }
+enum Scenario { Field, Capture, Neighbor, CaptureNeighbor, Argument, Nullable, Mixed, Cycle, Cell, Context, Global, Late }
 
 fn module(scenario: Scenario) -> Result<Module, String> {
     let capture = matches!(scenario, Scenario::Capture | Scenario::CaptureNeighbor);
     let neighbor = matches!(scenario, Scenario::Neighbor | Scenario::CaptureNeighbor);
-    let argument = matches!(scenario, Scenario::Argumento);
+    let argument = matches!(scenario, Scenario::Argument);
     let nullable = matches!(scenario, Scenario::Nullable | Scenario::Mixed | Scenario::Cycle);
     let mixed = matches!(scenario, Scenario::Mixed);
     let cell = matches!(scenario, Scenario::Cell);
@@ -125,7 +125,7 @@ fn module(scenario: Scenario) -> Result<Module, String> {
             base: val(100), index: Operand::Constant(Constant::Int(0)),
         }, Type::Ref));
         m.dart_vector_parameters.insert("ler_e_substituir".into(), HashMap::from([
-            (ValueId(100), DartEntryVector::Argumentos), (ValueId(101), DartEntryVector::Descriptor)]));
+            (ValueId(100), DartEntryVector::Arguments), (ValueId(101), DartEntryVector::Descriptor)]));
     }
     if nullable {
         let f = &mut m.functions[0];
@@ -266,7 +266,7 @@ fn main() -> Result<(), String> {
         Some("--captura") => Scenario::Capture,
         Some("--vizinho") => Scenario::Neighbor,
         Some("--captura-vizinho") => Scenario::CaptureNeighbor,
-        Some("--argumento") => Scenario::Argumento,
+        Some("--argumento") => Scenario::Argument,
         Some("--anulavel") => Scenario::Nullable,
         Some("--misto") => Scenario::Mixed,
         Some("--ciclo") => Scenario::Cycle,
@@ -279,7 +279,7 @@ fn main() -> Result<(), String> {
     if !matches!(scenario, Scenario::Field) { control = args.next(); }
     let capture = matches!(scenario, Scenario::Capture | Scenario::CaptureNeighbor);
     let neighbor = matches!(scenario, Scenario::Neighbor | Scenario::CaptureNeighbor);
-    let argument = matches!(scenario, Scenario::Argumento);
+    let argument = matches!(scenario, Scenario::Argument);
     if args.next().is_some() { return Err("argumentos excedentes".into()); }
     let mut m = module(scenario)?;
     m.arc_memory = arc;
@@ -492,7 +492,7 @@ mod tests {
 
     #[test]
     fn owned_argument_sustains_receiver_and_certifies_readonly_vectors() {
-        let m = module(Scenario::Argumento).unwrap();
+        let m = module(Scenario::Argument).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, .. }
             if name == "dartforge_arc_argumento_owned_v1"));

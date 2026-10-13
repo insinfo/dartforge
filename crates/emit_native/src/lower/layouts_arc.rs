@@ -120,14 +120,14 @@ void main() { Base().exercitar(Object()); }
                 let core = CoreTypes::init(&mut table, &program, &interner);
                 let (mut outline, diags) =
                     dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-                let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(
+                let (bodies, body_diags) = dartforge_types::infer_program_bodies(
                     &program,
                     &interner,
                     &mut table,
                     &core,
                     &mut outline,
                 );
-                for d in diags.iter().chain(diags_corpos.iter()) {
+                for d in diags.iter().chain(body_diags.iter()) {
                     assert!(
                         !dartforge_types::codes::e_erro_de_compilacao(&d.message),
                         "{d:?}"

@@ -1,4 +1,4 @@
-//! Construtor de funções HIR durante o lowering.
+//! Builder of HIR functions during the lowering.
 
 use crate::context::Context;
 use crate::hir::*;
@@ -14,16 +14,16 @@ pub struct FinallyScope {
     pub reason_phi: ValueId,
     pub ret_val_phi: ValueId,
     pub incoming: Vec<(BlockId, i64, Operand)>,
-    /// Quantos alvos de `break`/`continue` sem rótulo existiam quando o
-    /// `try` começou: um salto para um deles atravessa este `finally`.
+    /// How many unlabeled `break`/`continue` targets existed when the
+    /// `try` started: a jump to one of them crosses this `finally`.
     pub prof_break: usize,
     pub prof_continue: usize,
-    /// Rótulos que já existiam quando o `try` começou (os de fora).
+    /// Labels that already existed when the `try` started (the outer ones).
     pub break_labels: std::collections::HashSet<SymbolId>,
     pub continue_labels: std::collections::HashSet<SymbolId>,
-    /// Saltos (`break`/`continue`, com o rótulo) que atravessam este
-    /// `finally`: o de índice `k` entra com a razão `5 + k` e, no fim do
-    /// `finally`, continua o salto.
+    /// Jumps (`break`/`continue`, with the label) that cross this
+    /// `finally`: the one with index `k` enters with reason `5 + k` and, at the end of the
+    /// `finally`, continues the jump.
     pub jumps: Vec<(bool, Option<SymbolId>)>,
 }
 
@@ -35,39 +35,39 @@ pub struct FnBuilder<'a, 'c> {
     pub next_value: u32,
     pub next_block: u32,
     pub locals: HashMap<LocalId, Operand>,
-    /// Escopos léxicos dos locais, do mais externo (parâmetros) ao corrente (R6).
+    /// Lexical scopes of the locals, from the outermost (parameters) to the current one (R6).
     pub(super) scopes: Vec<super::locals::LocalScope>,
-    /// Identidade monotônica dos escopos, independente da profundidade.
+    /// Monotonic identity of the scopes, independent of the depth.
     pub(super) next_scope: u32,
-    /// Inicializadores `late` que o lowering já está expandindo. Uma leitura
-    /// recursiva deve consultar a célula no runtime, não expandir o AST de
-    /// novo durante a compilação.
+    /// `late` initializers that the lowering is already expanding. A recursive
+    /// read must consult the cell in the runtime, not expand the AST
+    /// again during compilation.
     pub late_initializers_in_lowering: std::collections::HashSet<usize>,
-    /// Quantos `alloca` já estão no começo do bloco de entrada.
+    /// How many `alloca`s are already at the start of the entry block.
     pub n_allocas: usize,
     pub value_types: HashMap<ValueId, Type>,
-    /// Fatos dos parâmetros declarados, incluindo funções absorvidas.
+    /// Facts of the declared parameters, including absorbed functions.
     pub dart_scalar_parameters: HashMap<String, std::collections::HashSet<ValueId>>,
-    /// IDs de RTI com origem nativa explícita, incluindo funções absorvidas.
+    /// RTI IDs with an explicit native origin, including absorbed functions.
     pub dart_rti_parameters: HashMap<String, std::collections::HashSet<ValueId>>,
-    /// Vetores nativos com papel declarado pela ABI do produtor.
+    /// Native vectors with a role declared by the producer's ABI.
     pub dart_vector_parameters: HashMap<String, HashMap<ValueId, DartEntryVector>>,
     pub arc_uniform_returns: std::collections::HashSet<String>,
-    /// Corpos Dart construídos aqui à parte (closures) cujo retorno Ref segue
-    /// a convenção Owned das funções Dart (`Module::dart_ref_returns`).
+    /// Dart bodies built here separately (closures) whose Ref return follows
+    /// the Owned convention of Dart functions (`Module::dart_ref_returns`).
     pub dart_ref_returns: std::collections::HashSet<String>,
-    /// Caches de IDs nativos RTI declarados pelo lowering, com flag implícita `$ok`.
-    /// Todas as escritas e representações exigem conferência antes de produzir contratos.
+    /// Caches of native RTI IDs declared by the lowering, with an implicit `$ok` flag.
+    /// All writes and representations require a check before producing contracts.
     pub arc_rti_caches: std::collections::HashSet<String>,
-    /// Definições compartilháveis declaradas nominalmente pelo produtor ARC.
-    /// Não certifica equivalência das cópias nem dependências da emissão.
+    /// Shareable definitions declared nominally by the ARC producer.
+    /// Does not certify equivalence of the copies nor emission dependencies.
     pub arc_shared_functions: std::collections::HashSet<String>,
     pub arc_direct_local_functions: std::collections::HashSet<String>,
     pub break_targets: Vec<BlockId>,
     pub continue_targets: Vec<BlockId>,
     pub this_param: Option<Operand>,
-    /// Obrigação do receptor estático. None exige prova; só há obrigação
-    /// de captura quando this_param representa uma captura efetiva.
+    /// Obligation of the static receiver. None requires proof; there is only a capture
+    /// obligation when this_param represents an effective capture.
     pub finalizable_this: Option<bool>,
     pub enclosing_class: Option<dartforge_elements::model::ClassId>,
     pub exception_targets: Vec<BlockId>,
@@ -78,199 +78,199 @@ pub struct FnBuilder<'a, 'c> {
     pub labeled_break_targets: HashMap<SymbolId, BlockId>,
     pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
     pub pending_labels: Vec<SymbolId>,
-    /// O tipo estático do valor função que a chamada em curso vai chamar
-    /// (`lower_call`, lido por `call_function_value`).
+    /// The static type of the function value that the current call will call
+    /// (`lower_call`, read by `call_function_value`).
     pub callee_type: Option<dartforge_types::TypeId>,
-    /// A expressão da chamada em curso (`lower_call`), de onde
-    /// `call_function_value` tira os argumentos de tipo que passa a uma
-    /// closure genérica (escritos, ou os inferidos pelo tipo estático).
+    /// The expression of the current call (`lower_call`), from which
+    /// `call_function_value` takes the type arguments it passes to a
+    /// generic closure (written ones, or those inferred by the static type).
     pub current_call: Option<ExprId>,
     pub current_cascade_target: Option<Operand>,
-    /// Um receptor já avaliado: quando `lower_expr` chega à expressão, usa o
-    /// valor em vez de avaliá-la de novo (a atribuição `a?.b = v` avalia `a`
-    /// antes, para testar o null).
+    /// An already evaluated receiver: when `lower_expr` reaches the expression, it uses the
+    /// value instead of evaluating it again (the assignment `a?.b = v` evaluates `a`
+    /// before, to test for null).
     pub receiver_ready: Option<(ExprId, Operand)>,
-    /// A atribuição `?.`/`?[` cujo teste de null já foi feito (o alvo).
+    /// The `?.`/`?[` assignment whose null test has already been done (the target).
     pub handled_null_aware: Option<ExprId>,
-    /// Diagnósticos de construto não suportado (N1).
+    /// Diagnostics of unsupported constructs (N1).
     pub errors: Vec<String>,
-    /// Cadeia `?.` em curso: bloco de saída com null e as entradas do phi
-    /// (N3). `None` fora de cadeia.
+    /// The current `?.` chain: exit block with null and the phi entries
+    /// (N3). `None` outside a chain.
     pub null_chain: Option<(BlockId, Vec<(BlockId, Operand)>)>,
-    /// O próximo `lower_expr` é o alvo de um elo da cadeia corrente.
+    /// The next `lower_expr` is the target of a link of the current chain.
     pub continue_chain: bool,
-    /// Valor lido antes de uma atribuição composta (resultado de `x++`).
+    /// Value read before a compound assignment (result of `x++`).
     pub old_value: Option<Operand>,
     // --- P1 (closures, α) ---
-    /// Offsets das declarações desta função que moram numa célula (captura.rs).
+    /// Offsets of the declarations of this function that live in a cell (capture.rs).
     pub cells: std::collections::HashSet<usize>,
-    /// Closures anônimas já criadas nesta função (nome do corpo).
+    /// Anonymous closures already created in this function (body name).
     pub n_closures: u32,
-    /// Nomes de corpos de funções locais já usados nesta função.
+    /// Names of local function bodies already used in this function.
     pub local_names: std::collections::HashSet<String>,
-    /// Entradas de tear-off já geradas por esta função.
+    /// Tear-off entries already generated by this function.
     pub done_entries: std::collections::HashSet<String>,
-    // --- P3 (const canônico, α) ---
-    /// Globais criados por esta função (as constantes canônicas).
+    // --- P3 (canonical const, α) ---
+    /// Globals created by this function (the canonical constants).
     pub extra_globals: Vec<(u32, Type, String)>,
-    /// A expressão constante que o getter canônico corrente avalia (não é
-    /// canonizada de novo dentro dele).
+    /// The constant expression that the current canonical getter evaluates (it is not
+    /// canonicalized again inside it).
     pub constant_in_progress: Option<ExprId>,
-    /// Dentro de um contexto constante (inicializador `const`, valor padrão,
-    /// argumentos de um `const C(…)`): `C(…)`, `[…]` e `{…}` são constantes.
+    /// Inside a constant context (a `const` initializer, a default value,
+    /// arguments of a `const C(…)`): `C(…)`, `[…]` and `{…}` are constants.
     pub in_const_context: bool,
-    /// A chave de valor (`constants.rs`) de cada local `const` visível.
+    /// The value key (`constants.rs`) of each visible `const` local.
     pub local_const_keys: HashMap<SymbolId, (String, ExprId)>,
-    /// O padrão corrente é de casamento (`case`, `if-case`): um nome solto
-    /// nele é um padrão constante, não uma variável nova.
+    /// The current pattern is a matching one (`case`, `if-case`): a bare name
+    /// in it is a constant pattern, not a new variable.
     pub refutable_pattern: bool,
-    /// O teste de tipo corrente é o de um `as` (confere só a classe).
+    /// The current type test is that of an `as` (checks only the class).
     pub cast_by_class_only: bool,
-    // --- P5c (SDK da fonte, δ) ---
-    /// Esta função é um adaptador da tabela de métodos (`sdk_source.rs`): o
-    /// membro que ele adapta é chamado direto, nunca pelo seletor de novo.
+    // --- P5c (source SDK, δ) ---
+    /// This function is an adapter of the method table (`sdk_source.rs`): the
+    /// member it adapts is called directly, never through the selector again.
     pub in_adapter: bool,
-    /// Entrada tipada (`$tc`/`$ts`, `typed_entry.rs`): a aridade e os
-    /// nomes já foram garantidos pelo chamador estático, e o
-    /// `unpack` não os confere de novo.
+    /// Typed entry (`$tc`/`$ts`, `typed_entry.rs`): the arity and the
+    /// names have already been guaranteed by the static caller, and
+    /// `unpack` does not check them again.
     pub guaranteed_arity: bool,
-    /// Os tipos dos parâmetros da invocação cujos argumentos são avaliados
-    /// a seguir (a lista de argumentos pelo endereço): o `evaluate_args`
-    /// confere cada argumento `dynamic` logo depois de avaliá-lo, como o
-    /// cast implícito que o CFE põe em volta dele (`typed_entry.rs`).
+    /// The parameter types of the invocation whose arguments are evaluated
+    /// next (the argument list by address): `evaluate_args`
+    /// checks each `dynamic` argument right after evaluating it, like the
+    /// implicit cast that the CFE puts around it (`typed_entry.rs`).
     pub arg_types: Option<(usize, super::typed_entry::InvocationTypes)>,
-    /// Valores de argumento cujo tipo o chamador estático garante (tipo
-    /// estático conhecido e não `dynamic`, ou conferido pelo cast
-    /// implícito): só com todos assim a chamada usa a entrada tipada; o
-    /// resto fica com a que confere tudo (`c:`).
+    /// Argument values whose type the static caller guarantees (a known
+    /// static type that is not `dynamic`, or checked by the implicit
+    /// cast): only with all of them like this does the call use the typed entry; the
+    /// rest stay with the one that checks everything (`c:`).
     pub checked_args: std::collections::HashSet<ValueId>,
-    // --- funções locais diretas (`direct_functions.rs`) ---
-    /// As funções locais que `capture.rs` decidiu diretas nesta função.
+    // --- direct local functions (`direct_functions.rs`) ---
+    /// The local functions that `capture.rs` decided are direct in this function.
     pub allowed_directs: std::collections::HashSet<dartforge_frontend::ast::FunctionId>,
-    /// Offsets das declarações desta função gravadas em algum ponto.
+    /// Offsets of the declarations of this function that are written somewhere.
     pub assigned: std::collections::HashSet<usize>,
-    /// Offsets das variáveis de fora que chegam a esta função direta pelo
-    /// endereço (repassadas pelo endereço a outra direta).
+    /// Offsets of the outer variables that reach this direct function by
+    /// address (passed on by address to another direct one).
     pub pointers: std::collections::HashSet<usize>,
-    /// As funções diretas visíveis, pelo offset do nome.
+    /// The visible direct functions, by the offset of the name.
     pub direct_functions: HashMap<usize, super::direct_functions::Direct>,
-    /// Sem funções diretas (corpo `async`/gerador: os `alloca` viram
-    /// posições do quadro, e o endereço deles não serve).
+    /// Without direct functions (an `async`/generator body: the `alloca`s become
+    /// frame positions, and their address is useless).
     pub without_directs: bool,
-    /// O endereço dos elementos da lista tipada cujo comprimento
-    /// `fast_length` acabou de ler (a lista e o endereço): o acesso
-    /// que ele guarda usa o mesmo, sem ler de novo (`typed_items.rs`).
+    /// The address of the elements of the typed list whose length
+    /// `fast_length` has just read (the list and the address): the access
+    /// it guards uses the same one, without reading again (`typed_items.rs`).
     pub typed_data: Option<(Operand, Operand)>,
-    /// O cache do cabeçalho de lista tipada lida de campo, por tipo de
-    /// elemento: os dois locais (handle, cabeçalho) que todos os acessos da
-    /// função compartilham (`typed_items.rs`, `cabecalho_tipado`).
+    /// The cache of the header of a typed list read from a field, per element
+    /// type: the two locals (handle, header) that all the accesses of the
+    /// function share (`typed_items.rs`, the typed header cache).
     pub header_caches: std::collections::HashMap<i64, (Operand, Operand)>,
-    /// Os valores lidos de uma variável global pelo getter dela
-    /// (`members.rs`, `read_global`): relidos a cada acesso, como um campo,
-    /// então também passam pelo cache de cabeçalho.
+    /// The values read from a global variable through its getter
+    /// (`members.rs`, `read_global`): reread on each access, like a field,
+    /// so they also go through the header cache.
     pub read_from_global: std::collections::HashSet<ValueId>,
     // --- P6 (async, `async_sm.rs`) ---
-    /// Corpo de uma função `async` em curso: o quadro, as retomadas.
+    /// Body of the current `async` function: the frame, the resumptions.
     pub async_state: Option<Box<super::async_sm::AsyncState>>,
     // --- RTI (`rti.rs`) ---
-    /// Os parâmetros de tipo da função corrente (`M<i>`), pelo nome.
+    /// The type parameters of the current function (`M<i>`), by name.
     pub function_type_params: Vec<SymbolId>,
-    /// Os parâmetros de tipo das closures genéricas em volta (a função local
-    /// `T f<T>()`, a expressão `<T>(x) => …`) e a própria: nome, parâmetro e
-    /// posição na tupla (`M<i>`), depois dos de quem as criou
-    /// (`closures.rs`, `lower_closure`). O mais interno vem por último.
+    /// The type parameters of the enclosing generic closures (the local function
+    /// `T f<T>()`, the expression `<T>(x) => …`) and the current one: name, parameter and
+    /// position in the tuple (`M<i>`), after those of their creators
+    /// (`closures.rs`, `lower_closure`). The innermost comes last.
     pub local_params: Vec<(SymbolId, dartforge_types::table::TypeParamId, usize)>,
-    /// Os parâmetros de tipo da classe vêm na tupla (fábrica de classe
-    /// genérica: não há `this`).
+    /// The type parameters of the class come in the tuple (a factory of a generic
+    /// class: there is no `this`).
     pub class_by_tuple: bool,
-    /// A tupla de argumentos de tipo da função corrente (`I64`), se há.
+    /// The type argument tuple of the current function (`I64`), if there is one.
     pub type_tuple: Option<Operand>,
-    /// O tipo estático da criação que `instantiate` vai baixar (`C<T…>`).
-    /// A classe concreta da próxima criação, quando o construtor escolhido é o
-    /// da superclasse que uma aplicação de mixin encaminha
+    /// The static type of the creation that `instantiate` will lower (`C<T…>`).
+    /// The concrete class of the next creation, when the chosen constructor is
+    /// that of the superclass that a mixin application forwards
     /// (`members::constructor_of`).
     pub concrete_class: Option<dartforge_elements::model::ClassId>,
     pub creation_type: Option<dartforge_types::table::TypeId>,
-    /// A tupla de argumentos de tipo da chamada genérica corrente, que
-    /// `call_direct` acrescenta quando o alvo tem parâmetros de tipo.
+    /// The type argument tuple of the current generic call, which
+    /// `call_direct` appends when the target has type parameters.
     pub armed_tuple: Option<Operand>,
-    /// O tipo estático de `this` num membro de extensão (o `on`): o
-    /// receptor implícito de outra chamada de extensão.
+    /// The static type of `this` in an extension member (the `on`): the
+    /// implicit receiver of another extension call.
     pub this_extension: Option<(dartforge_elements::model::ExtensionId, dartforge_types::table::TypeId)>,
-    /// Num membro de instância de tipo de extensão: o tipo e o tipo estático
-    /// de `this` (`E<T…>`, não apagado) — o receptor implícito dos membros
-    /// dele (`extension_types.rs`).
+    /// In an instance member of an extension type: the type and the static type
+    /// of `this` (`E<T…>`, not erased) — the implicit receiver of its
+    /// members (`extension_types.rs`).
     pub this_ext_type: Option<(dartforge_elements::model::ClassId, dartforge_types::table::TypeId)>,
-    /// O valor de um `return;` (e do fim do corpo): a representação, no
-    /// construtor generativo de tipo de extensão.
+    /// The value of a `return;` (and of the end of the body): the representation, in the
+    /// generative constructor of an extension type.
     pub constructor_return: Option<Operand>,
-    /// A tupla dos argumentos de tipo escritos no padrão de objeto de tipo
-    /// de extensão genérico em curso (`patterns.rs`).
+    /// The tuple of the type arguments written in the object pattern of the current generic
+    /// extension type (`patterns.rs`).
     pub pattern_tuple_te: Option<Operand>,
-    /// N13: as listas do núcleo cujo comprimento e dados são fixos nas
-    /// voltas em emissão (`statements::Counted::Lista`), pelo endereço do
+    /// N13: the core lists whose length and data are fixed in the
+    /// round trips being emitted (`statements::Counted::CoreList`), by the address of the
     /// local.
     pub fixed_lists: Vec<FixedList>,
-    /// A lista fixa do acesso indexado em emissão (`typed_items.rs`).
+    /// The fixed list of the indexed access being emitted (`typed_items.rs`).
     pub access_fixed: Option<FixedList>,
-    /// As listas tipadas das voltas rápidas em emissão
-    /// (`statements::Counted::TypedSet`): o contador do laço está provado
-    /// dentro dos limites delas, e os dados e o comprimento foram lidos
-    /// antes das voltas.
+    /// The typed lists of the fast round trips being emitted
+    /// (`statements::Counted::TypedSet`): the loop counter is proven
+    /// within their bounds, and the data and the length were read
+    /// before the round trips.
     pub proven_typed: Vec<ProvenTyped>,
-    /// A lista tipada provada do acesso indexado em emissão (`typed_items.rs`).
+    /// The proven typed list of the indexed access being emitted (`typed_items.rs`).
     pub access_proven: Option<ProvenTyped>,
-    /// A classe que declara a função corrente (também num membro
-    /// estático): os estáticos dela estão no escopo léxico.
+    /// The class that declares the current function (also in a static
+    /// member): its statics are in the lexical scope.
     pub member_class: Option<dartforge_elements::model::ClassId>,
-    /// Quantos `Pointer.fromFunction` a função já baixou: com o símbolo, o
-    /// sítio de cada um (o trampolim é um por sítio, como na VM).
+    /// How many `Pointer.fromFunction`s the function has already lowered: with the symbol, the
+    /// site of each one (there is one trampoline per site, as in the VM).
     pub callback_sites: u32,
-    /// J05: `(line, column)` do comando que está sendo baixado, com a
-    /// depuração ligada; cada instrução emitida a registra.
+    /// J05: `(line, column)` of the statement being lowered, with
+    /// debugging on; each emitted instruction records it.
     pub position: Option<(u32, u32)>,
-    /// O que o rastro simbólico precisa da função além das posições (§13.14).
+    /// What the symbolic stack trace needs from the function besides the positions (§13.14).
     pub stack_trace: FunctionStackTrace,
 }
 
-/// O que o rastro no formato da VM precisa de uma função além das posições
-/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14), passado à
-/// [`crate::hir::FunctionDebugInfo`] quando a função é entregue
+/// What the stack trace in the VM's format needs from a function besides the positions
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14), passed to the
+/// [`crate::hir::FunctionDebugInfo`] when the function is delivered
 /// ([`FnBuilder::close_stack_trace`]).
 #[derive(Debug, Clone, Default)]
 pub struct FunctionStackTrace {
-    /// A posição do token da função.
+    /// The position of the function token.
     pub token: Option<(u32, u32)>,
     /// [`crate::hir::stack_trace_marks`].
     pub marks: u8,
     pub async_body: Option<crate::hir::TraceAsyncBody>,
     pub closure_entry: Option<String>,
     pub chain_link: Option<crate::hir::WaitLink>,
-    /// A pilha do rastro (`dartforge_rastro_entrar(ty, value)` na entrada e
-    /// `dartforge_rastro_sair` em cada saída): o quadro de um corpo `async`
-    /// (tipo 0) e o ouvinte de `_FutureListener.handleValue` (tipo 1), que o
-    /// runtime casa com os quadros da pilha de máquina.
+    /// The trace stack (`dartforge_rastro_entrar(ty, value)` at the entry and
+    /// `dartforge_rastro_sair` at each exit): the frame of an `async` body
+    /// (type 0) and the listener of `_FutureListener.handleValue` (type 1), which the
+    /// runtime matches with the frames of the machine stack.
     pub stack: Option<(i64, Operand)>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// Inicializador de uma variável/campo declarado no AST.
+    /// Initializer of a variable/field declared in the AST.
     ///
-    /// O `VariableElement` não guarda a expressão; ela mora no AST da unidade
-    /// que declarou a variável (`VariableRef`). Só devolvemos a expressão
-    /// quando a unidade é a mesma que este builder está baixando, porque
-    /// `lower_expr` recebe o `ast` corrente — uma `ExprId` de outra unidade
-    /// indexaria a árvore errada e produziria código silenciosamente errado.
-    /// Converte um operando qualquer para i1, para servir de condicao.
+    /// The `VariableElement` does not keep the expression; it lives in the AST of the unit
+    /// that declared the variable (`VariableRef`). We only return the expression
+    /// when the unit is the same one this builder is lowering, because
+    /// `lower_expr` receives the current `ast` — an `ExprId` of another unit
+    /// would index the wrong tree and silently produce wrong code.
+    /// Converts any operand to i1, to serve as a condition.
     ///
-    /// Locais passam por alloca/store/load como i64, entao um bool guardado
-    /// numa variavel volta como i64 0/1; comparar com zero recupera o i1 sem
-    /// supor nada sobre a largura de origem.
+    /// Locals go through alloca/store/load as i64, so a bool kept
+    /// in a variable comes back as i64 0/1; comparing with zero recovers the i1 without
+    /// assuming anything about the source width.
     pub fn to_bool(&mut self, op: Operand) -> Operand {
         match self.operand_type(&op) {
             Type::I1 => return op,
-            // Um `bool` encaixotado não é "diferente de zero": o handle da
-            // caixa de `false` também é. Volta pelo `Unbox` (R3).
+            // A boxed `bool` is not "different from zero": the handle of the
+            // box of `false` is too. It comes back through `Unbox` (R3).
             Type::Ref => return self.coerce(op, Type::I1),
             _ => {}
         }
@@ -280,8 +280,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// Representação do tipo estático de uma expressão, quando ele é
-    /// conhecido e não é `dynamic`.
+    /// Representation of the static type of an expression, when it is
+    /// known and is not `dynamic`.
     pub fn expression_repr(&self, e: ExprId) -> Option<Type> {
         let t = self.ctx.get_type(self.unit_id, e)?;
         if t == self.ctx.core.dynamic_ || self.ctx.is_void(t) {
@@ -399,8 +399,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Passa à depuração da função o que o rastro precisa dela e insere a
-    /// pilha do rastro, quando pedida. Sem o rastro simbólico, nada.
+    /// Passes to the debug info of the function what the stack trace needs from it and inserts the
+    /// trace stack, when requested. Without the symbolic stack trace, nothing.
     pub fn close_stack_trace(&mut self) {
         if !self.ctx.stack_trace {
             return;
@@ -431,11 +431,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `dartforge_rastro_entrar(ty, value)` no começo do bloco de entrada
-    /// (depois da definição de `value`, quando é dele) e
-    /// `dartforge_rastro_sair(depth)` antes de cada `Return` e `Throw`:
-    /// a profundidade devolvida pela entrada corta também o que funções
-    /// desenroladas por exceção deixaram em cima.
+    /// `dartforge_rastro_entrar(ty, value)` at the start of the entry block
+    /// (after the definition of `value`, when it belongs to it) and
+    /// `dartforge_rastro_sair(depth)` before each `Return` and `Throw`:
+    /// the depth returned by the entry also cuts what functions
+    /// unwound by an exception left on top.
     fn instrument_stack_trace_stack(&mut self, ty: i64, value: Operand) {
         if self.func.blocks.is_empty() {
             return;
@@ -457,7 +457,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Operand::Val(v) => block.instructions.iter().position(|(x, _, _)| x == v).map_or(0, |i| i + 1),
             _ => 0,
         };
-        // Um `phi` não há no bloco de entrada; os `alloca` podem ficar antes.
+        // There is no `phi` in the entry block; the `alloca`s may come before.
         block.instructions.insert(after, (prof, call, Type::I64));
         let mut exits = Vec::new();
         for (bi, b) in self.func.blocks.iter().enumerate() {
@@ -480,9 +480,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// J05: a posição corrente passa a ser a do byte `offset` de `ast`, se é
-    /// a árvore da unidade desta função (a posição é dela) e a depuração
-    /// está ligada.
+    /// J05: the current position becomes that of byte `offset` of `ast`, if it is
+    /// the tree of the unit of this function (the position is its own) and debugging
+    /// is on.
     pub fn mark_position(&mut self, ast: &ast::Ast, offset: usize) {
         if self.ctx.debug_info.is_none() || !std::ptr::eq(ast, &self.ctx.program.unit(self.unit_id).ast) {
             return;
@@ -490,7 +490,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.position = self.ctx.line_and_column(self.unit_id, offset);
     }
 
-    /// Declara `this` (quando `with_this`) e os parâmetros do outline de `fid`.
+    /// Declares `this` (when `with_this`) and the outline parameters of `fid`.
     pub fn declare_parameters(&mut self, fid: usize, with_this: bool) {
         if with_this {
             let this_vid = self.add_param("this".to_string(), Type::Ref);
@@ -500,7 +500,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(data) = self.ctx.outline.functions.get(fid) else {
             return;
         };
-        // Os offsets dos nomes na declaração: a chave das células (P1).
+        // The offsets of the names in the declaration: the key of the cells (P1).
         let program = self.ctx.program;
         let ast_params: &[ast::Parameter] = match program.functions[fid].node {
             dartforge_elements::model::FunctionRef::Function { unit, function } => program
@@ -535,17 +535,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     None => self.declare_local_with_value(sym, p_ty, Operand::Val(vid)),
                 }
-                // O outline guarda o tipo Dart mesmo sem offset no corpo.
+                // The outline keeps the Dart type even without an offset in the body.
                 self.assign_semantic_type(sym, Some(p.ty));
             }
         }
     }
 
-    /// Entrega a função (e as funções locais) ao módulo, com os diagnósticos.
+    /// Delivers the function (and the local functions) to the module, with the diagnostics.
     pub fn finish(mut self, module: &mut Module) {
         self.close_stack_trace();
-        // P6: o diagnóstico de uma função da fonte só vale se a poda a
-        // mantiver (`source::prune`).
+        // P6: the diagnostic of a source function only holds if pruning
+        // keeps it (`source::prune`).
         let lib = self.ctx.program.unit(self.unit_id).library;
         if self.ctx.from_source.contains(&lib) && crate::source::sdk_symbol(&self.func.symbol) {
             if !self.errors.is_empty() {
@@ -567,13 +567,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         module.functions.extend(self.extra_functions);
     }
 
-    /// Construto que o lowering não sabe baixar: diagnóstico com posição
-    /// (N1). O operando devolvido nunca chega a ser emitido — um módulo com
-    /// erros não gera código.
-    /// O corpo de uma função (ou getter de global) que o mundo fechado do
-    /// programa não alcança (C7, `native_world.rs`): lança
-    /// `UnsupportedError` com o símbolo. Só roda se a análise errou — o erro
-    /// é alto e diz o que faltou.
+    /// A construct that the lowering cannot lower: a diagnostic with a position
+    /// (N1). The returned operand is never emitted — a module with
+    /// errors does not generate code.
+    /// The body of a function (or global getter) that the closed world of the
+    /// program does not reach (C7, `native_world.rs`): throws
+    /// `UnsupportedError` with the symbol. It only runs if the analysis was wrong — the error
+    /// is loud and says what was missing.
     pub fn pruned_body(&mut self) {
         let msg = format!("dartforge: código podado como inalcançável foi chamado: {}", self.func.symbol);
         let m = self.emit(Instruction::Const(Constant::String(msg)), Type::Ref);
@@ -583,14 +583,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     pub fn unsupported(&mut self, what: &str, span: dartforge_diagnostics::Span) -> Operand {
         let unit = self.ctx.program.unit(self.unit_id);
-        // P6: no código do SDK compilado da fonte (mundo aberto: a poda é
-        // conservadora — o `toString` de toda classe, todo alvo de um
-        // despacho), o construto que falta vira `UnsupportedError` em tempo
-        // de execução, com o mesmo texto: o programa que não passa por ali
-        // compila, e o que passa falha alto, nunca em silêncio.
+        // P6: in the code of the SDK compiled from source (open world: pruning is
+        // conservative — the `toString` of every class, every target of a
+        // dispatch), the missing construct becomes an `UnsupportedError` at
+        // runtime, with the same text: the program that does not go through there
+        // compiles, and the one that does fails loudly, never silently.
         if self.ctx.from_source.contains(&unit.library) {
-            // `DARTFORGE_FONTE_NAO_SUPORTADO=1`: lista, na compilação, cada
-            // construto que virou `UnsupportedError` no código da fonte.
+            // `DARTFORGE_FONTE_NAO_SUPORTADO=1`: lists, during compilation, each
+            // construct that became an `UnsupportedError` in the source code.
             if std::env::var_os("DARTFORGE_FONTE_NAO_SUPORTADO").is_some() {
                 eprintln!("fonte não suportado em {}: {what}", self.func.symbol);
             }
@@ -607,7 +607,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Operand::Constant(Constant::Null)
     }
 
-    /// `file:line:column` de `span` na unidade corrente.
+    /// `file:line:column` of `span` in the current unit.
     fn position(&self, span: dartforge_diagnostics::Span) -> String {
         let unit = self.ctx.program.unit(self.unit_id);
         let source = &unit.source;
@@ -623,23 +623,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         format!("{file}:{line}:{column}")
     }
 
-    /// Um erro de compilação da linguagem (o programa é inválido, não um
-    /// construto que falta), com o texto do front-end da VM. No código do
-    /// SDK compilado da fonte não acontece: o SDK é válido.
+    /// A language compile error (the program is invalid, not a
+    /// missing construct), with the text of the VM's front end. In the code of the
+    /// SDK compiled from source it does not happen: the SDK is valid.
     pub fn language_error(&mut self, message: &str, span: dartforge_diagnostics::Span) -> Operand {
         let position = self.position(span);
         self.errors.push(format!("{message} ({position})"));
         Operand::Constant(Constant::Null)
     }
 
-    /// Converte um operando para a representação `to` (R4).
+    /// Converts an operand to the representation `to` (R4).
     ///
-    /// É o único lugar que muda representação: escalar numa posição `Ref`
-    /// vira caixa (`Box`), `Ref` numa posição escalar volta por `Unbox` —
-    /// que lança `TypeError` para null ou outro tipo, com a verificação de
-    /// exceção de uma chamada. `int` para `double` é conversão numérica (o
-    /// literal `1` num contexto `double`); os bits de `double` que vêm do
-    /// heap usam `Bitcast` explícito, nunca esta função.
+    /// It is the only place that changes representation: a scalar in a `Ref` position
+    /// becomes a box (`Box`), a `Ref` in a scalar position comes back through `Unbox` —
+    /// which throws `TypeError` for null or another type, with the exception
+    /// check of a call. `int` to `double` is a numeric conversion (the
+    /// literal `1` in a `double` context); the `double` bits that come from the
+    /// heap use an explicit `Bitcast`, never this function.
     pub fn coerce(&mut self, op: Operand, to: Type) -> Operand {
         let de = self.operand_type(&op);
         if de == to
@@ -649,8 +649,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return op;
         }
         match (de, to) {
-            // O vetor SIMD e a caixa do tipo estático (`lower/simd.rs`): o
-            // tipo estático não anulável garante a caixa certa.
+            // The SIMD vector and the box of the static type (`lower/simd.rs`): the
+            // non-nullable static type guarantees the right box.
             (k, Type::Ref) if k.is_vector() => self.emit(Instruction::Box { op, from: k }, Type::Ref),
             (Type::Ref, k) if k.is_vector() => self.emit(Instruction::Unbox { op, to: k }, k),
             (Type::I64 | Type::F64 | Type::I1, Type::Ref) => {
@@ -750,8 +750,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Inicializador de uma variável/campo, de qualquer unidade (quem baixa
-    /// usa `lower_expr_of` com a unidade da variável).
+    /// Initializer of a variable/field, from any unit (the lowering caller
+    /// uses `lower_expr_of` with the unit of the variable).
     pub fn variable_initializer_in(
         &self,
         var_id: dartforge_elements::model::VariableId,
@@ -767,9 +767,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         vid
     }
 
-    /// Declara um vetor da entrada uniforme, sem inferir papel pelo tipo Ptr.
+    /// Declares a vector of the uniform entry, without inferring a role from the Ptr type.
     pub(super) fn add_param_vector(&mut self, role: DartEntryVector) -> ValueId {
-        let name_str = match role { DartEntryVector::Argumentos => "args", DartEntryVector::Descriptor => "desc" };
+        let name_str = match role { DartEntryVector::Arguments => "args", DartEntryVector::Descriptor => "desc" };
         let id = self.add_param(name_str.to_string(), Type::Ptr);
         if self.ctx.arc_memory {
             self.dart_vector_parameters.entry(self.func.symbol.clone()).or_default().insert(id, role);
@@ -777,22 +777,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         id
     }
 
-    /// Declara a convenção alvo de uma entrada uniforme gerada nesta imagem.
-    /// Só a preparação/verificação completa pode publicar seu corpo Owned;
-    /// callbacks e dispatch indireto ainda exigem contratos dos chamadores.
+    /// Declares the target convention of a uniform entry generated in this image.
+    /// Only the complete preparation/verification can publish its Owned body;
+    /// callbacks and indirect dispatch still require contracts from the callers.
     pub(super) fn declare_arc_uniform_return(&mut self) {
         if !self.ctx.arc_memory || self.func.return_ty != Type::Ref { return; }
         assert_eq!(self.func.params.iter().map(|p| p.2).collect::<Vec<_>>(),
             [Type::Ref, Type::Ptr, Type::Ptr], "declaração de entrada uniforme incompatível");
         let roles = &self.dart_vector_parameters[&self.func.symbol];
-        assert_eq!(roles.get(&self.func.params[1].0), Some(&DartEntryVector::Argumentos));
+        assert_eq!(roles.get(&self.func.params[1].0), Some(&DartEntryVector::Arguments));
         assert_eq!(roles.get(&self.func.params[2].0), Some(&DartEntryVector::Descriptor));
         self.arc_uniform_returns.insert(self.func.symbol.clone());
     }
 
-    /// Um parâmetro na representação do tipo Dart (de closure, função local
-    /// ou captura por valor): sob ARC, a representação escalar é fato
-    /// escalar, como em `declare_parameters`.
+    /// A parameter in the representation of the Dart type (of a closure, local function
+    /// or capture by value): under ARC, the scalar representation is a scalar
+    /// fact, as in `declare_parameters`.
     pub(super) fn add_param_dart(&mut self, name: String, ty: Type) -> ValueId {
         let v = self.add_param(name, ty);
         if self.ctx.arc_memory && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
@@ -801,8 +801,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
-    /// Declara um ID do universo RTI, sem inferir referência pela largura.
-    /// O chamador deve passar somente IDs canônicos nativos de tipos/tuplas.
+    /// Declares an ID of the RTI universe, without inferring a reference from the width.
+    /// The caller must pass only canonical native IDs of types/tuples.
     pub fn add_param_rti(&mut self, name: String) -> ValueId {
         let v = self.add_param(name, Type::I64);
         if self.ctx.arc_memory {
@@ -877,8 +877,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Operand::Val(vid)
     }
 
-    /// J05: a posição corrente e as posições da função (criadas na primeira
-    /// instrução com posição), com a depuração ligada.
+    /// J05: the current position and the positions of the function (created at the first
+    /// instruction with a position), with debugging on.
     fn function_debug_info(&mut self) -> Option<((u32, u32), &mut crate::hir::FunctionDebugInfo)> {
         let pos = self.position?;
         let unit = self.ctx.program.unit(self.unit_id);
@@ -897,8 +897,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.is_terminated() {
             return;
         }
-        // P6: o `return` de um corpo `async` completa o `Future`
-        // (`_asyncReturn`); a suspensão e o tratador do topo são crus.
+        // P6: the `return` of an `async` body completes the `Future`
+        // (`_asyncReturn`); the suspension and the top-level handler are raw.
         if let Terminator::Return(r) = &term
             && self.async_state.as_ref().is_some_and(|e| !e.raw_return)
         {
@@ -906,12 +906,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.async_return(r);
             return;
         }
-        // R4: o valor devolvido na representação do retorno da função.
+        // R4: the returned value in the representation of the return of the function.
         let term = match term {
             Terminator::Return(Some(op)) if !matches!(self.func.return_ty, Type::Void) => {
                 let r = self.func.return_ty;
-                // `=> print(x)` numa função que devolve valor: a expressão
-                // `void` vale null (não há valor SSA a devolver).
+                // `=> print(x)` in a function that returns a value: the `void`
+                // expression is worth null (there is no SSA value to return).
                 let op = if matches!(self.operand_type(&op), Type::Void) {
                     Self::zero_value(r)
                 } else {
@@ -923,8 +923,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 Terminator::Return(Some(op))
             }
-            // `set x(v) => expr;` numa função void: a expressão já foi
-            // avaliada e o valor dela é descartado (o LLVM emite `ret void`).
+            // `set x(v) => expr;` in a void function: the expression has already been
+            // evaluated and its value is discarded (LLVM emits `ret void`).
             Terminator::Return(Some(_)) => Terminator::Return(None),
             t => t,
         };
@@ -961,8 +961,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     pub fn route_return(&mut self, ret_val: Option<Operand>) {
         let ret_val = ret_val.or_else(|| self.constructor_return.clone());
-        // O valor na representação do retorno da função (o corpo de uma
-        // closure tipada devolve `int` sem caixa, por exemplo).
+        // The value in the representation of the return of the function (the body of a
+        // typed closure returns an unboxed `int`, for example).
         let ret_val = match ret_val {
             Some(r) if !matches!(self.func.return_ty, Type::Void) && self.finally_scopes.is_empty() => {
                 Some(self.coerce(r, self.func.return_ty))
@@ -982,8 +982,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         } else {
             let default_val = self.default_return_operand();
             let val = ret_val.unwrap_or(default_val);
-            // Entrada do phi do valor de retorno do `finally`: na
-            // representação dele (R4), coagida aqui, no bloco de origem.
+            // Phi entry of the return value of the `finally`: in its
+            // representation (R4), coerced here, in the source block.
             let ty_phi = if self.func.return_ty == Type::Void {
                 Type::Ref
             } else {
@@ -1007,11 +1007,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.jump(false, label);
     }
 
-    /// `break`/`continue` (com ou sem rótulo): direto ao alvo, ou pelo
-    /// `finally` mais interno que o salto atravessa (a razão `5 + k` do
-    /// salto `k` desse `finally`; no fim dele o salto continua — por outros
-    /// `finally` de fora, se atravessar mais). Um salto para um alvo DENTRO
-    /// do `try` (o laço do próprio corpo) não passa pelo `finally`.
+    /// `break`/`continue` (with or without a label): directly to the target, or through the
+    /// innermost `finally` that the jump crosses (the reason `5 + k` of the
+    /// jump `k` of that `finally`; at its end the jump continues — through other
+    /// outer `finally`s, if it crosses more). A jump to a target INSIDE
+    /// the `try` (the loop of the body itself) does not go through the `finally`.
     pub fn jump(&mut self, is_continue: bool, label: Option<SymbolId>) {
         self.emit(
             Instruction::CallRuntime {
@@ -1075,12 +1075,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.jump(true, label);
     }
 
-    /// O ponto seguro de uma volta de laço (J01), no começo do corpo: lê o
-    /// pedido de interrupção do isolado (um byte, pelo contexto da thread) e,
-    /// com pedido, chama o runtime, que atende a porta de controle (`ping`,
-    /// pausa, `kill`). Um `kill` imediato deixa a exceção pendente não
-    /// capturável, e o caminho de exceção comum desenrola o isolado. É o papel
-    /// da verificação de pilha da VM nas voltas de laço.
+    /// The safepoint of a loop round trip (J01), at the start of the body: reads the
+    /// interrupt request of the isolate (one byte, through the thread context) and,
+    /// with a request, calls the runtime, which serves the control port (`ping`,
+    /// pause, `kill`). An immediate `kill` leaves an uncatchable pending
+    /// exception, and the common exception path unwinds the isolate. It plays the role
+    /// of the VM's stack check in loop round trips.
     pub fn emit_safepoint(&mut self) {
         if self.is_terminated() {
             return;
@@ -1103,12 +1103,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn emit_call_with_check(&mut self, inst: Instruction, ret_ty: Type) -> Operand {
-        // A extern que a tabela de efeitos marca sem lançar (e sem rodar
-        // Dart) não deixa exceção pendente: não há o que conferir depois
-        // dela (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.2, E1.1). A
-        // própria leitura da pendência é a conferência avulsa (o fim de um
-        // comando dentro de `try`) e continua.
-        // `DARTFORGE_SEM_EFEITOS_NA_CONFERENCIA=1` volta a conferir tudo (medida).
+        // The extern that the effects table marks as not throwing (and not running
+        // Dart) leaves no pending exception: there is nothing to check after
+        // it (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.2, E1.1). The
+        // read of the pending flag itself is the standalone check (the end of a
+        // statement inside `try`) and stays.
+        // `DARTFORGE_SEM_EFEITOS_NA_CONFERENCIA=1` goes back to checking everything (measurement).
         if let Instruction::CallRuntime { name, .. } = &inst
             && name != "dartforge_exception_pending"
             && !Self::check_every_extern()
@@ -1171,8 +1171,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         res_op
     }
 
-    /// A conferência depois de toda extern, também das que não lançam (o
-    /// comportamento anterior a E1.1, para medir).
+    /// The check after every extern, also those that do not throw (the
+    /// behavior before E1.1, for measuring).
     fn check_every_extern() -> bool {
         static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *ENABLED.get_or_init(|| {
@@ -1227,19 +1227,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.default_return_operand()
     }
 
-    /// `op is T` na representação de `op`.
+    /// `op is T` in the representation of `op`.
     ///
-    /// Escalar (`I64`/`F64`/`I1`) tem o tipo decidido em compilação. `Ref`
-    /// pergunta a classe ao runtime (`dartforge_value_class`, que devolve
-    /// -12 para null, -9/-10/-11 para as caixas de int/double/bool, -2 para
-    /// String…) — sem desreferenciar null (H6).
+    /// A scalar (`I64`/`F64`/`I1`) has its type decided at compile time. `Ref`
+    /// asks the runtime for the class (`dartforge_value_class`, which returns
+    /// -12 for null, -9/-10/-11 for the int/double/bool boxes, -2 for
+    /// String…) — without dereferencing null (H6).
     pub fn test_type(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) -> Operand {
         if let Some(r) = self.test_source_type(ast_ty, op.clone()) {
             return r;
         }
-        // `x is List<int>`, `x is T`, `x is FutureOr<T>`, tipo de função ou
-        // de record: pelo RTI (`rti.rs`). O teste pela classe abaixo só vale
-        // para a classe sem argumentos de tipo (ou com argumentos triviais).
+        // `x is List<int>`, `x is T`, `x is FutureOr<T>`, a function or
+        // record type: through the RTI (`rti.rs`). The test by class below only holds
+        // for a class without type arguments (or with trivial arguments).
         if self.annotation_needs_rti(ast_ty) {
             return match self.annotation_recipe(ast_ty) {
                 Some(r) => {
@@ -1300,7 +1300,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             _ => {
                 let lib = self.ctx.program.unit(self.unit_id).library;
-                // `p.Tipo` (import com prefixo) ou `Tipo`.
+                // `p.Type` (an import with a prefix) or `Type`.
                 let binding = match &name[..] {
                     [p, t] => self.ctx.program.lookup_prefixed(lib, p.sym, t.sym),
                     _ => self.ctx.program.lookup(lib, last_one.sym),
@@ -1341,11 +1341,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Or(base, null), Type::I1)
     }
 
-    /// `as T` implícito ou explícito: `TypeError` se o valor não é um `T`,
-    /// com a mensagem da VM do `context` ("… in type cast" no `as`, sem
-    /// sufixo na atribuição implícita de um `dynamic`).
+    /// Implicit or explicit `as T`: `TypeError` if the value is not a `T`,
+    /// with the VM's message for the `context` ("… in type cast" for `as`, without a
+    /// suffix in the implicit assignment of a `dynamic`).
     pub fn check_type_or_throw(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand, context: super::rti::CastContext) {
-        // `as List<int>`, `as T`…: o cast inteiro pelo RTI.
+        // `as List<int>`, `as T`…: the whole cast through the RTI.
         if self.annotation_needs_rti(ast_ty) {
             match self.annotation_recipe(ast_ty) {
                 Some(r) => {
@@ -1368,8 +1368,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             else_block: fail_b,
         });
         self.set_block(fail_b);
-        // A falha (caminho frio): o RTI decide e lança com a mensagem da VM
-        // — o tipo dinâmico do valor e o da anotação.
+        // The failure (cold path): the RTI decides and throws with the VM's message
+        // — the dynamic type of the value and that of the annotation.
         match self.annotation_recipe(ast_ty) {
             Some(r) => {
                 let t = self.recipe_rti(&r);
@@ -1386,14 +1386,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     pub fn emit_trunc_div(&mut self, lop: Operand, rop: Operand) -> Operand {
         match rop {
-            // Divisor constante: nem zero a conferir, nem o -1.
+            // Constant divisor: neither a zero to check, nor the -1.
             Operand::Constant(Constant::Int(-1)) => return self.emit(Instruction::Neg(lop), Type::I64),
             Operand::Constant(Constant::Int(c)) if c != 0 => return self.emit(Instruction::SDiv(lop, rop), Type::I64),
             _ => {}
         }
         self.require_divisor(&rop);
-        // `x ~/ -1` é `-x` com o estouro de 64 bits (`-2^63 ~/ -1 == -2^63`);
-        // o `sdiv` do LLVM não define esse caso (o `idiv` do x86 dá SIGFPE).
+        // `x ~/ -1` is `-x` with 64-bit overflow (`-2^63 ~/ -1 == -2^63`);
+        // LLVM's `sdiv` does not define that case (x86's `idiv` gives SIGFPE).
         let minus_one = self.emit(Instruction::ICmp(ICmpOp::Eq, rop.clone(), Operand::Constant(Constant::Int(-1))), Type::I1);
         let negate = self.new_block();
         let split = self.new_block();
@@ -1409,11 +1409,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Phi { incoming: vec![(negate, n), (split, q)], ty: Type::I64 }, Type::I64)
     }
 
-    /// `a % b` de `int` com divisor variável, em linha depois do guarda do
-    /// zero: o resto truncado mais `|b|` quando ele é negativo, o que dá o
-    /// valor em `[0, |b|)` do Dart (`Integer::ArithmeticOp`, kMOD). `b == -1`
-    /// dá sempre 0 e evita o `srem` de `i64::MIN` por `-1`, indefinido no
-    /// LLVM; `|i64::MIN|` dá `i64::MIN`, que somado dá o mesmo que subtraído.
+    /// `a % b` of `int` with a variable divisor, inline after the zero
+    /// guard: the truncated remainder plus `|b|` when it is negative, which gives the
+    /// value in `[0, |b|)` of Dart (`Integer::ArithmeticOp`, kMOD). `b == -1`
+    /// always gives 0 and avoids the `srem` of `i64::MIN` by `-1`, undefined in
+    /// LLVM; `|i64::MIN|` gives `i64::MIN`, which added gives the same as subtracted.
     pub fn emit_module(&mut self, lop: Operand, rop: Operand) -> Operand {
         self.require_divisor(&rop);
         let int = |c| Operand::Constant(Constant::Int(c));
@@ -1437,9 +1437,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Phi { incoming: vec![(zero, int(0)), (rest, value)], ty: Type::I64 }, Type::I64)
     }
 
-    /// Divisor inteiro zero (`~/` e `%` de `int`) lança
-    /// `IntegerDivisionByZeroException`; o bloco corrente segue no caminho do
-    /// divisor válido.
+    /// A zero integer divisor (`~/` and `%` of `int`) throws
+    /// `IntegerDivisionByZeroException`; the current block continues on the path of the
+    /// valid divisor.
     pub fn require_divisor(&mut self, rop: &Operand) {
         let is_zero = self.emit(
             Instruction::ICmp(ICmpOp::Eq, rop.clone(), Operand::Constant(Constant::Int(0))),
@@ -1454,8 +1454,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         });
 
         self.set_block(div_zero_block);
-        // SDK da fonte: o `IntegerDivisionByZeroException` do `dart:core`, o
-        // que a VM lança (e o que `on IntegerDivisionByZeroException` pega).
+        // Source SDK: the `IntegerDivisionByZeroException` of `dart:core`, what
+        // the VM throws (and what `on IntegerDivisionByZeroException` catches).
         if let Some(class) = self.ctx.sdk_class("core", "IntegerDivisionByZeroException")
             && let Some(empty) = self.ctx.interner.lookup("")
             && let Some(&ctor) = self.ctx.program.classes[class.0 as usize].constructors.get(&empty)
@@ -1497,16 +1497,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(normal_div_block);
     }
 
-    /// Operador de uma atribuição composta (`a op= b`).
+    /// Operator of a compound assignment (`a op= b`).
     pub fn lower_binary_op_helper(&mut self, op: BinaryOp, lop: Operand, rop: Operand, admits_smi: bool) -> Operand {
-        // O valor corrente em `Ref` pode ser `String`, um número anulável ou
-        // outro objeto. O tipo do operando direito não prova que ele seja
-        // numérico (`s *= 2`); o despacho dinâmico trata esses casos.
+        // The current value in `Ref` may be a `String`, a nullable number or
+        // another object. The type of the right operand does not prove that it is
+        // numeric (`s *= 2`); dynamic dispatch handles those cases.
         let (tl, tr) = (self.operand_type(&lop), self.operand_type(&rop));
         let rop = if tr == Type::Ref && tl == Type::F64 {
-            // `d op= n` com `d` `double` e `n` `num`: o `int` vira `double`
-            // (o `other.toDouble()` dos operadores de `_Double`). O caminho
-            // que desencaixa pode deixar `TypeError` pendente.
+            // `d op= n` with `d` a `double` and `n` a `num`: the `int` becomes a `double`
+            // (the `other.toDouble()` of the `_Double` operators). The path
+            // that unboxes may leave a pending `TypeError`.
             self.emit_call_with_check(
                 Instruction::CallRuntime { name: "df.num_para_double".to_string(), args: vec![(rop, Type::Ref)], ret_ty: Type::F64 },
                 Type::F64,
@@ -1527,41 +1527,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 }
 
-/// Uma lista do runtime com comprimento e endereço dos elementos lidos uma
-/// vez antes das voltas de um laço que não pode mudá-los (N13).
+/// A runtime list with the length and the address of the elements read once
+/// before the round trips of a loop that cannot change them (N13).
 #[derive(Debug, Clone)]
 pub struct FixedList {
-    /// O endereço do local da lista (o `alloca` dele): a identidade do
-    /// local, também de um parâmetro.
+    /// The address of the local of the list (its `alloca`): the identity of the
+    /// local, also of a parameter.
     pub key: Operand,
     pub length: Operand,
     pub data: Operand,
-    /// A forma dos elementos (N14, `heap::FormaDeLista`: 0 geral, 1 `int`,
-    /// 2 `double`, 3 `bool`), conferida antes das voltas: nelas, o
-    /// tamanho e a interpretação de cada elemento são conhecidos na emissão.
+    /// The shape of the elements (N14, `heap::FormaDeLista`: 0 general, 1 `int`,
+    /// 2 `double`, 3 `bool`), checked before the round trips: in them, the
+    /// size and the interpretation of each element are known at emission.
     pub shape: i64,
-    /// Numa forma compacta, o comprimento para as gravações diretas
-    /// (`dartforge_lista_len_gravavel`, chamado antes das voltas: o
-    /// comprimento se a lista é modificável, senão 0 — e toda gravação vai
-    /// ao `[]=` do SDK).
+    /// In a compact shape, the length for direct stores
+    /// (`dartforge_lista_len_gravavel`, called before the round trips: the
+    /// length if the list is modifiable, otherwise 0 — and every store goes
+    /// to the SDK's `[]=`).
     pub writable_length: Option<Operand>,
 }
 
-/// Uma lista tipada (`dart:typed_data`) das voltas rápidas de um laço
-/// versionado (`statements::Counted::TypedSet`): antes delas, provou-se que
-/// todo valor do contador fica em `0..length`, e o comprimento e o
-/// endereço dos elementos foram lidos uma vez — fixos enquanto a lista
-/// vive (lista tipada não muda de tamanho, e os bytes moram atrás de um
-/// cabeçalho de endereço fixo, `heap::CabecalhoTipado`).
+/// A typed list (`dart:typed_data`) of the fast round trips of a
+/// versioned loop (`statements::Counted::TypedSet`): before them, it was proven that
+/// every value of the counter stays in `0..length`, and the length and the
+/// address of the elements were read once — fixed while the list
+/// lives (a typed list does not change size, and the bytes live behind a
+/// header at a fixed address, `heap::CabecalhoTipado`).
 #[derive(Debug, Clone)]
 pub struct ProvenTyped {
-    /// O endereço do local da lista (o `alloca` dele).
+    /// The address of the local of the list (its `alloca`).
     pub key: Operand,
-    /// O endereço do local do contador do laço.
+    /// The address of the local of the loop counter.
     pub counter: Operand,
     pub data: Operand,
     pub length: Operand,
-    /// Provada também para a gravação: o comprimento de uma visão veio de
-    /// `dartforge_typed_len(.., 1)`, que dá 0 para a não modificável.
+    /// Also proven for the store: the length of a view came from
+    /// `dartforge_typed_len(.., 1)`, which gives 0 for the unmodifiable one.
     pub write: bool,
 }

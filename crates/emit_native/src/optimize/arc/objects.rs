@@ -230,14 +230,14 @@ pub(super) fn prepare(
             // checked here; reads, writes and suspension have their own contracts.
             let (class_id, fields, synthetic): (u32, &[Operand], bool) = match inst {
                 Instruction::AllocObject { class_id, fields } => (*class_id, fields,
-                    *class_id == crate::lower::async_sm::ID_QUADRO_ASYNC && !layouts.contains_key(class_id)),
+                    *class_id == crate::lower::async_sm::ASYNC_FRAME_ID && !layouts.contains_key(class_id)),
                 Instruction::AllocCell { value } => (dartforge_runtime::layout::cid::CELULA as u32,
                     std::slice::from_ref(value), true),
                 Instruction::AllocEnv { values } => (dartforge_runtime::layout::cid::CONTEXTO as u32,
                     values, true),
                 _ => { instructions.push((*v, inst.clone(), *ty)); continue; }
             };
-            if synthetic && fields.is_empty() && class_id != crate::lower::async_sm::ID_QUADRO_ASYNC {
+            if synthetic && fields.is_empty() && class_id != crate::lower::async_sm::ASYNC_FRAME_ID {
                 if *ty != Type::Ref {
                     return Err(format!("ambiente ARC em {} v{} exige Ref", f.symbol, v.0));
                 }
@@ -250,7 +250,7 @@ pub(super) fn prepare(
                 if types.iter().any(|t| !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I1 | Type::I8)) {
                     return Err(format!("captura ARC em {} v{}: representação não coberta", f.symbol, v.0));
                 }
-                if class_id == crate::lower::async_sm::ID_QUADRO_ASYNC
+                if class_id == crate::lower::async_sm::ASYNC_FRAME_ID
                     && !types.starts_with(&[Type::I64, Type::Ref, Type::Ref, Type::Ref, Type::Ref, Type::I64]) {
                     return Err(format!("quadro suspenso ARC em {} v{}: cabeçalho incompatível", f.symbol, v.0));
                 }
@@ -365,7 +365,7 @@ mod tests {
                 8 => field_list.clear(),
                 _ => {}
             }
-            let cid = if case == 6 { 124 } else { crate::lower::async_sm::ID_QUADRO_ASYNC };
+            let cid = if case == 6 { 124 } else { crate::lower::async_sm::ASYNC_FRAME_ID };
             m.functions[0].blocks[0].instructions[0].1 = Instruction::AllocObject { class_id: cid, fields: field_list };
             if case == 7 { m.arc_memory = false; }
             if case == 0 {
@@ -847,9 +847,9 @@ mod tests {
             if case == 2 { f.params[0].2 = Type::I64; }
             f.blocks[0].instructions = vec![(ValueId(1), Instruction::CellGet { cell: Operand::Val(ValueId(0)) }, Type::Ref)];
             f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
-            let before = format!("{m:?}"); let ps_antes = plans.clone();
+            let before = format!("{m:?}"); let plans_before = plans.clone();
             let result = prepare_arc_dart_module(&mut m, &mut plans);
-            if case == 2 { assert!(result.unwrap_err().contains("receiver Ref")); assert_eq!(format!("{m:?}"), before); assert_eq!(plans, ps_antes); continue; }
+            if case == 2 { assert!(result.unwrap_err().contains("receiver Ref")); assert_eq!(format!("{m:?}"), before); assert_eq!(plans, plans_before); continue; }
             if case == 1 { assert_eq!(result.unwrap(), (0, 0)); assert_eq!(format!("{m:?}"), before); continue; }
             assert_eq!(result.unwrap(), (1, 0));
             let Terminator::Return(Some(Operand::Val(ret))) = m.functions[0].blocks[0].terminator else { panic!("retorno sem token SSA"); };

@@ -1,28 +1,28 @@
-//! O SDK compilado da fonte no lowering (P5c/P5d, δ; docs/NATIVO-PLANO.md §7).
+//! The SDK compiled from source in the lowering (P5c/P5d, δ; docs/NATIVO-PLANO.md §7).
 //!
-//! As sete bibliotecas de
-//! `sdk_modulo::SOURCE_LIBRARIES` são código Dart compilado como o do
-//! programa, cada uma no seu módulo (objeto em cache), e o programa as chama
-//! pelos símbolos estáveis. Três coisas mudam em relação ao mundo fechado:
+//! The seven libraries of
+//! `sdk_modulo::SOURCE_LIBRARIES` are Dart code compiled like that of the
+//! program, each one in its own module (an object in the cache), and the program calls them
+//! through the stable symbols. Three things change relative to the closed world:
 //!
-//! 1. **Chamada por seletor.** Um membro público de instância de uma classe
-//!    do SDK pode ser sobrescrito por uma classe do programa, que o SDK não
-//!    conhece quando é compilado. A chamada vai pelo seletor (`c:m`, `g:x`,
-//!    `s:x`; o nome privado leva `@<library>`), que a tabela de métodos da
-//!    classe dinâmica resolve (`llvm/selectors.rs`, `runtime/selectors.rs`).
-//!    Continua direta (ou pelo `switch` do mundo fechado de `members.rs`) a
-//!    chamada que só a biblioteca da classe pode sobrescrever: membro
-//!    privado, ou classe privada cujos subtipos na biblioteca são todos
-//!    privados.
-//! 2. **Adaptadores.** Cada membro de instância ganha as entradas uniformes
-//!    que a tabela de métodos aponta: `<símbolo>$c` (chamar), `$g` (ler: o
-//!    getter, o campo, ou o tear-off de um método) e `$s` (gravar), com a
-//!    convenção das closures (`i64 (i64 receiver, ptr args, ptr desc)`).
-//! 3. **`external`.** O membro de patch (`patched_by`) é o corpo; um native
-//!    (`vm:external-name`) é a função do runtime da tabela `natives.rs`; o
-//!    que não tem implementação (native pendente, intrínseco da VM) é
-//!    diagnóstico — o membro que o chama é **recusado** no módulo do SDK
-//!    (`sdk_modulo`), com o motivo, e nunca emitido errado.
+//! 1. **Call by selector.** A public instance member of an SDK
+//!    class may be overridden by a program class, which the SDK does not
+//!    know when it is compiled. The call goes through the selector (`c:m`, `g:x`,
+//!    `s:x`; the private name carries `@<library>`), which the method table of the
+//!    dynamic class resolves (`llvm/selectors.rs`, `runtime/selectors.rs`).
+//!    A call that only the library of the class can override stays direct (or through the
+//!    closed-world `switch` of `members.rs`): a private
+//!    member, or a private class whose subtypes in the library are all
+//!    private.
+//! 2. **Adapters.** Each instance member gets the uniform entries
+//!    that the method table points to: `<symbol>$c` (call), `$g` (read: the
+//!    getter, the field, or the tear-off of a method) and `$s` (write), with the
+//!    closure convention (`i64 (i64 receiver, ptr args, ptr desc)`).
+//! 3. **`external`.** The patch member (`patched_by`) is the body; a native
+//!    (`vm:external-name`) is the runtime function of the `natives.rs` table; whatever
+//!    has no implementation (a pending native, a VM intrinsic) is a
+//!    diagnostic — the member that calls it is **rejected** in the SDK module
+//!    (`sdk_modulo`), with the reason, and never emitted wrong.
 
 use super::fn_builder::FnBuilder;
 use super::members::{Evaluated, linearization, subclass_of};
@@ -32,7 +32,7 @@ use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, FunctionKind, LibraryId, UnitId, VariableId};
 use dartforge_frontend::ast::ParameterKind;
 
-/// O que o seletor faz com o membro.
+/// What the selector does with the member.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AccessKind {
     /// `o.m(…)`.
@@ -43,10 +43,10 @@ pub enum AccessKind {
     Write,
 }
 
-/// O texto do seletor: `c:m`, `g:x`, `s:x`; um nome privado leva
-/// `@<library>` (dois `_m` de bibliotecas diferentes são membros
-/// diferentes). O `_=` da chave de um setter nas tabelas do elemento sai
-/// (`==` e `[]=` são operadores, não setters).
+/// The text of the selector: `c:m`, `g:x`, `s:x`; a private name carries
+/// `@<library>` (two `_m`s of different libraries are different
+/// members). The `_=` of the key of a setter in the element tables is dropped
+/// (`==` and `[]=` are operators, not setters).
 pub fn selector_string(ctx: &Context, ty: AccessKind, name_str: &str, lib: LibraryId) -> String {
     let p = match ty {
         AccessKind::Call => "c",
@@ -61,8 +61,8 @@ pub fn selector_string(ctx: &Context, ty: AccessKind, name_str: &str, lib: Libra
     }
 }
 
-/// Nenhuma classe fora da biblioteca de `cid` pode ser subtipo dela: ela e
-/// todos os seus subtipos na biblioteca são privados.
+/// No class outside the library of `cid` can be a subtype of it: it and
+/// all its subtypes in the library are private.
 pub fn closed_class(ctx: &Context, cid: ClassId) -> bool {
     let class = &ctx.program.classes[cid.0 as usize];
     if !ctx.symbol_name(class.name).starts_with('_') {
@@ -74,25 +74,25 @@ pub fn closed_class(ctx: &Context, cid: ClassId) -> bool {
     })
 }
 
-/// O membro `name` de `cid` só pode ser sobrescrito dentro da biblioteca
-/// dela (o mundo fechado de `members.rs` vale para ele).
+/// The member `name` of `cid` can only be overridden inside its
+/// library (the closed world of `members.rs` holds for it).
 pub fn closed_member(ctx: &Context, cid: ClassId, name_str: &str) -> bool {
     let class = &ctx.program.classes[cid.0 as usize];
     if !ctx.program.library(class.library).is_sdk {
-        // Classe do programa: o programa conhece todos os subtipos dela.
+        // Program class: the program knows all its subtypes.
         return true;
     }
     name_str.starts_with('_') || closed_class(ctx, cid) || class_closed_by_modifier(ctx, cid)
 }
 
-/// Os modificadores de classe do Dart 3 fecham `cid` na biblioteca dela:
-/// ela é `final` ou `sealed`, e todo subtipo dela no programa é da mesma
-/// biblioteca e `final`, `sealed` ou privado — nenhum código de fora pode
-/// estendê-la, implementá-la nem sobrescrever um membro dela. É o caso de
-/// `String`, `int`, `double`, `num` e `bool`: sem isto, `s.codeUnitAt(i)`
-/// com `s` estático `String` ia pelo seletor e pela entrada uniforme, que
-/// confere os argumentos no RTI (a escrita dos cabeçalhos do `dart:_http`
-/// fazia centenas dessas chamadas por requisição).
+/// The Dart 3 class modifiers close `cid` in its library:
+/// it is `final` or `sealed`, and every subtype of it in the program is from the same
+/// library and `final`, `sealed` or private — no outside code can
+/// extend it, implement it or override a member of it. That is the case of
+/// `String`, `int`, `double`, `num` and `bool`: without this, `s.codeUnitAt(i)`
+/// with `s` statically a `String` went through the selector and the uniform entry, which
+/// checks the arguments in the RTI (writing the headers of `dart:_http`
+/// made hundreds of those calls per request).
 pub fn class_closed_by_modifier(ctx: &Context, cid: ClassId) -> bool {
     let class = &ctx.program.classes[cid.0 as usize];
     if !(class.modifiers.final_ || class.modifiers.sealed) {
@@ -106,7 +106,7 @@ pub fn class_closed_by_modifier(ctx: &Context, cid: ClassId) -> bool {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// `recv.<selector>(evaluated)` pela convenção uniforme; o resultado é
+    /// `recv.<selector>(evaluated)` through the uniform convention; the result is
     /// `Ref`.
     pub fn call_by_selector(&mut self, recv: Operand, selector: String, evaluated: &[Evaluated]) -> Operand {
         self.call_by_selector_with_tuple(recv, selector, evaluated, Operand::Constant(Constant::Int(0)))
@@ -141,17 +141,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit_call_with_check(Instruction::CallSelector { selector, recv, args, names, tuple_types }, Type::Ref)
     }
 
-    /// `recv.name(evaluated)` pelo seletor, com o nome privado da biblioteca
-    /// da unidade corrente.
+    /// `recv.name(evaluated)` through the selector, with the private name of the library
+    /// of the current unit.
     pub fn call_by_name(&mut self, recv: Operand, ty: AccessKind, name_str: &str, evaluated: &[Evaluated]) -> Operand {
         let lib = self.ctx.program.unit(self.unit_id).library;
         let s = selector_string(self.ctx, ty, name_str, lib);
         self.call_by_selector(recv, s, evaluated)
     }
 
-    /// [`Self::call_by_name`] com o receptor `alvo` de tipo estático
-    /// conhecido: se os argumentos têm todos o tipo garantido, pelo seletor
-    /// tipado (`typed_entry.rs`), que só confere os covariantes.
+    /// [`Self::call_by_name`] with the receiver `alvo` of a known static
+    /// type: if all the arguments have a guaranteed type, through the typed
+    /// selector (`typed_entry.rs`), which only checks the covariant ones.
     pub fn call_by_name_typed(
         &mut self,
         recv: Operand,
@@ -164,8 +164,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.call_by_name_with_typed_receiver(recv, typed, ty, name_str, evaluated)
     }
 
-    /// [`Self::call_by_name_typed`] com a decisão sobre o receptor já
-    /// tomada (`typed_receiver`: o tipo estático dele é conhecido).
+    /// [`Self::call_by_name_typed`] with the decision about the receiver already
+    /// taken (`typed_receiver`: its static type is known).
     pub fn call_by_name_with_typed_receiver(
         &mut self,
         recv: Operand,
@@ -184,12 +184,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.call_by_selector(recv, s, evaluated)
     }
 
-    /// Hook de `call_member` (SDK da fonte): o membro de instância de uma
-    /// classe do SDK vai pelo seletor, a não ser que só a biblioteca dela o
-    /// possa sobrescrever e ele tenha **uma** implementação, que é um método
-    /// (chamada direta). Um getter de interface do programa também usa o
-    /// seletor quando alguma implementação concreta é um campo: o despacho
-    /// por funções de `members.rs` não pode representar esse getter implícito.
+    /// Hook of `call_member` (source SDK): the instance member of an
+    /// SDK class goes through the selector, unless only its library
+    /// can override it and it has **one** implementation, which is a method
+    /// (a direct call). An interface getter of the program also uses the
+    /// selector when some concrete implementation is a field: the dispatch
+    /// through functions of `members.rs` cannot represent that implicit getter.
     pub fn call_source_member(&mut self, recv: Operand, decl_fid: usize, evaluated: &[Evaluated]) -> Option<Operand> {
         if self.in_adapter {
             return None;
@@ -210,10 +210,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if is_sdk && closed_member(self.ctx, cid, &name_str)
             && let [Implementation::Function(alvo)] = implementations(self.ctx, cid, &key)[..]
         {
-            // O `this` de um membro do SDK é sempre `Ref`: um `int` escalar
-            // vira `Smi` ou `_Mint` aqui (o `int` fechado por modificador
-            // chega com o receptor em `i64`; sem a caixa, um valor par ou
-            // fora do `Smi` seria lido como handle).
+            // The `this` of an SDK member is always `Ref`: a scalar `int`
+            // becomes a `Smi` or a `_Mint` here (the `int` closed by a modifier
+            // arrives with the receiver in `i64`; without the box, an even value or
+            // one outside the `Smi` range would be read as a handle).
             let recv = self.coerce(recv, Type::Ref);
             let args = self.match_args(alvo, evaluated);
             let r = self.call_direct(alvo, Some(recv), args);
@@ -238,8 +238,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         let s = selector_string(self.ctx, ty, &name_str, f.library);
-        // Receptor tipado e argumentos garantidos: a entrada que só confere
-        // os covariantes (`typed_entry.rs`).
+        // Typed receiver and guaranteed arguments: the entry that only checks
+        // the covariant ones (`typed_entry.rs`).
         let s = if matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated) {
             super::typed_entry::typed_selector(&s)
         } else {
@@ -255,17 +255,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(if matches!(ret, Type::Void) { Operand::Constant(Constant::Null) } else { self.coerce(r, ret) })
     }
 
-    /// Despacho de poucos alvos (P2) de um membro fechado (só a biblioteca
-    /// dele o implementa, e o programa inteiro dela está compilado) com 2 a
-    /// [`FEW_TARGETS`] implementações: um `switch` pela classe do receptor
-    /// escolhe a chamada direta ou o acesso ao campo de cada uma — o mesmo
-    /// que a chamada direta do caso de uma implementação só, repetido por
-    /// classe —, e o seletor fica no `default` (uma classe que o módulo não
-    /// conhece). Sem isto, cada acesso ia pelo seletor e pela entrada
-    /// uniforme, que confere os argumentos (os `_index`, `_data`,
-    /// `_usedData` dos mapas e conjuntos: duas hierarquias no
-    /// `compact_hash.dart`). `None`: sem despacho por classe (o chamador
-    /// segue pelo seletor).
+    /// Few-target dispatch (P2) of a closed member (only its library
+    /// implements it, and the whole program of that library is compiled) with 2 to
+    /// [`FEW_TARGETS`] implementations: a `switch` on the class of the receiver
+    /// chooses the direct call or the field access of each one — the same
+    /// as the direct call of the single-implementation case, repeated per
+    /// class —, and the selector stays in the `default` (a class that the module does not
+    /// know). Without this, each access went through the selector and the uniform
+    /// entry, which checks the arguments (the `_index`, `_data`,
+    /// `_usedData` of maps and sets: two hierarchies in
+    /// `compact_hash.dart`). `None`: no dispatch by class (the caller
+    /// goes on through the selector).
     #[allow(clippy::too_many_arguments)]
     fn class_dispatch(
         &mut self,
@@ -287,7 +287,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if distinct.len() < 2 || distinct.len() > FEW_TARGETS {
             return None;
         }
-        // Chamar um campo (uma closure guardada) fica com o seletor.
+        // Calling a field (a stored closure) stays with the selector.
         if ty == AccessKind::Call && distinct.iter().any(|i| matches!(i, Implementation::Field(_))) {
             return None;
         }
@@ -349,14 +349,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         self.set_block(join);
         if entries.is_empty() {
-            // Todo caminho lança: a junção é inalcançável.
+            // Every path throws: the join is unreachable.
             return Some(Self::zero_value(ret));
         }
         Some(self.emit(Instruction::Phi { incoming: entries, ty: ret }, ret))
     }
 
-    /// Hook da leitura de campo: um getter de subclasse pode sobrescrever
-    /// inclusive o getter implícito de um campo da classe base.
+    /// Hook of the field read: a subclass getter may override
+    /// even the implicit getter of a field of the base class.
     pub fn read_source_field(&mut self, obj: Operand, vid: VariableId) -> Option<Operand> {
         if self.in_adapter {
             return None;
@@ -366,11 +366,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let name_str = self.ctx.symbol_name(v.name).to_string();
         let is_sdk = self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk;
         if !is_sdk {
-            // A leitura direta do campo só vale se toda classe concreta do
-            // tipo tem ESTE campo: um getter que o sobrescreve, ou outro
-            // campo de mesmo nome numa classe que só implementa a interface
+            // The direct read of the field only holds if every concrete class of the
+            // type has THIS field: a getter that overrides it, or another
+            // field with the same name in a class that only implements the interface
             // (`class ScalarToken implements Token { final FileSpan span; }`
-            // do `package:yaml`, noutra posição do objeto), vão pelo seletor.
+            // of `package:yaml`, at another position of the object), go through the selector.
             let only_this_field =
                 implementations(self.ctx, cid, &name_str).iter().all(|i| *i == Implementation::Field(vid));
             if only_this_field {
@@ -394,9 +394,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(self.coerce(r, repr))
     }
 
-    /// Hook da gravação de campo por atribuição (SDK da fonte): o campo de
-    /// uma classe do SDK que um setter pode sobrescrever vai pelo seletor
-    /// `s:x`. `false`: a gravação direta de sempre vale.
+    /// Hook of the field write by assignment (source SDK): the field of
+    /// an SDK class that a setter may override goes through the selector
+    /// `s:x`. `false`: the usual direct write holds.
     pub fn store_source_field(&mut self, obj: Operand, vid: VariableId, value: Operand) -> bool {
         if self.in_adapter {
             return false;
@@ -405,8 +405,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cid) = v.class else { return false };
         let is_sdk = self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk;
         let name_str = self.ctx.symbol_name(v.name).to_string();
-        // Como na leitura: direto só se toda classe concreta grava ESTE
-        // campo (no SDK, também se o membro é fechado).
+        // As in the read: direct only if every concrete class writes THIS
+        // field (in the SDK, also if the member is closed).
         let only_this_field =
             implementations(self.ctx, cid, &format!("{name_str}_=")).iter().all(|i| *i == Implementation::Field(vid));
         if only_this_field && (!is_sdk || closed_member(self.ctx, cid, &name_str)) {
@@ -424,8 +424,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         true
     }
 
-    /// `a == b` com o SDK da fonte (§17.26 "Equality"): com um lado null,
-    /// `identical(a, b)`; senão `a.==(b)` pela classe dinâmica de `a`.
+    /// `a == b` with the source SDK (§17.26 "Equality"): with a null side,
+    /// `identical(a, b)`; otherwise `a.==(b)` by the dynamic class of `a`.
     pub fn source_equality(&mut self, a: Operand, b: Operand) -> Operand {
         let zero = Operand::Constant(Constant::Int(0));
         let na = self.emit(Instruction::ICmp(ICmpOp::Eq, a.clone(), zero.clone()), Type::I1);
@@ -449,14 +449,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Phi { incoming: vec![(end1, r1), (end2, r2)], ty: Type::I1 }, Type::I1)
     }
 
-    /// `a == b` (ou `a != b`, com `negate`) quando o tipo estático de `a` é
-    /// uma classe cujo `==` é fechado ([`closed_member`]: `String`, `int`,
-    /// `double`, `bool`…): a regra do null de [`Self::source_equality`] e,
-    /// com os dois lados não nulos, o `==` pelo despacho de
-    /// [`Self::call_source_member`] — a chamada direta, ou o `switch` pela
-    /// classe com o seletor no `default` —, sem a entrada uniforme e a
-    /// conferência dos argumentos do seletor `c:==`. É o `char == " "` dos
-    /// analisadores do `dart:_http`. `None`: o caminho geral.
+    /// `a == b` (or `a != b`, with `negate`) when the static type of `a` is
+    /// a class whose `==` is closed ([`closed_member`]: `String`, `int`,
+    /// `double`, `bool`…): the null rule of [`Self::source_equality`] and,
+    /// with both sides non-null, the `==` through the dispatch of
+    /// [`Self::call_source_member`] — the direct call, or the `switch` on the
+    /// class with the selector in the `default` —, without the uniform entry and the
+    /// argument check of the `c:==` selector. It is the `char == " "` of the
+    /// `dart:_http` parsers. `None`: the general path.
     pub fn closed_class_equality(
         &mut self,
         type_of_a: Option<dartforge_types::table::TypeId>,
@@ -479,10 +479,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let a = a.clone();
         let b = self.coerce(b.clone(), Type::Ref);
-        // `String`: o `==` das duas classes concretas é o mesmo native
-        // (`_StringBase._igualA`, que já trata `null` e o outro lado que
-        // não é `String`): uma chamada, sem a regra do null nem o `switch`
-        // pela classe — o intrínseco `String_equality` da VM.
+        // `String`: the `==` of the two concrete classes is the same native
+        // (`_StringBase._igualA`, which already handles `null` and the other side
+        // not being a `String`): one call, without the null rule or the `switch`
+        // on the class — the VM's `String_equality` intrinsic.
         if self.ctx.core.string_class == Some(*class) {
             let r = self.emit(
                 Instruction::CallRuntime {
@@ -509,9 +509,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let end1 = self.current_block;
         self.terminate(Terminator::Branch(join));
         self.set_block(b_din);
-        // As condições de `call_source_member` já valem (membro de
-        // instância de classe do SDK, fora de adaptador); o seletor fica só
-        // por garantia, sem deixar blocos pela metade.
+        // The conditions of `call_source_member` already hold (an instance
+        // member of an SDK class, outside an adapter); the selector stays only
+        // as a safeguard, without leaving half-built blocks.
         let r = match self.call_source_member(a.clone(), fid, &[(None, b.clone())]) {
             Some(r) => r,
             None => self.call_by_selector(a, "c:==".to_string(), &[(None, b)]),
@@ -527,24 +527,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(if negate { self.emit(Instruction::LNot(e), Type::I1) } else { e })
     }
 
-    /// `op is T` com o SDK da fonte (hook de `test_type`): toda classe
-    /// (`int`, `num`, `String`, `Object`…) é uma classe compilada com id, e
-    /// a resposta é a do grafo de subtipos que as bibliotecas registram; null
-    /// só é um `T` quando `T` é `Null` ou anulável (§20.3). Parâmetros de tipo
-    /// são resolvidos pelo RTI da instância ou pela tupla do método.
+    /// `op is T` with the source SDK (hook of `test_type`): every class
+    /// (`int`, `num`, `String`, `Object`…) is a compiled class with an id, and
+    /// the answer is that of the subtype graph that the libraries register; null
+    /// is only a `T` when `T` is `Null` or nullable (§20.3). Type parameters
+    /// are resolved through the RTI of the instance or through the tuple of the method.
     pub fn test_source_type(
         &mut self,
         ast_ty: &dartforge_frontend::ast::TypeAnnotation,
         op: Operand,
     ) -> Option<Operand> {
-        // No código do SDK, os testes com argumentos de tipo (`is List<E>`)
-        // escolhem um caminho rápido equivalente para um programa correto
-        // (`ListBase.setRange`, `List.from`, `ListQueue.addAll`…): até a RTI,
-        // eles conferem a classe. No programa, só o cast (`as`) confere a
-        // classe; o `is` com argumentos continua diagnóstico.
+        // In SDK code, the tests with type arguments (`is List<E>`)
+        // choose a fast path equivalent for a correct program
+        // (`ListBase.setRange`, `List.from`, `ListQueue.addAll`…): until the RTI,
+        // they check the class. In the program, only the cast (`as`) checks the
+        // class; `is` with arguments stays a diagnostic.
         let in_sdk = self.ctx.program.library(self.ctx.program.unit(self.unit_id).library).is_sdk;
         let only_class = self.cast_by_class_only || in_sdk;
-        // Tipos sem classe que não têm receita resolvida continuam recusados.
+        // Types without a class that have no resolved recipe stay rejected.
         let without_class = |b: &mut Self| -> Option<Operand> {
             if b.cast_by_class_only {
                 Some(Operand::Constant(Constant::Bool(true)))
@@ -555,9 +555,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         };
         let dartforge_frontend::ast::TypeKind::Named { name, args } = &ast_ty.kind else {
-            // `Iterable.generate<E>` testa `_id is E Function(int)` antes de
-            // aceitar o gerador implícito. A RTI representa a assinatura e
-            // substitui `E` pela tupla da factory do SDK.
+            // `Iterable.generate<E>` tests `_id is E Function(int)` before
+            // accepting the implicit generator. The RTI represents the signature and
+            // replaces `E` with the tuple of the SDK factory.
             if let Some(recipe) = self.annotation_recipe(ast_ty) {
                 let ty = self.recipe_rti(&recipe);
                 return Some(self.test_rti(op, ty));
@@ -576,10 +576,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if arguments && !only_class {
             return None;
         }
-        // No SDK, `is C<…>` com argumentos confere a RTI inteira (o
-        // `value is Future<T>` do `_Future._asyncComplete` decide entre
-        // encadear e completar com o próprio `Future`); o `as` segue pela
-        // classe.
+        // In the SDK, `is C<…>` with arguments checks the whole RTI (the
+        // `value is Future<T>` of `_Future._asyncComplete` decides between
+        // chaining and completing with the `Future` itself); `as` goes by the
+        // class.
         if arguments
             && in_sdk
             && !self.cast_by_class_only
@@ -590,8 +590,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let last_one = name.last()?;
         let name_str = self.ctx.symbol_name(last_one.sym).to_string();
-        // Parâmetros da classe vêm do RTI de `this` (`P<i>`). Os de método
-        // vêm da tupla oculta repassada pelo adaptador do seletor (`M<i>`).
+        // Class parameters come from the RTI of `this` (`P<i>`). Those of a method
+        // come from the hidden tuple passed on by the selector adapter (`M<i>`).
         if in_sdk
             && !self.cast_by_class_only
             && args.is_empty()
@@ -606,9 +606,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut op = op;
         let repr = self.operand_type(&op);
         if repr != Type::Ref {
-            // Escalar: verdadeiro já em compilação para os supertipos óbvios;
-            // o resto (`_Smi`, `_IntegerImplementation`, `Pattern`…) pela
-            // classe da caixa — um `int` é `_Smi` ou `_Mint` conforme o valor.
+            // Scalar: true already at compile time for the obvious supertypes;
+            // the rest (`_Smi`, `_IntegerImplementation`, `Pattern`…) by the
+            // class of the box — an `int` is a `_Smi` or a `_Mint` depending on the value.
             let correct = matches!(
                 (name_str.as_str(), repr),
                 ("int", Type::I64)
@@ -658,8 +658,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::I8,
         );
         let sub = self.emit(Instruction::ICmp(ICmpOp::Ne, sub, zero), Type::I1);
-        // null não é um `T` não anulável, mesmo que `Null` seja subclasse de
-        // `Object` no grafo das classes.
+        // null is not a non-nullable `T`, even though `Null` is a subclass of
+        // `Object` in the class graph.
         let non_null = self.emit(Instruction::LNot(null.clone()), Type::I1);
         let base = self.emit(Instruction::And(sub, non_null), Type::I64);
         let base = self.emit(Instruction::ICmp(ICmpOp::Ne, base, Operand::Constant(Constant::Int(0))), Type::I1);
@@ -670,15 +670,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(self.emit(Instruction::ICmp(ICmpOp::Ne, r, Operand::Constant(Constant::Int(0))), Type::I1))
     }
 
-    /// `toString()` de um valor pelo seletor (interpolação com o SDK da
-    /// fonte): o texto de null é `"null"` (o `toString` de `Null`).
+    /// `toString()` of a value through the selector (interpolation with the source
+    /// SDK): the text of null is `"null"` (the `toString` of `Null`).
     pub fn string_by_selector(&mut self, op: Operand) -> Operand {
         let r = self.call_by_selector(op, "c:toString".to_string(), &[]);
         r
     }
 
-    /// Hook de `call_direct`: a chamada a um `external` do SDK da fonte.
-    /// `None` quando a função tem corpo (a chamada direta de sempre).
+    /// Hook of `call_direct`: the call to an `external` of the source SDK.
+    /// `None` when the function has a body (the usual direct call).
     pub fn call_external(&mut self, fid: usize, this: Option<Operand>, args: &[Operand]) -> Option<Operand> {
         let f = &self.ctx.program.functions[fid];
         if !f.external || f.variable.is_some() {
@@ -699,9 +699,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.inline_string(&member, native.as_deref(), this.as_ref(), args) {
             return Some(r);
         }
-        // Os ganchos de cada pacote do espaço unificado
-        // (docs/NATIVO-ESPACO-UNIFICADO.md §4.2, passo 4): listas do núcleo
-        // (P3), listas tipadas e SIMD (P4), caixas, closures e records (P2).
+        // The hooks of each package of the unified space
+        // (docs/NATIVO-ESPACO-UNIFICADO.md §4.2, step 4): core lists
+        // (P3), typed lists and SIMD (P4), boxes, closures and records (P2).
         if let Some(r) = self.inline_list(&member, native.as_deref(), this.as_ref(), args) {
             return Some(r);
         }
@@ -735,13 +735,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 return Some(self.unsupported(&format!("external sem implementação `{member}`"), span));
             }
         };
-        // A assinatura do native é a representação dos tipos declarados;
-        // `bool` cruza a fronteira como `i8` (nativos.rs).
+        // The signature of the native is the representation of the declared types;
+        // `bool` crosses the boundary as `i8` (natives.rs).
         let mut a = Vec::with_capacity(args.len() + 1);
         if let Some(t) = this {
-            // O receptor de um native de `int`/`double`/`bool` é o valor (as
-            // funções do runtime recebem `i64`/`double`, como a VM, que
-            // desencaixota o `Smi`); o de qualquer outra classe, o `Ref`.
+            // The receiver of a native of `int`/`double`/`bool` is the value (the
+            // runtime functions receive `i64`/`double`, like the VM, which
+            // unboxes the `Smi`); that of any other class, the `Ref`.
             let r = f.class.map_or(Type::Ref, |c| self.receiver_repr(c));
             let t = self.coerce(t, r);
             if r == Type::I1 {
@@ -751,9 +751,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 a.push((t, r));
             }
         }
-        // Os parâmetros e o retorno na representação de valor dos tipos
-        // declarados: `_Smi`/`_Double` (as implementações de `int`/`double`)
-        // também cruzam como `i64`/`double`.
+        // The parameters and the return in the value representation of the declared
+        // types: `_Smi`/`_Double` (the implementations of `int`/`double`)
+        // also cross as `i64`/`double`.
         let types: Vec<Type> = self
             .ctx
             .outline
@@ -778,8 +778,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         } else {
             self.ctx.outline.functions.get(fid).map_or(ret, |d| self.native_repr(d.return_type))
         };
-        // `RETURN_REF`: o runtime devolve a caixa, e o valor declarado sai
-        // da coerção (nativos.rs).
+        // `RETURN_REF`: the runtime returns the box, and the declared value comes out
+        // of the coercion (natives.rs).
         let ret_value = if crate::natives::RETURN_REF.contains(&name_str.as_str()) && ret_value != Type::Void {
             Type::Ref
         } else {
@@ -798,11 +798,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(if ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coerce(r, ret) })
     }
 
-    /// As fábricas `vm:recognized` do `typed_data_patch.dart` da VM: a
-    /// lista pública (`Uint8List(n)`) aloca a lista interna da classe
-    /// correspondente (`_Uint8List`), e `_XArrayView._(base, shift, n)` a
-    /// visão (`typed_data.rs` do runtime). A alocação registra a tabela de
-    /// métodos da classe, como a de um objeto comum (emissor LLVM).
+    /// The `vm:recognized` factories of the VM's `typed_data_patch.dart`: the
+    /// public list (`Uint8List(n)`) allocates the internal list of the
+    /// corresponding class (`_Uint8List`), and `_XArrayView._(base, shift, n)` the
+    /// view (`typed_data.rs` of the runtime). The allocation registers the method
+    /// table of the class, like that of a common object (LLVM emitter).
     fn typed_factory(&mut self, member: &str, args: &[Operand]) -> Option<Operand> {
         const LISTS: &[(&str, &str, i64)] = &[
             ("Int8List.", "_Int8List", 0),
@@ -856,9 +856,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             ));
         }
-        // `Pointer<X>.asTypedList(n)` (`_asExternalTypedDataX` do
-        // `ffi_patch.dart`): a lista interna da classe, sobre a memória
-        // nativa do ponteiro (o `ExternalTypedData` da VM).
+        // `Pointer<X>.asTypedList(n)` (`_asExternalTypedDataX` of
+        // `ffi_patch.dart`): the internal list of the class, over the native memory
+        // of the pointer (the VM's `ExternalTypedData`).
         const EXTERNALS: &[(&str, &str, i64)] = &[
             ("_asExternalTypedDataInt8", "_Int8List", 0),
             ("_asExternalTypedDataUint8", "_Uint8List", 1),
@@ -893,12 +893,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if factory != "_" {
             return None;
         }
-        // `_UnmodifiableXArrayView` estende `_XArrayView`: o mesmo tipo.
+        // `_UnmodifiableXArrayView` extends `_XArrayView`: the same type.
         let modifiable = class.strip_prefix("_Unmodifiable").map(|r| format!("_{r}"));
         let searched = modifiable.as_deref().unwrap_or(class);
         let &(_, ty) = VIEWS.iter().find(|(c, _)| *c == searched)?;
-        // O bit `VISAO_IMUTAVEL` do runtime: a visão não modificável recusa
-        // o caminho rápido de `[]=` (o `[]=` dela lança, como na VM).
+        // The `VISAO_IMUTAVEL` bit of the runtime: the unmodifiable view rejects
+        // the fast path of `[]=` (its `[]=` throws, as in the VM).
         let ty = if modifiable.is_some() { ty | 0x100 } else { ty };
         let cid = id_of(self, class)?;
         let base = self.coerce(args.first()?.clone(), Type::Ref);
@@ -920,9 +920,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         ))
     }
 
-    /// A representação de um tipo na fronteira com um native: a de valor
-    /// (`i64`, `double`, `i1`) para as classes de `int`, `double` e `bool`
-    /// não anuláveis (inclusive `_Smi`, `_Mint`, `_Double`), senão a da HIR.
+    /// The representation of a type at the boundary with a native: the value one
+    /// (`i64`, `double`, `i1`) for the non-nullable classes of `int`, `double` and `bool`
+    /// (including `_Smi`, `_Mint`, `_Double`), otherwise that of the HIR.
     fn native_repr(&self, ty: dartforge_types::table::TypeId) -> Type {
         if self.ctx.is_void(ty) {
             return Type::Void;
@@ -938,9 +938,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// A representação do receptor de um membro de `cid`: o valor para as
-    /// classes de `int`, `double` e `bool` (e as implementações delas,
-    /// `_Smi`, `_Mint`, `_Double`), senão `Ref`.
+    /// The representation of the receiver of a member of `cid`: the value for the
+    /// classes of `int`, `double` and `bool` (and their implementations,
+    /// `_Smi`, `_Mint`, `_Double`), otherwise `Ref`.
     fn receiver_repr(&self, cid: ClassId) -> Type {
         let core = self.ctx.core;
         let de = |c: Option<ClassId>| c.is_some_and(|c| subclass_of(self.ctx, cid, c));
@@ -955,18 +955,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Um native que o lowering gera no lugar da chamada
+    /// A native that the lowering generates in place of the call
     /// (`natives::State::Builtin`).
     fn embedded_native(&mut self, name_str: &str, fid: usize, args: &[Operand]) -> Operand {
         let ret = self.return_repr(fid);
         match name_str {
-            // `unsafeCast<T>(v)`: o próprio valor, sem checagem.
+            // `unsafeCast<T>(v)`: the value itself, without a check.
             "Internal_unsafeCast" => {
                 let v = args.first().cloned().unwrap_or(Operand::Constant(Constant::Null));
                 if ret == Type::Void { v } else { self.coerce(v, ret) }
             }
-            // `ClassID.getID(o)`: a classe do valor em linha (`@df.class`,
-            // docs/NATIVO-ESPACO-UNIFICADO.md §3.8), sem chamar o runtime.
+            // `ClassID.getID(o)`: the class of the value inline (`@df.class`,
+            // docs/NATIVO-ESPACO-UNIFICADO.md §3.8), without calling the runtime.
             "ClassID_getID" => {
                 let o = args.first().cloned().unwrap_or(Operand::Constant(Constant::Null));
                 let o = self.coerce(o, Type::Ref);
@@ -981,18 +981,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 }
 
-/// Uma implementação concreta de um membro de instância.
+/// A concrete implementation of an instance member.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Implementation {
-    /// Método, getter, setter ou operador (com corpo, patch ou native).
+    /// Method, getter, setter or operator (with a body, a patch or a native).
     Function(usize),
-    /// Campo (o getter/setter implícito).
+    /// Field (the implicit getter/setter).
     Field(VariableId),
 }
 
-/// As implementações distintas de `key` (o nome; `x_=` para o setter)
-/// nas classes concretas compiladas que são subtipos de `cid`, cada uma
-/// achada pela linearização da classe (a primeira que implementa).
+/// The distinct implementations of `key` (the name; `x_=` for the setter)
+/// in the compiled concrete classes that are subtypes of `cid`, each one
+/// found by the linearization of the class (the first that implements it).
 pub fn implementations(ctx: &Context, cid: ClassId, key: &str) -> Vec<Implementation> {
     let Some(sym) = ctx.interner.lookup(key) else { return Vec::new() };
     if let Some(r) = ctx.implementations_memo.read().unwrap_or_else(|e| e.into_inner()).get(&(cid, sym)) {
@@ -1032,9 +1032,9 @@ fn implementations_without_memo(ctx: &Context, cid: ClassId, sym: dartforge_inte
     exit
 }
 
-/// Cada classe concreta compilada, subtipo de `cid`, com a implementação
-/// de `key` que a linearização dela acha (como em [`implementations`]), pelo
-/// id de classe do runtime; `None` se alguma não tem id.
+/// Each compiled concrete class, a subtype of `cid`, with the implementation
+/// of `key` that its linearization finds (as in [`implementations`]), by the
+/// runtime class id; `None` if some of them has no id.
 pub fn implementations_by_class(ctx: &Context, cid: ClassId, key: &str) -> Option<Vec<(i64, Implementation)>> {
     let sym = ctx.interner.lookup(key)?;
     if let Some(r) = ctx.implementations_by_class_memo.read().unwrap_or_else(|e| e.into_inner()).get(&(cid, sym)) {
@@ -1076,18 +1076,18 @@ fn implementations_by_class_without_memo(
     Some(exit)
 }
 
-/// Quantas implementações distintas o despacho por classe
-/// (`class_dispatch`) aceita; acima disso, o seletor.
+/// How many distinct implementations the dispatch by class
+/// (`class_dispatch`) accepts; above that, the selector.
 const FEW_TARGETS: usize = 4;
 
-/// O que uma entrada da tabela de métodos faz.
+/// What an entry of the method table does.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Adapter {
-    /// Chama o método; lê e chama o valor de um getter.
+    /// Calls the method; reads and calls the value of a getter.
     Call,
-    /// Lê o getter; tira o tear-off de um método.
+    /// Reads the getter; takes the tear-off of a method.
     Read,
-    /// Chama o setter.
+    /// Calls the setter.
     Write,
 }
 
@@ -1101,7 +1101,7 @@ impl Adapter {
     }
 }
 
-/// O símbolo base de um campo de instância: `df.<lib>.<Classe>.<field>`.
+/// The base symbol of an instance field: `df.<lib>.<Class>.<field>`.
 fn field_symbol(ctx: &Context, vid: VariableId) -> String {
     let v = &ctx.program.variables[vid.0 as usize];
     let owner = v.class.map(|c| ctx.symbol_name(ctx.program.classes[c.0 as usize].name).to_string()).unwrap_or_default();
@@ -1113,8 +1113,8 @@ fn field_symbol(ctx: &Context, vid: VariableId) -> String {
     )
 }
 
-/// O membro de instância implementado (tem corpo, é campo, ou é `external`
-/// com patch ou native).
+/// The implemented instance member (it has a body, is a field, or is `external`
+/// with a patch or a native).
 fn implemented(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
     if f.variable.is_some() {
@@ -1126,16 +1126,16 @@ fn implemented(ctx: &Context, fid: usize) -> bool {
     super::members::has_body(ctx, fid)
 }
 
-/// A tabela de métodos de uma classe concreta: para cada seletor que ela
-/// responde (os membros dela e os herdados, pela linearização, o primeiro
-/// que implementa), a entrada uniforme.
+/// The method table of a concrete class: for each selector that it
+/// answers (its members and the inherited ones, through the linearization, the first
+/// that implements it), the uniform entry.
 pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
     let mut seen_set = std::collections::HashSet::new();
     let mut exit = Vec::new();
     let mut chain = linearization(ctx, cid);
-    // A hierarquia de certos elementos sintéticos (notadamente enums) não
-    // inclui `Object` em `supertype_class`. Seus membros continuam herdando
-    // `Object.==`, `hashCode` e os outros acessores na semântica Dart.
+    // The hierarchy of certain synthetic elements (notably enums) does not
+    // include `Object` in `supertype_class`. Their members keep inheriting
+    // `Object.==`, `hashCode` and the other accessors in Dart semantics.
     if let Some(object) = ctx.core.object_class && !chain.contains(&object) {
         chain.push(object);
     }
@@ -1154,16 +1154,16 @@ pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
             let f = &ctx.program.functions[fid];
             let is_setter = key.ends_with("_=");
             let name_str = key.strip_suffix("_=").unwrap_or(key);
-            // A entrada tipada do método (`typed_entry.rs`), quando ele
-            // a tem, no seletor `t…` — só se o `c:`/`s:` dele venceu aqui.
+            // The typed entry of the method (`typed_entry.rs`), when it
+            // has one, in the `t…` selector — only if its `c:`/`s:` won here.
             let typed = f.variable.is_none()
                 && !matches!(f.kind, FunctionKind::Getter)
                 && super::typed_entry::needs_typed_entry(ctx, fid);
-            // Fora do mundo fechado do programa (C7, `native_world.rs`): o
-            // seletor fica tomado (uma superclasse não preenche o lugar com
-            // outro membro), mas sem entrada nem adaptador — a chamada
-            // dinâmica a ele cai no `noSuchMethod`, como a que o mundo diz
-            // que não acontece.
+            // Outside the closed world of the program (C7, `native_world.rs`): the
+            // selector stays taken (a superclass does not fill the place with
+            // another member), but without an entry or adapter — the dynamic
+            // call to it falls into `noSuchMethod`, like the one the world says
+            // does not happen.
             let live = !ctx.pruned_member(fid);
             let mut by = |ty: AccessKind, a: Adapter, base: &str| {
                 let s = selector_string(ctx, ty, name_str, f.library);
@@ -1202,8 +1202,8 @@ pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
     exit
 }
 
-/// A classe (ou uma superclasse do programa) declara `noSuchMethod`: o de
-/// `Object` não conta.
+/// The class (or a superclass of the program) declares `noSuchMethod`: that of
+/// `Object` does not count.
 fn has_own_no_such_method(ctx: &Context, cid: ClassId) -> bool {
     let Some(nsm) = ctx.interner.lookup("noSuchMethod") else { return false };
     for c in linearization(ctx, cid) {
@@ -1219,9 +1219,9 @@ fn has_own_no_such_method(ctx: &Context, cid: ClassId) -> bool {
     false
 }
 
-/// Os membros de instância das superinterfaces de `cid` (superclasses,
-/// mixins, `implements`, `on`, transitivamente) cujo seletor a tabela não
-/// tem: (seletor, uso, membro declarado).
+/// The instance members of the superinterfaces of `cid` (superclasses,
+/// mixins, `implements`, `on`, transitively) whose selector the table does not
+/// have: (selector, use, declared member).
 fn members_to_forward(ctx: &Context, cid: ClassId, table: &[(String, String)]) -> Vec<(String, AccessKind, usize)> {
     let mut seen_set: std::collections::HashSet<String> = table.iter().map(|(s, _)| s.clone()).collect();
     let mut exit = Vec::new();
@@ -1263,16 +1263,16 @@ fn members_to_forward(ctx: &Context, cid: ClassId, table: &[(String, String)]) -
     exit
 }
 
-/// O encaminhador de `noSuchMethod` do membro `fid` (entrada uniforme):
-/// desempacota os argumentos como o membro declara (os padrões dos
-/// opcionais omitidos), e o runtime monta o `Invocation` na ordem da
-/// declaração e chama o `noSuchMethod` do receptor.
+/// The `noSuchMethod` forwarder of the member `fid` (uniform entry):
+/// unpacks the arguments as the member declares them (the defaults of the
+/// omitted optional ones), and the runtime builds the `Invocation` in declaration
+/// order and calls the `noSuchMethod` of the receiver.
 fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symbol: &str, fid: usize, ty: AccessKind) {
     let f = &ctx.program.functions[fid];
     let name_str = ctx.symbol_name(f.name).to_string();
     let mut b = FnBuilder::new(ctx, unit, symbol.to_string(), name_str.clone(), Type::Ref);
     let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-    let args = Operand::Val(b.add_param_vector(DartEntryVector::Argumentos));
+    let args = Operand::Val(b.add_param_vector(DartEntryVector::Arguments));
     let desc = Operand::Val(b.add_param_vector(DartEntryVector::Descriptor));
     b.declare_arc_uniform_return();
     let (code, values, names, tuple) = match ty {
@@ -1287,7 +1287,7 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
                 .filter(|p| p.kind == ParameterKind::Named)
                 .map(|p| p.name.clone().unwrap_or_default())
                 .collect();
-            // A tupla do método genérico vem depois dos argumentos.
+            // The tuple of the generic method comes after the arguments.
             let tuple = if b.generic_function(fid) {
                 let npos = b.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) }, Type::I64);
                 let nnom = b.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) }, Type::I64);
@@ -1306,8 +1306,8 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
     };
     let npos = values.len() - names.len();
     let nnom = names.len();
-    // `dartforge_encaminhar_nsm` lê todas as capturas como `Ref`: os valores
-    // vão encaixotados (docs/NATIVO-ESPACO-UNIFICADO.md §4.10, item 48).
+    // `dartforge_encaminhar_nsm` reads all the captures as `Ref`: the values
+    // go boxed (docs/NATIVO-ESPACO-UNIFICADO.md §4.10, item 48).
     let mut fields: Vec<Operand> = values.into_iter().map(|v| b.coerce(v, Type::Ref)).collect();
     for n in names {
         fields.push(b.emit(Instruction::Const(Constant::String(n)), Type::Ref));
@@ -1334,7 +1334,7 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
     b.finish(module);
 }
 
-/// As entradas uniformes de um membro de instância (ou campo) do módulo.
+/// The uniform entries of an instance member (or field) of the module.
 pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
     let f = &ctx.program.functions[fid];
     if f.static_ || f.class.is_none() || !implemented(ctx, fid) {
@@ -1352,8 +1352,8 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
         FunctionKind::Getter => &[Adapter::Read, Adapter::Call],
         _ => &[Adapter::Call, Adapter::Read],
     };
-    // A entrada tipada (`$tc`, `$ts`): só confere os covariantes
-    // (`typed_entry.rs`), e só existe quando dispensa alguma conferência.
+    // The typed entry (`$tc`, `$ts`): only checks the covariant ones
+    // (`typed_entry.rs`), and only exists when it skips some check.
     let mut list: Vec<(Adapter, bool)> = adapters.iter().map(|&a| (a, false)).collect();
     if !matches!(f.kind, FunctionKind::Getter) && super::typed_entry::needs_typed_entry(ctx, fid) {
         list.extend(adapters.iter().filter(|a| **a != Adapter::Read).map(|&a| (a, true)));
@@ -1366,7 +1366,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
         b.in_adapter = true;
         b.guaranteed_arity = typed;
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-        let args = Operand::Val(b.add_param_vector(DartEntryVector::Argumentos));
+        let args = Operand::Val(b.add_param_vector(DartEntryVector::Arguments));
         let desc = Operand::Val(b.add_param_vector(DartEntryVector::Descriptor));
         b.declare_arc_uniform_return();
         let span = Span { start: 0, end: 0 };
@@ -1396,11 +1396,11 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                     b.finish(module);
                     continue;
                 };
-                // A VM confere os argumentos na entrada do método, antes do
-                // corpo (e do native, no SDK: `String.+(String)` não pode
-                // receber um Smi como handle de String via `dynamic`): os
-                // covariantes de classe e os de tipo nominal, com a mensagem
-                // " of 'nome'" — antes de converter cada um à representação.
+                // The VM checks the arguments at the entry of the method, before the
+                // body (and the native, in the SDK: `String.+(String)` cannot
+                // receive a Smi as a String handle via `dynamic`): the
+                // class covariant ones and those of a nominal type, with the message
+                // " of 'name'" — before converting each one to the representation.
                 b.this_param = Some(recv.clone());
                 b.finalizable_this = ctx.classify_this(fid);
                 b.enclosing_class = f.class;
@@ -1428,7 +1428,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
     }
 }
 
-/// As entradas uniformes de um campo de instância: `$g`, `$c` e, se ele tem
+/// The uniform entries of an instance field: `$g`, `$c` and, if it has a
 /// setter, `$s`.
 pub fn lower_field_adapters(ctx: &Context, module: &mut Module, vid: VariableId) {
     let v = &ctx.program.variables[vid.0 as usize];
@@ -1447,7 +1447,7 @@ pub fn lower_field_adapters(ctx: &Context, module: &mut Module, vid: VariableId)
         let mut b = FnBuilder::new(ctx, unit, format!("{base}{}", a.suffix()), ctx.symbol_name(v.name).to_string(), Type::Ref);
         b.in_adapter = true;
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-        let args = Operand::Val(b.add_param_vector(DartEntryVector::Argumentos));
+        let args = Operand::Val(b.add_param_vector(DartEntryVector::Arguments));
         let desc = Operand::Val(b.add_param_vector(DartEntryVector::Descriptor));
         b.declare_arc_uniform_return();
         let r = match a {
@@ -1484,15 +1484,15 @@ pub fn lower_field_adapters(ctx: &Context, module: &mut Module, vid: VariableId)
     }
 }
 
-/// A unidade que declara a classe (onde os adaptadores dela são baixados).
+/// The unit that declares the class (where its adapters are lowered).
 fn unit_of(ctx: &Context, cid: ClassId) -> Option<dartforge_elements::model::UnitId> {
     let c = &ctx.program.classes[cid.0 as usize];
     c.decl.map(|d| d.unit).or_else(|| ctx.program.library(c.library).units.first().copied())
 }
 
-/// A função no lugar de um membro do SDK recusado: a mesma assinatura, e o
-/// corpo avisa em tempo de execução qual membro e por quê
-/// (`dartforge_membro_recusado`) — nunca uma saída errada.
+/// The function in place of a rejected SDK member: the same signature, and the
+/// body warns at runtime which member and why
+/// (`dartforge_membro_recusado`) — never a wrong output.
 pub fn rejected_function(ctx: &Context, fid: usize, reason: &str) -> Function {
     let f = &ctx.program.functions[fid];
     let unit = match f.node {
@@ -1530,9 +1530,9 @@ pub fn rejected_function(ctx: &Context, fid: usize, reason: &str) -> Function {
     b.func
 }
 
-/// Os fatos ARC de um corpo de recusa (que nunca volta, mas mantém a
-/// assinatura do membro): o retorno Ref segue a convenção Owned e os
-/// parâmetros não-Ref, na representação do tipo Dart, são escalares.
+/// The ARC facts of a rejection body (which never returns, but keeps the
+/// signature of the member): the Ref return follows the Owned convention and the
+/// non-Ref parameters, in the representation of the Dart type, are scalars.
 fn register_rejection_facts(ctx: &Context, module: &mut Module, f: &Function) {
     if !ctx.arc_memory {
         return;
@@ -1551,10 +1551,10 @@ fn register_rejection_facts(ctx: &Context, module: &mut Module, f: &Function) {
     }
 }
 
-/// Baixa uma função do SDK da fonte num módulo à parte; se ela não baixa
-/// (diagnóstico de construto, native pendente, intrínseco, pânico do
-/// lowering, problema do verificador), o módulo recebe no lugar dela a
-/// função recusada (`rejected_function`), e o motivo vai para
+/// Lowers a source SDK function in a separate module; if it does not lower
+/// (a construct diagnostic, a pending native, an intrinsic, a panic of the
+/// lowering, a verifier problem), the module receives in its place the
+/// rejected function (`rejected_function`), and the reason goes to
 /// `Module::rejected`.
 pub fn lower_function_or_reject(ctx: &Context, module: &mut Module, fid: usize) {
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1595,17 +1595,17 @@ pub fn lower_function_or_reject(ctx: &Context, module: &mut Module, fid: usize) 
             let f = rejected_function(ctx, fid, &short);
             register_rejection_facts(ctx, module, &f);
             module.functions.push(f);
-            // No resumo vai o diagnóstico inteiro, com a posição.
+            // The whole diagnostic goes into the summary, with the position.
             module.rejected.push((symbol, reason));
         }
         (Err(_), None) => unreachable!(),
     }
 }
 
-/// As funções que devolvem os valores padrão não literais dos parâmetros
-/// das funções do módulo (`members::pattern_symbol`): quem chama de fora
-/// do módulo (o programa) não tem as resoluções das unidades do SDK e chama
-/// esta função no lugar de baixar a expressão.
+/// The functions that return the non-literal default values of the parameters
+/// of the functions of the module (`members::pattern_symbol`): a caller from outside
+/// the module (the program) does not have the resolutions of the SDK units and calls
+/// this function instead of lowering the expression.
 pub fn lower_sdk_patterns(ctx: &Context, module: &mut Module) {
     for (fid, f) in ctx.program.functions.iter().enumerate() {
         if !ctx.library_in_module(f.library) {
@@ -1637,8 +1637,8 @@ pub fn lower_sdk_patterns(ctx: &Context, module: &mut Module) {
             }));
             match r {
                 Ok(mut b) if b.errors.is_empty() => {
-                    // Corpo Dart chamado pelo módulo do parâmetro: o retorno
-                    // Ref é Owned.
+                    // Dart body called by the module of the parameter: the Ref
+                    // return is Owned.
                     if ctx.arc_memory {
                         b.dart_ref_returns.insert(symbol.clone());
                     }
@@ -1659,8 +1659,8 @@ pub fn lower_sdk_patterns(ctx: &Context, module: &mut Module) {
     }
 }
 
-/// A função de padrão que não baixa: avisa em tempo de execução, como as
-/// funções recusadas.
+/// The default function that does not lower: warns at runtime, like the
+/// rejected functions.
 fn rejected_pattern(ctx: &Context, unit: dartforge_elements::model::UnitId, symbol: &str, reason: &str) -> Function {
     let mut b = FnBuilder::new(ctx, unit, symbol.to_string(), symbol.to_string(), Type::Ref);
     let short = reason.strip_prefix(crate::UNSUPPORTED_PREFIX).unwrap_or(reason);
@@ -1673,8 +1673,8 @@ fn rejected_pattern(ctx: &Context, unit: dartforge_elements::model::UnitId, symb
     b.func
 }
 
-/// Os adaptadores dos membros de instância das classes do módulo e as
-/// tabelas de métodos das classes concretas dele (SDK da fonte).
+/// The adapters of the instance members of the classes of the module and the
+/// method tables of its concrete classes (source SDK).
 pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
     lower_sdk_patterns(ctx, module);
     for (fid, f) in ctx.program.functions.iter().enumerate() {
@@ -1692,7 +1692,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
         fids.sort_unstable();
         fids.dedup();
         for fid in fids {
-            // Fora do mundo fechado (C7): sem entrada na tabela, sem adaptador.
+            // Outside the closed world (C7): no entry in the table, no adapter.
             if ctx.program.functions[fid].class != Some(cid) || ctx.pruned_member(fid) {
                 continue;
             }
@@ -1707,10 +1707,10 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
         let concrete = !class.modifiers.abstract_ && !super::members::is_mixin(ctx, cid);
         if concrete && let Some(id) = ctx.class_id_of(cid) {
             let mut table = method_table(ctx, cid);
-            // A VM implementa `_StackTrace.toString` em C++, sem declaração
-            // Dart na classe. Nosso objeto guarda a string no campo zero, ou
-            // os endereços do `throw` que o runtime simboliza no primeiro
-            // pedido (o rastro simbólico, §13.14).
+            // The VM implements `_StackTrace.toString` in C++, without a Dart
+            // declaration in the class. Our object keeps the string in field zero, or
+            // the addresses of the `throw` that the runtime symbolizes on the first
+            // request (the symbolic stack trace, §13.14).
             if ctx.symbol_name(class.name) == "_StackTrace"
                 && ctx.program.library(class.library).uri == "dart:core"
                 && let Some(u) = unit_of(ctx, cid)
@@ -1718,7 +1718,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                 let symbol = "df.$stackTrace.toString$c".to_string();
                 let mut b = FnBuilder::new(ctx, u, symbol.clone(), "toString".to_string(), Type::Ref);
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-                b.add_param_vector(DartEntryVector::Argumentos);
+                b.add_param_vector(DartEntryVector::Arguments);
                 b.add_param_vector(DartEntryVector::Descriptor);
                 b.declare_arc_uniform_return();
                 let text = b.emit(Instruction::CallRuntime {
@@ -1731,9 +1731,9 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                 table.retain(|(s, _)| s != "c:toString");
                 table.push(("c:toString".to_string(), symbol));
             }
-            // O layout gerado para enums guarda `_Enum._name` no campo 1.
-            // Extensões do SDK (byName/asNameMap) leem esse campo pelo
-            // seletor privado de dart:core, inclusive em enums do usuário.
+            // The layout generated for enums keeps `_Enum._name` in field 1.
+            // SDK extensions (byName/asNameMap) read that field through the
+            // private selector of dart:core, including in user enums.
             if super::enums::is_enum(ctx, cid)
                 && let Some(decl) = class.decl
             {
@@ -1744,7 +1744,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                 );
                 let mut b = FnBuilder::new(ctx, decl.unit, symbol.clone(), "_name".to_string(), Type::Ref);
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-                b.add_param_vector(DartEntryVector::Argumentos);
+                b.add_param_vector(DartEntryVector::Arguments);
                 b.add_param_vector(DartEntryVector::Descriptor);
                 b.declare_arc_uniform_return();
                 let name_str = b.emit(Instruction::CallRuntime {
@@ -1759,9 +1759,9 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                 b.finish(module);
                 table.retain(|(s, _)| s != "g:_name@dart:core");
                 table.push(("g:_name@dart:core".to_string(), symbol));
-                // `index` (campo 0) pelo seletor: `x.index` com `x` de tipo
-                // `Enum` ou `T extends Enum` (o `EnumSet.updated` do
-                // analyzer) chega pela tabela, não pelo tipo estático.
+                // `index` (field 0) through the selector: `x.index` with `x` of type
+                // `Enum` or `T extends Enum` (the analyzer's `EnumSet.updated`)
+                // arrives through the table, not through the static type.
                 let symbol = format!(
                     "df.{}.{}.$enumIndex$g",
                     crate::context::escape_str(&ctx.library_name(class.library)),
@@ -1769,7 +1769,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                 );
                 let mut b = FnBuilder::new(ctx, decl.unit, symbol.clone(), "index".to_string(), Type::Ref);
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-                b.add_param_vector(DartEntryVector::Argumentos);
+                b.add_param_vector(DartEntryVector::Arguments);
                 b.add_param_vector(DartEntryVector::Descriptor);
                 b.declare_arc_uniform_return();
                 let index = b.emit(Instruction::CallRuntime {
@@ -1786,9 +1786,9 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                 table.retain(|(s, _)| s != "g:index");
                 table.push(("g:index".to_string(), symbol));
             }
-            // Um enum sem override recebe `Enum.name` do emissor. A tabela
-            // por seletor deve usar esse mesmo corpo, inclusive quando o
-            // valor é impresso por `List.toString` da fonte.
+            // An enum without an override gets `Enum.name` from the emitter. The
+            // selector table must use that same body, including when the
+            // value is printed by the source `List.toString`.
             if super::enums::is_enum(ctx, cid)
                 && module.classes.iter().any(|c| c.id == id && c.to_string_symbol.is_none())
                 && let Some(decl) = class.decl
@@ -1801,7 +1801,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                 let symbol = format!("{base}$c");
                 let mut b = FnBuilder::new(ctx, decl.unit, symbol.clone(), "toString".to_string(), Type::Ref);
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-                b.add_param_vector(DartEntryVector::Argumentos);
+                b.add_param_vector(DartEntryVector::Arguments);
                 b.add_param_vector(DartEntryVector::Descriptor);
                 b.declare_arc_uniform_return();
                 let text = b.emit_call_with_check(
@@ -1813,9 +1813,9 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                 table.retain(|(s, _)| s != "c:toString");
                 table.push(("c:toString".to_string(), symbol));
             }
-            // Encaminhadores de `noSuchMethod`: a classe com `noSuchMethod`
-            // próprio responde a todo membro das suas interfaces que não
-            // implementa (a VM gera o encaminhador no kernel).
+            // `noSuchMethod` forwarders: the class with its own `noSuchMethod`
+            // answers every member of its interfaces that it does not
+            // implement (the VM generates the forwarder in the kernel).
             if let Some(decl) = class.decl
                 && has_own_no_such_method(ctx, cid)
             {
@@ -1833,8 +1833,8 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
             module.method_tables.push((id, table_symbol(ctx, cid), table));
         }
     }
-    // A função da tabela de toda classe concreta compilada (a alocação, em
-    // qualquer módulo, registra a tabela da classe).
+    // The table function of every compiled concrete class (the allocation, in
+    // any module, registers the table of the class).
     for (k, class) in ctx.program.classes.iter().enumerate() {
         let cid = ClassId(k as u32);
         if !ctx.compiled_library(class.library) || class.modifiers.abstract_ || super::members::is_mixin(ctx, cid) {
@@ -1846,8 +1846,8 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
     }
 }
 
-/// A função que devolve a tabela de métodos de uma classe:
-/// `df.mt.<library>.<Classe>`.
+/// The function that returns the method table of a class:
+/// `df.mt.<library>.<Class>`.
 pub fn table_symbol(ctx: &Context, cid: ClassId) -> String {
     let c = &ctx.program.classes[cid.0 as usize];
     format!(
@@ -1857,8 +1857,8 @@ pub fn table_symbol(ctx: &Context, cid: ClassId) -> String {
     )
 }
 
-/// Os adaptadores gerados por `gerar`; os que não baixam viram entradas que
-/// avisam em tempo de execução.
+/// The adapters generated by `gerar`; those that do not lower become entries that
+/// warn at runtime.
 fn adapters_or_reject(ctx: &Context, module: &mut Module, gerar: impl FnOnce(&mut Module)) {
     let mut m = Module::new();
     m.sdk_mode = true;
@@ -1875,9 +1875,9 @@ fn adapters_or_reject(ctx: &Context, module: &mut Module, gerar: impl FnOnce(&mu
         .map(|e| e.strip_prefix(crate::UNSUPPORTED_PREFIX).unwrap_or(e).to_string())
         .unwrap_or_else(|| "pânico do lowering".to_string());
     let reason = reason.rsplit_once(" (").map_or(reason.as_str(), |(a, _)| a).to_string();
-    // Cada entrada uniforme construída e a tipada correspondente
-    // (`$tc`/`$ts`, `typed_entry.rs`), que a tabela pode citar mesmo sem
-    // ter sido construída antes do erro.
+    // Each built uniform entry and the corresponding typed one
+    // (`$tc`/`$ts`, `typed_entry.rs`), which the table may cite even without
+    // having been built before the error.
     let mut entries: Vec<(String, String)> = Vec::new();
     for f in &m.functions {
         let s = &f.symbol;
@@ -1896,7 +1896,7 @@ fn adapters_or_reject(ctx: &Context, module: &mut Module, gerar: impl FnOnce(&mu
         let Some(unit) = unit else { continue };
         let mut b = FnBuilder::new(ctx, unit, symbol.clone(), name_str, Type::Ref);
         b.add_param("this".to_string(), Type::Ref);
-        b.add_param_vector(DartEntryVector::Argumentos);
+        b.add_param_vector(DartEntryVector::Arguments);
         b.add_param_vector(DartEntryVector::Descriptor);
         b.declare_arc_uniform_return();
         let t = b.emit(Instruction::Const(Constant::String(format!("{symbol} ({reason})"))), Type::Ref);
@@ -1906,14 +1906,14 @@ fn adapters_or_reject(ctx: &Context, module: &mut Module, gerar: impl FnOnce(&mu
         );
         b.terminate(Terminator::Unreachable);
         module.rejected.push((symbol, reason.clone()));
-        // Com os fatos da ABI uniforme (vetores e retorno) declarados acima.
+        // With the facts of the uniform ABI (vectors and return) declared above.
         b.finish(module);
     }
 }
-/// O getter de um campo `late` com inicializador do SDK da fonte, ou a
-/// recusa dele: `build` baixa o getter num módulo à parte; se ele tem
-/// diagnóstico (ou o lowering entra em pânico), fica no lugar a função que
-/// avisa em tempo de execução.
+/// The getter of a `late` field with an initializer of the source SDK, or its
+/// rejection: `build` lowers the getter in a separate module; if it has a
+/// diagnostic (or the lowering panics), the function that
+/// warns at runtime takes its place.
 pub fn lower_late_getter_or_reject(
     ctx: &Context,
     module: &mut Module,
@@ -1957,10 +1957,10 @@ pub fn lower_late_getter_or_reject(
     module.rejected.push((symbol, reason));
 }
 
-/// O getter preguiçoso de um global do SDK da fonte (ou a recusa dele) e o
-/// setter `<getter>$set`, que outro módulo chama para gravar o global.
-/// O global do programa fora do mundo fechado (C7, `native_world.rs`): o
-/// getter lança (`FnBuilder::pruned_body`); o setter é o de sempre.
+/// The lazy getter of a source SDK global (or its rejection) and the
+/// setter `<getter>$set`, which another module calls to write the global.
+/// The program global outside the closed world (C7, `native_world.rs`): the
+/// getter throws (`FnBuilder::pruned_body`); the setter is the usual one.
 pub fn lower_pruned_global(
     ctx: &Context,
     module: &mut Module,
@@ -1975,7 +1975,7 @@ pub fn lower_pruned_global(
     b.finish(module);
     let mut s = FnBuilder::new(ctx, unit, format!("{getter}$set"), name_str, Type::Void);
     let v = s.add_param("v".to_string(), repr);
-    // O valor chega na representação do tipo Dart da global: escalar se não é Ref.
+    // The value arrives in the representation of the Dart type of the global: scalar if not Ref.
     if ctx.arc_memory && matches!(repr, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
         s.dart_scalar_parameters.entry(s.func.symbol.clone()).or_default().insert(v);
     }
@@ -2031,7 +2031,7 @@ pub fn lower_global_or_reject(
     }
     let mut s = FnBuilder::new(ctx, unit, format!("{getter}$set"), name_str, Type::Void);
     let v = s.add_param("v".to_string(), repr);
-    // O valor chega na representação do tipo Dart da global: escalar se não é Ref.
+    // The value arrives in the representation of the Dart type of the global: scalar if not Ref.
     if ctx.arc_memory && matches!(repr, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
         s.dart_scalar_parameters.entry(s.func.symbol.clone()).or_default().insert(v);
     }
@@ -2041,8 +2041,8 @@ pub fn lower_global_or_reject(
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// `{}` com o SDK da fonte: um `_Map` (ou `_Set`) novo da fonte, o
-    /// `LinkedHashMap`/`LinkedHashSet` padrão que o literal constrói.
+    /// `{}` with the source SDK: a new source `_Map` (or `_Set`), the
+    /// default `LinkedHashMap`/`LinkedHashSet` that the literal builds.
     pub fn source_empty_collection(&mut self, map: bool) -> Operand {
         let name_str = if map { "_Map" } else { "_Set" };
         let span = Span { start: 0, end: 0 };
@@ -2056,8 +2056,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.instantiate_evaluated(ctor, &[], span)
     }
 
-    /// `for (x in source) f(x)` pelo protocolo do `Iterator` (§17.7.3):
-    /// `iterator`, `moveNext()` e `current`, pelos seletores.
+    /// `for (x in source) f(x)` through the `Iterator` protocol (§17.7.3):
+    /// `iterator`, `moveNext()` and `current`, through the selectors.
     pub fn iterate_source(&mut self, source: Operand, f: &mut dyn FnMut(&mut Self, Operand)) {
         let it = self.call_by_selector(source, "g:iterator".to_string(), &[]);
         let head = self.new_block();
@@ -2076,8 +2076,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(end);
     }
 
-    /// Liga o elemento corrente de um `for-in` ao alvo dele (variável
-    /// declarada, local existente ou padrão), na representação do alvo.
+    /// Binds the current element of a `for-in` to its target (a declared
+    /// variable, an existing local or a pattern), in the representation of the target.
     pub fn bind_for_in_target(
         &mut self,
         ast: &dartforge_frontend::ast::Ast,
@@ -2087,9 +2087,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
     ) {
         use dartforge_frontend::ast::{ExprKind, ForInTarget};
-        // Elemento `dynamic` num alvo tipado: o cast implícito de cada
-        // elemento (o CFE o põe na atribuição à variável do laço), com a
-        // mensagem do cast, antes de converter à representação.
+        // A `dynamic` element in a typed target: the implicit cast of each
+        // element (the CFE puts it in the assignment to the loop variable), with the
+        // message of the cast, before converting to the representation.
         let dynamic_element = match self.ctx.get_type(self.unit_id, iterable) {
             Some(t) if t == self.ctx.core.dynamic_ => true,
             Some(t) => self.element_type(t) == Some(self.ctx.core.dynamic_),
@@ -2133,9 +2133,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `for (alvo in iterável) body` com o SDK da fonte: o protocolo do
-    /// `Iterator`, com `break`/`continue` (e os rótulos) como o `for-in` de
-    /// sempre.
+    /// `for (target in iterable) body` with the source SDK: the `Iterator`
+    /// protocol, with `break`/`continue` (and the labels) like the usual
+    /// `for-in`.
     pub fn lower_source_for_in(
         &mut self,
         ast: &dartforge_frontend::ast::Ast,
@@ -2145,12 +2145,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
     ) {
         let source = self.lower_expr(ast, iterable);
-        // Os rótulos deste laço (os dois caminhos abaixo os usam; um laço
-        // aninhado no corpo não pode vê-los como seus).
+        // The labels of this loop (both paths below use them; a loop
+        // nested in the body cannot see them as its own).
         let labels = std::mem::take(&mut self.pending_labels);
-        // `List<E>`: a lista do runtime percorrida pelo índice, com a
-        // conferência de comprimento do `ListIterator`; outra classe que
-        // implementa `List` segue pelo `Iterator` dela (abaixo).
+        // `List<E>`: the runtime list walked by index, with the
+        // length check of `ListIterator`; another class that
+        // implements `List` goes through its `Iterator` (below).
         let mut direct_end = None;
         if let Some(super::typed_items::Indexable::Core { write_op }) = self.indexable(self.ctx.get_type(self.unit_id, iterable)) {
             let source = self.coerce(source.clone(), Type::Ref);
@@ -2188,21 +2188,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.labeled_continue_targets.remove(&r);
         }
         self.set_block(end);
-        // A saída do laço pelo `Iterator` encontra a do laço direto.
+        // The exit of the loop through the `Iterator` meets that of the direct loop.
         if let Some(after) = direct_end {
             self.terminate(Terminator::Branch(after));
             self.set_block(after);
         }
     }
 
-    /// O `for-in` sobre uma lista do runtime pelo índice. Deixa o bloco
-    /// corrente no caminho do `Iterator` (lista de outra classe) e devolve o
-    /// bloco depois do laço, aonde os dois caminhos chegam.
+    /// The `for-in` over a runtime list by index. Leaves the current
+    /// block on the path of the `Iterator` (a list of another class) and returns the
+    /// block after the loop, where both paths arrive.
     ///
-    /// É o que o `ListIterator` (e o `_FixedSizeArrayIterator`, que nunca vê
-    /// o comprimento mudar) faz: a cada volta, comprimento diferente do
-    /// inicial lança `ConcurrentModificationError(list)`; índice no fim
-    /// termina; senão o elemento `list[i]`.
+    /// It is what `ListIterator` (and `_FixedSizeArrayIterator`, which never sees
+    /// the length change) does: on each round trip, a length different from the
+    /// initial one throws `ConcurrentModificationError(list)`; an index at the end
+    /// terminates; otherwise the element `list[i]`.
     #[allow(clippy::too_many_arguments)]
     fn list_for_in(
         &mut self,
@@ -2218,9 +2218,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let class = self.ctx.sdk_class("core", "ConcurrentModificationError")?;
         let empty = self.ctx.interner.lookup("")?;
         let ctor = *self.ctx.program.classes[class.0 as usize].constructors.get(&empty)?;
-        // Lista do núcleo pela classe (`@df.class`, cids 8–10 fixos,
-        // docs/NATIVO-ESPACO-UNIFICADO.md §2.4): `_List`, `_ImmutableList` ou
-        // `_GrowableList`; o comprimento em linha (`@df.lista_len`).
+        // A core list by class (`@df.class`, fixed cids 8–10,
+        // docs/NATIVO-ESPACO-UNIFICADO.md §2.4): `_List`, `_ImmutableList` or
+        // `_GrowableList`; the length inline (`@df.lista_len`).
         let cid = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_value_class".to_string(),
@@ -2250,8 +2250,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Branch(head));
 
         self.set_block(head);
-        // Dentro do laço, o comprimento lido do bloco a cada volta
-        // (`@df.lista_len`, o mesmo deslocamento nas três classes).
+        // Inside the loop, the length read from the block on each round trip
+        // (`@df.lista_len`, the same offset in the three classes).
         let n = self.list_len_inline(list.clone());
         let equal = self.emit(Instruction::ICmp(ICmpOp::Eq, n.clone(), n0), Type::I1);
         self.terminate(Terminator::CondBranch { cond: equal, then_block: checks, else_block: changed });
@@ -2300,8 +2300,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// `v is <name>` para uma classe de `dart:core` (`List`, `Map`,
-    /// `Record`), pelo grafo de classes do SDK da fonte; null não é.
+    /// `v is <name>` for a class of `dart:core` (`List`, `Map`,
+    /// `Record`), through the class graph of the source SDK; null is not.
     pub fn is_core_instance(&mut self, v: Operand, name_str: &str) -> Operand {
         let zero = Operand::Constant(Constant::Int(0));
         let Some(id) = self.ctx.sdk_class("core", name_str).and_then(|c| self.ctx.class_id_of(c)) else {
@@ -2325,7 +2325,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::ICmp(ICmpOp::Ne, r, zero), Type::I1)
     }
 
-    /// Segue se `cond`, senão desvia para `failure`.
+    /// Continues if `cond`, otherwise branches to `failure`.
     fn require_source(&mut self, cond: Operand, failure: BlockId) {
         let cond = self.to_bool(cond);
         let ok = self.new_block();
@@ -2333,8 +2333,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(ok);
     }
 
-    /// Padrão de lista com o SDK da fonte (§19.4.6 "List pattern"): o valor é
-    /// um `List`, e `length`, `[]` e `sublist` vão pelo seletor.
+    /// List pattern with the source SDK (§19.4.6 "List pattern"): the value is
+    /// a `List`, and `length`, `[]` and `sublist` go through the selector.
     #[allow(clippy::too_many_arguments)]
     pub fn match_source_list(
         &mut self,
@@ -2391,8 +2391,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Padrão de mapa com o SDK da fonte (§19.4.7 "Map pattern"): o valor é
-    /// um `Map`, e cada chave existe (`containsKey`) e casa (`[]`).
+    /// Map pattern with the source SDK (§19.4.7 "Map pattern"): the value is
+    /// a `Map`, and each key exists (`containsKey`) and matches (`[]`).
     #[allow(clippy::too_many_arguments)]
     pub fn match_source_map(
         &mut self,
@@ -2417,9 +2417,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 }
-/// As formas de record com campo nomeado do programa (`records.rs`) com o
-/// SDK da fonte: cada uma ganha a tabela de métodos — `toString` e `==`
-/// (os gerados), e os membros de `Object` — com os adaptadores.
+/// The record shapes with a named field of the program (`records.rs`) with the
+/// source SDK: each one gets the method table — `toString` and `==`
+/// (the generated ones), and the members of `Object` — with the adapters.
 pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
     let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else { return };
     let object = ctx.core.object_class.map(|c| method_table(ctx, c)).unwrap_or_default();
@@ -2429,7 +2429,7 @@ pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
         // toString$c
         let mut b = FnBuilder::new(ctx, u, format!("{base}.toString$c"), "toString".to_string(), Type::Ref);
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-        b.add_param_vector(DartEntryVector::Argumentos);
+        b.add_param_vector(DartEntryVector::Arguments);
         b.add_param_vector(DartEntryVector::Descriptor);
         b.declare_arc_uniform_return();
         let r = b.emit_call_with_check(
@@ -2441,7 +2441,7 @@ pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
         // ==$c
         let mut b = FnBuilder::new(ctx, u, format!("{base}.$3d$3d$c"), "==".to_string(), Type::Ref);
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-        let args = Operand::Val(b.add_param_vector(DartEntryVector::Argumentos));
+        let args = Operand::Val(b.add_param_vector(DartEntryVector::Arguments));
         b.add_param_vector(DartEntryVector::Descriptor);
         b.declare_arc_uniform_return();
         let other = b.emit(Instruction::LoadIndexed { base: args, index: Operand::Constant(Constant::Int(0)) }, Type::Ref);
@@ -2456,10 +2456,10 @@ pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
         let r = b.coerce(r, Type::Ref);
         b.terminate(Terminator::Return(Some(r)));
         b.finish(module);
-        // hashCode$g: o hash acompanha a igualdade estrutural do record.
+        // hashCode$g: the hash follows the structural equality of the record.
         let mut b = FnBuilder::new(ctx, u, format!("{base}.hashCode$g"), "hashCode".to_string(), Type::Ref);
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-        b.add_param_vector(DartEntryVector::Argumentos);
+        b.add_param_vector(DartEntryVector::Arguments);
         b.add_param_vector(DartEntryVector::Descriptor);
         b.declare_arc_uniform_return();
         let r = b.emit_call_with_check(
@@ -2503,8 +2503,8 @@ mod arc_tests {
             let mut table = TypeTable::new();
             let core = CoreTypes::init(&mut table, &program, &interner);
             let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-            let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
-            for d in diags.iter().chain(&diags_corpos) {
+            let (bodies, body_diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+            for d in diags.iter().chain(&body_diags) {
                 assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
             }
             let te = crate::erasure::compute(&program, &outline, &mut table);

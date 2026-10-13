@@ -50,7 +50,7 @@ use std::collections::{HashMap, HashSet};
 
 /// Class id of the frame of an `async` function (below the record
 /// shapes, `context::SHAPE_BASE_ID`).
-pub const ID_QUADRO_ASYNC: u32 = 0x3FFF_FF00;
+pub const ASYNC_FRAME_ID: u32 = 0x3FFF_FF00;
 
 const Q_STATE: usize = 0;
 const Q_COMPLETER: usize = 1;
@@ -65,7 +65,7 @@ const Q_PARAMS: usize = 6;
 /// local function.
 #[derive(Clone, Copy)]
 pub enum AsyncReturn {
-    Tipo(dartforge_types::table::TypeId),
+    Typed(dartforge_types::table::TypeId),
     Annotation(ast::TypeId),
 }
 
@@ -474,7 +474,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let symbol_ent = format!("{body_symbol}$ent");
         let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), readable, Type::Ref);
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
-        let args = Operand::Val(e.add_param_vector(DartEntryVector::Argumentos));
+        let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
         let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
         e.declare_arc_uniform_return();
         let env_e = e.closure_context(clo);
@@ -514,7 +514,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let frame_s = self.emit(
             Instruction::AllocObject {
-                class_id: ID_QUADRO_ASYNC,
+                class_id: ASYNC_FRAME_ID,
                 fields: fields,
             },
             Type::Ref,
@@ -530,7 +530,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             BodyType::AsyncStar => self.ctx.core.stream_class,
         };
         let val_ref: Option<super::rti::Recipe> = match ret {
-            Some(AsyncReturn::Tipo(t)) => match self.ctx.table.get(t) {
+            Some(AsyncReturn::Typed(t)) => match self.ctx.table.get(t) {
                 dartforge_types::table::Type::Interface { class, args, .. } if Some(*class) == expected_class => {
                     args.first().map(|a| self.type_recipe(*a))
                 }
@@ -624,7 +624,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let readable = self.func.name.clone();
         let mut e = FnBuilder::new(self.ctx, self.unit_id, format!("{new_symbol}$ent"), readable, Type::Ref);
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
-        let args = Operand::Val(e.add_param_vector(DartEntryVector::Argumentos));
+        let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
         let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
         e.declare_arc_uniform_return();
         let env = e.closure_context(clo);
@@ -643,7 +643,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             let frame = e.emit(
                 Instruction::AllocObject {
-                    class_id: ID_QUADRO_ASYNC,
+                    class_id: ASYNC_FRAME_ID,
                     fields: fields,
                 },
                 Type::Ref,
@@ -1187,8 +1187,8 @@ fn convert_allocas(func: &mut Function, frame: &Operand, base: usize, next: &mut
                     let (s, t) = position[p];
                     // The value arrives in the representation of the local (R6, already
                     // coerced by the lowering); only the width may differ.
-                    let ty_gravar = if t == Type::Ref { Type::Ref } else { type_of(val) };
-                    b.instructions.extend(store_in_frame(frame, s, val.clone(), ty_gravar, next));
+                    let store_ty = if t == Type::Ref { Type::Ref } else { type_of(val) };
+                    b.instructions.extend(store_in_frame(frame, s, val.clone(), store_ty, next));
                 }
                 _ => b.instructions.push((v, inst, ty)),
             }
@@ -1246,10 +1246,10 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
         Instruction::AllocList { elements } | Instruction::AllocRecord { elements } => {
             elements.iter().for_each(|(a, _)| op(a))
         }
-        Instruction::ArcLoadStrong { slot: StrongSlot::Quadro { frame, .. } } => op(frame),
+        Instruction::ArcLoadStrong { slot: StrongSlot::Frame { frame, .. } } => op(frame),
         Instruction::ArcLoadStrong { slot: StrongSlot::Global { .. } } => {},
         Instruction::ArcStoreStrong { slot: StrongSlot::Global { .. }, value, .. } => op(value),
-        Instruction::ArcStoreStrong { slot: StrongSlot::Quadro { frame, .. }, value, .. } => {
+        Instruction::ArcStoreStrong { slot: StrongSlot::Frame { frame, .. }, value, .. } => {
             op(frame);
             op(value);
         }
@@ -1392,10 +1392,10 @@ fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId
         Instruction::AllocList { elements } | Instruction::AllocRecord { elements } => {
             elements.iter_mut().for_each(|(a, _)| t(a))
         }
-        Instruction::ArcLoadStrong { slot: StrongSlot::Quadro { frame, .. } } => t(frame),
+        Instruction::ArcLoadStrong { slot: StrongSlot::Frame { frame, .. } } => t(frame),
         Instruction::ArcLoadStrong { slot: StrongSlot::Global { .. } } => {},
         Instruction::ArcStoreStrong { slot: StrongSlot::Global { .. }, value, .. } => t(value),
-        Instruction::ArcStoreStrong { slot: StrongSlot::Quadro { frame, .. }, value, .. } => {
+        Instruction::ArcStoreStrong { slot: StrongSlot::Frame { frame, .. }, value, .. } => {
             t(frame);
             t(value);
         }

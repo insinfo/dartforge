@@ -291,10 +291,10 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                         }
                     }
                     Instruction::ArcLoadStrong {
-                        slot: StrongSlot::Quadro { frame, .. },
+                        slot: StrongSlot::Frame { frame, .. },
                     }
                     | Instruction::ArcStoreStrong {
-                        slot: StrongSlot::Quadro { frame, .. },
+                        slot: StrongSlot::Frame { frame, .. },
                         ..
                     } => allow(frame),
                     Instruction::CallStatic {

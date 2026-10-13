@@ -123,7 +123,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
             if let Instruction::ArcLoadStrong { slot } | Instruction::ArcStoreStrong { slot, .. } =
                 inst
             {
-                if let StrongSlot::Quadro { frame, .. } = slot
+                if let StrongSlot::Frame { frame, .. } = slot
                     && !matches!(frame, Operand::Val(q) if types.get(q) == Some(&Type::I64))
                 {
                     return Err(error(format!("v{}: quadro ARC exige SSA I64", v.0)));
@@ -279,7 +279,7 @@ mod tests {
         };
         verify(&f).unwrap();
         f.blocks[0].instructions[0].1 = Instruction::ArcLoadStrong {
-            slot: StrongSlot::Quadro {
+            slot: StrongSlot::Frame {
                 frame: Operand::Val(ValueId(0)),
                 index: 0,
             },

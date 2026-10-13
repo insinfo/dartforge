@@ -307,7 +307,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // `List<double>`, `List<bool>`; general for the others), and
                     // read it at emission; a list of another shape goes to the usual
                     // iterations, which check the shape at each access.
-                    Some(Counted::Lista { alvo, local }) => {
+                    Some(Counted::CoreList { alvo, local }) => {
                         let shape = match self.indexable(self.ctx.get_type(self.unit_id, alvo)) {
                             Some(super::typed_items::Indexable::Core { write_op: Some(t) }) => super::typed_items::shape_code(t),
                             _ => super::typed_items::SHAPE_GENERAL,
@@ -1121,7 +1121,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     && self.lookup_local(n.sym).is_some_and(|l| matches!(l.mode, super::locals::Mode::Memory(_)))
                     && self.body_without_calls(ast, body, n.sym, i)
                 {
-                    return Some(Counted::Lista { alvo: *target, local: n.sym });
+                    return Some(Counted::CoreList { alvo: *target, local: n.sym });
                 }
                 increasing
                     && step <= 1 << 60
@@ -1140,7 +1140,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             return Some(Counted::TypedSet(t));
         }
-        Some(Counted::Simples)
+        Some(Counted::Simple)
     }
 
     /// Loop versioning for typed lists: in an increasing, strict counted
@@ -1397,8 +1397,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 /// (`typed_loop`).
 #[derive(Debug, Clone)]
 pub(super) enum Counted {
-    Simples,
-    Lista { alvo: ExprId, local: SymbolId },
+    Simple,
+    CoreList { alvo: ExprId, local: SymbolId },
     TypedSet(TypedRoundTrips),
 }
 

@@ -464,7 +464,7 @@ fn audited_pending_runtime_producer_requires_error_exit() {
 
 #[test]
 fn arc_producer_classifies_fixed_operations_and_leaves_no_partial_state() {
-    let slot = StrongSlot::Quadro {
+    let slot = StrongSlot::Frame {
         frame: value(9),
         index: 0,
     };
@@ -945,7 +945,7 @@ fn invoke_consumes_argument_on_both_exits_and_produces_only_on_success() {
 
 #[test]
 fn strong_load_creates_token_and_store_moves_single_consumption() {
-    let slot = StrongSlot::Quadro {
+    let slot = StrongSlot::Frame {
         frame: value(9),
         index: 0,
     };

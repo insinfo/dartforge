@@ -2658,7 +2658,7 @@ impl<'a> LlvmEmitter<'a> {
 
     /// Descritor de quadro classificado; nunca coagir um ponteiro para um ID.
     fn slot_arc(&self, slot: &StrongSlot) -> (String, u32) {
-        let StrongSlot::Quadro { frame, index: idx_value } = slot else { panic!("descritor não é quadro") };
+        let StrongSlot::Frame { frame, index: idx_value } = slot else { panic!("descritor não é quadro") };
         let Operand::Val(v) = frame else {
             panic!("slot ARC exige quadro SSA")
         };

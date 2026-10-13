@@ -22,9 +22,9 @@ const LITERAL_CHUNK: usize = 128;
 /// Which collection the literal builds.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Collection {
-    Lista,
+    List,
     Set,
-    Mapa,
+    Map,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -56,8 +56,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// without elements) or the source `_Map`/`_Set`.
     fn empty_collection(&mut self, typ: Collection) -> Operand {
         match typ {
-            Collection::Lista => self.emit(Instruction::AllocList { elements: Vec::new() }, Type::Ref),
-            _ => self.source_empty_collection(typ == Collection::Mapa),
+            Collection::List => self.emit(Instruction::AllocList { elements: Vec::new() }, Type::Ref),
+            _ => self.source_empty_collection(typ == Collection::Map),
         }
     }
 
@@ -200,10 +200,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         for el in elements {
             let ok = match (el, typ) {
-                (CollectionElement::Expression(e), Collection::Lista | Collection::Set) => scalar(*e, &mut table, &mut by_getter),
+                (CollectionElement::Expression(e), Collection::List | Collection::Set) => scalar(*e, &mut table, &mut by_getter),
                 (
                     CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false },
-                    Collection::Mapa,
+                    Collection::Map,
                 ) => scalar(*key, &mut table, &mut by_getter) && scalar(*value, &mut table, &mut by_getter),
                 _ => false,
             };
@@ -217,9 +217,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             getters.push(g);
         }
         let support = match typ {
-            Collection::Lista => "_dartforgePreencherLista",
+            Collection::List => "_dartforgePreencherLista",
             Collection::Set => "_dartforgePreencherConjunto",
-            Collection::Mapa => "_dartforgePreencherMapa",
+            Collection::Map => "_dartforgePreencherMapa",
         };
         let Some(fid) = self.top_level_function("dart:_compact_hash", support) else { return false };
         let words: Vec<i64> = table
@@ -272,7 +272,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn fill_map_at_once(&mut self, ast: &ast::Ast, alvo: Operand, typ: Collection, elements: &[CollectionElement]) -> bool {
         // Up to `LITERAL_CHUNK` entries: the values stay alive (and
         // rooted) until the list, in the frame.
-        if typ != Collection::Mapa || elements.len() < 2 || elements.len() > LITERAL_CHUNK || self.ctx.arc_memory {
+        if typ != Collection::Map || elements.len() < 2 || elements.len() > LITERAL_CHUNK || self.ctx.arc_memory {
             return false;
         }
         let only_entries = elements.iter().all(|el| {
@@ -336,12 +336,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return false;
         }
         let constants = elements.iter().all(|el| match (el, typ) {
-            (CollectionElement::Expression(e), Collection::Lista | Collection::Set) => {
+            (CollectionElement::Expression(e), Collection::List | Collection::Set) => {
                 self.constant_key(ast, *e, true).is_some()
             }
             (
                 CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false },
-                Collection::Mapa,
+                Collection::Map,
             ) => self.constant_key(ast, *key, true).is_some() && self.constant_key(ast, *value, true).is_some(),
             _ => false,
         });
@@ -441,7 +441,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match el {
             CollectionElement::Expression(e) => {
                 let v = self.lower_expr(ast, *e);
-                if typ == Collection::Mapa {
+                if typ == Collection::Map {
                     self.unsupported("expressão num literal de mapa", span);
                     return;
                 }

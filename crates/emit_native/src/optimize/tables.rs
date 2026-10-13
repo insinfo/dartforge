@@ -502,7 +502,7 @@ fn check(f: &Function, t: &FunctionTables) {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Pending {
     Cleans,
-    Ligada,
+    Linked,
     Maybe,
 }
 
@@ -552,9 +552,9 @@ fn after(e: Pending, ef: &Effect) -> Pending {
     match ef {
         Effect::Nada => e,
         Effect::Cleans => Pending::Cleans,
-        Effect::Links => Pending::Ligada,
+        Effect::Links => Pending::Linked,
         Effect::MayLink => {
-            if e == Pending::Ligada { Pending::Ligada } else { Pending::Maybe }
+            if e == Pending::Linked { Pending::Linked } else { Pending::Maybe }
         }
     }
 }
@@ -615,7 +615,7 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
     entry[0] = Some(Pending::Cleans);
     for (k, b) in f.blocks.iter().enumerate() {
         if t.landing_pads.contains(&b.id) {
-            entry[k] = Some(Pending::Ligada);
+            entry[k] = Some(Pending::Linked);
         }
     }
     let mut queue: Vec<usize> = (0..n).filter(|k| entry[*k].is_some()).collect();
@@ -624,7 +624,7 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
         let b = &f.blocks[k];
         let (exit, branch) = walk(b, e, nl);
         let edges: Vec<(BlockId, Pending)> = match branch {
-            Some((pending, clean)) => vec![(pending, Pending::Ligada), (clean, Pending::Cleans)],
+            Some((pending, clean)) => vec![(pending, Pending::Linked), (clean, Pending::Cleans)],
             None => successors(&b.terminator).into_iter().map(|s| (s, exit)).collect(),
         };
         for (alvo, state) in edges {
@@ -648,7 +648,7 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
         if t.exits.get(&b.id) == Some(&ExceptionExit::Resume) { continue; }
         match walk(b, e, nl).0 {
             Pending::Cleans => {}
-            Pending::Ligada => {
+            Pending::Linked => {
                 t.exits.insert(b.id, ExceptionExit::Throws);
             }
             Pending::Maybe => {

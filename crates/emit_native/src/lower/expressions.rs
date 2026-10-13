@@ -1186,7 +1186,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if !elements.iter().all(|e| matches!(e, ast::CollectionElement::Expression(_)))
                     || self.large_literal_is_constant(ast, elements) =>
             {
-                let l = self.lower_collection_literal(ast, super::literals::Collection::Lista, elements, expr.span);
+                let l = self.lower_collection_literal(ast, super::literals::Collection::List, elements, expr.span);
                 self.literal_rti(l, expr_id)
             }
             // Maps and sets are the `_Map`/`_Set` of the SDK source.
@@ -1194,7 +1194,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let typ = if self.literal_is_set(expr_id, elements) {
                     super::literals::Collection::Set
                 } else {
-                    super::literals::Collection::Mapa
+                    super::literals::Collection::Map
                 };
                 let collection = self.lower_collection_literal(ast, typ, elements, expr.span);
                 self.literal_rti(collection, expr_id)

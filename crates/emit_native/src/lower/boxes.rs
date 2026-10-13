@@ -121,9 +121,9 @@ mod context_tests {
             let mut table = TypeTable::new();
             let core = CoreTypes::init(&mut table, &program, &interner);
             let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-            let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(
+            let (bodies, body_diags) = dartforge_types::infer_program_bodies(
                 &program, &interner, &mut table, &core, &mut outline);
-            for d in diags.iter().chain(&diags_corpos) {
+            for d in diags.iter().chain(&body_diags) {
                 assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
             }
             let te = crate::erasure::compute(&program, &outline, &mut table);
@@ -149,7 +149,7 @@ mod context_tests {
                         for (id, role) in roles {
                             let p = f.params.iter().find(|(v, _, _)| v == id).unwrap();
                             assert_eq!(p.2, Type::Ptr);
-                            assert_eq!(p.1, match role { DartEntryVector::Argumentos => "args", DartEntryVector::Descriptor => "desc" });
+                            assert_eq!(p.1, match role { DartEntryVector::Arguments => "args", DartEntryVector::Descriptor => "desc" });
                         }
                     }
                 } else { assert!(m.dart_vector_parameters.is_empty()); assert!(m.arc_uniform_returns.is_empty()); assert!(m.arc_rti_caches.is_empty()); assert!(m.arc_shared_functions.is_empty()); }

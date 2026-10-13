@@ -475,14 +475,14 @@ fn analyze_tokens(
             if own(inst) {
                 if let Instruction::ArcLoadStrong {
                     slot:
-                        StrongSlot::Quadro {
+                        StrongSlot::Frame {
                             frame: Operand::Val(q),
                             ..
                         },
                 }
                 | Instruction::ArcStoreStrong {
                     slot:
-                        StrongSlot::Quadro {
+                        StrongSlot::Frame {
                             frame: Operand::Val(q),
                             ..
                         },

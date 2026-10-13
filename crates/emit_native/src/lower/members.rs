@@ -1,8 +1,8 @@
-//! Membros de classe no lowering nativo: layout de objetos, campos,
-//! chamadas (diretas e com despacho pela classe), construtores e globais.
+//! Class members in the native lowering: object layout, fields,
+//! calls (direct and with dispatch by class), constructors and globals.
 //!
-//! Contrato: `docs/NATIVO-PLANO.md` §6 — R7 (layout e índices pelo elemento
-//! resolvido), N5 (construtor como função) e N6 (globais preguiçosos).
+//! Contract: `docs/NATIVO-PLANO.md` §6 — R7 (layout and indices by the resolved
+//! element), N5 (constructor as a function) and N6 (lazy globals).
 
 use super::fn_builder::FnBuilder;
 use crate::context::Context;
@@ -17,19 +17,19 @@ use dartforge_intern::SymbolId;
 use dartforge_types::resolved::MemberRef;
 use dartforge_types::table::{TypeId, TypeParamId};
 
-/// Argumento já avaliado: nome (se nomeado) e valor.
+/// An already evaluated argument: name (if named) and value.
 pub type Evaluated = (Option<SymbolId>, Operand);
 
-/// A classe é um `mixin` (não instanciável; os membros entram nas classes
-/// que o aplicam).
+/// The class is a `mixin` (not instantiable; its members enter the classes
+/// that apply it).
 pub fn is_mixin(ctx: &Context, cid: ClassId) -> bool {
     ctx.program.classes[cid.0 as usize].kind == dartforge_elements::model::ClassKind::Mixin
 }
 
-/// A linearização de uma classe do programa (P4, especificação §12.3 "Mixin
-/// Application"): `class C extends B with M1, M2` é `C`, `M2`, `M1` e depois
-/// a linearização de `B` — a ordem em que um membro é procurado. Para no
-/// SDK. O elemento não sintetiza a classe `B&M1`: a aplicação é lida aqui.
+/// The linearization of a program class (P4, specification §12.3 "Mixin
+/// Application"): `class C extends B with M1, M2` is `C`, `M2`, `M1` and then
+/// the linearization of `B` — the order in which a member is looked up. Stops at the
+/// SDK. The element does not synthesize the class `B&M1`: the application is read here.
 pub fn linearization(ctx: &Context, cid: ClassId) -> Vec<ClassId> {
     let mut exit = Vec::new();
     let mut current = Some(cid);
@@ -49,13 +49,13 @@ pub fn linearization(ctx: &Context, cid: ClassId) -> Vec<ClassId> {
     exit
 }
 
-/// Campos **de instância** de toda a linearização (superclasses e mixins)
-/// do usuário, da raiz para a folha (R7).
+/// **Instance** fields of the whole user linearization (superclasses and mixins),
+/// from the root to the leaf (R7).
 ///
-/// `ClassElement::fields` mistura campos de instância e estáticos; o layout
-/// só tem os de instância. Superclasses do SDK não contribuem campos: o
-/// runtime não tem os objetos do SDK no nosso layout. Os campos de um mixin
-/// ficam entre os da superclasse e os da classe que o aplica.
+/// `ClassElement::fields` mixes instance and static fields; the layout
+/// only has the instance ones. SDK superclasses do not contribute fields: the
+/// runtime does not have the SDK objects in our layout. The fields of a mixin
+/// sit between those of the superclass and those of the class that applies it.
 pub fn layout(ctx: &Context, cid: ClassId) -> Vec<VariableId> {
     let chain = linearization(ctx, cid);
     let mut fields = Vec::new();
@@ -69,7 +69,7 @@ pub fn layout(ctx: &Context, cid: ClassId) -> Vec<VariableId> {
     fields
 }
 
-/// Tipo declarado (ou inferido) de uma variável/campo.
+/// Declared (or inferred) type of a variable/field.
 pub fn variable_type(ctx: &Context, vid: VariableId) -> TypeId {
     let data = &ctx.outline.variables[vid.0 as usize];
     data
@@ -78,7 +78,7 @@ pub fn variable_type(ctx: &Context, vid: VariableId) -> TypeId {
         .unwrap_or(ctx.core.dynamic_)
 }
 
-/// `sub` é `sup` ou subtipo nominal dele (superclasse, mixin ou interface).
+/// `sub` is `sup` or a nominal subtype of it (superclass, mixin or interface).
 pub fn subclass_of(ctx: &Context, sub: ClassId, sup: ClassId) -> bool {
     if sub == sup {
         return true;
@@ -89,11 +89,11 @@ pub fn subclass_of(ctx: &Context, sub: ClassId, sup: ClassId) -> bool {
         .is_some_and(|d| d.supertypes.contains_key(&sup))
 }
 
-/// A função tem corpo que o lowering compila?
+/// Does the function have a body that the lowering compiles?
 pub fn has_body(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
     match f.node {
-        // Um `external` do SDK é implementado pelo patch ou pelo native
+        // An SDK `external` is implemented by the patch or by the native
         // (`sdk_source::call_external`).
         FunctionRef::Function { .. } if f.external => true,
         FunctionRef::Function { unit, function } => !matches!(
@@ -106,8 +106,8 @@ pub fn has_body(ctx: &Context, fid: usize) -> bool {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// Representação de um tipo Dart (R1). `void` numa posição de valor
-    /// vira `Ref` (o valor é sempre null).
+    /// Representation of a Dart type (R1). `void` in a value position
+    /// becomes `Ref` (the value is always null).
     pub fn repr(&self, ty: TypeId) -> Type {
         match self.ctx.to_hir_type(ty) {
             Type::Void => Type::Ref,
@@ -115,8 +115,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Valor neutro de uma representação: argumento opcional sem padrão
-    /// (sempre de tipo anulável, logo `Ref` null) e campo não inicializado.
+    /// Neutral value of a representation: an optional argument without a default
+    /// (always of a nullable type, hence a null `Ref`) and an uninitialized field.
     pub fn zero_value(ty: Type) -> Operand {
         match ty {
             Type::I64 => Operand::Constant(Constant::Int(0)),
@@ -126,28 +126,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Posição do campo no layout da classe que o declara (R7). O layout de
-    /// uma subclasse estende o da superclasse, então o índice vale para
-    /// qualquer receptor cuja classe estática seja subtipo da declarante.
+    /// Position of the field in the layout of the class that declares it (R7). The layout of
+    /// a subclass extends that of the superclass, so the index holds for
+    /// any receiver whose static class is a subtype of the declaring one.
     pub fn field_index(&self, vid: VariableId) -> Option<usize> {
         let owner = self.ctx.program.variables[vid.0 as usize].class?;
         if is_mixin(self.ctx, owner) {
-            // O índice de um campo de mixin depende da classe que o aplica
-            // (`campo_de_mixin`).
+            // The index of a mixin field depends on the class that applies it
+            // (`mixin_field_indices`).
             return None;
         }
         let base = super::enums::layout_base(self.ctx, owner);
         layout(self.ctx, owner).iter().position(|&v| v == vid).map(|i| i + base)
     }
 
-    /// Representação de um campo no objeto: a do tipo (R1), exceto o campo
-    /// `late` escalar com inicializador, que mora em caixa (`Ref`) — o null
-    /// é o "ainda não inicializado" (P4; a VM usa o sentinela `_sentinel`).
+    /// Representation of a field in the object: that of the type (R1), except the scalar
+    /// `late` field with an initializer, which lives in a box (`Ref`) — null
+    /// is "not initialized yet" (P4; the VM uses the `_sentinel` sentinel).
     pub fn field_repr(&self, vid: VariableId) -> Type {
         super::layouts_arc::representation(self.ctx, vid)
     }
 
-    /// Converte os bits `i64` lidos do heap para a representação `repr`.
+    /// Converts the `i64` bits read from the heap to the representation `repr`.
     pub fn bits_to(&mut self, bits: Operand, repr: Type) -> Operand {
         match repr {
             Type::F64 => self.emit(
@@ -165,8 +165,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Bits `i64` de um valor, para gravar no heap, e se ele é referência
-    /// (E1: `is_ref` vem da representação, nunca de um literal).
+    /// `i64` bits of a value, to store in the heap, and whether it is a reference
+    /// (E1: `is_ref` comes from the representation, never from a literal).
     pub fn to_bits(&mut self, op: Operand) -> (Operand, bool) {
         match self.operand_type(&op) {
             Type::F64 => (
@@ -200,7 +200,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O índice de um campo de mixin em cada classe concreta que o aplica.
+    /// The index of a mixin field in each concrete class that applies it.
     fn mixin_field_indices(&self, vid: VariableId) -> Vec<(i64, usize)> {
         let mut exit = Vec::new();
         for (k, class_ref) in self.ctx.program.classes.iter().enumerate() {
@@ -219,8 +219,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         exit
     }
 
-    /// Índice de um campo de mixin pela classe dinâmica do objeto (o código
-    /// do mixin é compilado uma vez; a posição do campo é a da aplicação).
+    /// Index of a mixin field by the dynamic class of the object (the code
+    /// of the mixin is compiled once; the position of the field is that of the application).
     fn dynamic_index(&mut self, obj: Operand, vid: VariableId, span: Span) -> Option<Operand> {
         let owner = self.ctx.program.variables[vid.0 as usize].class?;
         if !is_mixin(self.ctx, owner) {
@@ -228,10 +228,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let cases = self.mixin_field_indices(vid);
         if cases.is_empty() {
-            // Nenhuma classe do programa aplica o mixin: não existe objeto
-            // com este campo, e o acesso não executa (o `LocatorMixin` do
-            // `state_notifier`, que o riverpod importa e ninguém aplica).
-            // O programa é fechado — nenhuma classe nova aparece depois.
+            // No class of the program applies the mixin: there is no object
+            // with this field, and the access does not run (the `LocatorMixin` of
+            // `state_notifier`, which riverpod imports and nobody applies).
+            // The program is closed — no new class appears later.
             let _ = span;
             self.terminate(Terminator::Unreachable);
             let dead = self.new_block();
@@ -269,9 +269,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         ))
     }
 
-    // Em ARC, escolhe o acesso físico no ramo de cada aplicação do mixin.
-    // A junção carrega o resultado tipado, nunca um índice bruto cuja leitura
-    // perderia o mapa Ref. As guardas/owners são produzidas depois pela HIR.
+    // Under ARC, chooses the physical access in the branch of each application of the mixin.
+    // The join carries the typed result, never a raw index whose read
+    // would lose the Ref map. The guards/owners are produced later by the HIR.
     fn access_arc_mixin_field(&mut self, obj: Operand, vid: VariableId, val_ref: Option<Operand>) -> Option<Operand> {
         let owner = self.ctx.program.variables[vid.0 as usize].class?;
         if !is_mixin(self.ctx, owner) { return None; }
@@ -305,7 +305,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             else { self.emit(Instruction::Phi { incoming: entries, ty: repr }, repr) })
     }
 
-    /// Lê um campo de instância na representação do seu tipo declarado.
+    /// Reads an instance field in the representation of its declared type.
     pub fn read_field(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
         if let Some(r) = self.read_ffi_field(obj.clone(), vid) {
             return r;
@@ -325,8 +325,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.ctx.arc_memory && self.ctx.program.variables[vid.0 as usize].late
             && repr == Type::Ref
         {
-            // A sondagem anterior à guarda late pode encontrar zero sem marca
-            // Ref. A ABI aceita somente esse estado vazio ou uma aresta real.
+            // The probe before the late guard may find zero without a Ref
+            // mark. The ABI accepts only that empty state or a real edge.
             return self.emit(Instruction::CallRuntime {
                 name: "dartforge_arc_ler_campo_late_ref_v1".into(),
                 args: vec![(obj, Type::Ref), (idx, Type::I64)],
@@ -337,8 +337,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             && let Operand::Constant(Constant::Int(i)) = &idx
             && let Ok(index) = usize::try_from(*i)
         {
-            // Transporta a representação sem escolher uma ABI auditada:
-            // origem do receiver e guardas ainda são conferidas depois.
+            // Carries the representation without choosing an audited ABI:
+            // the origin of the receiver and the guards are still checked later.
             return self.emit(Instruction::GetField { object: obj, index }, repr);
         }
         let ret = if repr == Type::Ref {
@@ -357,7 +357,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.bits_to(bits, repr)
     }
 
-    /// Grava um campo de instância; `is_ref` pela representação (E1).
+    /// Stores an instance field; `is_ref` by the representation (E1).
     pub fn store_field(&mut self, obj: Operand, vid: VariableId, val: Operand, span: Span) {
         if self.store_ffi_field(obj.clone(), vid, val.clone()) {
             return;
@@ -414,8 +414,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             && let Operand::Constant(Constant::Int(i)) = &idx
             && let Ok(index) = usize::try_from(*i)
         {
-            // A escrita tipada também vale para late; o estado lateral só
-            // muda depois de gravar, inclusive para null/false/zero.
+            // The typed write also holds for late; the side state only
+            // changes after storing, including for null/false/zero.
             self.emit(Instruction::SetField { object: obj.clone(), index, value: val }, Type::Void);
         } else {
             let (bits, is_ref) = self.to_bits(val);
@@ -448,8 +448,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Campo de instância pelo nome, na própria classe (alvo de `this.x` e
-    /// da lista de inicialização).
+    /// Instance field by name, in the class itself (target of `this.x` and
+    /// of the initializer list).
     pub fn own_field(&self, cid: ClassId, name_str: SymbolId) -> Option<VariableId> {
         self.ctx.program.classes[cid.0 as usize]
             .fields
@@ -461,7 +461,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             })
     }
 
-    /// Classe do usuário do tipo estático de uma expressão, se for uma.
+    /// User class of the static type of an expression, if it is one.
     pub fn user_class_of(&self, e: ExprId) -> Option<ClassId> {
         let ty = self.ctx.get_type(self.unit_id, e)?;
         match self.ctx.table.get(ty) {
@@ -473,12 +473,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Membro de classe do usuário acessado em `recv.name` (R7).
+    /// User class member accessed in `recv.name` (R7).
     ///
-    /// Primeiro o elemento que a inferência resolveu para o acesso; se ela
-    /// não resolveu (receptor anulável de `?.` ou `x!`, que a busca de
-    /// membros do `types` ainda não despe do `?`), a classe ESTÁTICA do
-    /// receptor — nunca o primeiro membro com esse nome no programa.
+    /// First the element that inference resolved for the access; if it
+    /// did not resolve it (a nullable receiver of `?.` or `x!`, from which the member
+    /// lookup of `types` does not strip the `?` yet), the STATIC class of the
+    /// receiver — never the first member with that name in the program.
     pub fn user_member(
         &self,
         access: ExprId,
@@ -490,9 +490,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.ctx.get_resolved(self.unit_id, access)
         {
             let class_ref = &self.ctx.program.classes[class.0 as usize];
-            // Membro herdado do SDK (`index`/`name` de enum, `hashCode`,
-            // `toString` de `Object`…) numa classe do programa: não é
-            // membro compilado — vai pelos caminhos do SDK.
+            // A member inherited from the SDK (`index`/`name` of an enum, `hashCode`,
+            // `toString` of `Object`…) in a program class: it is not a
+            // compiled member — it goes through the SDK paths.
             let member_lib = match member {
                 MemberRef::Function(f) => self.ctx.program.functions[f.0 as usize].library,
                 MemberRef::Variable(v) => self.ctx.program.variables[v.0 as usize].library,
@@ -500,9 +500,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if !self.ctx.compiled_library(member_lib) {
                 return None;
             }
-            // A resolução de `o.x = v` pode apontar para o getter `x`.
-            // Nesse caso a escrita precisa procurar a entrada distinta
-            // `x_=` (ou o setter implícito de um campo) na hierarquia.
+            // The resolution of `o.x = v` may point to the getter `x`.
+            // In that case the write needs to look up the distinct entry
+            // `x_=` (or the implicit setter of a field) in the hierarchy.
             let is_getter = matches!(member, MemberRef::Function(f)
                 if self.ctx.program.functions[f.0 as usize].kind != FunctionKind::Setter
                     && self.ctx.program.functions[f.0 as usize].variable.is_none());
@@ -540,7 +540,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         None
     }
 
-    /// `E` de uma `List<E>`/`Iterable<E>` (o primeiro argumento de tipo).
+    /// `E` of a `List<E>`/`Iterable<E>` (the first type argument).
     pub fn element_type(&self, ty: TypeId) -> Option<TypeId> {
         let dartforge_types::table::Type::Interface { class, args, .. } = self.ctx.table.get(ty) else {
             return None;
@@ -549,8 +549,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if *class == iter || self.ctx.core.list_class == Some(*class) {
             return args.first().copied();
         }
-        // Subtipo de `Iterable<E>` (p. ex. `Runes`): o `E` vem do supertipo
-        // instanciado; sem argumentos a substituir, ele já é o tipo final.
+        // A subtype of `Iterable<E>` (e.g. `Runes`): `E` comes from the instantiated
+        // supertype; with no arguments to substitute, it is already the final type.
         let data = self.ctx.outline.hierarchy.get(*class)?;
         let sup = *data.supertypes.get(&iter)?;
         if !data.type_params.is_empty() {
@@ -562,11 +562,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Membro de instância por nome, subindo a cadeia de superclasses.
-    /// O operador `name` (`+`, `[]`, `unary-`…) declarado por uma classe do
-    /// PROGRAMA (não do SDK) para o receptor de tipo estático `e`: a chamada
-    /// vai por `call_member` (direta, ou o despacho só entre as
-    /// implementações do programa), não pelo seletor dinâmico.
+    /// Instance member by name, going up the superclass chain.
+    /// The operator `name` (`+`, `[]`, `unary-`…) declared by a class of the
+    /// PROGRAM (not of the SDK) for the receiver of static type `e`: the call
+    /// goes through `call_member` (direct, or the dispatch only among the
+    /// program's implementations), not through the dynamic selector.
     pub fn program_operator(&self, e: ExprId, name_str: &str) -> Option<usize> {
         let cid = self.user_class_of(e)?;
         if self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
@@ -589,11 +589,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     // ------------------------------------------------------------------
-    // Leitura de identificadores
+    // Reading identifiers
 
-    /// Id de classe usado nos testes de tipo do runtime: o `class_id` de um
-    /// objeto do usuário, ou o código que `dartforge_value_class` devolve
-    /// para os valores que o runtime representa por conta própria.
+    /// Class id used in the runtime type tests: the `class_id` of a
+    /// user object, or the code that `dartforge_value_class` returns
+    /// for the values that the runtime represents on its own.
     pub fn class_id_of(&self, cid: ClassId) -> Option<i64> {
         let class_ref = &self.ctx.program.classes[cid.0 as usize];
         if self.ctx.compiled_library(class_ref.library) {
@@ -624,20 +624,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             "ConcurrentModificationError" => 1010,
             "TypeError" => 1011,
             "NoSuchMethodError" => 1012,
-            // O objeto `Type` do RTI (`rti.rs`, `CLASSE_TIPO`).
+            // The `Type` object of the RTI (`rti.rs`, the type class constant).
             "Type" => super::rti::CLASSE_TIPO,
             _ => return None,
         })
     }
 
-    /// Identificador que a resolução diz ser membro da classe envolvente
-    /// (`x` = `this.x`, ou membro estático).
+    /// Identifier that the resolution says is a member of the enclosing class
+    /// (`x` = `this.x`, or a static member).
     pub fn read_implicit_member(&mut self, member: MemberRef, span: Span) -> Operand {
-        // `values` implícito de um enum do programa, lido sem o prefixo
-        // `E.` no corpo de um membro do enum: a lista dos valores, como o
-        // caminho explícito (`E.values`, `enum_values`). O getter
-        // implícito não tem corpo para chamar — emitir a chamada deixava um
-        // símbolo indefinido na ligação.
+        // Implicit `values` of a program enum, read without the `E.`
+        // prefix in the body of a member of the enum: the list of the values, like the
+        // explicit path (`E.values`, `enum_values`). The implicit
+        // getter has no body to call — emitting the call left an
+        // undefined symbol at link time.
         if let MemberRef::Function(f) = member {
             let fid = f.0 as usize;
             let (is_static, name_str, cid) = {
@@ -695,7 +695,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.call_member(this, fid, &[], span)
     }
 
-    /// `C.x` com `C` literal de classe: campo estático ou getter estático.
+    /// `C.x` with `C` a class literal: a static field or a static getter.
     pub fn read_static_member(&mut self, member: MemberRef, span: Span) -> Operand {
         let vid = match member {
             MemberRef::Variable(v) => Some(v),
@@ -722,7 +722,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.unsupported("tear-off de membro estático", span)
     }
 
-    /// Identificador que resolve para um elemento de topo.
+    /// Identifier that resolves to a top-level element.
     pub fn read_element(&mut self, el: Element, span: Span) -> Operand {
         match el {
             Element::Variable(vid) => self.read_global(vid, span),
@@ -740,8 +740,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.unsupported("tear-off de função", span)
             }
-            // Literal de tipo (`Peixe`, `List`): o objeto `Type` canônico do
-            // tipo cru da classe (RTI).
+            // Type literal (`Fish`, `List`): the canonical `Type` object of the
+            // raw type of the class (RTI).
             Element::Class(cid) => {
                 let n = self.ctx.outline.classes.get(cid.0 as usize).map_or(0, |d| d.type_params.len());
                 let mut r = super::rti::Recipe { text: format!("C{}", self.ctx.id_rti(cid)), variables: false };
@@ -764,7 +764,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Campo lido; se `late` com inicializador, inicializa na primeira leitura.
+    /// Field read; if `late` with an initializer, initializes on the first read.
     pub fn read_field_with_late(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
         if let Some(r) = self.read_source_field(obj.clone(), vid) {
             return r;
@@ -772,8 +772,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.read_field_with_late_direct(obj, vid, span)
     }
 
-    /// `super.field` tem resolução lexical: preserva `late`, mas não pode
-    /// voltar ao getter sobrescrito da classe dinâmica via seletor do SDK.
+    /// `super.field` has lexical resolution: it preserves `late`, but cannot
+    /// go back to the overridden getter of the dynamic class through the SDK selector.
     pub fn read_field_with_late_direct(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
         let var = &self.ctx.program.variables[vid.0 as usize];
         if !var.late {
@@ -783,9 +783,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.read_field(obj, vid, span);
         };
         if self.variable_initializer_in(vid).is_some() {
-            // Via rápida em linha (ver `non_null_late_is_initialized`): o
-            // valor não nulo sai direto; o getter (que inicializa) só é
-            // chamado com o campo ainda nulo.
+            // Inline fast path (see `non_null_late_is_initialized`): the
+            // non-null value comes out directly; the getter (which initializes) is only
+            // called with the field still null.
             let fast = self.non_null_late_is_initialized(vid).then(|| {
                 let current = self.read_field(obj.clone(), vid, span);
                 let non_null = self.emit(Instruction::ICmp(ICmpOp::Ne, current.clone(), Operand::Constant(Constant::Null)), Type::I1);
@@ -817,8 +817,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let current = self.read_field(obj.clone(), vid, span);
         if self.non_null_late_is_initialized(vid) {
-            // Via rápida: valor não nulo ⇒ inicializado; só o nulo consulta
-            // o runtime (que distingue "não inicializado").
+            // Fast path: a non-null value ⇒ initialized; only null consults
+            // the runtime (which distinguishes "not initialized").
             let non_null = self.emit(Instruction::ICmp(ICmpOp::Ne, current.clone(), Operand::Constant(Constant::Null)), Type::I1);
             let b_ready = self.new_block();
             let b_check = self.new_block();
@@ -835,15 +835,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         current
     }
 
-    /// Um campo `late` sem inicializador, de tipo interface não anulável e
-    /// guardado como referência: nele o valor gravado nunca é `null`, e o
-    /// campo de um objeto novo é zero (`null`) — então "não nulo" já prova
-    /// "inicializado", sem a tabela lateral do runtime (uma chamada com
-    /// busca em `HashSet` por leitura, que ficava no corpo dos laços).
+    /// A `late` field without an initializer, of a non-nullable interface type and
+    /// kept as a reference: in it the stored value is never `null`, and the
+    /// field of a new object is zero (`null`) — so "non-null" already proves
+    /// "initialized", without the runtime side table (a call with a
+    /// `HashSet` lookup per read, which sat in the body of loops).
     fn non_null_late_is_initialized(&self, vid: VariableId) -> bool {
         let ty = variable_type(self.ctx, vid);
-        // A representação natural do tipo (não a forçada do `late` com
-        // inicializador): `int`/`double`/`bool` ficam de fora.
+        // The natural representation of the type (not the forced one of `late` with an
+        // initializer): `int`/`double`/`bool` stay out.
         if self.field_repr(vid) != Type::Ref || self.repr(ty) != Type::Ref {
             return false;
         }
@@ -851,9 +851,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             && ty != self.ctx.core.dynamic_
     }
 
-    /// Confere no runtime que o campo `late` `vid` de `obj` foi inicializado
-    /// e lança o `LateInitializationError` se não foi; termina no bloco da
-    /// leitura, sem terminar.
+    /// Checks in the runtime that the `late` field `vid` of `obj` was initialized
+    /// and throws the `LateInitializationError` if it was not; ends in the block of the
+    /// read, without terminating it.
     fn check_late_initialized(&mut self, obj: Operand, vid: VariableId, span: Span) {
         let idx = match self.field_index(vid) {
             Some(i) => Operand::Constant(Constant::Int(i as i64)),
@@ -886,10 +886,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(b_read);
     }
 
-    /// Corpo único do getter de um campo `late` com inicializador. O estado
-    /// vive por objeto, inclusive quando o valor atribuído é `null`.
+    /// Single body of the getter of a `late` field with an initializer. The state
+    /// lives per object, including when the assigned value is `null`.
     pub fn lower_late_field_getter(&mut self, obj: Operand, vid: VariableId, span: Span) {
-        // Corpo Dart chamado pelo leitor do campo: o retorno Ref é Owned.
+        // Dart body called by the reader of the field: the Ref return is Owned.
         if self.ctx.arc_memory {
             self.dart_ref_returns.insert(self.func.symbol.clone());
         }
@@ -909,8 +909,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
         };
         if self.non_null_late_is_initialized(vid) {
-            // Via rápida (ver `non_null_late_is_initialized`): valor não nulo
-            // já é o valor inicializado.
+            // Fast path (see `non_null_late_is_initialized`): a non-null value
+            // is already the initialized value.
             let current = self.read_field(obj.clone(), vid, span);
             let non_null = self.emit(Instruction::ICmp(ICmpOp::Ne, current.clone(), Operand::Constant(Constant::Null)), Type::I1);
             let b_fast = self.new_block();
@@ -998,11 +998,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     // ------------------------------------------------------------------
     // Argumentos
 
-    /// Avalia os argumentos na ordem do texto (a ordem de avaliação do Dart).
+    /// Evaluates the arguments in text order (Dart's evaluation order).
     ///
-    /// Cada argumento `dynamic` ganha, logo depois de avaliado, o cast
-    /// implícito para o tipo do parâmetro na invocação armada para esta
-    /// lista (`arm_arg_types`, `typed_entry.rs`), como o CFE.
+    /// Each `dynamic` argument gets, right after being evaluated, the implicit
+    /// cast to the type of the parameter in the invocation built for this
+    /// list (`arm_arg_types`, `typed_entry.rs`), like the CFE.
     pub fn evaluate_args(&mut self, ast: &ast::Ast, args: &[ast::Argument]) -> Vec<Evaluated> {
         let types = match &self.arg_types {
             Some((key, _)) if *key == args.as_ptr() as usize && !args.is_empty() => {
@@ -1026,7 +1026,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .collect()
     }
 
-    /// Parâmetros como escritos na declaração (para valores padrão).
+    /// Parameters as written in the declaration (for default values).
     fn ast_parameters(&self, fid: usize) -> Option<(UnitId, &'a [ast::Parameter])> {
         let program = self.ctx.program;
         match program.functions[fid].node {
@@ -1047,17 +1047,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Os parâmetros de `fid` na AST (a unidade e a lista).
+    /// The parameters of `fid` in the AST (the unit and the list).
     pub fn parameters_of(&self, fid: usize) -> Option<(UnitId, &'a [ast::Parameter])> {
         self.ast_parameters(fid)
     }
 
-    /// Baixa uma expressão de outra unidade (valor padrão de parâmetro).
+    /// Lowers an expression of another unit (a parameter default value).
     ///
-    /// `lower_expr` usa `self.unit_id` para os tipos e resoluções; trocar a
-    /// unidade enquanto a expressão é baixada é o que torna isso seguro
-    /// (docs/NATIVO-PLANO.md §5.1). Valores padrão são constantes: não leem
-    /// locais do chamado.
+    /// `lower_expr` uses `self.unit_id` for the types and resolutions; switching the
+    /// unit while the expression is lowered is what makes this safe
+    /// (docs/NATIVO-PLANO.md §5.1). Default values are constants: they do not read
+    /// locals of the callee.
     pub fn lower_expr_of(&mut self, unit: UnitId, expr: ExprId) -> Operand {
         let saved = self.unit_id;
         self.unit_id = unit;
@@ -1067,37 +1067,37 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
-    /// Valor padrão do parâmetro `i` de `fid`, ou o herdado do construtor da
-    /// superclasse quando o parâmetro é `super.x` sem padrão próprio.
+    /// Default value of parameter `i` of `fid`, or the one inherited from the constructor of the
+    /// superclass when the parameter is `super.x` without a default of its own.
     pub fn default_value(&mut self, fid: usize, i: usize) -> Option<Operand> {
         let (unit, params) = self.ast_parameters(fid)?;
         let p = params.get(i)?;
         if let Some(e) = p.default_value {
-            // O padrão de uma função do SDK da fonte chamada de fora do
-            // módulo dela: as resoluções da unidade do SDK não existem aqui;
-            // o módulo do SDK exporta o valor (`lower_sdk_patterns`).
+            // The default of a function of the source SDK called from outside its
+            // module: the resolutions of the SDK unit do not exist here;
+            // the SDK module exports the value (`lower_sdk_patterns`).
             if exported_pattern(self.ctx, fid, unit, e) {
                 return Some(self.emit_call_with_check(
                     Instruction::CallStatic { symbol: pattern_symbol(self.ctx, fid, i), args: Vec::new(), ret_ty: Type::Ref },
                     Type::Ref,
                 ));
             }
-            // O valor padrão é constante (§9.2.2): contexto const.
+            // The default value is constant (§9.2.2): const context.
             let saved = std::mem::replace(&mut self.in_const_context, true);
             let v = self.lower_expr_of(unit, e);
             self.in_const_context = saved;
             return Some(v);
         }
-        // Factory redirecionadora (`factory C({x}) = D;`): o parâmetro dela
-        // não tem padrão próprio e vale o do parâmetro correspondente do
-        // alvo (especificação, "Redirecting Factory Constructors"; o CFE
-        // copia os padrões do alvo efetivo).
+        // Redirecting factory (`factory C({x}) = D;`): its parameter
+        // has no default of its own and takes that of the corresponding parameter of the
+        // target (specification, "Redirecting Factory Constructors"; the CFE
+        // copies the defaults of the effective target).
         if let Some(alvo) = self.redirected_target(fid) {
             let target_params = &self.ctx.outline.functions.get(alvo)?.parameters;
             let j = if p.kind == ParameterKind::Named {
                 target_params.iter().position(|sp| sp.kind == ParameterKind::Named && sp.externo == p.name.map(|n| n.sym))?
             } else {
-                // Os posicionais vêm antes dos nomeados, na mesma ordem.
+                // The positional ones come before the named ones, in the same order.
                 i
             };
             return self.default_value(alvo, j);
@@ -1105,8 +1105,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !p.super_ {
             return None;
         }
-        // `super.x` sem padrão herda o do parâmetro correspondente do
-        // construtor da superclasse.
+        // `super.x` without a default inherits that of the corresponding parameter of the
+        // superclass constructor.
         let (sup_fid, explicit_positionals) = self.super_constructor_of(fid)?;
         let sup_params = &self.ctx.outline.functions.get(sup_fid)?.parameters;
         let alvo = if p.kind == ParameterKind::Named {
@@ -1129,8 +1129,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.default_value(sup_fid, alvo)
     }
 
-    /// O construtor para o qual a factory `fid` redireciona
-    /// (`factory C(…) = D.name;`), resolvido na unidade que a declara.
+    /// The constructor to which the factory `fid` redirects
+    /// (`factory C(…) = D.name;`), resolved in the unit that declares it.
     fn redirected_target(&mut self, fid: usize) -> Option<usize> {
         let FunctionRef::Constructor { unit, member } = self.ctx.program.functions.get(fid)?.node else {
             return None;
@@ -1145,9 +1145,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         alvo.map(|f| f.0 as usize).filter(|&a| a != fid)
     }
 
-    /// Construtor da superclasse chamado por um construtor (explícito na
-    /// lista de inicialização ou o sem nome implícito), e quantos
-    /// argumentos posicionais explícitos ele recebe.
+    /// Superclass constructor called by a constructor (explicit in the
+    /// initializer list or the implicit unnamed one), and how many
+    /// explicit positional arguments it receives.
     fn super_constructor_of(&self, fid: usize) -> Option<(usize, usize)> {
         let f = &self.ctx.program.functions[fid];
         let cid = f.class?;
@@ -1185,8 +1185,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Casa argumentos avaliados com os parâmetros de `fid`: posicionais em
-    /// ordem, nomeados pelo nome, faltantes pelo valor padrão (N5).
+    /// Matches evaluated arguments with the parameters of `fid`: positional ones in
+    /// order, named ones by name, missing ones by the default value (N5).
     pub fn match_args(&mut self, fid: usize, evaluated: &[Evaluated]) -> Vec<Operand> {
         let Some(data) = self.ctx.outline.functions.get(fid) else {
             return evaluated.iter().map(|(_, v)| v.clone()).collect();
@@ -1194,7 +1194,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let params: Vec<(Option<SymbolId>, TypeId, ParameterKind)> = data
             .parameters
             .iter()
-            // O nome externo casa com o do argumento (nomeado privado da 3.12).
+            // The external name matches that of the argument (private named parameter of 3.12).
             .map(|p| (p.externo, p.ty, p.kind))
             .collect();
         let mut positionals = evaluated
@@ -1223,12 +1223,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         exit
     }
 
-    /// Representação do retorno de uma função (Void para construtor).
+    /// Representation of the return of a function (Void for a constructor).
     pub fn return_repr(&self, fid: usize) -> Type {
         if super::generative_constructor(self.ctx, fid) {
             return Type::Void;
         }
-        // Construtor de tipo de extensão: a representação.
+        // Extension type constructor: the representation.
         let f = &self.ctx.program.functions[fid];
         if matches!(f.node, FunctionRef::Constructor { .. })
             && let Some(c) = f.class.filter(|&c| self.ctx.is_extension_type(c))
@@ -1238,7 +1238,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.ctx.hir_return(fid)
     }
 
-    /// Chamada direta a uma função do usuário, com `this` quando é membro.
+    /// Direct call to a user function, with `this` when it is a member.
     pub fn call_direct(
         &mut self,
         fid: usize,
@@ -1246,8 +1246,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         args: Vec<Operand>,
     ) -> Operand {
         if let Some((alvo, shape)) = self.redirected_ffi_call(fid) {
-            // `Pointer.fromFunction`, `NativeCallable.*`, `Struct.create`: o
-            // ajudante da sobreposição tem os mesmos parâmetros
+            // `Pointer.fromFunction`, `NativeCallable.*`, `Struct.create`: the
+            // helper of the overlay has the same parameters
             // (`lower/ffi.rs`).
             let mut args = args;
             let saved = self.armed_tuple.clone();
@@ -1255,8 +1255,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 super::ffi::Redirection::DirectOnly => {}
                 super::ffi::Redirection::ClassTuple => self.armed_tuple = args.pop(),
                 super::ffi::Redirection::WithSite => {
-                    // O sítio, estável entre compilações (símbolo da função
-                    // e ordem no corpo).
+                    // The site, stable across compilations (symbol of the function
+                    // and order in the body).
                     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
                     for b in self.func.symbol.bytes().chain(self.callback_sites.to_le_bytes()) {
                         h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
@@ -1277,8 +1277,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut all = Vec::with_capacity(args.len() + 2);
         all.extend(this);
         all.extend(args);
-        // RTI: a função genérica recebe a tupla dos argumentos de tipo no
-        // último parâmetro (a da chamada corrente, ou 0 = `dynamic`).
+        // RTI: the generic function receives the tuple of the type arguments in the
+        // last parameter (that of the current call, or 0 = `dynamic`).
         if self.generic_function(fid) {
             all.push(self.armed_tuple.clone().unwrap_or(Operand::Constant(Constant::Int(0))));
         }
@@ -1297,17 +1297,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Implementações concretas de um membro de instância, por classe do
-    /// usuário que é subtipo da classe declarante.
+    /// Concrete implementations of an instance member, per user class
+    /// that is a subtype of the declaring class.
     fn implementations(&self, decl_fid: usize) -> Vec<(u32, usize)> {
         let ctx = self.ctx;
         let decl = &ctx.program.functions[decl_fid];
         let Some(cdecl) = decl.class else {
             return Vec::new();
         };
-        // Getters e setters compartilham `FunctionElement.name`, mas o
-        // outline guarda o setter na chave distinta `x_=`. Despachar por
-        // `x` chamaria o getter e descartaria o valor atribuído.
+        // Getters and setters share `FunctionElement.name`, but the
+        // outline keeps the setter under the distinct key `x_=`. Dispatching by
+        // `x` would call the getter and discard the assigned value.
         let name_str = if decl.kind == FunctionKind::Setter {
             let key = format!("{}_=", ctx.symbol_name(decl.name));
             let Some(sym) = ctx.interner.lookup(&key) else { return Vec::new() };
@@ -1340,13 +1340,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         exit
     }
 
-    /// Chamada de método/getter/setter de instância com despacho pela classe
-    /// dinâmica do receptor quando alguma subclasse sobrescreve o membro.
+    /// Call of an instance method/getter/setter with dispatch by the dynamic class
+    /// of the receiver when some subclass overrides the member.
     ///
-    /// Não há vtable ainda: um `switch` sobre `dartforge_value_class`
-    /// escolhe a implementação. Cada alvo casa os argumentos com os SEUS
-    /// parâmetros (padrões e representação podem diferir entre overrides) e
-    /// o resultado é coagido para a representação do membro declarado.
+    /// There is no vtable yet: a `switch` over `dartforge_value_class`
+    /// chooses the implementation. Each target matches the arguments with ITS
+    /// parameters (defaults and representation may differ between overrides) and
+    /// the result is coerced to the representation of the declared member.
     pub fn call_member(
         &mut self,
         recv: Operand,
@@ -1363,13 +1363,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         distinct.dedup();
         let ret = self.return_repr(decl_fid);
         if distinct.is_empty() {
-            // Getter implícito `index`/`name` de um enum do programa
-            // (especificação §13 "Enums"): o elemento resolvido não tem corpo
-            // — o valor mora nos dois campos implícitos do objeto (posições 0
-            // e 1, gravados pelo construtor do valor). O caminho explícito
-            // (`E.a.name`, `enum_member`) lê os mesmos campos; o implícito
-            // (`$name`, `index`, `this.name` no corpo de um membro do enum)
-            // chegava aqui como "sem implementação compilada".
+            // Implicit getter `index`/`name` of a program enum
+            // (specification §13 "Enums"): the resolved element has no body
+            // — the value lives in the two implicit fields of the object (positions 0
+            // and 1, stored by the constructor of the value). The explicit path
+            // (`E.a.name`, `enum_member`) reads the same fields; the implicit one
+            // (`$name`, `index`, `this.name` in the body of a member of the enum)
+            // arrived here as "no compiled implementation".
             if evaluated.is_empty()
                 && let Some(cid) = self.ctx.program.functions[decl_fid].class
                 && super::enums::is_enum(self.ctx, cid)
@@ -1384,11 +1384,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if has_body(self.ctx, decl_fid) && super::user_function(self.ctx, decl_fid) {
                 distinct.push(decl_fid);
             } else {
-                // Nenhuma classe do programa implementa o membro: o que a
-                // alcança só pode ser um encaminhador de `noSuchMethod`
-                // (classe com `noSuchMethod` que não o declara). Pelo
-                // seletor, a falta na tabela chega ao `noSuchMethod` do
-                // receptor com o `Invocation`, como na VM.
+                // No class of the program implements the member: whatever
+                // reaches it can only be a `noSuchMethod` forwarder
+                // (a class with `noSuchMethod` that does not declare it). Through the
+                // selector, the miss in the table reaches the `noSuchMethod` of the
+                // receiver with the `Invocation`, as in the VM.
                 use super::sdk_source::AccessKind;
                 let f = &self.ctx.program.functions[decl_fid];
                 let ty = match f.kind {
@@ -1405,8 +1405,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 } else {
                     Operand::Constant(Constant::Int(0))
                 };
-                // O encaminhador da VM passa todos os parâmetros do membro,
-                // com os padrões dos opcionais omitidos.
+                // The VM's forwarder passes all the parameters of the member,
+                // with the defaults of the omitted optional ones.
                 let complete_set: Vec<Evaluated> = if matches!(ty, AccessKind::Call) {
                     let values = self.match_args(decl_fid, evaluated);
                     self.ctx.outline.functions[decl_fid]
@@ -1500,7 +1500,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     // ------------------------------------------------------------------
     // Construtores (N5)
 
-    /// `C(args)`: aloca com o layout da classe e chama o construtor.
+    /// `C(args)`: allocates with the layout of the class and calls the constructor.
     pub fn instantiate(
         &mut self,
         ast: &ast::Ast,
@@ -1513,10 +1513,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cid) = f.class else {
             return self.unsupported("construtor sem classe", span);
         };
-        // As factories `const` de ambiente são resolvidas pela CFE na
-        // compilação. A CLI nativa ainda não aceita `-D`, portanto nenhuma
-        // chave foi definida e vale o `defaultValue` especificado pelo SDK.
-        // Nunca chamamos o native da VM para essas factories.
+        // The environment `const` factories are resolved by the CFE at
+        // compile time. The native CLI does not accept `-D` yet, so no
+        // key was defined and the `defaultValue` specified by the SDK holds.
+        // We never call the VM's native for these factories.
         if f.const_ && f.external {
             let name_str = self.ctx.symbol_name(f.name);
             let class_ref = if Some(cid) == self.ctx.core.bool_class {
@@ -1546,7 +1546,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
         }
-        // RTI: o tipo estático da criação (`C<T…>`), gravado por quem chama.
+        // RTI: the static type of the creation (`C<T…>`), stored by the caller.
         let ty = self.creation_type.take();
         if !super::user_function(self.ctx, fid) {
             let evaluated = self.evaluate_args(ast, args);
@@ -1562,8 +1562,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .to_string();
             return self.unsupported(&format!("construtor de classe do SDK ({name_str})"), span);
         }
-        // A classe concreta (aplicação de mixin) vale para esta criação, não
-        // para as que a avaliação dos argumentos fizer.
+        // The concrete class (a mixin application) holds for this creation, not
+        // for those that the evaluation of the arguments makes.
         let concrete = self.concrete_class.take();
         let armed = self.arm_constructor_types(fid, ty, args);
         let evaluated = self.evaluate_args(ast, args);
@@ -1573,13 +1573,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.instantiate_evaluated(ctor_fid, &evaluated, span)
     }
 
-    /// O construtor `name` da classe `cid`. Uma aplicação de mixin
-    /// (`class C = S with M;`, especificação §12.1) não declara construtores:
-    /// ela tem um construtor de encaminhamento para cada construtor
-    /// generativo da superclasse. Aí devolve o da superclasse (subindo pelas
-    /// aplicações encadeadas) e anota `cid` como a classe concreta da criação
-    /// seguinte — o objeto é de `cid`, e os campos dos mixins são
-    /// inicializados antes do construtor da superclasse.
+    /// The constructor `name` of the class `cid`. A mixin application
+    /// (`class C = S with M;`, specification §12.1) declares no constructors:
+    /// it has a forwarding constructor for each generative constructor
+    /// of the superclass. Then it returns that of the superclass (going up through the
+    /// chained applications) and records `cid` as the concrete class of the next
+    /// creation — the object is of `cid`, and the fields of the mixins are
+    /// initialized before the superclass constructor.
     pub fn constructor_of(&mut self, cid: ClassId, name_str: SymbolId) -> Option<FunctionElementId> {
         let mut c = cid;
         loop {
@@ -1600,14 +1600,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `C(args)` com os argumentos já avaliados.
+    /// `C(args)` with the arguments already evaluated.
     pub fn instantiate_evaluated(&mut self, ctor_fid: FunctionElementId, evaluated: &[Evaluated], span: Span) -> Operand {
         self.instantiate_evaluated_with_rti(ctor_fid, evaluated, span, None, None)
     }
 
-    /// Uma factory redirecionadora pode mudar a classe e até permutar seus
-    /// argumentos de tipo. Nesse caso, o RTI e a tupla do alvo vêm da
-    /// anotação `= Destino<U, T>`, não do tipo de retorno da origem.
+    /// A redirecting factory may change the class and even permute its
+    /// type arguments. In that case, the RTI and the tuple of the target come from the
+    /// annotation `= Target<U, T>`, not from the return type of the source.
     pub fn instantiate_evaluated_with_rti(
         &mut self,
         ctor_fid: FunctionElementId,
@@ -1623,12 +1623,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cid_ctor) = f.class else {
             return self.unsupported("construtor sem classe", span);
         };
-        // O objeto é da classe concreta (aplicação de mixin) quando o
-        // construtor é o da superclasse que ela encaminha.
+        // The object is of the concrete class (a mixin application) when the
+        // constructor is that of the superclass it forwards.
         let cid = concrete.unwrap_or(cid_ctor);
-        // A factory `core.Symbol` redireciona para a classe concreta da
-        // biblioteca interna. O alvo é inequívoco e evita que a resolução
-        // da factory volte à própria declaração abstrata.
+        // The `core.Symbol` factory redirects to the concrete class of the
+        // internal library. The target is unambiguous and prevents the resolution
+        // of the factory from going back to the abstract declaration itself.
         if Some(cid) == self.ctx.sdk_class("core", "Symbol") {
             if let Some(concrete) = self.ctx.sdk_class("_internal", "Symbol")
                 && let Some(empty) = self.ctx.interner.lookup("")
@@ -1647,14 +1647,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .to_string();
             return self.unsupported(&format!("construtor de classe do SDK ({name_str})"), span);
         }
-        // O construtor de tipo de extensão (`extension_types.rs`) é uma
-        // função que devolve a representação, chamada como uma fábrica.
+        // The extension type constructor (`extension_types.rs`) is a
+        // function that returns the representation, called like a factory.
         let factory = f.factory || self.ctx.is_extension_type(cid_ctor);
         let mut args = self.match_args(fid, evaluated);
         let generic = self.generic_class(cid);
         if factory {
-            // RTI: a fábrica de uma classe genérica recebe os argumentos de
-            // tipo da classe na tupla (o último parâmetro).
+            // RTI: the factory of a generic class receives the type
+            // arguments of the class in the tuple (the last parameter).
             if generic {
                 let t = explicit_tuple.unwrap_or_else(|| self.creation_tuple(ty));
                 args.push(t);
@@ -1676,7 +1676,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
-        // RTI: a instância de classe genérica guarda o tipo (`C<T…>`).
+        // RTI: the instance of a generic class keeps the type (`C<T…>`).
         if generic && let Some(r) = explicit_rti.or_else(|| ty.map(|t| self.type_rti(t))) {
             self.define_rti(obj.clone(), r);
         }
@@ -1687,9 +1687,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         obj
     }
 
-    /// Os construtores de encaminhamento das aplicações de mixin de `de` até
-    /// `until` (exclusive): cada um inicializa os campos dos seus mixins, do
-    /// último para o primeiro, antes do construtor da superclasse.
+    /// The forwarding constructors of the mixin applications from `de` to
+    /// `until` (exclusive): each one initializes the fields of its mixins, from the
+    /// last to the first, before the superclass constructor.
     fn initialize_application_mixins(&mut self, obj: Operand, de: ClassId, until: ClassId) {
         let saved = self.this_param.replace(obj);
         let saved_finalizable = self.finalizable_this;
@@ -1711,17 +1711,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.finalizable_this = saved_finalizable;
     }
 
-    /// A função (não construtor) declara parâmetros de tipo: recebe a tupla.
-    /// Um membro de instância de extensão genérica também recebe: os
-    /// argumentos da extensão vêm primeiro (`type_params_of`).
+    /// The function (not a constructor) declares type parameters: it receives the tuple.
+    /// An instance member of a generic extension also receives it: the
+    /// arguments of the extension come first (`type_params_of`).
     pub fn generic_function(&self, fid: usize) -> bool {
         !matches!(self.ctx.program.functions[fid].node, FunctionRef::Constructor { .. })
             && !self.type_params_of(fid).is_empty()
             && super::user_function(self.ctx, fid)
     }
 
-    /// Os parâmetros de tipo que a tupla de `fid` carrega, na ordem: os da
-    /// extensão (membro de instância; um estático não os vê) e os próprios.
+    /// The type parameters that the tuple of `fid` carries, in order: those of the
+    /// extension (instance member; a static one does not see them) and its own.
     pub fn type_params_of(&self, fid: usize) -> Vec<TypeParamId> {
         let f = &self.ctx.program.functions[fid];
         let mut v = Vec::new();
@@ -1730,8 +1730,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             v.extend(x.type_params.iter().copied());
         }
-        // Membro de instância de tipo de extensão: os do tipo, como os de
-        // uma extensão (não há objeto que os guarde).
+        // Instance member of an extension type: those of the type, like those of
+        // an extension (there is no object that keeps them).
         if let Some(c) = super::extension_types::instance_owner(self.ctx, fid)
             && let Some(d) = self.ctx.outline.classes.get(c.0 as usize)
         {
@@ -1743,19 +1743,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
-    /// A classe declara parâmetros de tipo.
+    /// The class declares type parameters.
     pub fn generic_class(&self, cid: ClassId) -> bool {
         self.ctx.outline.classes.get(cid.0 as usize).is_some_and(|d| !d.type_params.is_empty())
     }
 
-    /// A tupla de argumentos de tipo (`L<…>`) do tipo de uma criação; sem
-    /// tipo, 0 (os argumentos ficam `dynamic`).
+    /// The type argument tuple (`L<…>`) of the type of a creation; without a
+    /// type, 0 (the arguments stay `dynamic`).
     pub fn creation_tuple(&mut self, ty: Option<TypeId>) -> Operand {
         let Some(t) = ty else {
             return Operand::Constant(Constant::Int(0));
         };
-        // (O de um tipo de extensão também: seus construtores recebem a
-        // tupla como as fábricas.)
+        // (That of an extension type too: its constructors receive the
+        // tuple like the factories.)
         let (dartforge_types::table::Type::Interface { args, .. } | dartforge_types::table::Type::ExtensionType { args, .. }) =
             self.ctx.table.get(t)
         else {
@@ -1765,7 +1765,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.rti_type_tuple(&args)
     }
 
-    /// A tupla `L<a…>` dos tipos `args`, como `I64`, no ambiente corrente.
+    /// The tuple `L<a…>` of the types `args`, as `I64`, in the current environment.
     pub fn rti_type_tuple(&mut self, args: &[TypeId]) -> Operand {
         let mut r = super::rti::Recipe { text: "L<".to_string(), variables: false };
         for (i, a) in args.iter().enumerate() {
@@ -1780,13 +1780,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.recipe_rti(&r)
     }
 
-    /// Inicializadores de campo da própria classe, na ordem de declaração.
+    /// Field initializers of the class itself, in declaration order.
     ///
-    /// Os de um mixin (ou de uma superclasse sem construtor) rodam no
-    /// construtor de quem o aplica, mas são código de `cid`: as variáveis de
-    /// tipo deles são as de `cid`, e o `this` é visto como `cid` (o `reader =
-    /// FlowLinkReader<PromotionInfo<Type>>()` do `FlowModelHelper<Type>` do
-    /// analyzer, aplicado a uma classe cujo primeiro parâmetro é outro).
+    /// Those of a mixin (or of a superclass without a constructor) run in the
+    /// constructor of whoever applies it, but are code of `cid`: their type
+    /// variables are those of `cid`, and `this` is seen as `cid` (the analyzer's `reader =
+    /// FlowLinkReader<PromotionInfo<Type>>()` of `FlowModelHelper<Type>`,
+    /// applied to a class whose first parameter is another one).
     fn initialize_fields(&mut self, cid: ClassId) {
         let saved = self.enclosing_class.replace(cid);
         self.initialize_fields_of(cid);
@@ -1813,18 +1813,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Chama o construtor da superclasse do usuário, se houver.
-    fn chamar_super(
+    /// Calls the constructor of the user superclass, if there is one.
+    fn call_super(
         &mut self,
         cid: ClassId,
         name_str: Option<SymbolId>,
         evaluated: Vec<Evaluated>,
         span: Span,
     ) {
-        // Os mixins aplicados rodam os inicializadores dos seus campos antes
-        // do construtor da superclasse, do último para o primeiro (cada
-        // aplicação `S with M` é uma classe cujo construtor inicializa `M`
-        // e chama o de `S`).
+        // The applied mixins run the initializers of their fields before
+        // the superclass constructor, from the last to the first (each
+        // application `S with M` is a class whose constructor initializes `M`
+        // and calls that of `S`).
         let mixins: Vec<ClassId> = self.ctx.program.classes[cid.0 as usize].mixin_classes.clone();
         for m in mixins.into_iter().rev() {
             if self.ctx.compiled_library(self.ctx.program.classes[m.0 as usize].library) {
@@ -1836,12 +1836,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let sup_class = &self.ctx.program.classes[sup.0 as usize];
         if !self.ctx.compiled_library(sup_class.library) {
-            // `Object()` e superclasses do SDK: nada a executar no nosso heap.
+            // `Object()` and SDK superclasses: nothing to run in our heap.
             return;
         }
-        // `Object()` (`const Object();`): sem corpo, sem inicializadores e sem
-        // superclasse — a chamada não faz nada (e custava uma chamada, uma
-        // conferência de exceção e um quadro por objeto criado).
+        // `Object()` (`const Object();`): no body, no initializers and no
+        // superclass — the call does nothing (and cost a call, an
+        // exception check and a frame per created object).
         if sup_class.supertype_class.is_none()
             && self.ctx.program.library(sup_class.library).uri == "dart:core"
             && self.ctx.symbol_name(sup_class.name) == "Object"
@@ -1853,11 +1853,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let s = name_str.unwrap_or(empty);
         if name_str.is_none() && sup_class.constructors.is_empty() {
-            // Superclasse sem construtor declarado e sem o sintético (a
-            // classe abstrata não o ganha no elemento): o construtor padrão
-            // implícito — inicializadores de campo e o `super()` dela.
+            // A superclass without a declared constructor and without the synthetic one (the
+            // abstract class does not get it in the element): the implicit default
+            // constructor — field initializers and its `super()`.
             self.initialize_fields(sup);
-            self.chamar_super(sup, None, Vec::new(), span);
+            self.call_super(sup, None, Vec::new(), span);
             return;
         }
         let Some(&sf) = sup_class.constructors.get(&s) else {
@@ -1870,7 +1870,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.call_direct(sf, Some(this), args);
     }
 
-    /// Corpo de um construtor generativo, na ordem da especificação (N5).
+    /// Body of a generative constructor, in the order of the specification (N5).
     pub fn lower_constructor(
         &mut self,
         ast: &ast::Ast,
@@ -1881,7 +1881,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let this = self.this_param.clone().expect("construtor tem this");
         let class_ref = &self.ctx.program.classes[cid.0 as usize];
 
-        // `: this(…)` delega tudo para o outro construtor.
+        // `: this(…)` delegates everything to the other constructor.
         if let Some((alvo, args, span)) = ctor.initializers.iter().find_map(|i| match i {
             ast::Initializer::Redirect {
                 constructor,
@@ -1905,10 +1905,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         }
 
-        // 1. Inicializadores de campo da própria classe.
+        // 1. Field initializers of the class itself.
         self.initialize_fields(cid);
 
-        // 2. Parâmetros `this.x`.
+        // 2. `this.x` parameters.
         for p in ctor.parameters.iter() {
             if !p.this_ {
                 continue;
@@ -1923,8 +1923,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.store_field(this.clone(), vid, v, p.span);
         }
 
-        // 3. Lista de inicialização, na ordem escrita; os argumentos do
-        //    `super(…)` são avaliados na posição dele.
+        // 3. Initializer list, in written order; the arguments of
+        //    `super(…)` are evaluated at its position.
         let mut explicit_super: Option<(Option<SymbolId>, Vec<Evaluated>, Span)> = None;
         for init in ctor.initializers.iter() {
             match init {
@@ -1955,7 +1955,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
 
-        // 4. `super(…)`: explícito ou implícito, mais os `super.x`.
+        // 4. `super(…)`: explicit or implicit, plus the `super.x` ones.
         let (super_name, mut evaluated, span_super) =
             explicit_super.unwrap_or((None, Vec::new(), span_ctor));
         for p in ctor.parameters.iter().filter(|p| p.super_) {
@@ -1969,12 +1969,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
             evaluated.push((name_str, v));
         }
-        // Posicionais `super.x` entram depois dos explícitos, na ordem.
+        // Positional `super.x` ones go after the explicit ones, in order.
         evaluated.sort_by_key(|(n, _)| n.is_some());
-        self.chamar_super(cid, super_name, evaluated, span_super);
+        self.call_super(cid, super_name, evaluated, span_super);
 
-        // 5. Corpo. Os `this.x` não estão no escopo do corpo: `x` ali é o
-        //    campo, e a resolução (`Resolved::Member`) já diz isso.
+        // 5. Body. The `this.x` are not in the scope of the body: `x` there is the
+        //    field, and the resolution (`Resolved::Member`) already says so.
         for p in ctor.parameters.iter() {
             if p.this_
                 && let Some(n) = p.name
@@ -1991,30 +1991,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Construtor sintético: inicializadores de campo e `super()`.
+    /// Synthetic constructor: field initializers and `super()`.
     pub fn lower_synthetic_constructor(&mut self, ast: &ast::Ast, cid: ClassId) {
         self.initialize_fields(cid);
         let span = self.ctx.program.classes[cid.0 as usize]
             .decl
             .map(|d| ast.decl(d.decl).span)
             .unwrap_or(Span { start: 0, end: 0 });
-        self.chamar_super(cid, None, Vec::new(), span);
+        self.call_super(cid, None, Vec::new(), span);
     }
 
     // ------------------------------------------------------------------
     // Globais (N6)
 
-    /// Constrói o `LateError` do SDK e lança no fluxo de exceções do HIR.
-    /// `code`: 0/1 campo não inicializado/já inicializado; 2/3 local.
+    /// Builds the SDK `LateError` and throws in the exception flow of the HIR.
+    /// `code`: 0/1 field not initialized/already initialized; 2/3 local.
     pub fn throw_late_error(&mut self, name_str: &str, code: i64) {
         let n = self.emit(Instruction::Const(Constant::String(name_str.to_string())), Type::Ref);
         let error = self.new_runtime_error("dartforge_late_error_new", vec![(n, Type::Ref), (Operand::Constant(Constant::Int(code)), Type::I64)]);
         self.emit_throw_op(error);
     }
 
-    /// Corpo do getter preguiçoso de um global.
+    /// Body of the lazy getter of a global.
     pub fn lower_global_getter(&mut self, vid: VariableId, repr: Type) {
-        // O getter devolve o valor como as funções Dart: Ref é Owned.
+        // The getter returns the value like Dart functions: Ref is Owned.
         if self.ctx.arc_memory && repr == Type::Ref {
             self.dart_ref_returns.insert(self.func.symbol.clone());
         }
@@ -2088,8 +2088,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let error = self.new_runtime_error("dartforge_stack_overflow_error_new", Vec::new());
         self.emit_throw_op(error);
         self.set_block(b_evaluate);
-        // 0 = não iniciado; 2 = avaliando; 1 = pronto. A leitura reentrante
-        // produz `StackOverflowError` do SDK sem expandir a pilha nativa.
+        // 0 = not started; 2 = evaluating; 1 = ready. The reentrant read
+        // produces the SDK's `StackOverflowError` without growing the native stack.
         self.emit(
             Instruction::StoreGlobal {
                 symbol: flag,
@@ -2102,9 +2102,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let unit = self.unit_id;
         let is_const = self.ctx.program.variables[vid.0 as usize].const_;
         let saved = std::mem::replace(&mut self.in_const_context, is_const);
-        // Se o inicializador lança, a variável continua não inicializada
-        // (§10 "Variables": a próxima leitura roda o inicializador de novo):
-        // a bandeira volta a 0 e a exceção segue pendente.
+        // If the initializer throws, the variable stays uninitialized
+        // (§10 "Variables": the next read runs the initializer again):
+        // the flag goes back to 0 and the exception stays pending.
         let b_fail = self.new_block();
         self.exception_targets.push(b_fail);
         let v = self.lower_expr_of(unit, init);
@@ -2124,8 +2124,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Return(Some(Self::zero_value(repr))));
         self.set_block(continues);
         let v = self.coerce(v, repr);
-        // A `const` de string montada (`'a${'b'}'`) é o literal canônico de
-        // mesmo conteúdo (`constants.rs`).
+        // The assembled string `const` (`'a${'b'}'`) is the canonical literal with the
+        // same content (`constants.rs`).
         let v = if is_const && repr == Type::Ref {
             self.emit(
                 Instruction::CallRuntime {
@@ -2170,12 +2170,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Return(Some(v)));
     }
 
-    /// Lê um global pelo getter preguiçoso.
+    /// Reads a global through the lazy getter.
     pub fn read_global(&mut self, vid: VariableId, span: Span) -> Operand {
         if let Some(v) = self.read_native_variable(vid, span) {
             return v;
         }
-        // `const` primitiva: a constante, sem o getter (`primitive_const.rs`).
+        // Primitive `const`: the constant, without the getter (`primitive_const.rs`).
         if let Some(v) = self.read_primitive_const(vid) {
             return v;
         }
@@ -2202,7 +2202,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
-    /// Grava um global (e marca-o inicializado).
+    /// Stores a global (and marks it initialized).
     pub fn store_global(&mut self, vid: VariableId, val: Operand, span: Span) -> Operand {
         if self.store_native_variable(vid, val.clone(), span) {
             return val;
@@ -2214,7 +2214,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let repr = self.repr(variable_type(self.ctx, vid));
         let val = self.coerce(val, repr);
         if !self.ctx.library_in_module(self.ctx.program.variables[vid.0 as usize].library) {
-            // O global mora em outro módulo (SDK da fonte): pelo setter dele.
+            // The global lives in another module (source SDK): through its setter.
             self.emit_call_with_check(
                 Instruction::CallStatic {
                     symbol: format!("{}$set", super::global_symbol(self.ctx, vid)),
@@ -2263,8 +2263,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         val
     }
 
-    /// O construtor `name` (ou o sem nome) da classe do programa nomeada por
-    /// um tipo anotado.
+    /// The constructor `name` (or the unnamed one) of the program class named by
+    /// an annotated type.
     pub fn type_constructor(
         &self,
         ty: &dartforge_frontend::ast::TypeAnnotation,
@@ -2284,9 +2284,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 _ => None,
             }
         };
-        // `= Alvo`, `= Alvo.name`, `= p.Alvo` e `= p.Alvo.name` (o parser lê
-        // `Alvo.name` como um nome de tipo em duas partes, e `p.Alvo.name`
-        // em três; o `= t.Template.fromSource` do `mustache_template`).
+        // `= Target`, `= Target.name`, `= p.Target` and `= p.Target.name` (the parser reads
+        // `Target.name` as a two-part type name, and `p.Target.name`
+        // as three; the `= t.Template.fromSource` of `mustache_template`).
         let (c, name_str) = match (&name[..], name_str) {
             ([c, n], None) if local_class(c.sym).is_some() => (local_class(c.sym)?, Some(n.sym)),
             ([p, c], n) if prefixed_class(p.sym, c.sym).is_some() => (prefixed_class(p.sym, c.sym)?, n),
@@ -2298,8 +2298,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 }
 
-/// Um valor padrão que não precisa de resolução (literal de null, bool,
-/// número ou string sem interpolação): qualquer módulo o baixa.
+/// A default value that needs no resolution (a literal of null, bool,
+/// number or string without interpolation): any module lowers it.
 pub fn literal_pattern(ast: &ast::Ast, e: ExprId) -> bool {
     use dartforge_frontend::ast::ExprKind;
     match &ast.expr(e).kind {
@@ -2312,8 +2312,8 @@ pub fn literal_pattern(ast: &ast::Ast, e: ExprId) -> bool {
     }
 }
 
-/// O padrão do parâmetro de uma função do SDK da fonte que o módulo dela
-/// exporta: não literal, de uma biblioteca do SDK fora do módulo corrente.
+/// The default of the parameter of a source SDK function that its module
+/// exports: not a literal, from an SDK library outside the current module.
 pub fn exported_pattern(ctx: &crate::context::Context, fid: usize, unit: UnitId, e: ExprId) -> bool {
     let lib = ctx.program.functions[fid].library;
     ctx.program.library(lib).is_sdk
@@ -2321,7 +2321,7 @@ pub fn exported_pattern(ctx: &crate::context::Context, fid: usize, unit: UnitId,
         && !literal_pattern(&ctx.program.unit(unit).ast, e)
 }
 
-/// O símbolo da função que devolve o padrão do parâmetro `i` de `fid`.
+/// The symbol of the function that returns the default of parameter `i` of `fid`.
 pub fn pattern_symbol(ctx: &crate::context::Context, fid: usize, i: usize) -> String {
     format!("{}.padrao.{i}", super::symbol_of(ctx, fid))
 }
@@ -2346,8 +2346,8 @@ mod arc_mixin_field_tests {
             let mut table = TypeTable::new();
             let core = CoreTypes::init(&mut table, &program, &interner);
             let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-            let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
-            for d in diags.iter().chain(&diags_corpos) {
+            let (bodies, body_diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+            for d in diags.iter().chain(&body_diags) {
                 assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
             }
             let te = crate::erasure::compute(&program, &outline, &mut table);
@@ -2435,8 +2435,8 @@ mod arc_mixin_field_tests {
             let mut table = TypeTable::new();
             let core = CoreTypes::init(&mut table, &program, &interner);
             let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-            let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
-            for d in diags.iter().chain(&diags_corpos) {
+            let (bodies, body_diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+            for d in diags.iter().chain(&body_diags) {
                 assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
             }
             let te = crate::erasure::compute(&program, &outline, &mut table);

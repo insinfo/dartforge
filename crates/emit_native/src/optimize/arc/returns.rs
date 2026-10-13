@@ -51,7 +51,7 @@ pub fn produce_lowering_ref_returns(
         let roles = module.dart_vector_parameters.get(sym_name);
         if f.return_ty != Type::Ref || f.params.iter().map(|p| p.2).collect::<Vec<_>>() != [Type::Ref, Type::Ptr, Type::Ptr]
             || !roles.is_some_and(|p| p.len() == 2
-                && p.get(&f.params[1].0) == Some(&DartEntryVector::Argumentos)
+                && p.get(&f.params[1].0) == Some(&DartEntryVector::Arguments)
                 && p.get(&f.params[2].0) == Some(&DartEntryVector::Descriptor)) {
             return Err(format!("retorno uniforme ARC: declaração/ABI de {sym_name} incompatível"));
         }
@@ -108,7 +108,7 @@ mod tests {
             m.functions = vec![target, caller];
             for sym_name in ["target", "caller"] {
                 m.dart_vector_parameters.insert(sym_name.into(), HashMap::from([
-                    (ValueId(1), DartEntryVector::Argumentos), (ValueId(2), DartEntryVector::Descriptor)]));
+                    (ValueId(1), DartEntryVector::Arguments), (ValueId(2), DartEntryVector::Descriptor)]));
                 m.arc_uniform_returns.insert(sym_name.into());
             }
             let mut ps = HashMap::from([("target".into(), DartFunctionPlan::default()),
@@ -123,7 +123,7 @@ mod tests {
                 5 => m.functions[0].params[1].2 = Type::Ref,
                 6 => { m.dart_vector_parameters.remove("target"); },
                 7 => { m.dart_vector_parameters.insert("target".into(), HashMap::from([
-                    (ValueId(1), DartEntryVector::Descriptor), (ValueId(2), DartEntryVector::Argumentos)])); },
+                    (ValueId(1), DartEntryVector::Descriptor), (ValueId(2), DartEntryVector::Arguments)])); },
                 8 | 12 => { m.arc_uniform_returns.insert("obsoleto".into()); },
                 9 => m.functions[0].return_ty = Type::I64,
                 10 => m.functions[0].params.push((ValueId(4), "extra".into(), Type::Ptr)),

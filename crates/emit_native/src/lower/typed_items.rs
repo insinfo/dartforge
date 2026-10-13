@@ -555,7 +555,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub(super) fn list_storage(&mut self, list: &Operand) -> (Operand, Operand) {
         let a = self.typed_helper("df.nucleo_armazenamento", vec![(list.clone(), Type::Ref)], Type::I64);
         let shape = self.typed_helper("df.nucleo_forma", vec![(a.clone(), Type::I64)], Type::I64);
-        let data = self.emit(Instruction::Add(a, Operand::Constant(Constant::Int(ELEMENTOS_DO_ARMAZENAMENTO))), Type::I64);
+        let data = self.emit(Instruction::Add(a, Operand::Constant(Constant::Int(STORAGE_ELEMENTS))), Type::I64);
         (data, shape)
     }
 
@@ -737,7 +737,7 @@ const SHAPE_DOUBLE: i64 = (dartforge_runtime::layout::flags::BRUTO | dartforge_r
 const SHAPE_BOOL: i64 = (dartforge_runtime::layout::flags::BRUTO | dartforge_runtime::layout::flags::ELEMENTO_BOOL) as i64;
 
 /// Element 0 of a storage, from the handle (`b+24` = `h+22`).
-const ELEMENTOS_DO_ARMAZENAMENTO: i64 =
+const STORAGE_ELEMENTS: i64 =
     dartforge_runtime::layout::desl::ELEMENTOS as i64 - dartforge_runtime::layout::DESLOCAMENTO_DO_HANDLE;
 
 /// The code of the compact shape of the elements of representation `t` (`int`,
@@ -946,8 +946,8 @@ mod arc_tests {
             let mut table = TypeTable::new();
             let core = CoreTypes::init(&mut table, &program, &interner);
             let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-            let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
-            for d in diags.iter().chain(&diags_corpos) {
+            let (bodies, body_diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+            for d in diags.iter().chain(&body_diags) {
                 assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
             }
             let te = crate::erasure::compute(&program, &outline, &mut table);

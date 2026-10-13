@@ -25,7 +25,7 @@ use std::process::Command;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     /// A native object of the host.
-    Objeto,
+    Object,
     /// Bitcode, optimized with the whole program at link time (production).
     Bitcode,
 }
@@ -52,7 +52,7 @@ impl Generation {
     /// in production with the source SDK, bitcode (`lto`).
     pub fn of_program(optimize: bool, lto: bool) -> Self {
         let prelink = std::env::var("DARTFORGE_PRELINK_O").ok().and_then(|v| v.trim().parse::<u8>().ok()).filter(|n| *n <= 2).unwrap_or(2);
-        Generation { optimize, format: if lto { Format::Bitcode } else { Format::Objeto }, shared: false, cpu: None, prelink }
+        Generation { optimize, format: if lto { Format::Bitcode } else { Format::Object }, shared: false, cpu: None, prelink }
     }
 
     /// The description that goes into the cache keys.
@@ -60,14 +60,14 @@ impl Generation {
         // The pipeline swapped for measurement (`dartforge_llvm::gerar`) changes the
         // object: it goes into the key.
         let pipeline = match std::env::var("DARTFORGE_PIPELINE_OBJETO") {
-            Ok(p) if self.optimize && self.format == Format::Objeto && !p.is_empty() => format!(" {p}"),
+            Ok(p) if self.optimize && self.format == Format::Object && !p.is_empty() => format!(" {p}"),
             _ => String::new(),
         };
         format!(
             "{} {}{}{}{pipeline}",
             self.level(),
             match self.format {
-                Format::Objeto => "objeto",
+                Format::Object => "objeto",
                 Format::Bitcode => "bitcode-lto",
             },
             if self.shared { " compartilhado" } else { "" },
@@ -127,7 +127,7 @@ pub enum Cpu {
     /// `x86-64-v4`: + AVX-512 (F, BW, CD, DQ, VL).
     X86_64V4,
     /// `native`: the CPU of this machine (LLVM's, `sys::getHostCPUName`).
-    Nativa,
+    Native,
 }
 
 impl Cpu {
@@ -135,7 +135,7 @@ impl Cpu {
     pub fn do_nome(name: &str) -> Result<Cpu, String> {
         let x86 = cfg!(target_arch = "x86_64");
         match name {
-            "native" => Ok(Cpu::Nativa),
+            "native" => Ok(Cpu::Native),
             "x86-64" if x86 => Ok(Cpu::X86_64),
             "x86-64-v2" if x86 => Ok(Cpu::X86_64V2),
             "x86-64-v3" if x86 => Ok(Cpu::X86_64V3),
@@ -152,7 +152,7 @@ impl Cpu {
             Cpu::X86_64V2 => "x86-64-v2",
             Cpu::X86_64V3 => "x86-64-v3",
             Cpu::X86_64V4 => "x86-64-v4",
-            Cpu::Nativa => "native",
+            Cpu::Native => "native",
         }
     }
 
@@ -163,7 +163,7 @@ impl Cpu {
             Cpu::X86_64V2 => "-march=x86-64-v2",
             Cpu::X86_64V3 => "-march=x86-64-v3",
             Cpu::X86_64V4 => "-march=x86-64-v4",
-            Cpu::Nativa => "-march=native",
+            Cpu::Native => "-march=native",
         }
     }
 
@@ -171,7 +171,7 @@ impl Cpu {
     /// of this machine (the cache may be copied to another one).
     pub fn description(self) -> String {
         match self {
-            Cpu::Nativa => format!("cpu=native({})", machine_resources()),
+            Cpu::Native => format!("cpu=native({})", machine_resources()),
             c => format!("cpu={}", c.name()),
         }
     }
@@ -245,7 +245,7 @@ impl Gerador {
     pub fn identity(&self) -> Result<String, String> {
         match self {
             #[cfg(feature = "llvm-embutido")]
-            Gerador::Builtin => dartforge_llvm::identity(),
+            Gerador::Builtin => dartforge_llvm::identidade(),
             Gerador::Clang(clang) => crate::object_cache::clang_identity(clang),
         }
     }
@@ -261,10 +261,10 @@ impl Gerador {
             Gerador::Builtin => {
                 let name = exit.file_stem().unwrap_or_default().to_string_lossy();
                 let options = dartforge_llvm::Opcoes {
-                    optimize: generation.optimize,
-                    format: match generation.format {
-                        Format::Objeto => dartforge_llvm::Format::Objeto,
-                        Format::Bitcode => dartforge_llvm::Format::Bitcode,
+                    otimizar: generation.optimize,
+                    formato: match generation.format {
+                        Format::Object => dartforge_llvm::Formato::Objeto,
+                        Format::Bitcode => dartforge_llvm::Formato::Bitcode,
                     },
                     cpu: generation.cpu.map(Cpu::name),
                 };
@@ -275,12 +275,12 @@ impl Gerador {
                 // `DARTFORGE_SEM_MAPA_COMPACTO=1` leaves the LLVM one in COFF
                 // (measurement); in ELF the conversion is mandatory, and Mach-O stays
                 // in the LLVM format.
-                if generation.format == Format::Objeto && ir.contains(dartforge_llvm::MARCA_DE_GC) && crate::gcmap::convert_here() {
+                if generation.format == Format::Object && ir.contains(dartforge_llvm::MARCA_DE_GC) && crate::gcmap::convert_here() {
                     crate::gcmap::convert(&mut bytes)?;
                 }
                 // The symbolic stack trace: the 12-byte-per-entry table becomes
                 // DFPC (`compact_stack_trace.rs`); `DARTFORGE_RASTRO_CRU=1` leaves it.
-                if generation.format == Format::Objeto && ir.contains("@df.pcf.") && crate::compact_stack_trace::convert_here() {
+                if generation.format == Format::Object && ir.contains("@df.pcf.") && crate::compact_stack_trace::convert_here() {
                     crate::compact_stack_trace::convert(&mut bytes)?;
                 }
                 std::fs::write(exit, bytes).map_err(|e| format!("falha ao gravar {}: {e}", exit.display()))

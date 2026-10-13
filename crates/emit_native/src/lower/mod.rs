@@ -682,7 +682,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                             ast_func.parameters.as_deref().unwrap_or(&[]),
                             &ast_func.body,
                             ast_func.span,
-                            ctx.outline.functions.get(f_idx).map(|d| async_sm::AsyncReturn::Tipo(d.return_type)),
+                            ctx.outline.functions.get(f_idx).map(|d| async_sm::AsyncReturn::Typed(d.return_type)),
                             async_sm::body_type(modifier),
                         );
                     }
@@ -942,7 +942,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         && let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied())
     {
         module.classes.push(ClassDef {
-            id: async_sm::ID_QUADRO_ASYNC,
+            id: async_sm::ASYNC_FRAME_ID,
             name: "_AsyncFrame".to_string(),
             field_count: 0,
             vtable: Vec::new(),

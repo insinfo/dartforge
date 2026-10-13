@@ -116,7 +116,7 @@ fn arc_global_loads_real_bits_and_publishes_before_transferring_owner() {
 
 #[test]
 fn emitted_arc_slots_preserve_descriptor_and_modes_after_optimizing() {
-    let slot = StrongSlot::Quadro {
+    let slot = StrongSlot::Frame {
         frame: Operand::Val(ValueId(0)),
         index: 7,
     };
@@ -808,7 +808,7 @@ fn check_cleanup_objects(ir: &str) {
         {ir}"#);
     for optimize in [false, true] {
         let object = dartforge_llvm::gerar("cleanup-retoma", &complete, &dartforge_llvm::Opcoes {
-            optimize, format: dartforge_llvm::Format::Objeto, cpu: None,
+            otimizar: optimize, formato: dartforge_llvm::Formato::Objeto, cpu: None,
         }).unwrap_or_else(|error| panic!("{error}\n{complete}"));
         assert!(!object.is_empty());
     }

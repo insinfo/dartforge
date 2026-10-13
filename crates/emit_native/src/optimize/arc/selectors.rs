@@ -94,7 +94,7 @@ pub(super) fn check(m: &Module, getters: &HashSet<String>) -> Result<(), String>
                     || matches!(recv, Operand::Constant(Constant::Null));
                 if *t != Type::Ref
                     || !valid_ref
-                    || role(args) != Some(&DartEntryVector::Argumentos)
+                    || role(args) != Some(&DartEntryVector::Arguments)
                     || role(desc) != Some(&DartEntryVector::Descriptor)
                 {
                     return Err(format!(

@@ -772,7 +772,7 @@ mod tests {
             ];
             f.return_ty = Type::I64;
             f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
-            let before = format!("{m:?}"); let ps_antes = plans.clone();
+            let before = format!("{m:?}"); let plans_before = plans.clone();
             let r = prepare_arc_dart_module(&mut m, &mut plans);
             if case < 2 || case == 6 || case == 8 {
                 r.unwrap();
@@ -781,7 +781,7 @@ mod tests {
                 assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             } else {
                 assert!(r.is_err(), "caso {case}");
-                assert_eq!(format!("{m:?}"), before); assert_eq!(plans, ps_antes);
+                assert_eq!(format!("{m:?}"), before); assert_eq!(plans, plans_before);
             }
         }
     }

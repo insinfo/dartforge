@@ -556,7 +556,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// into it.
     fn trampoline_body(&mut self, a: &NativeSignature) {
         let clo = Operand::Val(self.add_param("closure".to_string(), Type::Ref));
-        let args = Operand::Val(self.add_param_vector(DartEntryVector::Argumentos));
+        let args = Operand::Val(self.add_param_vector(DartEntryVector::Arguments));
         let desc = Operand::Val(self.add_param_vector(DartEntryVector::Descriptor));
         self.declare_arc_uniform_return();
         let infos: Vec<EntryParam> = a
