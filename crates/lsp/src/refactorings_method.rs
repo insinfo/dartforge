@@ -97,7 +97,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
         Ok(n) => n,
         Err(e) => return e,
     };
-    let mut em = Extract {
+    let mut at = Extract {
         cx,
         table: cx.p.query.table.clone(),
         sel: MethodSelection { range: (request.offset, request.offset + request.length), expression: None, closure: None, commands: Vec::new() },
@@ -121,13 +121,13 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
         exception: None,
         closure_return: String::new(),
     };
-    let initial = em.initial_conditions(request.offset, request.length);
-    if let Some(e) = em.exception.take() {
+    let initial = at.initial_conditions(request.offset, request.length);
+    if let Some(e) = at.exception.take() {
         return R::InternalError(e);
     }
-    em.name = preferred.or_else(|| em.names.first().cloned()).unwrap_or_else(|| "newMethod".to_string());
-    let em = &em;
-    finish(request, initial, || em.final_conditions(), || em.change(uri))
+    at.name = preferred.or_else(|| at.names.first().cloned()).unwrap_or_else(|| "newMethod".to_string());
+    let at = &at;
+    finish(request, initial, || at.final_conditions(), || at.change(uri))
 }
 
 /// `getEnclosingClassOrUnitMember`: the node right below the first class,
@@ -147,13 +147,13 @@ pub(crate) fn enclosing_member(cx: &Context<'_>, n: usize) -> Option<usize> {
 }
 
 impl<'c, 'p> Extract<'c, 'p> {
-    fn no(&self, n: usize) -> (usize, usize) {
-        let no = &self.cx.tree.nos[n];
-        (no.inicio, no.fim)
+    fn node(&self, n: usize) -> (usize, usize) {
+        let node = &self.cx.tree.nos[n];
+        (node.inicio, node.fim)
     }
 
     fn covers(&self, n: usize) -> bool {
-        let (i, f) = self.no(n);
+        let (i, f) = self.node(n);
         self.range.0 <= i && f <= self.range.1
     }
 
@@ -328,7 +328,7 @@ impl<'c, 'p> Extract<'c, 'p> {
                     let Some(code) = code else { return };
                     self.parameters.push(Parameter { name: name.clone(), ty: code, parameters: (!buffer.is_empty()).then_some(buffer) });
                 }
-                let range = self.no(n);
+                let range = self.node(n);
                 self.references.entry(name.clone()).or_default().push(range);
             }
             if self.in_write(n) && self.used_after(d) && matches!(e, Elem::LocalVariable | Elem::Parameter) && !assigned.iter().any(|(x, _)| *x == d) {
@@ -359,7 +359,7 @@ impl<'c, 'p> Extract<'c, 'p> {
     /// element after the selection.
     fn used_after(&self, d: usize) -> bool {
         let Some(m) = self.member else { return false };
-        let (mi, mf) = self.no(m);
+        let (mi, mf) = self.node(m);
         self.cx.ast.exprs.iter().enumerate().any(|(i, e)| {
             matches!(e.kind, ast::ExprKind::Identifier(_))
                 && e.span.start > self.range.1
@@ -372,7 +372,7 @@ impl<'c, 'p> Extract<'c, 'p> {
     /// `VisibleRangesComputer`: the block that contains the declaration.
     fn visible_range(&self, n: usize) -> Option<(usize, usize)> {
         let b = self.cx.with_parents(n).find(|&k| matches!(self.cx.kind(k), "Block" | "SwitchCase" | "SwitchPatternCase" | "SwitchDefault"))?;
-        Some(self.no(b))
+        Some(self.node(b))
     }
 
     /// `_mayEndWithReturnStatement`: some `return` outside nested block bodies.
@@ -559,7 +559,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         // `_GetSourcePatternVisitor` (a `NamedExpression` only visits the expression).
         let mut stack = vec![0usize];
         while let Some(k) = stack.pop() {
-            let (ki, kf) = self.no(k);
+            let (ki, kf) = self.node(k);
             if kf < start || ki > end {
                 continue;
             }
@@ -643,7 +643,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         if crate::refactorings::is_expression_kind(kind)
             && (self.sel.closure.is_some() || self.sel.expression.is_some_and(|e| cx.kind(e) == kind))
         {
-            let range = self.no(n);
+            let range = self.node(n);
             self.try_occurrence(range, pattern, *force);
         }
         for f in cx.children(n).to_vec() {
@@ -664,13 +664,13 @@ impl<'c, 'p> Extract<'c, 'p> {
     fn static_declaration(&self, n: usize) -> bool {
         let t = self.cx.node_text(n);
         // After the comment and the annotations: is the first token `static`?
-        let (start, _) = self.no(n);
+        let (start, _) = self.node(n);
         let real_start = self
             .cx
             .children(n)
             .iter()
             .filter(|&&f| matches!(self.cx.kind(f), "Comment" | "Annotation"))
-            .map(|&f| self.no(f).1)
+            .map(|&f| self.node(f).1)
             .max()
             .unwrap_or(start);
         let rest = self.cx.source[real_start..start + t.len()].trim_start();
@@ -682,7 +682,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         let n = self.sel.commands.len();
         let mut i = 0;
         while i + n <= commands.len() {
-            let range = (self.no(commands[i]).0, self.no(commands[i + n - 1]).1);
+            let range = (self.node(commands[i]).0, self.node(commands[i + n - 1]).1);
             if self.try_occurrence(range, pattern, force) {
                 i += n;
             } else {
@@ -1654,7 +1654,7 @@ fn quoted_with_and(names: &[String]) -> String {
 
 // -- ExitDetector -----------------------------------------------------------------
 
-/// The `ExitDetector` ([`dartforge_analysis::saida::Saida`]) with
+/// The `ExitDetector` ([`dartforge_analysis::output::Saida`]) with
 /// `_elementExits` through the context's elements.
 pub(crate) struct Output<'c, 'p> {
     cx: &'c Context<'p>,

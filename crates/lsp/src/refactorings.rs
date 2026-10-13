@@ -621,12 +621,12 @@ impl<'p> Context<'p> {
         if st.fatal.is_some() {
             return;
         }
-        let no = &self.tree.nos[n];
-        let kind = no.especie;
+        let node = &self.tree.nos[n];
+        let kind = node.especie;
         if DIRECTIVES.contains(&kind) {
             // `visitDirective`: the selection cannot touch the directive (with a
             // length), and does not descend.
-            if !(st.end <= no.inicio) && !(st.start >= no.fim) {
+            if !(st.end <= node.inicio) && !(st.start >= node.fim) {
                 self.invalidate(st, "Cannot extract a directive.");
                 return;
             }
@@ -636,7 +636,7 @@ impl<'p> Context<'p> {
             return;
         } else if FOR_PARTS.contains(&kind) {
             // `visitForParts`: only the children, without `visitNode`.
-            for &f in &no.filhos {
+            for &f in &node.filhos {
                 self.visit(f, st);
             }
             return;
@@ -652,8 +652,8 @@ impl<'p> Context<'p> {
 
     /// `SelectionAnalyzer.visitNode`.
     pub(crate) fn visit_node(&self, n: usize, st: &mut Analysis) {
-        let no = &self.tree.nos[n];
-        let (ri, rf) = (no.inicio, no.fim);
+        let node = &self.tree.nos[n];
+        let (ri, rf) = (node.inicio, node.fim);
         let (si, sf) = (st.start, st.end);
         if si <= ri && rf <= sf {
             // The selection covers the whole node.
@@ -661,7 +661,7 @@ impl<'p> Context<'p> {
                 st.selected.push(n);
             } else {
                 let first_parent = self.parent(st.selected[0]);
-                if first_parent == no.pai {
+                if first_parent == node.pai {
                     st.selected.push(n);
                 }
                 // `_checkParent`.
@@ -685,7 +685,7 @@ impl<'p> Context<'p> {
         } else {
             return;
         }
-        for &f in &no.filhos {
+        for &f in &node.filhos {
             self.visit(f, st);
             if st.fatal.is_some() {
                 return;
@@ -837,8 +837,8 @@ impl<'p> Context<'p> {
         if l == 0
             && let Some(f) = self.implicit_closure(o)
         {
-            let no = &self.tree.nos[f];
-            return Ok(MethodSelection { range: (no.inicio, no.fim), expression: None, closure: Some(f), commands: Vec::new() });
+            let node = &self.tree.nos[f];
+            return Ok(MethodSelection { range: (node.inicio, node.fim), expression: None, closure: Some(f), commands: Vec::new() });
         }
         let st = self.analyze(o, o + l);
         if let Some(m) = st.fatal {
@@ -884,17 +884,17 @@ impl<'p> Context<'p> {
     /// `_isExtractable(range.node(n))`: the analysis of the exact range without
     /// any problem.
     pub(crate) fn extractable(&self, n: usize) -> bool {
-        let no = &self.tree.nos[n];
-        self.analyze(no.inicio, no.fim).fatal.is_none()
+        let node = &self.tree.nos[n];
+        self.analyze(node.inicio, node.fim).fatal.is_none()
     }
 
     /// `_selectionIncludesNonWhitespaceOutsideNode`.
     pub(crate) fn includes_something_outside(&self, (si, sf): (usize, usize), n: usize) -> bool {
-        let no = &self.tree.nos[n];
-        if !(si <= no.inicio && no.fim <= sf) {
+        let node = &self.tree.nos[n];
+        if !(si <= node.inicio && node.fim <= sf) {
             return false;
         }
-        !self.only_blank_or_comment(si, no.inicio) || !self.only_blank_or_comment(no.fim, sf)
+        !self.only_blank_or_comment(si, node.inicio) || !self.only_blank_or_comment(node.fim, sf)
     }
 
     /// `_findFunctionExpression`: the closure whose parentheses contain the
@@ -940,8 +940,8 @@ impl<'p> Context<'p> {
         let Some(body) = self.with_parents(coverage).find(|&k| BODIES.contains(&self.kind(k))) else {
             return Err("An expression inside a function must be selected to activate this refactoring.");
         };
-        let no = &self.tree.nos[coverage];
-        if STRINGS.contains(&no.especie) && end > start && start > no.inicio && end < no.fim {
+        let node = &self.tree.nos[coverage];
+        if STRINGS.contains(&node.especie) && end > start && start > node.inicio && end < node.fim {
             return Ok(LocalSelection { range: (start, end), expression: None, string_part: Some(selection_text), body });
         }
         let mut single: Option<usize> = None;
@@ -1003,8 +1003,8 @@ impl<'p> Context<'p> {
         }
         match single {
             Some(k) => {
-                let no = &self.tree.nos[k];
-                Ok(LocalSelection { range: (no.inicio, no.fim), expression: Some(k), string_part: None, body })
+                let node = &self.tree.nos[k];
+                Ok(LocalSelection { range: (node.inicio, node.fim), expression: Some(k), string_part: None, body })
             }
             None => Err("Expression must be selected to activate this refactoring."),
         }
@@ -1106,16 +1106,16 @@ impl<'p> Context<'p> {
             return None;
         }
         let contains = |k: usize| {
-            let no = &self.tree.nos[k];
+            let node = &self.tree.nos[k];
             if l == 0 {
-                if o == no.inicio && self.identifier_ends_in(o) {
+                if o == node.inicio && self.identifier_ends_in(o) {
                     return false;
                 }
-                if o == no.fim && self.identifier_starts_in(o) {
+                if o == node.fim && self.identifier_starts_in(o) {
                     return false;
                 }
             }
-            no.inicio <= o && no.fim >= end
+            node.inicio <= o && node.fim >= end
         };
         let mut current = 0usize;
         while let Some(f) = self.children(current).iter().copied().find(|&f| contains(f)) {
@@ -1234,14 +1234,14 @@ impl<'p> Context<'p> {
                     }
                     list[first..].iter().copied().take_while(|&k| self.tree.nos[k].inicio < end).collect()
                 };
-                let mut nos = in_range(true);
-                if nos.is_empty() {
-                    nos = in_range(false);
+                let mut nodes = in_range(true);
+                if nodes.is_empty() {
+                    nodes = in_range(false);
                 }
-                if nos.is_empty() || nos.iter().any(|&k| !UNIT_MEMBERS.contains(&self.kind(k))) {
+                if nodes.is_empty() || nodes.iter().any(|&k| !UNIT_MEMBERS.contains(&self.kind(k))) {
                     return None;
                 }
-                nos
+                nodes
             }
             "VariableDeclaration" => {
                 let list = self.parent(coverage)?;

@@ -103,11 +103,11 @@ pub(crate) struct Comment {
     pub(crate) of_documentation: bool,
 }
 
-/// The comments of `text[de..until]`, which has only whitespace and comments.
-pub(crate) fn comments(text: &str, de: usize, until: usize) -> Vec<Comment> {
+/// The comments of `text[from..until]`, which has only whitespace and comments.
+pub(crate) fn comments(text: &str, from: usize, until: usize) -> Vec<Comment> {
     let b = text.as_bytes();
     let mut output = Vec::new();
-    let mut i = de;
+    let mut i = from;
     while i + 1 < until {
         if b[i] == b'/' && b[i + 1] == b'/' {
             let end = text[i..until].find('\n').map_or(until, |k| i + k);
@@ -147,16 +147,16 @@ pub(crate) fn line_of(text: &str, offset: usize) -> usize {
 /// `range.nodeWithComments`: the range of a node's text, with the leading
 /// comments and the end-of-line one. `previous`: the end of the token
 /// before the node (`None` when the node is the first thing in the file).
-fn with_comments(text: &str, no: Span, previous: Option<usize>) -> (usize, usize) {
+fn with_comments(text: &str, node: Span, previous: Option<usize>) -> (usize, usize) {
     let start = match previous {
         // The first thing in the file: the comments before it are a header, except
         // the node's own documentation comment.
         None => {
-            let cs = comments(text, 0, no.start);
-            documentation_start(&cs).unwrap_or(no.start)
+            let cs = comments(text, 0, node.start);
+            documentation_start(&cs).unwrap_or(node.start)
         }
         Some(previous_end) => {
-            let cs = comments(text, previous_end, no.start);
+            let cs = comments(text, previous_end, node.start);
             match documentation_start(&cs) {
                 // With a documentation comment, the node starts at it: the ordinary
                 // comments above stay where they are.
@@ -164,17 +164,17 @@ fn with_comments(text: &str, no: Span, previous: Option<usize>) -> (usize, usize
                 None => {
                     // Those that start on the previous token's line are its end-of-line comment.
                     let previous_line = line_of(text, previous_end.saturating_sub(1));
-                    cs.iter().find(|c| line_of(text, c.start) != previous_line).map_or(no.start, |c| c.start)
+                    cs.iter().find(|c| line_of(text, c.start) != previous_line).map_or(node.start, |c| c.start)
                 }
             }
         }
     };
     // The end-of-line comment: those that start on the line where the node's
     // last token starts (here, the line of its last character).
-    let end_line = line_of(text, no.end.saturating_sub(1));
-    let line_end = text[no.end.min(text.len())..].find('\n').map_or(text.len(), |k| no.end + k);
-    let mut end = no.end;
-    for c in comments(text, no.end.min(text.len()), line_end) {
+    let end_line = line_of(text, node.end.saturating_sub(1));
+    let line_end = text[node.end.min(text.len())..].find('\n').map_or(text.len(), |k| node.end + k);
+    let mut end = node.end;
+    for c in comments(text, node.end.min(text.len()), line_end) {
         // Only comments separated from the node by whitespace (no code in between).
         if line_of(text, c.start) == end_line && text[end..c.start].trim().is_empty() {
             end = c.end;
@@ -294,8 +294,8 @@ pub(crate) fn sort_members(text: &str, unit: &CompilationUnit, ast: &Ast, names:
         let first = ast.member(members[0]).span.start;
         let after_constants = match &decl.kind {
             DeclKind::Enum(x) => x.constants.last().and_then(|k| {
-                let de = k.span.end.min(first);
-                text[de..first].find(';').map(|i| de + i + 1)
+                let from = k.span.end.min(first);
+                text[from..first].find(';').map(|i| from + i + 1)
             }),
             _ => None,
         };

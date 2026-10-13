@@ -69,7 +69,7 @@ pub(crate) fn declared(
             DeclKind::Extension(x) => push(x.name, kind::CLASS, false, false),
             DeclKind::Function(f) => {
                 let func = ast.function(*f);
-                let (space, sem) = match func.kind {
+                let (space, without) = match func.kind {
                     ast::FunctionKind::Getter | ast::FunctionKind::Setter => {
                         (kind::VARIABLE, false)
                     }
@@ -78,7 +78,7 @@ pub(crate) fn declared(
                         func.parameters.as_ref().is_none_or(|p| p.is_empty()),
                     ),
                 };
-                push(func.name, space, false, sem)
+                push(func.name, space, false, without)
             }
             DeclKind::Variables(vl) => {
                 for v in vl.variables.iter() {

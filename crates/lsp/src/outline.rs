@@ -31,11 +31,11 @@ struct Ctx<'a> {
     tests: bool,
 }
 
-/// The balanced pair `opens`…`closes` that starts at `de` (after
+/// The balanced pair `opens`…`closes` that starts at `from` (after
 /// whitespace): the range including the delimiters.
-fn balanced(text: &str, de: usize, opens: u8, closes: u8) -> Option<Span> {
+fn balanced(text: &str, from: usize, opens: u8, closes: u8) -> Option<Span> {
     let b = text.as_bytes();
-    let mut i = de;
+    let mut i = from;
     while i < b.len() && b[i].is_ascii_whitespace() {
         i += 1;
     }
@@ -100,7 +100,7 @@ impl Ctx<'_> {
     }
 
     /// `_nodeOutline` of an annotated node.
-    fn no(&self, element: Value, span: Span, metadata: &[Annotation], children: Vec<Value>) -> Value {
+    fn node(&self, element: Value, span: Span, metadata: &[Annotation], children: Vec<Value>) -> Value {
         let start = self.with_documentation(span.start);
         let code = self.after_annotations(span.start, metadata);
         let mut v = json!({
@@ -146,8 +146,8 @@ impl Ctx<'_> {
 
     /// The `(…)` list written after the name and the type parameters.
     fn parameter_list(&self, after: usize) -> Option<Span> {
-        let de = self.type_parameters(after).map_or(after, |s| s.end);
-        balanced(self.text, de, b'(', b')')
+        let from = self.type_parameters(after).map_or(after, |s| s.end);
+        balanced(self.text, from, b'(', b')')
     }
 
     fn ty(&self, t: Option<dartforge_frontend::ast::TypeId>) -> &str {
@@ -241,7 +241,7 @@ impl Ctx<'_> {
         let parameters = if of_method { parameters } else { Some(parameters.unwrap_or("")) };
         let of_type = self.type_parameters(name.span.end).map(|s| self.snippet(s));
         let element = self.element(kind, self.names.resolve(name.sym), Some(name.span), parameters, of_type, Some(self.ty(func.return_type)));
-        Some(self.no(element, span, metadata, self.of_body(span)))
+        Some(self.node(element, span, metadata, self.of_body(span)))
     }
 
     /// `_newVariableOutline` of each variable of a list.
@@ -277,7 +277,7 @@ impl Ctx<'_> {
                     };
                     let parameters = self.parameter_list(local.end).map(|s| self.snippet(s)).unwrap_or("");
                     let element = self.element("CONSTRUCTOR", &name, Some(local), Some(parameters), None, None);
-                    output.push(self.no(element, m.span, &m.metadata, self.of_body(m.span)));
+                    output.push(self.node(element, m.span, &m.metadata, self.of_body(m.span)));
                 }
                 MemberKind::Field(l) => self.variables(l, m.span, &m.metadata, "FIELD", &mut output),
                 MemberKind::Method(f) => output.extend(self.function(*f, m.span, &m.metadata, "METHOD", true)),
@@ -312,22 +312,22 @@ pub(crate) fn of_document(text: &str) -> Value {
                 let kind = if x.mixin_application { "CLASS_TYPE_ALIAS" } else { "CLASS" };
                 let element = ctx.element(kind, name_of(x.name), Some(x.name.span), None, of_type(x.name), None);
                 let internal = if x.mixin_application { Vec::new() } else { ctx.members(&x.members) };
-                children.push(ctx.no(element, decl.span, &decl.metadata, internal));
+                children.push(ctx.node(element, decl.span, &decl.metadata, internal));
             }
             DeclKind::Mixin(x) => {
                 let element = ctx.element("MIXIN", name_of(x.name), Some(x.name.span), None, of_type(x.name), None);
-                children.push(ctx.no(element, decl.span, &decl.metadata, ctx.members(&x.members)));
+                children.push(ctx.node(element, decl.span, &decl.metadata, ctx.members(&x.members)));
             }
             DeclKind::Enum(x) => {
                 // All constants before the members.
                 let mut internal: Vec<Value> = x
                     .constants
                     .iter()
-                    .map(|k| ctx.no(ctx.element("ENUM_CONSTANT", name_of(k.name), Some(k.name.span), None, None, None), k.span, &k.metadata, Vec::new()))
+                    .map(|k| ctx.node(ctx.element("ENUM_CONSTANT", name_of(k.name), Some(k.name.span), None, None, None), k.span, &k.metadata, Vec::new()))
                     .collect();
                 internal.extend(ctx.members(&x.members));
                 let element = ctx.element("ENUM", name_of(x.name), Some(x.name.span), None, None, None);
-                children.push(ctx.no(element, decl.span, &decl.metadata, internal));
+                children.push(ctx.node(element, decl.span, &decl.metadata, internal));
             }
             DeclKind::Extension(x) => {
                 // Without a name, the position is that of the extended type.
@@ -336,11 +336,11 @@ pub(crate) fn of_document(text: &str) -> Value {
                     None => ("", a.ty(x.on).span),
                 };
                 let element = ctx.element("EXTENSION", name, Some(local), None, x.name.and_then(of_type), None);
-                children.push(ctx.no(element, decl.span, &decl.metadata, ctx.members(&x.members)));
+                children.push(ctx.node(element, decl.span, &decl.metadata, ctx.members(&x.members)));
             }
             DeclKind::ExtensionType(x) => {
                 let element = ctx.element("EXTENSION_TYPE", name_of(x.name), Some(x.name.span), None, of_type(x.name), None);
-                children.push(ctx.no(element, decl.span, &decl.metadata, ctx.members(&x.members)));
+                children.push(ctx.node(element, decl.span, &decl.metadata, ctx.members(&x.members)));
             }
             DeclKind::Variables(l) => ctx.variables(l, decl.span, &decl.metadata, "TOP_LEVEL_VARIABLE", &mut children),
             DeclKind::Function(f) => children.extend(ctx.function(*f, decl.span, &decl.metadata, "FUNCTION", false)),
@@ -380,7 +380,7 @@ pub(crate) fn of_document(text: &str) -> Value {
                         _ => ctx.element("TYPE_ALIAS", name_of(x.name), Some(x.name.span), None, of_type(x.name), None),
                     },
                 };
-                children.push(ctx.no(element, decl.span, &decl.metadata, Vec::new()));
+                children.push(ctx.node(element, decl.span, &decl.metadata, Vec::new()));
             }
         }
     }

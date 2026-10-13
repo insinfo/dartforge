@@ -38,11 +38,11 @@ struct Data {
 
 impl Context<'_> {
     /// `_findConstructor`.
-    fn selection_constructor(&self, no: usize) -> Option<usize> {
-        match self.kind(no) {
-            "ConstructorDeclaration" => Some(no),
+    fn selection_constructor(&self, node: usize) -> Option<usize> {
+        match self.kind(node) {
+            "ConstructorDeclaration" => Some(node),
             "SimpleIdentifier" => {
-                let p = self.parent(no)?;
+                let p = self.parent(node)?;
                 match self.kind(p) {
                     "ConstructorDeclaration" => Some(p),
                     "ConstructorName" => self.parent(p).filter(|&a| self.kind(a) == "ConstructorDeclaration"),
@@ -108,8 +108,8 @@ impl Context<'_> {
         if prog.library(prog.unit(self.unit).library).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
             return None;
         }
-        let no = self.tree.localizar(start, end)?;
-        let constructor = self.selection_constructor(no)?;
+        let node = self.tree.localizar(start, end)?;
+        let constructor = self.selection_constructor(node)?;
         // `_superInvocation`: the last `super(…)` among the initializers.
         let initializers: Vec<usize> = self
             .children(constructor)
@@ -346,11 +346,11 @@ impl Context<'_> {
                     _ => groups.push((i, i)),
                 }
             }
-            for (de, until) in groups {
-                let range = if de == 0 {
-                    Span { start: self.tree.nos[arguments[de]].inicio, end: self.tree.nos[arguments[until + 1]].inicio }
+            for (from, until) in groups {
+                let range = if from == 0 {
+                    Span { start: self.tree.nos[arguments[from]].inicio, end: self.tree.nos[arguments[until + 1]].inicio }
                 } else {
-                    Span { start: self.tree.nos[arguments[de - 1]].fim, end: self.tree.nos[arguments[until]].fim }
+                    Span { start: self.tree.nos[arguments[from - 1]].fim, end: self.tree.nos[arguments[until]].fim }
                 };
                 m.add(uri, range, String::new());
             }

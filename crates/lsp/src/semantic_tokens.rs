@@ -157,28 +157,28 @@ impl Collector<'_> {
     /// Resolved reference in an expression.
     fn resolved(&mut self, s: Span, r: Option<&Resolved>, constructor: bool, extra: &[&'static str], dynamic: bool) {
         let p = self.project.program();
-        let com = |base: &[&'static str]| {
+        let combine = |base: &[&'static str]| {
             let mut m = base.to_vec();
             m.extend_from_slice(extra);
             m
         };
         match r {
-            Some(Resolved::Local(_)) => self.name(s, "variable", &com(&[])),
-            Some(Resolved::Parameter { .. }) => self.name(s, "parameter", &com(&[])),
-            Some(Resolved::TypeParameter(_)) => self.name(s, "typeParameter", &com(&[])),
-            Some(Resolved::Prefix(_)) => self.name(s, "variable", &com(&["importPrefix"])),
+            Some(Resolved::Local(_)) => self.name(s, "variable", &combine(&[])),
+            Some(Resolved::Parameter { .. }) => self.name(s, "parameter", &combine(&[])),
+            Some(Resolved::TypeParameter(_)) => self.name(s, "typeParameter", &combine(&[])),
+            Some(Resolved::Prefix(_)) => self.name(s, "variable", &combine(&["importPrefix"])),
             Some(Resolved::Element(Element::Class(c))) if constructor => {
                 let _ = c;
-                self.name(s, "class", &com(&["constructor"]))
+                self.name(s, "class", &combine(&["constructor"]))
             }
             Some(Resolved::Element(el)) => self.element(s, *el, extra),
             Some(Resolved::Constructor(f)) => {
                 let class = p.function(*f).class.map(|c| p.class(c).name);
                 let text = &p.unit(self.unit).source[s.start..s.end];
                 if class.is_some_and(|c| self.project.name(c) == text) {
-                    self.name(s, "class", &com(&["constructor"]));
+                    self.name(s, "class", &combine(&["constructor"]));
                 } else {
-                    self.name(s, "method", &com(&["constructor"]));
+                    self.name(s, "method", &combine(&["constructor"]));
                 }
             }
             Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
@@ -189,20 +189,20 @@ impl Collector<'_> {
                     ve.class.is_some_and(|c| p.class(c).enum_constants.contains(&v))
                 });
                 match fe.kind {
-                    _ if is_constant => self.name(s, "enumMember", &com(&[])),
-                    FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => self.name(s, "property", &com(&[scope])),
-                    _ => self.name(s, "method", &com(&[scope])),
+                    _ if is_constant => self.name(s, "enumMember", &combine(&[])),
+                    FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => self.name(s, "property", &combine(&[scope])),
+                    _ => self.name(s, "method", &combine(&[scope])),
                 }
             }
             Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
                 let ve = p.variable(*v);
                 if ve.class.is_some_and(|c| p.class(c).enum_constants.contains(v)) {
-                    self.name(s, "enumMember", &com(&[]));
+                    self.name(s, "enumMember", &combine(&[]));
                 } else {
-                    self.name(s, "property", &com(&[if ve.static_ { "static" } else { "instance" }]));
+                    self.name(s, "property", &combine(&[if ve.static_ { "static" } else { "instance" }]));
                 }
             }
-            Some(Resolved::Dynamic) | None if dynamic => self.name(s, "source", &com(&[])),
+            Some(Resolved::Dynamic) | None if dynamic => self.name(s, "source", &combine(&[])),
             _ => {}
         }
     }
@@ -575,10 +575,10 @@ impl Project {
         // `[name]` references of documentation comments, on top of the comment
         // (which is split around them).
         let mut references: Vec<Highlight> = Vec::new();
-        for com in crate::dartdoc::comments(source) {
-            for r in &com.references {
+        for combine in crate::dartdoc::comments(source) {
+            for r in &combine.references {
                 for pos in 0..r.len() {
-                    let Some((target_, concrete)) = self.resolve_doc_reference(unit, com.span, &r[..=pos]) else { continue };
+                    let Some((target_, concrete)) = self.resolve_doc_reference(unit, combine.span, &r[..=pos]) else { continue };
                     if let Some((ty_, mods)) = classify(self, &target_, concrete, &parameters_) {
                         references.push(Highlight { start: r[pos].0.start, end: r[pos].0.end, ty: ty_, modifiers: mods });
                     }
@@ -795,12 +795,12 @@ fn escapes(source: &str, s: Span, output: &mut Vec<Highlight>) {
     }
 }
 
-/// The comments (start, end) of the gap `[de, until)`.
-fn comments(source: &str, de: usize, until: usize) -> Vec<(usize, usize)> {
+/// The comments (start, end) of the gap `[from, until)`.
+fn comments(source: &str, from: usize, until: usize) -> Vec<(usize, usize)> {
     let b = source.as_bytes();
     let until = until.min(b.len());
     let mut output = Vec::new();
-    let mut i = de;
+    let mut i = from;
     while i < until {
         if b[i] == b'/' && b.get(i + 1) == Some(&b'/') {
             let end = source[i..until].find(['\n', '\r']).map_or(until, |k| i + k);
@@ -842,12 +842,12 @@ fn split_overlaps(mut regions: Vec<Highlight>) -> Vec<Highlight> {
     regions.dedup_by(|b, a| a.start == b.start && a.end == b.end && a.ty == b.ty);
     let mut output = Vec::new();
     let mut stack: Vec<Highlight> = Vec::new();
-    let process = |stack: &mut Vec<Highlight>, mut de: usize, until: usize, output: &mut Vec<Highlight>| {
+    let process = |stack: &mut Vec<Highlight>, mut from: usize, until: usize, output: &mut Vec<Highlight>| {
         while let Some(last) = stack.last() {
             let end = last.end.min(until);
-            if end > de {
-                output.push(Highlight { start: de, end, ty: last.ty, modifiers: last.modifiers.clone() });
-                de = end;
+            if end > from {
+                output.push(Highlight { start: from, end, ty: last.ty, modifiers: last.modifiers.clone() });
+                from = end;
             }
             if last.end <= until {
                 stack.pop();
@@ -906,8 +906,8 @@ pub(crate) fn encode(
         last_column = c0;
     };
     for r in highlights {
-        if let Some((de, until)) = range
-            && (r.end < de || r.start > until)
+        if let Some((from, until)) = range
+            && (r.end < from || r.start > until)
         {
             continue;
         }

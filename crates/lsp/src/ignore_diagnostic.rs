@@ -203,16 +203,16 @@ fn last_index(t: &str, c: u8, start: usize) -> Option<usize> {
     (0..=end).rev().find(|&i| b[i] == c)
 }
 
-fn in_flow(t: &str, no: &No) -> bool {
-    t[no.span.start.min(t.len())..].starts_with(['{', '['])
+fn in_flow(t: &str, node: &No) -> bool {
+    t[node.span.start.min(t.len())..].starts_with(['{', '['])
 }
 
 /// `getContentSensitiveEnd`.
-fn sensitive_end(t: &str, no: &No) -> usize {
-    match &no.valor {
-        Valor::Lista(l) if !in_flow(t, no) => l.last().map_or(no.span.end, |x| sensitive_end(t, x)),
-        Valor::Mapa(m) if !in_flow(t, no) => m.last().map_or(no.span.end, |(_, v)| sensitive_end(t, v)),
-        _ => no.span.end,
+fn sensitive_end(t: &str, node: &No) -> usize {
+    match &node.valor {
+        Valor::Lista(l) if !in_flow(t, node) => l.last().map_or(node.span.end, |x| sensitive_end(t, x)),
+        Valor::Mapa(m) if !in_flow(t, node) => m.last().map_or(node.span.end, |(_, v)| sensitive_end(t, v)),
+        _ => node.span.end,
     }
 }
 

@@ -396,23 +396,23 @@ pub(crate) fn insert_import(
 
 /// `n` is a type parameter of some declaration that contains it.
 fn type_param(ast: &ast::Ast, n: &ast::Name) -> bool {
-    let tem = |ps: &[ast::TypeParameter]| ps.iter().any(|t| t.name.sym == n.sym);
+    let has = |ps: &[ast::TypeParameter]| ps.iter().any(|t| t.name.sym == n.sym);
     let inside = |s: Span| s.start <= n.span.start && n.span.start < s.end;
     ast.decls.iter().any(|d| {
         inside(d.span)
             && match &d.kind {
-                DeclKind::Class(c) => tem(&c.type_params),
-                DeclKind::Mixin(m) => tem(&m.type_params),
-                DeclKind::Enum(e) => tem(&e.type_params),
-                DeclKind::Extension(x) => tem(&x.type_params),
-                DeclKind::ExtensionType(x) => tem(&x.type_params),
-                DeclKind::Typedef(t) => tem(&t.type_params),
+                DeclKind::Class(c) => has(&c.type_params),
+                DeclKind::Mixin(m) => has(&m.type_params),
+                DeclKind::Enum(e) => has(&e.type_params),
+                DeclKind::Extension(x) => has(&x.type_params),
+                DeclKind::ExtensionType(x) => has(&x.type_params),
+                DeclKind::Typedef(t) => has(&t.type_params),
                 _ => false,
             }
     }) || ast
         .functions
         .iter()
-        .any(|f| inside(f.span) && tem(&f.type_params))
+        .any(|f| inside(f.span) && has(&f.type_params))
 }
 
 /// An unresolved name in the range, with the code the analyzer would give

@@ -404,8 +404,8 @@ impl Context<'_> {
                                 let list = self.children(e).iter().copied().find(|&f| self.kind(f) == "ArgumentList")?;
                                 let opens = self.tree.nos[list].inicio + 1;
                                 let closes = self.tree.nos[list].fim;
-                                let de = if !comment { colon.end } else { self.tree.nos[e].inicio };
-                                edits.push((Span { start: de, end: opens }, String::new()));
+                                let from = if !comment { colon.end } else { self.tree.nos[e].inicio };
+                                edits.push((Span { start: from, end: opens }, String::new()));
                                 edits.push((Span { start: closes - 1, end: closes }, String::new()));
                             }
                             if !comment && self.kind(e) == "ThrowExpression" {

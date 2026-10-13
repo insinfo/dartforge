@@ -234,14 +234,14 @@ fn references_in(project: &crate::project::Project, uri: &str, offset: usize) ->
         });
         let mut uses: Vec<(String, Span)> = Vec::new();
         // Only the candidates accept uses: the scan stays within them.
-        for (u, de, until) in project.occurrences_in(&d.target, false, candidates.as_ref()).ok()? {
-            if declarations.contains(&(u, de, until)) {
+        for (u, from, until) in project.occurrences_in(&d.target, false, candidates.as_ref()).ok()? {
+            if declarations.contains(&(u, from, until)) {
                 continue;
             }
             if candidates.as_ref().is_some_and(|c| !c.contains(&u)) {
                 continue;
             }
-            uses.push((project.unit_uri(u)?, Span { start: de, end: until }));
+            uses.push((project.unit_uri(u)?, Span { start: from, end: until }));
         }
         uses.sort_by(|a, b| (a.0.as_str(), a.1.start).cmp(&(b.0.as_str(), b.1.start)));
         let declaration = declaration.and_then(|(u, s)| Some((project.unit_uri(u)?, s)));

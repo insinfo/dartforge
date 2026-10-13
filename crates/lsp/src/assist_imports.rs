@@ -21,8 +21,8 @@ impl Context<'_> {
     /// selection node, without combinators, gets a `show` with the names the
     /// unit uses from it (the `_ReferenceFinder`, in text order), before the `;`.
     pub(crate) fn import_add_show(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let directive = self.with_parents(no).find(|&k| self.kind(k) == "ImportDirective")?;
+        let node = self.tree.localizar(start, end)?;
+        let directive = self.with_parents(node).find(|&k| self.kind(k) == "ImportDirective")?;
         let span = self.tree.span(directive);
         let prog = self.p.program();
         let unit = prog.unit(self.unit);
@@ -60,11 +60,11 @@ impl Context<'_> {
             return None;
         }
         // `importDirective.end - 1`: before the `;`.
-        let em = span.end.checked_sub(1)?;
+        let at = span.end.checked_sub(1)?;
         Some(CodeAction {
             title: "Add explicit 'show' combinator".into(),
             kind: "refactor.add.showCombinator".into(),
-            edits: vec![Edit { uri: uri.to_string(), span: Span { start: em, end: em }, text: format!(" show {}", names.join(", ")) }],
+            edits: vec![Edit { uri: uri.to_string(), span: Span { start: at, end: at }, text: format!(" show {}", names.join(", ")) }],
             diagnostic: None,
             create_file: None, linked: Default::default(),
         })
@@ -139,17 +139,17 @@ impl Context<'_> {
     /// The import directive of the selection node (the URI literal walks up to
     /// it) and its index in the unit.
     fn selection_import(&self, start: usize, end: usize) -> Option<(usize, usize)> {
-        let mut no = self.tree.localizar(start, end)?;
-        if matches!(self.kind(no), "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings") {
-            no = self.parent(no)?;
+        let mut node = self.tree.localizar(start, end)?;
+        if matches!(self.kind(node), "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings") {
+            node = self.parent(node)?;
         }
-        if self.kind(no) != "ImportDirective" {
+        if self.kind(node) != "ImportDirective" {
             return None;
         }
-        let span = self.tree.span(no);
+        let span = self.tree.span(node);
         let unit = self.p.program().unit(self.unit);
         let index = unit.unit.directives.iter().position(|d| d.span.start <= span.start && span.start < d.span.end)?;
-        Some((no, index))
+        Some((node, index))
     }
 
     /// The URI literal of a directive (its text and range).
@@ -199,9 +199,9 @@ impl Context<'_> {
             return None;
         }
         // `path.posix.relative(importUri.path, from: dirname(sourceUri.path))`.
-        let de: Vec<&str> = source_segments[..source_segments.len() - 1].to_vec();
-        let common = de.iter().zip(&import_segments).take_while(|(a, b)| a == b).count();
-        let mut parts: Vec<&str> = vec![".."; de.len() - common];
+        let from: Vec<&str> = source_segments[..source_segments.len() - 1].to_vec();
+        let common = from.iter().zip(&import_segments).take_while(|(a, b)| a == b).count();
+        let mut parts: Vec<&str> = vec![".."; from.len() - common];
         parts.extend(&import_segments[common..]);
         let relative = if parts.is_empty() { ".".to_string() } else { parts.join("/") };
         Some(CodeAction {
@@ -216,8 +216,8 @@ impl Context<'_> {
     /// `ConvertPartOfToUri` (convert_part_of_to_uri.dart): `part of name;`
     /// starts citing the library by the relative path of its file.
     pub(crate) fn convert_part_of_to_uri(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let directive = self.with_parents(no).find(|&k| self.kind(k) == "PartOfDirective")?;
+        let node = self.tree.localizar(start, end)?;
+        let directive = self.with_parents(node).find(|&k| self.kind(k) == "PartOfDirective")?;
         let name = self.children(directive).iter().copied().find(|&k| self.kind(k) == "LibraryIdentifier" || self.kind(k) == "SimpleIdentifier")?;
         let prog = self.p.program();
         let library = prog.library(prog.unit(self.unit).library);

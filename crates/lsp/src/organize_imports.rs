@@ -182,8 +182,8 @@ pub(crate) fn organize(code: &str, unit: &CompilationUnit, removable: &[usize], 
             3
         };
         let priority = if ty == 2 { 8 } else { ty * 4 + group };
-        let de = previous_end.unwrap_or(0).min(d.span.start);
-        let cs = comments(code, de, d.span.start);
+        let from = previous_end.unwrap_or(0).min(d.span.start);
+        let cs = comments(code, from, d.span.start);
         // `directive.offset` includes the documentation comment.
         let doc = documentation_block(&cs);
         let directive_offset = doc.map_or(d.span.start, |(start, _)| start);

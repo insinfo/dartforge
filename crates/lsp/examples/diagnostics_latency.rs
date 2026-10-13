@@ -99,14 +99,14 @@ fn check_with_analyze(file: &std::path::Path, publication: &Value) -> String {
         .filter(|(c, _, _)| dartforge_analysis::publicacao::verificados().contains(&c.as_str()))
         .count();
     let cli_only: Vec<_> = cli.iter().filter(|x| !lsp.contains(x)).take(5).collect();
-    let so_lsp: Vec<_> = lsp.iter().filter(|x| !cli.contains(x)).take(5).collect();
+    let only_lsp: Vec<_> = lsp.iter().filter(|x| !cli.contains(x)).take(5).collect();
     format!(
         "parity with `dartforge analyze`: analyze {} / LSP {} ({} semantic ones published); only in analyze {:?}; only in the LSP {:?}",
         cli.len(),
         lsp.len(),
         semantic,
         cli_only,
-        so_lsp
+        only_lsp
     )
 }
 

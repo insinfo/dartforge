@@ -107,7 +107,7 @@ fn local_type(
         return None;
     }
     let mut found = unit.declarations.iter().filter_map(|id| {
-        let (name_, ty_, generico) = match &ast.decl(*id).kind {
+        let (name_, ty_, generic) = match &ast.decl(*id).kind {
             DeclKind::Class(d) => (d.name, "class", !d.type_params.is_empty()),
             DeclKind::Mixin(d) => (d.name, "mixin", !d.type_params.is_empty()),
             DeclKind::Enum(d) => (d.name, "enum", !d.type_params.is_empty()),
@@ -115,7 +115,7 @@ fn local_type(
             DeclKind::Typedef(d) => (d.name, "typedef", true),
             _ => return None,
         };
-        (name_.sym == key).then_some((name_.span, ty_, generico))
+        (name_.sym == key).then_some((name_.span, ty_, generic))
     });
     let single = found.next()?;
     if found.next().is_some() { return None; }
@@ -1055,7 +1055,7 @@ fn type_description_in_file(
     key: dartforge_intern::SymbolId,
 ) -> Option<String> {
     let mut found = file.unit.declarations.iter().filter_map(|id| {
-        let (name, ty, generico) = match &file.ast.decl(*id).kind {
+        let (name, ty, generic) = match &file.ast.decl(*id).kind {
             DeclKind::Class(d) => (d.name, "class", !d.type_params.is_empty()),
             DeclKind::Mixin(d) => (d.name, "mixin", !d.type_params.is_empty()),
             DeclKind::Enum(d) => (d.name, "enum", !d.type_params.is_empty()),
@@ -1063,7 +1063,7 @@ fn type_description_in_file(
             DeclKind::Typedef(d) => (d.name, "typedef", true),
             _ => return None,
         };
-        (name.sym == key).then_some((name.span, ty, generico))
+        (name.sym == key).then_some((name.span, ty, generic))
     });
     let single = found.next()?;
     if found.next().is_some() {

@@ -35,11 +35,11 @@ impl Context<'_> {
     /// becomes `x.isNotEmpty` when whoever declares the resolved `isEmpty` also
     /// declares an `isNotEmpty` (`getChildren`).
     pub(crate) fn convert_to_is_not_empty(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        if self.kind(no) != "SimpleIdentifier" {
+        let node = self.tree.localizar(start, end)?;
+        if self.kind(node) != "SimpleIdentifier" {
             return None;
         }
-        let access = self.parent(no)?;
+        let access = self.parent(node)?;
         if !matches!(self.kind(access), "PropertyAccess" | "PrefixedIdentifier") {
             return None;
         }
@@ -68,7 +68,7 @@ impl Context<'_> {
             instance.keys().chain(statics.keys()).any(|s| self.p.name(*s).trim_end_matches('=') == "isNotEmpty")
                 || fields.iter().any(|v| self.p.name(prog.variable(*v).name) == "isNotEmpty")
         };
-        let tem = match (owner_class, owner_extension) {
+        let has = match (owner_class, owner_extension) {
             (Some(c), _) => {
                 let ce = prog.class(c);
                 has_is_not_empty(&ce.instance_members, &ce.static_members, &ce.fields)
@@ -79,7 +79,7 @@ impl Context<'_> {
             }
             _ => false,
         };
-        if !tem {
+        if !has {
             return None;
         }
         let prefix = self.parent(access)?;
@@ -106,11 +106,11 @@ impl Context<'_> {
     /// with an integer value becomes an `int` (cut at the `.`, which preserves
     /// digit separators, when there is no exponent).
     pub(crate) fn convert_to_int_literal(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        if self.kind(no) != "DoubleLiteral" {
+        let node = self.tree.localizar(start, end)?;
+        if self.kind(node) != "DoubleLiteral" {
             return None;
         }
-        let span = self.tree.span(no);
+        let span = self.tree.span(node);
         let lexeme = &self.source[span.start..span.end];
         let value: f64 = lexeme.replace('_', "").parse().ok()?;
         // `value.truncate()` throws on infinity and NaN; outside the `int` range
@@ -253,8 +253,8 @@ impl Context<'_> {
     /// `ConvertConditionalExpressionToIfElement`: a conditional element of a
     /// list or set literal (through parentheses) becomes `if (c) a else b`.
     pub(crate) fn conditional_to_if_element(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let conditional = self.with_parents(no).find(|&k| self.kind(k) == "ConditionalExpression")?;
+        let node = self.tree.localizar(start, end)?;
+        let conditional = self.with_parents(node).find(|&k| self.kind(k) == "ConditionalExpression")?;
         let mut swap = conditional;
         let mut parent = self.parent(conditional)?;
         while self.kind(parent) == "ParenthesizedExpression" {
@@ -303,8 +303,8 @@ impl Context<'_> {
     /// `ConvertDocumentationIntoBlock`: a documentation comment made only of
     /// `///` lines becomes `/** … */`.
     pub(crate) fn block_documentation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let comment = self.with_parents(no).find(|&k| self.kind(k) == "Comment")?;
+        let node = self.tree.localizar(start, end)?;
+        let comment = self.with_parents(node).find(|&k| self.kind(k) == "Comment")?;
         let tokens = self.comment_tokens(comment);
         if tokens.is_empty() || tokens.iter().any(|&(s, line)| !line || !self.source[s.start..s.end].starts_with("///")) {
             return None;
@@ -321,8 +321,8 @@ impl Context<'_> {
 
     /// `ConvertDocumentationIntoLine`: the `/** … */` becomes `///` lines.
     pub(crate) fn line_documentation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let comment = self.with_parents(no).find(|&k| self.kind(k) == "Comment")?;
+        let node = self.tree.localizar(start, end)?;
+        let comment = self.with_parents(node).find(|&k| self.kind(k) == "Comment")?;
         let tokens = self.comment_tokens(comment);
         let [(token, false)] = tokens[..] else { return None };
         let eol = crate::refactorings_exec::Text::new(self.source).eol();
@@ -361,11 +361,11 @@ impl Context<'_> {
     /// `LinkedHashMap()` without arguments becomes `{}`, with the written type
     /// arguments or, outside a typed declaration, those of the static type.
     pub(crate) fn convert_to_map_literal(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let creation = self.with_parents(no).find(|&k| self.kind(k) == "InstanceCreationExpression")?;
+        let node = self.tree.localizar(start, end)?;
+        let creation = self.with_parents(node).find(|&k| self.kind(k) == "InstanceCreationExpression")?;
         let arguments = self.children(creation).iter().copied().find(|&k| self.kind(k) == "ArgumentList")?;
         let constructor_name = self.children(creation).iter().copied().find(|&k| self.kind(k) == "ConstructorName")?;
-        if self.tree.nos[no].inicio > self.tree.nos[arguments].inicio || self.children(constructor_name).len() > 1 || !self.children(arguments).is_empty() {
+        if self.tree.nos[node].inicio > self.tree.nos[arguments].inicio || self.children(constructor_name).len() > 1 || !self.children(arguments).is_empty() {
             return None;
         }
         let ty = self.node_expr(creation).and_then(|x| self.bodies.get_type(x))?;
@@ -469,8 +469,8 @@ impl Context<'_> {
     /// `Set()`, `Set.from([…])` and `Set.of([…])` become a set literal, with
     /// `<dynamic>` when the literal without type arguments would be a map.
     pub(crate) fn convert_to_set_literal(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let node_start = self.tree.nos[no].inicio;
+        let node = self.tree.localizar(start, end)?;
+        let node_start = self.tree.nos[node].inicio;
         let opens_and_closes = |list: usize| -> Option<(Span, Span)> {
             let span = self.tree.span(list);
             let opens = self.tokens.iter().find(|t| t.span.start >= span.start && &self.source[t.span.start..t.span.end] == "[")?.span;
@@ -478,7 +478,7 @@ impl Context<'_> {
             Some((opens, closes))
         };
         // `_findInvocationOfToSet`.
-        if let Some(invocation) = self.with_parents(no).find(|&k| self.kind(k) == "MethodInvocation")
+        if let Some(invocation) = self.with_parents(node).find(|&k| self.kind(k) == "MethodInvocation")
             && let Some(args) = self.children(invocation).iter().copied().find(|&k| self.kind(k) == "ArgumentList")
             && node_start <= self.tree.nos[args].inicio
             && self.method_name(invocation).is_some_and(|n| self.node_text(n) == "toSet")
@@ -497,7 +497,7 @@ impl Context<'_> {
             ));
         }
         // `_findSetCreation`.
-        let creation = self.with_parents(no).find(|&k| self.kind(k) == "InstanceCreationExpression")?;
+        let creation = self.with_parents(node).find(|&k| self.kind(k) == "InstanceCreationExpression")?;
         let arguments = self.children(creation).iter().copied().find(|&k| self.kind(k) == "ArgumentList")?;
         if node_start > self.tree.nos[arguments].inicio {
             return None;
@@ -650,8 +650,8 @@ impl Context<'_> {
     /// (convert_map_from_iterable_to_for_literal.dart): `Map.fromIterable(i,
     /// key: (k) => …, value: (v) => …)` becomes `{ for (var e in i) … : … }`.
     pub(crate) fn map_from_iterable_to_for(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let creation = self.with_parents(no).find(|&k| self.kind(k) == "InstanceCreationExpression")?;
+        let node = self.tree.localizar(start, end)?;
+        let creation = self.with_parents(node).find(|&k| self.kind(k) == "InstanceCreationExpression")?;
         let constructor_name = self.children(creation).iter().copied().find(|&k| self.kind(k) == "ConstructorName")?;
         if self.children(constructor_name).get(1).map(|&n| self.node_text(n)) != Some("fromIterable") {
             return None;

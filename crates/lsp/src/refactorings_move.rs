@@ -23,7 +23,7 @@ struct Lines {
 }
 
 impl Lines {
-    fn de(t: &str) -> Lines {
+    fn from(t: &str) -> Lines {
         let b = t.as_bytes();
         let mut starts = vec![0];
         let mut i = 0;
@@ -407,7 +407,7 @@ impl Constructor {
                             let d = &imports[a];
                             let mut offset = d.end;
                             // Comments on the same line after the previous one.
-                            let lines = Lines::de(source);
+                            let lines = Lines::from(source);
                             let line = lines.number(offset);
                             for c in dartforge_frontend::comentarios::Comentarios::de(source).todos() {
                                 if c.start >= d.end && lines.number(c.start) == line && source[d.end..c.start].trim().is_empty() {
@@ -623,7 +623,7 @@ fn file_header(source: &str) -> Option<(usize, usize)> {
     if !lexeme.starts_with("//") {
         return None;
     }
-    let lines = Lines::de(source);
+    let lines = Lines::from(source);
     let mut end = c0.end;
     let mut previous_line = lines.number(c0.start);
     for c in comments.iter().skip(1) {
@@ -736,7 +736,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
     let target_import = path_uri(&target_path);
     let tx = Text::new(cx.source);
     let eol = tx.eol();
-    let lines = Lines::de(cx.source);
+    let lines = Lines::from(cx.source);
     // Does the destination exist (on disk or open)?
     let target_unit = p.uri_unit(&target_uri);
     let target_text: Option<String> = match target_unit {
@@ -756,13 +756,13 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
         line_before = true;
     }
     // The group's range.
-    let nos: Vec<usize> = members
+    let nodes: Vec<usize> = members
         .iter()
         .filter_map(|(d, _)| cx.tree.nos.iter().position(|k| k.marca == crate::arvore_analyzer::Marca::Decl(*d) || top_function(cx, k.marca, *d)))
         .collect();
     let range = |with_previous_line: bool| -> (usize, usize) {
-        let first = nos.first().copied().unwrap_or(0);
-        let last = nos.last().copied().unwrap_or(0);
+        let first = nodes.first().copied().unwrap_or(0);
+        let last = nodes.last().copied().unwrap_or(0);
         let mut start = cx.tree.nos[first].inicio;
         if with_previous_line {
             let initial_line = lines.number(start);
@@ -1102,7 +1102,7 @@ fn used_prefixes(cx: &Context<'_>, el: Element) -> Vec<(LibraryId, Vec<String>)>
     let p = cx.p;
     let prog = p.program();
     let mut v: Vec<(LibraryId, Vec<String>)> = Vec::new();
-    let mut por = |b: LibraryId, pf: String| {
+    let mut by = |b: LibraryId, pf: String| {
         let i = match v.iter().position(|(x, _)| *x == b) {
             Some(i) => i,
             None => {
@@ -1138,7 +1138,7 @@ fn used_prefixes(cx: &Context<'_>, el: Element) -> Vec<(LibraryId, Vec<String>)>
                     },
                     _ => String::new(),
                 };
-                por(b, pf);
+                by(b, pf);
             }
             for t in ast.types.iter() {
                 let ast::TypeKind::Named { name, .. } = &t.kind else { continue };
@@ -1148,7 +1148,7 @@ fn used_prefixes(cx: &Context<'_>, el: Element) -> Vec<(LibraryId, Vec<String>)>
                     _ => (None, String::new()),
                 };
                 if found == Some(el) {
-                    por(b, pf);
+                    by(b, pf);
                 }
             }
         }

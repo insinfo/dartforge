@@ -148,11 +148,11 @@ impl Context<'_> {
 
     /// `DestructureLocalVariableAssignment`.
     pub(crate) fn destructure_local(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        if self.kind(no) != "VariableDeclaration" {
+        let node = self.tree.localizar(start, end)?;
+        if self.kind(node) != "VariableDeclaration" {
             return None;
         }
-        let name = self.next_token(self.tree.nos[no].inicio)?;
+        let name = self.next_token(self.tree.nos[node].inicio)?;
         // `declaredElement2`: only a local.
         let ty = *self.bodies.tipos_de_locais.get(&name.start)?;
         let table = &self.p.query.table;
@@ -165,7 +165,7 @@ impl Context<'_> {
         };
         match table.get(ty) {
             Type::Record { positional, named, .. } => {
-                let mut excluded = self.names_in_scope(no, self.tree.nos[no].inicio);
+                let mut excluded = self.names_in_scope(node, self.tree.nos[node].inicio);
                 let mut variables: Vec<String> = Vec::new();
                 for i in 1..=positional.len() {
                     let mut name_v = format!("${i}");
@@ -210,12 +210,12 @@ impl Context<'_> {
                 Some(a)
             }
             Type::Interface { class, .. } => {
-                let body = self.with_parents(no).find(|&k| matches!(self.kind(k), "BlockFunctionBody" | "ExpressionFunctionBody"))?;
+                let body = self.with_parents(node).find(|&k| matches!(self.kind(k), "BlockFunctionBody" | "ExpressionFunctionBody"))?;
                 let reads = self.local_reads(body, name.start);
                 if reads.iter().any(Option::is_none) {
                     return None;
                 }
-                let in_scope = self.names_in_scope(no, self.tree.nos[no].inicio);
+                let in_scope = self.names_in_scope(node, self.tree.nos[node].inicio);
                 // The properties, in the order of their first read.
                 let mut properties: Vec<(String, Vec<usize>)> = Vec::new();
                 for (p, access) in reads.into_iter().flatten() {
@@ -226,7 +226,7 @@ impl Context<'_> {
                 }
                 let mut fields: Vec<(String, String, Vec<usize>)> = Vec::new();
                 for (p, accesses) in properties {
-                    let mut excluded = self.local_conflicts(self.tree.nos[no].inicio);
+                    let mut excluded = self.local_conflicts(self.tree.nos[node].inicio);
                     excluded.extend(in_scope.iter().cloned());
                     for &a in &accesses {
                         // `inSetterContext`.

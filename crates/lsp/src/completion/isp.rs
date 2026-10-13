@@ -283,11 +283,11 @@ pub(super) fn run(
     let request_prefix = isp.request_prefix(&target);
     let matcher_prefix = isp.matcher_prefix();
     let in_constant_context = isp.request_in_constant_context(&target);
-    let context = isp.context_type_in(target.no, offset);
+    let context = isp.context_type_in(target.node, offset);
     isp.context_type = context;
     isp.matcher = (!matcher_prefix.is_empty()).then(|| crate::fuzzy_matcher::Matcher::new(&matcher_prefix, crate::fuzzy_matcher::Style::Text));
-    if let Some(no) = isp.completion_node() {
-        isp.visit(no);
+    if let Some(node) = isp.completion_node() {
+        isp.visit(node);
     }
     // The `NotImportedCompletionPass`: the registered operations, over each
     // candidate library (the loaded ones through the elements; the others
@@ -439,8 +439,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `elementBefore(offset)`: the last one with `end <= offset`.
-    pub(super) fn element_before(&self, nos: &[usize]) -> Option<usize> {
-        nos.iter().copied().filter(|&k| self.end(k) <= self.offset).last()
+    pub(super) fn element_before(&self, nodes: &[usize]) -> Option<usize> {
+        nodes.iter().copied().filter(|&k| self.end(k) <= self.offset).last()
     }
 
     // -- Tokens ------------------------------------------------------------------
@@ -494,10 +494,10 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.toks.get(i).is_some_and(|t| t.kind == Kind::Op(op))
     }
 
-    /// The first `op` token in `[de, until)`, outside parentheses and brackets
-    /// opened after `de`.
-    pub(super) fn op_in(&self, op: Op, de: usize, until: usize) -> Option<usize> {
-        let mut i = self.tok_since(de);
+    /// The first `op` token in `[from, until)`, outside parentheses and brackets
+    /// opened after `from`.
+    pub(super) fn op_in(&self, op: Op, from: usize, until: usize) -> Option<usize> {
+        let mut i = self.tok_since(from);
         let mut bottom = 0i32;
         while let Some(t) = self.toks.get(i) {
             if t.span.start >= until || t.kind == Kind::Eof {
@@ -516,9 +516,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// The first token with the text in `[de, until)` (at the outer level).
-    pub(super) fn word_in(&self, text: &str, de: usize, until: usize) -> Option<usize> {
-        let mut i = self.tok_since(de);
+    /// The first token with the text in `[from, until)` (at the outer level).
+    pub(super) fn word_in(&self, text: &str, from: usize, until: usize) -> Option<usize> {
+        let mut i = self.tok_since(from);
         let mut bottom = 0i32;
         while let Some(t) = self.toks.get(i) {
             if t.span.start >= until || t.kind == Kind::Eof {
@@ -930,7 +930,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// The `ast::CollectionElement`.
     pub(super) fn real_element(&self, n: usize) -> Option<&'a ast::CollectionElement> {
         let Ligacao::Elemento(end) = self.link(n) else { return None };
-        fn em<'x>(els: &'x [ast::CollectionElement], end: usize) -> Option<&'x ast::CollectionElement> {
+        fn at<'x>(els: &'x [ast::CollectionElement], end: usize) -> Option<&'x ast::CollectionElement> {
             for el in els {
                 if crate::arvore_analyzer::endereco(el) == end {
                     return Some(el);
@@ -941,7 +941,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     _ => Vec::new(),
                 };
                 for d in inside {
-                    if let Some(x) = em(std::slice::from_ref(d), end) {
+                    if let Some(x) = at(std::slice::from_ref(d), end) {
                         return Some(x);
                     }
                 }
@@ -950,7 +950,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         for e in self.a.exprs.iter() {
             if let ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } = &e.kind
-                && let Some(x) = em(elements, end)
+                && let Some(x) = at(elements, end)
             {
                 return Some(x);
             }

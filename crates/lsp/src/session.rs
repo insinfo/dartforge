@@ -163,8 +163,8 @@ impl Session {
         let Some((key, project)) = self.entry.as_mut() else { return true };
         let Some(text) = text else { return false };
         let new = open(documents);
-        let sem = |l: &[(String, i32, usize)]| l.iter().filter(|a| a.0 != uri).cloned().collect::<Vec<_>>();
-        if sem(&new) != sem(&key.open) {
+        let without = |l: &[(String, i32, usize)]| l.iter().filter(|a| a.0 != uri).cloned().collect::<Vec<_>>();
+        if without(&new) != without(&key.open) {
             return false;
         }
         let Some(u) = project.uri_unit(uri) else { return false };

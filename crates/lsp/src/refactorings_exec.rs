@@ -343,16 +343,16 @@ impl Context<'_> {
 
     /// The text of a node.
     pub(crate) fn node_text(&self, n: usize) -> &str {
-        let no = &self.tree.nos[n];
-        &self.source[no.inicio..no.fim]
+        let node = &self.tree.nos[n];
+        &self.source[node.inicio..node.fim]
     }
 
     /// The parser tree expression of the node: that of a `SimpleIdentifier`'s
     /// mark, otherwise the outermost one with the same range (parents enter the
     /// arena after their children).
     pub(crate) fn node_expr(&self, n: usize) -> Option<ExprId> {
-        let no = &self.tree.nos[n];
-        if let crate::arvore_analyzer::Marca::Expr(x) = no.marca
+        let node = &self.tree.nos[n];
+        if let crate::arvore_analyzer::Marca::Expr(x) = node.marca
             && self.kind(n) == "SimpleIdentifier"
         {
             return Some(x);
@@ -361,7 +361,7 @@ impl Context<'_> {
             .exprs
             .iter()
             .enumerate()
-            .filter(|(_, e)| e.span.start == no.inicio && e.span.end == no.fim)
+            .filter(|(_, e)| e.span.start == node.inicio && e.span.end == node.fim)
             .map(|(i, _)| ExprId(i as u32))
             .max_by_key(|x| x.0)
     }
@@ -612,9 +612,9 @@ impl Context<'_> {
                 let cn = *self.children(n).iter().find(|&&k| self.kind(k) == "ConstructorName")?;
                 let ty = *self.children(cn).first()?;
                 // The name of the `NamedType` (after the import prefix).
-                let no = &self.tree.nos[ty];
-                let start = self.children(ty).iter().find(|&&k| self.kind(k) == "ImportPrefixReference").map_or(no.inicio, |&k| self.tree.nos[k].fim);
-                let rest = &self.source[start..no.fim];
+                let node = &self.tree.nos[ty];
+                let start = self.children(ty).iter().find(|&&k| self.kind(k) == "ImportPrefixReference").map_or(node.inicio, |&k| self.tree.nos[k].fim);
+                let rest = &self.source[start..node.fim];
                 let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
                 return Some(rest[..end].trim().to_string());
             }
@@ -735,8 +735,8 @@ fn extract_widget(cx: &Context<'_>, request: &RefactoringRequest) -> Refactoring
         return e;
     }
     let end = request.offset + request.length;
-    let no = cx.tree.localizar(request.offset, end);
-    let message = match no.map(|n| cx.kind(n)) {
+    let node = cx.tree.localizar(request.offset, end);
+    let message = match node.map(|n| cx.kind(n)) {
         Some("Block") => "The last selected statement must return a widget.",
         _ => "Can only extract a widget expression or a method returning widget.",
     };
@@ -796,8 +796,8 @@ impl Context<'_> {
                 "NamedType" => {
                     let has_prefix = self.children(k).iter().any(|&f| self.kind(f) == "ImportPrefixReference");
                     if !has_prefix {
-                        let no = &self.tree.nos[k];
-                        let rest = &self.source[no.inicio..no.fim];
+                        let node = &self.tree.nos[k];
+                        let rest = &self.source[node.inicio..node.fim];
                         let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
                         names.insert(rest[..end].to_string());
                     }
@@ -808,8 +808,8 @@ impl Context<'_> {
                     }
                 }
                 "VariableDeclaration" => {
-                    let no = &self.tree.nos[k];
-                    let rest = &self.source[no.inicio..no.fim];
+                    let node = &self.tree.nos[k];
+                    let rest = &self.source[node.inicio..node.fim];
                     let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
                     names.insert(rest[..end].to_string());
                 }
@@ -850,11 +850,11 @@ impl Context<'_> {
     /// `TypedLiteral.isConst`/`InstanceCreationExpression.isConst`: a written
     /// `const`, or (without a keyword) the constant context.
     fn constant(&self, n: usize) -> bool {
-        let no = &self.tree.nos[n];
-        if self.source[no.inicio..no.fim].starts_with("const") && !self.source[no.inicio + 5..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+        let node = &self.tree.nos[n];
+        if self.source[node.inicio..node.fim].starts_with("const") && !self.source[node.inicio + 5..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
             return true;
         }
-        if self.source[no.inicio..no.fim].starts_with("new") && !self.source[no.inicio + 3..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+        if self.source[node.inicio..node.fim].starts_with("new") && !self.source[node.inicio + 3..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
             return false;
         }
         let Some(x) = self.node_expr(n) else { return false };
@@ -1010,8 +1010,8 @@ fn inline_local(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> Re
             return Err(State::fatal(message));
         }
         let name = {
-            let no = &cx.tree.nos[vd];
-            let rest = &cx.source[no.inicio..no.fim];
+            let node = &cx.tree.nos[vd];
+            let rest = &cx.source[node.inicio..node.fim];
             let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
             rest[..end].to_string()
         };
@@ -1310,9 +1310,9 @@ fn getter_to_method(cx: &Context<'_>, request: &RefactoringRequest, command: &st
         } else {
             match p.function_member(g) {
                 Target::Member { owner, name, is_static } => match p.family(owner, &name, is_static, false) {
-                    Ok(fam) => {
+                    Ok(family) => {
                         let mut v: Vec<FunctionElementId> =
-                            fam.functions.into_iter().filter(|&x| p.program().function(x).kind == FunctionKind::Getter).collect();
+                            family.functions.into_iter().filter(|&x| p.program().function(x).kind == FunctionKind::Getter).collect();
                         v.sort_by_key(|x| x.0);
                         v
                     }
@@ -1364,8 +1364,8 @@ fn method_to_getter(cx: &Context<'_>, request: &RefactoringRequest, command: &st
             Elem::Function(f) if cx.is_function(e) => vec![f],
             Elem::Function(f) => match p.function_member(f) {
                 Target::Member { owner, name, is_static } => match p.family(owner, &name, is_static, false) {
-                    Ok(fam) => {
-                        let mut v: Vec<FunctionElementId> = fam
+                    Ok(family) => {
+                        let mut v: Vec<FunctionElementId> = family
                             .functions
                             .into_iter()
                             .filter(|&x| matches!(p.program().function(x).kind, FunctionKind::Function | FunctionKind::Operator))

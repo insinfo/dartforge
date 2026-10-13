@@ -425,15 +425,15 @@ pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContex
     let candidate = |t: &dartforge_frontend::token::Token| offset < t.span.end || (offset == t.span.end && (word(t) || t.span.start == t.span.end));
     let (mut cont, mut entity) = (0usize, Entity::None);
     'external: loop {
-        let no = &tree.nos[cont];
+        let node = &tree.nos[cont];
         // The entities: the children and the tokens outside them, in order.
-        let mut ents: Vec<(usize, Entity)> = no.filhos.iter().map(|&f| (tree.nos[f].inicio, Entity::No(f))).collect();
-        let (start, end) = if cont == 0 { (0, text.len()) } else { (no.inicio, no.fim) };
+        let mut ents: Vec<(usize, Entity)> = node.filhos.iter().map(|&f| (tree.nos[f].inicio, Entity::No(f))).collect();
+        let (start, end) = if cont == 0 { (0, text.len()) } else { (node.inicio, node.fim) };
         for (k, t) in tokens.iter().enumerate() {
             if t.span.start < start || t.span.end > end {
                 continue;
             }
-            if no.filhos.iter().any(|&f| tree.nos[f].inicio <= t.span.start && t.span.end <= tree.nos[f].fim) {
+            if node.filhos.iter().any(|&f| tree.nos[f].inicio <= t.span.start && t.span.end <= tree.nos[f].fim) {
                 continue;
             }
             ents.push((t.span.start, Entity::Token(k)));

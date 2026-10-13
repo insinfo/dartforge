@@ -738,8 +738,8 @@ impl Project {
             let Some(d) = p.class(c).decl else { continue };
             let Some((u, selection)) = self.top_element_name(Element::Class(c)) else { continue };
             let cx = trees.entry(d.unit).or_insert_with(|| Context::new(self, d.unit));
-            let Some(no) = cx.tree.nos.iter().position(|n| matches!(n.marca, Marca::Decl(x) if x == d.decl)) else { continue };
-            let range = cx.tree.span(no);
+            let Some(node) = cx.tree.nos.iter().position(|n| matches!(n.marca, Marca::Decl(x) if x == d.decl)) else { continue };
+            let range = cx.tree.span(node);
             let (Some(uri), Some(reference)) = (self.unit_uri(u), self.class_reference(c)) else { continue };
             output.push(crate::TypeItem {
                 name: self.query.table.format_sem_alias(ty, &self.query.names, &self.query.program),

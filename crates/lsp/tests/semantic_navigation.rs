@@ -156,7 +156,7 @@ fn definition_by_shape() {
     p.open("lib/uso.dart", USE);
     let model = p.uri("lib/modelo.dart");
     let usage = p.uri("lib/uso.dart");
-    let em = |t: &str, a: &str, n: usize| {
+    let at = |t: &str, a: &str, n: usize| {
         let (l, c) = location(t, a, n);
         start(l, c)
     };
@@ -193,16 +193,16 @@ fn definition_by_shape() {
             (&usage, USE)
         };
         assert_eq!(&uri, expected_uri, "{needle}");
-        assert_eq!(pos, em(text, target, dn), "{needle}");
+        assert_eq!(pos, at(text, target, dn), "{needle}");
     }
     // From the model: type parameter and documentation reference.
     p.open("lib/modelo.dart", MODEL);
     let (uri, pos) = definition(&mut p, "lib/modelo.dart", MODEL, "T valor", 0);
-    assert_eq!((uri, pos), (model.clone(), em(MODEL, "T> extends", 0)));
+    assert_eq!((uri, pos), (model.clone(), at(MODEL, "T> extends", 0)));
     let (uri, pos) = definition(&mut p, "lib/modelo.dart", MODEL, "x].", 0);
-    assert_eq!((uri, pos), (model.clone(), em(MODEL, "x, {int y", 0)));
+    assert_eq!((uri, pos), (model.clone(), at(MODEL, "x, {int y", 0)));
     let (uri, pos) = definition(&mut p, "lib/modelo.dart", MODEL, "T].", 0);
-    assert_eq!((uri, pos), (model.clone(), em(MODEL, "T> extends", 0)));
+    assert_eq!((uri, pos), (model.clone(), at(MODEL, "T> extends", 0)));
     // SDK element: the SDK file.
     let (uri, _) = definition(&mut p, "lib/uso.dart", USE, "print(n", 0);
     assert!(uri.ends_with("sdk/lib/core/core.dart"), "{uri}");
@@ -399,8 +399,8 @@ fn references_without_false_positives_from_shadow_homonym_and_library() {
     ];
     assert_eq!(refs, expected);
     // Without the declaration.
-    let sem = references(&mut p, "lib/a.dart", a, "f()", 0, false);
-    assert_eq!(sem, expected[..expected.len() - 1].to_vec());
+    let without = references(&mut p, "lib/a.dart", a, "f()", 0, false);
+    assert_eq!(without, expected[..expected.len() - 1].to_vec());
     // Starting from a use in a closed file gives the same set.
     p.open("lib/b.dart", b);
     assert_eq!(

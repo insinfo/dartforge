@@ -21,37 +21,37 @@ pub struct Feature {
     pub methods: &'static [&'static str],
     /// Only Dart files (the rest applies to `fullySupportedTypes`, which without
     /// plugins is the same selector).
-    pub so_dart: bool,
+    pub dart_only: bool,
 }
 
 /// The features the server announces that can be dynamic.
 pub const FEATURES: &[Feature] = &[
-    Feature { client: "synchronization", static_: "textDocumentSync", methods: &["textDocument/didOpen", "textDocument/didClose", "textDocument/didChange"], so_dart: false },
-    Feature { client: "completion", static_: "completionProvider", methods: &["textDocument/completion"], so_dart: false },
-    Feature { client: "hover", static_: "hoverProvider", methods: &["textDocument/hover"], so_dart: false },
-    Feature { client: "definition", static_: "definitionProvider", methods: &["textDocument/definition"], so_dart: false },
-    Feature { client: "implementation", static_: "implementationProvider", methods: &["textDocument/implementation"], so_dart: false },
-    Feature { client: "references", static_: "referencesProvider", methods: &["textDocument/references"], so_dart: false },
-    Feature { client: "documentHighlight", static_: "documentHighlightProvider", methods: &["textDocument/documentHighlight"], so_dart: false },
-    Feature { client: "documentSymbol", static_: "documentSymbolProvider", methods: &["textDocument/documentSymbol"], so_dart: false },
-    Feature { client: "foldingRange", static_: "foldingRangeProvider", methods: &["textDocument/foldingRange"], so_dart: false },
+    Feature { client: "synchronization", static_: "textDocumentSync", methods: &["textDocument/didOpen", "textDocument/didClose", "textDocument/didChange"], dart_only: false },
+    Feature { client: "completion", static_: "completionProvider", methods: &["textDocument/completion"], dart_only: false },
+    Feature { client: "hover", static_: "hoverProvider", methods: &["textDocument/hover"], dart_only: false },
+    Feature { client: "definition", static_: "definitionProvider", methods: &["textDocument/definition"], dart_only: false },
+    Feature { client: "implementation", static_: "implementationProvider", methods: &["textDocument/implementation"], dart_only: false },
+    Feature { client: "references", static_: "referencesProvider", methods: &["textDocument/references"], dart_only: false },
+    Feature { client: "documentHighlight", static_: "documentHighlightProvider", methods: &["textDocument/documentHighlight"], dart_only: false },
+    Feature { client: "documentSymbol", static_: "documentSymbolProvider", methods: &["textDocument/documentSymbol"], dart_only: false },
+    Feature { client: "foldingRange", static_: "foldingRangeProvider", methods: &["textDocument/foldingRange"], dart_only: false },
     // Formatting (`handler_format_on_type.dart`, `handler_format_range.dart`,
     // `handler_formatting.dart`), in the order of `allFeatures`.
-    Feature { client: "onTypeFormatting", static_: "documentOnTypeFormattingProvider", methods: &["textDocument/onTypeFormatting"], so_dart: true },
-    Feature { client: "rangeFormatting", static_: "documentRangeFormattingProvider", methods: &["textDocument/rangeFormatting"], so_dart: true },
-    Feature { client: "formatting", static_: "documentFormattingProvider", methods: &["textDocument/formatting"], so_dart: false },
-    Feature { client: "signatureHelp", static_: "signatureHelpProvider", methods: &["textDocument/signatureHelp"], so_dart: false },
-    Feature { client: "codeAction", static_: "codeActionProvider", methods: &["textDocument/codeAction"], so_dart: false },
-    Feature { client: "rename", static_: "renameProvider", methods: &["textDocument/rename"], so_dart: false },
-    Feature { client: "semanticTokens", static_: "semanticTokensProvider", methods: &["textDocument/semanticTokens"], so_dart: false },
-    Feature { client: "typeDefinition", static_: "typeDefinitionProvider", methods: &["textDocument/typeDefinition"], so_dart: true },
-    Feature { client: "selectionRange", static_: "selectionRangeProvider", methods: &["textDocument/selectionRange"], so_dart: true },
-    Feature { client: "callHierarchy", static_: "callHierarchyProvider", methods: &["textDocument/prepareCallHierarchy"], so_dart: true },
-    Feature { client: "typeHierarchy", static_: "typeHierarchyProvider", methods: &["textDocument/prepareTypeHierarchy"], so_dart: true },
-    Feature { client: "codeLens", static_: "codeLensProvider", methods: &["textDocument/codeLens"], so_dart: true },
-    Feature { client: "documentLink", static_: "documentLinkProvider", methods: &["textDocument/documentLink"], so_dart: true },
-    Feature { client: "inlayHint", static_: "inlayHintProvider", methods: &["textDocument/inlayHint"], so_dart: true },
-    Feature { client: "colorProvider", static_: "colorProvider", methods: &["textDocument/documentColor"], so_dart: true },
+    Feature { client: "onTypeFormatting", static_: "documentOnTypeFormattingProvider", methods: &["textDocument/onTypeFormatting"], dart_only: true },
+    Feature { client: "rangeFormatting", static_: "documentRangeFormattingProvider", methods: &["textDocument/rangeFormatting"], dart_only: true },
+    Feature { client: "formatting", static_: "documentFormattingProvider", methods: &["textDocument/formatting"], dart_only: false },
+    Feature { client: "signatureHelp", static_: "signatureHelpProvider", methods: &["textDocument/signatureHelp"], dart_only: false },
+    Feature { client: "codeAction", static_: "codeActionProvider", methods: &["textDocument/codeAction"], dart_only: false },
+    Feature { client: "rename", static_: "renameProvider", methods: &["textDocument/rename"], dart_only: false },
+    Feature { client: "semanticTokens", static_: "semanticTokensProvider", methods: &["textDocument/semanticTokens"], dart_only: false },
+    Feature { client: "typeDefinition", static_: "typeDefinitionProvider", methods: &["textDocument/typeDefinition"], dart_only: true },
+    Feature { client: "selectionRange", static_: "selectionRangeProvider", methods: &["textDocument/selectionRange"], dart_only: true },
+    Feature { client: "callHierarchy", static_: "callHierarchyProvider", methods: &["textDocument/prepareCallHierarchy"], dart_only: true },
+    Feature { client: "typeHierarchy", static_: "typeHierarchyProvider", methods: &["textDocument/prepareTypeHierarchy"], dart_only: true },
+    Feature { client: "codeLens", static_: "codeLensProvider", methods: &["textDocument/codeLens"], dart_only: true },
+    Feature { client: "documentLink", static_: "documentLinkProvider", methods: &["textDocument/documentLink"], dart_only: true },
+    Feature { client: "inlayHint", static_: "inlayHintProvider", methods: &["textDocument/inlayHint"], dart_only: true },
+    Feature { client: "colorProvider", static_: "colorProvider", methods: &["textDocument/documentColor"], dart_only: true },
 ];
 
 /// `dartFiles` (`constants.dart`): the Dart files.
@@ -119,7 +119,7 @@ pub fn records(statics: &Value, dynamic: &[&str], configuration: bool, rename_fi
         let Some(static_) = statics.get(f.static_) else { continue };
         let mut options = if static_.is_object() { static_.clone() } else { json!({}) };
         options["documentSelector"] = dart_selector();
-        let _ = f.so_dart;
+        let _ = f.dart_only;
         for m in f.methods {
             v.push((m.to_string(), options.clone()));
         }

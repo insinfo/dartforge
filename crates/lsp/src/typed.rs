@@ -4,7 +4,7 @@
 //! the syntactic diagnostics right away (parser + local checkers of
 //! `crates/analysis`) and asks this worker for the full analysis of the
 //! document's package. The analysis is **the same** as `dartforge analyze`'s:
-//! [`dartforge_parity::analise::Motor`] (load, outline, `crates/types`
+//! [`dartforge_parity::analysis::Motor`] (load, outline, `crates/types`
 //! inference and the `crates/analysis` checkers) followed by
 //! [`dartforge_parity::publicaveis`] (the publication rule of
 //! `verificados.txt`, `analysis_options.yaml` and `// ignore:`). No rule is

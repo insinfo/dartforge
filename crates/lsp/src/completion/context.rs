@@ -23,8 +23,8 @@ const NAMES_STRING: &[&str] = &["key", "text", "url", "uri", "name", "str", "str
 impl<'a, 'c> Isp<'a, 'c> {
     /// `computeContextType(node, offset)`: `null`/`dynamic` → none; otherwise
     /// `resolveToBound`.
-    pub(super) fn context_type_in(&mut self, no: usize, o: usize) -> Option<TypeId> {
-        let t = self.ctx(no, o)?;
+    pub(super) fn context_type_in(&mut self, node: usize, o: usize) -> Option<TypeId> {
+        let t = self.ctx(node, o)?;
         if matches!(self.query.table.get(t), Type::Dynamic) {
             return None;
         }
@@ -59,11 +59,11 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// The offset of a token (that of the next real token when it is missing).
-    fn pos_op(&self, op: Op, de: usize, until: usize) -> (usize, usize) {
-        match self.op_in(op, de, until) {
+    fn pos_op(&self, op: Op, from: usize, until: usize) -> (usize, usize) {
+        match self.op_in(op, from, until) {
             Some(i) => (self.span_tok(i).start, self.span_tok(i).end),
             None => {
-                let p = self.synthetic(de).start;
+                let p = self.synthetic(from).start;
                 (p, p)
             }
         }
@@ -278,8 +278,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     fn list_type(&self, list: usize) -> Option<TypeId> {
         let l = self.real_list(list)?;
         let t = l.ty?;
-        let no = self.children(list).iter().copied().find(|&k| self.link(k) == Ligacao::Tipo(t))?;
-        self.type_node_type(no)
+        let node = self.children(list).iter().copied().find(|&k| self.link(k) == Ligacao::Tipo(t))?;
+        self.type_node_type(node)
     }
 
     /// `visitVariableDeclaration` of a `VariableDeclaration`.
@@ -450,8 +450,8 @@ impl<'a, 'c> Isp<'a, 'c> {
                 if self.contains_it(l, o) { self.ctx(l, o) } else { None }
             }
             "ForEachPartsWithDeclaration" | "ForEachPartsWithIdentifier" | "ForEachPartsWithPattern" => {
-                let em = self.word_in("in", self.start(n), self.end(n))?;
-                if !(self.span_tok(em).end <= o && o <= self.end(n)) {
+                let at = self.word_in("in", self.start(n), self.end(n))?;
+                if !(self.span_tok(at).end <= o && o <= self.end(n)) {
                     return None;
                 }
                 let d = self.query.core.dynamic_;

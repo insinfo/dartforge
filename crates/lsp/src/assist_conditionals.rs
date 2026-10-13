@@ -20,8 +20,8 @@ impl Context<'_> {
     /// in the statement enclosing the selection node, `T v = c ? a : b;`,
     /// `v = c ? a : b;` or `return c ? a : b;` becomes an `if`/`else`.
     pub(crate) fn conditional_to_if_else(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let command = self.with_parents(no).find(|&k| self.is_command(k))?;
+        let node = self.tree.localizar(start, end)?;
+        let command = self.with_parents(node).find(|&k| self.is_command(k))?;
         let tx = Text::new(self.source);
         let eol = tx.eol();
         let prefix = self.node_prefix(command);
@@ -229,9 +229,9 @@ impl Context<'_> {
     /// `ConvertToNullAware` (convert_to_null_aware.dart): `x == null ? null :
     /// x.y` (or with `!=`) becomes `x?.y`.
     pub(crate) fn convert_to_null_aware(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let mut target = no;
-        if let Some(p) = self.parent(no)
+        let node = self.tree.localizar(start, end)?;
+        let mut target = node;
+        if let Some(p) = self.parent(node)
             && self.kind(p) == "BinaryExpression"
             && let Some(a) = self.parent(p)
             && self.kind(a) == "ConditionalExpression"

@@ -15,8 +15,8 @@ use dartforge_types::{Type, TypeId};
 
 impl Context<'_> {
     /// `getEnclosingFunctionBody` (correction_producer.dart:729-747).
-    pub(crate) fn enclosing_body(&self, no: usize) -> Option<usize> {
-        let ancestor = |kind: &str| self.with_parents(no).find(|&k| self.kind(k) == kind);
+    pub(crate) fn enclosing_body(&self, node: usize) -> Option<usize> {
+        let ancestor = |kind: &str| self.with_parents(node).find(|&k| self.kind(k) == kind);
         let body_of = |n: usize| self.children(n).iter().copied().rev().find(|&f| self.kind(f).ends_with("FunctionBody"));
         if let Some(f) = ancestor("FunctionExpression") {
             return body_of(f);
@@ -61,8 +61,8 @@ impl Context<'_> {
     /// `ConvertIntoAsyncBody` (convert_into_async_body.dart) with the
     /// `convertFunctionFromSyncToAsync` of `DartFileEditBuilder`.
     pub(crate) fn convert_to_async_body(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let body = self.enclosing_body(no)?;
+        let node = self.tree.localizar(start, end)?;
+        let body = self.enclosing_body(node)?;
         if self.kind(body) == "EmptyFunctionBody" {
             return None;
         }
@@ -177,9 +177,9 @@ impl Context<'_> {
     /// function without a return type (and not a setter), the type inferred from
     /// the body before the `operator`/`get` or the name.
     pub(crate) fn add_return_type(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let declaration = match self.kind(no) {
-            "MethodDeclaration" | "FunctionDeclaration" => no,
+        let node = self.tree.localizar(start, end)?;
+        let declaration = match self.kind(node) {
+            "MethodDeclaration" | "FunctionDeclaration" => node,
             _ => return None,
         };
         let Marca::Funcao(fid) = self.tree.nos[declaration].marca else { return None };

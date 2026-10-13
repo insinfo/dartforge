@@ -117,7 +117,7 @@ fn summarize(text: &str) -> Summary {
     let mut names = dartforge_intern::Interner::new();
     let a = dartforge_frontend::parser::parse(text, &mut names);
     let mut r = Summary::default();
-    let por = |n: Option<ast::Name>, kind: Kind, start: usize, without_parameters: bool, signature: Option<String>, r: &mut Summary| {
+    let by = |n: Option<ast::Name>, kind: Kind, start: usize, without_parameters: bool, signature: Option<String>, r: &mut Summary| {
         if let Some(n) = n {
             let s = names.resolve(n.sym).to_string();
             if !s.starts_with('_') && !r.declared.contains_key(&s) {
@@ -130,26 +130,26 @@ fn summarize(text: &str) -> Summary {
         let decl = a.ast.decl(d);
         let start = decl.span.start;
         match &decl.kind {
-            DeclKind::Class(c) => por(Some(c.name), Kind::Class, start, false, None, &mut r),
-            DeclKind::Mixin(m) => por(Some(m.name), Kind::Mixin, start, false, None, &mut r),
-            DeclKind::Enum(e) => por(Some(e.name), Kind::Enum, start, false, None, &mut r),
-            DeclKind::ExtensionType(e) => por(Some(e.name), Kind::ExtensionType, start, false, None, &mut r),
+            DeclKind::Class(c) => by(Some(c.name), Kind::Class, start, false, None, &mut r),
+            DeclKind::Mixin(m) => by(Some(m.name), Kind::Mixin, start, false, None, &mut r),
+            DeclKind::Enum(e) => by(Some(e.name), Kind::Enum, start, false, None, &mut r),
+            DeclKind::ExtensionType(e) => by(Some(e.name), Kind::ExtensionType, start, false, None, &mut r),
             DeclKind::Typedef(t) => {
                 let e = if matches!(t.kind, ast::TypedefKind::Legacy { .. }) { Kind::FunctionAlias } else { Kind::TypeAlias };
-                por(Some(t.name), e, start, false, None, &mut r)
+                by(Some(t.name), e, start, false, None, &mut r)
             }
-            DeclKind::Extension(x) => por(x.name, Kind::Extension, start, false, None, &mut r),
+            DeclKind::Extension(x) => by(x.name, Kind::Extension, start, false, None, &mut r),
             DeclKind::Function(f) => {
                 let func = a.ast.function(*f);
-                let (e, sem, signature) = match func.kind {
+                let (e, without, signature) = match func.kind {
                     ast::FunctionKind::Getter | ast::FunctionKind::Setter => (Kind::Variable, false, None),
                     _ => (Kind::Function, func.parameters.as_ref().is_none_or(|p| p.is_empty()), Some(written_signature(text, &a.ast, func))),
                 };
-                por(func.name, e, start, sem, signature, &mut r)
+                by(func.name, e, start, without, signature, &mut r)
             }
             DeclKind::Variables(vl) => {
                 for v in vl.variables.iter() {
-                    por(Some(v.name), Kind::Variable, start, false, None, &mut r);
+                    by(Some(v.name), Kind::Variable, start, false, None, &mut r);
                 }
             }
         }
@@ -199,7 +199,7 @@ pub(crate) struct Resolver<'a> {
 }
 
 impl Resolver<'_> {
-    pub(crate) fn path(&self, de: &Path, uri: &str) -> Option<PathBuf> {
+    pub(crate) fn path(&self, from: &Path, uri: &str) -> Option<PathBuf> {
         if let Some(name) = uri.strip_prefix("dart:") {
             return self.sdk?.libraries.get(name).map(|l| l.path.clone());
         }
@@ -209,7 +209,7 @@ impl Resolver<'_> {
         if uri.starts_with("file:") {
             return Url::parse(uri).ok()?.to_file_path().ok();
         }
-        Url::from_file_path(de).ok()?.join(uri).ok()?.to_file_path().ok()
+        Url::from_file_path(from).ok()?.join(uri).ok()?.to_file_path().ok()
     }
 }
 

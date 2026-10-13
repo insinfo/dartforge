@@ -88,7 +88,7 @@ impl Context<'_> {
 
     /// `_FieldFinder`: the fields assigned in the constructors (`this.x`, the
     /// `x = …` initializer and the writes).
-    fn fields_assigned_in_constructors(&self, class: ClassId, members: &[ast::MemberId], nos: &[usize]) -> HashSet<VariableId> {
+    fn fields_assigned_in_constructors(&self, class: ClassId, members: &[ast::MemberId], nodes: &[usize]) -> HashSet<VariableId> {
         let p = self.p.program();
         let name_field = |name_: &str| p.class(class).fields.iter().copied().find(|&v| self.p.name(p.variable(v).name) == name_);
         let mut output = HashSet::new();
@@ -110,12 +110,12 @@ impl Context<'_> {
                 }
             }
             // The writes in the body (`inSetterContext`).
-            let (a, b) = (self.tree.nos[nos[i]].inicio, self.tree.nos[nos[i]].fim);
-            for no in self.tree.nos.iter() {
-                if no.especie == "SimpleIdentifier"
-                    && no.inicio >= a
-                    && no.fim <= b
-                    && let Marca::Expr(x) = no.marca
+            let (a, b) = (self.tree.nos[nodes[i]].inicio, self.tree.nos[nodes[i]].fim);
+            for node in self.tree.nos.iter() {
+                if node.especie == "SimpleIdentifier"
+                    && node.inicio >= a
+                    && node.fim <= b
+                    && let Marca::Expr(x) = node.marca
                     && self.writes.contains(&x)
                 {
                     match self.bodies.get_resolved(x) {
@@ -139,8 +139,8 @@ impl Context<'_> {
 
     /// `FlutterConvertToStatefulWidget`.
     pub(crate) fn flutter_to_stateful(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let class_node = self.with_parents(no).find(|&k| self.kind(k) == "ClassDeclaration")?;
+        let node = self.tree.localizar(start, end)?;
+        let class_node = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
         let Marca::Decl(d) = self.tree.nos[class_node].marca else { return None };
         let DeclKind::Class(k) = &self.ast.decl(d).kind else { return None };
         let extends = k.extends?;
@@ -157,7 +157,7 @@ impl Context<'_> {
         if !self.flutter_exactly(*sc, "StatelessWidget", URI_FRAMEWORK) {
             return None;
         }
-        let nos = self.member_nodes(class_node, &k.members)?;
+        let nodes = self.member_nodes(class_node, &k.members)?;
         // `_findBuildMethod`.
         let build = k.members.iter().position(|&m| match self.ast.member(m).kind {
             MemberKind::Method(fid) => {
@@ -168,7 +168,7 @@ impl Context<'_> {
         })?;
         let widget_name = self.p.name(k.name.sym).to_string();
         let name_state = if widget_name.starts_with('_') { format!("{widget_name}State") } else { format!("_{widget_name}State") };
-        let assigned = self.fields_assigned_in_constructors(class, &k.members, &nos);
+        let assigned = self.fields_assigned_in_constructors(class, &k.members, &nodes);
         // The members to move and their elements.
         let mut to_move: Vec<usize> = Vec::new();
         let mut moved: HashSet<Executable> = HashSet::new();
@@ -221,7 +221,7 @@ impl Context<'_> {
         let mut has_build = false;
         let mut last_removed_field = false;
         let mut last_kept_end = 0usize;
-        for (i, &n) in nos.iter().enumerate() {
+        for (i, &n) in nodes.iter().enumerate() {
             if to_move.contains(&i) {
                 if start_swap == 0 {
                     let start_ = self.comments_before(Span { start: self.tree.nos[n].inicio, end: self.tree.nos[n].inicio }).first().map_or(self.tree.nos[n].inicio, |c| c.start);
@@ -273,10 +273,10 @@ impl Context<'_> {
             if !first {
                 s.push_str(eol);
             }
-            let n = nos[i];
+            let n = nodes[i];
             if let Some(c) = self.comments_before(Span { start: self.tree.nos[n].inicio, end: self.tree.nos[n].inicio }).first() {
-                let de = tx.content_start(c.start);
-                s.push_str(&self.source[de..c.end]);
+                let from = tx.content_start(c.start);
+                s.push_str(&self.source[from..c.end]);
                 s.push_str(eol);
             }
             s.push_str(&self.rewrite_to_state(n, class, &moved, &raw_name));
@@ -306,20 +306,20 @@ impl Context<'_> {
         let lines = tx.line_range(self.tree.nos[n].inicio, self.tree.nos[n].fim);
         let mut edits: Vec<(usize, usize, String)> = Vec::new();
         let (a, b) = (self.tree.nos[n].inicio, self.tree.nos[n].fim);
-        for (k, no) in self.tree.nos.iter().enumerate() {
-            if no.especie != "SimpleIdentifier" || no.inicio < a || no.fim > b {
+        for (k, node) in self.tree.nos.iter().enumerate() {
+            if node.especie != "SimpleIdentifier" || node.inicio < a || node.fim > b {
                 continue;
             }
             let Some((e, owner, is_static)) = self.identifier_executable(k) else { continue };
             if owner != Some(class) || moved.contains(&e) {
                 continue;
             }
-            let o = no.inicio - lines.start;
+            let o = node.inicio - lines.start;
             let qualifier = if is_static { class_name_ } else { "widget" };
-            let interpolated = self.parent(k).is_some_and(|p| self.kind(p) == "InterpolationExpression") && no.inicio > 0 && self.source.as_bytes()[no.inicio - 1] == b'$';
+            let interpolated = self.parent(k).is_some_and(|p| self.kind(p) == "InterpolationExpression") && node.inicio > 0 && self.source.as_bytes()[node.inicio - 1] == b'$';
             if interpolated {
                 edits.push((o, 0, format!("{{{qualifier}.")));
-                edits.push((o + (no.fim - no.inicio), 0, "}".to_string()));
+                edits.push((o + (node.fim - node.inicio), 0, "}".to_string()));
             } else {
                 edits.push((o, 0, format!("{qualifier}.")));
             }
@@ -369,8 +369,8 @@ impl Context<'_> {
 
     /// `FlutterConvertToStatelessWidget`.
     pub(crate) fn flutter_to_stateless(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let class_node = self.with_parents(no).find(|&k| self.kind(k) == "ClassDeclaration")?;
+        let node = self.tree.localizar(start, end)?;
+        let class_node = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
         let Marca::Decl(d) = self.tree.nos[class_node].marca else { return None };
         let DeclKind::Class(k) = &self.ast.decl(d).kind else { return None };
         let extends = k.extends?;
@@ -483,8 +483,8 @@ impl Context<'_> {
         let mut s = String::new();
         for (i, &n) in to_move.iter().enumerate() {
             if let Some(c) = self.comments_before(Span { start: self.tree.nos[n].inicio, end: self.tree.nos[n].inicio }).first() {
-                let de = tx.content_start(c.start);
-                s.push_str(&self.source[de..c.end]);
+                let from = tx.content_start(c.start);
+                s.push_str(&self.source[from..c.end]);
                 s.push_str(eol);
             }
             s.push_str(&self.rewrite_to_widget(n, widget));
@@ -523,9 +523,9 @@ impl Context<'_> {
         let p = self.p.program();
         let (a, b) = (self.tree.nos[n].inicio, self.tree.nos[n].fim);
         let mut v = Vec::new();
-        for no in self.tree.nos.iter() {
-            if no.especie == "SimpleIdentifier" && no.inicio >= a && no.fim <= b
-                && let Marca::Expr(x) = no.marca
+        for node in self.tree.nos.iter() {
+            if node.especie == "SimpleIdentifier" && node.inicio >= a && node.fim <= b
+                && let Marca::Expr(x) = node.marca
                 && self.writes.contains(&x)
             {
                 match self.bodies.get_resolved(x) {
@@ -543,8 +543,8 @@ impl Context<'_> {
     fn can_be_stateless(&self, method: usize) -> bool {
         let p = self.p.program();
         let (a, b) = (self.tree.nos[method].inicio, self.tree.nos[method].fim);
-        for (n, no) in self.tree.nos.iter().enumerate() {
-            if no.especie != "MethodInvocation" || no.inicio < a || no.fim > b {
+        for (n, node) in self.tree.nos.iter().enumerate() {
+            if node.especie != "MethodInvocation" || node.inicio < a || node.fim > b {
                 continue;
             }
             let Some(name) = self.method_name(n) else { continue };
@@ -563,8 +563,8 @@ impl Context<'_> {
     /// `_StateUsageVisitor`: the `State` class created outside the widget's
     /// `createState`, or a `createState()` call.
     fn used_state(&self, widget: ClassId, state: ClassId) -> bool {
-        for (n, no) in self.tree.nos.iter().enumerate() {
-            match no.especie {
+        for (n, node) in self.tree.nos.iter().enumerate() {
+            match node.especie {
                 "InstanceCreationExpression" => {
                     let Some(t) = self.flutter_node_type(n) else { continue };
                     if self.flutter_type_class(t) != Some(state) {
@@ -606,8 +606,8 @@ impl Context<'_> {
         let base = lines.start;
         let mut edits: Vec<(usize, usize, String)> = Vec::new();
         let (a, b) = (self.tree.nos[n].inicio, self.tree.nos[n].fim);
-        for (k, no) in self.tree.nos.iter().enumerate() {
-            if no.especie != "SimpleIdentifier" || no.inicio < a || no.fim > b {
+        for (k, node) in self.tree.nos.iter().enumerate() {
+            if node.especie != "SimpleIdentifier" || node.inicio < a || node.fim > b {
                 continue;
             }
             let Some((_, owner, _)) = self.identifier_executable(k) else { continue };
@@ -641,7 +641,7 @@ impl Context<'_> {
                 "MethodInvocation" | "PropertyAccess" if self.children(parent).len() > 1 && self.children(parent).first() != Some(&k) => {
                     let target = *self.children(parent).first().unwrap();
                     let start = self.tree.nos[target].inicio;
-                    let operator = self.previous_token(no.inicio).map_or(no.inicio, |t| t.end);
+                    let operator = self.previous_token(node.inicio).map_or(node.inicio, |t| t.end);
                     edits.push((start - base, operator - start, String::new()));
                 }
                 _ => {}

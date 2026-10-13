@@ -120,9 +120,9 @@ pub(crate) fn generated(uri: &str) -> bool {
 /// `utils.getLinesRange`: the whole lines containing `start..end`, with the
 /// last one's line break.
 fn whole_lines(text: &str, start: usize, end: usize) -> (usize, usize) {
-    let de = text[..start].rfind('\n').map_or(0, |i| i + 1);
+    let from = text[..start].rfind('\n').map_or(0, |i| i + 1);
     let until = text[end..].find('\n').map_or(text.len(), |i| end + i + 1);
-    (de, until)
+    (from, until)
 }
 
 /// Phase B without the sorting lint: one removal (`RemoveUnusedImport`) per
@@ -151,8 +151,8 @@ pub(crate) fn remove_imports(text: &str, unit: &CompilationUnit, diagnostics: &[
         if let Some(d) = directive
             && d.span.end <= text.len()
         {
-            let (de, until) = whole_lines(text, d.span.start, d.span.end);
-            output.push((de, until - de, String::new()));
+            let (from, until) = whole_lines(text, d.span.start, d.span.end);
+            output.push((from, until - from, String::new()));
         }
     }
     output

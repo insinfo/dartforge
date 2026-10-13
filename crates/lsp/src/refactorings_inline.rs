@@ -44,7 +44,7 @@ struct Method<'c, 'p> {
     /// The tree of the declaration's unit.
     cxm: &'c Context<'p>,
     element: Elem,
-    no: usize,
+    node: usize,
     parameters: Option<usize>,
     expression: Option<usize>,
     expression_part: Option<Part>,
@@ -82,7 +82,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
         context_m = Context::new(p, unit_m);
         &context_m
     };
-    let Some(no) = cxm
+    let Some(node) = cxm
         .tree
         .nos
         .iter()
@@ -99,10 +99,10 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
         return fail(State::fatal("Cannot inline a generator."));
     }
     // The parameters and the body.
-    let function_node = if cxm.kind(no) == "FunctionDeclaration" {
-        cxm.children(no).iter().copied().find(|&c| cxm.kind(c) == "FunctionExpression").unwrap_or(no)
+    let function_node = if cxm.kind(node) == "FunctionDeclaration" {
+        cxm.children(node).iter().copied().find(|&c| cxm.kind(c) == "FunctionExpression").unwrap_or(node)
     } else {
-        no
+        node
     };
     let parameters = cxm.children(function_node).iter().copied().find(|&c| cxm.kind(c) == "FormalParameterList");
     let body = cxm.children(function_node).iter().copied().find(|&c| matches!(cxm.kind(c), "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"));
@@ -124,7 +124,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
     let mut m = Method {
         cxm,
         element: e,
-        no,
+        node,
         parameters,
         expression: None,
         expression_part: None,
@@ -244,7 +244,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
     if exclude_source && inline_all
         && let Some(uri_m) = p.unit_uri(unit_m)
     {
-        let (a, b) = range(cxm, no);
+        let (a, b) = range(cxm, node);
         let tx = Text::new(cxm.source);
         let start = skip_empty_lines_left(cxm.source, tx.content_start(a));
         let s = {
@@ -353,13 +353,13 @@ impl<'c, 'p> Method<'c, 'p> {
         let prog = cxm.p.program();
         // `getNodeQualifier`.
         if let Some(parent) = cxm.parent(n) {
-            let tem = match cxm.kind(parent) {
+            let has = match cxm.kind(parent) {
                 "MethodInvocation" => cxm.method_name(parent) == Some(n) && cxm.children(parent).first() != Some(&n),
                 "PropertyAccess" => cxm.children(parent).last() == Some(&n) && cxm.children(parent).len() > 1,
                 "PrefixedIdentifier" => cxm.children(parent).get(1) == Some(&n),
                 _ => false,
             };
-            if tem {
+            if has {
                 return;
             }
         }
@@ -546,10 +546,10 @@ impl<'c, 'p> Method<'c, 'p> {
     /// re-indented to the reference's prefix and trimmed.
     fn closure_source(&self, cxr: &Context<'_>, ref_prefix: &str) -> String {
         let cxm = self.cxm;
-        let start = self.parameters.map_or(range(cxm, self.no).1, |l| range(cxm, l).0);
-        let end = range(cxm, self.no).1;
+        let start = self.parameters.map_or(range(cxm, self.node).1, |l| range(cxm, l).0);
+        let end = range(cxm, self.node).1;
         let source = &cxm.source[start.min(end)..end];
-        let method_prefix = Text::new(cxm.source).line_prefix(range(cxm, self.no).0).to_string();
+        let method_prefix = Text::new(cxm.source).line_prefix(range(cxm, self.node).0).to_string();
         Text::new(cxr.source).swap_indent(source, &method_prefix, ref_prefix, false, false).trim().to_string()
     }
 

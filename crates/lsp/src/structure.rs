@@ -55,7 +55,7 @@ enum FoldKind {
 /// A candidate region, with the visit key (start and end of the node that
 /// produces it; the parent before the child, production order among equals).
 struct Candidate {
-    no: (usize, Reverse<usize>, usize),
+    node: (usize, Reverse<usize>, usize),
     start: usize,
     end: usize,
     kind: FoldKind,
@@ -103,9 +103,9 @@ impl<'a> Tokens<'a> {
         self.list.partition_point(|t| t.span.start < offset)
     }
 
-    /// The first `op` token in `[de, until)`.
-    fn first(&self, op: Op, de: usize, until: usize) -> Option<usize> {
-        let mut i = self.index(de);
+    /// The first `op` token in `[from, until)`.
+    fn first(&self, op: Op, from: usize, until: usize) -> Option<usize> {
+        let mut i = self.index(from);
         while let Some(t) = self.list.get(i) {
             if t.span.start >= until {
                 return None;
@@ -118,9 +118,9 @@ impl<'a> Tokens<'a> {
         None
     }
 
-    /// The last `op` token in `[de, until)`.
-    fn last(&self, op: Op, de: usize, until: usize) -> Option<usize> {
-        let i0 = self.index(de);
+    /// The last `op` token in `[from, until)`.
+    fn last(&self, op: Op, from: usize, until: usize) -> Option<usize> {
+        let i0 = self.index(from);
         let i1 = self.index(until);
         (i0..i1).rev().find(|i| self.list[*i].kind == Kind::Op(op))
     }
@@ -139,8 +139,8 @@ impl<'a> Tokens<'a> {
     /// (the comments that precede the token at `offset`).
     fn comment_end_before(&self, offset: usize) -> Option<usize> {
         let i = self.index(offset);
-        let de = if i == 0 { 0 } else { self.list[i - 1].span.end };
-        comments(self.source, de, offset).last().map(|c| c.end)
+        let from = if i == 0 { 0 } else { self.list[i - 1].span.end };
+        comments(self.source, from, offset).last().map(|c| c.end)
     }
 }
 
@@ -154,10 +154,10 @@ struct Comment {
 }
 
 /// The comments of a gap between tokens.
-fn comments(source: &str, de: usize, until: usize) -> Vec<Comment> {
+fn comments(source: &str, from: usize, until: usize) -> Vec<Comment> {
     let b = source.as_bytes();
     let mut output = Vec::new();
-    let mut i = de;
+    let mut i = from;
     let until = until.min(b.len());
     while i < until {
         if b[i] == b'/' && b.get(i + 1) == Some(&b'/') {
@@ -203,7 +203,7 @@ pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> 
     let mut candidates = c.candidates;
     // The tree visit order (pre-order): the node with the smaller start; among
     // equals, the larger one (parent) and then the production order.
-    candidates.sort_by_key(|r| r.no);
+    candidates.sort_by_key(|r| r.node);
 
     let line = |o: usize| lines.line_of(text, o.min(text.len()));
     let mut occupied: HashSet<usize> = HashSet::new();
@@ -318,10 +318,10 @@ struct Collector<'a> {
 }
 
 impl Collector<'_> {
-    fn region(&mut self, no: Span, start: usize, end: usize, alternative: Option<usize>) {
+    fn region(&mut self, node: Span, start: usize, end: usize, alternative: Option<usize>) {
         let seq = self.candidates.len();
         self.candidates.push(Candidate {
-            no: (no.start, Reverse(no.end), seq),
+            node: (node.start, Reverse(node.end), seq),
             start,
             end,
             kind: FoldKind::Other,
@@ -329,10 +329,10 @@ impl Collector<'_> {
         });
     }
 
-    fn annotations(&mut self, no: Span, annotations: &[Annotation]) {
+    fn annotations(&mut self, node: Span, annotations: &[Annotation]) {
         let (Some(first), Some(last)) = (annotations.first(), annotations.last()) else { return };
         let Some(name) = first.name.get(first.name.len().min(2).saturating_sub(1)) else { return };
-        self.region(no, name.span.end, last.span.end, None);
+        self.region(node, name.span.end, last.span.end, None);
         for a in annotations {
             if let Some(args) = &a.arguments {
                 self.arguments(args);
@@ -394,7 +394,7 @@ impl Collector<'_> {
 
     /// `if`/`while`/`do` block: from the end of the `{` to the end of the last
     /// comment before the `}`, else to the end of the last statement.
-    fn conditional_block(&mut self, no: Span, block: ast::StmtId) {
+    fn conditional_block(&mut self, node: Span, block: ast::StmtId) {
         let (ast, toks) = (self.ast, self.t);
         let b = ast.stmt(block);
         let StmtKind::Block(cmds) = &b.kind else { return };
@@ -404,18 +404,18 @@ impl Collector<'_> {
         }
         let start = s.start + 1;
         if let Some(end) = toks.comment_end_before(s.end - 1).filter(|f| *f > start) {
-            self.region(no, start, end, None);
+            self.region(node, start, end, None);
         } else if let Some(last) = cmds.last() {
-            self.region(no, start, ast.stmt(*last).span.end, None);
+            self.region(node, start, ast.stmt(*last).span.end, None);
         }
     }
 
     /// Body from `{` to `}` of a function expression or of a `for`.
-    fn whole_block(&mut self, no: Span, block: ast::StmtId) {
+    fn whole_block(&mut self, node: Span, block: ast::StmtId) {
         let ast = self.ast;
         let b = ast.stmt(block);
         if matches!(b.kind, StmtKind::Block(_)) {
-            self.region(no, b.span.start, b.span.end, None);
+            self.region(node, b.span.start, b.span.end, None);
         }
     }
 
@@ -618,12 +618,12 @@ impl Collector<'_> {
 
     /// Body of an enum, extension or extension type: from the end of the `{` to
     /// the start of the `}`.
-    fn body_in_braces(&mut self, no: Span, anchor: usize) {
+    fn body_in_braces(&mut self, node: Span, anchor: usize) {
         let toks = self.t;
-        if let Some(i) = toks.first(Op::LBrace, anchor, no.end)
+        if let Some(i) = toks.first(Op::LBrace, anchor, node.end)
             && let Some((opens, closes)) = toks.pair_of(i)
         {
-            self.region(no, opens.end, closes.start, None);
+            self.region(node, opens.end, closes.start, None);
         }
     }
 

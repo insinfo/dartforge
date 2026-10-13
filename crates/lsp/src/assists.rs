@@ -273,7 +273,7 @@ impl Project {
             let start = a + (between.len() - between.trim_start().len());
             edits.push((Span { start: a, end: start.min(b) }, format!(" {{{eol}{indent}")));
         };
-        let mut so: Option<StmtId> = None;
+        let mut single: Option<StmtId> = None;
         let target = if is_do(cid) {
             cid
         } else if parent.is_some_and(is_do) {
@@ -289,11 +289,11 @@ impl Project {
                 && k.start <= offset
                 && offset <= k.end
             {
-                so = Some(*e);
+                single = Some(*e);
             }
             cid
         } else if parent.is_some_and(is_if) {
-            so = Some(cid);
+            single = Some(cid);
             parent?
         } else if is_while(cid) {
             cid
@@ -312,7 +312,7 @@ impl Project {
                     return None;
                 }
                 let else_word = else_.and_then(|_| after(ast.stmt(*then).span.end)).filter(|k| &source[k.start..k.end] == "else");
-                if !is_block(*then) && so.is_none_or(|x| x == *then) {
+                if !is_block(*then) && single.is_none_or(|x| x == *then) {
                     left(&mut edits, *then, &indent);
                     let end = end_with_comment(ast.stmt(*then).span.end);
                     match else_word {
@@ -323,7 +323,7 @@ impl Project {
                 if let (Some(e), Some(_)) = (else_, else_word)
                     && !is_block(*e)
                     && !is_if(*e)
-                    && so.is_none_or(|x| x == *e)
+                    && single.is_none_or(|x| x == *e)
                 {
                     left(&mut edits, *e, &indent);
                     let end = end_with_comment(ast.stmt(*e).span.end);
@@ -374,8 +374,8 @@ impl Project {
             ExprKind::Call { target, .. } => match &ast.expr(*target).kind {
                 ExprKind::Identifier(n) | ExprKind::Property { name: n, .. } => {
                     let n = text(n.span);
-                    let sem = ["get", "is", "to"].iter().find_map(|p| n.strip_prefix(p).filter(|r| r.starts_with(char::is_uppercase)).map(str::to_string));
-                    Some(sem.unwrap_or(n))
+                    let without = ["get", "is", "to"].iter().find_map(|p| n.strip_prefix(p).filter(|r| r.starts_with(char::is_uppercase)).map(str::to_string));
+                    Some(without.unwrap_or(n))
                 }
                 _ => None,
             },

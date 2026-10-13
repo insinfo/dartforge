@@ -38,8 +38,8 @@ impl Context<'_> {
     /// `DeclaredIdentifier`, `SimpleFormalParameter`, `SuperFormalParameter` or
     /// `VariableDeclarationList` among the selection node and its ancestors.
     pub(crate) fn remove_type_annotation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let target = self.with_parents(no).find(|&k| {
+        let node = self.tree.localizar(start, end)?;
+        let target = self.with_parents(node).find(|&k| {
             matches!(self.kind(k), "DeclaredIdentifier" | "SimpleFormalParameter" | "SuperFormalParameter" | "VariableDeclarationList")
         })?;
         let edits = match self.kind(target) {
@@ -137,8 +137,8 @@ impl Context<'_> {
         let word = self.declaration_word(self.tree.nos[list].inicio, self.tree.nos[ty].inicio);
         let range = Span { start: self.tree.nos[ty].inicio, end: name.start };
         let mut v = vec![(range, if word.is_some_and(|p| p != "var") { String::new() } else { "var ".to_string() })];
-        if let Some((text, em)) = arguments {
-            v.push((Span { start: em, end: em }, text));
+        if let Some((text, at)) = arguments {
+            v.push((Span { start: at, end: at }, text));
         }
         Some(v)
     }
@@ -150,14 +150,14 @@ impl Context<'_> {
     /// literal; otherwise the first `VariableDeclarationList`,
     /// `DeclaredIdentifier` or `ForStatement` among the ancestors.
     pub(crate) fn add_type_annotation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let change = match self.kind(no) {
-            "SimpleFormalParameter" => self.simple_parameter_type(no)?,
-            "DeclaredVariablePattern" => self.declared_pattern_type(no)?,
-            "ListLiteral" | "SetOrMapLiteral" => self.literal_type(no)?,
+        let node = self.tree.localizar(start, end)?;
+        let change = match self.kind(node) {
+            "SimpleFormalParameter" => self.simple_parameter_type(node)?,
+            "DeclaredVariablePattern" => self.declared_pattern_type(node)?,
+            "ListLiteral" | "SetOrMapLiteral" => self.literal_type(node)?,
             _ => {
                 let target = self
-                    .with_parents(no)
+                    .with_parents(node)
                     .find(|&k| matches!(self.kind(k), "VariableDeclarationList" | "DeclaredIdentifier" | "ForStatement"))?;
                 match self.kind(target) {
                     "VariableDeclarationList" => self.declaration_list_type(target, start)?,
@@ -168,7 +168,7 @@ impl Context<'_> {
                         let parts = self.children(target).iter().copied().find(|&f| self.kind(f) == "ForEachPartsWithDeclaration")?;
                         let declared = self.children(parts).iter().copied().find(|&f| self.kind(f) == "DeclaredIdentifier")?;
                         let iterable = *self.children(parts).last()?;
-                        if self.tree.nos[no].inicio >= self.tree.nos[iterable].inicio {
+                        if self.tree.nos[node].inicio >= self.tree.nos[iterable].inicio {
                             return None;
                         }
                         self.declared_identifier_type(declared)?
@@ -214,12 +214,12 @@ impl Context<'_> {
 
     /// `_forSimpleFormalParameter`.
     #[allow(clippy::type_complexity)]
-    fn simple_parameter_type(&self, no: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
-        if self.type_child(no).is_some() {
+    fn simple_parameter_type(&self, node: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+        if self.type_child(node).is_some() {
             return None;
         }
         // The name: the node's last token.
-        let name = self.previous_token(self.tree.nos[no].fim)?;
+        let name = self.previous_token(self.tree.nos[node].fim)?;
         if !self.source[name.start..name.end].chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$') {
             return None;
         }
@@ -231,29 +231,29 @@ impl Context<'_> {
     }
 
     /// The `PatternId` of the pattern node (by range).
-    fn node_pattern(&self, no: usize) -> Option<ast::PatternId> {
-        let s = self.tree.span(no);
+    fn node_pattern(&self, node: usize) -> Option<ast::PatternId> {
+        let s = self.tree.span(node);
         self.ast.patterns.iter().position(|p| p.span == s && matches!(p.kind, ast::PatternKind::Variable { .. })).map(|i| ast::PatternId(i as u32))
     }
 
     /// `DeclaredVariablePattern`: the `matchedValueType`.
     #[allow(clippy::type_complexity)]
-    fn declared_pattern_type(&self, no: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
-        let pid = self.node_pattern(no)?;
+    fn declared_pattern_type(&self, node: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+        let pid = self.node_pattern(node)?;
         let ast::PatternKind::Variable { name, .. } = &self.ast.pattern(pid).kind else { return None };
         let t = *self.bodies.tipos_casados.get(&pid)?;
         let word = self
             .tokens
             .iter()
-            .find(|tk| tk.span.start >= self.tree.nos[no].inicio && tk.span.end <= name.span.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final"))
+            .find(|tk| tk.span.start >= self.tree.nos[node].inicio && tk.span.end <= name.span.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final"))
             .map(|tk| tk.span);
         self.apply_type(word, name.span, t)
     }
 
     /// `_typedLiteral`: `<arguments>` at the `[`/`{`.
     #[allow(clippy::type_complexity)]
-    fn literal_type(&self, no: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
-        let x = self.node_expr(no)?;
+    fn literal_type(&self, node: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+        let x = self.node_expr(node)?;
         let t = self.bodies.get_type(x)?;
         let args: Vec<TypeId> = match self.p.query.table.get(t) {
             Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.to_vec(),
@@ -263,7 +263,7 @@ impl Context<'_> {
         let opens = self
             .tokens
             .iter()
-            .find(|tk| tk.span.start >= self.tree.nos[no].inicio && matches!(&self.source[tk.span.start..tk.span.end], "[" | "{"))?
+            .find(|tk| tk.span.start >= self.tree.nos[node].inicio && matches!(&self.source[tk.span.start..tk.span.end], "[" | "{"))?
             .span
             .start;
         let mut writer = crate::write_type::Writer::new(self, opens);
@@ -273,11 +273,11 @@ impl Context<'_> {
 
     /// `_forDeclaredIdentifier`.
     #[allow(clippy::type_complexity)]
-    fn declared_identifier_type(&self, no: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
-        if self.type_child(no).is_some() {
+    fn declared_identifier_type(&self, node: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+        if self.type_child(node).is_some() {
             return None;
         }
-        let name = self.previous_token(self.tree.nos[no].fim)?;
+        let name = self.previous_token(self.tree.nos[node].fim)?;
         let t = self.bodies.tipo_local(name.start)?;
         if !(self.is_interface_type(t)
             || matches!(self.p.query.table.get(t), Type::Function { .. } | Type::Record { .. } | Type::TypeParameter { .. } | Type::Intersection { .. }))
@@ -287,7 +287,7 @@ impl Context<'_> {
         let word = self
             .tokens
             .iter()
-            .find(|tk| tk.span.start >= self.tree.nos[no].inicio && tk.span.end <= name.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final" | "const"))
+            .find(|tk| tk.span.start >= self.tree.nos[node].inicio && tk.span.end <= name.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final" | "const"))
             .map(|tk| tk.span);
         self.apply_type(word, name, t)
     }
@@ -374,12 +374,12 @@ impl Context<'_> {
 
     /// `ReplaceWithVar._findType`: the declaration list gives its type;
     /// otherwise the closest type annotation.
-    fn type_to_swap(&self, no: usize) -> Option<usize> {
+    fn type_to_swap(&self, node: usize) -> Option<usize> {
         const ANNOTATIONS: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];
-        if self.kind(no) == "VariableDeclarationList" {
-            return self.children(no).iter().copied().find(|&k| ANNOTATIONS.contains(&self.kind(k)));
+        if self.kind(node) == "VariableDeclarationList" {
+            return self.children(node).iter().copied().find(|&k| ANNOTATIONS.contains(&self.kind(k)));
         }
-        self.with_parents(no).find(|&k| ANNOTATIONS.contains(&self.kind(k)))
+        self.with_parents(node).find(|&k| ANNOTATIONS.contains(&self.kind(k)))
     }
 
     /// The declared type of the local whose name starts at `name` (`dynamic`
@@ -405,8 +405,8 @@ impl Context<'_> {
     }
 
     /// `_canReplaceWithVar`, from the parent of the selection node.
-    fn swappable_to_var(&self, no: usize) -> bool {
-        let Some(parent) = self.parent(no) else { return false };
+    fn swappable_to_var(&self, node: usize) -> bool {
+        let Some(parent) = self.parent(node) else { return false };
         for k in self.with_parents(parent) {
             match self.kind(k) {
                 "VariableDeclarationStatement" | "ForPartsWithDeclarations" => {
@@ -447,9 +447,9 @@ impl Context<'_> {
     /// (or disappears, with `final`/`const`), and the type arguments move to
     /// the literal or the creation without them.
     pub(crate) fn swap_to_var(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let ty = self.type_to_swap(no)?;
-        if !self.swappable_to_var(no) {
+        let node = self.tree.localizar(start, end)?;
+        let ty = self.type_to_swap(node)?;
+        if !self.swappable_to_var(node) {
             return None;
         }
         let parent = self.parent(ty)?;
@@ -514,8 +514,8 @@ impl Context<'_> {
             } else {
                 edits.push((self.tree.span(ty), "var".into()));
             }
-            if let Some((text, em)) = transfer {
-                edits.push((Span { start: em, end: em }, text));
+            if let Some((text, at)) = transfer {
+                edits.push((Span { start: at, end: at }, text));
             }
         } else if self.kind(parent) == "DeclaredIdentifier" && self.kind(grandparent) == "ForEachPartsWithDeclaration" {
             let mut transfer: Option<(String, usize)> = None;
@@ -531,8 +531,8 @@ impl Context<'_> {
             } else {
                 edits.push((self.tree.span(ty), "var".into()));
             }
-            if let Some((text, em)) = transfer {
-                edits.push((Span { start: em, end: em }, text));
+            if let Some((text, at)) = transfer {
+                edits.push((Span { start: at, end: at }, text));
             }
         } else {
             return None;
@@ -558,8 +558,8 @@ impl Context<'_> {
     /// `R f(P)` becomes `R Function(P) f`; inside a parameter list, only the
     /// parameter itself.
     pub(crate) fn convert_to_function_syntax(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let target = self.with_parents(no).find(|&k| matches!(self.kind(k), "FunctionTypeAlias" | "FunctionTypedFormalParameter" | "FormalParameterList"))?;
+        let node = self.tree.localizar(start, end)?;
+        let target = self.with_parents(node).find(|&k| matches!(self.kind(k), "FunctionTypeAlias" | "FunctionTypedFormalParameter" | "FormalParameterList"))?;
         let children = self.children(target).to_vec();
         let list = *children.iter().rev().find(|&&k| self.kind(k) == "FormalParameterList")?;
         let parameter_types = children.iter().copied().find(|&k| self.kind(k) == "TypeParameterList");

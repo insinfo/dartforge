@@ -721,7 +721,7 @@ impl Index {
     /// `FindDeclarations.compute` + the handler's `_asSymbolInformation`.
     /// `added` are the project files; `packages`, the packages' `lib/`s (in
     /// `package_config.json` order); `open_texts`, the URI and text of the open
-    /// documents by normalized path (`gerado::chave`); `kinds`, the
+    /// documents by normalized path (`gerado::key`); `kinds`, the
     /// `SymbolKind`s the client accepts.
     pub(crate) fn search(
         &mut self,

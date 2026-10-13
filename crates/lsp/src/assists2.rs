@@ -61,12 +61,12 @@ fn with_separators(lexeme: &str, floating_point: bool) -> Option<String> {
         let exponent_at = source.find('e').or_else(|| source.find('E'));
         let dot = source.find('.');
         let mantissa_end = exponent_at.unwrap_or(source.len());
-        let (integer, fracao) = match dot {
+        let (integer, fraction) = match dot {
             Some(p) => (&source[..p], Some(&source[p + 1..mantissa_end])),
             None => (&source[..mantissa_end], None),
         };
         let mut r = separate(integer, 3, 5).unwrap_or_else(|| integer.to_string());
-        if let Some(f) = fracao {
+        if let Some(f) = fraction {
             // In the fraction the groups are left-aligned.
             let inverted: String = f.chars().rev().collect();
             let separate = separate(&inverted, 3, 5).map(|s| s.chars().rev().collect::<String>());
@@ -133,8 +133,8 @@ impl Project {
                 output.push(action(uri, "Add digit separators", "refactor.add.digitSeparators", vec![(span, new)]));
             }
             if lexeme.contains('_') {
-                let sem: String = lexeme.chars().filter(|c| *c != '_').collect();
-                output.push(action(uri, "Remove digit separators", "refactor.remove.digitSeparators", vec![(span, sem)]));
+                let without: String = lexeme.chars().filter(|c| *c != '_').collect();
+                output.push(action(uri, "Remove digit separators", "refactor.remove.digitSeparators", vec![(span, without)]));
             }
             break;
         }
@@ -173,10 +173,10 @@ impl Project {
         // `Exchange operands`: the binary expression with the cursor on the operator.
         let selected = a.exprs.iter().enumerate().find_map(|(i, e)| match &e.kind {
             ExprKind::Binary { op, left, right } => {
-                let (de, until) = (a.expr(*left).span.end, a.expr(*right).span.start);
-                let text = source.get(de..until)?;
-                let start = de + (text.len() - text.trim_start().len());
-                let end = de + text.trim_end().len();
+                let (from, until) = (a.expr(*left).span.end, a.expr(*right).span.start);
+                let text = source.get(from..until)?;
+                let start = from + (text.len() - text.trim_start().len());
+                let end = from + text.trim_end().len();
                 (start <= offset && offset <= end).then_some((ExprId(i as u32), *op, *left, *right, Span { start: start, end: end }))
             }
             _ => None,

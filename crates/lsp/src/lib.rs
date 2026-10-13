@@ -202,15 +202,15 @@ impl OpenDocument {
                     self.lines = LineTable::build(&self.text);
                 }
                 Some((start, end)) => {
-                    let de =
+                    let from =
                         self.lines
                             .position_offset(&self.text, start.line, start.column);
                     let until = self
                         .lines
                         .position_offset(&self.text, end.line, end.column);
-                    let (de, until) = if de <= until { (de, until) } else { (until, de) };
-                    self.text.replace_range(de..until, &change.text);
-                    let line = self.lines.line_of(&self.text, de);
+                    let (from, until) = if from <= until { (from, until) } else { (until, from) };
+                    self.text.replace_range(from..until, &change.text);
+                    let line = self.lines.line_of(&self.text, from);
                     self.lines.recompute_from(&self.text, line);
                 }
             }
@@ -752,7 +752,7 @@ impl Analyzer for SyntacticAnalyzer {
     /// After the syntax, the `crates/analysis` checkers that do not depend on
     /// types (duplicate names, unused locals) over the file itself; of these,
     /// only what the publication rule lets through comes out
-    /// (`dartforge_analysis::publicacao`): codes verified against the oracle,
+    /// (`dartforge_analysis::publication`): codes verified against the oracle,
     /// and not suppressed by `// ignore:` (the `dartforge analyze` filter).
     fn diagnose(&mut self, uri: &str, text: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, text);

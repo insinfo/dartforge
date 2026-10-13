@@ -1461,12 +1461,12 @@ impl Project {
             .map(|i| FunctionElementId(i as u32))
     }
 
-    /// The element of the variable declared at node `no`.
-    fn node_variable(&self, no: VariableRef) -> Option<VariableId> {
+    /// The element of the variable declared at node `node`.
+    fn node_variable(&self, node: VariableRef) -> Option<VariableId> {
         self.program()
             .variables
             .iter()
-            .position(|v| v.node == no)
+            .position(|v| v.node == node)
             .map(|i| VariableId(i as u32))
     }
 
@@ -1706,7 +1706,7 @@ impl Project {
     /// homonymous getter and setter; the `as p` of each import of a prefix).
     pub(crate) fn declarations(&self, target: &Target) -> BTreeSet<(UnitId, usize, usize)> {
         let mut output = BTreeSet::new();
-        let mut por = |u: UnitId, s: Span| {
+        let mut by = |u: UnitId, s: Span| {
             output.insert((u, s.start, s.end));
         };
         match target {
@@ -1715,15 +1715,15 @@ impl Project {
                 name,
                 is_static,
             } => {
-                if let Ok(fam) = self.family(*owner, name, *is_static, false) {
-                    for f in &fam.functions {
+                if let Ok(family) = self.family(*owner, name, *is_static, false) {
+                    for f in &family.functions {
                         if let Some((u, s)) = self.function_name(*f) {
-                            por(u, s);
+                            by(u, s);
                         }
                     }
-                    for v in &fam.variables {
+                    for v in &family.variables {
                         if let Some((u, s)) = self.variable_name(*v) {
-                            por(u, s);
+                            by(u, s);
                         }
                     }
                 }
@@ -1731,7 +1731,7 @@ impl Project {
             Target::Top(el) => {
                 for e in self.top_elements(*el) {
                     if let Some((u, s)) = self.top_element_name(e) {
-                        por(u, s);
+                        by(u, s);
                     }
                 }
             }
@@ -1744,13 +1744,13 @@ impl Project {
                             prefix: Some(n), ..
                         } = &d.kind
                     {
-                        por(i.unit, n.span);
+                        by(i.unit, n.span);
                     }
                 }
             }
             _ => {
                 if let Some((u, s)) = self.target_declaration(target) {
-                    por(u, s);
+                    by(u, s);
                 }
             }
         }
@@ -1793,7 +1793,7 @@ impl Project {
         filter: Option<&HashSet<UnitId>>,
     ) -> Result<BTreeSet<(UnitId, usize, usize)>, String> {
         let mut output = BTreeSet::new();
-        let mut por = |u: UnitId, s: Span| {
+        let mut by = |u: UnitId, s: Span| {
             output.insert((u, s.start, s.end));
         };
         match target {
@@ -1802,27 +1802,27 @@ impl Project {
                 declaration,
             } => {
                 for (u, s) in self.local_occurrences(*unit, *declaration, refuse_external)? {
-                    por(u, s);
+                    by(u, s);
                 }
             }
-            Target::Top(el) => self.top_occurrences(*el, filter, &mut por),
+            Target::Top(el) => self.top_occurrences(*el, filter, &mut by),
             Target::Member {
                 owner,
                 name,
                 is_static,
-            } => self.member_occurrences(*owner, name, *is_static, refuse_external, filter, &mut por)?,
-            Target::Constructor(f) => self.constructor_occurrences(*f, filter, &mut por),
+            } => self.member_occurrences(*owner, name, *is_static, refuse_external, filter, &mut by)?,
+            Target::Constructor(f) => self.constructor_occurrences(*f, filter, &mut by),
             Target::Prefix { library, name } => {
-                self.prefix_occurrences(*library, *name, &mut por)
+                self.prefix_occurrences(*library, *name, &mut by)
             }
             Target::TypeParameter {
                 unit,
                 declaration,
-            } => self.type_parameter_occurrences(*unit, *declaration, &mut por),
+            } => self.type_parameter_occurrences(*unit, *declaration, &mut by),
         }
         // Documentation references.
         for (u, s) in self.documentation_references(target, filter, |a| self.same_target(a, target), true) {
-            por(u, s);
+            by(u, s);
         }
         Ok(output)
     }
@@ -1947,9 +1947,9 @@ impl Project {
             && let Some(c) = fe.class
         {
             let name = self.name(fe.name).to_string();
-            let fam = self.family(Owner::Class(c), &name, false, refuse_external)?;
+            let family = self.family(Owner::Class(c), &name, false, refuse_external)?;
             let mut other: Vec<FunctionElementId> =
-                fam.functions.into_iter().filter(|f| *f != function_).collect();
+                family.functions.into_iter().filter(|f| *f != function_).collect();
             other.sort();
             for f in other {
                 let FunctionRef::Function { unit, function } = self.program().function(f).node
@@ -2192,34 +2192,34 @@ impl Project {
         is_static: bool,
         refuse_external: bool,
         filter: Option<&HashSet<UnitId>>,
-        por: &mut impl FnMut(UnitId, Span),
+        by: &mut impl FnMut(UnitId, Span),
     ) -> Result<(), String> {
-        let fam = self.family(owner, name_, is_static, refuse_external)?;
-        for f in &fam.functions {
+        let family = self.family(owner, name_, is_static, refuse_external)?;
+        for f in &family.functions {
             if let Some((u, s)) = self.function_name(*f)
                 && self.libraries.contains(&self.program().unit(u).library)
             {
-                por(u, s);
+                by(u, s);
             }
         }
-        for v in &fam.variables {
+        for v in &family.variables {
             if let Some((u, s)) = self.variable_name(*v)
                 && self.libraries.contains(&self.program().unit(u).library)
             {
-                por(u, s);
+                by(u, s);
             }
         }
         // The uses in expressions, through each unit's occurrence index.
         for u in self.units_in(filter) {
             let index = self.unit_occurrences(u);
-            for f in &fam.functions {
+            for f in &family.functions {
                 for s in index.functions.get(f).into_iter().flatten() {
-                    por(u, *s);
+                    by(u, *s);
                 }
             }
-            for v in &fam.variables {
+            for v in &family.variables {
                 for s in index.variables.get(v).into_iter().flatten() {
-                    por(u, *s);
+                    by(u, *s);
                 }
             }
         }
@@ -2228,7 +2228,7 @@ impl Project {
         if !is_static {
             let mut named_constructors = Vec::new();
             let mut symbol = None;
-            for c in &fam.classes {
+            for c in &family.classes {
                 for (u, m) in self.program().membros_da_classe(*c) {
                     let MemberKind::Constructor(k) = &self.program().unit(u).ast.member(m).kind
                     else {
@@ -2239,7 +2239,7 @@ impl Project {
                             && let Some(n) = p.name
                             && self.name(n.sym) == name_
                         {
-                            por(u, n.span);
+                            by(u, n.span);
                             symbol = Some(n.sym);
                             if p.kind == ast::ParameterKind::Named
                                 && p.public_name.is_none()
@@ -2253,21 +2253,21 @@ impl Project {
                         if let ast::Initializer::Field { name, .. } = i
                             && self.name(name.sym) == name_
                         {
-                            por(u, name.span);
+                            by(u, name.span);
                         }
                     }
                 }
             }
             if !named_constructors.is_empty() {
-                self.argument_labels(&named_constructors, symbol, por);
+                self.argument_labels(&named_constructors, symbol, by);
             }
             // The references of the `this.x`s (`includeParametersForFields`): the start
             // of each optional positional argument (length 0, the index's
             // `visitExpression`) and the `super.x`s that point to them
             // (`superConstructorParameter`).
             let mut parameters: Vec<(FunctionElementId, Option<usize>)> = Vec::new();
-            let mut classes: Vec<ClassId> = fam.classes.clone();
-            for v in fam.variables.iter() {
+            let mut classes: Vec<ClassId> = family.classes.clone();
+            for v in family.variables.iter() {
                 if let Some(c) = self.program().variable(*v).class
                     && !classes.contains(&c)
                 {
@@ -2284,7 +2284,7 @@ impl Project {
                             parameters.push((f, Some(i)));
                             if q.kind == ast::ParameterKind::Optional {
                                 for (x, s) in self.positional_arguments(f, i) {
-                                    por(x, s);
+                                    by(x, s);
                                 }
                             }
                         }
@@ -2318,7 +2318,7 @@ impl Project {
                                         }
                                 });
                                 if matches && let Some(n) = q.name {
-                                    por(u, n.span);
+                                    by(u, n.span);
                                 }
                                 if !named {
                                     position += 1;
@@ -2335,7 +2335,7 @@ impl Project {
     /// Named constructor: the declaration, the creations (`A.name()`,
     /// `new A.name()`), the tear-offs, the redirections (`this.name()`,
     /// `super.name()`, `= A.name`), the enum constants and the metadata.
-    fn constructor_occurrences(&self, f: FunctionElementId, filter: Option<&HashSet<UnitId>>, por: &mut impl FnMut(UnitId, Span)) {
+    fn constructor_occurrences(&self, f: FunctionElementId, filter: Option<&HashSet<UnitId>>, by: &mut impl FnMut(UnitId, Span)) {
         // The index relations (§11.1.2): a named constructor is `.name` (with the
         // dot; `A.new` gives `.new`); the unnamed one has length 0 at the end of
         // the type, of `super`/`this`, of the enum constant's name; the implicit
@@ -2343,7 +2343,7 @@ impl Project {
         // constructor, or the name of the class that only has the synthetic one.
         let p = self.program();
         if let Some((u, s)) = self.function_name(f) {
-            por(u, s);
+            by(u, s);
         }
         let Some(class) = p.function(f).class else {
             return;
@@ -2370,21 +2370,21 @@ impl Project {
                     continue;
                 }
                 match &e.kind {
-                    ExprKind::Property { name, .. } if name.sym == symbol || (unnamed && self.name(name.sym) == "new") => por(u, with_dot(name.span)),
+                    ExprKind::Property { name, .. } if name.sym == symbol || (unnamed && self.name(name.sym) == "new") => by(u, with_dot(name.span)),
                     // `p.A()`: the prefixed type.
-                    ExprKind::Property { .. } if unnamed => por(u, empty(e.span.end)),
-                    ExprKind::Identifier(_) | ExprKind::TypeArguments { .. } if unnamed => por(u, empty(e.span.end)),
+                    ExprKind::Property { .. } if unnamed => by(u, empty(e.span.end)),
+                    ExprKind::Identifier(_) | ExprKind::TypeArguments { .. } if unnamed => by(u, empty(e.span.end)),
                     ExprKind::InstanceCreation { constructor: Some(n), .. } if n.sym == symbol || (unnamed && self.name(n.sym) == "new") => {
-                        por(u, with_dot(n.span))
+                        by(u, with_dot(n.span))
                     }
                     // `new A.name()`: the constructor name comes in the type.
                     ExprKind::InstanceCreation { constructor: None, ty, .. } => {
                         if unnamed {
                             if self.constructor_in_type(u, *ty, class, symbol).is_none() {
-                                por(u, empty(ast.ty(*ty).span.end));
+                                by(u, empty(ast.ty(*ty).span.end));
                             }
                         } else if let Some(n) = self.constructor_in_type(u, *ty, class, symbol) {
-                            por(u, with_dot(n));
+                            by(u, with_dot(n));
                         }
                     }
                     _ => {}
@@ -2413,20 +2413,20 @@ impl Project {
                         continue;
                     }
                     match name_ {
-                        Some(n) if n.sym == symbol => por(u, with_dot(n.span)),
-                        None if unnamed => por(u, empty(span.start + word.len())),
+                        Some(n) if n.sym == symbol => by(u, with_dot(n.span)),
+                        None if unnamed => by(u, empty(span.start + word.len())),
                         _ => {}
                     }
                 }
                 if let Some(r) = &k.redirect {
                     calls_super = true;
                     match r.constructor {
-                        Some(n) if n.sym == symbol && self.type_class(u, r.ty) == Some(class) => por(u, with_dot(n.span)),
+                        Some(n) if n.sym == symbol && self.type_class(u, r.ty) == Some(class) => by(u, with_dot(n.span)),
                         None => {
                             if let Some(n) = self.constructor_in_type(u, r.ty, class, symbol) {
-                                por(u, with_dot(n));
+                                by(u, with_dot(n));
                             } else if unnamed && self.type_class(u, r.ty) == Some(class) {
-                                por(u, empty(ast.ty(r.ty).span.end));
+                                by(u, empty(ast.ty(r.ty).span.end));
                             }
                         }
                         _ => {}
@@ -2440,7 +2440,7 @@ impl Project {
                     && p.class(d).supertype_class == Some(class)
                 {
                     let end = k.name.map_or(k.class_name.span.end, |n| n.span.end);
-                    por(u, Span { start: k.class_name.span.start, end: end });
+                    by(u, Span { start: k.class_name.span.start, end: end });
                 }
             }
             // A class that only has the synthetic constructor calls the superclass's
@@ -2458,7 +2458,7 @@ impl Project {
                     let synthetic_only = c.constructors.values().all(|g| p.function(*g).kind == FunctionKind::SyntheticConstructor);
                     let _ = ci;
                     if synthetic_only {
-                        por(u, cd.name.span);
+                        by(u, cd.name.span);
                     }
                 }
             }
@@ -2472,8 +2472,8 @@ impl Project {
                     }
                     for c in &e.constants {
                         match c.constructor {
-                            Some(n) if n.sym == symbol => por(u, with_dot(n.span)),
-                            None if unnamed => por(u, empty(c.name.span.end)),
+                            Some(n) if n.sym == symbol => by(u, with_dot(n.span)),
+                            None if unnamed => by(u, empty(c.name.span.end)),
                             _ => {}
                         }
                     }
@@ -2487,7 +2487,7 @@ impl Project {
                     && let Some((Target::Constructor(g), _)) = self.resolve_path(unit.library, None, &parts)
                     && g == f
                 {
-                    por(u, a.name[a.name.len() - 1].span);
+                    by(u, a.name[a.name.len() - 1].span);
                 }
             }
         }
@@ -2728,7 +2728,7 @@ impl Project {
         &self,
         lib: LibraryId,
         name_: SymbolId,
-        por: &mut impl FnMut(UnitId, Span),
+        by: &mut impl FnMut(UnitId, Span),
     ) {
         let p = self.program();
         for i in &p.library(lib).imports {
@@ -2738,7 +2738,7 @@ impl Project {
                     prefix: Some(n), ..
                 } = &d.kind
             {
-                por(i.unit, n.span);
+                by(i.unit, n.span);
             }
         }
         if !self.libraries.contains(&lib) {
@@ -2756,7 +2756,7 @@ impl Project {
                         Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))
                     )
                 {
-                    por(u, n.span);
+                    by(u, n.span);
                 }
             }
             for t in &ast.types {
@@ -2764,12 +2764,12 @@ impl Project {
                     && let [pr, _] = &name[..]
                     && pr.sym == name_
                 {
-                    por(u, pr.span);
+                    by(u, pr.span);
                 }
             }
             for a in metadata(ast, &unit.unit) {
                 if a.name.len() >= 2 && a.name[0].sym == name_ && is_prefix(p, lib, name_) {
-                    por(u, a.name[0].span);
+                    by(u, a.name[0].span);
                 }
             }
         }
@@ -2781,14 +2781,14 @@ impl Project {
         &self,
         unit: UnitId,
         declaration: usize,
-        por: &mut impl FnMut(UnitId, Span),
+        by: &mut impl FnMut(UnitId, Span),
     ) {
         let u = self.program().unit(unit);
         let ast = &u.ast;
         let Some(name_) = word(&u.source, declaration) else {
             return;
         };
-        por(unit, name_);
+        by(unit, name_);
         let text = &u.source[name_.start..name_.end];
         for t in &ast.types {
             if let ast::TypeKind::Named { name, .. } = &t.kind
@@ -2796,7 +2796,7 @@ impl Project {
                 && self.name(n.sym) == text
                 && type_parameter_declaration(ast, n.span.start, n.sym) == Some(declaration)
             {
-                por(unit, n.span);
+                by(unit, n.span);
             }
         }
         let bodies = &self.query.bodies.units[unit.0 as usize];
@@ -2809,7 +2809,7 @@ impl Project {
                 )
                 && type_parameter_declaration(ast, n.span.start, n.sym) == Some(declaration)
             {
-                por(unit, n.span);
+                by(unit, n.span);
             }
         }
     }
@@ -2819,7 +2819,7 @@ impl Project {
         &self,
         functions: &[FunctionElementId],
         label: Option<SymbolId>,
-        por: &mut impl FnMut(UnitId, Span),
+        by: &mut impl FnMut(UnitId, Span),
     ) {
         let Some(label) = label else { return };
         for u in self.units() {
@@ -2851,7 +2851,7 @@ impl Project {
                     if let Some(n) = a.name
                         && n.sym == label
                     {
-                        por(u, n.span);
+                        by(u, n.span);
                     }
                 }
             }
@@ -2884,7 +2884,7 @@ impl Project {
     }
 
     /// Top level: declarations, uses, types, metadata and `show`/`hide`.
-    fn top_occurrences(&self, el: Element, filter: Option<&HashSet<UnitId>>, por: &mut impl FnMut(UnitId, Span)) {
+    fn top_occurrences(&self, el: Element, filter: Option<&HashSet<UnitId>>, by: &mut impl FnMut(UnitId, Span)) {
         let p = self.program();
         let elements = self.top_elements(el);
         let Some(symbol) = self.query.element_name(el) else {
@@ -2893,7 +2893,7 @@ impl Project {
         // Declarations.
         for e in &elements {
             if let Some((u, s)) = self.top_element_name(*e) {
-                por(u, s);
+                by(u, s);
             }
             // Constructors written with the class name.
             if let Element::Class(c) = e {
@@ -2901,7 +2901,7 @@ impl Project {
                     if let MemberKind::Constructor(k) = &p.unit(u).ast.member(m).kind
                         && k.class_name.sym == symbol
                     {
-                        por(u, k.class_name.span);
+                        by(u, k.class_name.span);
                     }
                 }
             }
@@ -2911,13 +2911,13 @@ impl Project {
             let index = self.unit_occurrences(u);
             for el in &elements {
                 for s in index.elements.get(el).into_iter().flatten() {
-                    por(u, *s);
+                    by(u, *s);
                 }
             }
             // Type annotations and metadata, through the same index.
             for el in &elements {
                 for s in index.type_names.get(el).into_iter().flatten() {
-                    por(u, *s);
+                    by(u, *s);
                 }
             }
         }
@@ -2951,7 +2951,7 @@ impl Project {
                     let (ast::Combinator::Show(names) | ast::Combinator::Hide(names)) = c;
                     for n in names {
                         if n.sym == symbol {
-                            por(u, n.span);
+                            by(u, n.span);
                         }
                     }
                 }
@@ -3309,7 +3309,7 @@ pub(crate) fn parameter_in(ast: &Ast, offset: usize) -> Option<(&Parameter, Owne
 /// [`type_parameter_declaration`], without walking the tree by name).
 pub(crate) fn type_parameter_scopes(ast: &Ast) -> std::collections::HashMap<SymbolId, Vec<Span>> {
     let mut m: std::collections::HashMap<SymbolId, Vec<Span>> = std::collections::HashMap::new();
-    let mut por = |s: Span, ps: &[ast::TypeParameter]| {
+    let mut by = |s: Span, ps: &[ast::TypeParameter]| {
         for t in ps {
             m.entry(t.name.sym).or_default().push(s);
         }
@@ -3324,14 +3324,14 @@ pub(crate) fn type_parameter_scopes(ast: &Ast) -> std::collections::HashMap<Symb
             DeclKind::Typedef(t) => &t.type_params,
             _ => continue,
         };
-        por(d.span, ps);
+        by(d.span, ps);
     }
     for f in &ast.functions {
-        por(f.span, &f.type_params);
+        by(f.span, &f.type_params);
     }
     for t in &ast.types {
         if let ast::TypeKind::Function { type_params, .. } = &t.kind {
-            por(t.span, type_params);
+            by(t.span, type_params);
         }
     }
     m

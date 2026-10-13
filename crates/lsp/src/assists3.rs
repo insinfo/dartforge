@@ -69,7 +69,7 @@ impl Project {
                 }
                 // De Morgan; each side goes in parentheses if it binds more loosely than
                 // the new operator.
-                let (junta, precedence) = match op {
+                let (joins, precedence) = match op {
                     BinaryOp::And => ("||", OR_PRECEDENCE),
                     BinaryOp::Or => ("&&", AND_PRECEDENCE),
                     _ => return self.negate_other(unit, e),
@@ -78,7 +78,7 @@ impl Project {
                     let (t, p) = self.invert(unit, x);
                     if p < precedence { format!("({t})") } else { t }
                 };
-                (format!("{} {junta} {}", side(*left), side(*right)), precedence)
+                (format!("{} {joins} {}", side(*left), side(*right)), precedence)
             }
             ExprKind::Is { value, ty, negated } => {
                 let ty_ = a.types[ty.0 as usize].span;
@@ -179,10 +179,10 @@ impl Project {
                     };
                     let mut new = String::new();
                     if let (Some(first), Some(last)) = (commands.first(), commands.last()) {
-                        let de = source[..a.stmt(*first).span.start].rfind('\n').map_or(0, |i| i + 1);
+                        let from = source[..a.stmt(*first).span.start].rfind('\n').map_or(0, |i| i + 1);
                         let last_end = a.stmt(*last).span.end;
                         let until = source[last_end..].find('\n').map_or(source.len(), |i| last_end + i + 1);
-                        for line in source[de..until].split_inclusive('\n') {
+                        for line in source[from..until].split_inclusive('\n') {
                             new.push_str(line.strip_prefix("  ").unwrap_or(line));
                         }
                     }
@@ -284,10 +284,10 @@ impl Project {
                     };
                     let mut new = String::new();
                     if let (Some(first), Some(last)) = (commands.first(), commands.last()) {
-                        let de = source[..a.stmt(*first).span.start].rfind('\n').map_or(0, |i| i + 1);
+                        let from = source[..a.stmt(*first).span.start].rfind('\n').map_or(0, |i| i + 1);
                         let last_end = a.stmt(*last).span.end;
                         let until = source[last_end..].find('\n').map_or(source.len(), |i| last_end + i + 1);
-                        for line in source[de..until].split_inclusive('\n') {
+                        for line in source[from..until].split_inclusive('\n') {
                             new.push_str(line.strip_prefix("  ").unwrap_or(line));
                         }
                     }
@@ -332,7 +332,7 @@ impl Project {
 
         // `Join variable declaration`: `T v;` followed by `v = e;` in the same
         // block, with the cursor on the assigned name or on the declaration.
-        'blocos: for block in a.stmts.iter() {
+        'blocks: for block in a.stmts.iter() {
             let StmtKind::Block(list) = &block.kind else { continue };
             for pair in list.windows(2) {
                 let (declaration, assignment) = (a.stmt(pair[0]), a.stmt(pair[1]));
@@ -361,7 +361,7 @@ impl Project {
                     "refactor.joinVariableDeclaration",
                     vec![(Span { start: variable.name.span.end, end: target_.end + k }, " ".to_string())],
                 ));
-                break 'blocos;
+                break 'blocks;
             }
         }
         output
@@ -381,20 +381,20 @@ impl crate::refactorings::Context<'_> {
     /// (invert_conditional_expression.dart): the conditional "close enough" to
     /// the selection node.
     pub(crate) fn next_conditional(&self, offset: usize) -> Option<usize> {
-        let mut no = self.tree.localizar(offset, offset)?;
-        no = self.this_or_parent_of(no, &["MethodInvocation"]).unwrap_or(no);
-        no = self.this_or_parent_of(no, &["AwaitExpression"]).unwrap_or(no);
+        let mut node = self.tree.localizar(offset, offset)?;
+        node = self.this_or_parent_of(node, &["MethodInvocation"]).unwrap_or(node);
+        node = self.this_or_parent_of(node, &["AwaitExpression"]).unwrap_or(node);
         let boolean = ["IsExpression", "BinaryExpression", "BooleanLiteral"];
-        let boolean_ = if boolean.contains(&self.kind(no)) {
-            Some(no)
-        } else if let Some(p) = self.parent(no).filter(|&p| boolean.contains(&self.kind(p))) {
+        let boolean_ = if boolean.contains(&self.kind(node)) {
+            Some(node)
+        } else if let Some(p) = self.parent(node).filter(|&p| boolean.contains(&self.kind(p))) {
             Some(p)
         } else {
-            self.this_or_parent_of(no, &["PrefixExpression"])
+            self.this_or_parent_of(node, &["PrefixExpression"])
         };
-        no = boolean_.unwrap_or(no);
-        no = self.this_or_parent_of(no, &["ParenthesizedExpression"]).unwrap_or(no);
-        no = self.this_or_parent_of(no, &["AwaitExpression"]).unwrap_or(no);
-        self.this_or_parent_of(no, &["ConditionalExpression"])
+        node = boolean_.unwrap_or(node);
+        node = self.this_or_parent_of(node, &["ParenthesizedExpression"]).unwrap_or(node);
+        node = self.this_or_parent_of(node, &["AwaitExpression"]).unwrap_or(node);
+        self.this_or_parent_of(node, &["ConditionalExpression"])
     }
 }

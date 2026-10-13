@@ -73,10 +73,10 @@ fn comment_chains(source: &str) -> Vec<Vec<(usize, usize)>> {
         gaps.push((previous, source.len()));
     }
     let mut chains = Vec::new();
-    for (de, until) in gaps {
+    for (from, until) in gaps {
         let mut output = Vec::new();
         let b = source.as_bytes();
-        let mut i = de;
+        let mut i = from;
         while i + 1 < until {
             if b[i] == b'/' && b[i + 1] == b'/' {
                 let end = source[i..until].find('\n').map_or(until, |n| i + n);

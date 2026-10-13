@@ -738,7 +738,7 @@ fn innermost_member(cx: &Context<'_>, n: usize) -> Option<usize> {
 /// unit's context.
 fn declaration_in_unit<'p>(p: &'p Project, unit: UnitId, decl: ast::DeclId) -> Option<(Context<'p>, usize)> {
     let cx = Context::new(p, unit);
-    let n = cx.tree.nos.iter().position(|no| matches!(no.marca, Marca::Decl(d) if d == decl) && no.especie.ends_with("Declaration"))?;
+    let n = cx.tree.nos.iter().position(|node| matches!(node.marca, Marca::Decl(d) if d == decl) && node.especie.ends_with("Declaration"))?;
     Some((cx, n))
 }
 
@@ -1651,11 +1651,11 @@ impl Project {
     /// applies to the type.
     fn applicable_extension(&self, cx: &Context<'_>, ty: TypeId) -> Option<usize> {
         let prog = self.program();
-        for (k, no) in cx.tree.nos.iter().enumerate() {
-            if no.especie != "ExtensionDeclaration" || cx.parent(k) != Some(0) {
+        for (k, node) in cx.tree.nos.iter().enumerate() {
+            if node.especie != "ExtensionDeclaration" || cx.parent(k) != Some(0) {
                 continue;
             }
-            let Marca::Decl(d) = no.marca else { continue };
+            let Marca::Decl(d) = node.marca else { continue };
             let Some(x) = (0..prog.extensions.len()).map(|i| ExtensionId(i as u32)).find(|&x| prog.extension(x).decl.unit == cx.unit && prog.extension(x).decl.decl == d) else { continue };
             if extension_applies(self, x, ty) {
                 return Some(k);
@@ -1710,14 +1710,14 @@ impl Project {
         let prog = self.program();
         let lib = prog.unit(unit).library;
         let mut uses: Vec<(Code, usize)> = Vec::new();
-        for (n, no) in cx.tree.nos.iter().enumerate() {
-            if !(no.inicio <= end && start <= no.fim) {
+        for (n, node) in cx.tree.nos.iter().enumerate() {
+            if !(node.inicio <= end && start <= node.fim) {
                 continue;
             }
-            match no.especie {
+            match node.especie {
                 "NamedType" => {
                     // Unresolved written type: `UNDEFINED_CLASS`.
-                    let Some(t) = cx.ast.types.iter().position(|t| t.span.start == no.inicio && t.span.end == no.fim) else { continue };
+                    let Some(t) = cx.ast.types.iter().position(|t| t.span.start == node.inicio && t.span.end == node.fim) else { continue };
                     let ast::TypeKind::Named { name, .. } = &cx.ast.ty(ast::TypeId(t as u32)).kind else { continue };
                     let [nm] = &name[..] else { continue };
                     let text = self.name(nm.sym);
@@ -1730,7 +1730,7 @@ impl Project {
                     uses.push((Code::Class, n));
                 }
                 "SimpleIdentifier" => {
-                    let Marca::Expr(x) = no.marca else { continue };
+                    let Marca::Expr(x) = node.marca else { continue };
                     if cx.bodies.get_resolved(x).is_some() || cx.bodies.declaracao_local(x).is_some() {
                         continue;
                     }

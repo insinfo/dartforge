@@ -601,8 +601,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forMemberAccess`.
-    pub(super) fn to_member_access(&mut self, n: usize, ty: TypeId, so_super: bool) {
-        if so_super {
+    pub(super) fn to_member_access(&mut self, n: usize, ty: TypeId, only_super: bool) {
+        if only_super {
             // `request.target.dotTarget is SuperExpression`: the containing method
             // gives `superMatches` and `isNoSuchMethod`.
             self.super_method = self.ancestor(n, &["MethodDeclaration"]).and_then(|m| self.real_function(m)).and_then(|f| f.name).map(|x| self.real_name(x).to_string());
@@ -611,7 +611,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let constant = self.constant_context(n);
         let non_void = self.parent(n).is_some_and(|p| self.kind(p) == "ArgumentList");
         self.dh(Flags { assignable, constant, non_void, ..Flags::default() });
-        self.dh_instance_members(ty, so_super);
+        self.dh_instance_members(ty, only_super);
     }
 
     /// `_computeMustBeAssignable`: the node is the left side of an assignment
@@ -980,10 +980,10 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_visitForEachParts`.
     pub(super) fn visit_for_each_parts(&mut self, n: usize) {
-        let Some(em) = self.word_in("in", self.start(n), self.end(n)) else { return };
-        let s = self.span_tok(em);
+        let Some(at) = self.word_in("in", self.start(n), self.end(n)) else { return };
+        let s = self.span_tok(at);
         if self.covers(s.start, s.end) {
-            let previous = em.checked_sub(1);
+            let previous = at.checked_sub(1);
             if previous.is_some_and(|i| self.is_op(i, Op::Assign)) {
                 self.kw("const");
                 self.kw("false");
@@ -3092,8 +3092,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         let is_type_or_prefix = matches!(element, Some(Resolved::Prefix(_) | Resolved::Element(Element::Class(_) | Element::Typedef(_) | Element::Extension(_))));
         match ty {
             Some(t) if !is_type_or_prefix => {
-                let so_super = self.kind(prefix) == "SuperExpression";
-                self.to_member_access(n, t, so_super);
+                let only_super = self.kind(prefix) == "SuperExpression";
+                self.to_member_access(n, t, only_super);
             }
             _ => {
                 let assignable = self.parent(n).is_some_and(|p| self.kind(p) == "AssignmentExpression" && self.children(p).first() == Some(&n));
@@ -3146,8 +3146,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         let ty = self.real_expr(target).and_then(|e| self.static_type(e));
         if let Some(t) = ty {
-            let so_super = self.kind(target) == "SuperExpression";
-            self.to_member_access(n, t, so_super);
+            let only_super = self.kind(target) == "SuperExpression";
+            self.to_member_access(n, t, only_super);
         }
         let cascade = self.is_op(op, Op::DotDot) || self.is_op(op, Op::QuestionDotDot);
         let without_type = ty.is_none_or(|t| self.query.table.e_invalido(t) || self.is_type_type(t));
@@ -3826,8 +3826,8 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.local("VariableDeclaration_initializer");
                 self.to_expression(n, false, true);
                 if let Some(t) = self.local_type(v.name.span.start).or_else(|| list.ty.and_then(|t| {
-                    let no = self.children(list_node).iter().copied().find(|&k| self.link(k) == Ligacao::Tipo(t))?;
-                    self.type_node_type(no)
+                    let node = self.children(list_node).iter().copied().find(|&k| self.link(k) == Ligacao::Tipo(t))?;
+                    self.type_node_type(node)
                 })) && matches!(self.query.table.get(t), Type::Function { .. })
                 {
                     let names: Vec<String> = match list.ty.map(|x| &self.a.ty(x).kind) {

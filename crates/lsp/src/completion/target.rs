@@ -28,7 +28,7 @@ pub(super) enum Entity {
 /// The request's target.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Target {
-    pub no: usize,
+    pub node: usize,
     pub entity: Option<Entity>,
     /// `isCommentText`: the cursor is in the text of an ordinary comment.
     pub comment_text: bool,
@@ -104,9 +104,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         if !eof && self.offset >= before {
             return None;
         }
-        let de = self.tok_before(before).map_or(0, |i| self.span_tok(i).end);
+        let from = self.tok_before(before).map_or(0, |i| self.span_tok(i).end);
         for c in dartforge_frontend::comentarios::Comentarios::de(self.source).todos() {
-            if c.start < de || c.end > before {
+            if c.start < from || c.end > before {
                 continue;
             }
             if self.offset <= c.start {
@@ -130,29 +130,29 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `CompletionTarget.forOffset(unit, offset)`.
     pub(super) fn target(&self) -> Target {
-        let mut no = 0usize;
+        let mut node = 0usize;
         'external: loop {
-            if self.kind(no) == "Comment" {
-                for r in self.children_of(no, &["CommentReference"]) {
+            if self.kind(node) == "Comment" {
+                for r in self.children_of(node, &["CommentReference"]) {
                     if self.start(r) <= self.offset && self.offset <= self.end(r) {
-                        no = r;
+                        node = r;
                         continue 'external;
                     }
                 }
             }
-            for e in self.entities(no) {
+            for e in self.entities(node) {
                 match e {
                     Entity::Tok(i) => {
                         if !self.candidate_tok(i) {
                             continue;
                         }
                         if let Some(c) = self.containing_comment(self.span_tok(i).start, false) {
-                            return match self.documentation_comment(no, c) {
-                                Some(d) => Target { no: d, entity: Some(Entity::Comment(c.0, c.1)), comment_text: false },
-                                None => Target { no: 0, entity: Some(Entity::Comment(c.0, c.1)), comment_text: true },
+                            return match self.documentation_comment(node, c) {
+                                Some(d) => Target { node: d, entity: Some(Entity::Comment(c.0, c.1)), comment_text: false },
+                                None => Target { node: 0, entity: Some(Entity::Comment(c.0, c.1)), comment_text: true },
                             };
                         }
-                        return Target { no, entity: Some(e), comment_text: false };
+                        return Target { node, entity: Some(e), comment_text: false };
                     }
                     Entity::No(f) => {
                         if !self.candidate_end(f) {
@@ -164,14 +164,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                                 _ => self.start(f),
                             };
                             if let Some(c) = self.containing_comment(start, false) {
-                                return match self.documentation_comment(no, c) {
-                                    Some(d) => Target { no: d, entity: Some(Entity::Comment(c.0, c.1)), comment_text: false },
-                                    None => Target { no: 0, entity: Some(Entity::Comment(c.0, c.1)), comment_text: true },
+                                return match self.documentation_comment(node, c) {
+                                    Some(d) => Target { node: d, entity: Some(Entity::Comment(c.0, c.1)), comment_text: false },
+                                    None => Target { node: 0, entity: Some(Entity::Comment(c.0, c.1)), comment_text: true },
                                 };
                             }
-                            return Target { no, entity: Some(e), comment_text: false };
+                            return Target { node, entity: Some(e), comment_text: false };
                         }
-                        no = f;
+                        node = f;
                         continue 'external;
                     }
                     Entity::Comment(..) => {}
@@ -179,12 +179,12 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             break;
         }
-        if no == 0
+        if node == 0
             && let Some(c) = self.containing_comment(self.source.len(), true)
         {
-            return Target { no: 0, entity: Some(Entity::Comment(c.0, c.1)), comment_text: true };
+            return Target { node: 0, entity: Some(Entity::Comment(c.0, c.1)), comment_text: true };
         }
-        Target { no, entity: None, comment_text: false }
+        Target { node, entity: None, comment_text: false }
     }
 
     /// The start token of an entity.
@@ -201,9 +201,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `containingNode.findPrevious(token)`: the previous token, if it still
     /// belongs to the node.
-    fn previous_in_node(&self, no: usize, i: usize) -> Option<usize> {
+    fn previous_in_node(&self, node: usize, i: usize) -> Option<usize> {
         let j = i.checked_sub(1)?;
-        (self.span_tok(j).start >= self.start(no)).then_some(j)
+        (self.span_tok(j).start >= self.start(node)).then_some(j)
     }
 
     /// `_computeDroppedToken`: a word token outside the tree between the child
@@ -215,14 +215,14 @@ impl<'a, 'c> Isp<'a, 'c> {
             Entity::Tok(i) => self.span_tok(i).start,
             Entity::Comment(a, _) => a,
         };
-        let previous: Vec<usize> = self.children(target.no).iter().copied().filter(|&f| self.end(f) <= start_and && self.kind(f) != "Comment").collect();
+        let previous: Vec<usize> = self.children(target.node).iter().copied().filter(|&f| self.end(f) <= start_and && self.kind(f) != "Comment").collect();
         let last = *previous.last()?;
         let mut i = self.last_token(last)? + 1;
         while let Some(t) = self.toks.get(i) {
             if t.span.start >= start_and || t.kind == Kind::Eof {
                 break;
             }
-            let inside = self.children(target.no).iter().any(|&f| self.start(f) <= t.span.start && t.span.end <= self.end(f));
+            let inside = self.children(target.node).iter().any(|&f| self.start(f) <= t.span.start && t.span.end <= self.end(f));
             if !inside && self.word(i) && t.span.start <= self.offset && self.offset <= t.span.end {
                 return Some(i);
             }
@@ -237,7 +237,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         if let Some(t) = token
             && self.offset < self.span_tok(t).start
         {
-            token = self.previous_in_node(target.no, t);
+            token = self.previous_in_node(target.node, t);
         }
         if let Some(t) = token {
             let mut t = Some(t);
@@ -245,7 +245,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 && self.offset == self.span_tok(x).start
                 && !self.word(x)
             {
-                t = self.previous_in_node(target.no, x);
+                t = self.previous_in_node(target.node, x);
             }
             if let Some(x) = t {
                 let s = self.span_tok(x);
@@ -254,22 +254,22 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
                 if matches!(self.toks[x].kind, Kind::Str(_)) {
                     // The URI of a directive (or of its configuration).
-                    let uri = match self.kind(target.no) {
+                    let uri = match self.kind(target.node) {
                         "ImportDirective" | "ExportDirective" => self
-                            .children(target.no)
+                            .children(target.node)
                             .iter()
                             .copied()
                             .find(|&k| self.kind(k) == "SimpleStringLiteral" && self.start(k) <= self.offset && self.offset <= self.end(k))
                             .or_else(|| {
-                                self.children_of(target.no, &["Configuration"])
+                                self.children_of(target.node, &["Configuration"])
                                     .into_iter()
                                     .flat_map(|c| self.children_of(c, &["SimpleStringLiteral"]))
                                     .find(|&k| self.start(k) <= self.offset && self.offset <= self.end(k))
                             }),
                         "SimpleStringLiteral" => {
-                            let parent = self.parent(target.no);
+                            let parent = self.parent(target.node);
                             let directive = parent.filter(|&p| self.is_directive(p) || (self.kind(p) == "Configuration" && self.parent(p).is_some_and(|d| self.is_directive(d))));
-                            directive.map(|_| target.no)
+                            directive.map(|_| target.node)
                         }
                         _ => None,
                     };
@@ -365,7 +365,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             if let Kind::Str(_) = self.toks[i].kind {
                 let s = self.span_tok(i);
-                let uri = (target.no != 0 && self.kind(target.no) == "SimpleStringLiteral" && self.parent(target.no).is_some_and(|p| self.is_directive(p))).then_some(target.no);
+                let uri = (target.node != 0 && self.kind(target.node) == "SimpleStringLiteral" && self.parent(target.node).is_some_and(|p| self.is_directive(p))).then_some(target.node);
                 if s.start < self.offset
                     && self.offset < s.end
                     && let Some(u) = uri

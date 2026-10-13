@@ -19,9 +19,9 @@ use dartforge_types::{Resolved, Type};
 /// `ToSourceVisitor` (`<`, `>` and `, `).
 pub(crate) fn as_source(text: &str) -> String {
     let mut s = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    for (de, para) in [("< ", "<"), (" <", "<"), (" >", ">"), (" ,", ","), (" ?", "?")] {
-        while s.contains(de) {
-            s = s.replace(de, para);
+    for (from, to) in [("< ", "<"), (" <", "<"), (" >", ">"), (" ,", ","), (" ?", "?")] {
+        while s.contains(from) {
+            s = s.replace(from, to);
         }
     }
     s
@@ -33,8 +33,8 @@ impl Context<'_> {
     /// `for (int i = 0; i < list.length; i++)` with `final x = list[i];` at the
     /// start of the block.
     pub(crate) fn convert_to_for_index(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let loop_ = self.with_parents(no).find(|&k| self.kind(k) == "ForStatement")?;
+        let node = self.tree.localizar(start, end)?;
+        let loop_ = self.with_parents(node).find(|&k| self.kind(k) == "ForStatement")?;
         let parts = self.children(loop_).iter().copied().find(|&k| self.kind(k).starts_with("ForEachParts"))?;
         let body = *self.children(loop_).last()?;
         // `selectionOffset < forStatement.offset || rightParenthesis.end < selectionOffset`.

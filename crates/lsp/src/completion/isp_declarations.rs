@@ -246,8 +246,8 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// A local function (`LocalFunctionSuggestion`): the node is its
     /// `FunctionDeclaration`.
-    pub(super) fn local_function_item(&mut self, no: usize, name: &str, ty: Option<TypeId>, score: f64) {
-        let f = self.real_function(no);
+    pub(super) fn local_function_item(&mut self, node: usize, name: &str, ty: Option<TypeId>, score: f64) {
+        let f = self.real_function(node);
         let names: Vec<Option<String>> = f
             .and_then(|f| f.parameters.as_ref())
             .map(|ps| ps.iter().filter(|p| p.kind != ast::ParameterKind::Named).map(|p| p.name.map(|n| self.real_name(n).to_string())).collect())
@@ -529,8 +529,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_suggestParameter` (the node is the parameter's).
-    pub(super) fn suggest_parameter(&mut self, no: usize) {
-        let Some(p) = self.real_parameter(no) else { return };
+    pub(super) fn suggest_parameter(&mut self, node: usize) {
+        let Some(p) = self.real_parameter(node) else { return };
         let Some(name) = p.name else { return };
         let text = self.real_name(name).to_string();
         if !self.visible(&text, None) {
@@ -540,15 +540,15 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         if let Some(s) = self.match_score(&text) {
-            let ty = self.local_type(name.span.start).or_else(|| self.declared_parameter_type(no, &text));
+            let ty = self.local_type(name.span.start).or_else(|| self.declared_parameter_type(node, &text));
             self.item_local(&text, ty, true, s);
         }
     }
 
     /// The type of a parameter from the signature of the declared function or
     /// constructor (when the body did not record the local).
-    pub(super) fn declared_parameter_type(&self, no: usize, name: &str) -> Option<TypeId> {
-        let list = self.parameter_list_of(no).or_else(|| self.parent(no))?;
+    pub(super) fn declared_parameter_type(&self, node: usize, name: &str) -> Option<TypeId> {
+        let list = self.parameter_list_of(node).or_else(|| self.parent(node))?;
         let owner = self.parent(list)?;
         let f = match self.kind(owner) {
             "ConstructorDeclaration" => self.declared_constructor(owner),
@@ -1146,11 +1146,11 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `getInterface(c).map`; with `only_super`, the `getInheritedConcreteMap2`
     /// (`superImplemented.last`); with `inherited`, the `getInheritedMap2` (the
     /// `overridden` ones, in candidate order).
-    pub(super) fn interface_members(&self, c: ClassId, so_super: bool, inherited: bool) -> Vec<FunctionElementId> {
+    pub(super) fn interface_members(&self, c: ClassId, only_super: bool, inherited: bool) -> Vec<FunctionElementId> {
         let mut cache = HashMap::new();
         let mut processing = HashSet::new();
         let i = interface_of(self.query, self.query.core.object_class, self.query.program.dono_da_classe(c), &mut cache, &mut processing);
-        let map = if so_super {
+        let map = if only_super {
             &i.implemented_super
         } else if inherited {
             &i.overridden
@@ -1231,7 +1231,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_addInstanceMembers`.
-    pub(super) fn instance_members(&mut self, ty: TypeId, excluded: &HashSet<String>, methods: bool, setters: bool, so_super: bool) {
+    pub(super) fn instance_members(&mut self, ty: TypeId, excluded: &HashSet<String>, methods: bool, setters: bool, only_super: bool) {
         let class_ = match self.query.table.get(ty) {
             Type::Interface { class, .. } => Some(*class),
             Type::ExtensionType { decl, .. } => Some(*decl),
@@ -1240,7 +1240,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         };
         let Some(c) = class_ else { return };
         let lib = self.library();
-        let members = self.interface_members(c, so_super, false);
+        let members = self.interface_members(c, only_super, false);
         // `membersByName` by `displayName`; `bestMember`: the getter before the setter.
         let mut by_name: Vec<(String, Vec<FunctionElementId>)> = Vec::new();
         for f in members {
@@ -1291,7 +1291,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let function = self.query.core.function_class;
         let is_function = Some(c) == function;
         let extends_function = function.is_some_and(|fc| inheritance_distance(self.query, c, fc).is_some_and(|d| d > 0));
-        if (is_function && !so_super) || extends_function {
+        if (is_function && !only_super) || extends_function {
             self.suggest_call();
         }
         self.extension_members(ty, excluded, methods, setters);
@@ -1386,7 +1386,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `addInstanceMembersOfType`.
-    pub(super) fn dh_instance_members(&mut self, ty: TypeId, so_super: bool) {
+    pub(super) fn dh_instance_members(&mut self, ty: TypeId, only_super: bool) {
         let mut t = ty;
         for _ in 0..16 {
             match self.query.table.get(t).clone() {
@@ -1398,7 +1398,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let assignable = self.fl().assignable;
         match self.query.table.get(t).clone() {
             Type::Interface { .. } | Type::ExtensionType { .. } | Type::FutureOr { .. } | Type::Null => {
-                self.instance_members(t, &HashSet::new(), !assignable, true, so_super);
+                self.instance_members(t, &HashSet::new(), !assignable, true, only_super);
             }
             Type::Record { .. } => {
                 self.record_fields(t, &HashSet::new());

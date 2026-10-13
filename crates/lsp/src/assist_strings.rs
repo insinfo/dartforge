@@ -29,13 +29,13 @@ impl Context<'_> {
     /// `_ConvertQuotes.compute`: `of_double` converts from double to single
     /// quotes (`ConvertToSingleQuotes`); otherwise from single to double.
     fn convert_quotes(&self, uri: &str, start: usize, end: usize, of_double: bool) -> Option<Change> {
-        let no = self.tree.localizar(start, end)?;
+        let node = self.tree.localizar(start, end)?;
         let mut m = Change::default();
         // The producer's `token` (`_tokenAt(node, selectionOffset)`).
         let token: Option<Span>;
-        match self.kind(no) {
+        match self.kind(node) {
             "SimpleStringLiteral" => {
-                let span = self.tree.span(no);
+                let span = self.tree.span(node);
                 token = Some(span);
                 let text = &self.source[span.start..span.end];
                 let a = quotes_of(text);
@@ -64,13 +64,13 @@ impl Context<'_> {
                 }
             }
             "StringInterpolation" | "InterpolationString" => {
-                let interpolation = if self.kind(no) == "InterpolationString" { self.parent(no)? } else { no };
+                let interpolation = if self.kind(node) == "InterpolationString" { self.parent(node)? } else { node };
                 let span = self.tree.span(interpolation);
                 let a = quotes_of(&self.source[span.start..span.end]);
-                token = if self.kind(no) == "InterpolationString" {
-                    Some(self.tree.span(no))
+                token = if self.kind(node) == "InterpolationString" {
+                    Some(self.tree.span(node))
                 } else {
-                    self.children(no).iter().map(|&k| self.tree.span(k)).find(|s| s.start <= start && start <= s.end)
+                    self.children(node).iter().map(|&k| self.tree.span(k)).find(|s| s.start <= start && start <= s.end)
                 };
                 if if of_double { !a.simple } else { a.simple } {
                     let new = match (a.multiline, of_double) {
@@ -134,14 +134,14 @@ impl Context<'_> {
     /// single-line literal gets triple quotes, with a line break after the
     /// opening ones (`writeln`).
     pub(crate) fn convert_to_multiline(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let mut no = self.tree.localizar(start, end)?;
-        if matches!(self.kind(no), "InterpolationString" | "InterpolationExpression") {
-            no = self.parent(no)?;
+        let mut node = self.tree.localizar(start, end)?;
+        if matches!(self.kind(node), "InterpolationString" | "InterpolationExpression") {
+            node = self.parent(node)?;
         }
-        if !matches!(self.kind(no), "SimpleStringLiteral" | "StringInterpolation") {
+        if !matches!(self.kind(node), "SimpleStringLiteral" | "StringInterpolation") {
             return None;
         }
-        let span = self.tree.span(no);
+        let span = self.tree.span(node);
         let a = quotes_of(&self.source[span.start..span.end]);
         if a.multiline || span.end <= span.start + 1 {
             return None;

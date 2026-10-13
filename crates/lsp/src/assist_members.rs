@@ -35,10 +35,10 @@ impl Context<'_> {
 
     /// `ConvertIntoFinalField` (convert_into_final_field.dart).
     pub(crate) fn convert_to_final_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
+        let node = self.tree.localizar(start, end)?;
         // The enclosing getter: goes through identifiers and types.
         let mut getter = None;
-        for n in self.with_parents(no) {
+        for n in self.with_parents(node) {
             let e = self.kind(n);
             if e == "MethodDeclaration" {
                 getter = Some(n);
@@ -117,9 +117,9 @@ impl Context<'_> {
 
     /// `ConvertIntoGetter` (convert_into_getter.dart).
     pub(crate) fn convert_to_getter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
+        let node = self.tree.localizar(start, end)?;
         let mut declaration = None;
-        for n in self.with_parents(no) {
+        for n in self.with_parents(node) {
             let e = self.kind(n);
             if e == "FieldDeclaration" {
                 declaration = Some(n);
@@ -201,13 +201,13 @@ impl Context<'_> {
             .copied()
             .filter(|&k| matches!(self.kind(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
             .collect();
-        let (em, text) = match initializers.last() {
+        let (at, text) = match initializers.last() {
             None => (self.tree.nos[list].fim, format!(" : {name} = {name}")),
             Some(&u) => (self.tree.nos[u].fim, format!(", {name} = {name}")),
         };
         let mut m = crate::refactorings_exec::Change::default();
         m.add(uri, self.tree.span(parameter), replacement);
-        m.add(uri, Span { start: em, end: em }, text);
+        m.add(uri, Span { start: at, end: at }, text);
         crate::refactorings_move::builder_imports(self, &mut m, &import);
         if m.conflict.is_some() {
             return None;
@@ -258,8 +258,8 @@ impl Context<'_> {
 
     /// `ConvertClassToMixin` (convert_class_to_mixin.dart).
     pub(crate) fn convert_class_to_mixin(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let declaration = self.with_parents(no).find(|&k| self.kind(k) == "ClassDeclaration")?;
+        let node = self.tree.localizar(start, end)?;
+        let declaration = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
         let Marca::Decl(d) = self.tree.nos[declaration].marca else { return None };
         let ast::DeclKind::Class(k) = &self.ast.decl(d).kind else { return None };
         // `class` (the keyword) and the name.
@@ -392,12 +392,12 @@ impl Context<'_> {
     /// non-final instance field, alone in its declaration, of a class or mixin,
     /// the field becomes private and gets a getter and a setter with its name.
     pub(crate) fn encapsulate_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let declaration = self.with_parents(no).find(|&k| self.kind(k) == "FieldDeclaration")?;
+        let node = self.tree.localizar(start, end)?;
+        let declaration = self.with_parents(node).find(|&k| self.kind(k) == "FieldDeclaration")?;
         let list = self.children(declaration).iter().copied().find(|&k| self.kind(k) == "VariableDeclarationList")?;
         // The keywords before the list (`static`, `covariant`…) and those of the list.
-        let words = |de: usize, until: usize| -> Vec<&str> {
-            self.tokens.iter().filter(|t| t.span.start >= de && t.span.end <= until).map(|t| &self.source[t.span.start..t.span.end]).collect()
+        let words = |from: usize, until: usize| -> Vec<&str> {
+            self.tokens.iter().filter(|t| t.span.start >= from && t.span.end <= until).map(|t| &self.source[t.span.start..t.span.end]).collect()
         };
         let annotations: Vec<usize> = self.children(declaration).iter().copied().filter(|&k| self.kind(k) == "Annotation").collect();
         let after_metadata = annotations.last().map_or(self.tree.nos[declaration].inicio, |&a| self.tree.nos[a].fim);
@@ -533,23 +533,23 @@ impl Context<'_> {
     /// `ConvertToFieldParameter._findParameter`: the simple parameter (directly
     /// in a constructor's list) of the selection, or the one cited by the
     /// expression of a field initializer.
-    fn parameter_to_field(&self, no: usize) -> Option<(usize, Span, usize)> {
-        let parent = self.parent(no)?;
-        if self.kind(no) == "SimpleFormalParameter" {
-            let name = self.previous_token(self.tree.nos[no].fim)?;
+    fn parameter_to_field(&self, node: usize) -> Option<(usize, Span, usize)> {
+        let parent = self.parent(node)?;
+        if self.kind(node) == "SimpleFormalParameter" {
+            let name = self.previous_token(self.tree.nos[node].fim)?;
             if self.kind(parent) != "FormalParameterList" {
                 return None;
             }
             let constructor = self.parent(parent)?;
-            return (self.kind(constructor) == "ConstructorDeclaration").then_some((no, name, constructor));
+            return (self.kind(constructor) == "ConstructorDeclaration").then_some((node, name, constructor));
         }
-        if self.kind(no) == "SimpleIdentifier" && self.kind(parent) == "ConstructorFieldInitializer" {
+        if self.kind(node) == "SimpleIdentifier" && self.kind(parent) == "ConstructorFieldInitializer" {
             let constructor = self.parent(parent)?;
-            if self.kind(constructor) != "ConstructorDeclaration" || self.children(parent).get(1) != Some(&no) {
+            if self.kind(constructor) != "ConstructorDeclaration" || self.children(parent).get(1) != Some(&node) {
                 return None;
             }
             let list = self.children(constructor).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
-            let text = self.node_text(no);
+            let text = self.node_text(node);
             for &f in self.children(list) {
                 if self.kind(f) == "SimpleFormalParameter"
                     && let Some(name) = self.previous_token(self.tree.nos[f].fim)
@@ -566,8 +566,8 @@ impl Context<'_> {
     /// cited only once in the initializers, in a `field = p`, becomes
     /// `this.field` and the initializer goes away.
     pub(crate) fn convert_to_field_parameter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let no = self.tree.localizar(start, end)?;
-        let (parameter, name_, constructor) = self.parameter_to_field(no)?;
+        let node = self.tree.localizar(start, end)?;
+        let (parameter, name_, constructor) = self.parameter_to_field(node)?;
         let parameter_name = &self.source[name_.start..name_.end];
         let initializers: Vec<usize> = self
             .children(constructor)
@@ -625,11 +625,11 @@ impl Context<'_> {
     /// does not write to it gets a local with the same name before the `if`.
     pub(crate) fn shadow_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         use dartforge_types::{MemberRef, Resolved};
-        let no = self.tree.localizar(start, end)?;
-        if self.kind(no) != "SimpleIdentifier" {
+        let node = self.tree.localizar(start, end)?;
+        if self.kind(node) != "SimpleIdentifier" {
             return None;
         }
-        let Marca::Expr(x) = self.tree.nos[no].marca else { return None };
+        let Marca::Expr(x) = self.tree.nos[node].marca else { return None };
         let prog = self.p.program();
         // The getter of a class (the field's accessor or the declared one).
         let (variable, getter, class) = match self.bodies.get_resolved(x)? {
@@ -655,9 +655,9 @@ impl Context<'_> {
             return None;
         }
         // `_getStatement`.
-        let parent = self.parent(no)?;
+        let parent = self.parent(node)?;
         let condition = match self.kind(parent) {
-            "IsExpression" if self.children(parent).first() == Some(&no) => parent,
+            "IsExpression" if self.children(parent).first() == Some(&node) => parent,
             "BinaryExpression" if matches!(self.binary_operator(parent), Some("==" | "!=")) => parent,
             _ => return None,
         };
@@ -674,7 +674,7 @@ impl Context<'_> {
             return None;
         }
         // `correspondingSetter2`.
-        let name = self.node_text(no).to_string();
+        let name = self.node_text(node).to_string();
         let setter: Option<dartforge_elements::model::FunctionElementId> = match (variable, getter) {
             (Some(v), _) => prog.variable(v).setter,
             (None, Some(_)) => prog.class(class).instance_members.iter().find(|(k, _)| self.p.name(**k) == format!("{name}_=")).map(|(_, f)| *f),

@@ -120,13 +120,13 @@ impl Context<'_> {
 
     /// `findInstanceCreationExpression`.
     pub(crate) fn find_creation(&self, n: usize) -> Option<usize> {
-        let mut no = n;
+        let mut node = n;
         for kind in ["ImportPrefixReference", "SimpleIdentifier", "PrefixedIdentifier", "NamedType", "ConstructorName"] {
-            if self.kind(no) == kind {
-                no = self.parent(no)?;
+            if self.kind(node) == kind {
+                node = self.parent(node)?;
             }
         }
-        (self.kind(no) == "InstanceCreationExpression").then_some(no)
+        (self.kind(node) == "InstanceCreationExpression").then_some(node)
     }
 
     /// `isWidgetCreation`.
@@ -215,19 +215,19 @@ impl Context<'_> {
 
     /// The Flutter assists at the cursor.
     pub(crate) fn flutter_assists(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
-        let Some(no) = self.tree.localizar(start, end) else { return Vec::new() };
+        let Some(node) = self.tree.localizar(start, end) else { return Vec::new() };
         let mut v = Vec::new();
-        v.extend(self.flutter_to_children(uri, no));
-        v.extend(self.flutter_move(uri, no, false));
-        v.extend(self.flutter_move(uri, no, true));
-        v.extend(self.flutter_remove(uri, no));
-        v.extend(self.flutter_swap_with_child(uri, no));
-        v.extend(self.flutter_swap_with_parent(uri, no));
-        v.extend(self.flutter_wrap_builder(uri, no, false));
-        v.extend(self.flutter_wrap_list(uri, no));
-        v.extend(self.flutter_wrap_builder(uri, no, true));
-        v.extend(self.flutter_child_last(uri, no));
-        v.extend(self.flutter_wrap(uri, no, start, end));
+        v.extend(self.flutter_to_children(uri, node));
+        v.extend(self.flutter_move(uri, node, false));
+        v.extend(self.flutter_move(uri, node, true));
+        v.extend(self.flutter_remove(uri, node));
+        v.extend(self.flutter_swap_with_child(uri, node));
+        v.extend(self.flutter_swap_with_parent(uri, node));
+        v.extend(self.flutter_wrap_builder(uri, node, false));
+        v.extend(self.flutter_wrap_list(uri, node));
+        v.extend(self.flutter_wrap_builder(uri, node, true));
+        v.extend(self.flutter_child_last(uri, node));
+        v.extend(self.flutter_wrap(uri, node, start, end));
         v
     }
 
@@ -248,11 +248,11 @@ impl Context<'_> {
     pub(crate) fn add_diagnostic_reference(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let p = self.p.program();
         let query = &self.p.query;
-        let no = self.tree.localizar(start, end)?;
+        let node = self.tree.localizar(start, end)?;
         // The name and the type (`_getReturnType`: the declared getter or the field).
-        let (name, ty, written_type): (String, TypeId, Option<usize>) = match self.kind(no) {
+        let (name, ty, written_type): (String, TypeId, Option<usize>) = match self.kind(node) {
             "MethodDeclaration" => {
-                let crate::arvore_analyzer::Marca::Funcao(fid) = self.tree.nos[no].marca else { return None };
+                let crate::arvore_analyzer::Marca::Funcao(fid) = self.tree.nos[node].marca else { return None };
                 let func = self.ast.function(fid);
                 let n = func.name?;
                 if func.kind != dartforge_frontend::ast::FunctionKind::Getter {
@@ -260,14 +260,14 @@ impl Context<'_> {
                 }
                 let f = self.p.node_function(self.unit, fid)?;
                 let ret = query.outline.functions.get(f.0 as usize)?.return_type;
-                let annotation = self.children(no).iter().copied().find(|&k| matches!(self.kind(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
+                let annotation = self.children(node).iter().copied().find(|&k| matches!(self.kind(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
                 (self.p.name(n.sym).to_string(), ret, annotation)
             }
             "VariableDeclaration" => {
-                let list = self.parent(no).filter(|&l| self.kind(l) == "VariableDeclarationList")?;
+                let list = self.parent(node).filter(|&l| self.kind(l) == "VariableDeclarationList")?;
                 self.parent(list).filter(|&d| self.kind(d) == "FieldDeclaration")?;
-                let name = crate::refactorings_exec::name_at_start_pub(self.node_text(no)).to_string();
-                let class_node = self.with_parents(no).find(|&k| self.kind(k) == "ClassDeclaration")?;
+                let name = crate::refactorings_exec::name_at_start_pub(self.node_text(node)).to_string();
+                let class_node = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
                 let crate::arvore_analyzer::Marca::Decl(d) = self.tree.nos[class_node].marca else { return None };
                 let class = self.declaration_class(self.unit, d)?;
                 let v = p.class(class).fields.iter().copied().find(|&v| self.p.name(p.variable(v).name) == name)?;
@@ -277,7 +277,7 @@ impl Context<'_> {
             }
             _ => return None,
         };
-        let class_node = self.with_parents(no).find(|&k| self.kind(k) == "ClassDeclaration")?;
+        let class_node = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
         let crate::arvore_analyzer::Marca::Decl(d) = self.tree.nos[class_node].marca else { return None };
         let class = self.declaration_class(self.unit, d)?;
         let diagnosable = |c: ClassId| self.p.name(p.class(c).name) == "Diagnosticable" && p.class(c).decl.is_some_and(|x| p.unit(x.unit).uri == "package:flutter/src/foundation/diagnostics.dart");
@@ -321,7 +321,7 @@ impl Context<'_> {
         };
         let tx = Text::new(self.source);
         let eol = tx.eol();
-        let mut writer = crate::write_type::Writer::new(self, self.tree.nos[no].inicio);
+        let mut writer = crate::write_type::Writer::new(self, self.tree.nos[node].inicio);
         let mut reference = |prefix: &str, constructor: &str| -> Option<String> {
             let mut s = format!("{prefix}{constructor}.add({id}");
             match &arguments {
@@ -503,11 +503,11 @@ impl Context<'_> {
             let name = self.previous_token(self.tree.nos[parameter].fim)?;
             let body = *self.children(e).last()?;
             // `_UsageFinder`: an identifier of the body that reads the parameter.
-            let used = self.tree.nos.iter().any(|no| {
-                no.especie == "SimpleIdentifier"
-                    && no.inicio >= self.tree.nos[body].inicio
-                    && no.fim <= self.tree.nos[body].fim
-                    && matches!(no.marca, crate::arvore_analyzer::Marca::Expr(x) if self.bodies.declaracao_local(x) == Some(name.start))
+            let used = self.tree.nos.iter().any(|node| {
+                node.especie == "SimpleIdentifier"
+                    && node.inicio >= self.tree.nos[body].inicio
+                    && node.fim <= self.tree.nos[body].fim
+                    && matches!(node.marca, crate::arvore_analyzer::Marca::Expr(x) if self.bodies.declaracao_local(x) == Some(name.start))
             });
             if used {
                 return None;

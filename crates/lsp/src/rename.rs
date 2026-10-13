@@ -31,9 +31,9 @@ pub struct Edit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenameFile {
     /// Current URI of the file.
-    pub de: String,
+    pub from: String,
     /// New URI (same directory, `toFileName` of the new name).
-    pub para: String,
+    pub to: String,
     /// Dart does not edit the directives here (they come from
     /// `willRenameFiles`): empty.
     pub directives: Vec<Edit>,
@@ -210,8 +210,8 @@ impl Project {
         let cx = Context::new(self, unit);
         let n = cx.tree.localizar(offset, offset)?;
         let node_kind = cx.kind(n);
-        let no = &cx.tree.nos[n];
-        let node_range = Span { start: no.inicio, end: no.fim };
+        let node = &cx.tree.nos[n];
+        let node_range = Span { start: node.inicio, end: node.fim };
         match node_kind {
             // Outside the `getElementToRename` table.
             "SuperFormalParameter" | "FunctionTypedFormalParameter" => return None,
@@ -227,7 +227,7 @@ impl Project {
                 let lib = u.library;
                 let index = p.library(lib).imports.iter().position(|i| {
                     i.unit == unit
-                        && p.unit(i.unit).unit.directives.get(i.directive).is_some_and(|d| no.inicio <= d.span.start && d.span.end <= no.fim)
+                        && p.unit(i.unit).unit.directives.get(i.directive).is_some_and(|d| node.inicio <= d.span.start && d.span.end <= node.fim)
                 })?;
                 let imp = &p.library(lib).imports[index];
                 let (range, old) = match &p.unit(imp.unit).unit.directives[imp.directive].kind {
@@ -258,7 +258,7 @@ impl Project {
                 });
             }
             "LibraryDirective" => {
-                let name = source[no.inicio..no.fim].trim_start_matches("library").trim().trim_end_matches(';').trim().to_string();
+                let name = source[node.inicio..node.fim].trim_start_matches("library").trim().trim_end_matches(';').trim().to_string();
                 return Some(Request {
                     class: Class::Library(u.library),
                     range: node_range,
@@ -281,19 +281,19 @@ impl Project {
             "ConstructorDeclaration" => {
                 let f = (0..p.functions.len()).map(|i| FunctionElementId(i as u32)).find(|&f| {
                     matches!(p.function(f).kind, FunctionKind::Constructor)
-                        && self.function_name(f).is_some_and(|(uu, s)| uu == unit && no.inicio <= s.start && s.end <= no.fim)
+                        && self.function_name(f).is_some_and(|(uu, s)| uu == unit && node.inicio <= s.start && s.end <= node.fim)
                 })?;
                 let mut request = self.target_request(Target::Constructor(f), Some(Concrete::Function(f)), node_range, unit)?;
                 request.range = node_range;
                 return Some(request);
             }
             "FieldFormalParameter" => {
-                let q = parameter_in_range(&u.ast, no.inicio, no.fim)?;
+                let q = parameter_in_range(&u.ast, node.inicio, node.fim)?;
                 let name = q.name?;
                 let field = (0..p.classes.len()).map(|i| ClassId(i as u32)).find(|&c| {
                     p.class(c).decl.is_some_and(|d| d.unit == unit && {
                         let s = u.ast.decl(d.decl).span;
-                        s.start <= no.inicio && no.fim <= s.end
+                        s.start <= node.inicio && node.fim <= s.end
                     })
                 });
                 let field = field.and_then(|c| p.class(c).fields.iter().copied().find(|v| p.variable(*v).name == name.sym));
@@ -317,7 +317,7 @@ impl Project {
             let command_label = cx.kind(parent) == "Label"
                 && cx.parent(parent).is_some_and(|g| matches!(cx.kind(g), "LabeledStatement" | "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"));
             let declaration = if command_label {
-                Some(no.inicio)
+                Some(node.inicio)
             } else if matches!(cx.kind(parent), "BreakStatement" | "ContinueStatement") {
                 let name = cx.node_text(n);
                 let mut found = None;
@@ -764,9 +764,9 @@ impl Project {
                 let references = self.target_references(target);
                 let subclasses: Vec<ClassId> = self.subtypes(class, false);
                 // The owning class of an element is named like the new name.
-                if let Some(fam) = &family {
+                if let Some(family_) = &family {
                     let mut owning_: BTreeSet<u32> = BTreeSet::new();
-                    for f in &fam.functions {
+                    for f in &family_.functions {
                         if let Some(c) = p.function(*f).class {
                             owning_.insert(c.0);
                         }
@@ -1067,7 +1067,7 @@ impl Project {
     fn rename_edits(&self, request: &Request, new: &str) -> Result<Vec<Edit>, String> {
         let p = self.program();
         let mut edits: Vec<Edit> = Vec::new();
-        let por = |u: UnitId, s: Span, text: &str, edits: &mut Vec<Edit>| {
+        let by = |u: UnitId, s: Span, text: &str, edits: &mut Vec<Edit>| {
             if !self.in_workspace(Some(u)) {
                 return;
             }
@@ -1082,15 +1082,15 @@ impl Project {
             Class::Import { library, index } => return Ok(self.import_edits(*library, *index, new)),
             Class::UnitMember(target) | Class::ExtensionMember { target, .. } => {
                 for (u, a, b) in self.declarations(target) {
-                    por(u, Span { start: a, end: b }, new, &mut edits);
+                    by(u, Span { start: a, end: b }, new, &mut edits);
                 }
                 for (u, s) in self.target_references(target) {
-                    por(u, s, new, &mut edits);
+                    by(u, s, new, &mut edits);
                 }
             }
             Class::ClassMember { target, .. } => {
                 for (u, a, b) in self.declarations(target) {
-                    por(u, Span { start: a, end: b }, new, &mut edits);
+                    by(u, Span { start: a, end: b }, new, &mut edits);
                 }
                 for (u, s) in self.target_references(target) {
                     // The named `this.x` that becomes private: `{T x}` and the initializer
@@ -1107,7 +1107,7 @@ impl Project {
                     if new.starts_with('_') && (s.start == s.end || self.is_super_formal(u, s)) {
                         continue;
                     }
-                    por(u, s, new, &mut edits);
+                    by(u, s, new, &mut edits);
                 }
             }
             Class::Parameter { unit, declaration, field } => {
@@ -1115,17 +1115,17 @@ impl Project {
                     // The field: the declaration and all its references.
                     let target = self.variable_member(*v);
                     if let Some((u, s)) = self.variable_name(*v) {
-                        por(u, s, new, &mut edits);
+                        by(u, s, new, &mut edits);
                     }
                     for (u, s) in self.target_references(&target) {
-                        por(u, s, new, &mut edits);
+                        by(u, s, new, &mut edits);
                     }
                 } else {
                     let target = Target::Local { unit: *unit, declaration: *declaration };
                     let un = p.unit(*unit);
                     let named = crate::project::parameter_in(&un.ast, *declaration).is_some_and(|(q, _)| q.kind == ast::ParameterKind::Named);
                     let end = word(&un.source, *declaration).map_or(*declaration, |s| s.end);
-                    por(*unit, Span { start: *declaration, end: end }, new, &mut edits);
+                    by(*unit, Span { start: *declaration, end: end }, new, &mut edits);
                     // `RenameParameterRefactoringImpl._getElements`: the named one of the
                     // overrides is renamed with the declaration (the occurrence rename mode,
                     // which includes the homonyms).
@@ -1146,11 +1146,11 @@ impl Project {
                         if !named && self.is_super_formal(u, s) {
                             continue;
                         }
-                        por(u, s, new, &mut edits);
+                        by(u, s, new, &mut edits);
                     }
                     // The `[x]` of the member's doc.
                     for (u, s) in self.parameter_docs(*unit, *declaration) {
-                        por(u, s, new, &mut edits);
+                        by(u, s, new, &mut edits);
                     }
                 }
             }
@@ -1160,21 +1160,21 @@ impl Project {
                     _ => Target::TypeParameter { unit: *unit, declaration: *declaration },
                 };
                 for (u, a, b) in self.occurrences(&target, true)? {
-                    por(u, Span { start: a, end: b }, new, &mut edits);
+                    by(u, Span { start: a, end: b }, new, &mut edits);
                 }
             }
             Class::Label { unit, declaration } => {
                 let un = p.unit(*unit);
                 let cx = Context::new(self, *unit);
                 let end = word(&un.source, *declaration).map_or(*declaration, |s| s.end);
-                por(*unit, Span { start: *declaration, end: end }, new, &mut edits);
+                by(*unit, Span { start: *declaration, end: end }, new, &mut edits);
                 let name_ = &un.source[*declaration..end];
-                for (k, no) in cx.tree.nos.iter().enumerate() {
-                    if no.especie == "SimpleIdentifier"
+                for (k, node) in cx.tree.nos.iter().enumerate() {
+                    if node.especie == "SimpleIdentifier"
                         && cx.parent(k).is_some_and(|x| matches!(cx.kind(x), "BreakStatement" | "ContinueStatement"))
                         && cx.node_text(k) == name_
                     {
-                        por(*unit, Span { start: no.inicio, end: no.fim }, new, &mut edits);
+                        by(*unit, Span { start: node.inicio, end: node.fim }, new, &mut edits);
                     }
                 }
             }
@@ -1187,7 +1187,7 @@ impl Project {
                             _ => continue,
                         };
                         if let (Some(a), Some(b)) = (name_.first(), name_.last()) {
-                            por(u, Span { start: a.span.start, end: b.span.end }, new, &mut edits);
+                            by(u, Span { start: a.span.start, end: b.span.end }, new, &mut edits);
                         }
                     }
                 }
@@ -1402,7 +1402,7 @@ impl Project {
             return None;
         }
         let target = path.with_file_name(file_name(new));
-        Some(RenameFile { de: Url::from_file_path(&path).ok()?.to_string(), para: Url::from_file_path(&target).ok()?.to_string(), directives: Vec::new() })
+        Some(RenameFile { from: Url::from_file_path(&path).ok()?.to_string(), to: Url::from_file_path(&target).ok()?.to_string(), directives: Vec::new() })
     }
 
     /// The edits of `RenameConstructorRefactoringImpl.fillChange` (§12.7): each

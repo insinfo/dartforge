@@ -232,7 +232,7 @@ fn scope_locals_parameters_members_top_level_and_keywords() {
     }
 
     // With a prefix, first what starts with it (case-insensitively); then what
-    // only matches fuzzily (`Comparable` contains `para`).
+    // only matches fuzzily (`Comparable` contains `to`).
     let r = completion(
         &mut p,
         "lib/b.dart",

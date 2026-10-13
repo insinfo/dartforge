@@ -575,13 +575,13 @@ impl Context<'_> {
         }
         let mut ranges: Vec<Span> = Vec::new();
         for r in references {
-            let no = self.this_or_ancestor(r, |e| matches!(e, "VariableDeclaration" | "ExpressionStatement" | "ConstructorFieldInitializer" | "FieldFormalParameter"))?;
-            let parent = self.parent(no);
+            let node_ = self.this_or_ancestor(r, |e| matches!(e, "VariableDeclaration" | "ExpressionStatement" | "ConstructorFieldInitializer" | "FieldFormalParameter"))?;
+            let parent = self.parent(node_);
             let grandparent = parent.and_then(|x| self.parent(x));
-            let range = match self.kind(no) {
+            let range = match self.kind(node_) {
                 "VariableDeclaration" if parent.is_some_and(|l| self.kind(l) == "VariableDeclarationList") && grandparent.is_some() => {
                     let variables = self.kind_children(parent?, "VariableDeclaration");
-                    if variables.len() == 1 { self.node_lines(grandparent?) } else { self.node_in_list(&variables, no) }
+                    if variables.len() == 1 { self.node_lines(grandparent?) } else { self.node_in_list(&variables, node_) }
                 }
                 "ConstructorFieldInitializer" => {
                     let constructor = parent?;
@@ -593,13 +593,13 @@ impl Context<'_> {
                         .collect();
                     if initializers.len() == 1 {
                         let parameters = self.kind_children(constructor, "FormalParameterList").first().copied()?;
-                        Span { start: self.tree.nos[parameters].fim, end: self.tree.nos[no].fim }
+                        Span { start: self.tree.nos[parameters].fim, end: self.tree.nos[node_].fim }
                     } else {
-                        self.node_in_list(&initializers, no)
+                        self.node_in_list(&initializers, node_)
                     }
                 }
-                "FieldFormalParameter" => self.field_parameter_range(no)?,
-                _ => self.node_lines(no),
+                "FieldFormalParameter" => self.field_parameter_range(node_)?,
+                _ => self.node_lines(node_),
             };
             ranges.push(range);
         }
@@ -1695,8 +1695,8 @@ impl Context<'_> {
         let prog = self.p.program();
         let quotes = if crate::refactorings_exec::enabled_rule(self.p, self.unit, "prefer_double_quotes") { "\"" } else { "'" };
         let mut output = Vec::new();
-        for (n, no) in self.tree.nos.iter().enumerate() {
-            let (error_target, function_, list, creation) = match no.especie {
+        for (n, node) in self.tree.nos.iter().enumerate() {
+            let (error_target, function_, list, creation) = match node.especie {
                 "MethodInvocation" => {
                     let Some(m) = self.method_name(n) else { continue };
                     let crate::refactorings::Elem::Function(f) = self.identifier_element(m, true) else { continue };
@@ -1708,7 +1708,7 @@ impl Context<'_> {
                     let Some(x) = self.node_expr(n) else { continue };
                     let f = match self.bodies.get_resolved(x) {
                         Some(Resolved::Constructor(f)) => *f,
-                        _ => match self.constructors_by_target.iter().find(|(target, _)| self.ast.expr(**target).span.start == no.inicio) {
+                        _ => match self.constructors_by_target.iter().find(|(target, _)| self.ast.expr(**target).span.start == node.inicio) {
                             Some((_, f)) => *f,
                             None => continue,
                         },
@@ -1908,10 +1908,10 @@ impl Context<'_> {
     }
 
     /// `_forFieldFormalParameter`.
-    fn field_parameter_range(&self, no: usize) -> Option<Span> {
-        let parameter = match self.parent(no) {
+    fn field_parameter_range(&self, node: usize) -> Option<Span> {
+        let parameter = match self.parent(node) {
             Some(p) if self.kind(p) == "DefaultFormalParameter" => p,
-            _ => no,
+            _ => node,
         };
         let list = self.parent(parameter)?;
         let s = self.tree.span(parameter);

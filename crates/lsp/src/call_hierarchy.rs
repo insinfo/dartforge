@@ -170,33 +170,33 @@ impl Project {
                 }
                 let (u, name) = self.function_name(f)?;
                 let cx = Context::new(self, u);
-                let no = cx.tree.localizar(name.start, name.end)?;
-                let decl = cx.tree.cadeia(no).into_iter().find(|&k| matches!(cx.kind(k), "FunctionDeclaration" | "MethodDeclaration" | "ConstructorDeclaration" | "VariableDeclaration"))?;
+                let node = cx.tree.localizar(name.start, name.end)?;
+                let decl = cx.tree.cadeia(node).into_iter().find(|&k| matches!(cx.kind(k), "FunctionDeclaration" | "MethodDeclaration" | "ConstructorDeclaration" | "VariableDeclaration"))?;
                 Some((u, name, cx.tree.span(decl)))
             }
             CallElem::Local(u, f) => {
                 let name = p.unit(u).ast.function(ast::FunctionId(f)).name?.span;
                 let cx = Context::new(self, u);
-                let no = cx.tree.localizar(name.start, name.end)?;
-                let decl = cx.tree.cadeia(no).into_iter().find(|&k| cx.kind(k) == "FunctionDeclaration")?;
+                let node = cx.tree.localizar(name.start, name.end)?;
+                let decl = cx.tree.cadeia(node).into_iter().find(|&k| cx.kind(k) == "FunctionDeclaration")?;
                 Some((u, name, cx.tree.span(decl)))
             }
             CallElem::Class(c) => {
                 let (u, name) = self.top_element_name(Element::Class(c))?;
                 let d = p.class(c).decl?;
                 let cx = Context::new(self, u);
-                let no = cx.tree.nos.iter().position(|n| matches!(n.marca, Marca::Decl(x) if x == d.decl) && n.especie.ends_with("Declaration"))?;
-                Some((u, name, cx.tree.span(no)))
+                let node = cx.tree.nos.iter().position(|n| matches!(n.marca, Marca::Decl(x) if x == d.decl) && n.especie.ends_with("Declaration"))?;
+                Some((u, name, cx.tree.span(node)))
             }
             CallElem::Extension(x) => {
                 let d = p.extension(x).decl;
                 let cx = Context::new(self, d.unit);
-                let no = cx.tree.nos.iter().position(|n| matches!(n.marca, Marca::Decl(k) if k == d.decl) && n.especie == "ExtensionDeclaration")?;
+                let node = cx.tree.nos.iter().position(|n| matches!(n.marca, Marca::Decl(k) if k == d.decl) && n.especie == "ExtensionDeclaration")?;
                 let name = match &p.unit(d.unit).ast.decl(d.decl).kind {
-                    ast::DeclKind::Extension(e) => e.name.map_or(Span { start: cx.tree.nos[no].inicio, end: cx.tree.nos[no].inicio }, |n| n.span),
+                    ast::DeclKind::Extension(e) => e.name.map_or(Span { start: cx.tree.nos[node].inicio, end: cx.tree.nos[node].inicio }, |n| n.span),
                     _ => return None,
                 };
-                Some((d.unit, name, cx.tree.span(no)))
+                Some((d.unit, name, cx.tree.span(node)))
             }
             CallElem::File(u) => Some((u, Span { start: 0, end: 0 }, Span { start: 0, end: p.unit(u).source.len() })),
         }
@@ -425,23 +425,23 @@ impl Project {
         };
         let Ok(occurrences) = self.occurrences(&target, false) else { return Vec::new() };
         let mut groups: Vec<(CallElem, Vec<Span>)> = Vec::new();
-        for (u, de, until) in occurrences {
-            if declarations.contains(&(u, de, until)) {
+        for (u, from, until) in occurrences {
+            if declarations.contains(&(u, from, until)) {
                 continue;
             }
-            let container = self.container_at_offset(u, de, None);
+            let container = self.container_at_offset(u, from, None);
             // The range: the method name in a `MethodInvocation` (a named constructor
             // comes with the dot in the index); that of the node for an empty range.
             let cx = Context::new(self, u);
-            let mut s = Span { start: de, end: until };
-            if let Some(n) = cx.tree.localizar(de, de) {
+            let mut s = Span { start: from, end: until };
+            if let Some(n) = cx.tree.localizar(from, from) {
                 if cx.kind(n) == "SimpleIdentifier"
                     && let Some(parent) = cx.parent(n)
                     && cx.kind(parent) == "MethodInvocation"
                     && let Some(m) = cx.method_name(parent)
                 {
                     s = cx.tree.span(m);
-                } else if de == until {
+                } else if from == until {
                     s = cx.tree.span(n);
                 }
             }

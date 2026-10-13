@@ -48,8 +48,8 @@ impl Context<'_> {
     pub(crate) fn wrap_commands(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
         let mut output = Vec::new();
         // The covered node cannot be the unit (top-level declarations).
-        let Some(no) = self.tree.localizar(start, end) else { return output };
-        if self.kind(no) == "CompilationUnit" {
+        let Some(node) = self.tree.localizar(start, end) else { return output };
+        if self.kind(node) == "CompilationUnit" {
             return output;
         }
         // `StatementAnalyzer`: the selected nodes, all block statements.
@@ -130,7 +130,7 @@ impl Context<'_> {
             .here()
             .write(eol);
         action("Surround with 'if'", "refactor.surround.if", &e);
-        if self.parent(no).is_some_and(|p| self.class_and_state(p)) {
+        if self.parent(node).is_some_and(|p| self.class_and_state(p)) {
             let mut e = crate::snippets::Write::default();
             e.write(&format!("{old}setState(() {{{eol}{indented}{old}"))
                 .here()

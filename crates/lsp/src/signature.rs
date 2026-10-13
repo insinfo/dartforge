@@ -369,8 +369,8 @@ impl Project {
         };
         let mut positional_before = 0;
         for a in arguments_.args.iter() {
-            let (de, until) = range(a);
-            if de <= offset && offset <= until {
+            let (from, until) = range(a);
+            if from <= offset && offset <= until {
                 return match a.name {
                     Some(n) => {
                         let name = &self.program().unit(unit).source[n.span.start..n.span.end];

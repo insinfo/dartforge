@@ -610,14 +610,14 @@ fn prepare(text: &str, start: usize, end: usize, features: LibraryFeatures) -> O
 /// Where the sentinel at `start` is: in an expression (with the target, if
 /// it is a member access) or in a type name.
 fn find_sentinel(ast: &ast::Ast, start: usize) -> Option<Sentinel> {
-    let eh = |n: &ast::Name| n.span.start == start && n.span.end == start + SENTINEL.len();
+    let is_match = |n: &ast::Name| n.span.start == start && n.span.end == start + SENTINEL.len();
     let expr = ast
         .exprs
         .iter()
         .enumerate()
         .find_map(|(i, e)| match &e.kind {
-            ExprKind::Identifier(n) if eh(n) => Some(Sentinel::Expr(ExprId(i as u32), None)),
-            ExprKind::Property { target, name, .. } if eh(name) => {
+            ExprKind::Identifier(n) if is_match(n) => Some(Sentinel::Expr(ExprId(i as u32), None)),
+            ExprKind::Property { target, name, .. } if is_match(name) => {
                 Some(Sentinel::Expr(ExprId(i as u32), Some(*target)))
             }
             _ => None,
@@ -626,7 +626,7 @@ fn find_sentinel(ast: &ast::Ast, start: usize) -> Option<Sentinel> {
         return expr;
     }
     let (ty, name_) = ast.types.iter().find_map(|t| match &t.kind {
-        ast::TypeKind::Named { name, .. } if name.last().is_some_and(eh) => Some((t, name)),
+        ast::TypeKind::Named { name, .. } if name.last().is_some_and(is_match) => Some((t, name)),
         _ => None,
     })?;
     let prefix = (name_.len() == 2).then(|| name_[0].sym);

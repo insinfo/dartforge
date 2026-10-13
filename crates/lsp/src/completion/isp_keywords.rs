@@ -349,11 +349,11 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `addExpressionKeywords`.
-    pub(super) fn kw_expression(&mut self, no: Option<usize>, constant: bool, is_static: bool) {
+    pub(super) fn kw_expression(&mut self, node: Option<usize>, constant: bool, is_static: bool) {
         self.kw("false");
         self.kw("null");
         self.kw("true");
-        match no {
+        match node {
             Some(n) => {
                 if self.valid_const(n) {
                     self.kw("const");
@@ -454,10 +454,10 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `FormalParameterList.inNamedGroup`.
     pub(super) fn in_named_group(&self, list: usize) -> bool {
-        let de = self.start(list) + 1;
+        let from = self.start(list) + 1;
         let end = self.end(list);
-        let key = self.op_in(Op::LBrace, de, end);
-        let bracket = self.op_in(Op::LBracket, de, end);
+        let key = self.op_in(Op::LBrace, from, end);
+        let bracket = self.op_in(Op::LBracket, from, end);
         let left_ = match (key, bracket) {
             (Some(a), Some(b)) if b < a => return false,
             (Some(a), _) => a,

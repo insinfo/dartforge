@@ -327,8 +327,8 @@ impl Project {
             "textDocument": {"uri": self.uri(relative)},
             "position": {"line": line, "character": column},
         });
-        if let Value::Object(mais) = extra {
-            for (k, v) in mais {
+        if let Value::Object(more) = extra {
+            for (k, v) in more {
                 params[k] = v;
             }
         }
@@ -409,8 +409,8 @@ pub fn apply(edit: &Value, uri: &str, text: &str) -> String {
         .collect();
     swaps.sort_by_key(|t| std::cmp::Reverse(t.0));
     let mut output = text.to_string();
-    for (de, until, new) in swaps {
-        output.replace_range(de..until, new);
+    for (from, until, new) in swaps {
+        output.replace_range(from..until, new);
     }
     output
 }

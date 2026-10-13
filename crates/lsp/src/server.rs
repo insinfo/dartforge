@@ -1572,13 +1572,13 @@ impl<A: Analyzer> Server<A> {
                 let params = message.get("params");
                 let uri = params.and_then(|p| p.pointer("/textDocument/uri")).and_then(Value::as_str).map(str::to_string);
                 let range2 = params.and_then(|p| p.get("range")).and_then(read_range);
-                let (Some(u), Some((de, until))) = (uri, range2) else {
+                let (Some(u), Some((from, until))) = (uri, range2) else {
                     return response(&id, Value::Null);
                 };
                 let (Some(text), Some(table)) = (self.documents.get(&u), self.documents.lines(&u)) else {
                     return response(&id, Value::Null);
                 };
-                let start = table.position_offset(text, de.line, de.column);
+                let start = table.position_offset(text, from.line, from.column);
                 let end = table.position_offset(text, until.line, until.column);
                 let (start, end) = (start.min(end), start.max(end));
                 let only: Option<Vec<String>> = params
@@ -1682,7 +1682,7 @@ impl<A: Analyzer> Server<A> {
                 }
                 // The source actions, the fixes, the assists and the refactorings, in this
                 // order; fixes and assists pass each group through `_CodeActionSorter`.
-                let request_column = i64::from(de.column);
+                let request_column = i64::from(from.column);
                 // `getFixActions`/`getAssistActions`: only as literal `CodeAction`s; without
                 // `codeActionLiteralSupport`, none.
                 if !self.actions_literals {
@@ -2031,10 +2031,10 @@ impl<A: Analyzer> Server<A> {
                 let Some(u) = uri.filter(|u| self.documents.get(u).is_some()) else {
                     return response(&id, Value::Null);
                 };
-                let range_ = message.pointer("/params/range").and_then(read_range).and_then(|(de, until)| {
+                let range_ = message.pointer("/params/range").and_then(read_range).and_then(|(from, until)| {
                     let text = self.documents.get(&u)?;
                     let table = self.documents.lines(&u)?;
-                    Some((table.position_offset(text, de.line, de.column), table.position_offset(text, until.line, until.column)))
+                    Some((table.position_offset(text, from.line, from.column), table.position_offset(text, until.line, until.column)))
                 });
                 let multiline = self.multiline_tokens;
                 match self.analyzer.semantic_tokens(&self.documents, &u, multiline, range_) {
@@ -2923,12 +2923,12 @@ impl<A: Analyzer> Server<A> {
             && self.possible_file_rename
         {
             // `renameFilesWithClasses` of the file's folder (`forResource`).
-            let mode = self.configuration_of(&file.de).rename_files_with_classes.clone();
+            let mode = self.configuration_of(&file.from).rename_files_with_classes.clone();
             let renames = if pending.file_question || mode == "always" || (self.rename_files && mode != "never" && mode != "prompt") {
                 true
             } else if mode == "prompt" && self.user_questions {
                 let base = |u: &str| u.rsplit('/').next().unwrap_or(u).to_string();
-                let message = format!("Rename '{}' to '{}'?", base(&file.de), base(&file.para));
+                let message = format!("Rename '{}' to '{}'?", base(&file.from), base(&file.to));
                 pending.file_question = true;
                 pending.file = Some(file);
                 return self.ask_on_rename(
@@ -2941,7 +2941,7 @@ impl<A: Analyzer> Server<A> {
             // Only the file operation: the Dart server does not rewrite the directives
             // in `rename` (the client asks for `willRenameFiles`).
             if renames {
-                feature = Some(json!({"kind": "rename", "oldUri": file.de, "newUri": file.para}));
+                feature = Some(json!({"kind": "rename", "oldUri": file.from, "newUri": file.to}));
             }
         }
         // The `SourceChange` order: the declaration's file (the first edit) and the

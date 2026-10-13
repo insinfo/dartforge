@@ -8,14 +8,14 @@ mod common;
 use common::{Project, apply};
 use serde_json::{Value, json};
 
-fn actions(p: &mut Project, relative: &str, de: (u32, u32), until: (u32, u32), extra: Value) -> Value {
+fn actions(p: &mut Project, relative: &str, from: (u32, u32), until: (u32, u32), extra: Value) -> Value {
     let mut params = json!({
         "textDocument": {"uri": p.uri(relative)},
-        "range": {"start": {"line": de.0, "character": de.1}, "end": {"line": until.0, "character": until.1}},
+        "range": {"start": {"line": from.0, "character": from.1}, "end": {"line": until.0, "character": until.1}},
         "context": {"diagnostics": []},
     });
-    if let Value::Object(mais) = extra {
-        for (k, v) in mais {
+    if let Value::Object(more) = extra {
+        for (k, v) in more {
             params["context"][k] = v;
         }
     }
@@ -823,9 +823,9 @@ fn surround_with_assist() {
     let text = "void f() {\n  print(1);\n  print(2);\n}\n";
     p.open("lib/a.dart", text);
     p.server.await_diagnostics(std::time::Duration::from_secs(120));
-    let de = location(text, "print(1)", 0);
+    let from = location(text, "print(1)", 0);
     let until = location(text, "\n}", 0);
-    let r = actions(&mut p, "lib/a.dart", de, until, json!({}));
+    let r = actions(&mut p, "lib/a.dart", from, until, json!({}));
     let a = action(&r, "Surround with 'if'");
     assert_eq!(a["kind"], "refactor.surround.if");
     assert_eq!(
@@ -2964,9 +2964,9 @@ fn snippets_in_assists() {
     let text = "void f() {\n  print(1);\n  print(r'$x');\n}\nint g() => 1;\n";
     p.open("lib/a.dart", text);
     p.server.await_diagnostics(std::time::Duration::from_secs(120));
-    let de = location(text, "print(1)", 0);
+    let from = location(text, "print(1)", 0);
     let until = location(text, "\n}", 0);
-    let r = actions(&mut p, "lib/a.dart", de, until, json!({}));
+    let r = actions(&mut p, "lib/a.dart", from, until, json!({}));
     // One group (`CONDITION`) and the selection: `${1:condition}` and `$0`; the
     // text's `$` is escaped.
     let e = &action(&r, "Surround with 'if'")["edit"]["documentChanges"][0]["edits"][0];
@@ -3003,9 +3003,9 @@ fn without_the_capability_the_edit_is_plain() {
     let text = "void f() {\n  print(1);\n}\n";
     p.open("lib/a.dart", text);
     p.server.await_diagnostics(std::time::Duration::from_secs(120));
-    let de = location(text, "print(1)", 0);
+    let from = location(text, "print(1)", 0);
     let until = location(text, "\n}", 0);
-    let r = actions(&mut p, "lib/a.dart", de, until, json!({}));
+    let r = actions(&mut p, "lib/a.dart", from, until, json!({}));
     let e = &action(&r, "Surround with 'if'")["edit"]["documentChanges"][0]["edits"][0];
     assert!(e.get("insertTextFormat").is_none(), "{e}");
     assert_eq!(e["newText"], "  if (condition) {\n    print(1);\n  }\n");
