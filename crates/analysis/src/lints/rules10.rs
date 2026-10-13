@@ -1,22 +1,22 @@
-//! O décimo lote de regras de lint que só olham a árvore e o texto
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
+//! The tenth batch of lint rules that only look at the tree and the text
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the 3.6.2
+//! emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
 //! `prefer_inlined_adds`, `prefer_spread_collections`,
 //! `avoid_field_initializers_in_const_classes`,
-//! `avoid_classes_with_only_static_members` e `prefer_final_in_for_each`.
+//! `avoid_classes_with_only_static_members` and `prefer_final_in_for_each`.
 //!
-//! Com o mesmo dado do original (as que pedem o elemento só relatam com a
-//! semântica da unidade):
-//! - `avoid_classes_with_only_static_members`: a interface herdada (membros
-//!   de classe que não sejam de `Object`; os de mixin não contam), os
-//!   construtores, métodos e campos da classe inteira; sem a semântica, só a
-//!   classe sem `extends`, `with` nem `implements`.
-//! - `prefer_final_in_for_each`: a mutação pelo elemento
-//!   (`super::is_mutated`), só dentro de corpo de função.
-//! - `avoid_field_initializers_in_const_classes`: o uso de parâmetro pelo
-//!   elemento e os construtores da classe inteira.
-//! - `prefer_spread_collections`: a lista-alvo fora de contexto constante.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! With the same data as the original (those that need the element only
+//! report with the unit's semantics):
+//! - `avoid_classes_with_only_static_members`: the inherited interface (class
+//!   members that are not from `Object`; mixin ones do not count), the
+//!   constructors, methods and fields of the whole class; without the
+//!   semantics, only a class without `extends`, `with` or `implements`.
+//! - `prefer_final_in_for_each`: the mutation by element
+//!   (`super::is_mutated`), only inside a function body.
+//! - `avoid_field_initializers_in_const_classes`: the use of a parameter by
+//!   element and the constructors of the whole class.
+//! - `prefer_spread_collections`: the target list outside a constant context.
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -29,66 +29,67 @@ use dartforge_frontend::ast::{
 };
 use dartforge_intern::Interner;
 
-/// Os `for-in` de coleção com variável declarada ou padrão: o alvo e o fim
-/// do iterável (de onde começa a região em que a variável vive).
-fn lacos_de_colecao<'x>(a: &Ast, el: &'x CollectionElement, saida: &mut Vec<(&'x ForInTarget, usize)>) {
+/// The collection `for-in`s with a declared variable or a pattern: the target
+/// and the end of the iterable (where the region in which the variable lives
+/// starts).
+fn collection_for_ins<'x>(a: &Ast, el: &'x CollectionElement, out: &mut Vec<(&'x ForInTarget, usize)>) {
     match el {
         CollectionElement::ForIn { target, iterable, body, .. } => {
-            saida.push((target, a.expr(*iterable).span.end));
-            lacos_de_colecao(a, body, saida);
+            out.push((target, a.expr(*iterable).span.end));
+            collection_for_ins(a, body, out);
         }
-        CollectionElement::For { body, .. } => lacos_de_colecao(a, body, saida),
+        CollectionElement::For { body, .. } => collection_for_ins(a, body, out),
         CollectionElement::If { then, else_, .. } => {
-            lacos_de_colecao(a, then, saida);
+            collection_for_ins(a, then, out);
             if let Some(x) = else_ {
-                lacos_de_colecao(a, x, saida);
+                collection_for_ins(a, x, out);
             }
         }
         _ => {}
     }
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
-    // `prefer_inlined_adds` e `prefer_spread_collections`: a primeira seção
-    // de uma cascata sobre um literal de lista.
-    let (inlinar, espalhar) = (ligada("prefer_inlined_adds"), ligada("prefer_spread_collections"));
-    if inlinar || espalhar {
-        // `target.inConstantContext` (só para `prefer_spread_collections`).
-        let pais = dartforge_frontend::pais::Pais::novo(a, u.unit, u.fonte, sem.is_some_and(|s| !super::version_at_least(s, 3, 0)));
+    // `prefer_inlined_adds` and `prefer_spread_collections`: the first
+    // section of a cascade on a list literal.
+    let (inline_adds, spread) = (enabled("prefer_inlined_adds"), enabled("prefer_spread_collections"));
+    if inline_adds || spread {
+        // `target.inConstantContext` (only for `prefer_spread_collections`).
+        let parents = dartforge_frontend::pais::Pais::novo(a, u.unit, u.fonte, sem.is_some_and(|s| !super::version_at_least(s, 3, 0)));
         for e in a.exprs.iter() {
             let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };
             if !matches!(a.expr(*target).kind, ExprKind::List { .. }) {
                 continue;
             }
-            let Some(&primeira) = sections.first() else { continue };
-            let ExprKind::Call { target: chamado, arguments } = &a.expr(primeira).kind else { continue };
-            let ExprKind::Property { target: receptor, name, .. } = &a.expr(*chamado).kind else { continue };
-            if !matches!(a.expr(*receptor).kind, ExprKind::CascadeTarget) {
+            let Some(&first) = sections.first() else { continue };
+            let ExprKind::Call { target: callee, arguments } = &a.expr(first).kind else { continue };
+            let ExprKind::Property { target: receiver, name, .. } = &a.expr(*callee).kind else { continue };
+            if !matches!(a.expr(*receiver).kind, ExprKind::CascadeTarget) {
                 continue;
             }
-            let [argumento] = &arguments.args[..] else { continue };
-            let de_lista = matches!(a.expr(argumento.value).kind, ExprKind::List { .. });
+            let [argument] = &arguments.args[..] else { continue };
+            let is_list = matches!(a.expr(argument.value).kind, ExprKind::List { .. });
             match interner.resolve(name.sym) {
-                "add" if inlinar => relatar(&c::PREFER_INLINED_ADDS_SINGLE, name.span, &[]),
-                "addAll" if de_lista && inlinar => relatar(&c::PREFER_INLINED_ADDS_MULTIPLE, name.span, &[]),
-                "addAll" if !de_lista && espalhar && !pais.em_contexto_constante(a, *target) => relatar(&c::PREFER_SPREAD_COLLECTIONS, name.span, &[]),
+                "add" if inline_adds => report(&c::PREFER_INLINED_ADDS_SINGLE, name.span, &[]),
+                "addAll" if is_list && inline_adds => report(&c::PREFER_INLINED_ADDS_MULTIPLE, name.span, &[]),
+                "addAll" if !is_list && spread && !parents.em_contexto_constante(a, *target) => report(&c::PREFER_SPREAD_COLLECTIONS, name.span, &[]),
                 _ => {}
             }
         }
     }
 
     // `avoid_field_initializers_in_const_classes`.
-    if ligada("avoid_field_initializers_in_const_classes") {
+    if enabled("avoid_field_initializers_in_const_classes") {
         for d in a.decls.iter() {
             let DeclKind::Class(x) = &d.kind else { continue };
-            let construtores: Vec<(MemberId, &ast::Constructor)> = x
+            let constructors: Vec<(MemberId, &ast::Constructor)> = x
                 .members
                 .iter()
                 .filter_map(|&m| match &a.member(m).kind {
@@ -96,53 +97,53 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     _ => None,
                 })
                 .collect();
-            // Os construtores da classe inteira (`allConstructors`, com as
-            // augmentations): pela semântica; sem ela, os desta declaração.
-            let classe = sem.and_then(|s| x.members.first().and_then(|&m| super::member_class(s, m)).map(|c| (s, c)));
-            let (quantos, algum_const) = match classe {
+            // The constructors of the whole class (`allConstructors`, with the
+            // augmentations): through the semantics; without it, this declaration's.
+            let class_id = sem.and_then(|s| x.members.first().and_then(|&m| super::member_class(s, m)).map(|c| (s, c)));
+            let (count, any_const) = match class_id {
                 Some((s, c)) => {
                     let k = &s.program.class(c).constructors;
                     (k.len(), k.values().any(|f| s.program.function(*f).const_))
                 }
-                None => (construtores.len(), construtores.iter().any(|(_, k)| k.const_)),
+                None => (constructors.len(), constructors.iter().any(|(_, k)| k.const_)),
             };
-            // O campo `final` de instância com inicializador, numa classe
-            // com algum construtor `const`.
-            if algum_const {
+            // The `final` instance field with an initializer, in a class with
+            // some `const` constructor.
+            if any_const {
                 for &m in x.members.iter() {
-                    let membro = a.member(m);
-                    if let MemberKind::Field(l) = &membro.kind
-                        && !membro.augment
+                    let member = a.member(m);
+                    if let MemberKind::Field(l) = &member.kind
+                        && !member.augment
                         && !l.static_
                         && l.final_
                     {
                         for v in l.variables.iter() {
                             if let Some(i) = v.initializer {
-                                relatar(&c::AVOID_FIELD_INITIALIZERS_IN_CONST_CLASSES, Span { start: v.name.span.start, end: a.expr(i).span.end }, &[]);
+                                report(&c::AVOID_FIELD_INITIALIZERS_IN_CONST_CLASSES, Span { start: v.name.span.start, end: a.expr(i).span.end }, &[]);
                             }
                         }
                     }
                 }
             }
-            // O inicializador de campo do construtor `const` da classe de um
-            // só construtor que não lê parâmetro nenhum (pelo elemento: pede
-            // a semântica da unidade).
+            // The field initializer of the `const` constructor of a class with
+            // a single constructor that reads no parameter (by element: needs
+            // the unit's semantics).
             if let Some(s) = sem
-                && quantos == 1
+                && count == 1
             {
-                for (_, k) in construtores.iter().filter(|(_, k)| k.const_) {
-                    let declaracoes: Vec<usize> = k.parameters.iter().filter_map(|p| p.name).map(|n| n.span.start).collect();
+                for (_, k) in constructors.iter().filter(|(_, k)| k.const_) {
+                    let param_starts: Vec<usize> = k.parameters.iter().filter_map(|p| p.name).map(|n| n.span.start).collect();
                     for i in k.initializers.iter() {
                         if let Initializer::Field { span, value, .. } = i {
-                            let regiao = a.expr(*value).span;
-                            let usa = a.exprs.iter().enumerate().any(|(j, e)| {
+                            let region = a.expr(*value).span;
+                            let uses = a.exprs.iter().enumerate().any(|(j, e)| {
                                 matches!(e.kind, ExprKind::Identifier(_))
-                                    && regiao.start <= e.span.start
-                                    && e.span.end <= regiao.end
-                                    && s.body.declaracao_local(ast::ExprId(j as u32)).is_some_and(|dd| declaracoes.contains(&dd))
+                                    && region.start <= e.span.start
+                                    && e.span.end <= region.end
+                                    && s.body.declaracao_local(ast::ExprId(j as u32)).is_some_and(|dd| param_starts.contains(&dd))
                             });
-                            if !usa {
-                                relatar(&c::AVOID_FIELD_INITIALIZERS_IN_CONST_CLASSES, *span, &[]);
+                            if !uses {
+                                report(&c::AVOID_FIELD_INITIALIZERS_IN_CONST_CLASSES, *span, &[]);
                             }
                         }
                     }
@@ -150,125 +151,126 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             }
         }
     }
-    // `avoid_classes_with_only_static_members`: a classe (não `sealed`, fora
-    // de augmentation) cuja interface não tem membro de classe que não seja
-    // de `Object` (membros de mixin não contam), sem construtor que não seja
-    // o padrão, só com métodos estáticos, e com algum método ou campo não
-    // `const` (os acessores contam como campo sintético). Pela semântica, a
-    // interface herdada e os membros com as augmentations; sem ela, só a
-    // classe sem `extends`, `with` nem `implements`.
-    if ligada("avoid_classes_with_only_static_members") {
+    // `avoid_classes_with_only_static_members`: a class (not `sealed`, outside
+    // an augmentation) whose interface has no class member that is not from
+    // `Object` (mixin members do not count), without a constructor other than
+    // the default one, with only static methods, and with some method or
+    // non-`const` field (accessors count as a synthetic field). Through the
+    // semantics, the inherited interface and the members with the
+    // augmentations; without it, only a class without `extends`, `with` or
+    // `implements`.
+    if enabled("avoid_classes_with_only_static_members") {
         for d in a.decls.iter().filter(|d| !d.augment) {
             let DeclKind::Class(x) = &d.kind else { continue };
             if x.modifiers.sealed {
                 continue;
             }
-            let classe = sem.and_then(|s| x.members.first().and_then(|&m| super::member_class(s, m)).map(|c| (s, c)));
-            let relata = match classe {
+            let class_id = sem.and_then(|s| x.members.first().and_then(|&m| super::member_class(s, m)).map(|c| (s, c)));
+            let reported = match class_id {
                 Some((s, c)) => {
-                    use dartforge_elements::model::{ClassKind, FunctionKind as Especie};
+                    use dartforge_elements::model::{ClassKind, FunctionKind as FnKind};
                     let p = s.program;
-                    // A interface: a própria classe e os supertipos.
-                    let mut tipos: Vec<dartforge_elements::model::ClassId> = vec![c];
+                    // The interface: the class itself and its supertypes.
+                    let mut types: Vec<dartforge_elements::model::ClassId> = vec![c];
                     if let Some(h) = s.outline.hierarchy.get(c) {
-                        tipos.extend(h.supertypes.keys().copied());
+                        types.extend(h.supertypes.keys().copied());
                     }
-                    let herda_de_classe = tipos.iter().any(|&k| {
+                    let inherits_class_member = types.iter().any(|&k| {
                         Some(k) != s.core.object_class
                             && matches!(p.class(k).kind, ClassKind::Class | ClassKind::MixinApplication)
                             && p.class(k).instance_members.values().any(|f| {
                                 let g = p.function(*f);
-                                // O membro é declarado na classe (não vem de mixin).
+                                // The member is declared in the class (it does not come from a mixin).
                                 g.class == Some(k)
                             })
                     });
                     let e = p.class(c);
-                    let ctor_proprio = e.constructors.iter().any(|(nome, f)| {
-                        let sem_nome = interner.resolve(*nome).is_empty();
-                        let obrigatorio = s.outline.functions.get(f.0 as usize).is_some_and(|dd| dd.parameters.iter().any(|q| q.kind == ParameterKind::Required || q.required));
-                        !(sem_nome && !obrigatorio)
+                    let own_ctor = e.constructors.iter().any(|(name, f)| {
+                        let unnamed = interner.resolve(*name).is_empty();
+                        let required = s.outline.functions.get(f.0 as usize).is_some_and(|dd| dd.parameters.iter().any(|q| q.kind == ParameterKind::Required || q.required));
+                        !(unnamed && !required)
                     });
-                    let metodos: Vec<_> = e
+                    let methods: Vec<_> = e
                         .instance_members
                         .values()
                         .chain(e.static_members.values())
-                        .filter(|f| matches!(p.function(**f).kind, Especie::Function | Especie::Operator))
+                        .filter(|f| matches!(p.function(**f).kind, FnKind::Function | FnKind::Operator))
                         .collect();
-                    let todos_estaticos = metodos.iter().all(|f| p.function(**f).static_);
-                    let acessor = e.instance_members.values().chain(e.static_members.values()).any(|f| matches!(p.function(*f).kind, Especie::Getter | Especie::Setter));
-                    let campo_nao_const = e.fields.iter().any(|v| !p.variable(*v).const_) || acessor;
-                    !herda_de_classe && !ctor_proprio && todos_estaticos && (!metodos.is_empty() || campo_nao_const)
+                    let all_static = methods.iter().all(|f| p.function(**f).static_);
+                    let accessor = e.instance_members.values().chain(e.static_members.values()).any(|f| matches!(p.function(*f).kind, FnKind::Getter | FnKind::Setter));
+                    let non_const_field = e.fields.iter().any(|v| !p.variable(*v).const_) || accessor;
+                    !inherits_class_member && !own_ctor && all_static && (!methods.is_empty() || non_const_field)
                 }
                 None => {
                     if x.mixin_application || x.extends.is_some() || !x.with.is_empty() || !x.implements.is_empty() {
                         continue;
                     }
-                    let mut de_instancia = false;
-                    let mut construtor_proprio = false;
-                    let mut metodos_estaticos = false;
-                    let mut campo_nao_const = false;
+                    let mut has_instance = false;
+                    let mut own_constructor = false;
+                    let mut static_methods = false;
+                    let mut non_const_field = false;
                     for &m in x.members.iter() {
                         match &a.member(m).kind {
                             MemberKind::Field(l) => {
-                                de_instancia |= !l.static_;
-                                campo_nao_const |= !l.const_;
+                                has_instance |= !l.static_;
+                                non_const_field |= !l.const_;
                             }
                             MemberKind::Method(f) => {
                                 let f = a.function(*f);
-                                de_instancia |= !f.static_;
+                                has_instance |= !f.static_;
                                 match f.kind {
-                                    FunctionKind::Getter | FunctionKind::Setter => campo_nao_const = true,
-                                    FunctionKind::Function | FunctionKind::Operator => metodos_estaticos = true,
+                                    FunctionKind::Getter | FunctionKind::Setter => non_const_field = true,
+                                    FunctionKind::Function | FunctionKind::Operator => static_methods = true,
                                 }
                             }
                             MemberKind::Constructor(k) => {
-                                construtor_proprio |= k.name.is_some() || k.parameters.iter().any(|p| p.kind == ParameterKind::Required || p.required);
+                                own_constructor |= k.name.is_some() || k.parameters.iter().any(|p| p.kind == ParameterKind::Required || p.required);
                             }
                         }
                     }
-                    !de_instancia && !construtor_proprio && (metodos_estaticos || campo_nao_const)
+                    !has_instance && !own_constructor && (static_methods || non_const_field)
                 }
             };
-            if relata {
-                relatar(&c::AVOID_CLASSES_WITH_ONLY_STATIC_MEMBERS, d.span, &[]);
+            if reported {
+                report(&c::AVOID_CLASSES_WITH_ONLY_STATIC_MEMBERS, d.span, &[]);
             }
         }
     }
-    // `prefer_final_in_for_each`: a variável (ou as variáveis do padrão) de
-    // um `for-in` dentro de corpo de função que nenhuma escrita muda (pelo
-    // elemento: pede a semântica da unidade).
-    if ligada("prefer_final_in_for_each")
+    // `prefer_final_in_for_each`: the variable (or the pattern's variables) of
+    // a `for-in` inside a function body that no write changes (by element:
+    // needs the unit's semantics).
+    if enabled("prefer_final_in_for_each")
         && let Some(s) = sem
     {
-        // `potentiallyMutates`: só a variável declarada e não mutada passa.
-        let quieto = |p: PatternId| matches!(&a.pattern(p).kind, PatternKind::Variable { name, .. } if !super::is_mutated(s, a, name.span.start));
-        let mut conferir = |alvo: &ForInTarget| match alvo {
+        // `potentiallyMutates`: only a declared, non-mutated variable passes.
+        let unmutated = |p: PatternId| matches!(&a.pattern(p).kind, PatternKind::Variable { name, .. } if !super::is_mutated(s, a, name.span.start));
+        let mut check_target = |target: &ForInTarget| match target {
             ForInTarget::Declared { final_: false, name, .. } => {
                 if !super::is_mutated(s, a, name.span.start) {
-                    relatar(&c::PREFER_FINAL_IN_FOR_EACH_VARIABLE, name.span, &[interner.resolve(name.sym)]);
+                    report(&c::PREFER_FINAL_IN_FOR_EACH_VARIABLE, name.span, &[interner.resolve(name.sym)]);
                 }
             }
             ForInTarget::Pattern { final_: false, pattern } => {
                 let n = a.pattern(*pattern);
-                let relata = match &n.kind {
-                    PatternKind::Record { fields } | PatternKind::Object { fields, .. } => fields.iter().all(|f| quieto(f.pattern)),
-                    PatternKind::List { elements, .. } => elements.iter().all(|el| matches!(el, ListPatternElement::Pattern(x) if quieto(*x))),
-                    PatternKind::Map { entries, rest, .. } => !*rest && entries.iter().all(|en| quieto(en.value)),
+                let reported = match &n.kind {
+                    PatternKind::Record { fields } | PatternKind::Object { fields, .. } => fields.iter().all(|f| unmutated(f.pattern)),
+                    PatternKind::List { elements, .. } => elements.iter().all(|el| matches!(el, ListPatternElement::Pattern(x) if unmutated(*x))),
+                    PatternKind::Map { entries, rest, .. } => !*rest && entries.iter().all(|en| unmutated(en.value)),
                     _ => false,
                 };
-                if relata {
-                    relatar(&c::PREFER_FINAL_IN_FOR_EACH_PATTERN, n.span, &[]);
+                if reported {
+                    report(&c::PREFER_FINAL_IN_FOR_EACH_PATTERN, n.span, &[]);
                 }
             }
             _ => {}
         };
         for st in a.stmts.iter() {
             if let StmtKind::ForIn { target, .. } = &st.kind {
-                conferir(target);
+                check_target(target);
             }
         }
-        // O `for-in` de coleção, só dentro de corpo de função.
-        let corpos: Vec<Span> = a
+        // The collection `for-in`, only inside a function body.
+        let bodies: Vec<Span> = a
             .functions
             .iter()
             .filter_map(|f| match &f.body {
@@ -287,15 +289,15 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             .collect();
         for e in a.exprs.iter() {
             if let ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } = &e.kind {
-                if !corpos.iter().any(|c| c.start <= e.span.start && e.span.end <= c.end) {
+                if !bodies.iter().any(|c| c.start <= e.span.start && e.span.end <= c.end) {
                     continue;
                 }
-                let mut lacos = Vec::new();
+                let mut for_ins = Vec::new();
                 for el in elements.iter() {
-                    lacos_de_colecao(a, el, &mut lacos);
+                    collection_for_ins(a, el, &mut for_ins);
                 }
-                for (alvo, _) in lacos {
-                    conferir(alvo);
+                for (target, _) in for_ins {
+                    check_target(target);
                 }
             }
         }
@@ -304,45 +306,45 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn com_codigo(regra: &str, fonte: &str) -> Vec<(&'static str, String)> {
-        let mut nomes = Interner::new();
-        let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        let mut relatos = run(u, &nomes, &|r| r == regra, None);
-        relatos.sort_by_key(|r| (r.span.start, r.span.end));
-        relatos.into_iter().map(|r| (r.code.unico, fonte[r.span.start..r.span.end].to_string())).collect()
+    fn with_code(rule: &str, source: &str) -> Vec<(&'static str, String)> {
+        let mut names = Interner::new();
+        let p = dartforge_frontend::parser::parse(source, &mut names);
+        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let mut reports = run(u, &names, &|r| r == rule, None);
+        reports.sort_by_key(|r| (r.span.start, r.span.end));
+        reports.into_iter().map(|r| (r.code.unico, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]
-    fn cascatas_em_listas() {
-        let fonte = "var a = [1]..add(2);\nvar b = [1]..addAll([2, 3]);\nvar c = [1]..addAll(a);\nvar d = [1]..length..add(2);\nvar e = a..add(2);\n";
+    fn cascades_on_lists() {
+        let source = "var a = [1]..add(2);\nvar b = [1]..addAll([2, 3]);\nvar c = [1]..addAll(a);\nvar d = [1]..length..add(2);\nvar e = a..add(2);\n";
         assert_eq!(
-            com_codigo("prefer_inlined_adds", fonte),
+            with_code("prefer_inlined_adds", source),
             vec![("prefer_inlined_adds_single", "add".to_string()), ("prefer_inlined_adds_multiple", "addAll".to_string())]
         );
-        assert_eq!(com_codigo("prefer_spread_collections", fonte), vec![("prefer_spread_collections", "addAll".to_string())]);
+        assert_eq!(with_code("prefer_spread_collections", source), vec![("prefer_spread_collections", "addAll".to_string())]);
     }
 
     #[test]
     fn classes() {
-        let fonte = "class A {\n  final int a = 1;\n  final int b;\n  static final int c = 2;\n  const A(int x) : b = 0;\n}\nclass B {\n  final int d;\n  const B(int x) : d = x;\n}\n";
-        let v: Vec<String> = com_codigo("avoid_field_initializers_in_const_classes", fonte).into_iter().map(|x| x.1).collect();
-        // O inicializador que não lê parâmetro pede a semântica da unidade;
-        // o campo com inicializador, não.
+        let source = "class A {\n  final int a = 1;\n  final int b;\n  static final int c = 2;\n  const A(int x) : b = 0;\n}\nclass B {\n  final int d;\n  const B(int x) : d = x;\n}\n";
+        let v: Vec<String> = with_code("avoid_field_initializers_in_const_classes", source).into_iter().map(|x| x.1).collect();
+        // The initializer that reads no parameter needs the unit's semantics;
+        // the field with an initializer does not.
         assert_eq!(v, vec!["a = 1".to_string()]);
-        let fonte = "class A {\n  static int f() => 0;\n}\nclass B {\n  static const int k = 1;\n}\nclass C {\n  static int v = 1;\n  int m() => 0;\n}\nclass D {\n  static int v = 1;\n  D(int x);\n}\nclass E {\n  static int v = 1;\n}\n";
-        let v = com_codigo("avoid_classes_with_only_static_members", fonte);
+        let source = "class A {\n  static int f() => 0;\n}\nclass B {\n  static const int k = 1;\n}\nclass C {\n  static int v = 1;\n  int m() => 0;\n}\nclass D {\n  static int v = 1;\n  D(int x);\n}\nclass E {\n  static int v = 1;\n}\n";
+        let v = with_code("avoid_classes_with_only_static_members", source);
         assert_eq!(v.len(), 2, "{v:?}");
         assert!(v[0].1.starts_with("class A") && v[1].1.starts_with("class E"));
     }
 
     #[test]
     fn for_each_final() {
-        let fonte = "void f(List<int> l, List<(int, int)> p) {\n  for (var a in l) {}\n  for (var b in l) {\n    b++;\n  }\n  for (final c in l) {}\n  for (var (x, y) in p) {}\n  for (var (z, w) in p) {\n    z = w;\n  }\n  var q = [for (var d in l) d];\n}\n";
-        // A mutação pelo elemento pede a semântica da unidade.
-        assert!(com_codigo("prefer_final_in_for_each", fonte).is_empty());
+        let source = "void f(List<int> l, List<(int, int)> p) {\n  for (var a in l) {}\n  for (var b in l) {\n    b++;\n  }\n  for (final c in l) {}\n  for (var (x, y) in p) {}\n  for (var (z, w) in p) {\n    z = w;\n  }\n  var q = [for (var d in l) d];\n}\n";
+        // The mutation by element needs the unit's semantics.
+        assert!(with_code("prefer_final_in_for_each", source).is_empty());
     }
 }
