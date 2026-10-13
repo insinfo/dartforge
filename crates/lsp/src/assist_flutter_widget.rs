@@ -1,8 +1,8 @@
-//! `FlutterConvertToStatefulWidget` e `FlutterConvertToStatelessWidget` do
-//! `analysis_server` 3.6.2 (flutter_convert_to_stateful_widget.dart,
+//! `FlutterConvertToStatefulWidget` and `FlutterConvertToStatelessWidget`
+//! from `analysis_server` 3.6.2 (flutter_convert_to_stateful_widget.dart,
 //! flutter_convert_to_stateless_widget.dart).
 //!
-//! | Título | Espécie |
+//! | Title | Kind |
 //! |---|---|
 //! | `Convert to StatefulWidget` | `refactor.flutter.convert.toStatefulWidget` |
 //! | `Convert to StatelessWidget` | `refactor.flutter.convert.toStatelessWidget` |
@@ -18,8 +18,8 @@ use dartforge_frontend::ast::{self, DeclKind, MemberKind};
 use dartforge_types::{MemberRef, Resolved, Type};
 use std::collections::HashSet;
 
-/// Um elemento executável da classe do widget (`ExecutableElement`): um
-/// método ou acessor declarado, ou o acessor implícito de um campo.
+/// An executable element of the widget class (`ExecutableElement`): a
+/// declared method or accessor, or the implicit accessor of a field.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Executable {
     Function(dartforge_elements::model::FunctionElementId),
@@ -27,7 +27,7 @@ enum Executable {
 }
 
 impl Context<'_> {
-    /// O `{` do corpo de uma declaração de classe (o par do `}` final).
+    /// The `{` of a class declaration's body (the pair of the final `}`).
     fn opens_body(&self, class_node: usize) -> Option<Span> {
         let end = self.tree.nos[class_node].fim;
         let i_end = self.tokens.iter().position(|t| t.span.end == end)?;
@@ -47,12 +47,12 @@ impl Context<'_> {
         None
     }
 
-    /// O `class` da declaração.
+    /// The declaration's `class`.
     fn class_word(&self, name: Span) -> Option<Span> {
         self.tokens.iter().filter(|t| t.span.end <= name.start && &self.source[t.span.start..t.span.end] == "class").map(|t| t.span).next_back()
     }
 
-    /// Os nós de membro de uma `ClassDeclaration`, na ordem dos membros.
+    /// The member nodes of a `ClassDeclaration`, in member order.
     fn member_nodes(&self, class_node: usize, members: &[ast::MemberId]) -> Option<Vec<usize>> {
         members
             .iter()
@@ -60,9 +60,9 @@ impl Context<'_> {
             .collect()
     }
 
-    /// O elemento estático (`staticElement`) executável de um
-    /// identificador: o membro ou o acessor implícito do campo. `None` numa
-    /// escrita (o `staticElement` do alvo de uma atribuição é nulo).
+    /// The executable static element (`staticElement`) of an identifier: the
+    /// member or the implicit accessor of the field. `None` for a write (the
+    /// `staticElement` of an assignment target is null).
     fn identifier_executable(&self, n: usize) -> Option<(Executable, Option<ClassId>, bool)> {
         let Marca::Expr(x) = self.tree.nos[n].marca else { return None };
         if self.writes.contains(&x) {
@@ -86,8 +86,8 @@ impl Context<'_> {
         }
     }
 
-    /// `_FieldFinder`: os campos atribuídos nos construtores (`this.x`, o
-    /// inicializador `x = …` e as escritas).
+    /// `_FieldFinder`: the fields assigned in the constructors (`this.x`, the
+    /// `x = …` initializer and the writes).
     fn fields_assigned_in_constructors(&self, class: ClassId, members: &[ast::MemberId], nos: &[usize]) -> HashSet<VariableId> {
         let p = self.p.program();
         let name_field = |name_: &str| p.class(class).fields.iter().copied().find(|&v| self.p.name(p.variable(v).name) == name_);
@@ -109,7 +109,7 @@ impl Context<'_> {
                     output.insert(v);
                 }
             }
-            // As escritas no corpo (`inSetterContext`).
+            // The writes in the body (`inSetterContext`).
             let (a, b) = (self.tree.nos[nos[i]].inicio, self.tree.nos[nos[i]].fim);
             for no in self.tree.nos.iter() {
                 if no.especie == "SimpleIdentifier"
@@ -169,7 +169,7 @@ impl Context<'_> {
         let widget_name = self.p.name(k.name.sym).to_string();
         let name_state = if widget_name.starts_with('_') { format!("{widget_name}State") } else { format!("_{widget_name}State") };
         let assigned = self.fields_assigned_in_constructors(class, &k.members, &nos);
-        // Os membros a mover e os elementos deles.
+        // The members to move and their elements.
         let mut to_move: Vec<usize> = Vec::new();
         let mut moved: HashSet<Executable> = HashSet::new();
         for (i, &m) in k.members.iter().enumerate() {
@@ -256,11 +256,11 @@ impl Context<'_> {
             let text = if has_build { create_state(last_kept_end != 0, false) } else { String::new() };
             m.add(uri, Span { start: start_swap, end: closes }, text);
         }
-        // A classe `State`.
+        // The `State` class.
         let mut s = format!("{eol}{eol}class {name_state}{type_parameters} extends {ref_state}<{raw_name}");
         if !k.type_params.is_empty() {
-            // Só os nomes, sem separador (o `first` do Dart nunca vira
-            // falso depois do primeiro).
+            // Only the names, without a separator (Dart's `first` never becomes false
+            // after the first one).
             s.push('<');
             for t in k.type_params.iter() {
                 s.push_str(self.p.name(t.name.sym));
@@ -298,9 +298,9 @@ impl Context<'_> {
         })
     }
 
-    /// `rewriteWidgetMemberReferences` do StatefulWidget: `widget.` (ou o
-    /// nome da classe, num estático) antes de cada referência a um membro do
-    /// widget que fica.
+    /// The StatefulWidget's `rewriteWidgetMemberReferences`: `widget.` (or the
+    /// class name, for a static) before each reference to a widget member that
+    /// stays.
     fn rewrite_to_state(&self, n: usize, class: ClassId, moved: &HashSet<Executable>, class_name_: &str) -> String {
         let tx = Text::new(self.source);
         let lines = tx.line_range(self.tree.nos[n].inicio, self.tree.nos[n].fim);
@@ -329,7 +329,7 @@ impl Context<'_> {
 }
 
 impl Context<'_> {
-    /// `_isDefaultOverride`: o corpo vazio, ou só `super.m(…)` do mesmo nome.
+    /// `_isDefaultOverride`: an empty body, or just `super.m(…)` with the same name.
     fn override_pattern(&self, method: usize) -> bool {
         let Some(&body) = self.children(method).last() else { return false };
         let Marca::Funcao(fid) = self.tree.nos[method].marca else { return false };
@@ -359,8 +359,8 @@ impl Context<'_> {
             && self.method_name(expression).is_some_and(|m| self.node_text(m) == self.p.name(name.sym))
     }
 
-    /// `_isState`: `State<W>` (a classe `State` exata) com o widget como único
-    /// argumento.
+    /// `_isState`: `State<W>` (exactly the `State` class) with the widget as the
+    /// only argument.
     fn is_state_of(&self, t: dartforge_types::TypeId, widget: ClassId) -> bool {
         let Type::Interface { class, args, .. } = self.p.query.table.get(t) else { return false };
         let [a] = args[..] else { return false };
@@ -388,7 +388,7 @@ impl Context<'_> {
             return None;
         }
         let widget_nodes = self.member_nodes(class_node, &k.members)?;
-        // `_findCreateStateMethod`: o primeiro `createState`, sem parâmetros.
+        // `_findCreateStateMethod`: the first `createState`, without parameters.
         let mut create_state = None;
         for (i, &m) in k.members.iter().enumerate() {
             if let MemberKind::Method(fid) = self.ast.member(m).kind
@@ -416,7 +416,7 @@ impl Context<'_> {
         }
         let state_node = (0..self.tree.nos.len()).find(|&n| self.tree.nos[n].marca == Marca::Decl(decl_state) && self.kind(n) == "ClassDeclaration")?;
         let state_nodes = self.member_nodes(state_node, &ks.members)?;
-        // `_StatelessVerifier` e `_FieldFinder`.
+        // `_StatelessVerifier` and `_FieldFinder`.
         let mut assigned: HashSet<VariableId> = HashSet::new();
         let name_field = |name_: &str| p.class(state).fields.iter().copied().find(|&v| self.p.name(p.variable(v).name) == name_);
         for (i, &m) in ks.members.iter().enumerate() {
@@ -443,7 +443,7 @@ impl Context<'_> {
         if self.used_state(widget, state) {
             return None;
         }
-        // Os membros a mover.
+        // The members to move.
         let mut to_move: Vec<usize> = Vec::new();
         for (i, &m) in ks.members.iter().enumerate() {
             match &self.ast.member(m).kind {
@@ -518,7 +518,7 @@ impl Context<'_> {
         state.type_params.iter().all(|s| widget.type_params.iter().any(|w| self.p.name(w.name.sym) == self.p.name(s.name.sym) && limit(w) == limit(s)))
     }
 
-    /// As escritas de campo (`inSetterContext`) no nó.
+    /// The field writes (`inSetterContext`) in the node.
     fn field_writes(&self, n: usize) -> Vec<VariableId> {
         let p = self.p.program();
         let (a, b) = (self.tree.nos[n].inicio, self.tree.nos[n].fim);
@@ -538,8 +538,8 @@ impl Context<'_> {
         v
     }
 
-    /// `_StatelessVerifier`: nenhuma chamada a membro da classe `State`
-    /// fora de uma sobrescrita padrão.
+    /// `_StatelessVerifier`: no call to a member of the `State` class outside a
+    /// default override.
     fn can_be_stateless(&self, method: usize) -> bool {
         let p = self.p.program();
         let (a, b) = (self.tree.nos[method].inicio, self.tree.nos[method].fim);
@@ -560,8 +560,8 @@ impl Context<'_> {
         true
     }
 
-    /// `_StateUsageVisitor`: a classe `State` criada fora do `createState`
-    /// do widget, ou um `createState()` chamado.
+    /// `_StateUsageVisitor`: the `State` class created outside the widget's
+    /// `createState`, or a `createState()` call.
     fn used_state(&self, widget: ClassId, state: ClassId) -> bool {
         for (n, no) in self.tree.nos.iter().enumerate() {
             match no.especie {
@@ -598,8 +598,8 @@ impl Context<'_> {
         false
     }
 
-    /// `rewriteWidgetMemberReferences` do StatelessWidget: sem o `widget.`
-    /// (ou o `W.`) antes das referências aos membros do widget.
+    /// The StatelessWidget's `rewriteWidgetMemberReferences`: without the
+    /// `widget.` (or the `W.`) before the references to widget members.
     fn rewrite_to_widget(&self, n: usize, widget: ClassId) -> String {
         let tx = Text::new(self.source);
         let lines = tx.line_range(self.tree.nos[n].inicio, self.tree.nos[n].fim);
@@ -651,9 +651,9 @@ impl Context<'_> {
     }
 }
 
-/// `SourceEdit.applySequence` das edições na ordem inversa da visita.
+/// `SourceEdit.applySequence` of the edits in reverse visit order.
 fn apply_in_sequence(text: &str, mut edits: Vec<(usize, usize, String)>) -> String {
-    // A visita é em pré-ordem (posições crescentes).
+    // The visit is in pre-order (increasing positions).
     edits.sort_by_key(|e| e.0);
     let mut s = text.to_string();
     for (o, n, t) in edits.into_iter().rev() {

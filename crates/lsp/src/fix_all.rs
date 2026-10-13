@@ -1,28 +1,29 @@
-//! As peças do `Fix All` (`dart.edit.fixAll`; docs/LSP-ESPECIFICACAO.md
-//! §13.12.7): o construtor de edições com a regra de conflito do
-//! `addEditForSource` (`AP:src/protocol/protocol_internal.dart:41-84`), a
-//! aplicabilidade em lote das correções que o DartForge tem, a remoção de
-//! imports da fase B e a fusão das passadas do `SourceChangeMerger`
+//! The pieces of `Fix All` (`dart.edit.fixAll`; docs/LSP-ESPECIFICACAO.md
+//! §13.12.7): the edit builder with the conflict rule of `addEditForSource`
+//! (`AP:src/protocol/protocol_internal.dart:41-84`), the bulk applicability
+//! of the fixes DartForge has, the phase B import removal and the merging of
+//! the `SourceChangeMerger` passes
 //! (`AS:src/utilities/source_change_merger.dart:30-166`).
 //!
-//! Escrito sem compilar nem executar (2026-10-04).
+//! Written without compiling or running (2026-10-04).
 
 use dartforge_diagnostics::Diagnostic;
 use dartforge_frontend::ast::{CompilationUnit, DirectiveKind};
 
-/// Uma edição: offset, comprimento e texto novo (bytes da fonte).
+/// An edit: offset, length and new text (source bytes).
 pub(crate) type Ed = (usize, usize, String);
 
-/// As edições de um arquivo numa passada, em ordem DECRESCENTE de offset
-/// (aplicáveis em sequência).
+/// The edits of one file in one pass, in DESCENDING offset order (applicable
+/// in sequence).
 #[derive(Default, Clone)]
 pub(crate) struct Constructor {
     pub(crate) edits: Vec<Ed>,
 }
 
 impl Constructor {
-    /// A edição nova conflita com alguma já aceita: sobrepõe a seguinte, ou
-    /// uma anterior a alcança, ou as duas trocam texto no mesmo offset.
+    /// The new edit conflicts with one already accepted: it overlaps the next
+    /// one, or an earlier one reaches it, or both replace text at the same
+    /// offset.
     fn conflicts(&self, n: &Ed) -> bool {
         self.edits.iter().any(|q| {
             if q.0 > n.0 {
@@ -33,16 +34,16 @@ impl Constructor {
         })
     }
 
-    /// Acrescenta mantendo a ordem decrescente. Uma inserção no offset de
-    /// outra fica ANTES dela na lista: aplicada depois, o texto novo sai
-    /// depois do que já existia.
+    /// Adds keeping the descending order. An insertion at the offset of another
+    /// goes BEFORE it in the list: applied later, the new text ends up after
+    /// what already existed.
     fn append(&mut self, n: Ed) {
         let i = self.edits.iter().position(|q| q.0 <= n.0).unwrap_or(self.edits.len());
         self.edits.insert(i, n);
     }
 
-    /// Aplica as edições de um produtor de forma atômica: se uma conflita,
-    /// nenhuma entra (`_applyProducer`: o construtor local é jogado fora).
+    /// Applies a producer's edits atomically: if one conflicts, none goes in
+    /// (`_applyProducer`: the local builder is thrown away).
     pub(crate) fn apply_producer(&mut self, edits: impl IntoIterator<Item = Ed>) -> bool {
         let mut local = self.clone();
         for n in edits {
@@ -55,7 +56,7 @@ impl Constructor {
         true
     }
 
-    /// O texto com as edições aplicadas.
+    /// The text with the edits applied.
     pub(crate) fn apply(&self, text: &str) -> String {
         let mut output = text.to_string();
         for (offset, length, new) in &self.edits {
@@ -68,11 +69,11 @@ impl Constructor {
     }
 }
 
-/// A correção de espécie `kind` (`quickfix.<id>`) entra no `Fix All`:
-/// `canBeAppliedAcrossFiles` no pedido manual, `canBeAppliedAutomatically`
-/// no automático (tabela `applicability` da §13.12.7). Só as correções que
-/// o DartForge produz estão aqui; as demais são `singleLocation` ou
-/// `acrossSingleFile`.
+/// The fix of kind `kind` (`quickfix.<id>`) is part of `Fix All`:
+/// `canBeAppliedAcrossFiles` for a manual request,
+/// `canBeAppliedAutomatically` for an automatic one (the `applicability`
+/// table of §13.12.7). Only the fixes DartForge produces are here; the
+/// others are `singleLocation` or `acrossSingleFile`.
 pub(crate) fn in_batch(kind: &str, auto: bool) -> bool {
     let id = kind.strip_prefix("quickfix.").unwrap_or(kind);
     // `automatically`.
@@ -90,9 +91,9 @@ pub(crate) fn in_batch(kind: &str, auto: bool) -> bool {
     auto_.contains(&id) || (!auto && across_files.contains(&id))
 }
 
-/// O modelo da mensagem do `FixKind` da correção (`fixKind.message`, sem
-/// substituir `{0}`): a descrição que vira a anotação de mudança do
-/// `Fix All in Workspace` (§13.12.8). Vazio para espécie fora da tabela.
+/// The message template of the fix's `FixKind` (`fixKind.message`, without
+/// substituting `{0}`): the description that becomes the change annotation
+/// of `Fix All in Workspace` (§13.12.8). Empty for a kind outside the table.
 pub(crate) fn description(kind: &str) -> &'static str {
     match kind.strip_prefix("quickfix.").unwrap_or(kind) {
         "remove.unnecessaryCast" => "Remove unnecessary cast",
@@ -108,25 +109,25 @@ pub(crate) fn description(kind: &str) -> &'static str {
     }
 }
 
-/// O arquivo é gerado (`isGenerated`, mais `.macro.dart`): o `Fix All` não
-/// o toca.
+/// The file is generated (`isGenerated`, plus `.macro.dart`): `Fix All` does
+/// not touch it.
 pub(crate) fn generated(uri: &str) -> bool {
     [".g.dart", ".pb.dart", ".pbenum.dart", ".pbserver.dart", ".pbjson.dart", ".template.dart", ".macro.dart"]
         .iter()
         .any(|s| uri.ends_with(s))
 }
 
-/// `utils.getLinesRange`: as linhas inteiras que contêm `start..end`, com
-/// a quebra da última.
+/// `utils.getLinesRange`: the whole lines containing `start..end`, with the
+/// last one's line break.
 fn whole_lines(text: &str, start: usize, end: usize) -> (usize, usize) {
     let de = text[..start].rfind('\n').map_or(0, |i| i + 1);
     let until = text[end..].find('\n').map_or(text.len(), |i| end + i + 1);
     (de, until)
 }
 
-/// A fase B sem lint de ordenação: uma remoção (`RemoveUnusedImport`) por
-/// erro `duplicate_import`, `unnecessary_import` ou `unused_import`, em
-/// ordem de offset. Só na primeira unidade da biblioteca (sem `part of`).
+/// Phase B without the sorting lint: one removal (`RemoveUnusedImport`) per
+/// `duplicate_import`, `unnecessary_import` or `unused_import` error, in
+/// offset order. Only in the library's first unit (without `part of`).
 pub(crate) fn remove_imports(text: &str, unit: &CompilationUnit, diagnostics: &[Diagnostic]) -> Vec<Ed> {
     if unit.directives.iter().any(|d| matches!(d.kind, DirectiveKind::PartOf { .. })) {
         return Vec::new();
@@ -161,13 +162,13 @@ fn delta(e: &Ed) -> i64 {
     e.2.len() as i64 - e.1 as i64
 }
 
-/// `SourceChangeMerger.merge` para um arquivo: as edições das passadas,
-/// concatenadas na ordem em que foram aplicadas (cada passada pressupõe as
-/// anteriores), viram uma lista em ordem decrescente de offset, sem
-/// sobreposição, relativa ao texto original.
+/// `SourceChangeMerger.merge` for one file: the edits of the passes,
+/// concatenated in the order they were applied (each pass assumes the
+/// previous ones), become a list in descending offset order, without
+/// overlap, relative to the original text.
 pub(crate) fn merge(mut edits: Vec<Ed>) -> Vec<Ed> {
-    // `_reorder`: cada edição vai para antes das que ficam antes dela no
-    // texto, voltando às coordenadas de antes delas.
+    // `_reorder`: each edit moves before those that come before it in the
+    // text, going back to the coordinates before them.
     for i in 1..edits.len() {
         let mut current = edits[i].clone();
         let mut j = i;
@@ -183,7 +184,7 @@ pub(crate) fn merge(mut edits: Vec<Ed>) -> Vec<Ed> {
         }
         edits[j] = current;
     }
-    // `_merge`: vizinhas que se tocam ou se sobrepõem viram uma.
+    // `_merge`: neighbors that touch or overlap become one.
     let mut i = 0;
     while i + 1 < edits.len() {
         let (a, b) = (edits[i].clone(), edits[i + 1].clone());
@@ -214,15 +215,15 @@ mod tests {
     fn constructor_conflicts() {
         let mut c = Constructor::default();
         assert!(c.apply_producer([ed(10, 5, "x")]));
-        // Sobrepõe a existente.
+        // Overlaps the existing one.
         assert!(!c.apply_producer([ed(8, 3, "y")]));
         assert!(!c.apply_producer([ed(12, 1, "y")]));
-        // Só toca: aceita.
+        // Only touches: accepted.
         assert!(c.apply_producer([ed(15, 2, "z")]));
         assert!(c.apply_producer([ed(5, 5, "w")]));
-        // Inserção onde começa uma troca: conflita.
+        // Insertion where a replacement starts: conflict.
         assert!(!c.apply_producer([ed(10, 0, "i")]));
-        // Atômico: a primeira edição do produtor recusado não entra.
+        // Atomic: the first edit of the rejected producer does not go in.
         let before = c.edits.len();
         assert!(!c.apply_producer([ed(0, 1, "a"), ed(11, 1, "b")]));
         assert_eq!(c.edits.len(), before);
@@ -238,20 +239,20 @@ mod tests {
 
     #[test]
     fn merge_of_two_passes() {
-        // Passada 1: `abc` vira `aXXc` (troca `b` por `XX`).
-        // Passada 2, sobre `aXXc`: insere `!` no fim e troca o `a` por `A`.
+        // Pass 1: `abc` becomes `aXXc` (replaces `b` with `XX`).
+        // Pass 2, over `aXXc`: inserts `!` at the end and replaces the `a` with `A`.
         let original = "abc";
         let merged = merge(vec![ed(1, 1, "XX"), ed(4, 0, "!"), ed(0, 1, "A")]);
         let mut c = Constructor::default();
         c.edits = merged;
         assert_eq!(c.apply(original), "AXXc!");
-        // Ordem decrescente de offset.
+        // Descending offset order.
         assert!(c.edits.windows(2).all(|p| p[0].0 >= p[1].0));
     }
 
     #[test]
     fn merge_of_overlapping_edits() {
-        // Passada 1: `abc` vira `aXYc`. Passada 2 troca o `Y` por `Z`.
+        // Pass 1: `abc` becomes `aXYc`. Pass 2 replaces the `Y` with `Z`.
         let merged = merge(vec![ed(1, 1, "XY"), ed(2, 1, "Z")]);
         assert_eq!(merged, vec![ed(1, 1, "XZ")]);
     }

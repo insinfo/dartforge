@@ -1,11 +1,11 @@
-//! `textDocument/documentHighlight` como o `DartUnitOccurrencesComputer` do
-//! servidor do Dart 3.6.2 (docs/LSP-ESPECIFICACAO.md §11.6): um visitante da
-//! árvore no formato do analyzer (resolvida) junta, por **elemento
-//! canônico** (o campo de um `this.x`, a variável de um getter/setter, a
-//! declaração de um membro), os offsets em que ele aparece; a resposta são
-//! os grupos com algum offset cobrindo o cursor (fim inclusivo), sem
-//! família de sobrescrita, sem intervalos repetidos.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! `textDocument/documentHighlight` like the Dart 3.6.2 server's
+//! `DartUnitOccurrencesComputer` (docs/LSP-ESPECIFICACAO.md §11.6): a visitor
+//! of the (resolved) analyzer-shaped tree collects, per **canonical element**
+//! (the field of a `this.x`, the variable of a getter/setter, the
+//! declaration of a member), the offsets where it appears; the response is
+//! the groups with some offset covering the cursor (inclusive end), without
+//! override families, without repeated ranges.
+//! Written without compiling or running (2026-10-05).
 
 use crate::arvore_analyzer::Marca;
 use crate::project::{Target, Concrete, Project};
@@ -16,14 +16,14 @@ use dartforge_frontend::ast;
 use dartforge_intern::SymbolId;
 use dartforge_types::{MemberRef, Resolved};
 
-/// O elemento canônico (`_canonicalizeElement`).
+/// The canonical element (`_canonicalizeElement`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Key {
-    /// Local, parâmetro, função local, variável de padrão (pelo offset do
-    /// nome declarado).
+    /// Local, parameter, local function, pattern variable (by the offset of the
+    /// declared name).
     Local(usize),
     Variable(VariableId),
-    /// O campo sintético de um getter/setter declarado (a dona e o nome).
+    /// The synthetic field of a declared getter/setter (the owner and the name).
     Accessors(Owner2, String),
     Function(FunctionElementId),
     Class(ClassId),
@@ -34,7 +34,7 @@ enum Key {
     Prefix(LibraryId, SymbolId),
 }
 
-/// A dona de um par de acessores.
+/// The owner of a pair of accessors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Owner2 {
     Class(ClassId),
@@ -43,8 +43,8 @@ enum Owner2 {
 }
 
 impl Project {
-    /// Os destaques de `offset` em `unit`, na ordem dos grupos e dos
-    /// offsets.
+    /// The highlights of `offset` in `unit`, in the order of the groups and of
+    /// the offsets.
     pub(crate) fn dart_highlights(&self, unit: UnitId, offset: usize) -> Vec<Span> {
         let cx = Context::new(self, unit);
         let mut groups: Vec<(Key, usize, Vec<usize>)> = Vec::new();
@@ -52,7 +52,7 @@ impl Project {
             Some((_, _, v)) => v.push(o),
             None => groups.push((key, length, vec![o])),
         };
-        // Pré-ordem: a declaração registra o nome antes dos filhos.
+        // Pre-order: the declaration records the name before the children.
         let mut stack = vec![0usize];
         while let Some(n) = stack.pop() {
             for (key, length, o) in records(self, &cx, n) {
@@ -76,7 +76,7 @@ impl Project {
     }
 }
 
-/// Os registros (`key`, `nameLength`, offset) que o nó `n` faz.
+/// The records (`key`, `nameLength`, offset) that node `n` makes.
 fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> {
     let no = &cx.tree.nos[n];
     let mut v = Vec::new();
@@ -116,8 +116,8 @@ fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> 
             }
         }
         "DeclaredIdentifier" | "DeclaredVariablePattern" | "SuperFormalParameter" | "SimpleFormalParameter" | "FieldFormalParameter" | "EnumConstantDeclaration" => {
-            // O nome: o último identificador antes de `=`/`:`/`(` (numa
-            // constante de enum, o primeiro).
+            // The name: the last identifier before `=`/`:`/`(` (in an enum constant,
+            // the first).
             let declared = if no.especie == "EnumConstantDeclaration" { first_identifier(cx, n) } else { declared_name(cx, n) };
             if let Some((o, name)) = declared {
                 let key = match no.especie {
@@ -131,7 +131,7 @@ fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> 
             }
         }
         "ConstructorDeclaration" => {
-            // Só o construtor com nome (o nome escrito depois do ponto).
+            // Only a named constructor (the name written after the dot).
             if let Some(f) = declared_constructor_in(p, cx.unit, no.inicio, no.fim)
                 && !p.name(p.program().function(f).name).is_empty()
                 && let Some((_, s)) = p.function_name(f)
@@ -155,7 +155,7 @@ fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> 
     v
 }
 
-/// O comprimento do nome do elemento (`element.nameLength`).
+/// The length of the element's name (`element.nameLength`).
 fn name_length(p: &Project, k: &Key, pattern: usize) -> usize {
     match k {
         Key::Function(f) => {
@@ -163,7 +163,7 @@ fn name_length(p: &Project, k: &Key, pattern: usize) -> usize {
             if matches!(fe.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
                 let name = p.name(fe.name);
                 if name.is_empty() {
-                    // O construtor sem nome: o nome da classe escrito, ou 0.
+                    // The unnamed constructor: the written class name, or 0.
                     return match (fe.kind, fe.class) {
                         (FunctionKind::Constructor, Some(c)) => p.name(p.program().class(c).name).len(),
                         _ => 0,
@@ -177,8 +177,9 @@ fn name_length(p: &Project, k: &Key, pattern: usize) -> usize {
     }
 }
 
-/// A chave de um elemento função (acessor implícito → a variável; getter
-/// ou setter declarado → o par; o resto, a própria função).
+/// The key of a function element (implicit accessor → the variable; a
+/// declared getter or setter → the pair; anything else, the function
+/// itself).
 fn function_key(p: &Project, f: FunctionElementId) -> Option<Key> {
     let prog = p.program();
     let fe = prog.function(f);
@@ -196,20 +197,21 @@ fn function_key(p: &Project, f: FunctionElementId) -> Option<Key> {
     }
 }
 
-/// A chave de um `SimpleIdentifier`: pela resolução da expressão marcada,
-/// ou pelo `identify` (combinadores, anotações, documentação, rótulos de
-/// argumento, o `returnType` do construtor), ou o rótulo de um comando.
+/// The key of a `SimpleIdentifier`: through the resolution of the marked
+/// expression, or through `identify` (combinators, annotations,
+/// documentation, argument labels, the constructor's `returnType`), or the
+/// label of a statement.
 fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
     let no = &cx.tree.nos[n];
-    // O `returnType` de uma declaração de construtor (o `A` de `A(…)` e de
-    // `A.n(…)`): o `staticElement` dele é a classe.
+    // The `returnType` of a constructor declaration (the `A` of `A(…)` and of
+    // `A.n(…)`): its `staticElement` is the class.
     if let Some(parent) = cx.parent(n)
         && cx.kind(parent) == "ConstructorDeclaration"
     {
         let f = declared_constructor_in(p, cx.unit, cx.tree.nos[parent].inicio, cx.tree.nos[parent].fim)?;
         return p.program().function(f).class.map(Key::Class);
     }
-    // Rótulos de comando e `break`/`continue`.
+    // Statement labels and `break`/`continue`.
     if let Some(parent) = cx.parent(n) {
         if cx.kind(parent) == "Label" && cx.parent(parent).is_some_and(|g| matches!(cx.kind(g), "LabeledStatement" | "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")) {
             return Some(Key::Label(no.inicio));
@@ -233,7 +235,7 @@ fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
         return match cx.bodies.get_resolved(x) {
             Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. }) => {
                 let d = cx.bodies.declaracao_local(x)?;
-                // `this.x` → o campo.
+                // `this.x` → the field.
                 if let Some((q, _)) = crate::project::parameter_in(cx.ast, d)
                     && q.this_
                 {
@@ -245,7 +247,7 @@ fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
             Some(Resolved::Element(Element::Function(f)))
             | Some(Resolved::Member { member: MemberRef::Function(f), .. })
             | Some(Resolved::ExtensionMember { member: f, .. }) => {
-                // Numa escrita, o setter (a mesma variável/par).
+                // In a write, the setter (the same variable/pair).
                 function_key(p, *f)
             }
             Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => Some(Key::Variable(*v)),
@@ -269,7 +271,7 @@ fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
             _ => None,
         };
     }
-    // Pelo `identify`.
+    // Through `identify`.
     let d = p.identify(cx.unit, no.inicio).ok()??;
     if d.name.start != no.inicio {
         return None;
@@ -293,8 +295,8 @@ fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
     }
 }
 
-/// O elemento de um `NamedType` (pelo nome escrito, no escopo da unidade ou
-/// de um parâmetro de tipo), com o comprimento do nome do elemento.
+/// The element of a `NamedType` (by the written name, in the scope of the
+/// unit or of a type parameter), with the length of the element's name.
 fn type_element(p: &Project, cx: &Context<'_>, n: usize) -> Option<(Key, usize)> {
     let prog = p.program();
     let no = &cx.tree.nos[n];
@@ -315,7 +317,7 @@ fn type_element(p: &Project, cx: &Context<'_>, n: usize) -> Option<(Key, usize)>
             prog.lookup_prefixed_na_unidade(cx.unit, ps, s)
         }
         None => {
-            // Um parâmetro de tipo em escopo vem antes do escopo da unidade.
+            // A type parameter in scope comes before the unit scope.
             if let Some(d) = crate::project::type_parameter_declaration(cx.ast, no.inicio, s) {
                 return Some((Key::TypeParameter(d), name.len()));
             }
@@ -331,13 +333,13 @@ fn type_element(p: &Project, cx: &Context<'_>, n: usize) -> Option<(Key, usize)>
     Some((key, name.len()))
 }
 
-/// O nome declarado de um parâmetro ou de uma declaração simples: o offset
-/// e o texto.
+/// The declared name of a parameter or of a simple declaration: the offset
+/// and the text.
 fn declared_name(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
     let no = &cx.tree.nos[n];
     let t = cx.node_text(n);
-    // Sem os filhos (tipo, anotações, valor padrão): o primeiro trecho de
-    // identificador fora deles, o último antes de `=`, `:`, `(`.
+    // Without the children (type, annotations, default value): the first
+    // identifier stretch outside them, the last one before `=`, `:`, `(`.
     let mut best: Option<(usize, String)> = None;
     let mut i = 0;
     let b = t.as_bytes();
@@ -370,8 +372,8 @@ fn declared_name(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
     best
 }
 
-/// O primeiro identificador fora dos filhos (o nome de uma constante de
-/// enum, depois das anotações).
+/// The first identifier outside the children (the name of an enum constant,
+/// after the annotations).
 fn first_identifier(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
     let no = &cx.tree.nos[n];
     let t = cx.node_text(n);
@@ -394,12 +396,12 @@ fn first_identifier(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
     None
 }
 
-/// O campo de `this.x` (o `FieldFormalParameter` em `n`).
+/// The field of `this.x` (the `FieldFormalParameter` at `n`).
 fn this_field(p: &Project, cx: &Context<'_>, n: usize, name: &str) -> Option<VariableId> {
     class_field_in(p, cx, cx.tree.nos[n].inicio, name)
 }
 
-/// O campo `name` da classe que contém o offset.
+/// The field `name` of the class containing the offset.
 fn class_field_in(p: &Project, cx: &Context<'_>, offset: usize, name: &str) -> Option<VariableId> {
     let prog = p.program();
     let c = prog.classes.iter().position(|c| {
@@ -413,14 +415,14 @@ fn class_field_in(p: &Project, cx: &Context<'_>, offset: usize, name: &str) -> O
     prog.class(ClassId(c as u32)).fields.iter().copied().find(|v| p.name(prog.variable(*v).name) == name)
 }
 
-/// A variável (de topo, campo ou constante de enum) cujo nome começa em
-/// `offset` na unidade.
+/// The variable (top-level, field or enum constant) whose name starts at
+/// `offset` in the unit.
 pub(crate) fn variable_declared_in(p: &Project, u: UnitId, offset: usize) -> Option<VariableId> {
     let prog = p.program();
     (0..prog.variables.len()).map(|i| VariableId(i as u32)).find(|&v| p.variable_name(v).is_some_and(|(uu, s)| uu == u && s.start == offset))
 }
 
-/// O construtor declarado no intervalo.
+/// The constructor declared in the range.
 fn declared_constructor_in(p: &Project, u: UnitId, start: usize, end: usize) -> Option<FunctionElementId> {
     let prog = p.program();
     let unit = prog.unit(u);

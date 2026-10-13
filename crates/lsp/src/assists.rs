@@ -1,24 +1,23 @@
-//! Assistências (`refactor.*`) do servidor do Dart 3.6.2 que só reescrevem
-//! o documento, com os títulos e espécies dele
-//! (`services/correction/dart/*.dart`):
+//! Assists (`refactor.*`) of the Dart 3.6.2 server that only rewrite the
+//! document, with its titles and kinds (`services/correction/dart/*.dart`):
 //!
-//! | Assistência | Espécie | Quando |
+//! | Assist | Kind | When |
 //! | --- | --- | --- |
-//! | `Convert to async function body` | `refactor.convert.bodyToAsync` | função ou método (não construtor nem *closure*) sem `async`/`sync*`, cursor antes do corpo ou no `{`/`=>`; `async` e `Future<T>` no retorno escrito |
-//! | `Convert to block body` | `refactor.convert.bodyToBlock` | corpo `=> e;`: `{ return e; }` (`e;` se o retorno é `void`) |
-//! | `Convert to expression body` | `refactor.convert.bodyToExpression` | corpo com um só `return e;` (ou `e;`), cursor antes de `e`; não construtor gerador |
-//! | `Remove type annotation` | `refactor.remove.typeAnnotation` | local com tipo e inicializador (cursor até o fim do nome; o tipo vira `var`, ou some depois de `final`), parâmetro simples com tipo |
-//! | `Split variable declaration` | `refactor.splitVariableDeclaration` | local `var`/tipo (não `final`/`const`) com uma variável e inicializador, cursor até o fim do nome: `T x;` + `x = e;` |
-//! | `Use curly braces` | `refactor.surround.curlyBraces` | `if`/`else`/`for`/`while`/`do` com corpo sem chaves |
-//! | `Assign value to new local variable` | `refactor.assignToVariable` | comando de expressão de tipo não `void`: `var name = …` |
+//! | `Convert to async function body` | `refactor.convert.bodyToAsync` | function or method (not a constructor nor a *closure*) without `async`/`sync*`, cursor before the body or on the `{`/`=>`; `async` and `Future<T>` on the written return |
+//! | `Convert to block body` | `refactor.convert.bodyToBlock` | `=> e;` body: `{ return e; }` (`e;` if the return is `void`) |
+//! | `Convert to expression body` | `refactor.convert.bodyToExpression` | body with a single `return e;` (or `e;`), cursor before `e`; not a generative constructor |
+//! | `Remove type annotation` | `refactor.remove.typeAnnotation` | local with a type and an initializer (cursor up to the end of the name; the type becomes `var`, or disappears after `final`), simple parameter with a type |
+//! | `Split variable declaration` | `refactor.splitVariableDeclaration` | `var`/typed local (not `final`/`const`) with one variable and an initializer, cursor up to the end of the name: `T x;` + `x = e;` |
+//! | `Use curly braces` | `refactor.surround.curlyBraces` | `if`/`else`/`for`/`while`/`do` with a body without braces |
+//! | `Assign value to new local variable` | `refactor.assignToVariable` | expression statement of non-`void` type: `var name = …` |
 //!
-//! `Inline Local Variable` e `Extract Local Variable` são refatorações por
-//! comando (`refactorings.rs` e `refactorings_exec.rs`).
+//! `Inline Local Variable` and `Extract Local Variable` are command
+//! refactorings (`refactorings.rs` and `refactorings_exec.rs`).
 //!
-//! Os nomes novos seguem o `getVariableNameSuggestionsForExpression` do
-//! Dart: o da expressão (identificador, propriedade, método sem
-//! `get`/`is`/`to`, classe criada), senão o do tipo (`i`, `d`, `s`, a
-//! classe em camelCase), evitando os locais visíveis.
+//! New names follow Dart's `getVariableNameSuggestionsForExpression`: the
+//! one from the expression (identifier, property, method without
+//! `get`/`is`/`to`, created class), else the one from the type (`i`, `d`,
+//! `s`, the class in camelCase), avoiding the visible locals.
 
 use crate::actions::CodeAction;
 use crate::project::Project;
@@ -39,14 +38,14 @@ fn action(uri: &str, title: &str, kind: &str, edits: Vec<(Span, String)>) -> Cod
     }
 }
 
-/// A indentação da linha que contém `offset`.
+/// The indentation of the line containing `offset`.
 fn indentation(source: &str, offset: usize) -> String {
     let start = source[..offset.min(source.len())].rfind('\n').map_or(0, |i| i + 1);
     source[start..].chars().take_while(|c| *c == ' ' || *c == '\t').collect()
 }
 
 impl Project {
-    /// As assistências desta lista em `start..end` de `unit`.
+    /// The assists of this list at `start..end` of `unit`.
     pub(crate) fn rewrite_assists(&self, uri: &str, unit: UnitId, start: usize, end: usize) -> Vec<CodeAction> {
         let mut output = Vec::new();
         let u = self.program().unit(unit);
@@ -56,10 +55,10 @@ impl Project {
         let offset = start;
         let _ = end;
 
-        // A expressão de função mais interna que contém o cursor.
-        // O trecho de cada função conta com os metadados da declaração dona
-        // (`@override` antes de um método: o `getEnclosingFunctionBody` do
-        // Dart sobe da anotação ao método).
+        // The innermost function expression containing the cursor. Each function's
+        // span counts the metadata of the owning declaration (`@override` before a
+        // method: Dart's `getEnclosingFunctionBody` walks up from the annotation
+        // to the method).
         let snippet = |i: usize, f: &ast::Function| -> Span {
             let owner = ast
                 .members
@@ -81,12 +80,12 @@ impl Project {
             .min_by_key(|(_, _, s)| s.end - s.start)
             .map(|(i, f, _)| (i, f));
 
-        // `Convert to async function body`: `assist_funcoes` (o produtor do Dart).
+        // `Convert to async function body`: `assist_functions` (Dart's producer).
 
-        // Convert to expression body: a função mais interna.
+        // Convert to expression body: the innermost function.
         if let Some((_, f)) = internal {
             match f.body {
-                // `Convert to block body` sai pelo porte do produtor do Dart
+                // `Convert to block body` comes from the port of Dart's producer
                 // (`Context::convert_to_block_body`).
                 FunctionBody::Block(b) if f.modifier != ast::AsyncModifier::SyncStar && f.modifier != ast::AsyncModifier::AsyncStar => {
                     if let StmtKind::Block(cmds) = &ast.stmt(b).kind
@@ -104,7 +103,7 @@ impl Project {
                             let bs = ast.stmt(b).span;
                             let async_ = if f.modifier == ast::AsyncModifier::Async { "async " } else { "" };
                             let semicolon = if f.name.is_some() { ";" } else { "" };
-                            // O `async` já escrito fica; troca só o bloco.
+                            // An already written `async` stays; only the block is replaced.
                             let _ = async_;
                             output.push(action(
                                 uri,
@@ -119,7 +118,7 @@ impl Project {
             }
         }
 
-        // Comando local que contém o cursor.
+        // Local statement containing the cursor.
         let command = ast
             .stmts
             .iter()
@@ -132,7 +131,7 @@ impl Project {
             let s = ast.stmt(cid);
             match &s.kind {
                 StmtKind::Variables(l) => {
-                    // `Remove type annotation`: `assist_tipo` (o produtor do Dart).
+                    // `Remove type annotation`: `assist_type` (Dart's producer).
                     // Split variable declaration.
                     if !l.final_ && !l.const_
                         && l.variables.len() == 1
@@ -163,10 +162,10 @@ impl Project {
                         && let Some(t) = ty
                         && !matches!(self.query.table.get(t), Type::Void)
                     {
-                        // `AssignToLocalVariable`: as sugestões de
-                        // `getVariableNameSuggestionsForExpression` com os
-                        // nomes do `ScopedNameFinder` excluídos; a primeira é
-                        // escrita, todas vão para o grupo ligado `NAME`.
+                        // `AssignToLocalVariable`: the suggestions of
+                        // `getVariableNameSuggestionsForExpression` with the names from
+                        // `ScopedNameFinder` excluded; the first one is written, all go to the
+                        // linked group `NAME`.
                         let es = ast.expr(*e).span;
                         let cx = crate::refactorings::Context::new(self, unit);
                         let suggestions = match cx.tree.localizar(es.start, es.end) {
@@ -186,13 +185,13 @@ impl Project {
                 }
                 _ => {}
             }
-            // Use curly braces (o comando ou o pai).
+            // Use curly braces (the statement or its parent).
             if let Some(action_keys) = self.use_keys(uri, unit, cid, offset) {
                 output.push(action_keys);
             }
         }
 
-        // Remove type annotation num parâmetro simples com tipo.
+        // Remove type annotation on a simple parameter with a type.
         for f in &ast.functions {
             for p in f.parameters.iter().flatten() {
                 if let (Some(t), Some(n)) = (p.ty, p.name)
@@ -211,18 +210,18 @@ impl Project {
             }
         }
 
-        // `Inline Local Variable` e `Extract Local Variable` são refatorações
-        // por comando (`refactorings.rs`), não assistências.
+        // `Inline Local Variable` and `Extract Local Variable` are command
+        // refactorings (`refactorings.rs`), not assists.
         output
     }
 
-    /// `Use curly braces` no comando `cid` (ou no pai dele): o porte de
-    /// `UseCurlyBraces` (`use_curly_braces.dart`). O comando e o pai são
-    /// examinados na ordem do Dart (`do`, `for`, `if`, `while`); cada corpo
-    /// sem chaves recebe duas edições: ` {<eol><indent>` no lugar do espaço
-    /// entre o token da esquerda e o corpo (os comentários antes do corpo
-    /// ficam), e `<eol><prefix>}` depois do corpo (e do comentário na mesma
-    /// linha), ou `<eol><prefix>} ` até o `else`/`while` seguinte.
+    /// `Use curly braces` on statement `cid` (or on its parent): the port of
+    /// `UseCurlyBraces` (`use_curly_braces.dart`). The statement and its parent
+    /// are examined in Dart's order (`do`, `for`, `if`, `while`); each body
+    /// without braces gets two edits: ` {<eol><indent>` in place of the space
+    /// between the left token and the body (the comments before the body
+    /// stay), and `<eol><prefix>}` after the body (and after the comment on the
+    /// same line), or `<eol><prefix>} ` up to the following `else`/`while`.
     fn use_keys(&self, uri: &str, unit: UnitId, cid: StmtId, offset: usize) -> Option<CodeAction> {
         let u = self.program().unit(unit);
         let ast = &u.ast;
@@ -237,7 +236,7 @@ impl Project {
             })
             .map(|i| StmtId(i as u32));
         let tokens = dartforge_frontend::lexer::lex(source).ok()?;
-        // O fim do último token antes de `o` e o início do primeiro depois.
+        // The end of the last token before `o` and the start of the first one after.
         let before = |o: usize| tokens.iter().take_while(|t| t.span.end <= o).last().map_or(0, |t| t.span.end);
         let after = |o: usize| tokens.iter().find(|t| t.span.start >= o).map(|t| t.span);
         let eol = if source.contains("\r\n") { "\r\n" } else { "\n" };
@@ -250,8 +249,8 @@ impl Project {
             StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } | StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => Some(*body),
             _ => None,
         };
-        // `_endAfterComments`: o fim do corpo, ou do comentário que começa na
-        // mesma linha logo depois dele.
+        // `_endAfterComments`: the end of the body, or of the comment that starts
+        // on the same line right after it.
         let end_with_comment = |end: usize| -> usize {
             let rest = &source[end..];
             let spaces = rest.len() - rest.trim_start_matches([' ', '\t']).len();
@@ -265,8 +264,8 @@ impl Project {
             }
         };
         let mut edits: Vec<(Span, String)> = Vec::new();
-        // `_replaceLeftParenthesis`: do fim do token da esquerda ao corpo (ou
-        // ao primeiro comentário antes dele).
+        // `_replaceLeftParenthesis`: from the end of the left token to the body
+        // (or to the first comment before it).
         let left = |edits: &mut Vec<(Span, String)>, body_: StmtId, indent: &str| {
             let b = ast.stmt(body_).span.start;
             let a = before(b);
@@ -308,7 +307,7 @@ impl Project {
         let indent = format!("{prefix}  ");
         match &target_stmt.kind {
             StmtKind::If { then, else_, .. } => {
-                // O `else if` de uma cadeia não muda.
+                // The `else if` of a chain does not change.
                 if ast.stmts.iter().any(|s| matches!(&s.kind, StmtKind::If { else_: Some(e), .. } if *e == target)) {
                     return None;
                 }
@@ -356,7 +355,7 @@ impl Project {
         Some(action(uri, "Use curly braces", "refactor.surround.curlyBraces", edits))
     }
 
-    /// O nome que o Dart sugere para guardar `expr`.
+    /// The name Dart suggests for storing `expr`.
     fn suggested_name(&self, unit: UnitId, expr: ExprId, ty_: Option<TypeId>, offset: usize) -> String {
         let u = self.program().unit(unit);
         let ast = &u.ast;
@@ -407,7 +406,7 @@ impl Project {
         let base = base.or_else(by_type).unwrap_or_else(|| "value".into());
         let base = base.trim_start_matches('_').to_string();
         let mut name: String = base.chars().next().map(|c| c.to_lowercase().collect::<String>() + &base[c.len_utf8()..]).unwrap_or(base);
-        // Os locais e parâmetros declarados antes não podem ser repetidos.
+        // The locals and parameters declared before cannot be repeated.
         let visible: HashSet<String> = ast
             .stmts
             .iter()

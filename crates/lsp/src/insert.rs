@@ -1,9 +1,9 @@
-//! O `insertIntoUnitMember` com o `_InsertionPreparer` e o
-//! `writeParametersMatchingArguments` do `DartFileEditBuilder` do Dart 3.6.2
-//! (`change_builder_dart.dart:2202-2296`, `:2982-3131`, `:827-940`,
-//! `:1221-1390`; docs/LSP-ESPECIFICACAO.md §13.7.4.0), e o
-//! `CreateConstructor` (`create_constructor.dart`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! `insertIntoUnitMember` with the `_InsertionPreparer` and
+//! `writeParametersMatchingArguments` of the Dart 3.6.2
+//! `DartFileEditBuilder` (`change_builder_dart.dart:2202-2296`,
+//! `:2982-3131`, `:827-940`, `:1221-1390`; docs/LSP-ESPECIFICACAO.md
+//! §13.7.4.0), and `CreateConstructor` (`create_constructor.dart`).
+//! Written without compiling or running (2026-10-05).
 
 use crate::arvore_analyzer::Marca;
 use crate::write_type::Writer;
@@ -15,26 +15,26 @@ use dartforge_frontend::ast;
 use dartforge_types::Type;
 use std::collections::{BTreeSet, HashSet};
 
-/// O filtro do último membro compatível (`lastMemberFilter`).
+/// The filter for the last compatible member (`lastMemberFilter`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Filter {
     /// `insertField`.
     Field,
-    /// `insertConstructor` (com `sort_constructors_first`, só construtores).
+    /// `insertConstructor` (with `sort_constructors_first`, constructors only).
     Constructor { first_constructors: bool },
     /// `insertGetter`.
     Getter,
     /// `insertMethod`.
     Method,
-    /// Sem filtro: o último membro.
+    /// No filter: the last member.
     None,
 }
 
-/// Os prefixos de nome de método que a sugestão tira (`get`, `is`, `to`).
+/// The method name prefixes that the suggestion strips (`get`, `is`, `to`).
 const KNOWN_PREFIXES: [&str; 3] = ["get", "is", "to"];
 
 impl Context<'_> {
-    /// Os membros (`ClassMember`) de uma declaração.
+    /// The members (`ClassMember`) of a declaration.
     pub(crate) fn container_members(&self, c: usize) -> Vec<usize> {
         self.children(c).iter().copied().filter(|&f| matches!(self.kind(f), "ConstructorDeclaration" | "MethodDeclaration" | "FieldDeclaration")).collect()
     }
@@ -46,8 +46,8 @@ impl Context<'_> {
         }
     }
 
-    /// `insertIntoUnitMember(container, filter)`: o offset e o texto
-    /// completo (prefixo, membro, sufixo) da inserção de `member`.
+    /// `insertIntoUnitMember(container, filter)`: the offset and the full text
+    /// (prefix, member, suffix) of the insertion of `member`.
     pub(crate) fn insert_in_member(&self, container: usize, filter: Filter, member: &str) -> Option<(usize, String)> {
         let tx = Text::new(self.source);
         let eol = tx.eol();
@@ -63,7 +63,7 @@ impl Context<'_> {
         let target = members.iter().rev().copied().find(|&m| passes(m));
         let enum_ = self.kind(container) == "EnumDeclaration";
         let constants = self.kind_children(container, "EnumConstantDeclaration");
-        // O `;` das constantes.
+        // The constants' `;`.
         let semicolon = if enum_ {
             constants.last().and_then(|&c| {
                 let mut t = self.next_token(self.tree.nos[c].fim)?;
@@ -75,7 +75,7 @@ impl Context<'_> {
         } else {
             None
         };
-        // O `{` da declaração (o primeiro depois do cabeçalho).
+        // The declaration's `{` (the first one after the header).
         let key = {
             let mut pos = self.tree.nos[container].inicio;
             let limit = members.first().map_or(self.tree.nos[container].fim, |&m| self.tree.nos[m].inicio).min(constants.first().map_or(usize::MAX, |&c| self.tree.nos[c].inicio));
@@ -111,7 +111,7 @@ impl Context<'_> {
         }
         s.push_str(ONE_INDENT);
         s.push_str(member);
-        // O sufixo.
+        // The suffix.
         if target.is_none() && !(enum_ && !constants.is_empty()) {
             if !members.is_empty() {
                 s.push_str(eol);
@@ -146,7 +146,7 @@ impl Context<'_> {
             "InstanceCreationExpression" => {
                 let cn = self.kind_children(e, "ConstructorName").first().copied()?;
                 let ty = self.kind_children(cn, "NamedType").first().copied()?;
-                // O `name2` do tipo: o identificador depois do prefixo.
+                // The type's `name2`: the identifier after the prefix.
                 let prefix_end = self.kind_children(ty, "ImportPrefixReference").first().map_or(self.tree.nos[ty].inicio, |&p| self.tree.nos[p].fim);
                 let s = crate::project::word(self.source, self.next_token(prefix_end)?.start)?;
                 return Some(self.source[s.start..s.end].to_string());
@@ -184,8 +184,8 @@ impl Context<'_> {
             let n = n.strip_prefix('_').unwrap_or(&n).to_string();
             add_all(used, &mut res, camel_combinations(&n), None);
         }
-        // `_getBaseNameFromLocationInParent`: o rótulo do nomeado (o
-        // parâmetro de um posicional não existe: a chamada não resolve).
+        // `_getBaseNameFromLocationInParent`: the label of a named argument (the
+        // parameter of a positional one does not exist: the call does not resolve).
         if let Some(p) = self.parent(arg)
             && self.kind(p) == "NamedExpression"
             && self.children(p).get(1) == Some(&arg)
@@ -211,18 +211,18 @@ impl Context<'_> {
         res
     }
 
-    /// `writeParametersMatchingArguments(argumentList)`: os tipos vêm deste
-    /// contexto e são escritos pelo `writer` (o do arquivo de destino).
+    /// `writeParametersMatchingArguments(argumentList)`: the types come from
+    /// this context and are written by `writer` (that of the destination file).
     pub(crate) fn parameters_to_arguments(&self, list: usize, writer: &mut Writer<'_, '_>) -> String {
         let mut e = crate::snippets::Write::default();
         self.parameters_to_arguments_in(list, writer, &mut e);
         e.text
     }
 
-    /// [`Self::parameters_to_arguments`] escrito em `e`, com os grupos
-    /// ligados do `writeParameterMatchingArgument`: `TYPE<i>` no tipo (com as
-    /// sugestões de supertipos) e `PARAM<i>` no nome de um argumento
-    /// posicional (com todas as sugestões de nome).
+    /// [`Self::parameters_to_arguments`] written into `e`, with the linked
+    /// groups of `writeParameterMatchingArgument`: `TYPE<i>` on the type (with
+    /// the supertype suggestions) and `PARAM<i>` on the name of a positional
+    /// argument (with all the name suggestions).
     pub(crate) fn parameters_to_arguments_in(&self, list: usize, writer: &mut Writer<'_, '_>, e: &mut crate::snippets::Write) {
         let mut copy: Option<dartforge_types::TypeTable> = None;
         let mut used: HashSet<String> = HashSet::new();
@@ -272,21 +272,21 @@ impl Context<'_> {
     }
 }
 
-/// O resultado do `CreateConstructor`: o nome (`{0}`), as edições por
-/// unidade e as bibliotecas a importar na de destino.
+/// The result of `CreateConstructor`: the name (`{0}`), the edits per unit
+/// and the libraries to import in the destination unit.
 pub(crate) struct Constructor {
     pub(crate) name: String,
     pub(crate) unit: UnitId,
     pub(crate) edit: (Span, String),
     pub(crate) import: BTreeSet<LibraryId>,
-    /// Os grupos ligados da declaração e o offset dela no texto da edição.
+    /// The linked groups of the declaration and its offset in the edit's text.
     pub(crate) marks: Option<(usize, crate::snippets::Write)>,
 }
 
-/// `CreateConstructor._proposeFromConstructorName` (o caminho do
-/// `new_with_undefined_constructor`): o `node` é o nome do construtor numa
-/// `InstanceCreationExpression` (`new A.b()`); a classe (só
-/// `ClassDeclaration`) ganha `A.b(<pairâmetros>);` pelo `insertConstructor`.
+/// `CreateConstructor._proposeFromConstructorName` (the
+/// `new_with_undefined_constructor` path): the `node` is the constructor
+/// name in an `InstanceCreationExpression` (`new A.b()`); the class (only a
+/// `ClassDeclaration`) gets `A.b(<parameters>);` through `insertConstructor`.
 pub(crate) fn create_constructor(cx: &Context<'_>, error: Span) -> Option<Constructor> {
     let node = cx.tree.localizar(error.start, error.end)?;
     if cx.kind(node) != "SimpleIdentifier" {
@@ -298,7 +298,7 @@ pub(crate) fn create_constructor(cx: &Context<'_>, error: Span) -> Option<Constr
     }
     let creation = cx.parent(cn).filter(|&c| cx.kind(c) == "InstanceCreationExpression")?;
     let name = cx.node_text(cn).split_whitespace().collect::<String>();
-    // A classe do tipo.
+    // The type's class.
     let ty = cx.ast.types.iter().enumerate().find(|(_, t)| t.span.start == cx.tree.nos[cn].inicio).map(|(i, _)| ast::TypeId(i as u32))?;
     let class = cx.p.type_class(cx.unit, ty)?;
     let prog = cx.p.program();
@@ -311,11 +311,11 @@ pub(crate) fn create_constructor(cx: &Context<'_>, error: Span) -> Option<Constr
     let container = target.tree.nos.iter().position(|n| n.especie == "ClassDeclaration" && matches!(n.marca, Marca::Decl(d) if d == decl.decl))?;
     let first_constructors = crate::refactorings_exec::enabled_rule(cx.p, decl.unit, "sort_constructors_first");
     let list = cx.kind_children(creation, "ArgumentList").first().copied()?;
-    // O ponto de inserção (para o escritor de tipos) antes de escrever.
+    // The insertion point (for the type writer) before writing.
     let (offset, _) = target.insert_in_member(container, Filter::Constructor { first_constructors }, "")?;
     let mut writer = Writer::new(&target, offset);
-    // O grupo `NAME` no nome do construtor (`_write`,
-    // `constructorNameGroupName`) e os dos parâmetros
+    // The `NAME` group on the constructor name (`_write`,
+    // `constructorNameGroupName`) and those of the parameters
     // (`writeParametersMatchingArguments`).
     let class_name = cx.p.name(c.name).to_string();
     let mut e = crate::snippets::Write::default();

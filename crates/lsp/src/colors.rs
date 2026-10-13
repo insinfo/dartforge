@@ -1,20 +1,20 @@
-//! `textDocument/documentColor` e `textDocument/colorPresentation`
-//! (docs/LSP-ESPECIFICACAO.md §8.2): o `ColorComputer` do 3.6.2
-//! (`AS:src/computer/computer_color.dart`) e o
+//! `textDocument/documentColor` and `textDocument/colorPresentation`
+//! (docs/LSP-ESPECIFICACAO.md §8.2): the 3.6.2 `ColorComputer`
+//! (`AS:src/computer/computer_color.dart`) and the
 //! `DocumentColorPresentationHandler`
 //! (`handler_document_color_presentation.dart`).
 //!
-//! Uma expressão cujo tipo estático é o `Color` do `dart:ui` (ou um subtipo)
-//! tem cor quando o valor constante dela (ou de um membro dele, ou de um
-//! índice de paleta) dá os campos `a`, `r`, `g` e `b`, ou quando é uma
-//! chamada conhecida (`Color(0x…)`, `Color.from`, `Color.fromARGB`,
-//! `Color.fromRGBO`, `ColorSwatch(0x…)`, `MaterialAccentColor(0x…)`) com
-//! literais. As regras do visitante: no índice (`Colors.red[500]`), no
-//! identificador prefixado (`A.b`, inteiro, ou o membro `b` do valor de `A`)
-//! e no acesso a propriedade (o membro do valor do alvo) uma cor achada
-//! encerra a descida; numa criação, os argumentos continuam visitados.
+//! An expression whose static type is `dart:ui`'s `Color` (or a subtype) has
+//! a color when its constant value (or a member of it, or a palette index)
+//! yields the `a`, `r`, `g` and `b` fields, or when it is a known call
+//! (`Color(0x…)`, `Color.from`, `Color.fromARGB`, `Color.fromRGBO`,
+//! `ColorSwatch(0x…)`, `MaterialAccentColor(0x…)`) with literals. The
+//! visitor's rules: at an index (`Colors.red[500]`), at a prefixed
+//! identifier (`A.b`, whole, or the member `b` of the value of `A`) and at a
+//! property access (the member of the target's value) a found color stops
+//! the descent; in a creation, the arguments are still visited.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::project::Project;
 use dartforge_diagnostics::Span;
@@ -26,7 +26,7 @@ use dartforge_types::constantes::valor::{Campo, Estado, Valor};
 use dartforge_types::{Resolved, Type};
 use std::collections::HashSet;
 
-/// ARGB de 0 a 255.
+/// ARGB from 0 to 255.
 pub(crate) type Color = [u8; 4];
 
 /// `getColorForInt`.
@@ -40,7 +40,7 @@ fn doubles_color(a: f64, r: f64, g: f64, b: f64) -> Color {
     [c(a), c(r), c(g), c(b)]
 }
 
-/// O valor de um literal inteiro (decimal ou hexadecimal, com `_`).
+/// The value of an integer literal (decimal or hexadecimal, with `_`).
 fn integer(source: &str, s: Span) -> Option<i64> {
     let t: String = source.get(s.start..s.end)?.chars().filter(|c| *c != '_').collect();
     match t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
@@ -54,7 +54,7 @@ fn double(source: &str, s: Span) -> Option<f64> {
 }
 
 impl Project {
-    /// A classe é o `Color` do `dart:ui` ou um subtipo dele (`isColor`).
+    /// The class is `dart:ui`'s `Color` or a subtype of it (`isColor`).
     fn is_color(&self, c: ClassId) -> bool {
         let p = self.program();
         let mut stack = vec![c];
@@ -74,7 +74,7 @@ impl Project {
         false
     }
 
-    /// O tipo estático de `e` é de cor.
+    /// The static type of `e` is a color.
     fn color_type(&self, u: UnitId, e: ExprId) -> bool {
         let Some(t) = self.query.bodies.units[u.0 as usize].get_type(e) else { return false };
         match self.query.table.get(t) {
@@ -83,9 +83,9 @@ impl Project {
         }
     }
 
-    /// As bibliotecas que a avaliação das cores de `u` precisa inferidas,
-    /// além das já inferidas: as das variáveis constantes que as expressões
-    /// de cor citam e as dos `Color` do `dart:ui` e do Flutter.
+    /// The libraries that evaluating the colors of `u` needs inferred, besides
+    /// those already inferred: those of the constant variables that the color
+    /// expressions cite and those of the `Color`s of `dart:ui` and Flutter.
     pub(crate) fn color_libraries(&self, u: UnitId) -> Vec<LibraryId> {
         let p = self.program();
         let mut v: Vec<LibraryId> = Vec::new();
@@ -119,7 +119,7 @@ impl Project {
         v
     }
 
-    /// As cores de `u` (`ColorComputer.compute`), na ordem do texto.
+    /// The colors of `u` (`ColorComputer.compute`), in text order.
     pub(crate) fn colors(&mut self, u: UnitId) -> Vec<(Span, Color)> {
         let lib = self.program().unit(u).library;
         let before_3 = self.program().library(lib).features.versao().major < 3;
@@ -128,8 +128,8 @@ impl Project {
             Pais::novo(&un.ast, &un.unit, &un.source, before_3)
         };
         let n = self.program().unit(u).ast.exprs.len();
-        // A tentativa de cada nó (sem os ancestrais), e se ela encerra a
-        // descida.
+        // The attempt for each node (without the ancestors), and whether it stops
+        // the descent.
         let mut found: Vec<(ExprId, Span, Color, bool)> = Vec::new();
         let inferred: HashSet<LibraryId> = self.libraries.iter().copied().collect();
         for i in 0..n {
@@ -171,8 +171,8 @@ impl Project {
                 found.push((e, span, c, closes));
             }
         }
-        // O que fica sob um nó que achou cor e encerrou a descida não foi
-        // visitado.
+        // What lies under a node that found a color and stopped the descent was not
+        // visited.
         let closed: HashSet<ExprId> = found.iter().filter(|x| x.3).map(|x| x.0).collect();
         let under_closed = |e: ExprId| {
             let mut current = parents.pai(e);
@@ -190,14 +190,14 @@ impl Project {
             false
         };
         let mut output: Vec<(Span, Color)> = found.iter().filter(|x| !under_closed(x.0)).map(|x| (x.1, x.2)).collect();
-        // A ordem da visita: o pai antes do filho.
+        // The visit order: the parent before the child.
         output.sort_by_key(|(s, _)| (s.start, std::cmp::Reverse(s.end)));
         output.dedup_by_key(|(s, _)| s.start);
         output
     }
 
-    /// `tryAddColor`: o valor constante de `target` (ou o membro, ou o índice
-    /// da paleta) como cor.
+    /// `tryAddColor`: the constant value of `target` (or the member, or the
+    /// palette index) as a color.
     fn color_by_value(&mut self, u: UnitId, inferred: &HashSet<LibraryId>, target: ExprId, in_const: bool, member: Member) -> Option<Color> {
         let lib = self.program().unit(u).library;
         let value = {
@@ -225,7 +225,7 @@ impl Project {
         self.value_color(&value)
     }
 
-    /// `_getSwatchColor`: a entrada de chave `k` do campo `_swatch`.
+    /// `_getSwatchColor`: the entry with key `k` of the `_swatch` field.
     fn of_palette(&self, v: &Valor, k: i64) -> Option<Valor> {
         let symbol = self.query.names.lookup("_swatch")?;
         let palette = field(v, symbol)?;
@@ -233,7 +233,7 @@ impl Project {
         entries.iter().find(|(c, _)| matches!(c.estado, Estado::Int(Some(x)) if x == k)).map(|(_, v)| v.clone())
     }
 
-    /// `getColorForObject`: o campo `color` (se há) e os `a`, `r`, `g`, `b`.
+    /// `getColorForObject`: the `color` field (if any) and `a`, `r`, `g`, `b`.
     fn value_color(&self, v: &Valor) -> Option<Color> {
         match self.query.table.get(v.tipo) {
             Type::Interface { class, .. } if self.is_color(*class) => {}
@@ -251,7 +251,7 @@ impl Project {
         Some(doubles_color(d("a")?, d("r")?, d("g")?, d("b")?))
     }
 
-    /// `tryAddKnownColorConstructor`: as chamadas conhecidas com literais.
+    /// `tryAddKnownColorConstructor`: the known calls with literals.
     fn known_constructor_color(&self, u: UnitId, e: ExprId) -> Option<Color> {
         let p = self.program();
         let un = p.unit(u);
@@ -313,8 +313,8 @@ impl Project {
         }
     }
 
-    /// `_willRequireConstKeyword`: a expressão em `offset` é constante e não
-    /// está num contexto constante.
+    /// `_willRequireConstKeyword`: the expression at `offset` is constant and is
+    /// not in a constant context.
     pub(crate) fn requires_const(&self, u: UnitId, offset: usize) -> bool {
         let p = self.program();
         let un = p.unit(u);
@@ -347,22 +347,22 @@ impl Project {
         }
     }
 
-    /// A classe `Color` do Flutter (`getFlutterClass('Color')`: a do
-    /// `dart:ui`, que o `painting` exporta), se o programa a tem.
+    /// Flutter's `Color` class (`getFlutterClass('Color')`: the one from
+    /// `dart:ui`, which `painting` exports), if the program has it.
     pub(crate) fn has_flutter_color(&self) -> bool {
         let p = self.program();
         p.classes.iter().any(|c| self.name(c.name) == "Color" && p.library(c.library).uri == "dart:ui")
     }
 }
 
-/// O que ler do valor.
+/// What to read from the value.
 enum Member {
     None,
     Name(dartforge_intern::SymbolId),
     Index(i64),
 }
 
-/// A forma do nó para o visitante.
+/// The node's shape for the visitor.
 enum Superficial {
     Index { target: ExprId, index: ExprId },
     Creation,
@@ -372,16 +372,16 @@ enum Superficial {
     Other,
 }
 
-/// A forma do nó `e` para o visitante. `constructor`: a chamada resolve para
-/// um construtor (a criação sem `new`, que o analyzer reescreve como
-/// `InstanceCreationExpression`).
+/// The shape of node `e` for the visitor. `constructor`: the call resolves
+/// to a constructor (a creation without `new`, which the analyzer rewrites
+/// as an `InstanceCreationExpression`).
 fn superficial_shape(a: &ast::Ast, e: ExprId, constructor: bool) -> Superficial {
     match &a.expr(e).kind {
         ExprKind::Index { target, index, .. } => Superficial::Index { target: *target, index: *index },
         ExprKind::InstanceCreation { .. } => Superficial::Creation,
         ExprKind::Call { .. } if constructor => Superficial::Creation,
-        // `A.b` com `A` identificador simples é o `PrefixedIdentifier`; o
-        // resto, `PropertyAccess`.
+        // `A.b` with `A` a simple identifier is the `PrefixedIdentifier`; the rest,
+        // `PropertyAccess`.
         ExprKind::Property { target, name, null_aware: false } if matches!(a.expr(*target).kind, ExprKind::Identifier(_)) => {
             Superficial::Prefixed { target: *target, name: name.sym }
         }
@@ -391,7 +391,7 @@ fn superficial_shape(a: &ast::Ast, e: ExprId, constructor: bool) -> Superficial 
     }
 }
 
-/// `getFieldFromHierarchy`: o campo pelo nome, subindo pelo `super`.
+/// `getFieldFromHierarchy`: the field by name, walking up through `super`.
 fn field(v: &Valor, name: dartforge_intern::SymbolId) -> Option<Valor> {
     let Estado::Generico { campos: fields, .. } = &v.estado else { return None };
     if let Some((_, x)) = fields.iter().find(|(c, _)| *c == Campo::Nome(name)) {
@@ -401,10 +401,10 @@ fn field(v: &Valor, name: dartforge_intern::SymbolId) -> Option<Valor> {
     field(sup, name)
 }
 
-/// As quatro apresentações de uma cor (`_getPresentations`): o rótulo e o
-/// texto que troca o intervalo (com `const ` quando exigido).
+/// The four presentations of a color (`_getPresentations`): the label and
+/// the text that replaces the range (with `const ` when required).
 pub(crate) fn presentations(alpha: f64, red: f64, green: f64, blue: f64, with_const: bool) -> Vec<(String, String)> {
-    // `toStringAsFixed(3)` sem os zeros finais e o ponto.
+    // `toStringAsFixed(3)` without the trailing zeros and the dot.
     let round = |x: f64| {
         let t = format!("{x:.3}");
         let t = t.trim_end_matches('0');
@@ -413,7 +413,7 @@ pub(crate) fn presentations(alpha: f64, red: f64, green: f64, blue: f64, with_co
     let (a, r, g, b) = ((alpha * 255.0) as i64, (red * 255.0) as i64, (green * 255.0) as i64, (blue * 255.0) as i64);
     let value = (a << 24) | (r << 16) | (g << 8) | b;
     let hex = format!("0x{:08X}", value as u32);
-    // `num.toString` do Dart para a opacidade: `1.0`, `0.5`.
+    // Dart's `num.toString` for the opacity: `1.0`, `0.5`.
     let opacity = if alpha.fract() == 0.0 { format!("{alpha:.1}") } else { format!("{alpha}") };
     let invocations = [
         format!(".fromARGB({a}, {r}, {g}, {b})"),

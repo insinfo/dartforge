@@ -1,27 +1,27 @@
-//! O tipo de contexto do completar: o `FeatureComputer.computeContextType`
-//! e o `_ContextTypeVisitor` do analysis server 3.6.2
+//! The completion context type: the analysis server 3.6.2
+//! `FeatureComputer.computeContextType` and `_ContextTypeVisitor`
 //! (`AS:src/services/completion/dart/feature_computer.dart:174-182`,
-//! `:439-1270`; docs/LSP-ESPECIFICACAO.md §14.6.5), sobre a árvore do texto
-//! real, com os tipos da consulta. O `bodyContext.contextType` é o do
+//! `:439-1270`; docs/LSP-ESPECIFICACAO.md §14.6.5), over the tree of the
+//! real text, with the query's types. `bodyContext.contextType` is that of
 //! `BodyInferenceContext` (`AN:src/dart/resolve/body_inference_context.dart`):
-//! o tipo imposto (o retorno declarado do método, construtor ou função; o
-//! retorno do tipo de contexto de uma closure, quando é tipo de função)
-//! ajustado por `async`/`sync*`/`async*`.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! the imposed type (the declared return of the method, constructor or
+//! function; the return of a closure's context type, when it is a function
+//! type) adjusted for `async`/`sync*`/`async*`.
+//! Written without compiling or running (2026-10-05).
 
 use super::isp::Isp;
 use super::*;
 use crate::arvore_analyzer::Ligacao;
 use dartforge_frontend::token::Op;
 
-/// Os nomes com tipo implícito (`_impliedDartTypeWithName`, `FC:28-44`).
+/// The names with an implied type (`_impliedDartTypeWithName`, `FC:28-44`).
 const NAMES_INT: &[&str] = &["i", "j", "index", "length"];
 const NAMES_NUM: &[&str] = &["height", "width"];
 const NAMES_LIST: &[&str] = &["list", "items"];
 const NAMES_STRING: &[&str] = &["key", "text", "url", "uri", "name", "str", "string"];
 
 impl<'a, 'c> Isp<'a, 'c> {
-    /// `computeContextType(node, offset)`: `null`/`dynamic` → nenhum; senão
+    /// `computeContextType(node, offset)`: `null`/`dynamic` → none; otherwise
     /// `resolveToBound`.
     pub(super) fn context_type_in(&mut self, no: usize, o: usize) -> Option<TypeId> {
         let t = self.ctx(no, o)?;
@@ -53,12 +53,12 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.ctx(p, o)
     }
 
-    /// `node.contains(o)` do visitante (`offset <= o <= end`).
+    /// The visitor's `node.contains(o)` (`offset <= o <= end`).
     fn contains_it(&self, n: usize, o: usize) -> bool {
         self.start(n) <= o && o <= self.end(n)
     }
 
-    /// O offset de um token (o do próximo token real quando falta).
+    /// The offset of a token (that of the next real token when it is missing).
     fn pos_op(&self, op: Op, de: usize, until: usize) -> (usize, usize) {
         match self.op_in(op, de, until) {
             Some(i) => (self.span_tok(i).start, self.span_tok(i).end),
@@ -69,7 +69,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `(` e `)` de um nó (os do primeiro `(` no nível do nó).
+    /// `(` and `)` of a node (those of the first `(` at the node's level).
     fn parens(&self, n: usize) -> ((usize, usize), (usize, usize)) {
         match self.op_in(Op::LParen, self.start(n), self.end(n)) {
             Some(a) => {
@@ -95,12 +95,12 @@ impl<'a, 'c> Isp<'a, 'c> {
         a.1 <= o && o <= b.0
     }
 
-    /// O tipo estático de um nó de expressão.
+    /// The static type of an expression node.
     fn is_static(&self, n: usize) -> Option<TypeId> {
         self.real_expr(n).and_then(|e| self.static_type(e))
     }
 
-    /// Um tipo de interface com os argumentos.
+    /// An interface type with its arguments.
     fn interface(&mut self, c: Option<ClassId>, args: &[TypeId]) -> Option<TypeId> {
         let c = c?;
         Some(self.query.table.intern(Type::Interface { class: c, args: args.into(), nullable: false }))
@@ -117,7 +117,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O primeiro parâmetro do operador `name` no tipo `target`
+    /// The first parameter of operator `name` on type `target`
     /// (`staticParameterElement`/`element.formalParameters[0]`).
     fn operator_parameter(&mut self, target: TypeId, name: &str) -> Option<TypeId> {
         let s = self.query.names.lookup(name)?;
@@ -129,8 +129,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `node.writeType` de uma atribuição: o tipo declarado do alvo (local,
-    /// campo, variável de topo, setter), não o promovido.
+    /// `node.writeType` of an assignment: the declared type of the target
+    /// (local, field, top-level variable, setter), not the promoted one.
     fn write_type(&mut self, target: usize) -> Option<TypeId> {
         let e = self.real_expr(target)?;
         let c = self.query_expr(e)?;
@@ -193,7 +193,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         Some(self.query.table.intern(Type::FutureOr { arg: v, nullable: false }))
     }
 
-    /// `functionBody.bodyContext?.contextType` do corpo `body`.
+    /// `functionBody.bodyContext?.contextType` of the body `body`.
     fn body_context(&mut self, body: usize) -> Option<TypeId> {
         let owner = self.parent(body)?;
         let (imposed, modifier) = match self.kind(owner) {
@@ -214,8 +214,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 let declaration = self.parent(owner).filter(|&d| self.kind(d) == "FunctionDeclaration");
                 let imposed = match declaration {
                     Some(_) => {
-                        // O tipo do elemento: o retorno escrito (local), ou o
-                        // do outline (topo).
+                        // The element's type: the written return (local), or the outline's (top level).
                         let local = f.name.and_then(|n| self.local_type(n.span.start));
                         match local {
                             Some(t) => match f.return_type {
@@ -229,7 +228,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                         }
                     }
                     None => {
-                        // A closure: o retorno do tipo de contexto dela.
+                        // A closure: the return of its context type.
                         let ctx = self.parent(owner).and_then(|p| self.ctx(p, self.start(owner)));
                         match ctx.map(|t| self.query.table.get(t).clone()) {
                             Some(Type::Function { ret, .. }) => Some(ret),
@@ -275,7 +274,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// O tipo escrito de uma lista de variáveis (`parent.type?.type`).
+    /// The written type of a variable list (`parent.type?.type`).
     fn list_type(&self, list: usize) -> Option<TypeId> {
         let l = self.real_list(list)?;
         let t = l.ty?;
@@ -283,7 +282,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.type_node_type(no)
     }
 
-    /// `visitVariableDeclaration` de um `VariableDeclaration`.
+    /// `visitVariableDeclaration` of a `VariableDeclaration`.
     fn ctx_variable(&mut self, v: usize, o: usize) -> Option<TypeId> {
         let var = self.real_variable(v)?;
         let equal = var.initializer.map(|_| self.pos_op(Op::Assign, var.name.span.end, self.end(v).max(var.name.span.end + 1)));
@@ -299,7 +298,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.type_by_name(&name)
     }
 
-    /// O `requiredType` de um padrão (`pattern_types`).
+    /// The `requiredType` of a pattern (`pattern_types`).
     fn required_type(&self, pattern: usize) -> Option<TypeId> {
         let Ligacao::Padrao(pid) = self.link(pattern) else { return None };
         let s = self.a.pattern(pid).span;
@@ -333,7 +332,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `_ContextTypeVisitor.visit*` no nó `n` com o offset `o`.
+    /// `_ContextTypeVisitor.visit*` on node `n` with offset `o`.
     pub(super) fn ctx(&mut self, n: usize, o: usize) -> Option<TypeId> {
         let core_bool = self.query.core.bool_;
         match self.kind(n) {
@@ -366,7 +365,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 if text == "=" {
                     return self.write_type(l);
                 }
-                // Composto: o método do operador (`+=` → `+`; `??=` não tem).
+                // Compound: the operator's method (`+=` → `+`; `??=` has none).
                 let method = text.trim_end_matches('=');
                 if method == "??" {
                     return None;
@@ -688,8 +687,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `SetOrMapLiteral.isSet` (pelo tipo estático; sem tipo, pelos
-    /// elementos: nenhum `MapLiteralEntry`).
+    /// `SetOrMapLiteral.isSet` (by the static type; without a type, by the
+    /// elements: no `MapLiteralEntry`).
     fn is_set(&self, n: usize) -> bool {
         match self.is_static(n).map(|t| self.query.table.get(t)) {
             Some(Type::Interface { class, .. }) => Some(*class) == self.query.core.set_class,
@@ -729,7 +728,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
             } else {
                 if previous.is_none_or(|p| self.end(p) < o) && o <= self.end(a) {
-                    // `staticParameterElement`: o posicional de mesma ordem.
+                    // `staticParameterElement`: the positional at the same index.
                     let positional: Vec<TypeId> = parameters.iter().filter(|p| !p.named).map(|p| p.ty).collect();
                     return positional.get(positional_count).copied();
                 }

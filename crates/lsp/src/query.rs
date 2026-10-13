@@ -1,10 +1,12 @@
-//! Uma consulta semântica transitória: o programa carregado com os textos
-//! vigentes do editor, o outline e os corpos inferidos pela inferência comum
-//! de `crates/types` ([`dartforge_types::BodyInferrer`]). O completar e o
-//! renomear leem tipos e resoluções daqui, nunca de uma inferência própria.
+//! A transient semantic query: the program loaded with the editor's current
+//! texts, the outline and the bodies inferred by the common inference of
+//! `crates/types` ([`dartforge_types::BodyInferrer`]). Completion and rename
+//! read types and resolutions from here, never from an inference of their
+//! own.
 //!
-//! Tudo pertence a uma requisição: a consulta é descartada ao responder, e
-//! nada dela sobrevive à próxima versão do texto (o platô de memória do LSP).
+//! Everything belongs to one request: the query is discarded after
+//! responding, and nothing of it survives the next version of the text (the
+//! LSP memory plateau).
 
 use dartforge_elements::model::{
     Element, FunctionElementId, FunctionRef, LibraryId, Program, UnitId, VariableId, VariableRef,
@@ -17,27 +19,26 @@ use dartforge_types::{
     resolve_outline,
 };
 
-/// Como [`Query::swap_unit`] recria as tabelas da unidade.
+/// How [`Query::swap_unit`] rebuilds the unit's tables.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum SwapMode {
-    /// O texto especulativo do completar: os inicializadores contam como
-    /// corpo, e só o corpo que contém `offset` é inferido, com a sonda de
-    /// escopo nele.
+    /// Completion's speculative text: initializers count as bodies, and only
+    /// the body containing `offset` is inferred, with the scope probe in it.
     Speculative { offset: usize },
-    /// O texto novo do documento (`didChange`): todos os corpos da unidade
-    /// quando a biblioteca dela está entre as inferidas, senão só os
-    /// inicializadores que a inferência de topo grava sob demanda.
+    /// The document's new text (`didChange`): all bodies of the unit when its
+    /// library is among the inferred ones, otherwise only the initializers that
+    /// top-level inference records on demand.
     Final { inferred_bodies: bool, register_locals: bool },
 }
 
-/// O que [`Query::swap_unit`] substituiu.
+/// What [`Query::swap_unit`] replaced.
 pub(crate) struct Swap {
     previous: dartforge_elements::incremental::Anterior,
     tables: dartforge_types::UnitBodyTypes,
     scope: Option<EscopoSondado>,
 }
 
-/// Programa, tipos e corpos de uma requisição.
+/// Program, types and bodies of one request.
 pub(crate) struct Query {
     pub program: Program,
     pub names: Interner,
@@ -45,15 +46,15 @@ pub(crate) struct Query {
     pub core: CoreTypes,
     pub outline: OutlineTypes,
     pub bodies: BodyTypes,
-    /// Escopo capturado pela sonda, quando pedida e alcançada.
+    /// Scope captured by the probe, when requested and reached.
     pub scope: Option<EscopoSondado>,
 }
 
 impl Query {
-    /// Resolve o outline e infere os corpos de `libraries`.
+    /// Resolves the outline and infers the bodies of `libraries`.
     ///
-    /// `register_locals` liga a tabela de declarações de locais (renomear);
-    /// `probe` é o identificador cujo escopo léxico o completar quer.
+    /// `register_locals` enables the local declarations table (rename); `probe`
+    /// is the identifier whose lexical scope completion wants.
     pub fn infer(
         program: Program,
         names: Interner,
@@ -62,8 +63,8 @@ impl Query {
         probe: Option<(UnitId, usize)>,
     ) -> Self {
         let mut table = TypeTable::new();
-        // O modo do analisador (M2): o `InvalidType`, o `Never?` e os aliases
-        // escritos ficam na exibição, e o fluxo de padrões é o do analyzer.
+        // The analyzer mode (M2): `InvalidType`, `Never?` and written aliases stay
+        // in the display, and the pattern flow is the analyzer's.
         table.preservar_exibicao = true;
         let core = CoreTypes::init(&mut table, &program, &names);
         let (mut outline, _) = resolve_outline(&program, &names, &mut table, &core);
@@ -88,11 +89,11 @@ impl Query {
         }
     }
 
-    /// Troca o texto da unidade `u` sem recarregar o programa quando só
-    /// corpos mudaram (docs/LSP-ESPECIFICACAO.md §16.6, classe Corpo) e
-    /// recria as tabelas dela pela inferência de corpos isolados (§16.5).
-    /// `None`: recusada (assinatura, diretivas ou forma mudaram, ou o
-    /// completar caiu fora de um corpo); a consulta fica como estava.
+    /// Replaces the text of unit `u` without reloading the program when only
+    /// bodies changed (docs/LSP-ESPECIFICACAO.md §16.6, class Body) and rebuilds
+    /// its tables through the inference of isolated bodies (§16.5). `None`:
+    /// refused (the signature, directives or shape changed, or completion fell
+    /// outside a body); the query stays as it was.
     pub fn swap_unit(&mut self, u: UnitId, text: &str, mode: SwapMode) -> Option<Swap> {
         use dartforge_elements::incremental::{restaurar_unidade, substituir_unidade};
         let speculative = matches!(mode, SwapMode::Speculative { .. });
@@ -103,7 +104,7 @@ impl Query {
         }
         let (bodies, metadata, probe, register) = match mode {
             SwapMode::Speculative { offset } => {
-                // §16.7 regra 1: só com o sentinela dentro de um corpo.
+                // §16.7 rule 1: only with the sentinel inside a body.
                 let Some(c) = dartforge_types::corpo_no_offset(&self.program, u, offset) else {
                     self.outline.remapear_tipos_escritos(u, &previous.mapa_inverso());
                     restaurar_unidade(&mut self.program, previous);
@@ -121,9 +122,9 @@ impl Query {
         Some(Swap { previous, tables, scope })
     }
 
-    /// Desfaz uma [`Query::swap_unit`] (o completar, §16.7 regra 3:
-    /// o estado retido volta ao texto do documento; os tipos internados na
-    /// tabela pela inferência especulativa ficam, o que é inofensivo).
+    /// Undoes a [`Query::swap_unit`] (completion, §16.7 rule 3: the retained
+    /// state goes back to the document's text; the types interned in the table
+    /// by the speculative inference stay, which is harmless).
     pub fn undo(&mut self, swap: Swap) {
         let Swap { previous, tables, scope } = swap;
         let u = previous.unidade();
@@ -133,10 +134,10 @@ impl Query {
         dartforge_elements::incremental::restaurar_unidade(&mut self.program, previous);
     }
 
-    /// Infere os corpos de mais `libraries` sobre o esboço e a tabela
-    /// retidos, unidade por unidade (`inferir_corpos`, §16.5: cada corpo sai
-    /// como na inferência completa), sem refazer o esboço nem os corpos já
-    /// inferidos.
+    /// Infers the bodies of more `libraries` over the retained outline and
+    /// table, unit by unit (`inferir_corpos`, §16.5: each body comes out as in
+    /// the full inference), without redoing the outline or the bodies already
+    /// inferred.
     pub fn infer_libraries(&mut self, libraries: &[LibraryId]) {
         for &lib in libraries {
             let units = self.program.library(lib).units.clone();
@@ -148,26 +149,26 @@ impl Query {
         }
     }
 
-    /// A mesma consulta sobre o mesmo programa, com os corpos de outras
-    /// bibliotecas (as cores do Flutter ampliam a lista).
+    /// The same query over the same program, with the bodies of other libraries
+    /// (the Flutter colors widen the list).
     pub fn reinfer(self, libraries: &[LibraryId]) -> Self {
         let Query { program, names, .. } = self;
         Query::infer(program, names, libraries, true, None)
     }
 
-    /// Texto de um tipo como o Dart o escreve.
-    /// `DartType.getDisplayString()` (sem `preferTypeAlias`): o alias não
-    /// aparece; o `InvalidType` e o `Never?`, sim.
+    /// Text of a type as Dart writes it. `DartType.getDisplayString()` (without
+    /// `preferTypeAlias`): the alias does not appear; `InvalidType` and `Never?`
+    /// do.
     pub fn format(&self, ty: TypeId) -> String {
         self.table.format_sem_alias(ty, &self.names, &self.program)
     }
 
-    /// Texto de um símbolo.
+    /// Text of a symbol.
     pub fn name(&self, symbol: SymbolId) -> &str {
         self.names.resolve(symbol)
     }
 
-    /// Busca de membros sobre receptores estáticos (a mesma de `crates/types`).
+    /// Member lookup over static receivers (the same as in `crates/types`).
     pub fn resolver(&mut self) -> MemberResolver<'_> {
         MemberResolver::new(
             &self.program,
@@ -179,15 +180,15 @@ impl Query {
         )
     }
 
-    /// Tipo de uma variável de topo ou campo: o escrito, senão o inferido.
+    /// Type of a top-level variable or field: the written one, else the inferred one.
     pub fn variable_type(&self, variable: VariableId) -> Option<TypeId> {
         let data = self.outline.variables.get(variable.0 as usize)?;
         data.declared_type.or(data.inferred)
     }
 
-    /// Detalhe de uma função (`(int x, {String? name}) → void`) a partir da
-    /// assinatura `signature` (já substituída pelo receptor, quando há) e dos
-    /// nomes dos parâmetros declarados.
+    /// Detail of a function (`(int x, {String? name}) → void`) from the
+    /// signature `signature` (already substituted by the receiver, when there is
+    /// one) and the names of the declared parameters.
     pub fn function_detail(&self, function: FunctionElementId, signature: TypeId) -> String {
         let Type::Function {
             ret,
@@ -230,7 +231,7 @@ impl Query {
             parts.push(format!("[{}]", optional_.join(", ")));
         }
         if !named.is_empty() {
-            // A ordem da declaração, não a canônica do tipo (por símbolo).
+            // Declaration order, not the type's canonical order (by symbol).
             let mut named_: Vec<(usize, String)> = named
                 .iter()
                 .map(|(n, t, required)| {
@@ -268,7 +269,7 @@ impl Query {
         }
     }
 
-    /// Nome simples de um elemento de topo, quando ele tem nome.
+    /// Simple name of a top-level element, when it has a name.
     pub fn element_name(&self, element: Element) -> Option<SymbolId> {
         Some(match element {
             Element::Class(c) => self.program.class(c).name,
@@ -280,7 +281,7 @@ impl Query {
         })
     }
 
-    /// Unidade e início (com metadados) da declaração de um elemento de topo.
+    /// Unit and start (with metadata) of the declaration of a top-level element.
     pub fn element_start(&self, el: Element) -> Option<(UnitId, usize)> {
         let p = &self.program;
         let d = match el {
@@ -294,7 +295,7 @@ impl Query {
         Some((d.unit, p.unit(d.unit).ast.decl(d.decl).span.start))
     }
 
-    /// Unidade e início (com metadados) de uma função, método ou construtor.
+    /// Unit and start (with metadata) of a function, method or constructor.
     pub fn function_start(&self, f: FunctionElementId) -> Option<(UnitId, usize)> {
         let p = &self.program;
         match p.function(f).node {
@@ -324,8 +325,8 @@ impl Query {
         }
     }
 
-    /// Unidade e início (com metadados) de uma variável de topo, campo ou
-    /// constante de enum.
+    /// Unit and start (with metadata) of a top-level variable, field or enum
+    /// constant.
     pub fn variable_start(&self, v: VariableId) -> Option<(UnitId, usize)> {
         let p = &self.program;
         match p.variable(v).node {
@@ -345,8 +346,8 @@ impl Query {
         }
     }
 
-    /// Arquivo e início (com metadados) de uma declaração, para a
-    /// documentação que o `completionItem/resolve` busca depois.
+    /// File and start (with metadata) of a declaration, for the documentation
+    /// that `completionItem/resolve` fetches later.
     pub fn origin(&self, local: Option<(UnitId, usize)>) -> Option<(std::path::PathBuf, usize)> {
         let (u, start) = local?;
         Some((self.program.unit(u).path.clone()?, start))

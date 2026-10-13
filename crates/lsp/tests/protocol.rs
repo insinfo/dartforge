@@ -1,15 +1,16 @@
-//! Aceite do protocolo LSP por bytes no `stdin`/`stdout` do servidor.
+//! Acceptance of the LSP protocol through bytes on the server's
+//! `stdin`/`stdout`.
 //!
-//! Nenhum teste aqui chama o servidor por função: cada sessão gera um
-//! processo filho (`CARGO_BIN_EXE_dartforge-lsp`), escreve quadros
-//! `Content-Length` no `stdin` e lê quadros do `stdout`. O que vale é o fio,
-//! não a API.
+//! No test here calls the server through a function: each session spawns a
+//! child process (`CARGO_BIN_EXE_dartforge-lsp`), writes `Content-Length`
+//! frames to `stdin` and reads frames from `stdout`. What counts is the
+//! wire, not the API.
 //!
-//! O teste de platô (`plateau_through_protocol`) vive em
-//! `tests/plateau_protocol.rs`, num binário separado: o alocador contador é
-//! global ao processo e os testes de um mesmo binário rodam em threads
-//! paralelas, então a medição de memória precisa do processo só para ela
-//! (a razão documentada em `plateau_documents.rs`).
+//! The plateau test (`plateau_through_protocol`) lives in
+//! `tests/plateau_protocol.rs`, in a separate binary: the counting allocator
+//! is global to the process and the tests of one binary run in parallel
+//! threads, so the memory measurement needs the process to itself (the
+//! reason is documented in `plateau_documents.rs`).
 
 use dartforge_lsp::transport::{frame, read_message};
 use serde_json::{Value, json};
@@ -18,32 +19,32 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-/// Tempo máximo por espera: binário debug arranca devagar no Windows.
+/// Maximum time per wait: a debug binary starts slowly on Windows.
 const TIME_LIMIT: Duration = Duration::from_secs(20);
 
-/// Leitura da thread que drena o `stdout` do filho continuamente.
+/// Read from the thread that continuously drains the child's `stdout`.
 ///
-/// Drenar sem parar importa: se o filho encher o pipe de saída ele bloqueia
-/// e a sessão trava — o teste travaria junto, em vez de medir.
+/// Draining nonstop matters: if the child fills the output pipe it blocks
+/// and the session hangs — the test would hang along, instead of measuring.
 enum Read {
     Frame(Value),
     Error(String),
     End,
 }
 
-/// Sessão com o servidor em processo filho.
+/// Session with the server in a child process.
 struct Session {
     child: Child,
     entry: ChildStdin,
     reads: Receiver<Read>,
-    /// Notificações e respostas que chegaram mas ainda não foram consumidas.
+    /// Notifications and responses that arrived but were not consumed yet.
     pending: Vec<Value>,
-    /// Quadros com erro de enquadramento (o teste `clean_stdout` os proíbe).
+    /// Frames with framing errors (the `clean_stdout` test forbids them).
     errors: Vec<String>,
 }
 
 impl Session {
-    /// Gera o servidor com as variáveis de ambiente dadas.
+    /// Spawns the server with the given environment variables.
     fn new(variables: &[(&str, &str)]) -> Self {
         let path = env!("CARGO_BIN_EXE_dartforge-lsp");
         let mut command = Command::new(path);
@@ -88,7 +89,7 @@ impl Session {
         }
     }
 
-    /// Envia uma mensagem JSON como um quadro.
+    /// Sends a JSON message as a frame.
     fn send(&mut self, message: &Value) {
         let framed = frame(message);
         self.entry
@@ -97,7 +98,7 @@ impl Session {
         self.entry.flush().expect("descarregar stdin do filho");
     }
 
-    /// Bombeia leituras até `condition` achar a mensagem, ou estoura o limite.
+    /// Pumps reads until `condition` finds the message, or the limit expires.
     fn wait_for(&mut self, what: &str, mut condition: impl FnMut(&Value) -> bool) -> Value {
         let start = Instant::now();
         loop {
@@ -127,7 +128,7 @@ impl Session {
         }
     }
 
-    /// Resposta com o `id` dado.
+    /// Response with the given `id`.
     fn response(&mut self, id: i64) -> Value {
         self.wait_for(&format!("resposta {id}"), |m| {
             m.get("id").is_some_and(|v| v.as_i64() == Some(id))
@@ -135,10 +136,10 @@ impl Session {
         })
     }
 
-    /// Última publicação de diagnósticos para a `uri` (descarta as anteriores).
+    /// Last diagnostics publication for `uri` (discards the earlier ones).
     fn diagnostics(&mut self, uri: &str) -> Value {
-        // Dá ao servidor uma chance de publicar após a edição: espera até
-        // haver ao menos uma publicação nova para a uri.
+        // Gives the server a chance to publish after the edit: waits until there is
+        // at least one new publication for the uri.
         self.wait_for(&format!("diagnósticos de {uri}"), |m| {
             m.get("method")
                 .is_some_and(|v| v.as_str() == Some("textDocument/publishDiagnostics"))
@@ -149,7 +150,7 @@ impl Session {
         })
     }
 
-    /// Encerra o protocolo (`shutdown` + `exit`) e devolve o código de saída.
+    /// Ends the protocol (`shutdown` + `exit`) and returns the exit code.
     fn shutdown(mut self, id: i64) -> i32 {
         self.send(&json!({"jsonrpc": "2.0", "id": id, "method": "shutdown"}));
         let response = self.response(id);
@@ -157,7 +158,7 @@ impl Session {
         self.send(&json!({"jsonrpc": "2.0", "method": "exit"}));
         drop(self.entry);
         let output = self.child.wait().expect("esperar o filho");
-        // Drena o que restou para não mascarar erro de enquadramento.
+        // Drains what is left so as not to mask a framing error.
         while let Ok(read) = self.reads.try_recv() {
             match read {
                 Read::Frame(frame) => self.pending.push(frame),
@@ -174,7 +175,7 @@ impl Session {
     }
 }
 
-/// Aperto de mãos mínimo de toda sessão.
+/// Minimal handshake of every session.
 fn start(session: &mut Session) {
     session.send(&json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -209,23 +210,23 @@ fn close(uri: &str) -> Value {
     })
 }
 
-/// Lista de diagnósticos da publicação.
+/// Diagnostics list of the publication.
 fn items(publication: &Value) -> &Vec<Value> {
     publication["params"]["diagnostics"]
         .as_array()
         .expect("publishDiagnostics traz lista")
 }
 
-/// Transcrição completa pelo fio: dois erros, correção incremental de um,
-/// fechamento com lista vazia e saída com código 0.
+/// Full transcript over the wire: two errors, incremental fix of one,
+/// closing with an empty list and exit with code 0.
 #[test]
 fn complete_session() {
     let mut session = Session::new(&[]);
     start(&mut session);
 
     let uri = "file:///sessao/teste.dart";
-    // As variáveis são lidas (`x;`): `unused_local_variable` é publicado, e
-    // o teste conta só os erros de sintaxe.
+    // The variables are read (`x;`): `unused_local_variable` is published, and
+    // the test counts only the syntax errors.
     session.send(&publish(
         uri,
         1,
@@ -248,7 +249,7 @@ fn complete_session() {
         "sintaxe quebrada é erro: {first}"
     );
 
-    // Correção incremental: troca o `;` da linha 0 por `1;` (intervalo UTF-16).
+    // Incremental fix: replaces the `;` on line 0 with `1;` (UTF-16 range).
     session.send(&edit(
         uri,
         2,
@@ -275,16 +276,16 @@ fn complete_session() {
     assert_eq!(session.shutdown(10), 0, "exit após shutdown sai com 0");
 }
 
-/// Colunas contam unidades UTF-16 nos dois sentidos, com CRLF e escape de
-/// surrogate solto no mesmo arquivo.
+/// Columns count UTF-16 units in both directions, with CRLF and a lone
+/// surrogate escape in the same file.
 #[test]
 fn correct_utf16() {
     let mut session = Session::new(&[]);
     start(&mut session);
 
-    // `👭` ocupa 4 bytes e 2 unidades UTF-16; o `;` do erro está no byte 38
-    // da linha 0 e na unidade UTF-16 36. O `\uD800` é ASCII (escape), e o
-    // lexer o aceita como literal válido: não gera diagnóstico.
+    // `👭` takes 4 bytes and 2 UTF-16 units; the error's `;` is at byte 38 of
+    // line 0 and at UTF-16 unit 36. The `\uD800` is ASCII (an escape), and the
+    // lexer accepts it as a valid literal: it produces no diagnostic.
     let uri = "file:///utf16/emoji.dart";
     session.send(&publish(
         uri,
@@ -304,9 +305,9 @@ fn correct_utf16() {
         "fim do span também é UTF-16: {first}"
     );
 
-    // Edição incremental endereçada em UTF-16 depois do emoji: trocar o `;`
-    // (unidades 36..37) por `1;` conserta; tratando coluna como byte, o corte
-    // cairia no `=` e o erro continuaria.
+    // Incremental edit addressed in UTF-16 after the emoji: replacing the `;`
+    // (units 36..37) with `1;` fixes it; treating the column as a byte, the cut
+    // would land on the `=` and the error would remain.
     session.send(&edit(
         uri,
         2,
@@ -324,7 +325,7 @@ fn correct_utf16() {
     assert_eq!(session.shutdown(10), 0);
 }
 
-/// Com log detalhado ligado, o `stdout` continua sendo só protocolo.
+/// With verbose logging on, `stdout` is still protocol only.
 #[test]
 fn clean_stdout() {
     let mut session = Session::new(&[("RUST_LOG", "debug")]);
@@ -341,24 +342,26 @@ fn clean_stdout() {
     ));
     let second = session.diagnostics(uri);
     assert!(items(&second).is_empty());
-    // O fechamento não republica: o cliente já tem a lista vazia (o
-    // servidor do Dart só publica vazio sobre erros publicados antes).
+    // Closing does not republish: the client already has the empty list (the
+    // Dart server only publishes an empty list over previously published
+    // errors).
     session.send(&close(uri));
 
     assert_eq!(session.shutdown(10), 0);
-    // `shutdown` já afirmou: nenhum byte fora de `Content-Length` no stdout.
+    // `shutdown` has already asserted it: no byte outside `Content-Length` on
+    // stdout.
 }
 
-/// Duas requisições enfileiradas e cancelamento da segunda antes de a
-/// primeira terminar: a resposta dela é `RequestCancelled` (-32800).
+/// Two queued requests and the cancellation of the second before the first
+/// finishes: its response is `RequestCancelled` (-32800).
 #[test]
 fn cancellation() {
     let mut session = Session::new(&[]);
     start(&mut session);
 
-    // As três mensagens saem em rajada: a leitora enfileira enquanto a
-    // principal ainda executa o dormir, e o cancelamento vale de todo jeito
-    // porque `pump` aplica os cancels da fila inteira antes de executar.
+    // The three messages go out in a burst: the reader enqueues while the main
+    // thread is still sleeping, and the cancellation holds either way because
+    // `pump` applies the cancels of the whole queue before executing.
     session.send(&json!({
         "jsonrpc": "2.0", "id": 2, "method": "dartforge/dormir",
         "params": {"ms": 1500},

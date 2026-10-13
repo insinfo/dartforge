@@ -1,41 +1,41 @@
-//! O `CompletionTarget.forOffset` do analysis server 3.6.2
-//! (`AS:src/provisional/completion/dart/completion_target.dart:141-260`), o
-//! intervalo de substituição (`computeReplacementRange`, `:470-526`) e os
-//! dois prefixos: o do casador (`TokenData.fromSelection`,
-//! `completion_manager.dart:484-539`) e o do pedido (`targetPrefix`,
+//! The analysis server 3.6.2 `CompletionTarget.forOffset`
+//! (`AS:src/provisional/completion/dart/completion_target.dart:141-260`), the
+//! replacement range (`computeReplacementRange`, `:470-526`) and the two
+//! prefixes: the matcher's (`TokenData.fromSelection`,
+//! `completion_manager.dart:484-539`) and the request's (`targetPrefix`,
 //! `:388-445`); docs/LSP-ESPECIFICACAO.md §14.13.1-3.
 //!
-//! As entidades de um nó são os filhos dele e os tokens do texto dentro do
-//! nó que nenhum filho cobre. A árvore do DartForge não tem tokens
-//! sintéticos (o parser recupera sem criá-los): um token que o fasta
-//! criaria sintético simplesmente não está; as regras de token sintético
-//! (comprimento 0) valem para os nós vazios da árvore, que ficam no
-//! próximo token real como o fasta os poria.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The entities of a node are its children and the tokens of the text inside
+//! the node that no child covers. The DartForge tree has no synthetic tokens
+//! (the parser recovers without creating them): a token that fasta would
+//! create as synthetic simply is not there; the synthetic-token rules
+//! (length 0) apply to the tree's empty nodes, which sit at the next real
+//! token where fasta would put them.
+//! Written without compiling or running (2026-10-05).
 
 use super::isp::{Initial, Isp};
 use dartforge_frontend::token::{Kind, Op};
 
-/// Uma entidade filha (`childEntities`): um nó da árvore ou um token.
+/// A child entity (`childEntities`): a tree node or a token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Entity {
     No(usize),
     Tok(usize),
-    /// Um comentário (o `CommentToken` do Dart): o intervalo.
+    /// A comment (Dart's `CommentToken`): the range.
     Comment(usize, usize),
 }
 
-/// O alvo do pedido.
+/// The request's target.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Target {
     pub no: usize,
     pub entity: Option<Entity>,
-    /// `isCommentText`: o cursor está no texto de um comentário comum.
+    /// `isCommentText`: the cursor is in the text of an ordinary comment.
     pub comment_text: bool,
 }
 
 impl<'a, 'c> Isp<'a, 'c> {
-    /// As entidades de um nó, na ordem do fonte.
+    /// The entities of a node, in source order.
     pub(super) fn entities(&self, n: usize) -> Vec<Entity> {
         let children: Vec<usize> = self.children(n).to_vec();
         let (start, end) = (self.start(n), self.end(n));
@@ -55,12 +55,12 @@ impl<'a, 'c> Isp<'a, 'c> {
         v.into_iter().map(|(_, e)| e).collect()
     }
 
-    /// O último token de um nó (`endToken`); `None` num nó vazio.
+    /// The last token of a node (`endToken`); `None` for an empty node.
     pub(super) fn last_token(&self, n: usize) -> Option<usize> {
         self.tok_before(self.end(n)).filter(|&i| self.span_tok(i).start >= self.start(n) && self.start(n) < self.end(n))
     }
 
-    /// `_isCandidateToken` para um token real.
+    /// `_isCandidateToken` for a real token.
     fn candidate_tok(&self, i: usize) -> bool {
         let s = self.span_tok(i);
         if self.offset < s.end {
@@ -72,12 +72,12 @@ impl<'a, 'c> Isp<'a, 'c> {
         false
     }
 
-    /// `_isCandidateToken(node, entity.endToken)` de um nó: o vazio é um
-    /// token sintético de comprimento 0 no próximo token real.
+    /// `_isCandidateToken(node, entity.endToken)` of a node: an empty one is a
+    /// synthetic token of length 0 at the next real token.
     fn candidate_end(&self, n: usize) -> bool {
         match self.last_token(n) {
-            // O nó acaba num token sintético (o `)`/`;` que o fasta insere,
-            // de comprimento 0 no fim do nó), depois do último real.
+            // The node ends in a synthetic token (the `)`/`;` that fasta inserts, of
+            // length 0 at the end of the node), after the last real one.
             Some(i) if self.span_tok(i).end < self.end(n) => self.offset < self.end(n),
             Some(i) => self.candidate_tok(i),
             None => self.offset <= self.synthetic(self.start(n)).start,
@@ -89,17 +89,17 @@ impl<'a, 'c> Isp<'a, 'c> {
         match self.initial(n) {
             Initial::Tok(i) if self.span_tok(i).start < self.end(n).max(self.start(n) + 1) && self.word(i) => self.candidate_tok(i),
             _ if self.start(n) >= self.end(n) => {
-                // Vazio: o identificador sintético (palavra) ou outro token
-                // sintético, ambos em `offset <= posição`.
+                // Empty: the synthetic identifier (word) or another synthetic token, both
+                // at `offset <= position`.
                 self.offset <= self.synthetic(self.start(n)).start
             }
             _ => self.offset <= self.start(n),
         }
     }
 
-    /// `_getContainingCommentToken`: entre os comentários que precedem o
-    /// token que começa em `before` (o EOF com `eof`), o que contém o
-    /// cursor (o de linha com o fim inclusivo, o de bloco sem).
+    /// `_getContainingCommentToken`: among the comments preceding the token that
+    /// starts at `before` (EOF with `eof`), the one containing the cursor (a
+    /// line comment with an inclusive end, a block one without).
     fn containing_comment(&self, before: usize, eof: bool) -> Option<(usize, usize)> {
         if !eof && self.offset >= before {
             return None;
@@ -122,8 +122,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// `_getContainingDocComment`: o nó tem o comentário de documentação
-    /// que é o `c`.
+    /// `_getContainingDocComment`: the node has the documentation comment that
+    /// is `c`.
     fn documentation_comment(&self, n: usize, c: (usize, usize)) -> Option<usize> {
         self.children_of(n, &["Comment"]).into_iter().find(|&k| self.start(k) <= c.0 && c.1 <= self.end(k))
     }
@@ -187,7 +187,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         Target { no, entity: None, comment_text: false }
     }
 
-    /// O token de início de uma entidade.
+    /// The start token of an entity.
     fn entity_token(&self, e: Entity) -> Option<usize> {
         match e {
             Entity::Tok(i) => Some(i),
@@ -199,15 +199,15 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `containingNode.findPrevious(token)`: o token anterior, se ainda é
-    /// do nó.
+    /// `containingNode.findPrevious(token)`: the previous token, if it still
+    /// belongs to the node.
     fn previous_in_node(&self, no: usize, i: usize) -> Option<usize> {
         let j = i.checked_sub(1)?;
         (self.span_tok(j).start >= self.start(no)).then_some(j)
     }
 
-    /// `_computeDroppedToken`: um token de palavra fora da árvore entre o
-    /// filho anterior à entidade e a entidade, que contém o cursor.
+    /// `_computeDroppedToken`: a word token outside the tree between the child
+    /// before the entity and the entity, which contains the cursor.
     pub(super) fn dropped_token(&self, target: &Target) -> Option<usize> {
         let e = target.entity?;
         let start_and = match e {
@@ -231,7 +231,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// `computeReplacementRange`: `(início, length)`.
+    /// `computeReplacementRange`: `(start, length)`.
     pub(super) fn replacement_range(&self, target: &Target) -> (usize, usize) {
         let mut token = self.dropped_token(target).or_else(|| target.entity.and_then(|e| self.entity_token(e)));
         if let Some(t) = token
@@ -253,7 +253,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     return (s.start, s.end - s.start);
                 }
                 if matches!(self.toks[x].kind, Kind::Str(_)) {
-                    // A URI de uma diretiva (ou da configuração dela).
+                    // The URI of a directive (or of its configuration).
                     let uri = match self.kind(target.no) {
                         "ImportDirective" | "ExportDirective" => self
                             .children(target.no)
@@ -285,7 +285,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         (self.offset, 0)
     }
 
-    /// `contentsEnd`: antes da aspa de fechamento (se ela está).
+    /// `contentsEnd`: before the closing quote (if it is there).
     pub(super) fn content_end(&self, n: usize) -> usize {
         let start_c = self.content_start(n);
         let t = &self.source[self.start(n)..self.end(n)];
@@ -298,7 +298,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `TokenData.fromSelection`: o prefixo do casador.
+    /// `TokenData.fromSelection`: the matcher's prefix.
     pub(super) fn matcher_prefix(&self) -> String {
         let Some(c) = self.covered_node() else { return String::new() };
         let Some(mut t) = self.tok_before(self.end(c)).or_else(|| self.tok_after(self.end(c))) else { return String::new() };
@@ -343,7 +343,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         String::new()
     }
 
-    /// `targetPrefix`: o prefixo do pedido (o filtro do handler).
+    /// `targetPrefix`: the request's prefix (the handler's filter).
     pub(super) fn request_prefix(&self, target: &Target) -> String {
         let Some(e) = target.entity else { return String::new() };
         let of_token = |i: usize| -> String {
@@ -395,7 +395,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     _ => String::new(),
                 };
             }
-            // O primeiro `childEntity`: um nó desce; um token encerra.
+            // The first `childEntity`: a node descends; a token stops.
             match self.entities(n).first().copied() {
                 Some(Entity::No(f)) => n = f,
                 Some(Entity::Tok(i)) => return of_token(i),
@@ -404,8 +404,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `inConstantContext` do pedido: a entidade é expressão em contexto
-    /// constante.
+    /// `inConstantContext` of the request: the entity is an expression in a
+    /// constant context.
     pub(super) fn request_in_constant_context(&self, target: &Target) -> bool {
         match target.entity {
             Some(Entity::No(n)) => super::isp::EXPRESSION_KINDS.contains(&self.kind(n)) && self.constant_context(n),
@@ -413,7 +413,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O nó `Op` de uma entidade token (para os testes de vírgula e `)`).
+    /// The `Op` node of a token entity (for the comma and `)` tests).
     pub(super) fn entity_and_op(&self, e: Option<Entity>, op: Op) -> bool {
         matches!(e, Some(Entity::Tok(i)) if self.is_op(i, op))
     }

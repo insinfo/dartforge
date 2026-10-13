@@ -1,15 +1,15 @@
 //! `computeReferencedNames` (`AN:src/dart/analysis/referenced_names.dart`,
-//! docs/LSP-ESPECIFICACAO.md §11.2): os nomes externos que um arquivo cita,
-//! sobre a árvore no formato do analyzer. Decide os arquivos candidatos de
-//! uma busca de referências (`Search._addResults`).
+//! docs/LSP-ESPECIFICACAO.md §11.2): the external names a file references,
+//! over the analyzer-shaped tree. Decides the candidate files of a reference
+//! search (`Search._addResults`).
 //!
-//! Entram o nome de todo `NamedType` e de todo `SimpleIdentifier`, menos:
-//! identificador em contexto de declaração; o `returnType` de um
-//! construtor; nome não qualificado sombreado pelo escopo local sintático
-//! (`_LocalNameScope`: topo do arquivo, classe, extension type, construtor,
-//! função, método, `typedef` e bloco); nome igual a um prefixo de import já
-//! visto; e tudo dentro do `ConstructorName` de um redirecionamento de
-//! fábrica.
+//! The name of every `NamedType` and every `SimpleIdentifier` is included,
+//! except: an identifier in a declaration context; a constructor's
+//! `returnType`; an unqualified name shadowed by the syntactic local scope
+//! (`_LocalNameScope`: file top level, class, extension type, constructor,
+//! function, method, `typedef` and block); a name equal to an import prefix
+//! already seen; and everything inside the `ConstructorName` of a factory
+//! redirection.
 
 use crate::arvore_analyzer::Marca;
 use crate::project::{Target, Project};
@@ -19,18 +19,18 @@ use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind};
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// O índice reverso do `referencedNames`: para cada nome, as unidades que o
-/// citam. Construído sob demanda, unidade por unidade (as inferidas que
-/// ainda não estão nele), e atualizado por unidade quando o texto dela muda
-/// ([`Project::forget_unit`]): a busca de referências acha os arquivos
-/// candidatos sem percorrer todos.
+/// The reverse index of `referencedNames`: for each name, the units that
+/// reference it. Built on demand, unit by unit (the inferred ones not in it
+/// yet), and updated per unit when its text changes
+/// ([`Project::forget_unit`]): the reference search finds the candidate
+/// files without walking all of them.
 #[derive(Debug, Default)]
 pub(crate) struct ReverseIndex {
     pub(crate) indexed: HashSet<UnitId>,
     pub(crate) by_name: std::collections::HashMap<String, std::collections::BTreeSet<UnitId>>,
 }
 
-/// O identificador que começa em `pos`.
+/// The identifier that starts at `pos`.
 fn identifier_in(source: &str, pos: usize) -> &str {
     let rest = &source[pos.min(source.len())..];
     let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
@@ -60,8 +60,8 @@ impl Computer<'_, '_> {
         }
     }
 
-    /// `addFormalParameters`: só os `NormalFormalParameter` (o opcional e o
-    /// nomeado vêm embrulhados num `DefaultFormalParameter` e ficam de fora).
+    /// `addFormalParameters`: only the `NormalFormalParameter`s (optional and
+    /// named ones come wrapped in a `DefaultFormalParameter` and are left out).
     fn parameters(&self, e: &mut HashSet<String>, ps: &[ast::Parameter]) {
         for p in ps {
             if p.kind == ParameterKind::Required
@@ -72,7 +72,7 @@ impl Computer<'_, '_> {
         }
     }
 
-    /// `forClass`/`forExtensionType`: parâmetros de tipo, campos e métodos.
+    /// `forClass`/`forExtensionType`: type parameters, fields and methods.
     fn members(&self, e: &mut HashSet<String>, tps: &[ast::TypeParameter], members: &[ast::MemberId]) {
         self.type_parameters(e, tps);
         let ast = self.cx.ast;
@@ -93,8 +93,8 @@ impl Computer<'_, '_> {
         }
     }
 
-    /// `forUnit`: os `NamedCompilationUnitMember` (extensão não é) e as
-    /// variáveis de topo do próprio arquivo.
+    /// `forUnit`: the `NamedCompilationUnitMember`s (an extension is not one)
+    /// and the file's own top-level variables.
     fn unit_scope(&self) -> HashSet<String> {
         let mut e = HashSet::new();
         let ast = self.cx.ast;
@@ -131,7 +131,7 @@ impl Computer<'_, '_> {
         e
     }
 
-    /// A função marcada no nó ou no `FunctionExpression` filho.
+    /// The function marked on the node or on the child `FunctionExpression`.
     fn function(&self, k: usize) -> Option<ast::FunctionId> {
         let cx = self.cx;
         std::iter::once(k).chain(cx.children(k).iter().copied()).find_map(|n| match cx.tree.nos[n].marca {
@@ -140,14 +140,14 @@ impl Computer<'_, '_> {
         })
     }
 
-    /// O escopo que o nó `k` abre, se abre.
+    /// The scope that node `k` opens, if it opens one.
     fn node_scope(&self, k: usize) -> Option<HashSet<String>> {
         let cx = self.cx;
         let ast = cx.ast;
         let mut e = HashSet::new();
         match cx.kind(k) {
-            // `forBlock`: funções e variáveis declaradas como instruções
-            // diretas do bloco.
+            // `forBlock`: functions and variables declared as direct statements of the
+            // block.
             "Block" => {
                 for &s in cx.children(k) {
                     match cx.kind(s) {
@@ -181,7 +181,7 @@ impl Computer<'_, '_> {
                     _ => {}
                 }
             }
-            // `forConstructor`: só os parâmetros.
+            // `forConstructor`: only the parameters.
             "ConstructorDeclaration" => {
                 let end = cx.tree.nos[k].fim;
                 let owner = cx.parent(k).and_then(|p| match cx.tree.nos[p].marca {
@@ -206,7 +206,7 @@ impl Computer<'_, '_> {
                     }
                 }
             }
-            // `forFunction`/`forMethod`: parâmetros de tipo e parâmetros.
+            // `forFunction`/`forMethod`: type parameters and parameters.
             "FunctionDeclaration" | "MethodDeclaration" => {
                 if let Some(f) = self.function(k) {
                     let f = ast.function(f);
@@ -221,10 +221,10 @@ impl Computer<'_, '_> {
         Some(e)
     }
 
-    /// `SimpleIdentifier.isQualified`: o identificador de um
-    /// `PrefixedIdentifier`, o nome de um `PropertyAccess` ou de um
-    /// `ConstructorName`, o `methodName` de uma invocação com alvo (também o
-    /// de uma seção de cascata).
+    /// `SimpleIdentifier.isQualified`: the identifier of a `PrefixedIdentifier`,
+    /// the name of a `PropertyAccess` or of a `ConstructorName`, the
+    /// `methodName` of an invocation with a target (also that of a cascade
+    /// section).
     fn qualified(&self, k: usize, parent: usize) -> bool {
         let cx = self.cx;
         let children = cx.children(parent);
@@ -239,7 +239,7 @@ impl Computer<'_, '_> {
                 if before.len() >= 2 {
                     return true;
                 }
-                // Sem alvo escrito: o `realTarget` da seção de cascata.
+                // Without a written target: the `realTarget` of the cascade section.
                 let mut current = parent;
                 while let Some(p) = cx.parent(current) {
                     match cx.kind(p) {
@@ -258,7 +258,7 @@ impl Computer<'_, '_> {
         let cx = self.cx;
         let kind = cx.kind(k);
         match kind {
-            // O redirecionamento de fábrica não cita o alvo.
+            // A factory redirection does not reference the target.
             "ConstructorName" if cx.parent(k).is_some_and(|p| cx.kind(p) == "ConstructorDeclaration") => return,
             "ImportDirective" => {
                 for &f in cx.children(k) {
@@ -307,7 +307,7 @@ impl Computer<'_, '_> {
             return;
         }
         let Some(parent) = cx.parent(k) else { return };
-        // O nome da classe no construtor declarado.
+        // The class name in the declared constructor.
         if cx.kind(parent) == "ConstructorDeclaration" && cx.children(parent).iter().copied().find(|&f| cx.kind(f) == "SimpleIdentifier") == Some(k) {
             return;
         }
@@ -321,7 +321,7 @@ impl Computer<'_, '_> {
 }
 
 impl Context<'_> {
-    /// `computeReferencedNames` da unidade.
+    /// `computeReferencedNames` of the unit.
     pub(crate) fn referenced_names(&self) -> HashSet<String> {
         let mut c = Computer { cx: self, names: HashSet::new(), prefixes: HashSet::new(), scopes: Vec::new() };
         let unit = c.unit_scope();
@@ -334,9 +334,9 @@ impl Context<'_> {
 }
 
 impl Project {
-    /// O `referencedNames` de `u`, calculado uma vez por sessão.
-    /// Esquece o que foi calculado para `u` (o texto dela mudou): os nomes
-    /// citados e as entradas dela no índice reverso.
+    /// The `referencedNames` of `u`, computed once per session.
+    /// Forgets what was computed for `u` (its text changed): the referenced
+    /// names and its entries in the reverse index.
     pub(crate) fn forget_unit(&self, u: UnitId) {
         let old = self.referenced_names.lock().ok().and_then(|mut m| m.remove(&u));
         if let Ok(mut m) = self.comments.lock() {
@@ -357,9 +357,9 @@ impl Project {
         }
     }
 
-    /// As unidades inferidas (fora os patches) cujo `referencedNames` contém
-    /// `name`, pelo índice reverso: as unidades que ainda não estão nele
-    /// (as de bibliotecas recém-inferidas ou de texto novo) entram antes.
+    /// The inferred units (except the patches) whose `referencedNames` contains
+    /// `name`, through the reverse index: the units not in it yet (those of
+    /// newly inferred libraries or with new text) are added first.
     pub(crate) fn units_that_cite(&self, name: &str) -> Vec<UnitId> {
         let units = self.units();
         let missing: Vec<UnitId> = match self.reverse_index.lock() {
@@ -367,8 +367,9 @@ impl Project {
             Err(_) => Vec::new(),
         };
         for u in missing {
-            // Uma unidade cujo texto não tem `name` não o cita: fica para
-            // quando outro nome a pedir (o `referencedNames` sai do texto).
+            // A unit whose text does not contain `name` does not reference it: it is
+            // left for when another name asks for it (`referencedNames` comes from the
+            // text).
             if self.program().unit(u).role == UnitRole::Patch || !self.program().unit(u).source.contains(name) {
                 continue;
             }
@@ -399,9 +400,9 @@ impl Project {
         n
     }
 
-    /// O nome que `Search._addResults` procura para o alvo (o
-    /// `displayName`; num construtor, o da classe); `None` nas buscas locais
-    /// (local, parâmetro de tipo, prefixo), que não passam por ele.
+    /// The name `Search._addResults` looks for given the target (the
+    /// `displayName`; for a constructor, the class's); `None` for local searches
+    /// (local, type parameter, prefix), which do not go through it.
     pub(crate) fn search_name(&self, target: &Target) -> Option<String> {
         let p = self.program();
         Some(match target {
@@ -419,11 +420,11 @@ impl Project {
         })
     }
 
-    /// Os arquivos candidatos de `Search._addResults` para o nome `name` de
-    /// elementos declarados nas unidades `declarations`: num nome privado,
-    /// os arquivos da biblioteca de cada um que são o do elemento ou citam
-    /// o nome; senão, os arquivos que citam o nome mais todos os da
-    /// biblioteca de cada elemento.
+    /// The candidate files of `Search._addResults` for name `name` of elements
+    /// declared in the units `declarations`: for a private name, the files of
+    /// each one's library that are the element's file or reference the name;
+    /// otherwise, the files that reference the name plus all the files of each
+    /// element's library.
     pub(crate) fn candidate_files(&self, name: &str, declarations: &[UnitId]) -> HashSet<UnitId> {
         let p = self.program();
         let private = name.starts_with('_');
@@ -440,7 +441,7 @@ impl Project {
             }
         }
         if !private {
-            // O analyzer não vê os patches do SDK (o índice os deixa de fora).
+            // The analyzer does not see the SDK patches (the index leaves them out).
             output.extend(self.units_that_cite(name));
         }
         output

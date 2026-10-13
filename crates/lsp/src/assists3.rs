@@ -1,18 +1,18 @@
-//! Três assistências de condição do servidor do Dart 3.6.2, pelas regras de
+//! Three condition assists of the Dart 3.6.2 server, following the rules of
 //! docs/LSP-ESPECIFICACAO.md §13.10:
 //!
-//! | Assistência | Espécie |
+//! | Assist | Kind |
 //! | --- | --- |
 //! | `Invert 'if' statement` | `refactor.invertIf` |
 //! | `Invert conditional expression` | `refactor.invertConditional` |
 //! | `Join 'if' statement with inner 'if' statement` | `refactor.joinWithInnerIf` |
 //!
-//! As três usam o `invertCondition` do `CorrectionUtils`
-//! (`correction_utils.dart:345-410`), aqui `Project::invert`. Diferença
-//! conhecida: no `Invert conditional expression` o cursor vale em qualquer
-//! ponto da condicional mais interna que não esteja dentro dos argumentos
-//! de uma chamada aninhada (o original sobe um número fixo de nós).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! All three use `CorrectionUtils.invertCondition`
+//! (`correction_utils.dart:345-410`), here `Project::invert`. Known
+//! difference: in `Invert conditional expression` the cursor counts
+//! anywhere in the innermost conditional that is not inside the arguments
+//! of a nested call (the original walks up a fixed number of nodes).
+//! Written without compiling or running (2026-10-05).
 
 use crate::actions::CodeAction;
 use crate::project::Project;
@@ -35,7 +35,7 @@ const OR_PRECEDENCE: u32 = 1;
 const AND_PRECEDENCE: u32 = 2;
 const MAX_PRECEDENCE: u32 = 1 << 20;
 
-/// A indentação da linha que contém `offset`.
+/// The indentation of the line containing `offset`.
 fn indentation(source: &str, offset: usize) -> &str {
     let start = source[..offset.min(source.len())].rfind('\n').map_or(0, |i| i + 1);
     let rest = &source[start..];
@@ -43,7 +43,7 @@ fn indentation(source: &str, offset: usize) -> &str {
 }
 
 impl Project {
-    /// `invertCondition`: o texto da condição negada e a precedência dele.
+    /// `invertCondition`: the text of the negated condition and its precedence.
     fn invert(&self, unit: UnitId, e: ExprId) -> (String, u32) {
         let u = self.program().unit(unit);
         let a = &u.ast;
@@ -67,8 +67,8 @@ impl Project {
                 if let Some(new) = comparison {
                     return (format!("{} {new} {}", text(*left), text(*right)), MAX_PRECEDENCE);
                 }
-                // De Morgan; cada lado entre parênteses se liga mais fraco
-                // que o operador novo.
+                // De Morgan; each side goes in parentheses if it binds more loosely than
+                // the new operator.
                 let (junta, precedence) = match op {
                     BinaryOp::And => ("||", OR_PRECEDENCE),
                     BinaryOp::Or => ("&&", AND_PRECEDENCE),
@@ -85,7 +85,7 @@ impl Project {
                 let word = if *negated { "is" } else { "is!" };
                 (format!("{} {word} {}", text(*value), source.get(ty_.start..ty_.end).unwrap_or("")), MAX_PRECEDENCE)
             }
-            // `!e`: o operando sem os parênteses de fora.
+            // `!e`: the operand without the outer parentheses.
             ExprKind::Unary { op: UnaryOp::Not, operand } => {
                 let mut inside = *operand;
                 while let ExprKind::Parenthesized(x) = &a.expr(inside).kind {
@@ -98,8 +98,8 @@ impl Project {
         }
     }
 
-    /// As duas últimas linhas da tabela: `!text` para uma expressão de tipo
-    /// estático `bool`, o texto inalterado para as outras.
+    /// The last two rows of the table: `!text` for an expression of static type
+    /// `bool`, the text unchanged for the others.
     fn negate_other(&self, unit: UnitId, e: ExprId) -> (String, u32) {
         let u = self.program().unit(unit);
         let s = u.ast.expr(e).span;
@@ -108,7 +108,7 @@ impl Project {
         (if is_bool { format!("!{text}") } else { text.to_string() }, MAX_PRECEDENCE)
     }
 
-    /// As assistências desta lista com o cursor em `offset` de `unit`.
+    /// The assists of this list with the cursor at `offset` of `unit`.
     pub(crate) fn condition_assists(&self, uri: &str, unit: UnitId, offset: usize) -> Vec<CodeAction> {
         let mut output = Vec::new();
         let u = self.program().unit(unit);
@@ -120,7 +120,7 @@ impl Project {
         };
         let is_block = |s: StmtId| matches!(a.stmt(s).kind, StmtKind::Block(_));
 
-        // O `if` mais interno que contém o cursor.
+        // The innermost `if` containing the cursor.
         let the_if = a
             .stmts
             .iter()
@@ -131,8 +131,9 @@ impl Project {
         {
             let cond = a.expr(*condition).span;
             let then_stmt = a.stmt(*then).span;
-            // `Invert 'if' statement`: o cursor no próprio comando (no `if`,
-            // nos parênteses ou no `else`), fora da condição e dos blocos.
+            // `Invert 'if' statement`: the cursor on the statement itself (on the
+            // `if`, on the parentheses or on the `else`), outside the condition and
+            // the blocks.
             if let Some(else_stmt) = else_
                 && case_pattern.is_none()
                 && is_block(*then)
@@ -149,10 +150,11 @@ impl Project {
                     ));
                 }
             }
-            // `Join 'if' statement with inner 'if' statement`: o cursor no
-            // comando ou na condição; sem `else`; o corpo é um `if` sem `else`.
+            // `Join 'if' statement with inner 'if' statement`: the cursor on the
+            // statement or the condition; no `else`; the body is an `if` without
+            // `else`.
             if else_.is_none() && offset <= then_stmt.start {
-                // `getSingleStatement`: o comando, ou o único de um bloco.
+                // `getSingleStatement`: the statement, or the only one of a block.
                 let single = match &a.stmt(*then).kind {
                     StmtKind::Block(l) if l.len() == 1 => Some(l[0]),
                     StmtKind::Block(_) => None,
@@ -161,7 +163,7 @@ impl Project {
                 if let Some(internal) = single
                     && let StmtKind::If { condition: internal_cond, then: body, else_: None, .. } = &a.stmt(internal).kind
                 {
-                    // `shouldWrapParenthesisBeforeAnd`: binária mais fraca que `&&`.
+                    // `shouldWrapParenthesisBeforeAnd`: a binary expression looser than `&&`.
                     let to_is = |x: ExprId| {
                         let sp = a.expr(x).span;
                         let t = source.get(sp.start..sp.end).unwrap_or("");
@@ -169,8 +171,8 @@ impl Project {
                     };
                     let prefix = indentation(source, s.span.start);
                     let eol = if source.contains("\r\n") { "\r\n" } else { "\n" };
-                    // Os comandos do corpo interno, por linhas inteiras, com
-                    // um nível de indentação a menos.
+                    // The statements of the inner body, by whole lines, with one level of
+                    // indentation less.
                     let commands: Vec<StmtId> = match &a.stmt(*body).kind {
                         StmtKind::Block(l) => l.to_vec(),
                         _ => vec![*body],
@@ -195,8 +197,8 @@ impl Project {
             }
         }
 
-        // `Invert conditional expression`: a condicional do
-        // `_getConditionalExpressionAncestor`, sobre a árvore do analyzer.
+        // `Invert conditional expression`: the conditional from
+        // `_getConditionalExpressionAncestor`, over the analyzer tree.
         let conditional = {
             let cx = crate::refactorings::Context::new(self, unit);
             cx.next_conditional(offset).and_then(|n| cx.node_expr(n))
@@ -224,13 +226,13 @@ impl Project {
 }
 
 impl Project {
-    /// Mais três assistências sintáticas (docs/LSP-ESPECIFICACAO.md §13.10):
-    /// `Join 'if' statement with outer 'if' statement`
-    /// (`refactor.joinWithOuterIf`), `Replace 'if-else' with conditional
-    /// ('c ? x : y')` (`refactor.convert.ifElseToConditional`) e `Join
-    /// variable declaration` (`refactor.joinVariableDeclaration`). Na
-    /// última, "a mesma variável" é o mesmo nome no comando vizinho do mesmo
-    /// bloco. Escrito sem compilar nem executar (2026-10-05).
+    /// Three more syntactic assists (docs/LSP-ESPECIFICACAO.md §13.10): `Join
+    /// 'if' statement with outer 'if' statement` (`refactor.joinWithOuterIf`),
+    /// `Replace 'if-else' with conditional ('c ? x : y')`
+    /// (`refactor.convert.ifElseToConditional`) and `Join variable declaration`
+    /// (`refactor.joinVariableDeclaration`). In the last one, "the same
+    /// variable" is the same name in the neighboring statement of the same
+    /// block. Written without compiling or running (2026-10-05).
     pub(crate) fn join_assists(&self, uri: &str, unit: UnitId, offset: usize) -> Vec<CodeAction> {
         let mut output = Vec::new();
         let u = self.program().unit(unit);
@@ -241,14 +243,14 @@ impl Project {
             let s = a.expr(x).span;
             source.get(s.start..s.end).unwrap_or("")
         };
-        // `getSingleStatement`: o comando, ou o único de um bloco.
+        // `getSingleStatement`: the statement, or the only one of a block.
         let single = |s: StmtId| match &a.stmt(s).kind {
             StmtKind::Block(l) if l.len() == 1 => Some(l[0]),
             StmtKind::Block(_) => None,
             _ => Some(s),
         };
 
-        // O `if` mais interno que contém o cursor.
+        // The innermost `if` containing the cursor.
         let the_if = a
             .stmts
             .iter()
@@ -261,8 +263,8 @@ impl Project {
             let id = StmtId(index as u32);
             let cond = a.expr(*condition).span;
             let then_stmt = a.stmt(*then).span;
-            // `Join … with outer`: sem `else`; o pai (pulando um bloco de um
-            // comando só) é um `if` sem `else`.
+            // `Join … with outer`: no `else`; the parent (skipping a block with a
+            // single statement) is an `if` without `else`.
             if else_.is_none() && offset <= then_stmt.start {
                 let external = a.stmts.iter().find(|x| match &x.kind {
                     StmtKind::If { then: t, else_: None, .. } => *t == id || (*t != id && single(*t) == Some(id)),
@@ -298,8 +300,8 @@ impl Project {
                     ));
                 }
             }
-            // `Replace 'if-else' with conditional`: o cursor no próprio
-            // comando; cada ramo é um comando só.
+            // `Replace 'if-else' with conditional`: the cursor on the statement itself;
+            // each branch is a single statement.
             if let Some(else_stmt) = else_
                 && case_pattern.is_none()
             {
@@ -328,8 +330,8 @@ impl Project {
             }
         }
 
-        // `Join variable declaration`: `T v;` seguido de `v = e;` no mesmo
-        // bloco, com o cursor no nome atribuído ou na declaração.
+        // `Join variable declaration`: `T v;` followed by `v = e;` in the same
+        // block, with the cursor on the assigned name or on the declaration.
         'blocos: for block in a.stmts.iter() {
             let StmtKind::Block(list) = &block.kind else { continue };
             for pair in list.windows(2) {
@@ -351,7 +353,7 @@ impl Project {
                 if !(assigned_name_node || in_declaration) {
                     continue;
                 }
-                // O `=` fica entre o alvo e o valor.
+                // The `=` lies between the target and the value.
                 let Some(k) = source.get(target_.end..a.expr(*value).span.start).and_then(|t| t.find('=')) else { continue };
                 output.push(action(
                     uri,
@@ -367,7 +369,7 @@ impl Project {
 }
 
 impl crate::refactorings::Context<'_> {
-    /// `_thisOrParentOfType`: o nó, ou o pai, se for de uma das espécies.
+    /// `_thisOrParentOfType`: the node, or the parent, if it is of one of the kinds.
     fn this_or_parent_of(&self, n: usize, kinds: &[&str]) -> Option<usize> {
         if kinds.contains(&self.kind(n)) {
             return Some(n);
@@ -376,8 +378,8 @@ impl crate::refactorings::Context<'_> {
     }
 
     /// `InvertConditionalExpression._getConditionalExpressionAncestor`
-    /// (invert_conditional_expression.dart): a condicional "perto o
-    /// bastante" do nó da seleção.
+    /// (invert_conditional_expression.dart): the conditional "close enough" to
+    /// the selection node.
     pub(crate) fn next_conditional(&self, offset: usize) -> Option<usize> {
         let mut no = self.tree.localizar(offset, offset)?;
         no = self.this_or_parent_of(no, &["MethodInvocation"]).unwrap_or(no);

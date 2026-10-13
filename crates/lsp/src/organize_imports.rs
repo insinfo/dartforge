@@ -1,38 +1,37 @@
-//! `Organize Imports` (`dart.edit.organizeImports`): o `ImportOrganizer` do
-//! servidor do Dart 3.6.2
-//! (`AS:src/services/correction/organize_imports.dart:22-345` e
-//! `AP:src/utilities/directive_sort.dart`; docs/LSP-ESPECIFICACAO.md
+//! `Organize Imports` (`dart.edit.organizeImports`): the Dart 3.6.2 server's
+//! `ImportOrganizer` (`AS:src/services/correction/organize_imports.dart:22-345`
+//! and `AP:src/utilities/directive_sort.dart`; docs/LSP-ESPECIFICACAO.md
 //! §13.12.6).
 //!
-//! As diretivas `import`, `export` e `part` são ordenadas por grupo (nove
-//! prioridades) e pela URI; cada uma leva o comentário de cima e o primeiro
-//! comentário de fim de linha; o bloco inteiro, da primeira à última, é
-//! substituído pela concatenação dos textos, com uma linha em branco entre
-//! os grupos. Com `remove`, saem os imports apontados pelos erros
-//! (`unused_import`, `duplicate_import`, `unnecessary_import`) e as
-//! duplicatas textuais, salvo quando há identificador não resolvido.
+//! The `import`, `export` and `part` directives are sorted by group (nine
+//! priorities) and by URI; each one carries the comment above it and the
+//! first end-of-line comment; the whole block, from the first to the last,
+//! is replaced by the concatenation of the texts, with a blank line between
+//! groups. With `remove`, the imports flagged by the errors
+//! (`unused_import`, `duplicate_import`, `unnecessary_import`) and the
+//! textual duplicates go away, unless there is an unresolved identifier.
 //!
-//! As anotações de biblioteca (`TargetKind.library`) da primeira diretiva
-//! não são reconhecidas: pedem a unidade resolvida. É o comportamento do
-//! original quando chamado pelo `Sort Members`.
-//! Escrito sem compilar nem executar (2026-10-04).
+//! Library annotations (`TargetKind.library`) on the first directive are not
+//! recognized: they need the resolved unit. That is the original's behavior
+//! when called by `Sort Members`.
+//! Written without compiling or running (2026-10-04).
 
 use crate::sort_members::{Comment, comments, line_of};
 use dartforge_frontend::ast::{CompilationUnit, DirectiveKind};
 use std::cmp::Ordering;
 
 struct Info {
-    /// O ordinal de `DirectiveSortPriority`.
+    /// The ordinal of `DirectiveSortPriority`.
     priority: u8,
     uri: String,
     start: usize,
     end: usize,
-    /// Há erro de import não usado, duplicado ou desnecessário no literal
-    /// da URI.
+    /// There is an unused, duplicate or unnecessary import error on the URI
+    /// literal.
     removable: bool,
 }
 
-/// A ordem do `String.compareTo` do Dart: unidades UTF-16.
+/// The order of Dart's `String.compareTo`: UTF-16 units.
 fn utf16(a: &str, b: &str) -> Ordering {
     a.encode_utf16().cmp(b.encode_utf16())
 }
@@ -48,14 +47,13 @@ fn compare_uri(a: &str, b: &str) -> Ordering {
     }
 }
 
-/// O início da linha seguinte à do offset (`getOffsetOfLineAfter`); `None`
-/// quando não há (o original lança).
+/// The start of the line after the offset's line (`getOffsetOfLineAfter`);
+/// `None` when there is none (the original throws).
 fn next_line(code: &str, offset: usize) -> Option<usize> {
     code.get(offset..)?.find('\n').map(|k| offset + k + 1)
 }
 
-/// `// @dart = 2.12`: o comentário de versão da linguagem
-/// (`LanguageVersionToken`).
+/// `// @dart = 2.12`: the language version comment (`LanguageVersionToken`).
 fn language_version(comment: &str) -> bool {
     let Some(rest) = comment.strip_prefix("//") else { return false };
     let Some(rest) = rest.trim_start().strip_prefix("@dart") else { return false };
@@ -70,8 +68,8 @@ fn of_ignore(comment: &str) -> bool {
     comment.starts_with("//") && comment.trim_start_matches('/').trim_start_matches(' ').starts_with("ignore:")
 }
 
-/// O bloco de documentação de um vão: a última sequência de comentários de
-/// documentação consecutivos (início e fim).
+/// The documentation block of a gap: the last sequence of consecutive
+/// documentation comments (start and end).
 fn documentation_block(cs: &[Comment]) -> Option<(usize, usize)> {
     let last = cs.iter().rposition(|c| c.of_documentation)?;
     let mut first = last;
@@ -81,10 +79,10 @@ fn documentation_block(cs: &[Comment]) -> Option<(usize, usize)> {
     Some((cs[first].start, cs[last].end))
 }
 
-/// `getLeadingComment` (`:227-284`): o offset do comentário de cima que
-/// acompanha a diretiva. `cs`: os comentários entre o token anterior e a
-/// diretiva; `previous_end`: o fim do token anterior (`None` quando a
-/// diretiva é o primeiro token do arquivo).
+/// `getLeadingComment` (`:227-284`): the offset of the comment above that
+/// goes with the directive. `cs`: the comments between the previous token
+/// and the directive; `previous_end`: the end of the previous token (`None`
+/// when the directive is the first token of the file).
 fn comment_above(code: &str, cs: &[Comment], pseudo: bool, previous_end: Option<usize>, directive: usize) -> Option<usize> {
     if cs.is_empty() {
         return None;
@@ -92,7 +90,7 @@ fn comment_above(code: &str, cs: &[Comment], pseudo: bool, previous_end: Option<
     let line = |offset: usize| line_of(code, offset);
     let mut k = 0;
     if pseudo {
-        // O início do último bloco sem linha em branco no meio.
+        // The start of the last block without a blank line in the middle.
         for (i, pair) in cs.windows(2).enumerate() {
             if line(pair[1].start) > line(pair[0].start) + 1 {
                 k = i + 1;
@@ -103,21 +101,20 @@ fn comment_above(code: &str, cs: &[Comment], pseudo: bool, previous_end: Option<
         k += 1;
     }
     let c = cs.get(k)?;
-    // O primeiro comentário do arquivo é cabeçalho, salvo um `ignore:`.
+    // The first comment of the file is a header, unless it is an `ignore:`.
     if previous_end.is_none() && k == 0 {
         return of_ignore(&code[c.start..c.end]).then_some(c.start);
     }
     if pseudo {
         return (line(directive) == line(c.start) + 1).then_some(c.start);
     }
-    // Os que começam na linha do token anterior são o comentário de fim de
-    // linha dele.
+    // Those that start on the previous token's line are its end-of-line comment.
     let previous_line = line(previous_end.unwrap_or(0));
     cs[k..].iter().find(|x| line(x.start) != previous_line).map(|x| x.start)
 }
 
-/// O fim do comentário que começa em `pos` ou depois de brancos na mesma
-/// linha (`getTrailingComment`: só o primeiro).
+/// The end of the comment that starts at `pos` or after whitespace on the
+/// same line (`getTrailingComment`: only the first one).
 fn line_end_comment(code: &str, pos: usize) -> Option<usize> {
     let rest = code.get(pos..)?;
     let blanks = rest.len() - rest.trim_start_matches([' ', '\t']).len();
@@ -146,19 +143,20 @@ fn line_end_comment(code: &str, pos: usize) -> Option<usize> {
     None
 }
 
-/// `ImportOrganizer.organize` até `code`: o código com o bloco de diretivas
-/// reescrito. `None` quando não há diretiva com URI, ou num caso em que o
-/// original lança (primeira diretiva documentada sem linha seguinte).
+/// `ImportOrganizer.organize` up to `code`: the code with the directive
+/// block rewritten. `None` when there is no directive with a URI, or in a
+/// case where the original throws (a documented first directive without a
+/// following line).
 ///
-/// `removable`: os offsets dos literais de URI com erro `unused_import`,
-/// `duplicate_import` ou `unnecessary_import`; `not_resolved`: há erro de
-/// identificador não resolvido no arquivo; `remove`: o `removeUnused`.
+/// `removable`: the offsets of the URI literals with an `unused_import`,
+/// `duplicate_import` or `unnecessary_import` error; `not_resolved`: there
+/// is an unresolved identifier error in the file; `remove`: `removeUnused`.
 pub(crate) fn organize(code: &str, unit: &CompilationUnit, removable: &[usize], not_resolved: bool, remove: bool) -> Option<String> {
     let line_end = if code.contains("\r\n") { "\r\n" } else { "\n" };
     let mut has_library = false;
     let mut infos: Vec<Info> = Vec::new();
-    // A tag de script é um token: o que vem depois dela não é o primeiro
-    // comentário do arquivo.
+    // The script tag is a token: what comes after it is not the file's first
+    // comment.
     let mut previous_end: Option<usize> = unit.script_tag.map(|s| s.end);
     for (i, d) in unit.directives.iter().enumerate() {
         let (ty, literal) = match &d.kind {
@@ -186,12 +184,12 @@ pub(crate) fn organize(code: &str, unit: &CompilationUnit, removable: &[usize], 
         let priority = if ty == 2 { 8 } else { ty * 4 + group };
         let de = previous_end.unwrap_or(0).min(d.span.start);
         let cs = comments(code, de, d.span.start);
-        // `directive.offset` inclui o comentário de documentação.
+        // `directive.offset` includes the documentation comment.
         let doc = documentation_block(&cs);
         let directive_offset = doc.map_or(d.span.start, |(start, _)| start);
         let pseudo = !has_library && i == 0;
-        // Na primeira diretiva sem `library`, a documentação é da biblioteca
-        // e fica no topo, com uma linha em branco depois dela.
+        // On the first directive without `library`, the documentation belongs to
+        // the library and stays at the top, with a blank line after it.
         let mut library_end: Option<usize> = None;
         if pseudo && let Some((_, end_doc)) = doc {
             let next = next_line(code, end_doc)?;
@@ -199,8 +197,8 @@ pub(crate) fn organize(code: &str, unit: &CompilationUnit, removable: &[usize], 
             library_end =
                 Some(if code[next..line_end_].trim().is_empty() { next_line(code, next)? } else { next });
         }
-        // Com documentação, o primeiro token da diretiva é o comentário de
-        // documentação, que não tem comentários antes.
+        // With documentation, the directive's first token is the documentation
+        // comment, which has no comments before it.
         let from_above = if doc.is_some() { None } else { comment_above(code, &cs, pseudo, previous_end, d.span.start) };
         let end = line_end_comment(code, d.span.end).unwrap_or(d.span.end);
         let start = library_end.or(from_above).unwrap_or(directive_offset);
@@ -242,8 +240,8 @@ pub(crate) fn organize(code: &str, unit: &CompilationUnit, removable: &[usize], 
     Some(format!("{}{}{}", &code[..first], output.trim_end(), &code[last..]))
 }
 
-/// A edição do `organize` (`:47-58`): do offset 0 até o fim do bloco
-/// alterado (só o sufixo comum é cortado). `(offset, length, text)`.
+/// The `organize` edit (`:47-58`): from offset 0 to the end of the changed
+/// block (only the common suffix is trimmed). `(offset, length, text)`.
 pub(crate) fn edit(initial: &str, new: &str) -> Option<(usize, usize, String)> {
     if initial == new {
         return None;
@@ -263,12 +261,12 @@ mod tests {
     fn organized(source: &str, removable: &[&str]) -> String {
         let mut names = dartforge_intern::Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        // Cada removível é dado pelo texto do literal; vale a 1ª ocorrência.
+        // Each removable one is given by the literal's text; the 1st occurrence counts.
         let offsets: Vec<usize> = removable.iter().map(|r| source.find(r).expect("literal presente")).collect();
         organize(source, &p.unit, &offsets, false, true).unwrap_or_else(|| source.to_string())
     }
 
-    /// O exemplo 1 da §13.12.6.
+    /// Example 1 of §13.12.6.
     #[test]
     fn spec_example_one() {
         let before = "// Copyright.\n\nimport 'package:b/b.dart';\nimport 'dart:io'; // io\nimport 'src/z.dart';\nimport 'dart:async';\n// sobre a\nimport 'package:a/a.dart';\nexport 'src/y.dart';\nimport 'dart:io'; // io\n\nvoid main() {}\n";

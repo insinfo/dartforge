@@ -1,18 +1,18 @@
-//! O contorno do documento no formato do servidor do Dart
-//! (`dart/textDocument/publishOutline`): o `Outline` de
-//! `DartUnitOutlineComputer` convertido por `toOutline` e `toElement`
-//! (`AS:src/computer/computer_outline.dart` e `AS:src/lsp/mapping.dart:1197-1317`
-//! da 3.6.2, lidos por inteiro; docs/LSP-ESPECIFICACAO.md §3.4):
-//! `{element: {name, kind, range, parameters, typeParameters, returnType},
-//! range, codeRange, children}`.
+//! The document outline in the Dart server's format
+//! (`dart/textDocument/publishOutline`): the `Outline` of
+//! `DartUnitOutlineComputer` converted by `toOutline` and `toElement`
+//! (`AS:src/computer/computer_outline.dart` and
+//! `AS:src/lsp/mapping.dart:1197-1317` of 3.6.2, read in full;
+//! docs/LSP-ESPECIFICACAO.md §3.4): `{element: {name, kind, range,
+//! parameters, typeParameters, returnType}, range, codeRange, children}`.
 //!
-//! `range` é o nó com o comentário de documentação e as anotações;
-//! `codeRange` começa no primeiro token depois deles. Os textos de
-//! parâmetros, parâmetros de tipo e tipos são os da fonte, sem a
-//! normalização do `toSource`. A árvore é a do parser (sem resolução): os
-//! nós de `group`/`test` seguem a regra de `crate::symbols`, e não há os nós
-//! de criação de widget do Flutter.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! `range` is the node with its documentation comment and annotations;
+//! `codeRange` starts at the first token after them. The texts of
+//! parameters, type parameters and types are the source's, without the
+//! `toSource` normalization. The tree is the parser's (no resolution): the
+//! `group`/`test` nodes follow the rule of `crate::symbols`, and there are
+//! no Flutter widget creation nodes.
+//! Written without compiling or running (2026-10-05).
 
 use crate::utf16::LineTable;
 use dartforge_diagnostics::Span;
@@ -31,8 +31,8 @@ struct Ctx<'a> {
     tests: bool,
 }
 
-/// O par balanceado `opens`…`closes` que começa em `de` (depois de brancos):
-/// o intervalo com os delimitadores.
+/// The balanced pair `opens`…`closes` that starts at `de` (after
+/// whitespace): the range including the delimiters.
 fn balanced(text: &str, de: usize, opens: u8, closes: u8) -> Option<Span> {
     let b = text.as_bytes();
     let mut i = de;
@@ -69,8 +69,8 @@ impl Ctx<'_> {
         json!({"start": {"line": l0, "character": c0}, "end": {"line": l1, "character": c1}})
     }
 
-    /// O começo do nó com o comentário de documentação que o precede: as
-    /// linhas `///` contíguas, ou um bloco `/** */`.
+    /// The start of the node with the documentation comment that precedes it:
+    /// the contiguous `///` lines, or a `/** */` block.
     fn with_documentation(&self, start: usize) -> usize {
         let mut current = start;
         loop {
@@ -92,14 +92,14 @@ impl Ctx<'_> {
         }
     }
 
-    /// `firstTokenAfterCommentAndMetadata`: depois da última anotação.
+    /// `firstTokenAfterCommentAndMetadata`: after the last annotation.
     fn after_annotations(&self, start: usize, metadata: &[Annotation]) -> usize {
         let end = metadata.iter().map(|m| m.span.end).max().unwrap_or(start).max(start);
         let rest = &self.text[end.min(self.text.len())..];
         end + (rest.len() - rest.trim_start().len())
     }
 
-    /// `_nodeOutline` de um nó anotado.
+    /// `_nodeOutline` of an annotated node.
     fn no(&self, element: Value, span: Span, metadata: &[Annotation], children: Vec<Value>) -> Value {
         let start = self.with_documentation(span.start);
         let code = self.after_annotations(span.start, metadata);
@@ -114,7 +114,7 @@ impl Ctx<'_> {
         v
     }
 
-    /// `toElement`: os campos nulos não saem.
+    /// `toElement`: null fields are not emitted.
     fn element(&self, kind: &str, name: &str, local: Option<Span>, parameters: Option<&str>, of_type: Option<&str>, return_: Option<&str>) -> Value {
         let shown = if !name.is_empty() {
             name
@@ -139,12 +139,12 @@ impl Ctx<'_> {
         v
     }
 
-    /// Os parâmetros de tipo `<…>` escritos logo depois de `after`.
+    /// The type parameters `<…>` written right after `after`.
     fn type_parameters(&self, after: usize) -> Option<Span> {
         balanced(self.text, after, b'<', b'>')
     }
 
-    /// A lista `(…)` escrita depois do nome e dos parâmetros de tipo.
+    /// The `(…)` list written after the name and the type parameters.
     fn parameter_list(&self, after: usize) -> Option<Span> {
         let de = self.type_parameters(after).map_or(after, |s| s.end);
         balanced(self.text, de, b'(', b')')
@@ -154,7 +154,7 @@ impl Ctx<'_> {
         t.map_or("", |t| self.snippet(self.ast.ty(t).span))
     }
 
-    /// As funções locais e os testes de um corpo (`_FunctionBodyOutlinesVisitor`).
+    /// The local functions and tests of a body (`_FunctionBodyOutlinesVisitor`).
     fn of_body(&self, inside: Span) -> Vec<Value> {
         struct Item {
             span: Span,
@@ -165,7 +165,7 @@ impl Ctx<'_> {
         let mut items: Vec<Item> = Vec::new();
         for s in a.stmts.iter() {
             let StmtKind::Function(f) = &s.kind else { continue };
-            // Só as estritamente dentro: o próprio nó não é filho de si.
+            // Only those strictly inside: the node itself is not its own child.
             if s.span.start < inside.start || s.span.end > inside.end || s.span == inside {
                 continue;
             }
@@ -201,8 +201,8 @@ impl Ctx<'_> {
                 items.push(Item { span: e.span, value, leaf: call == "test" });
             }
         }
-        // Pré-ordem; as funções locais já trazem os próprios filhos, então
-        // aqui só os grupos de teste aninham.
+        // Pre-order; the local functions already carry their own children, so only
+        // test groups nest here.
         items.sort_by(|x, y| x.span.start.cmp(&y.span.start).then(y.span.end.cmp(&x.span.end)));
         fn build(items: &mut std::iter::Peekable<std::vec::IntoIter<Item>>, limit: usize) -> Vec<Value> {
             let mut output = Vec::new();
@@ -215,8 +215,8 @@ impl Ctx<'_> {
                         value["children"] = json!(children);
                     }
                 } else {
-                    // Função local (filhos já calculados) ou teste (folha):
-                    // o que está dentro não é irmão.
+                    // Local function (children already computed) or test (leaf): what is
+                    // inside is not a sibling.
                     let _ = item.leaf;
                     while items.next_if(|i| i.span.start < item.span.end).is_some() {}
                 }
@@ -227,7 +227,7 @@ impl Ctx<'_> {
         build(&mut items.into_iter().peekable(), inside.end)
     }
 
-    /// `_newFunctionOutline` e `_newMethodOutline`.
+    /// `_newFunctionOutline` and `_newMethodOutline`.
     fn function(&self, f: FunctionId, span: Span, metadata: &[Annotation], common_kind: &str, of_method: bool) -> Option<Value> {
         let func = self.ast.function(f);
         let name = func.name?;
@@ -237,20 +237,20 @@ impl Ctx<'_> {
             _ => common_kind,
         };
         let parameters = self.parameter_list(name.span.end).map(|s| self.snippet(s));
-        // Uma função sem lista (getter) tem `''`; um método, nulo.
+        // A function without a list (getter) has `''`; a method, null.
         let parameters = if of_method { parameters } else { Some(parameters.unwrap_or("")) };
         let of_type = self.type_parameters(name.span.end).map(|s| self.snippet(s));
         let element = self.element(kind, self.names.resolve(name.sym), Some(name.span), parameters, of_type, Some(self.ty(func.return_type)));
         Some(self.no(element, span, metadata, self.of_body(span)))
     }
 
-    /// `_newVariableOutline` de cada variável de uma lista.
+    /// `_newVariableOutline` of each variable of a list.
     fn variables(&self, list: &VariableList, declaration: Span, metadata: &[Annotation], kind: &str, output: &mut Vec<Value>) {
         let total = list.variables.len();
         for (i, v) in list.variables.iter().enumerate() {
             let variable_end = v.initializer.map_or(v.name.span.end, |e| self.ast.expr(e).span.end);
-            // A primeira começa na declaração (com documentação e
-            // anotações); a última termina com ela.
+            // The first one starts at the declaration (with documentation and
+            // annotations); the last one ends with it.
             let start = if i == 0 { self.with_documentation(declaration.start) } else { v.name.span.start };
             let end = if i + 1 == total { declaration.end } else { variable_end };
             let _ = metadata;
@@ -287,12 +287,12 @@ impl Ctx<'_> {
     }
 }
 
-/// O `Outline` da unidade de texto `text` (o nó `<unit>` com os filhos).
+/// The `Outline` of the text unit `text` (the `<unit>` node with the children).
 pub(crate) fn of_document(text: &str) -> Value {
     let mut names = Interner::new();
     let parsed = dartforge_frontend::parser::parse(text, &mut names);
     let a = &parsed.ast;
-    // A mesma regra de `crate::symbols` para os nós de teste.
+    // The same rule as `crate::symbols` for test nodes.
     let imports_tests = parsed.unit.directives.iter().any(|d| match &d.kind {
         DirectiveKind::Import { uri, .. } => dartforge_elements::load::string_lit_value(uri).is_some_and(|u| u.ends_with("test.dart")),
         _ => false,
@@ -319,7 +319,7 @@ pub(crate) fn of_document(text: &str) -> Value {
                 children.push(ctx.no(element, decl.span, &decl.metadata, ctx.members(&x.members)));
             }
             DeclKind::Enum(x) => {
-                // Todas as constantes antes dos membros.
+                // All constants before the members.
                 let mut internal: Vec<Value> = x
                     .constants
                     .iter()
@@ -330,7 +330,7 @@ pub(crate) fn of_document(text: &str) -> Value {
                 children.push(ctx.no(element, decl.span, &decl.metadata, internal));
             }
             DeclKind::Extension(x) => {
-                // Sem nome, a posição é a do tipo estendido.
+                // Without a name, the position is that of the extended type.
                 let (name, local) = match x.name {
                     Some(n) => (name_of(n), n.span),
                     None => ("", a.ty(x.on).span),
@@ -355,8 +355,7 @@ pub(crate) fn of_document(text: &str) -> Value {
                         // `typedef F = R Function(params);`
                         TypeKind::Function { return_type, .. } => {
                             let written = ctx.snippet(a.ty(*t).span);
-                            // A lista é o par de parênteses que fecha no
-                            // último `)` do tipo.
+                            // The list is the pair of parentheses that closes at the type's last `)`.
                             let parameters = {
                                 let b = written.as_bytes();
                                 let mut found: Option<(usize, usize)> = None;
@@ -385,7 +384,7 @@ pub(crate) fn of_document(text: &str) -> Value {
             }
         }
     }
-    // O nó da unidade: do primeiro ao último token.
+    // The unit node: from the first to the last token.
     let start = parsed
         .unit
         .directives
@@ -428,7 +427,7 @@ mod tests {
         let class = &root["children"][0];
         assert_eq!(class["element"]["name"], "A");
         assert_eq!(class["element"]["typeParameters"], "<T>");
-        // `range` começa no comentário; `codeRange`, na palavra `class`.
+        // `range` starts at the comment; `codeRange`, at the `class` keyword.
         assert_eq!(class["range"]["start"]["line"], 0);
         assert_eq!(class["codeRange"]["start"]["line"], 2);
         let members = class["children"].as_array().unwrap();

@@ -1,47 +1,47 @@
-//! Conversão entre offsets de bytes UTF-8 e posições LSP (linha, coluna UTF-16).
+//! Conversion between UTF-8 byte offsets and LSP positions (line, UTF-16 column).
 //!
-//! O protocolo LSP conta colunas em **unidades UTF-16**, enquanto o texto em
-//! memória é UTF-8 (`String`). Um emoji como `👭` ocupa 4 bytes em UTF-8 e 2
-//! unidades em UTF-16; confundir as duas contagens edita o byte errado e
-//! publica o sublinhado na coluna errada. Este módulo é a única fronteira
-//! onde essa conversão acontece, nos dois sentidos:
+//! The LSP protocol counts columns in **UTF-16 units**, while the in-memory
+//! text is UTF-8 (`String`). An emoji such as `👭` takes 4 bytes in UTF-8
+//! and 2 units in UTF-16; mixing up the two counts edits the wrong byte and
+//! publishes the squiggle at the wrong column. This module is the only
+//! boundary where that conversion happens, in both directions:
 //!
-//! * cliente → servidor (`didChange`): posição UTF-16 vira offset de bytes;
-//! * servidor → cliente (`publishDiagnostics`): span de bytes vira posição.
+//! * client → server (`didChange`): a UTF-16 position becomes a byte offset;
+//! * server → client (`publishDiagnostics`): a byte span becomes a position.
 //!
-//! Quebras de linha aceitas: `\n`, `\r\n` e `\r` solitário, como o VS Code.
-//! Posições fora do documento são saturadas (nunca `panic`); coluna no meio
-//! de um par substituto (entre as duas unidades de um astral) é truncada
-//! para a borda do caractere, porque o protocolo exige fronteira de
-//! caractere.
+//! Accepted line breaks: `\n`, `\r\n` and a lone `\r`, like VS Code.
+//! Positions outside the document are saturated (never a `panic`); a column
+//! in the middle of a surrogate pair (between the two units of an astral
+//! character) is truncated to the character boundary, because the protocol
+//! requires a character boundary.
 //!
 //! ```
 //! let table = dartforge_lsp::utf16::LineTable::build("var s = '👭';\nint ;\n");
-//! // Linha 0 tem 9 ASCII + 2 (emoji) + 2 = 13 unidades UTF-16 antes da quebra.
+//! // Line 0 has 9 ASCII + 2 (emoji) + 2 = 13 UTF-16 units before the break.
 //! assert_eq!(table.line_width("var s = '👭';\nint ;\n", 0), 13);
 //! ```
 
 use std::cmp::min;
 
-/// Índice de inícios de linha de um documento, em bytes UTF-8.
+/// Index of the line starts of a document, in UTF-8 bytes.
 ///
-/// `starts[0]` é sempre 0; cada entrada seguinte é o primeiro byte após uma
-/// quebra. A tabela é recalculada **só do ponto editado em diante**
-/// ([`LineTable::recompute_from`]): prefixo intacto não é revisitado.
+/// `starts[0]` is always 0; each following entry is the first byte after a
+/// line break. The table is recomputed **only from the edited point on**
+/// ([`LineTable::recompute_from`]): an intact prefix is not revisited.
 #[derive(Debug, Clone, Default)]
 pub struct LineTable {
     starts: Vec<usize>,
 }
 
 impl LineTable {
-    /// Constroi a tabela para o texto integral (abertura de documento).
+    /// Builds the table for the whole text (document opening).
     pub fn build(text: &str) -> Self {
         let mut table = Self { starts: vec![0] };
         table.scan(text, 0);
         table
     }
 
-    /// Varre `text` a partir de `base`, empilhando inícios de linha.
+    /// Scans `text` from `base`, pushing line starts.
     fn scan(&mut self, text: &str, base: usize) {
         let bytes = text.as_bytes();
         let mut i = base;
@@ -65,23 +65,23 @@ impl LineTable {
         }
     }
 
-    /// Quantas linhas o documento tem (a última pode ser vazia após `\n`).
+    /// How many lines the document has (the last one may be empty after `\n`).
     pub fn total_lines(&self) -> usize {
         self.starts.len()
     }
 
-    /// Linha que contém o offset de bytes (saturado para o fim do texto).
+    /// Line that contains the byte offset (saturated to the end of the text).
     pub fn line_of(&self, text: &str, offset: usize) -> usize {
         let offset = min(offset, text.len());
         self.starts.partition_point(|start| *start <= offset) - 1
     }
 
-    /// Byte onde a linha começa.
+    /// Byte where the line starts.
     pub fn line_start(&self, line: usize) -> usize {
         self.starts[min(line, self.starts.len() - 1)]
     }
 
-    /// Byte onde o conteúdo da linha termina, sem a quebra (`\r\n`, `\n`, `\r`).
+    /// Byte where the line content ends, without the break (`\r\n`, `\n`, `\r`).
     pub fn line_end(&self, text: &str, line: usize) -> usize {
         let start = self.line_start(line);
         let next = if line + 1 < self.starts.len() {
@@ -99,11 +99,11 @@ impl LineTable {
         end
     }
 
-    /// Recalcula os inícios da `line` em diante, após edição já aplicada.
+    /// Recomputes the starts from `line` on, after an edit already applied.
     ///
-    /// Contratos: `text` já contém a edição; `line` é a linha do início da
-    /// edição no texto novo; o prefixo `starts[..line]` está intacto.
-    /// Custo proporcional ao sufixo, nunca ao prefixo.
+    /// Contracts: `text` already contains the edit; `line` is the line where the
+    /// edit starts in the new text; the prefix `starts[..line]` is intact.
+    /// Cost proportional to the suffix, never to the prefix.
     pub fn recompute_from(&mut self, text: &str, line: usize) {
         let line = min(line, self.starts.len().saturating_sub(1));
         let base = self.starts[line];
@@ -111,10 +111,10 @@ impl LineTable {
         self.scan(text, base);
     }
 
-    /// Converte offset de bytes em (linha, coluna em unidades UTF-16).
+    /// Converts a byte offset into (line, column in UTF-16 units).
     ///
-    /// Offset fora do texto satura para o fim; offset no meio de um
-    /// caractere desce para a fronteira anterior.
+    /// An offset outside the text saturates to the end; an offset in the middle
+    /// of a character goes down to the previous boundary.
     pub fn offset_position(&self, text: &str, offset: usize) -> (u32, u32) {
         let mut offset = min(offset, text.len());
         while !text.is_char_boundary(offset) {
@@ -128,11 +128,12 @@ impl LineTable {
         (line as u32, column as u32)
     }
 
-    /// Converte (linha, coluna em unidades UTF-16) em offset de bytes.
+    /// Converts (line, column in UTF-16 units) into a byte offset.
     ///
-    /// Linha além do fim satura para o fim do texto; coluna além do fim da
-    /// linha satura para o fim do conteúdo (antes da quebra); coluna no meio
-    /// de um par substituto trunca para a borda do caractere.
+    /// A line past the end saturates to the end of the text; a column past the
+    /// end of the line saturates to the end of the content (before the break); a
+    /// column in the middle of a surrogate pair truncates to the character
+    /// boundary.
     pub fn position_offset(&self, text: &str, line: u32, column: u32) -> usize {
         let line = min(line as usize, self.starts.len() - 1);
         let start = self.starts[line];
@@ -145,7 +146,7 @@ impl LineTable {
             }
             let width = c.len_utf16() as u32;
             if consumed + width > column {
-                break; // Meio de um astral: para na borda do caractere.
+                break; // Middle of an astral character: stop at the character boundary.
             }
             consumed += width;
             offset += c.len_utf8();
@@ -153,7 +154,7 @@ impl LineTable {
         offset
     }
 
-    /// Largura da linha em unidades UTF-16, sem a quebra (uso em testes).
+    /// Width of the line in UTF-16 units, without the break (used in tests).
     pub fn line_width(&self, text: &str, line: usize) -> usize {
         let line = min(line, self.starts.len() - 1);
         text[self.starts[line]..self.line_end(text, line)]
@@ -173,10 +174,10 @@ mod tests {
         let table = LineTable::build(text);
         assert_eq!(table.total_lines(), 3);
         assert_eq!(table.line_width(text, 0), 13);
-        // O `;` após o emoji: byte 13, unidade UTF-16 11.
+        // The `;` after the emoji: byte 13, UTF-16 unit 11.
         assert_eq!(table.offset_position(text, 13), (0, 11));
         assert_eq!(table.position_offset(text, 0, 11), 13);
-        // Coluna 10 cai no meio do par substituto: trunca para a borda (byte 9).
+        // Column 10 falls in the middle of the surrogate pair: truncates to the boundary (byte 9).
         assert_eq!(table.position_offset(text, 0, 10), 9);
     }
 
@@ -204,7 +205,7 @@ mod tests {
         let text = "l0\nl1\nl2\nl3\n";
         let mut table = LineTable::build(text);
         let before = table.starts.clone();
-        // Edição na linha 2: só o sufixo muda.
+        // Edit on line 2: only the suffix changes.
         let mut new = text.to_string();
         new.replace_range(6..8, "LONGA");
         table.recompute_from(&new, 2);

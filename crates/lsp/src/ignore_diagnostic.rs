@@ -1,10 +1,10 @@
-//! Os três "ignore" do Dart 3.6.2 (`COR:ignore_diagnostic.dart`;
+//! The three Dart 3.6.2 "ignore" fixes (`COR:ignore_diagnostic.dart`;
 //! docs/LSP-ESPECIFICACAO.md §13.7.1 item 6): `Ignore 'x' for this line`,
-//! `Ignore 'x' for the whole file` e ``Ignore 'x' in `analysis_options.yaml` ``,
-//! este último com o `YamlEditor.update` do `yaml_edit` 2.2.3
+//! `Ignore 'x' for the whole file` and ``Ignore 'x' in `analysis_options.yaml` ``,
+//! the last one with `YamlEditor.update` from `yaml_edit` 2.2.3
 //! (`editor.dart`, `map_mutations.dart`, `strings.dart`, `utils.dart`)
-//! portado nos caminhos que o fix usa.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! ported along the paths the fix uses.
+//! Written without compiling or running (2026-10-05).
 
 use crate::actions::CodeAction;
 use crate::Edit;
@@ -13,7 +13,7 @@ use dartforge_diagnostics::{Diagnostic, Span};
 use std::path::{Path, PathBuf};
 use url::Url;
 
-/// `LineInfo.fromContent`: os inícios de linha (`\n`, `\r\n` e `\r`).
+/// `LineInfo.fromContent`: the line starts (`\n`, `\r\n` and `\r`).
 fn line_starts(t: &str) -> Vec<usize> {
     let b = t.as_bytes();
     let mut v = vec![0];
@@ -33,7 +33,7 @@ fn line_starts(t: &str) -> Vec<usize> {
     v
 }
 
-/// `IgnoreInfo.ignoreMatcher` (`//+[ ]*ignore:`) no começo do texto.
+/// `IgnoreInfo.ignoreMatcher` (`//+[ ]*ignore:`) at the start of the text.
 fn starts_with_ignore(line: &str) -> bool {
     let slashes = line.len() - line.trim_start_matches('/').len();
     if slashes < 2 {
@@ -42,8 +42,8 @@ fn starts_with_ignore(line: &str) -> bool {
     line[slashes..].trim_start_matches(' ').starts_with("ignore:")
 }
 
-/// As opções aplicáveis ao arquivo e o caminho do `analysis_options.yaml`
-/// (`analysisOptions.file`), quando existe.
+/// The options that apply to the file and the path of the
+/// `analysis_options.yaml` (`analysisOptions.file`), when it exists.
 pub(crate) fn file_options(path: &Path) -> (dartforge_parity::filtros::Opcoes, Option<PathBuf>) {
     let root = crate::project::project_root(path);
     let file = dartforge_parity::filtros::Opcoes::de_subpasta(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
@@ -51,9 +51,9 @@ pub(crate) fn file_options(path: &Path) -> (dartforge_parity::filtros::Opcoes, O
     (dartforge_parity::filtros::Opcoes::ler_arquivo(&file), exists.then_some(file))
 }
 
-/// Os três fixes de cada diagnóstico `HintCode`/`WarningCode` das linhas
-/// `start..end`, um conjunto por diagnóstico (o dedupe por título é do
-/// ordenador).
+/// The three fixes of each `HintCode`/`WarningCode` diagnostic on lines
+/// `start..end`, one set per diagnostic (deduplication by title is the
+/// sorter's job).
 pub(crate) fn ignore(uri: &str, text: &str, diagnostics: &[Diagnostic], start_: usize, end: usize) -> Vec<CodeAction> {
     let path = crate::project::uri_file(uri);
     let (options, options_file) = match path.as_deref() {
@@ -71,7 +71,7 @@ pub(crate) fn ignore(uri: &str, text: &str, diagnostics: &[Diagnostic], start_: 
         }
         let Some(c) = d.code else { continue };
         let info = c.info();
-        // Só `LintCode`, `HintCode` e `WarningCode`.
+        // Only `LintCode`, `HintCode` and `WarningCode`.
         if !(info.unico.starts_with("HintCode.") || info.unico.starts_with("WarningCode.") || info.unico.starts_with("LintCode.")) {
             continue;
         }
@@ -171,13 +171,13 @@ fn action(uri: &str, title: String, kind: &str, edits: Vec<(Span, String)>, d: &
 
 // -- yaml_edit ------------------------------------------------------------------
 
-/// Um valor novo: escalar simples ou mapa (`wrapAsYamlNode` de um `Map`).
+/// A new value: a simple scalar or a map (`wrapAsYamlNode` of a `Map`).
 enum New {
     Scalar(String),
     Map(Vec<(String, New)>),
 }
 
-/// `getLineEnding`: `\r\n` se mais da metade das quebras o usam.
+/// `getLineEnding`: `\r\n` if more than half of the line breaks use it.
 fn line_end(t: &str) -> &'static str {
     let b = t.as_bytes();
     let (mut unix, mut windows) = (0, 0);
@@ -193,7 +193,7 @@ fn line_end(t: &str) -> &'static str {
     if windows > unix { "\r\n" } else { "\n" }
 }
 
-/// `String.lastIndexOf(c, start)` (inclusivo).
+/// `String.lastIndexOf(c, start)` (inclusive).
 fn last_index(t: &str, c: u8, start: usize) -> Option<usize> {
     let b = t.as_bytes();
     let end = start.min(b.len().saturating_sub(1));
@@ -216,7 +216,7 @@ fn sensitive_end(t: &str, no: &No) -> usize {
     }
 }
 
-/// `getMapIndentation` (`None`: o mapa de bloco vazio, `UnsupportedError`).
+/// `getMapIndentation` (`None`: the empty block map, `UnsupportedError`).
 fn map_indent(t: &str, map: &No) -> Option<usize> {
     if in_flow(t, map) {
         return Some(0);
@@ -251,8 +251,8 @@ fn list_indent(t: &str, list: &No) -> Option<usize> {
     })
 }
 
-/// `getIndentation(editor)`: o recuo da última coleção de bloco não nula
-/// no segundo nível; 2 sem nenhuma.
+/// `getIndentation(editor)`: the indentation of the last non-null block
+/// collection at the second level; 2 when there is none.
 fn editor_indent(t: &str, root: &No) -> usize {
     let mut indent = 2;
     let children: Vec<&No> = match &root.valor {
@@ -273,7 +273,7 @@ fn editor_indent(t: &str, root: &No) -> usize {
     indent
 }
 
-/// O `toString` de uma chave escalar.
+/// The `toString` of a scalar key.
 fn key_text(k: &No) -> String {
     match &k.valor {
         Valor::Texto(s) | Valor::Outro(s) => s.clone(),
@@ -325,7 +325,7 @@ fn non_empty_collection(v: &New) -> bool {
     matches!(v, New::Map(m) if !m.is_empty())
 }
 
-/// `updateInMap(editor, map, key, value)`: o edit (offset, texto).
+/// `updateInMap(editor, map, key, value)`: the edit (offset, text).
 fn update_in_map(t: &str, root: &No, map: &No, key: &str, value: &New) -> Option<(usize, String)> {
     let pairs = map.mapa()?;
     let existing = pairs.iter().rev().find(|(k, _)| key_text(k) == key);
@@ -375,7 +375,7 @@ fn update_in_map(t: &str, root: &No, map: &No, key: &str, value: &New) -> Option
             Some((v.span.start, in_flow_text(value)))
         }
         (Some((k, _)), false) => {
-            // `_replaceInBlockMap`: do fim da chave + 1 (o `:`).
+            // `_replaceInBlockMap`: from the end of the key + 1 (the `:`).
             let indent_map = map_indent(t, map)?;
             let new_indent = indent_map + editor_indent(t, root);
             let mut text = in_block(value, new_indent, eol);
@@ -390,13 +390,13 @@ fn update_in_map(t: &str, root: &No, map: &No, key: &str, value: &New) -> Option
     }
 }
 
-/// O edit do `IgnoreDiagnosticInAnalysisOptionsFile` (o offset e o
-/// `replacement`, emitido como inserção); `None` no YAML inválido.
+/// The edit of `IgnoreDiagnosticInAnalysisOptionsFile` (the offset and the
+/// `replacement`, emitted as an insertion); `None` for invalid YAML.
 pub(crate) fn ignore_in_yaml(content: &str, code: &str) -> Option<(usize, String)> {
     let root = yaml::ler(content).ok()?;
     let errors = || New::Map(vec![(code.to_string(), New::Scalar("ignore".to_string()))]);
     let Some(r) = root.as_ref().filter(|r| r.mapa().is_some()) else {
-        // `path = []`: o documento inteiro (a inserção no começo dele).
+        // `path = []`: the whole document (the insertion at its start).
         let eol = line_end(content);
         let start = root.as_ref().map_or(content.len(), |r| r.span.start);
         let value = New::Map(vec![("analyzer".to_string(), New::Map(vec![("errors".to_string(), errors())]))]);

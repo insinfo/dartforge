@@ -1,7 +1,7 @@
-//! Assistências de expressões condicionais, portadas dos produtores do
-//! `analysis_server` 3.6.2 sobre a árvore no formato do analyzer.
+//! Conditional expression assists, ported from the `analysis_server` 3.6.2
+//! producers over the analyzer-shaped tree.
 //!
-//! | Título | Espécie | Produtor |
+//! | Title | Kind | Producer |
 //! |---|---|---|
 //! | `Replace conditional with 'if-else'` | `refactor.convert.conditionalToIfElse` | `ReplaceConditionalWithIfElse` |
 //! | `Split && condition` | `refactor.splitIfConjunction` | `SplitAndCondition` |
@@ -17,8 +17,8 @@ use dartforge_diagnostics::Span;
 
 impl Context<'_> {
     /// `ReplaceConditionalWithIfElse` (replace_conditional_with_if_else.dart):
-    /// no comando ancestral do nó da seleção, `T v = c ? a : b;`,
-    /// `v = c ? a : b;` ou `return c ? a : b;` vira um `if`/`else`.
+    /// in the statement enclosing the selection node, `T v = c ? a : b;`,
+    /// `v = c ? a : b;` or `return c ? a : b;` becomes an `if`/`else`.
     pub(crate) fn conditional_to_if_else(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let command = self.with_parents(no).find(|&k| self.is_command(k))?;
@@ -46,7 +46,7 @@ impl Context<'_> {
                         let ty = self.node_expr(conditional).and_then(|x| self.bodies.get_type(x));
                         let written = writer.write_type(ty, false).unwrap_or_default();
                         import.extend(writer.import.iter().copied());
-                        // A palavra-chave da lista (`late` à parte).
+                        // The list's keyword (`late` apart).
                         let mut k = self.next_token(self.tree.nos[list].inicio)?;
                         if &self.source[k.start..k.end] == "late" {
                             k = self.next_token(k.end)?;
@@ -112,9 +112,8 @@ impl Context<'_> {
         })
     }
 
-    /// `isOperatorSelected` (`CorrectionProducer`): a seleção fica entre os
-    /// operandos, ou é exatamente a expressão quando nenhum operando é
-    /// binário.
+    /// `isOperatorSelected` (`CorrectionProducer`): the selection lies between
+    /// the operands, or is exactly the expression when no operand is binary.
     pub(crate) fn selected_operator(&self, binary: usize, start: usize, end: usize) -> bool {
         let f = self.children(binary);
         let (Some(&left), Some(&right)) = (f.first(), f.get(1)) else { return false };
@@ -128,16 +127,17 @@ impl Context<'_> {
         false
     }
 
-    /// O operador de uma expressão binária (o texto entre os operandos).
+    /// The operator of a binary expression (the text between the operands).
     pub(crate) fn binary_operator(&self, binary: usize) -> Option<&str> {
         let f = self.children(binary);
         let (e, d) = (*f.first()?, *f.get(1)?);
         Some(self.source[self.tree.nos[e].fim..self.tree.nos[d].inicio].trim())
     }
 
-    /// `SplitAndCondition` (split_and_condition.dart): com o `&&` de primeiro
-    /// nível da condição de um `if` sem `else` selecionado, a parte direita
-    /// vira um `if` aninhado em volta do `then`, que ganha um recuo.
+    /// `SplitAndCondition` (split_and_condition.dart): with the top-level `&&`
+    /// of the condition of an `if` without `else` selected, the right part
+    /// becomes an `if` nested around the `then`, which gets one more level of
+    /// indentation.
     pub(crate) fn split_and_condition(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let binary = self.tree.localizar(start, end)?;
         if self.kind(binary) != "BinaryExpression" || !self.selected_operator(binary, start, end) || self.binary_operator(binary)? != "&&" {
@@ -149,11 +149,11 @@ impl Context<'_> {
         }
         let if_commands: Vec<usize> = self.children(command).iter().copied().filter(|&k| self.is_command(k)).collect();
         if if_commands.len() != 1 {
-            // Sem suporte a `else`.
+            // No `else` support.
             return None;
         }
         let then = if_commands[0];
-        // A condição de primeiro nível: sobe pelos `&&`.
+        // The top-level condition: walks up through the `&&`s.
         let mut condition = binary;
         while let Some(p) = self.parent(condition) {
             if self.kind(p) == "BinaryExpression" && self.binary_operator(p) == Some("&&") {
@@ -172,7 +172,7 @@ impl Context<'_> {
         let (left, right) = (f[0], f[1]);
         let right_source = &self.source[self.tree.nos[right].inicio..self.tree.nos[condition].fim];
         let mut m = Change::default();
-        // Tira "&& direita".
+        // Removes "&& right".
         m.add(uri, Span { start: self.tree.nos[left].fim, end: self.tree.nos[condition].fim }, String::new());
         let commands: Vec<usize> = if self.kind(then) == "Block" {
             let block = self.tree.span(then);
@@ -184,8 +184,8 @@ impl Context<'_> {
             m.add(uri, Span { start: closes.start + 1, end: closes.start + 1 }, format!("{eol}{prefix}{ONE_INDENT}if ({right_source})"));
             vec![then]
         };
-        // O recuo dos comandos do `then` (`getLinesRangeStatements`, que
-        // falha sem comandos).
+        // The indentation of the `then` statements (`getLinesRangeStatements`,
+        // which fails without statements).
         let (&first, &last) = (commands.first()?, commands.last()?);
         let lines = tx.line_range(self.tree.nos[first].inicio, self.tree.nos[last].fim);
         let old = format!("{prefix}{ONE_INDENT}");
@@ -214,20 +214,20 @@ impl Context<'_> {
         n
     }
 
-    /// O `toString` de uma expressão (o `toSource`).
+    /// The `toString` of an expression (the `toSource`).
     fn as_text(&self, n: usize) -> String {
         crate::assist_loops::as_source(self.node_text(n))
     }
 
-    /// O operador de acesso (`.`, `?.`, `..`) entre o alvo `target` e o nome
-    /// seguinte.
+    /// The access operator (`.`, `?.`, `..`) between the target `target` and the
+    /// following name.
     fn access_operator(&self, target: usize) -> Option<Span> {
         let s = self.next_token(self.tree.nos[target].fim)?;
         matches!(&self.source[s.start..s.end], "." | "?." | ".." | "?..").then_some(s)
     }
 
     /// `ConvertToNullAware` (convert_to_null_aware.dart): `x == null ? null :
-    /// x.y` (or com `!=`) vira `x?.y`.
+    /// x.y` (or with `!=`) becomes `x?.y`.
     pub(crate) fn convert_to_null_aware(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let mut target = no;
@@ -274,7 +274,7 @@ impl Context<'_> {
                     result = prefix;
                 }
                 "MethodInvocation" | "PropertyAccess" => {
-                    // Sem alvo, o `default` do produtor.
+                    // Without a target, the producer's `default`.
                     let first = *self.children(result).first()?;
                     let op = self.access_operator(first)?;
                     if op.start < self.tree.nos[first].fim {
@@ -321,13 +321,13 @@ impl Context<'_> {
         })
     }
 
-    /// A biblioteca tem padrões (Dart 3.0).
+    /// The library has patterns (Dart 3.0).
     pub(crate) fn with_patterns(&self) -> bool {
         let prog = self.p.program();
         prog.library(prog.unit(self.unit).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0)
     }
 
-    /// Algum identificador de `n` lê o local declarado em `name`.
+    /// Some identifier of `n` reads the local declared at `name`.
     pub(crate) fn cites_local(&self, n: usize, name: usize) -> bool {
         let mut stack = vec![n];
         while let Some(k) = stack.pop() {
@@ -343,8 +343,8 @@ impl Context<'_> {
         false
     }
 
-    /// `asSingleVariableDeclaration`: o comando declara um só local com
-    /// inicializador; o nome, o inicializador e se é `final`.
+    /// `asSingleVariableDeclaration`: the statement declares a single local with
+    /// an initializer; the name, the initializer and whether it is `final`.
     pub(crate) fn single_declaration(&self, command: usize) -> Option<(Span, usize, bool)> {
         if self.kind(command) != "VariableDeclarationStatement" {
             return None;
@@ -361,9 +361,9 @@ impl Context<'_> {
         Some((name, initializer, final_))
     }
 
-    /// `ConvertToIfCaseStatement` (convert_to_if_case_statement.dart): o local
-    /// declarado no comando anterior ao `if` e testado com `is T` ou
-    /// `!= null`, sem leitura depois do `then`, passa para o `if-case`.
+    /// `ConvertToIfCaseStatement` (convert_to_if_case_statement.dart): the local
+    /// declared in the statement before the `if` and tested with `is T` or
+    /// `!= null`, with no read after the `then`, moves into the `if-case`.
     pub(crate) fn convert_to_if_case(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         if !self.with_patterns() {
             return None;
@@ -422,8 +422,8 @@ impl Context<'_> {
         })
     }
 
-    /// `SwitchStatement.memberGroups`: os membros juntados até o primeiro que
-    /// tem comandos; cada grupo com os comandos dele.
+    /// `SwitchStatement.memberGroups`: the members joined up to the first one
+    /// that has statements; each group with its statements.
     pub(crate) fn member_groups(&self, switch: usize) -> Vec<(Vec<usize>, Vec<usize>)> {
         let mut groups = Vec::new();
         let mut members = Vec::new();
@@ -440,8 +440,8 @@ impl Context<'_> {
         groups
     }
 
-    /// `_writeStatements`: os comandos (sem o `break` final), recuados para
-    /// um nível dentro de `indent`.
+    /// `_writeStatements`: the statements (without the final `break`), indented
+    /// one level inside `indent`.
     pub(crate) fn indented_commands(&self, commands: &[usize], indent: &str) -> String {
         let mut commands = commands;
         if commands.last().is_some_and(|&c| self.kind(c) == "BreakStatement") {
@@ -454,8 +454,8 @@ impl Context<'_> {
         tx.swap_indent(&self.source[range.start..range.end], first_indent, &format!("{indent}{ONE_INDENT}"), true, true)
     }
 
-    /// `ConvertToIfCaseStatementChain`: um `switch` de casos de padrão vira uma
-    /// cadeia de `if-case`, com o `default` como `else`.
+    /// `ConvertToIfCaseStatementChain`: a `switch` of pattern cases becomes an
+    /// `if-case` chain, with the `default` as the `else`.
     pub(crate) fn switch_to_if_case_chain(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let switch = self.tree.localizar(start, end)?;
         if self.kind(switch) != "SwitchStatement" {

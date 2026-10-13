@@ -1,6 +1,6 @@
-//! Diagnósticos tipados no fluxo contínuo (auditoria L01): a análise do
-//! `dartforge analyze` roda em segundo plano sobre os documentos abertos e
-//! publica, pela versão vigente, os códigos de `verificados.txt`.
+//! Typed diagnostics in the continuous flow (audit L01): the `dartforge
+//! analyze` analysis runs in the background over the open documents and
+//! publishes, for the current version, the codes in `verificados.txt`.
 mod common;
 
 use common::Project;
@@ -9,7 +9,7 @@ use std::time::Duration;
 
 const LIMIT: Duration = Duration::from_secs(120);
 
-/// Códigos de uma publicação.
+/// Codes of a publication.
 fn codes(publication: &Value) -> Vec<String> {
     publication["params"]["diagnostics"]
         .as_array()
@@ -19,7 +19,7 @@ fn codes(publication: &Value) -> Vec<String> {
         .collect()
 }
 
-/// A última publicação para `uri` em `outputs`.
+/// The last publication for `uri` in `outputs`.
 fn last<'a>(outputs: &'a [Value], uri: &str) -> Option<&'a Value> {
     outputs
         .iter()
@@ -27,8 +27,9 @@ fn last<'a>(outputs: &'a [Value], uri: &str) -> Option<&'a Value> {
         .find(|m| m["method"] == "textDocument/publishDiagnostics" && m["params"]["uri"] == uri)
 }
 
-/// Abre (gravando no disco) e devolve tudo o que saiu até a análise tipada
-/// ficar ociosa: a publicação imediata e as tipadas, em ordem.
+/// Opens (writing to disk) and returns everything that went out until the
+/// typed analysis goes idle: the immediate publication and the typed ones,
+/// in order.
 fn open_and_wait(p: &mut Project, relative: &str, text: &str) -> Vec<Value> {
     p.write(relative, text);
     p.server.receive(
@@ -41,8 +42,8 @@ fn open_and_wait(p: &mut Project, relative: &str, text: &str) -> Vec<Value> {
     outputs
 }
 
-/// Troca o texto (versão nova, sem salvar) e devolve tudo o que saiu até a
-/// análise tipada ficar ociosa.
+/// Replaces the text (new version, without saving) and returns everything
+/// that went out until the typed analysis goes idle.
 fn change_and_wait(p: &mut Project, relative: &str, version: i64, text: &str) -> Vec<Value> {
     p.server.receive(
         json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
@@ -59,10 +60,10 @@ fn change_and_wait(p: &mut Project, relative: &str, version: i64, text: &str) ->
 fn published_typed_code_reaches_editor() {
     let mut p = Project::new("tipado-basico");
     let text = "void f() {\n  if (1) {}\n}\n";
-    // Pausada, a análise tipada não corre com o fluxo imediato.
+    // While paused, the typed analysis does not run alongside the immediate flow.
     p.server.pause_typed_analysis(true);
     let immediate = p.open("lib/a.dart", text);
-    // O fluxo imediato é sintático: a condição não-bool depende de tipos.
+    // The immediate flow is syntactic: the non-bool condition depends on types.
     assert!(codes(&immediate).is_empty(), "{immediate}");
     p.server.pause_typed_analysis(false);
     let outputs = p.server.await_diagnostics(LIMIT);
@@ -81,9 +82,9 @@ fn published_typed_code_reaches_editor() {
 #[test]
 fn only_published_codes_and_ignore_respected() {
     let mut p = Project::new("tipado-publicados");
-    // `unchecked_use_of_nullable_value` não está em `verificados.txt`: não
-    // aparece. O `// ignore:` vale como no `dartforge analyze` (para avisos;
-    // erro não é ignorável), nos dois fluxos.
+    // `unchecked_use_of_nullable_value` is not in `verificados.txt`: it does not
+    // appear. `// ignore:` works as in `dartforge analyze` (for warnings; an
+    // error cannot be ignored), in both flows.
     let text = "void f() {\n  <int?>[].first.isEven;\n  // ignore: unused_local_variable\n  var y = 1;\n  var z = 2;\n  if (1) {}\n}\n";
     p.server.pause_typed_analysis(true);
     let immediate = p.open("lib/a.dart", text);
@@ -97,7 +98,7 @@ fn only_published_codes_and_ignore_respected() {
     let typed = last(&outputs, &p.uri("lib/a.dart"))
         .expect("publicação tipada")
         .clone();
-    // A ordem do `dart language-server` 3.6.2: os erros antes dos avisos.
+    // The order of `dart language-server` 3.6.2: errors before warnings.
     assert_eq!(
         codes(&typed),
         vec!["non_bool_condition", "unused_local_variable"],
@@ -121,14 +122,14 @@ fn only_published_codes_and_ignore_respected() {
 fn stale_version_result_is_discarded() {
     let mut p = Project::new("tipado-versao");
     let uri = p.uri("lib/a.dart");
-    // Pausada durante o `didOpen`, a análise não termina dentro do mesmo
-    // `pump` (que a publicaria).
+    // Paused during `didOpen`, the analysis does not finish within the same
+    // `pump` (which would publish it).
     p.server.pause_typed_analysis(true);
     p.open("lib/a.dart", "void f() {\n  if (1) {}\n}\n");
     p.server.pause_typed_analysis(false);
-    // A análise da versão 1 termina, mas o resultado ainda não foi publicado.
+    // The analysis of version 1 finishes, but the result has not been published yet.
     assert!(p.server.wait_idle_analysis(LIMIT));
-    // A versão 2 corrige o erro antes de o servidor publicar o da 1.
+    // Version 2 fixes the error before the server publishes the one from version 1.
     p.server.receive(
         json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
             "textDocument":{"uri":uri,"version":2},
@@ -141,8 +142,9 @@ fn stale_version_result_is_discarded() {
         "publicou versão velha: {outputs:?}"
     );
     assert_eq!(p.server.typed_discarded(), 1);
-    // A versão 2 não tem erros, e os da 1 nunca chegaram ao cliente: nada
-    // a publicar (o servidor do Dart não publica lista vazia nesse caso).
+    // Version 2 has no errors, and those of version 1 never reached the client:
+    // nothing to publish (the Dart server does not publish an empty list in
+    // this case).
     let mut after = outputs;
     after.extend(p.server.await_diagnostics(LIMIT));
     assert!(last(&after, &uri).is_none(), "{after:?}");
@@ -154,8 +156,8 @@ fn quick_edits_become_one_analysis() {
     let uri = p.uri("lib/a.dart");
     p.server.pause_typed_analysis(true);
     p.open("lib/a.dart", "void f() {\n  if (1) {}\n}\n");
-    // A última versão tem o erro: uma lista vazia sem erros publicados
-    // antes não seria publicada (como no servidor do Dart).
+    // The last version has the error: an empty list without previously
+    // published errors would not be published (as in the Dart server).
     for v in 2..=10 {
         let cond = if v % 2 == 0 { "1" } else { "true" };
         p.change(
@@ -170,7 +172,7 @@ fn quick_edits_become_one_analysis() {
         .iter()
         .filter(|m| m["params"]["uri"] == uri)
         .collect();
-    // Uma análise para a rajada inteira, da última versão.
+    // One analysis for the whole burst, of the last version.
     assert_eq!(typed.len(), 1, "{outputs:?}");
     assert_eq!(typed[0]["params"]["version"], 10);
     assert_eq!(codes(typed[0]), vec!["non_bool_condition"]);
@@ -189,15 +191,15 @@ fn editing_imported_updates_importer() {
     );
     let a = last(&outputs, &uri_a).expect("a.dart analisado");
     assert_eq!(codes(a), vec!["non_bool_condition"], "{a}");
-    // Só `b.dart` muda (sem salvar): `a.dart` é republicado sem o erro.
+    // Only `b.dart` changes (without saving): `a.dart` is republished without the error.
     let outputs = change_and_wait(&mut p, "lib/b.dart", 2, "bool x = true;\n");
     let a =
         last(&outputs, &uri_a).unwrap_or_else(|| panic!("a.dart não foi republicado: {outputs:?}"));
     assert_eq!(a["params"]["version"], 1);
     assert!(codes(a).is_empty(), "{a}");
-    // `b.dart` segue sem erros: nada a publicar para ele.
+    // `b.dart` stays without errors: nothing to publish for it.
     assert!(last(&outputs, &uri_b).is_none());
-    // E volta o erro quando `b.dart` volta a `int`.
+    // And the error comes back when `b.dart` goes back to `int`.
     let outputs = change_and_wait(&mut p, "lib/b.dart", 3, "int x = 0;\n");
     let a = last(&outputs, &uri_a).expect("a.dart republicado");
     assert_eq!(codes(a), vec!["non_bool_condition"], "{a}");
@@ -216,14 +218,14 @@ fn close_discards_pending_result() {
             "textDocument":{"uri":uri}
         }}),
     );
-    // O resultado com o erro é descartado, e nada fora publicado antes:
-    // o fechamento não publica.
+    // The result with the error is discarded, and nothing had been published
+    // before: closing does not publish.
     let outputs = p.server.pump();
     assert!(last(&outputs, &uri).is_none(), "{outputs:?}");
     assert_eq!(p.server.typed_discarded(), 1);
 }
 
-/// Códigos de um relatório de `textDocument/diagnostic`.
+/// Codes of a `textDocument/diagnostic` report.
 fn pulled_codes(report: &Value) -> Vec<String> {
     report["result"]["items"]
         .as_array()
@@ -233,11 +235,12 @@ fn pulled_codes(report: &Value) -> Vec<String> {
         .collect()
 }
 
-/// L08: o cliente que anuncia `textDocument.diagnostic` recebe o
-/// `diagnosticProvider` e puxa; o servidor não empurra `publishDiagnostics`.
+/// L08: a client that announces `textDocument.diagnostic` gets the
+/// `diagnosticProvider` and pulls; the server does not push
+/// `publishDiagnostics`.
 #[test]
 fn pulled_diagnostics_instead_of_pushed() {
-    // A capacidade só é anunciada a quem a pede.
+    // The capability is only announced to whoever asks for it.
     for (capabilities, announces) in [(json!({}), false), (json!({"textDocument": {"diagnostic": {}}}), true)] {
         let mut s = dartforge_lsp::Server::new();
         s.receive(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":capabilities}}));
@@ -257,13 +260,13 @@ fn pulled_diagnostics_instead_of_pushed() {
     let uri = p.uri("lib/a.dart");
     let document_text = json!({"uri": uri});
     p.server.pause_typed_analysis(true);
-    // Abrir não empurra nada.
+    // Opening pushes nothing.
     p.write("lib/a.dart", "void f() {\n  if (1) {}\n}\n");
     p.server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
         "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":"void f() {\n  if (1) {}\n}\n"}
     }}));
     assert!(last(&p.server.pump(), &uri).is_none());
-    // O fluxo imediato (sintático) por pedido; o mesmo `resultId` volta
+    // The immediate (syntactic) flow on request; the same `resultId` comes back
     // `unchanged`.
     let immediate = p.request("textDocument/diagnostic", json!({"textDocument": document_text}));
     assert_eq!(immediate["result"]["kind"], "full", "{immediate}");
@@ -271,7 +274,7 @@ fn pulled_diagnostics_instead_of_pushed() {
     assert!(pulled_codes(&immediate).is_empty(), "{immediate}");
     let equal = p.request("textDocument/diagnostic", json!({"textDocument": document_text, "previousResultId": "1"}));
     assert_eq!(equal["result"], json!({"kind": "unchanged", "resultId": "1"}));
-    // O resultado tipado pede `refresh` em vez de publicar.
+    // The typed result asks for a `refresh` instead of publishing.
     p.server.pause_typed_analysis(false);
     let outputs = p.server.await_diagnostics(LIMIT);
     assert!(outputs.iter().all(|m| m["method"] != "textDocument/publishDiagnostics"), "{outputs:?}");
@@ -280,16 +283,16 @@ fn pulled_diagnostics_instead_of_pushed() {
         .find(|m| m["method"] == "workspace/diagnostic/refresh")
         .unwrap_or_else(|| panic!("sem refresh: {outputs:?}"));
     assert!(refresh["id"].is_string(), "{refresh}");
-    // A resposta do cliente ao `refresh` é aceita em silêncio.
+    // The client's response to the `refresh` is accepted silently.
     p.server.receive(json!({"jsonrpc":"2.0","id":refresh["id"].clone(),"result":null}));
     assert!(p.server.pump().is_empty());
-    // Puxado de novo, vem o tipado da mesma versão.
+    // Pulled again, the typed result of the same version comes.
     let typed = p.request("textDocument/diagnostic", json!({"textDocument": document_text, "previousResultId": "1"}));
     assert_eq!(typed["result"]["kind"], "full", "{typed}");
     assert_eq!(typed["result"]["resultId"], "1.t");
     assert_eq!(pulled_codes(&typed), vec!["non_bool_condition"], "{typed}");
     assert_eq!(typed["result"]["items"][0]["range"]["start"], json!({"line": 1, "character": 6}));
-    // Fechar também não empurra; fechado, o documento não tem diagnóstico.
+    // Closing does not push either; once closed, the document has no diagnostics.
     p.server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument": document_text}}));
     assert!(p.server.pump().is_empty());
     let closed = p.request("textDocument/diagnostic", json!({"textDocument": document_text}));

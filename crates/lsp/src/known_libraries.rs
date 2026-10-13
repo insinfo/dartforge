@@ -1,16 +1,16 @@
-//! As bibliotecas conhecidas e o namespace de exportação delas, para o
-//! `ImportLibrary` (docs/LSP-ESPECIFICACAO.md §13.7.4.1): o
-//! `getTopLevelDeclarations` (`AN:src/services/top_level_declarations.dart`)
-//! sobre os arquivos que o `FileStateFilter` deixa passar
-//! (`AN:src/dart/analysis/file_state_filter.dart`), e o
-//! `getExportedElement` sobre o `exportNamespace` (declarações da biblioteca
-//! e das partes, mais os `export` com `show`/`hide`).
+//! The known libraries and their export namespace, for `ImportLibrary`
+//! (docs/LSP-ESPECIFICACAO.md §13.7.4.1): `getTopLevelDeclarations`
+//! (`AN:src/services/top_level_declarations.dart`) over the files that the
+//! `FileStateFilter` lets through
+//! (`AN:src/dart/analysis/file_state_filter.dart`), and `getExportedElement`
+//! over the `exportNamespace` (declarations of the library and of its parts,
+//! plus the `export`s with `show`/`hide`).
 //!
-//! Cada arquivo é resumido uma vez (nomes de topo e espécies, partes,
-//! exports) e o resumo é guardado pela impressão (versão do texto aberto ou
-//! data e tamanho no disco). A ordem dos candidatos é: SDK, projeto,
-//! dependências (o `knownFiles` do analyzer não tem ordem reproduzível).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Each file is summarized once (top-level names and kinds, parts, exports)
+//! and the summary is kept by fingerprint (open text version, or date and
+//! size on disk). The candidate order is: SDK, project, dependencies (the
+//! analyzer's `knownFiles` has no reproducible order).
+//! Written without compiling or running (2026-10-05).
 
 use crate::DocumentStore;
 use dartforge_elements::config::PackageConfig;
@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use url::Url;
 
-/// O `ElementKind` de um elemento de topo.
+/// The `ElementKind` of a top-level element.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {
     Class,
@@ -35,7 +35,7 @@ pub(crate) enum Kind {
     Extension,
 }
 
-/// As espécies do `forType`.
+/// The kinds of `forType`.
 pub(crate) const OF_TYPE: &[Kind] = &[Kind::Class, Kind::Enum, Kind::ExtensionType, Kind::FunctionAlias, Kind::Mixin, Kind::TypeAlias];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,20 +44,20 @@ enum Fingerprint {
     Disk(Option<(SystemTime, u64)>),
 }
 
-/// Um nome público de topo: a espécie, o início da declaração e, numa
-/// função, se a lista de parâmetros é vazia.
+/// A public top-level name: the kind, the start of the declaration and, for
+/// a function, whether the parameter list is empty.
 #[derive(Debug, Clone)]
 pub(crate) struct Declared {
     pub kind: Kind,
     pub start: usize,
     pub without_parameters: bool,
-    /// Numa função, a assinatura como o `detail` do completar a mostra
-    /// (`(int a, int b) → int`), com os tipos como escritos (`dynamic` onde
-    /// faltam): o resumo não tem os tipos resolvidos.
+    /// For a function, the signature as the completion `detail` shows it
+    /// (`(int a, int b) → int`), with the types as written (`dynamic` where
+    /// missing): the summary has no resolved types.
     pub signature: Option<std::sync::Arc<str>>,
 }
 
-/// O texto de um tipo como escrito, com os espaços normalizados.
+/// The text of a type as written, with normalized spaces.
 fn written_type(text: &str, a: &ast::Ast, t: Option<ast::TypeId>) -> String {
     match t {
         Some(t) => {
@@ -68,7 +68,7 @@ fn written_type(text: &str, a: &ast::Ast, t: Option<ast::TypeId>) -> String {
     }
 }
 
-/// `(int a, [int b], {required int c}) → R` de uma função pela fonte.
+/// `(int a, [int b], {required int c}) → R` of a function from the source.
 fn written_signature(text: &str, a: &ast::Ast, f: &ast::Function) -> String {
     let name_of = |n: Option<ast::Name>| n.and_then(|n| text.get(n.span.start..n.span.end)).unwrap_or("").to_string();
     let mut required = Vec::new();
@@ -99,16 +99,16 @@ fn written_signature(text: &str, a: &ast::Ast, f: &ast::Function) -> String {
     format!("({}) → {}", parts.join(", "), written_type(text, a, f.return_type))
 }
 
-/// O resumo de um arquivo.
+/// The summary of a file.
 #[derive(Debug, Clone, Default)]
 struct Summary {
-    /// Nomes públicos de topo (um setter entra pelo nome-base).
+    /// Public top-level names (a setter enters through its base name).
     declared: HashMap<String, Declared>,
-    /// Os nomes de `declared` na ordem das declarações.
+    /// The names of `declared` in declaration order.
     order: Vec<String>,
-    /// As URIs das partes, como escritas.
+    /// The URIs of the parts, as written.
     parts: Vec<String>,
-    /// As URIs exportadas, com os combinadores (`true` = `show`).
+    /// The exported URIs, with the combinators (`true` = `show`).
     exports: Vec<(String, Vec<(bool, Vec<String>)>)>,
     is_part: bool,
 }
@@ -177,7 +177,7 @@ fn summarize(text: &str) -> Summary {
     r
 }
 
-/// Uma biblioteca candidata: o arquivo e a URI dela.
+/// A candidate library: its file and URI.
 #[derive(Debug, Clone)]
 pub(crate) struct Candidate {
     pub path: PathBuf,
@@ -185,14 +185,14 @@ pub(crate) struct Candidate {
     pub sdk: bool,
 }
 
-/// O índice dos resumos por arquivo.
+/// The index of the summaries per file.
 #[derive(Debug, Default)]
 pub(crate) struct LibraryIndex {
     summaries: HashMap<PathBuf, (Fingerprint, Summary)>,
 }
 
-/// O resolvedor de URIs de diretivas: `dart:` pelo SDK, `package:` pelo
-/// `package_config`, relativas pela pasta do arquivo.
+/// The directive URI resolver: `dart:` through the SDK, `package:` through
+/// the `package_config`, relative ones through the file's folder.
 pub(crate) struct Resolver<'a> {
     pub sdk: Option<&'a SdkLayout>,
     pub packages: Option<PackageConfig>,
@@ -232,13 +232,13 @@ impl LibraryIndex {
         self.summaries.get(path).map(|(_, r)| r)
     }
 
-    /// O arquivo é uma parte (`part of`).
+    /// The file is a part (`part of`).
     pub(crate) fn is_part(&mut self, path: &Path, documents: &DocumentStore) -> bool {
         self.summary(path, documents).is_some_and(|r| r.is_part)
     }
 
-    /// `exportNamespace.get(name) ?? get('$name=')`, com o acessor como a
-    /// variável: a biblioteca que declara o elemento e a espécie.
+    /// `exportNamespace.get(name) ?? get('$name=')`, with the accessor as the
+    /// variable: the library that declares the element, and the kind.
     pub(crate) fn exported_entry(&mut self, library: &Path, name: &str, resolver: &Resolver<'_>, documents: &DocumentStore) -> Option<(PathBuf, Kind)> {
         let mut seen = BTreeSet::new();
         self.exported_entry_in(library, name, resolver, documents, &mut seen)
@@ -249,7 +249,7 @@ impl LibraryIndex {
             return None;
         }
         let r = self.summary(library, documents)?.clone();
-        // As declarações da biblioteca e das partes ganham dos exports.
+        // The declarations of the library and of its parts win over the exports.
         if let Some(e) = r.declared.get(name) {
             return Some((library.to_path_buf(), e.kind));
         }
@@ -275,10 +275,10 @@ impl LibraryIndex {
         found
     }
 
-    /// O `exportNamespace.definedNames` da biblioteca, em ordem: as
-    /// declarações da biblioteca e das partes, depois as dos `export` (com
-    /// `show`/`hide`) cujo nome ainda não entrou; cada nome com o arquivo
-    /// que o declara.
+    /// The library's `exportNamespace.definedNames`, in order: the declarations
+    /// of the library and of its parts, then those of the `export`s (with
+    /// `show`/`hide`) whose name has not been added yet; each name with the
+    /// file that declares it.
     pub(crate) fn exported(&mut self, library: &Path, resolver: &Resolver<'_>, documents: &DocumentStore) -> Vec<(String, PathBuf, Declared)> {
         let mut output = Vec::new();
         let mut names = HashSet::new();
@@ -324,15 +324,16 @@ impl LibraryIndex {
     }
 }
 
-/// As bibliotecas do SDK que o `FileStateFilter` deixa passar.
+/// The SDK libraries that the `FileStateFilter` lets through.
 const SDK_OUTSIDE: &[&str] = &["html", "indexed_db", "js", "js_util", "svg", "web_audio", "web_gl"];
 
-/// O arquivo está fora de `lib/`, `bin/` e `web/` do pacote.
+/// The file is outside the package's `lib/`, `bin/` and `web/`.
 fn outside_lib_bin_web(file: &Path, root: &Path) -> bool {
     !["lib", "bin", "web"].iter().any(|d| file.starts_with(root.join(d)))
 }
 
-/// As dependências (e, com `dev`, as de desenvolvimento) do `pubspec.yaml`.
+/// The dependencies (and, with `dev`, the development ones) of the
+/// `pubspec.yaml`.
 fn dependencies(root: &Path, dev: bool) -> BTreeSet<String> {
     let mut v = BTreeSet::new();
     let Ok(text) = std::fs::read_to_string(root.join("pubspec.yaml")) else { return v };
@@ -353,7 +354,7 @@ fn dependencies(root: &Path, dev: bool) -> BTreeSet<String> {
     v
 }
 
-/// Os arquivos `.dart` de `folder`, recursivos, sem `src/` quando pedido.
+/// The `.dart` files of `folder`, recursively, without `src/` when asked.
 fn dart_in(folder: &Path, without_src: bool) -> Vec<PathBuf> {
     let mut output = Vec::new();
     let mut stack = vec![folder.to_path_buf()];
@@ -376,8 +377,8 @@ fn dart_in(folder: &Path, without_src: bool) -> Vec<PathBuf> {
     output
 }
 
-/// As bibliotecas candidatas para o arquivo `target` (o `knownFiles` com o
-/// `FileStateFilter`), sem as partes.
+/// The candidate libraries for file `target` (`knownFiles` with the
+/// `FileStateFilter`), without the parts.
 pub(crate) fn candidates(target: &Path, sdk: Option<&SdkLayout>, index: &mut LibraryIndex, documents: &DocumentStore) -> Vec<Candidate> {
     let mut v = Vec::new();
     if let Some(sdk) = sdk {
@@ -399,7 +400,7 @@ pub(crate) fn candidates(target: &Path, sdk: Option<&SdkLayout>, index: &mut Lib
         let uri = match (&package, file.strip_prefix(&lib)) {
             (Some(p), Ok(rel)) => format!("package:{p}/{}", rel.to_string_lossy().replace('\\', "/")),
             _ => {
-                // Sem URI `package:`: só para um alvo fora de `lib`/`bin`/`web`.
+                // Without a `package:` URI: only for a target outside `lib`/`bin`/`web`.
                 if pubspec && !outside {
                     continue;
                 }
@@ -411,7 +412,8 @@ pub(crate) fn candidates(target: &Path, sdk: Option<&SdkLayout>, index: &mut Lib
         };
         v.push(Candidate { path: file, uri, sdk: false });
     }
-    // As dependências do `pubspec.yaml` (só as declaradas; sem `lib/src`).
+    // The dependencies of the `pubspec.yaml` (only the declared ones; without
+    // `lib/src`).
     if pubspec
         && let Some(config) = PackageConfig::discover(target).and_then(|c| PackageConfig::load(&c).ok())
     {
@@ -433,8 +435,7 @@ pub(crate) fn candidates(target: &Path, sdk: Option<&SdkLayout>, index: &mut Lib
     v
 }
 
-/// `_isLibSrcPath`: componentes `lib`,`src` seguidos antes dos dois
-/// últimos.
+/// `_isLibSrcPath`: consecutive components `lib`,`src` before the last two.
 pub(crate) fn path_lib_src(path: &Path) -> bool {
     let parts: Vec<String> = path.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
     (0..parts.len().saturating_sub(2)).any(|i| parts[i] == "lib" && parts[i + 1] == "src")
