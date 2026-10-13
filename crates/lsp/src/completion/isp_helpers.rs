@@ -748,11 +748,6 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     // -- Closures, named arguments and record fields -----------------------------------
 
-    /// `_addClosureSuggestion` without the positional names (generated `p0`…).
-    pub(super) fn suggest_closure(&mut self, ty: TypeId, comma: bool) {
-        self.suggest_closure_with_names(ty, &[], comma);
-    }
-
     /// `_addClosureSuggestion`: the block one and the arrow one, both with
     /// `matcherScore` 0 (`Relevance.closure`, 900). `names` are those of the
     /// positionals of the written function type (DartForge's type does not

@@ -232,11 +232,6 @@ impl Constructor {
         }
     }
 
-    /// `_getLibraryUriText`.
-    fn uri_text(&self, cx: &Context<'_>, uri: &str) -> String {
-        self.forced_uri_text(cx, uri, false, false)
-    }
-
     /// `_getLibraryUriText(uri, forceAbsolute, forceRelative)`.
     fn forced_uri_text(&self, cx: &Context<'_>, uri: &str, absolute: bool, relative_forced: bool) -> String {
         let folder = self.path.as_deref().and_then(|c| c.parent()).map(Path::to_path_buf);

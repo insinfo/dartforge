@@ -126,7 +126,7 @@ pub(super) enum Operation {
     /// `ConstructorsOperation`.
     Constructors,
     /// `InstanceExtensionMembersOperation`.
-    ExtensionMembers { ty: TypeId, excluded: Vec<String>, methods: bool, setters: bool },
+    ExtensionMembers { ty: TypeId, methods: bool, setters: bool },
 }
 
 /// The result of the pass.
@@ -744,13 +744,6 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    pub(super) fn real_stmt(&self, n: usize) -> Option<&'a ast::Stmt> {
-        match self.link(n) {
-            Binding::Stmt(s) => Some(self.a.stmt(s)),
-            _ => None,
-        }
-    }
-
     pub(super) fn real_decl(&self, n: usize) -> Option<&'a ast::Decl> {
         match self.link(n) {
             Binding::Decl(d) => Some(self.a.decl(d)),
@@ -895,36 +888,10 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// The `ast::SwitchCase` of a `switch` member.
-    pub(super) fn real_case(&self, n: usize) -> Option<&'a ast::SwitchCase> {
-        let Binding::Case(end) = self.link(n) else { return None };
-        for s in self.a.stmts.iter() {
-            if let ast::StmtKind::Switch { cases, .. } = &s.kind
-                && let Some(c) = cases.iter().find(|c| crate::analyzer_tree::address(*c) == end)
-            {
-                return Some(c);
-            }
-        }
-        None
-    }
-
     /// The `ast::Directive`.
     pub(super) fn real_directive(&self, n: usize) -> Option<&'a ast::Directive> {
         let Binding::Directive(end) = self.link(n) else { return None };
         self.cu.directives.iter().find(|d| crate::analyzer_tree::address(*d) == end)
-    }
-
-    /// The `ast::CatchClause`.
-    pub(super) fn real_catch(&self, n: usize) -> Option<&'a ast::CatchClause> {
-        let Binding::Catch(end) = self.link(n) else { return None };
-        for s in self.a.stmts.iter() {
-            if let ast::StmtKind::Try { catches, .. } = &s.kind
-                && let Some(c) = catches.iter().find(|c| crate::analyzer_tree::address(*c) == end)
-            {
-                return Some(c);
-            }
-        }
-        None
     }
 
     /// The `ast::CollectionElement`.
@@ -953,54 +920,6 @@ impl<'a, 'c> Isp<'a, 'c> {
                 && let Some(x) = at(elements, end)
             {
                 return Some(x);
-            }
-        }
-        None
-    }
-
-    /// The `ast::Arguments` of an `ArgumentList`.
-    pub(super) fn real_arguments(&self, n: usize) -> Option<&'a ast::Arguments> {
-        let Binding::Arguments(end) = self.link(n) else { return None };
-        let e = |a: &'a ast::Arguments| (crate::analyzer_tree::address(a) == end).then_some(a);
-        for x in self.a.exprs.iter() {
-            match &x.kind {
-                ast::ExprKind::Call { arguments, .. } | ast::ExprKind::InstanceCreation { arguments, .. } => {
-                    if let Some(a) = e(arguments) {
-                        return Some(a);
-                    }
-                }
-                _ => {}
-            }
-        }
-        for m in self.a.members.iter() {
-            if let ast::MemberKind::Constructor(k) = &m.kind {
-                for i in k.initializers.iter() {
-                    if let ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } = i
-                        && let Some(a) = e(arguments)
-                    {
-                        return Some(a);
-                    }
-                }
-            }
-        }
-        for d in self.a.decls.iter() {
-            if let ast::DeclKind::Enum(x) = &d.kind {
-                for k in x.constants.iter() {
-                    if let Some(a) = k.arguments.as_ref().and_then(e) {
-                        return Some(a);
-                    }
-                }
-            }
-        }
-        let annot = |ms: &'a [ast::Annotation]| ms.iter().find_map(|m| m.arguments.as_ref().and_then(e));
-        for d in self.a.decls.iter() {
-            if let Some(a) = annot(&d.metadata) {
-                return Some(a);
-            }
-        }
-        for m in self.a.members.iter() {
-            if let Some(a) = annot(&m.metadata) {
-                return Some(a);
             }
         }
         None

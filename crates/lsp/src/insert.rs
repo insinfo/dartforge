@@ -26,8 +26,6 @@ pub(crate) enum Filter {
     Getter,
     /// `insertMethod`.
     Method,
-    /// No filter: the last member.
-    None,
 }
 
 /// The method name prefixes that the suggestion strips (`get`, `is`, `to`).
@@ -58,7 +56,6 @@ impl Context<'_> {
             Filter::Constructor { first_constructors: false } => matches!(self.kind(m), "ConstructorDeclaration" | "FieldDeclaration"),
             Filter::Getter => matches!(self.kind(m), "FieldDeclaration" | "ConstructorDeclaration") || (self.kind(m) == "MethodDeclaration" && self.is_getter(m)),
             Filter::Method => matches!(self.kind(m), "FieldDeclaration" | "ConstructorDeclaration" | "MethodDeclaration"),
-            Filter::None => true,
         };
         let target = members.iter().rev().copied().find(|&m| passes(m));
         let enum_ = self.kind(container) == "EnumDeclaration";
@@ -211,16 +208,10 @@ impl Context<'_> {
         res
     }
 
-    /// `writeParametersMatchingArguments(argumentList)`: the types come from
-    /// this context and are written by `writer` (that of the destination file).
-    pub(crate) fn parameters_to_arguments(&self, list: usize, writer: &mut Writer<'_, '_>) -> String {
-        let mut e = crate::snippets::Write::default();
-        self.parameters_to_arguments_in(list, writer, &mut e);
-        e.text
-    }
-
-    /// [`Self::parameters_to_arguments`] written into `e`, with the linked
-    /// groups of `writeParameterMatchingArgument`: `TYPE<i>` on the type (with
+    /// `writeParametersMatchingArguments(argumentList)` written into `e` (the
+    /// types come from this context and are written by `writer`, that of the
+    /// destination file), with the linked groups of
+    /// `writeParameterMatchingArgument`: `TYPE<i>` on the type (with
     /// the supertype suggestions) and `PARAM<i>` on the name of a positional
     /// argument (with all the name suggestions).
     pub(crate) fn parameters_to_arguments_in(&self, list: usize, writer: &mut Writer<'_, '_>, e: &mut crate::snippets::Write) {

@@ -22,7 +22,6 @@
 //! (all 1, except deprecated and `$`, 0.5). Named arguments have a fixed
 //! value (900; 950 if required), as in Dart.
 
-use dartforge_frontend::ast::{self, ExprId};
 
 /// Element kind of the Dart tables (`computeElementKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,16 +124,4 @@ pub(crate) fn relevance(rel: &Rel, local: Option<&str>, context_type: f64, prefe
     let sum = context_type + kind + 0.5 * deprecated + constant + nsm + not_imported + word + 0.5 * dollar + super_matches + local_distance;
     let media = sum / 9.0;
     (((media + 1.0) / 2.0) * 1000.0) as i32
-}
-
-fn elements_contains(elements: &[ast::CollectionElement], target: ExprId) -> bool {
-    elements.iter().any(|e| match e {
-        ast::CollectionElement::Expression(x) | ast::CollectionElement::NullAwareExpression(x) => *x == target,
-        ast::CollectionElement::MapEntry { key, value, .. } => *key == target || *value == target,
-        _ => false,
-    })
-}
-
-fn elements_value(elements: &[ast::CollectionElement], target: ExprId) -> bool {
-    elements.iter().any(|e| matches!(e, ast::CollectionElement::MapEntry { value, .. } if *value == target))
 }

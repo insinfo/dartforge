@@ -41,10 +41,6 @@ impl State {
         State { problems: vec![(Severity::Fatal, m.into())] }
     }
 
-    pub(crate) fn error(m: impl Into<String>) -> State {
-        State { problems: vec![(Severity::Error, m.into())] }
-    }
-
     pub(crate) fn warning(m: impl Into<String>) -> State {
         State { problems: vec![(Severity::Warning, m.into())] }
     }
@@ -149,10 +145,6 @@ impl Change {
             return;
         }
         list.insert(i, e);
-    }
-
-    pub(crate) fn empty(&self) -> bool {
-        self.create.is_none() && self.files.iter().all(|(_, l)| l.is_empty())
     }
 
     /// The change in LSP form: `sortSourceEditsForLsp` reverses each file's list

@@ -47,7 +47,7 @@ fn titles(r: &Value) -> Vec<String> {
 
 #[test]
 fn announces_capability() {
-    let mut p = Project::new("acoes-cap");
+    let p = Project::new("acoes-cap");
     let r = p.initialization.clone();
     assert_eq!(
         r["result"]["capabilities"]["codeActionProvider"],

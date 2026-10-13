@@ -1309,7 +1309,6 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.extension_members(ty, excluded, methods, setters);
         self.register_operation(Operation::ExtensionMembers {
             ty,
-            excluded: excluded.iter().cloned().collect(),
             methods,
             setters,
         });
@@ -1416,7 +1415,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.record_fields(t, &HashSet::new());
                 self.object_members();
                 self.extension_members(t, &HashSet::new(), !assignable, true);
-                self.register_operation(Operation::ExtensionMembers { ty: t, excluded: Vec::new(), methods: !assignable, setters: true });
+                self.register_operation(Operation::ExtensionMembers { ty: t, methods: !assignable, setters: true });
             }
             Type::Function { .. } => {
                 self.suggest_call();

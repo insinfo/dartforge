@@ -14,7 +14,7 @@
 //! Written without compiling or running (2026-10-05).
 
 use super::isp::{Initial, Isp};
-use dartforge_frontend::token::{Kind, Op};
+use dartforge_frontend::token::Kind;
 
 /// A child entity (`childEntities`): a tree node or a token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -413,8 +413,4 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// The `Op` node of a token entity (for the comma and `)` tests).
-    pub(super) fn entity_and_op(&self, e: Option<Entity>, op: Op) -> bool {
-        matches!(e, Some(Entity::Tok(i)) if self.is_op(i, op))
-    }
 }

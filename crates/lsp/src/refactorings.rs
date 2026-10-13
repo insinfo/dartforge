@@ -177,8 +177,6 @@ pub(crate) struct LocalSelection {
     pub(crate) expression: Option<usize>,
     /// `stringLiteralPart` (the text of the original selection).
     pub(crate) string_part: Option<String>,
-    /// `coveringFunctionBody`.
-    pub(crate) body: usize,
 }
 
 /// The unit prepared for the rules.
@@ -937,12 +935,13 @@ impl<'p> Context<'p> {
         let start = o + initial;
         let end = (o + l).saturating_sub(finals).max(o);
         let coverage = self.tree.locate(start, end).unwrap_or(0);
-        let Some(body) = self.with_parents(coverage).find(|&k| BODIES.contains(&self.kind(k))) else {
+        // `coveringFunctionBody`: the selection must be inside a function body.
+        if !self.with_parents(coverage).any(|k| BODIES.contains(&self.kind(k))) {
             return Err("An expression inside a function must be selected to activate this refactoring.");
-        };
+        }
         let node = &self.tree.nodes[coverage];
         if STRINGS.contains(&node.kind) && end > start && start > node.start && end < node.end {
-            return Ok(LocalSelection { range: (start, end), expression: None, string_part: Some(selection_text), body });
+            return Ok(LocalSelection { range: (start, end), expression: None, string_part: Some(selection_text) });
         }
         let mut single: Option<usize> = None;
         let mut without_covered = true;
@@ -1004,7 +1003,7 @@ impl<'p> Context<'p> {
         match single {
             Some(k) => {
                 let node = &self.tree.nodes[k];
-                Ok(LocalSelection { range: (node.start, node.end), expression: Some(k), string_part: None, body })
+                Ok(LocalSelection { range: (node.start, node.end), expression: Some(k), string_part: None })
             }
             None => Err("Expression must be selected to activate this refactoring."),
         }

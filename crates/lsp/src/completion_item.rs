@@ -255,9 +255,21 @@ pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, docu
     if let Some(k) = cap.kind(&preference(i.kind)) {
         v["kind"] = json!(k);
     }
-    // `detail`: the full signature.
-    if let Some(d) = i.detail.as_ref().filter(|d| !d.is_empty()) {
-        v["detail"] = json!(d);
+    // `detail`: the full signature; a deprecated element says so in it when the
+    // client has neither the flag nor the tag (`getCompletionDetail`, §14.8.4).
+    let mut detail = i.detail.clone().unwrap_or_default();
+    if i.deprecated() && !cap.deprecated && !cap.deprecated_tag {
+        detail = format!("{detail}\n\n(Deprecated)").trim().to_string();
+    }
+    if !detail.is_empty() {
+        v["detail"] = json!(detail);
+    }
+    // `tags` and `deprecated` (`MAP:1126-1129`, `:1146-1148`).
+    if i.deprecated() && cap.deprecated_tag {
+        v["tags"] = json!([1]);
+    }
+    if i.deprecated() && cap.deprecated {
+        v["deprecated"] = json!(true);
     }
     if cap.label_details {
         let mut m = serde_json::Map::new();

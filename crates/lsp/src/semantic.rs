@@ -16,12 +16,6 @@ use url::Url;
 pub struct SemanticAnalyzer {
     syntactic: SyntacticAnalyzer,
     sdk: Option<SdkLayout>,
-    /// Public top-level names of the SDK (import library), built the first time
-    /// an undefined name asks for it. Fixed size per SDK.
-    sdk_index: Option<crate::index::SdkIndex>,
-    /// Public top-level names of the project of the last queried document,
-    /// updated per file (auto-import and the import action).
-    project_index: crate::index::ProjectIndex,
     /// The last loaded program, reused while nothing changed.
     session: crate::session::Session,
     /// The wide load of the non-local searches (`references`, `implementation`:
@@ -51,7 +45,7 @@ impl SemanticAnalyzer {
     /// assert_eq!(a.session_stats().loaded, 0);
     /// ```
     pub fn new(sdk: Option<SdkLayout>) -> Self {
-        Self { syntactic: SyntacticAnalyzer::new(), sdk, sdk_index: None, project_index: crate::index::ProjectIndex::default(), session: crate::session::Session::new(), wide_session: crate::session::Session::wide(), known: Default::default(), completion_max: crate::completion::MAX_PATTERN, not_imported_in_completion: true, incremental: std::env::var("DARTFORGE_LSP_INCREMENTAL").map(|v| v.trim() != "0").unwrap_or(true) }
+        Self { syntactic: SyntacticAnalyzer::new(), sdk, session: crate::session::Session::new(), wide_session: crate::session::Session::wide(), known: Default::default(), completion_max: crate::completion::MAX_PATTERN, not_imported_in_completion: true, incremental: std::env::var("DARTFORGE_LSP_INCREMENTAL").map(|v| v.trim() != "0").unwrap_or(true) }
     }
 
     /// Changes the semantic session budget (MiB of retained source; `0` turns
@@ -122,12 +116,6 @@ impl SemanticAnalyzer {
         // internal libraries.
         let sdk = SdkLayout::discover().and_then(|p| SdkLayout::load_as_analyzer(&p).ok());
         Self::new(sdk)
-    }
-
-    /// Index of the public names of the SDK, built on the first call.
-    pub(crate) fn sdk_index(&mut self) -> &crate::index::SdkIndex {
-        let sdk = self.sdk.as_ref();
-        self.sdk_index.get_or_insert_with(|| sdk.map(crate::index::index_sdk).unwrap_or_default())
     }
 
     /// In-memory generation with the current texts of the open `.dart`
@@ -448,12 +436,11 @@ impl Analyzer for SemanticAnalyzer {
             output.extend(ignore);
             return output;
         }
-        self.sdk_index();
         let Some(file) = crate::project::uri_file(uri) else {
             output.extend(ignore);
             return output;
         };
-        let SemanticAnalyzer { session, sdk: Some(sdk), sdk_index: Some(_index), known, .. } = self else {
+        let SemanticAnalyzer { session, sdk: Some(sdk), known, .. } = self else {
             output.extend(ignore);
             return output;
         };
@@ -743,14 +730,13 @@ impl Analyzer for SemanticAnalyzer {
         let text = documents.get(uri)?;
         let features = self.syntactic.features(uri, text);
         self.sdk.as_ref()?;
-        self.sdk_index();
         let self_max = self.completion_max;
         let not_imported = self.not_imported_in_completion;
-        let SemanticAnalyzer { sdk: Some(sdk), sdk_index: Some(index), project_index, known, session, incremental, .. } = self else {
+        let SemanticAnalyzer { sdk: Some(sdk), known, session, incremental, .. } = self else {
             return None;
         };
         let sdk: &SdkLayout = sdk;
-        let indices = crate::completion::Indices { sdk: index, project: project_index, known };
+        let indices = crate::completion::Indices { known };
         // The retained state of the library (that of the document's text), for the
         // incremental path (docs/LSP-ESPECIFICACAO.md §16.7); loaded and retained
         // here if missing, so that the following keystrokes find it.

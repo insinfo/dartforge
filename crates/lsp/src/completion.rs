@@ -32,7 +32,6 @@
 
 use crate::DocumentStore;
 use crate::query::Query;
-use crate::index::{ProjectIndex, SdkIndex};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, FunctionElementId, FunctionKind, LibraryId,
@@ -149,6 +148,13 @@ pub struct CompletionItem {
     pub(crate) replace_empty: bool,
 }
 
+impl CompletionItem {
+    /// The element is `@deprecated` (`suggestion.isDeprecated`).
+    pub(crate) fn deprecated(&self) -> bool {
+        self.rel.deprecated
+    }
+}
+
 /// Completion result: the prefix range (bytes) and the items in order.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Completion {
@@ -165,24 +171,8 @@ pub struct Completion {
     pub incomplete: bool,
 }
 
-/// Where the sentinel landed in the analysis.
-#[derive(Clone, Copy)]
-enum Sentinel {
-    /// In an expression; with the target when it is `target.▮`.
-    Expr(ExprId, Option<ExprId>),
-    /// In a type name; with the prefix when it is `p.▮`, and whether the type
-    /// opens the declaration (top-level, member or statement), where keywords
-    /// also fit.
-    Type {
-        prefix: Option<SymbolId>,
-        leader: Option<&'static [&'static str]>,
-    },
-}
-
 /// What completion queries besides the program.
 pub(crate) struct Indices<'a> {
-    pub sdk: &'a SdkIndex,
-    pub project: &'a mut ProjectIndex,
     /// The summaries of the known libraries (`FileStateFilter` and
     /// `exportNamespace`) for the not-imported items.
     pub known: &'a mut crate::known_libraries::LibraryIndex,
@@ -200,52 +190,6 @@ mod group {
     pub const NOT_IMPORTED: u8 = 7;
     pub const WORD: u8 = 8;
 }
-
-/// Ceiling of items from not-imported libraries in one response; above it
-/// the list comes out with `isIncomplete` and the editor asks again at each
-/// keystroke.
-
-const EXPRESSION_WORDS: &[&str] = &["const", "false", "new", "null", "true"];
-const COMMAND_WORDS: &[&str] = &[
-    "assert", "break", "const", "continue", "do", "false", "final", "for", "if", "late", "new",
-    "null", "return", "switch", "throw", "true", "try", "var", "void", "while",
-];
-const TOP_WORDS: &[&str] = &[
-    "abstract",
-    "base",
-    "class",
-    "const",
-    "enum",
-    "export",
-    "extension",
-    "external",
-    "final",
-    "import",
-    "interface",
-    "late",
-    "library",
-    "mixin",
-    "part",
-    "sealed",
-    "typedef",
-    "var",
-    "void",
-];
-const MEMBER_WORDS: &[&str] = &[
-    "abstract",
-    "const",
-    "covariant",
-    "external",
-    "factory",
-    "final",
-    "get",
-    "late",
-    "operator",
-    "set",
-    "static",
-    "var",
-    "void",
-];
 
 fn is_ident(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
@@ -320,11 +264,10 @@ pub(crate) fn completion(
     // The analyzed text replaces the word under the cursor with the sentinel
     // (only for semantics: the context is that of the real text,
     // `completion/isp.rs`).
-    let typed = &text[start..offset];
     let prepared = prepare(text, start, end, features);
     let analyzed_text = prepared.as_deref().unwrap_or(text);
     let delta = analyzed_text.len() as isize - text.len() as isize;
-    let request = Request { sdk, indices, documents, text, start, end, offset, typed, speculative: prepared.is_some(), max, not_imported, delta };
+    let request = Request { sdk, indices, documents, text, start, end, offset, speculative: prepared.is_some(), max, not_imported, delta };
     // The incremental path (docs/LSP-ESPECIFICACAO.md §16.7): the retained
     // state is that of the document's text; the text with the sentinel swaps
     // the unit in place, only the sentinel's body is inferred (with the
@@ -364,7 +307,6 @@ struct Request<'a, 'i> {
     start: usize,
     end: usize,
     offset: usize,
-    typed: &'a str,
     /// The analyzed text has the sentinel.
     speculative: bool,
     max: usize,
@@ -382,7 +324,7 @@ struct Request<'a, 'i> {
 /// collector (`matcherScore`, pruning), the suggestion map and the handler's
 /// filter and truncation.
 fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: Request<'_, '_>, empty: Completion) -> Option<Completion> {
-    let Request { sdk, indices, documents, text, start, end, offset, typed: _, speculative, max, not_imported, delta } = request;
+    let Request { sdk, indices, documents, text, start, end, offset, speculative, max, not_imported, delta } = request;
     let features = query.program.unit(unit).features;
     let before_3 = features.version() < dartforge_frontend::LanguageVersion::new(3, 0);
     let swap = speculative.then_some((start, end, SENTINEL.len(), delta));
@@ -392,7 +334,7 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
     // minus the request's own and those imported without combinators by the
     // defining unit, `_ImportSummary`), with the `import` URI.
     let filter = candidates_filter(query, unit);
-    let Indices { sdk: _, project: _, known } = indices;
+    let Indices { known } = indices;
     let candidates = |c: &mut crate::known_libraries::LibraryIndex| -> Vec<(PathBuf, String)> {
         let Some((file, own, imported)) = &filter else { return Vec::new() };
         let root = crate::project::project_root(file);
@@ -586,7 +528,7 @@ fn prepare(text: &str, start: usize, end: usize, features: LibraryFeatures) -> O
         let candidate = format!("{}{SENTINEL}{closure}{}", &text[..start], &text[end..]);
         let mut names = Interner::new();
         let analyzed = dartforge_frontend::parser::parse_with(&candidate, &mut names, features);
-        if find_sentinel(&analyzed.ast, start).is_none() {
+        if !has_sentinel(&analyzed.ast, start) {
             continue;
         }
         // Without a closing, the text has the real text's tree (the parser inserts
@@ -607,44 +549,15 @@ fn prepare(text: &str, start: usize, end: usize, features: LibraryFeatures) -> O
     best.map(|(_, t)| t)
 }
 
-/// Where the sentinel at `start` is: in an expression (with the target, if
-/// it is a member access) or in a type name.
-fn find_sentinel(ast: &ast::Ast, start: usize) -> Option<Sentinel> {
+/// The sentinel at `start` landed in the analysis: as an identifier, the name
+/// of a member access or the name of a type.
+fn has_sentinel(ast: &ast::Ast, start: usize) -> bool {
     let is_match = |n: &ast::Name| n.span.start == start && n.span.end == start + SENTINEL.len();
-    let expr = ast
-        .exprs
-        .iter()
-        .enumerate()
-        .find_map(|(i, e)| match &e.kind {
-            ExprKind::Identifier(n) if is_match(n) => Some(Sentinel::Expr(ExprId(i as u32), None)),
-            ExprKind::Property { target, name, .. } if is_match(name) => {
-                Some(Sentinel::Expr(ExprId(i as u32), Some(*target)))
-            }
-            _ => None,
-        });
-    if expr.is_some() {
-        return expr;
-    }
-    let (ty, name_) = ast.types.iter().find_map(|t| match &t.kind {
-        ast::TypeKind::Named { name, .. } if name.last().is_some_and(is_match) => Some((t, name)),
-        _ => None,
-    })?;
-    let prefix = (name_.len() == 2).then(|| name_[0].sym);
-    // The type opens a top-level declaration, a member or a statement: there
-    // the declaration keywords also fit.
-    let opens = |s: dartforge_diagnostics::Span| s.start == ty.span.start;
-    let leader: Option<&'static [&'static str]> = if prefix.is_some() {
-        None
-    } else if ast.decls.iter().any(|d| opens(d.span)) {
-        Some(TOP_WORDS)
-    } else if ast.members.iter().any(|m| opens(m.span)) {
-        Some(MEMBER_WORDS)
-    } else if ast.stmts.iter().any(|s| opens(s.span)) {
-        Some(COMMAND_WORDS)
-    } else {
-        None
-    };
-    Some(Sentinel::Type { prefix, leader })
+    ast.exprs.iter().any(|e| match &e.kind {
+        ExprKind::Identifier(n) => is_match(n),
+        ExprKind::Property { name, .. } => is_match(name),
+        _ => false,
+    }) || ast.types.iter().any(|t| matches!(&t.kind, ast::TypeKind::Named { name, .. } if name.last().is_some_and(is_match)))
 }
 
 struct Collector {

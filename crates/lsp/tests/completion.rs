@@ -33,7 +33,7 @@ class B extends A {
 
 #[test]
 fn announces_capability() {
-    let mut p = Project::new("completar-cap");
+    let p = Project::new("completar-cap");
     let r = p.initialization.clone();
     assert_eq!(
         r["result"]["capabilities"]["completionProvider"]["triggerCharacters"],
@@ -364,16 +364,6 @@ fn part_file_uses_owning_library() {
     assert_eq!(r["result"]["items"], json!([]));
 }
 
-/// The item labeled `label` whose `detail` is `detail`.
-fn item_with<'a>(r: &'a serde_json::Value, label: &str, detail: &str) -> &'a serde_json::Value {
-    r["result"]["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|i| i["label"] == label && i["detail"] == detail)
-        .unwrap_or_else(|| panic!("no {label} ({detail}) in {:?}", labels(r)))
-}
-
 #[test]
 fn auto_import_from_sdk_and_project() {
     let mut p = Project::new("completar-autoimport");
@@ -609,4 +599,26 @@ fn inherited_accessor_pairs_and_private_members() {
     // Through a receiver, a private member of another library stays hidden.
     let r = completion(&mut p, "lib/c.dart", "import 'base.dart';\nvoid f(Base b) {\n  b._p▮;\n}\n");
     assert!(!labels(&r).iter().any(|l| l == "_pos"), "{r}");
+}
+
+/// A deprecated element (`suggestion.isDeprecated`): without the client's flag
+/// or tag, the `detail` says `(Deprecated)`; with the tag, `tags: [1]`; with
+/// `deprecatedSupport`, `deprecated: true` (`toCompletionItem`, §14.8.2).
+#[test]
+fn deprecated_items_by_client_capability() {
+    let text = "@Deprecated('use novo')\nint velho() => 0;\nint novo() => 0;\nvoid f() {\n  vel▮\n}\n";
+    let mut plain = Project::new("completar-depreciado");
+    let r = completion(&mut plain, "lib/a.dart", text);
+    let old = item(&r, "velho()");
+    assert_eq!(old["detail"], json!("() → int\n\n(Deprecated)"), "{old}");
+    assert!(old.get("tags").is_none() && old.get("deprecated").is_none(), "{old}");
+    let mut tagged = Project::with_capabilities(
+        "completar-depreciado-tag",
+        json!({"textDocument": {"completion": {"completionItem": {"tagSupport": {"valueSet": [1]}, "deprecatedSupport": true}}}}),
+    );
+    let r = completion(&mut tagged, "lib/a.dart", text);
+    let old = item(&r, "velho()");
+    assert_eq!(old["detail"], json!("() → int"), "{old}");
+    assert_eq!(old["tags"], json!([1]), "{old}");
+    assert_eq!(old["deprecated"], json!(true), "{old}");
 }
