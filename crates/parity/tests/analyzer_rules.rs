@@ -374,6 +374,14 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "class A {}\nclass B {}\nextension type E(B b) implements Object {}\nextension type G(B b) {}\nvoid f(E? x, A a, G? z) {\n  int i = x ?? a;\n  int l = z ?? a;\n  print([i, l]);\n}\n",
         &[("invalid_assignment", 6, 11, 6), ("invalid_assignment", 7, 11, 6)],
     ),
+    // `List<int>? <# List<T>` constrains `T :> int`: the analyzer's gatherer
+    // goes on after the `P0?` rule fails, and the interface rule ignores the
+    // `?` (2026-10-13).
+    (
+        "argumento_anulavel_inferencia.dart",
+        "class C5 {\n  List<int>? bad;\n  f<T>(List<T> x) {}\n}\nT? g<T>(List<T> x) => null;\nvoid h(C5 c, List<int>? l) {\n  c.f(c.bad);\n  List<int> y = g(l);\n  print(y);\n}\n",
+        &[("argument_type_not_assignable", 7, 7, 5), ("invalid_assignment", 8, 17, 4), ("argument_type_not_assignable", 8, 19, 1)],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",

@@ -166,7 +166,11 @@ impl GenericInferrer {
             if self.sub(p, n, left, env) {
                 return true;
             }
-            return self.sub(p, q0, left, env);
+            if self.sub(p, q0, left, env) {
+                return true;
+            }
+            // Otherwise the analyzer goes on to the rules below
+            // (`type_constraint_gatherer.dart:180-227`).
         }
         // P is FutureOr<P0>.
         if let Type::FutureOr { arg: p0, nullable: false } = tp {
@@ -176,7 +180,6 @@ impl GenericInferrer {
                 return true;
             }
             self.constraints.truncate(mark);
-            return false;
         }
         // P is P0?.
         if tp.is_declared_nullable() {
@@ -187,7 +190,9 @@ impl GenericInferrer {
                 return true;
             }
             self.constraints.truncate(mark);
-            return false;
+            // The analyzer goes on: the rules below look at the structure, and
+            // the interface, function and record ones ignore `P`'s `?`
+            // (`List<int>? <# List<T>` gives `T :> int`).
         }
         // Q top.
         if matches!(tq, Type::Dynamic | Type::Void) || q == env.core.object_nullable {
@@ -208,8 +213,8 @@ impl GenericInferrer {
         if let Type::Intersection { bound, .. } = tp {
             return self.try_match(bound, q, left, env);
         }
-        // P is a type variable outside L: via the bound.
-        if let Type::TypeParameter { param, .. } = tp {
+        // P is a type variable outside L (without `?`): via the bound.
+        if let Type::TypeParameter { param, nullable: false } = tp {
             if param == env.core.unknown_param {
                 return true;
             }
