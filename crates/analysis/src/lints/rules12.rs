@@ -1,22 +1,22 @@
-//! O décimo segundo lote de regras de lint que só olham a árvore e o texto
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
+//! The twelfth batch of lint rules that only look at the tree and the text
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the 3.6.2
+//! emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
 //! `prefer_if_elements_to_conditional_expressions`,
 //! `prefer_for_elements_to_map_fromIterable`, `prefer_final_parameters`,
-//! `prefer_foreach` e `prefer_asserts_in_initializer_lists`.
+//! `prefer_foreach` and `prefer_asserts_in_initializer_lists`.
 //!
-//! Com o mesmo dado do original (as que pedem o elemento só relatam com a
-//! semântica da unidade):
-//! - `prefer_for_elements_to_map_fromIterable`: o construtor resolvido do
-//!   `Map` do `dart:core`; o parâmetro obrigatório também nomeado.
-//! - `prefer_final_parameters`: a mutação pelo elemento.
-//! - `prefer_foreach`: o argumento e o alvo pelo elemento; os blocos de um
-//!   comando só atravessados.
-//! - `prefer_asserts_in_initializer_lists`: os métodos e acessores de
-//!   instância das classes do conjunto pelo elemento (também como nome de
-//!   propriedade), o conjunto da última classe visitada, os campos dos
-//!   `this.x` (e pelo `super.x`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! With the same data as the original (those that need the element only
+//! report with the unit's semantics):
+//! - `prefer_for_elements_to_map_fromIterable`: the resolved constructor of
+//!   `dart:core`'s `Map`; the required parameter also named.
+//! - `prefer_final_parameters`: the mutation by element.
+//! - `prefer_foreach`: the argument and the target by element; single-statement
+//!   blocks are traversed.
+//! - `prefer_asserts_in_initializer_lists`: the instance methods and accessors
+//!   of the classes of the set by element (also as a property name), the set
+//!   of the last visited class, the fields of the `this.x`s (and through
+//!   `super.x`).
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -26,19 +26,19 @@ use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, Ast, CollectionElement, DeclKind, ExprId, ExprKind, ForInTarget, FunctionBody, MemberKind, Parameter, StmtKind};
 use dartforge_intern::Interner;
 
-fn dentro(a: Span, b: Span) -> bool {
+fn within(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
-fn sem_parenteses(a: &Ast, mut e: ExprId) -> ExprId {
+fn unparenthesized(a: &Ast, mut e: ExprId) -> ExprId {
     while let ExprKind::Parenthesized(x) = a.expr(e).kind {
         e = x;
     }
     e
 }
 
-/// O corpo de uma única expressão (`=> e`, ou `{ return e; }`).
-fn corpo_de_uma_expressao(a: &Ast, b: &FunctionBody) -> bool {
+/// The body of a single expression (`=> e`, or `{ return e; }`).
+fn is_single_expression_body(a: &Ast, b: &FunctionBody) -> bool {
     match b {
         FunctionBody::Expression(_) => true,
         FunctionBody::Block(s) => match &a.stmt(*s).kind {
@@ -49,63 +49,63 @@ fn corpo_de_uma_expressao(a: &Ast, b: &FunctionBody) -> bool {
     }
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let fonte = u.fonte;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.fonte;
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
-    // `prefer_if_elements_to_conditional_expressions`: `c ? a : b`
-    // (talvez entre parênteses) como elemento direto de lista ou conjunto.
-    if ligada("prefer_if_elements_to_conditional_expressions") {
+    // `prefer_if_elements_to_conditional_expressions`: `c ? a : b` (maybe in
+    // parentheses) as a direct element of a list or set.
+    if enabled("prefer_if_elements_to_conditional_expressions") {
         for e in a.exprs.iter() {
-            let (elementos, conjunto) = match &e.kind {
+            let (elems, is_set) = match &e.kind {
                 ExprKind::List { elements, .. } => (elements, true),
                 ExprKind::SetOrMap { elements, type_args, .. } => {
-                    let mapa = type_args.len() == 2
+                    let is_map = type_args.len() == 2
                         || (type_args.is_empty()
                             && (elements.is_empty() || elements.iter().any(|x| matches!(x, CollectionElement::MapEntry { .. }))));
-                    (elements, !mapa)
+                    (elements, !is_map)
                 }
                 _ => continue,
             };
-            if !conjunto {
+            if !is_set {
                 continue;
             }
-            for el in elements_iter(elementos) {
+            for el in elements_iter(elems) {
                 if let CollectionElement::Expression(x) = el
-                    && matches!(a.expr(sem_parenteses(a, *x)).kind, ExprKind::Conditional { .. })
+                    && matches!(a.expr(unparenthesized(a, *x)).kind, ExprKind::Conditional { .. })
                 {
-                    relatar(&c::PREFER_IF_ELEMENTS_TO_CONDITIONAL_EXPRESSIONS, a.expr(*x).span, &[]);
+                    report(&c::PREFER_IF_ELEMENTS_TO_CONDITIONAL_EXPRESSIONS, a.expr(*x).span, &[]);
                 }
             }
         }
     }
 
-    // `prefer_for_elements_to_map_fromIterable`: a criação (com ou sem
-    // `new`) resolvida ao construtor `fromIterable` do `Map` do `dart:core`,
-    // com três argumentos e os fechos `key:` e `value:` de um parâmetro
-    // obrigatório e corpo de uma expressão. Pede a semântica da unidade.
-    if ligada("prefer_for_elements_to_map_fromIterable")
+    // `prefer_for_elements_to_map_fromIterable`: the creation (with or without
+    // `new`) resolved to the `fromIterable` constructor of `dart:core`'s
+    // `Map`, with three arguments and the `key:` and `value:` closures of one
+    // required parameter and an expression body. Needs the unit's semantics.
+    if enabled("prefer_for_elements_to_map_fromIterable")
         && let Some(s) = sem
     {
-        let fecho = |nome: &str, arg: &ast::Argument| -> bool {
-            if arg.name.is_none_or(|n| interner.resolve(n.sym) != nome) {
+        let is_closure = |name: &str, arg: &ast::Argument| -> bool {
+            if arg.name.is_none_or(|n| interner.resolve(n.sym) != name) {
                 return false;
             }
-            let ExprKind::FunctionExpression(f) = a.expr(sem_parenteses(a, arg.value)).kind else { return false };
+            let ExprKind::FunctionExpression(f) = a.expr(unparenthesized(a, arg.value)).kind else { return false };
             let f = a.function(f);
-            // `isRequired`: o posicional obrigatório ou o nomeado `required`.
-            let um_requerido = f.parameters.as_ref().is_some_and(|ps| {
+            // `isRequired`: a required positional or a `required` named one.
+            let one_required = f.parameters.as_ref().is_some_and(|ps| {
                 ps.len() == 1 && (ps[0].kind == ast::ParameterKind::Required || (ps[0].kind == ast::ParameterKind::Named && ps[0].required))
             });
-            um_requerido && corpo_de_uma_expressao(a, &f.body)
+            one_required && is_single_expression_body(a, &f.body)
         };
         for (k, e) in a.exprs.iter().enumerate() {
-            let argumentos = match &e.kind {
+            let arguments = match &e.kind {
                 ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => arguments,
                 _ => continue,
             };
@@ -114,23 +114,23 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if interner.resolve(g.name) != "fromIterable" || g.class != s.core.map_class {
                 continue;
             }
-            let [_, segundo, terceiro] = &argumentos.args[..] else { continue };
-            let chave = fecho("key", segundo) || fecho("key", terceiro);
-            let valor = fecho("value", terceiro) || fecho("value", segundo);
-            if chave && valor {
-                relatar(&c::PREFER_FOR_ELEMENTS_TO_MAP_FROMITERABLE, e.span, &[]);
+            let [_, second, third] = &arguments.args[..] else { continue };
+            let key = is_closure("key", second) || is_closure("key", third);
+            let value = is_closure("value", third) || is_closure("value", second);
+            if key && value {
+                report(&c::PREFER_FOR_ELEMENTS_TO_MAP_FROMITERABLE, e.span, &[]);
             }
         }
     }
 
-    // `prefer_final_parameters`: o parâmetro (não `final`, `const`, `this.x`
-    // nem `super.x`) do construtor, da função e do método que nenhuma
-    // escrita muda (pelo elemento). Pede a semântica da unidade.
-    if ligada("prefer_final_parameters")
+    // `prefer_final_parameters`: the parameter (not `final`, `const`, `this.x`
+    // or `super.x`) of a constructor, function or method that no write
+    // changes (by element). Needs the unit's semantics.
+    if enabled("prefer_final_parameters")
         && let Some(s) = sem
     {
-        let mut achados: Vec<(Span, String)> = Vec::new();
-        let mut conferir = |ps: &[Parameter]| {
+        let mut findings: Vec<(Span, String)> = Vec::new();
+        let mut check = |ps: &[Parameter]| {
             for p in ps {
                 if p.final_ || p.const_ || p.this_ || p.super_ {
                     continue;
@@ -139,105 +139,105 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 if super::is_mutated(s, a, n.span.start) {
                     continue;
                 }
-                // O nó do parâmetro sem o valor padrão.
-                let fim = match p.default_value {
+                // The parameter's node without the default value.
+                let end = match p.default_value {
                     None => p.span.end,
-                    Some(_) if p.function_parameters.is_some() => dartforge_frontend::fonte::fim_do_parametro_funcao(fonte, n.span.end),
+                    Some(_) if p.function_parameters.is_some() => dartforge_frontend::fonte::fim_do_parametro_funcao(source, n.span.end),
                     Some(_) => n.span.end,
                 };
-                achados.push((Span { start: p.span.start, end: fim }, interner.resolve(n.sym).to_string()));
+                findings.push((Span { start: p.span.start, end: end }, interner.resolve(n.sym).to_string()));
             }
         };
-        // Funções de topo, locais, expressões de função e métodos.
+        // Top-level and local functions, function expressions and methods.
         for f in a.functions.iter() {
             if let Some(ps) = &f.parameters {
-                conferir(ps);
+                check(ps);
             }
         }
         for m in a.members.iter() {
             if let MemberKind::Constructor(k) = &m.kind
                 && !k.parte_primaria
             {
-                conferir(&k.parameters);
+                check(&k.parameters);
             }
         }
-        achados.sort_by_key(|x| (x.0.start, x.0.end));
-        achados.dedup_by_key(|x| x.0);
-        for (x, nome) in achados {
-            relatar(&c::PREFER_FINAL_PARAMETERS, x, &[&nome]);
+        findings.sort_by_key(|x| (x.0.start, x.0.end));
+        findings.dedup_by_key(|x| x.0);
+        for (x, name) in findings {
+            report(&c::PREFER_FINAL_PARAMETERS, x, &[&name]);
         }
     }
 
-    // `prefer_foreach`: o `for (… x in e)` cujo corpo (atravessando blocos de
-    // um comando só e parênteses) é a chamada com o único argumento `x` (pelo
-    // elemento), e, na chamada de método, o alvo não cita `x`. Pede a
-    // semântica da unidade.
-    if ligada("prefer_foreach")
+    // `prefer_foreach`: the `for (… x in e)` whose body (traversing
+    // single-statement blocks and parentheses) is the call with the single
+    // argument `x` (by element), and, in a method call, the target does not
+    // mention `x`. Needs the unit's semantics.
+    if enabled("prefer_foreach")
         && let Some(s) = sem
     {
         for st in a.stmts.iter() {
             let StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, body, .. } = &st.kind else { continue };
-            let variavel = name.span.start;
-            let e_a_variavel = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Identifier(_)) && s.body.declaracao_local(e) == Some(variavel);
-            let mut corpo = *body;
-            while let StmtKind::Block(l) = &a.stmt(corpo).kind {
-                let [unico] = &l[..] else { break };
-                corpo = *unico;
+            let variable = name.span.start;
+            let is_the_variable = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Identifier(_)) && s.body.declaracao_local(e) == Some(variable);
+            let mut body = *body;
+            while let StmtKind::Block(l) = &a.stmt(body).kind {
+                let [single] = &l[..] else { break };
+                body = *single;
             }
-            let StmtKind::Expression(x) = &a.stmt(corpo).kind else { continue };
-            let ExprKind::Call { target, arguments } = &a.expr(sem_parenteses(a, *x)).kind else { continue };
+            let StmtKind::Expression(x) = &a.stmt(body).kind else { continue };
+            let ExprKind::Call { target, arguments } = &a.expr(unparenthesized(a, *x)).kind else { continue };
             let [arg] = &arguments.args[..] else { continue };
-            if arg.name.is_some() || !e_a_variavel(arg.value) {
+            if arg.name.is_some() || !is_the_variable(arg.value) {
                 continue;
             }
-            // Na chamada de método, o alvo não pode citar a variável
+            // In a method call, the target cannot mention the variable
             // (`_ReferenceFinder`).
-            let alvo_cita = match &a.expr(*target).kind {
-                ExprKind::Property { target: alvo, .. } => {
-                    let r = a.expr(*alvo).span;
-                    a.exprs.iter().enumerate().any(|(j, e)| dentro(e.span, r) && e_a_variavel(ExprId(j as u32)))
+            let target_mentions = match &a.expr(*target).kind {
+                ExprKind::Property { target: recv, .. } => {
+                    let r = a.expr(*recv).span;
+                    a.exprs.iter().enumerate().any(|(j, e)| within(e.span, r) && is_the_variable(ExprId(j as u32)))
                 }
                 _ => false,
             };
-            if !alvo_cita {
-                relatar(&c::PREFER_FOREACH, st.span, &[]);
+            if !target_mentions {
+                report(&c::PREFER_FOREACH, st.span, &[]);
             }
         }
     }
 
-    // `prefer_asserts_in_initializer_lists`: os `assert` do começo do corpo
-    // em bloco de um construtor (não `factory`) que não pedem a instância:
-    // nem `this`, nem identificador (também nome de propriedade) de método
-    // ou acessor de instância das classes do conjunto (a classe da última
-    // declaração de classe visitada, os mixins e as superclasses), salvo o
-    // acessor do campo de um `this.x` (ou do `this.x` do construtor da
-    // superclasse, pelo `super.x`). Pede a semântica da unidade.
-    if ligada("prefer_asserts_in_initializer_lists")
+    // `prefer_asserts_in_initializer_lists`: the `assert`s at the start of the
+    // block body of a (non-`factory`) constructor that do not need the
+    // instance: neither `this`, nor an identifier (also a property name) of
+    // an instance method or accessor of the classes of the set (the class of
+    // the last visited class declaration, its mixins and superclasses),
+    // except the accessor of the field of a `this.x` (or of the superclass
+    // constructor's `this.x`, through `super.x`). Needs the unit's semantics.
+    if enabled("prefer_asserts_in_initializer_lists")
         && let Some(s) = sem
     {
-        use dartforge_elements::model::{ClassId, FunctionKind as Especie};
+        use dartforge_elements::model::{ClassId, FunctionKind as FnKind};
         use dartforge_types::resolved::{MemberRef, Resolved};
         let p = s.program;
-        let classe_da_decl = |d: ast::DeclId| {
+        let class_of_decl = |d: ast::DeclId| {
             p.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == s.unit && r.decl == d)).map(|i| ClassId(i as u32))
         };
-        let conjunto_de = |c: ClassId| {
+        let class_set_of = |c: ClassId| {
             let mut v: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
-            let mut pilha = vec![c];
-            while let Some(k) = pilha.pop() {
+            let mut stack = vec![c];
+            while let Some(k) = stack.pop() {
                 if v.insert(k) {
-                    pilha.extend(p.class(k).mixin_classes.iter().copied());
-                    pilha.extend(p.class(k).supertype_class);
+                    stack.extend(p.class(k).mixin_classes.iter().copied());
+                    stack.extend(p.class(k).supertype_class);
                 }
             }
             v
         };
-        let mut ultima: Option<std::collections::HashSet<ClassId>> = None;
+        let mut last_set: Option<std::collections::HashSet<ClassId>> = None;
         for &d in u.unit.declarations.iter() {
             let decl = a.decl(d);
-            let membros: &[ast::MemberId] = match &decl.kind {
+            let members: &[ast::MemberId] = match &decl.kind {
                 DeclKind::Class(x) => {
-                    ultima = classe_da_decl(d).map(conjunto_de);
+                    last_set = class_of_decl(d).map(class_set_of);
                     &x.members
                 }
                 DeclKind::Enum(x) => &x.members,
@@ -245,21 +245,21 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 DeclKind::Mixin(x) => &x.members,
                 _ => continue,
             };
-            let no_conjunto = |c: Option<ClassId>| c.is_some_and(|c| ultima.as_ref().is_some_and(|v| v.contains(&c)));
-            for &m in membros {
+            let in_set = |c: Option<ClassId>| c.is_some_and(|c| last_set.as_ref().is_some_and(|v| v.contains(&c)));
+            for &m in members {
                 let MemberKind::Constructor(k) = &a.member(m).kind else { continue };
                 if k.factory {
                     continue;
                 }
                 let FunctionBody::Block(b) = &k.body else { continue };
-                let StmtKind::Block(comandos) = &a.stmt(*b).kind else { continue };
-                // Os campos dos `this.x` (e dos `this.x` da superclasse pelo
-                // `super.x`).
-                let mut campos: Vec<dartforge_elements::model::VariableId> = Vec::new();
+                let StmtKind::Block(stmts) = &a.stmt(*b).kind else { continue };
+                // The fields of the `this.x`s (and of the superclass's `this.x`s
+                // through `super.x`).
+                let mut fields: Vec<dartforge_elements::model::VariableId> = Vec::new();
                 for (i, q) in k.parameters.iter().enumerate() {
                     let Some(n) = q.name else { continue };
                     if q.this_ {
-                        campos.extend(super::class_field(s, m, n.sym));
+                        fields.extend(super::class_field(s, m, n.sym));
                     } else if q.super_
                         && let Some((f, j)) = super::super_parameter(s, interner, m, i)
                         && let dartforge_elements::model::FunctionRef::Constructor { unit, member } = p.function(f).node
@@ -267,42 +267,42 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                         && let Some(qq) = kk.parameters.get(j)
                         && qq.this_
                         && let Some(nn) = qq.name
-                        && let Some(classe_sup) = p.function(f).class
+                        && let Some(super_class) = p.function(f).class
                     {
-                        campos.extend(p.class(classe_sup).fields.iter().copied().find(|v| p.variable(*v).name == nn.sym));
+                        fields.extend(p.class(super_class).fields.iter().copied().find(|v| p.variable(*v).name == nn.sym));
                     }
                 }
-                let pede_instancia = |e: ExprId| -> bool {
+                let needs_instance = |e: ExprId| -> bool {
                     match s.body.get_resolved(e) {
                         Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
                             let g = p.function(*f);
                             match g.kind {
-                                Especie::Function | Especie::Operator => !g.static_ && no_conjunto(g.class),
-                                Especie::Getter | Especie::Setter | Especie::ImplicitAccessor => {
-                                    !g.static_ && no_conjunto(g.class) && !g.variable.is_some_and(|v| campos.contains(&v))
+                                FnKind::Function | FnKind::Operator => !g.static_ && in_set(g.class),
+                                FnKind::Getter | FnKind::Setter | FnKind::ImplicitAccessor => {
+                                    !g.static_ && in_set(g.class) && !g.variable.is_some_and(|v| fields.contains(&v))
                                 }
                                 _ => false,
                             }
                         }
                         Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
                             let x = p.variable(*v);
-                            !x.static_ && no_conjunto(x.class) && !campos.contains(v)
+                            !x.static_ && in_set(x.class) && !fields.contains(v)
                         }
                         _ => false,
                     }
                 };
-                for &st in comandos.iter() {
+                for &st in stmts.iter() {
                     if !matches!(a.stmt(st).kind, StmtKind::Assert { .. }) {
                         break;
                     }
                     let r = a.stmt(st).span;
-                    let usa = a.exprs.iter().enumerate().filter(|(_, e)| dentro(e.span, r)).any(|(j, e)| match &e.kind {
+                    let uses = a.exprs.iter().enumerate().filter(|(_, e)| within(e.span, r)).any(|(j, e)| match &e.kind {
                         ExprKind::This => true,
-                        ExprKind::Identifier(_) | ExprKind::Property { .. } => pede_instancia(ExprId(j as u32)),
+                        ExprKind::Identifier(_) | ExprKind::Property { .. } => needs_instance(ExprId(j as u32)),
                         _ => false,
                     });
-                    if !usa {
-                        relatar(&c::PREFER_ASSERTS_IN_INITIALIZER_LISTS, Span { start: r.start, end: r.start + "assert".len() }, &[]);
+                    if !uses {
+                        report(&c::PREFER_ASSERTS_IN_INITIALIZER_LISTS, Span { start: r.start, end: r.start + "assert".len() }, &[]);
                     }
                 }
             }
@@ -312,7 +312,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     out
 }
 
-/// Os elementos diretos de um literal (os de `if` e `for` não são diretos).
+/// The direct elements of a literal (those of `if` and `for` are not direct).
 fn elements_iter(l: &[CollectionElement]) -> impl Iterator<Item = &CollectionElement> {
     l.iter()
 }
