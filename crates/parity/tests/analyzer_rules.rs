@@ -382,6 +382,23 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "class C5 {\n  List<int>? bad;\n  f<T>(List<T> x) {}\n}\nT? g<T>(List<T> x) => null;\nvoid h(C5 c, List<int>? l) {\n  c.f(c.bad);\n  List<int> y = g(l);\n  print(y);\n}\n",
         &[("argument_type_not_assignable", 7, 7, 5), ("invalid_assignment", 8, 17, 4), ("argument_type_not_assignable", 8, 19, 1)],
     ),
+    // A plain `=` has no `readElement`: a deprecated getter does not count
+    // when only the setter is written (analyzer's resolve_file.dart; 2026-10-13).
+    // Outside `lib/` the code is `deprecated_member_use` (the oracle, in a
+    // package's `lib/`, gives the `_from_same_package` one at the same places).
+    (
+        "obsoleto_so_setter.dart",
+        "class C {\n  int _o = 0;\n  @Deprecated('use x')\n  int get o => _o;\n  set o(int v) => _o = v;\n  int _p = 0;\n  int get p => _p;\n  @Deprecated('use y')\n  set p(int v) => _p = v;\n}\nvoid f(C c) {\n  c.o = 1;\n  c.o += 1;\n  c.o ??= 2;\n  c.o++;\n  c.p = 1;\n  c.p += 1;\n  print(c.o);\n}\n",
+        &[
+            ("deprecated_member_use", 13, 5, 1),
+            ("deprecated_member_use", 14, 5, 1),
+            ("dead_null_aware_expression", 14, 11, 1),
+            ("deprecated_member_use", 15, 3, 3),
+            ("deprecated_member_use", 16, 5, 1),
+            ("deprecated_member_use", 17, 5, 1),
+            ("deprecated_member_use", 18, 11, 1),
+        ],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",

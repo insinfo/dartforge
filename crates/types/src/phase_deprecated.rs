@@ -456,13 +456,16 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                     report(node_name(id), tgt);
                 }
             }
-            ExprKind::Assign { target, .. } => {
+            ExprKind::Assign { target, op, .. } => {
                 // `readElement`/`writeElement` at the name, and the operator at the node.
+                // A plain `=` has no `readElement`: only the compound ones read.
                 if let Some(r) = body.get_resolved(*target) {
                     if let Some(tgt) = resolved_target(r) {
                         report(node_name(*target), tgt);
                     }
-                    if let Some(tgt) = read(r) {
+                    if *op != ast::AssignOp::Assign
+                        && let Some(tgt) = read(r)
+                    {
                         report(node_name(*target), tgt);
                     }
                 }
