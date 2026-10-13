@@ -1,34 +1,34 @@
-//! As checagens das anotações do `package:meta`
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md, lote II.7), escritas com os
-//! emissores da 6.11.0 abertos:
+//! The checks of the `package:meta` annotations
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md, batch II.7), written with the
+//! 6.11.0 emitters open:
 //!
-//! * o `AnnotationVerifier` (`analyzer/lib/src/error/annotation_verifier.dart`):
+//! * the `AnnotationVerifier` (`analyzer/lib/src/error/annotation_verifier.dart`):
 //!   `invalid_factory_method_decl`, `invalid_factory_method_impl`,
 //!   `invalid_internal_annotation`, `invalid_literal_annotation`,
 //!   `invalid_non_virtual_annotation`, `invalid_reopen_annotation`,
-//!   `invalid_annotation_target` (só o caso de `@redeclare`),
+//!   `invalid_annotation_target` (only the `@redeclare` case),
 //!   `undefined_referenced_parameter`, `invalid_visibility_annotation`,
-//!   `invalid_visible_for_overriding_annotation` e
+//!   `invalid_visible_for_overriding_annotation` and
 //!   `invalid_visible_outside_template_annotation`;
-//! * do `BestPracticesVerifier` (`best_practices_verifier.dart`):
+//! * from the `BestPracticesVerifier` (`best_practices_verifier.dart`):
 //!   `invalid_required_named_param`, `…_optional_positional_param`,
 //!   `…_positional_param`, `import_deferred_library_with_load_function`,
-//!   `must_be_immutable`, `invalid_export_of_internal_element` e
-//!   `invalid_export_of_internal_element_indirectly` (o
-//!   `invalid_override_of_non_virtual_member` precisa do
-//!   `InheritanceManager3` e está em `dartforge_types::fase_override`).
+//!   `must_be_immutable`, `invalid_export_of_internal_element` and
+//!   `invalid_export_of_internal_element_indirectly` (the
+//!   `invalid_override_of_non_virtual_member` needs the
+//!   `InheritanceManager3` and lives in `dartforge_types::fase_override`).
 //!
-//! As anotações são reconhecidas pelo elemento, como o `ElementAnnotation`
-//! do analyzer: o getter de uma biblioteca chamada `meta` (`angular.meta`
-//! para as de template), o construtor de `UseResult`/`Required` do `meta` e
-//! o de `Target` do `meta_meta` (`dartforge_types::anotacoes::e_getter_de`
-//! e `e_construtor_de`). O `invalid_annotation_target` geral (`_checkKinds`)
-//! lê o `@Target({...})` da classe da anotação, em todo alvo que o
-//! `BestPracticesVerifier` visita: declarações, membros, constantes,
-//! diretivas, parâmetros (`isOptional`), parâmetros de tipo, funções e
-//! variáveis locais e a representação de tipo de extensão.
-//! Escrito sem compilar nem executar (2026-10-04; reconhecimento pelo
-//! elemento em 2026-10-05).
+//! Annotations are recognized by element, like the analyzer's
+//! `ElementAnnotation`: the getter of a library named `meta` (`angular.meta`
+//! for the template ones), the constructor of `meta`'s `UseResult`/`Required`
+//! and that of `meta_meta`'s `Target` (`dartforge_types::anotacoes::e_getter_de`
+//! and `e_construtor_de`). The general `invalid_annotation_target`
+//! (`_checkKinds`) reads the `@Target({...})` of the annotation's class, on
+//! every target the `BestPracticesVerifier` visits: declarations, members,
+//! constants, directives, parameters (`isOptional`), type parameters, local
+//! functions and variables, and the extension type representation.
+//! Written without compiling or running (2026-10-04; recognition by element
+//! on 2026-10-05).
 
 use dartforge_diagnostics::codigos::{hint as h, warning as w};
 use dartforge_diagnostics::{Codigo, Diagnostic, Span};
@@ -38,112 +38,112 @@ use dartforge_frontend::ast::{
 };
 use dartforge_intern::{Interner, SymbolId};
 
-/// Onde a anotação está.
+/// Where the annotation is.
 #[derive(Clone, Copy)]
-enum Alvo<'a> {
-    Topo(&'a ast::Decl),
-    Membro { membro: &'a ast::Member, dono: &'a ast::Decl },
-    Constante { constante: &'a ast::EnumConstant, dono: &'a ast::Decl },
-    Diretiva,
-    /// `FormalParameter`; `opcional` é o `isOptional` (posicional opcional
-    /// ou nomeado sem `required`).
-    Parametro { opcional: bool },
-    /// `TypeParameter` (uma `Declaration` com o nome).
-    ParametroDeTipo(ast::Name),
+enum Target<'a> {
+    TopLevel(&'a ast::Decl),
+    Member { member: &'a ast::Member, owner: &'a ast::Decl },
+    Constant { constant: &'a ast::EnumConstant, owner: &'a ast::Decl },
+    Directive,
+    /// `FormalParameter`; `optional` is `isOptional` (optional positional or
+    /// named without `required`).
+    Param { optional: bool },
+    /// `TypeParameter` (a `Declaration` with the name).
+    TypeParam(ast::Name),
     /// `FunctionDeclaration` local.
-    FuncaoLocal(&'a ast::Function),
-    /// `RepresentationDeclaration` de um tipo de extensão.
-    Representacao,
-    /// Lista de variáveis locais, variável de `for-in`, declaração por
-    /// padrão: nenhuma espécie de alvo casa.
-    Outro,
+    LocalFunction(&'a ast::Function),
+    /// The `RepresentationDeclaration` of an extension type.
+    Representation,
+    /// A list of local variables, a `for-in` variable, a pattern declaration:
+    /// no target kind matches.
+    Other,
 }
 
 struct Ctx<'a> {
     program: &'a Program,
     interner: &'a Interner,
     a: &'a ast::Ast,
-    unidade: UnitId,
-    em_api_publica: bool,
-    /// A diretiva que está sendo visitada é a primeira da unidade.
-    primeira_diretiva: bool,
+    unit: UnitId,
+    in_public_api: bool,
+    /// The directive being visited is the unit's first.
+    first_directive: bool,
     out: Vec<(UnitId, Diagnostic)>,
 }
 
 impl<'a> Ctx<'a> {
-    fn texto(&self, n: ast::Name) -> &'a str {
+    fn text(&self, n: ast::Name) -> &'a str {
         self.interner.resolve(n.sym)
     }
 
-    fn relatar(&mut self, codigo: Codigo, span: Span, args: &[&str]) {
-        self.out.push((self.unidade, Diagnostic::com_codigo(codigo, span, args.iter().copied())));
+    fn report(&mut self, code: Codigo, span: Span, args: &[&str]) {
+        self.out.push((self.unit, Diagnostic::com_codigo(code, span, args.iter().copied())));
     }
 
-    /// `node.name`: o identificador da anotação (uma ou duas partes; com
-    /// três, a terceira é o nome do construtor), a posição e o texto.
-    fn nome_da_anotacao(&self, m: &ast::Annotation) -> (Span, String) {
-        let partes = if m.name.len() >= 3 { &m.name[..2] } else { &m.name[..] };
-        let span = match (partes.first(), partes.last()) {
+    /// `node.name`: the annotation's identifier (one or two parts; with three,
+    /// the third is the constructor name), the position and the text.
+    fn annotation_name(&self, m: &ast::Annotation) -> (Span, String) {
+        let parts = if m.name.len() >= 3 { &m.name[..2] } else { &m.name[..] };
+        let span = match (parts.first(), parts.last()) {
             (Some(p), Some(u)) => Span { start: p.span.start, end: u.span.end },
             _ => m.span,
         };
-        (span, partes.iter().map(|n| self.texto(*n)).collect::<Vec<_>>().join("."))
+        (span, parts.iter().map(|n| self.text(*n)).collect::<Vec<_>>().join("."))
     }
 
-    /// `_isPackageMetaGetter` (e o `_isTopGetter` de `angular.meta`).
-    fn getter_de(&self, m: &ast::Annotation, biblioteca: &str, nome: &str) -> bool {
-        dartforge_types::anotacoes::e_getter_de(self.program, self.interner, self.unidade, m, biblioteca, nome)
+    /// `_isPackageMetaGetter` (and the `_isTopGetter` of `angular.meta`).
+    fn is_getter_of(&self, m: &ast::Annotation, library: &str, name: &str) -> bool {
+        dartforge_types::anotacoes::e_getter_de(self.program, self.interner, self.unit, m, library, name)
     }
 
     /// `_isConstructor`.
-    fn construtor_de(&self, m: &ast::Annotation, biblioteca: &str, classe: &str) -> bool {
-        dartforge_types::anotacoes::e_construtor_de(self.program, self.interner, self.unidade, m, biblioteca, classe)
+    fn is_constructor_of(&self, m: &ast::Annotation, library: &str, class: &str) -> bool {
+        dartforge_types::anotacoes::e_construtor_de(self.program, self.interner, self.unit, m, library, class)
     }
 
-    /// O intervalo de um `VariableDeclaration`: do nome ao fim do
-    /// inicializador.
-    fn variavel(&self, v: &ast::Variable) -> Span {
+    /// The range of a `VariableDeclaration`: from the name to the end of the
+    /// initializer.
+    fn variable_span(&self, v: &ast::Variable) -> Span {
         Span { start: v.name.span.start, end: v.initializer.map_or(v.name.span.end, |e| self.a.expr(e).span.end) }
     }
 
-    /// O nome do elemento declarado por uma declaração de topo.
-    fn nome_do_topo(&self, d: &ast::Decl) -> Option<&'a str> {
+    /// The name of the element declared by a top-level declaration.
+    fn top_level_name(&self, d: &ast::Decl) -> Option<&'a str> {
         match &d.kind {
-            DeclKind::Class(x) => Some(self.texto(x.name)),
-            DeclKind::Mixin(x) => Some(self.texto(x.name)),
-            DeclKind::Enum(x) => Some(self.texto(x.name)),
-            DeclKind::ExtensionType(x) => Some(self.texto(x.name)),
-            DeclKind::Extension(x) => x.name.map(|n| self.texto(n)),
-            DeclKind::Typedef(x) => Some(self.texto(x.name)),
-            DeclKind::Function(f) => self.a.function(*f).name.map(|n| self.texto(n)),
+            DeclKind::Class(x) => Some(self.text(x.name)),
+            DeclKind::Mixin(x) => Some(self.text(x.name)),
+            DeclKind::Enum(x) => Some(self.text(x.name)),
+            DeclKind::ExtensionType(x) => Some(self.text(x.name)),
+            DeclKind::Extension(x) => x.name.map(|n| self.text(n)),
+            DeclKind::Typedef(x) => Some(self.text(x.name)),
+            DeclKind::Function(f) => self.a.function(*f).name.map(|n| self.text(n)),
             DeclKind::Variables(_) => None,
         }
     }
 
-    /// O nome do elemento do alvo, fora as listas de variáveis.
-    fn nome_do_alvo(&self, alvo: Alvo<'a>) -> Option<&'a str> {
-        match alvo {
-            Alvo::Topo(d) => self.nome_do_topo(d),
-            Alvo::Membro { membro, .. } => match &membro.kind {
-                MemberKind::Method(f) => self.a.function(*f).name.map(|n| self.texto(n)),
-                MemberKind::Constructor(k) => Some(k.name.map_or("", |n| self.texto(n))),
+    /// The name of the target's element, except for variable lists.
+    fn target_name(&self, target: Target<'a>) -> Option<&'a str> {
+        match target {
+            Target::TopLevel(d) => self.top_level_name(d),
+            Target::Member { member, .. } => match &member.kind {
+                MemberKind::Method(f) => self.a.function(*f).name.map(|n| self.text(n)),
+                MemberKind::Constructor(k) => Some(k.name.map_or("", |n| self.text(n))),
                 MemberKind::Field(_) => None,
             },
-            Alvo::Constante { constante, .. } => Some(self.texto(constante.name)),
-            Alvo::ParametroDeTipo(n) => Some(self.texto(n)),
-            Alvo::FuncaoLocal(f) => f.name.map(|n| self.texto(n)),
-            Alvo::Diretiva | Alvo::Parametro { .. } | Alvo::Representacao | Alvo::Outro => None,
+            Target::Constant { constant, .. } => Some(self.text(constant.name)),
+            Target::TypeParam(n) => Some(self.text(n)),
+            Target::LocalFunction(f) => f.name.map(|n| self.text(n)),
+            Target::Directive | Target::Param { .. } | Target::Representation | Target::Other => None,
         }
     }
 
-    /// As variáveis de uma lista de topo ou de um campo.
-    fn variaveis(&self, alvo: Alvo<'a>) -> Option<(&'a ast::VariableList, bool)> {
-        match alvo {
-            Alvo::Topo(d) => match &d.kind {
+    /// The variables of a top-level list or of a field.
+    fn variables(&self, target: Target<'a>) -> Option<(&'a ast::VariableList, bool)> {
+        match target {
+            Target::TopLevel(d) => match &d.kind {
                 DeclKind::Variables(l) => Some((l, true)),
                 _ => None,
             },
-            Alvo::Membro { membro, .. } => match &membro.kind {
+            Target::Member { member, .. } => match &member.kind {
                 MemberKind::Field(l) => Some((l, false)),
                 _ => None,
             },
@@ -151,15 +151,15 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// `new Foo()`, `Foo()` (criação sem `new`, reconhecida pela inicial
-    /// maiúscula) ou `null`.
-    fn expressao_de_fabrica(&self, e: ast::ExprId) -> bool {
-        let maiuscula = |n: ast::Name| self.texto(n).chars().next().is_some_and(char::is_uppercase);
+    /// `new Foo()`, `Foo()` (creation without `new`, recognized by the upper-case
+    /// initial) or `null`.
+    fn is_factory_expr(&self, e: ast::ExprId) -> bool {
+        let upper = |n: ast::Name| self.text(n).chars().next().is_some_and(char::is_uppercase);
         match &self.a.expr(e).kind {
             ExprKind::InstanceCreation { .. } | ExprKind::Null => true,
             ExprKind::Call { target, .. } => match &self.a.expr(*target).kind {
-                ExprKind::Identifier(n) => maiuscula(*n),
-                ExprKind::Property { target, .. } => matches!(&self.a.expr(*target).kind, ExprKind::Identifier(n) if maiuscula(*n)),
+                ExprKind::Identifier(n) => upper(*n),
+                ExprKind::Property { target, .. } => matches!(&self.a.expr(*target).kind, ExprKind::Identifier(n) if upper(*n)),
                 _ => false,
             },
             _ => false,
@@ -167,107 +167,107 @@ impl<'a> Ctx<'a> {
     }
 
     /// `_checkFactory`.
-    fn fabrica(&mut self, alvo: Alvo<'a>) {
-        let Alvo::Membro { membro, .. } = alvo else { return };
-        let MemberKind::Method(f) = &membro.kind else { return };
+    fn factory(&mut self, target: Target<'a>) {
+        let Target::Member { member, .. } = target else { return };
+        let MemberKind::Method(f) = &member.kind else { return };
         let func = self.a.function(*f);
-        let Some(nome) = func.name else { return };
+        let Some(name) = func.name else { return };
         if func.return_type.is_some_and(|t| matches!(self.a.types[t.0 as usize].kind, TypeKind::Void)) {
-            self.relatar(w::INVALID_FACTORY_METHOD_DECL, nome.span, &[self.texto(nome)]);
+            self.report(w::INVALID_FACTORY_METHOD_DECL, name.span, &[self.text(name)]);
             return;
         }
         let ok = match &func.body {
-            // Abstrato (ou nativo): nada a conferir.
+            // Abstract (or native): nothing to check.
             FunctionBody::Empty | FunctionBody::Native(_) => true,
-            FunctionBody::Expression(e) => self.expressao_de_fabrica(*e),
+            FunctionBody::Expression(e) => self.is_factory_expr(*e),
             FunctionBody::Block(s) => match &self.a.stmts[s.0 as usize].kind {
-                StmtKind::Block(comandos) => comandos.last().is_some_and(|u| match &self.a.stmts[u.0 as usize].kind {
-                    StmtKind::Return(Some(e)) => self.expressao_de_fabrica(*e),
+                StmtKind::Block(stmts) => stmts.last().is_some_and(|u| match &self.a.stmts[u.0 as usize].kind {
+                    StmtKind::Return(Some(e)) => self.is_factory_expr(*e),
                     _ => false,
                 }),
                 _ => false,
             },
         };
         if !ok {
-            self.relatar(w::INVALID_FACTORY_METHOD_IMPL, nome.span, &[self.texto(nome)]);
+            self.report(w::INVALID_FACTORY_METHOD_IMPL, name.span, &[self.text(name)]);
         }
     }
 
     /// `_checkInternal`.
-    fn interno(&mut self, m: &ast::Annotation, alvo: Alvo<'a>) {
-        let (no_nome, _) = self.nome_da_anotacao(m);
-        if let Some((lista, _)) = self.variaveis(alvo) {
-            for v in lista.variables.iter() {
-                if self.texto(v.name).starts_with('_') {
-                    let span = self.variavel(v);
-                    self.relatar(w::INVALID_INTERNAL_ANNOTATION, span, &[]);
+    fn internal(&mut self, m: &ast::Annotation, target: Target<'a>) {
+        let (on_name, _) = self.annotation_name(m);
+        if let Some((list, _)) = self.variables(target) {
+            for v in list.variables.iter() {
+                if self.text(v.name).starts_with('_') {
+                    let span = self.variable_span(v);
+                    self.report(w::INVALID_INTERNAL_ANNOTATION, span, &[]);
                 }
             }
             return;
         }
-        let privado = self.nome_do_alvo(alvo).is_some_and(|n| n.starts_with('_'));
-        let classe_privada = match alvo {
-            Alvo::Membro { membro, dono } if matches!(membro.kind, MemberKind::Constructor(_)) => {
-                self.nome_do_topo(dono).is_some_and(|n| n.starts_with('_'))
+        let private = self.target_name(target).is_some_and(|n| n.starts_with('_'));
+        let private_class = match target {
+            Target::Member { member, owner } if matches!(member.kind, MemberKind::Constructor(_)) => {
+                self.top_level_name(owner).is_some_and(|n| n.starts_with('_'))
             }
             _ => false,
         };
-        let construtor = matches!(alvo, Alvo::Membro { membro, .. } if matches!(membro.kind, MemberKind::Constructor(_)));
-        if construtor {
-            if classe_privada || privado {
-                self.relatar(w::INVALID_INTERNAL_ANNOTATION, no_nome, &[]);
+        let constructor = matches!(target, Target::Member { member, .. } if matches!(member.kind, MemberKind::Constructor(_)));
+        if constructor {
+            if private_class || private {
+                self.report(w::INVALID_INTERNAL_ANNOTATION, on_name, &[]);
             }
-        } else if privado || self.em_api_publica {
-            self.relatar(w::INVALID_INTERNAL_ANNOTATION, no_nome, &[]);
+        } else if private || self.in_public_api {
+            self.report(w::INVALID_INTERNAL_ANNOTATION, on_name, &[]);
         }
     }
 
     /// `_checkNonVirtual`.
-    fn nao_virtual(&mut self, m: &ast::Annotation, alvo: Alvo<'a>) {
-        let valido = match alvo {
-            Alvo::Membro { membro, dono } => match &membro.kind {
+    fn non_virtual(&mut self, m: &ast::Annotation, target: Target<'a>) {
+        let valid = match target {
+            Target::Member { member, owner } => match &member.kind {
                 MemberKind::Field(l) => !l.static_,
                 MemberKind::Method(f) => {
                     let func = self.a.function(*f);
                     let abstrato = matches!(func.body, FunctionBody::Empty) && !func.external;
-                    !(matches!(dono.kind, DeclKind::Extension(_) | DeclKind::ExtensionType(_)) || func.static_ || abstrato)
+                    !(matches!(owner.kind, DeclKind::Extension(_) | DeclKind::ExtensionType(_)) || func.static_ || abstrato)
                 }
                 MemberKind::Constructor(_) => false,
             },
             _ => false,
         };
-        if !valido {
-            let (span, _) = self.nome_da_anotacao(m);
-            self.relatar(w::INVALID_NON_VIRTUAL_ANNOTATION, span, &[]);
+        if !valid {
+            let (span, _) = self.annotation_name(m);
+            self.report(w::INVALID_NON_VIRTUAL_ANNOTATION, span, &[]);
         }
     }
 
     /// `_checkRedeclare`.
-    fn redeclarar(&mut self, m: &ast::Annotation, alvo: Alvo<'a>) {
-        let valido = match alvo {
-            Alvo::Membro { membro, dono } if matches!(dono.kind, DeclKind::ExtensionType(_)) => match &membro.kind {
+    fn redeclare(&mut self, m: &ast::Annotation, target: Target<'a>) {
+        let valid = match target {
+            Target::Member { member, owner } if matches!(owner.kind, DeclKind::ExtensionType(_)) => match &member.kind {
                 MemberKind::Method(f) => !self.a.function(*f).static_,
                 _ => true,
             },
             _ => false,
         };
-        if !valido {
-            let (span, texto) = self.nome_da_anotacao(m);
-            self.relatar(w::INVALID_ANNOTATION_TARGET, span, &[texto.as_str(), "instance members of extension types"]);
+        if !valid {
+            let (span, text) = self.annotation_name(m);
+            self.report(w::INVALID_ANNOTATION_TARGET, span, &[text.as_str(), "instance members of extension types"]);
         }
     }
 
-    /// `_checkReopen`: só em classe, com a superclasse da mesma biblioteca
-    /// e os modificadores que a anotação reabre.
-    fn reabrir(&mut self, m: &ast::Annotation, classe: Option<ClassId>) {
-        let Some(c) = classe else { return };
+    /// `_checkReopen`: only on a class, with the superclass from the same
+    /// library and the modifiers the annotation reopens.
+    fn reopen(&mut self, m: &ast::Annotation, class: Option<ClassId>) {
+        let Some(c) = class else { return };
         let e = self.program.class(c);
         let Some(s) = e.supertype_class.map(|s| self.program.class(s)) else { return };
         if s.kind != ClassKind::Class {
             return;
         }
         let (k, sm) = (e.modifiers, s.modifiers);
-        let invalido = if k.final_ || k.mixin || k.sealed || e.library != s.library {
+        let invalid = if k.final_ || k.mixin || k.sealed || e.library != s.library {
             true
         } else if k.base {
             !sm.final_ && !sm.interface
@@ -276,102 +276,102 @@ impl<'a> Ctx<'a> {
         } else {
             false
         };
-        if invalido {
-            let (span, _) = self.nome_da_anotacao(m);
-            self.relatar(w::INVALID_REOPEN_ANNOTATION, span, &[]);
+        if invalid {
+            let (span, _) = self.annotation_name(m);
+            self.report(w::INVALID_REOPEN_ANNOTATION, span, &[]);
         }
     }
 
-    /// `_checkUseResult`: o parâmetro de `UseResult.unless` existe.
-    fn uso_de_resultado(&mut self, m: &ast::Annotation, alvo: Alvo<'a>) {
-        if m.name.len() != 2 || self.texto(m.name[1]) != "unless" {
+    /// `_checkUseResult`: the parameter of `UseResult.unless` exists.
+    fn use_result(&mut self, m: &ast::Annotation, target: Target<'a>) {
+        if m.name.len() != 2 || self.text(m.name[1]) != "unless" {
             return;
         }
         let Some(args) = &m.arguments else { return };
-        let Some(arg) = args.args.iter().find(|x| x.name.is_some_and(|n| self.texto(n) == "parameterDefined")) else { return };
+        let Some(arg) = args.args.iter().find(|x| x.name.is_some_and(|n| self.text(n) == "parameterDefined")) else { return };
         let ExprKind::String(lit) = &self.a.expr(arg.value).kind else { return };
-        let Some(pedido) = dartforge_elements::load::string_lit_value(lit) else { return };
-        let funcao = match alvo {
-            Alvo::Topo(d) => match &d.kind {
+        let Some(requested) = dartforge_elements::load::string_lit_value(lit) else { return };
+        let function = match target {
+            Target::TopLevel(d) => match &d.kind {
                 DeclKind::Function(f) => Some(self.a.function(*f)),
                 _ => None,
             },
-            Alvo::Membro { membro, .. } => match &membro.kind {
+            Target::Member { member, .. } => match &member.kind {
                 MemberKind::Method(f) => Some(self.a.function(*f)),
                 _ => None,
             },
             _ => None,
         };
-        let Some(func) = funcao else { return };
-        let (Some(nome), Some(parametros)) = (func.name, &func.parameters) else { return };
-        if parametros.iter().any(|p| p.name.is_some_and(|n| self.texto(n) == pedido)) {
+        let Some(func) = function else { return };
+        let (Some(name), Some(params)) = (func.name, &func.parameters) else { return };
+        if params.iter().any(|p| p.name.is_some_and(|n| self.text(n) == requested)) {
             return;
         }
         let span = self.a.expr(arg.value).span;
-        self.relatar(w::UNDEFINED_REFERENCED_PARAMETER, span, &[pedido.as_str(), self.texto(nome)]);
+        self.report(w::UNDEFINED_REFERENCED_PARAMETER, span, &[requested.as_str(), self.text(name)]);
     }
 
     /// `_checkVisibility`.
-    fn visibilidade(&mut self, m: &ast::Annotation, alvo: Alvo<'a>, para_sobrescrita: bool) {
-        let (no_nome, texto) = self.nome_da_anotacao(m);
-        if let Some((lista, de_topo)) = self.variaveis(alvo) {
-            for v in lista.variables.iter() {
-                let nome = self.texto(v.name);
-                if de_topo {
-                    if nome.starts_with('_') {
-                        self.relatar(w::INVALID_VISIBILITY_ANNOTATION, no_nome, &[nome, texto.as_str()]);
+    fn visibility(&mut self, m: &ast::Annotation, target: Target<'a>, for_overriding: bool) {
+        let (on_name, text) = self.annotation_name(m);
+        if let Some((list, top_level)) = self.variables(target) {
+            for v in list.variables.iter() {
+                let name = self.text(v.name);
+                if top_level {
+                    if name.starts_with('_') {
+                        self.report(w::INVALID_VISIBILITY_ANNOTATION, on_name, &[name, text.as_str()]);
                     }
-                    // Uma variável de topo não se sobrescreve.
-                    if para_sobrescrita {
-                        self.relatar(w::INVALID_VISIBLE_FOR_OVERRIDING_ANNOTATION, no_nome, &[]);
+                    // A top-level variable is not overridden.
+                    if for_overriding {
+                        self.report(w::INVALID_VISIBLE_FOR_OVERRIDING_ANNOTATION, on_name, &[]);
                     }
                 } else {
-                    if lista.static_ && para_sobrescrita {
-                        self.relatar(w::INVALID_VISIBLE_FOR_OVERRIDING_ANNOTATION, no_nome, &[]);
+                    if list.static_ && for_overriding {
+                        self.report(w::INVALID_VISIBLE_FOR_OVERRIDING_ANNOTATION, on_name, &[]);
                     }
-                    if nome.starts_with('_') {
-                        self.relatar(w::INVALID_VISIBILITY_ANNOTATION, no_nome, &[nome, texto.as_str()]);
+                    if name.starts_with('_') {
+                        self.report(w::INVALID_VISIBILITY_ANNOTATION, on_name, &[name, text.as_str()]);
                     }
                 }
             }
             return;
         }
-        // Uma diretiva não é declaração: nada.
-        let Some(nome) = self.nome_do_alvo(alvo) else { return };
-        let de_instancia = match alvo {
-            Alvo::Membro { membro, dono } => match &membro.kind {
-                MemberKind::Method(f) => !self.a.function(*f).static_ && !matches!(dono.kind, DeclKind::ExtensionType(_)),
+        // A directive is not a declaration: nothing.
+        let Some(name) = self.target_name(target) else { return };
+        let instance = match target {
+            Target::Member { member, owner } => match &member.kind {
+                MemberKind::Method(f) => !self.a.function(*f).static_ && !matches!(owner.kind, DeclKind::ExtensionType(_)),
                 _ => false,
             },
             _ => false,
         };
-        if para_sobrescrita && !de_instancia {
-            self.relatar(w::INVALID_VISIBLE_FOR_OVERRIDING_ANNOTATION, no_nome, &[]);
+        if for_overriding && !instance {
+            self.report(w::INVALID_VISIBLE_FOR_OVERRIDING_ANNOTATION, on_name, &[]);
         }
-        if nome.starts_with('_') {
-            self.relatar(w::INVALID_VISIBILITY_ANNOTATION, no_nome, &[nome, texto.as_str()]);
+        if name.starts_with('_') {
+            self.report(w::INVALID_VISIBILITY_ANNOTATION, on_name, &[name, text.as_str()]);
         }
     }
 
-    /// `_checkVisibleOutsideTemplate`: num membro de classe, enum ou mixin
-    /// anotado com `@visibleForTemplate`.
-    fn fora_do_template(&mut self, m: &ast::Annotation, alvo: Alvo<'a>) {
-        let dono = match alvo {
-            Alvo::Membro { dono, .. } | Alvo::Constante { dono, .. } => Some(dono),
+    /// `_checkVisibleOutsideTemplate`: on a member of a class, enum or mixin
+    /// annotated with `@visibleForTemplate`.
+    fn outside_template(&mut self, m: &ast::Annotation, target: Target<'a>) {
+        let owner = match target {
+            Target::Member { owner, .. } | Target::Constant { owner, .. } => Some(owner),
             _ => None,
         };
-        let valido = dono.is_some_and(|d| {
-            matches!(d.kind, DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_)) && d.metadata.iter().any(|x| self.getter_de(x, "angular.meta", "visibleForTemplate"))
+        let valid = owner.is_some_and(|d| {
+            matches!(d.kind, DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_)) && d.metadata.iter().any(|x| self.is_getter_of(x, "angular.meta", "visibleForTemplate"))
         });
-        if !valido {
-            let (span, _) = self.nome_da_anotacao(m);
-            self.relatar(w::INVALID_VISIBLE_OUTSIDE_TEMPLATE_ANNOTATION, span, &[]);
+        if !valid {
+            let (span, _) = self.annotation_name(m);
+            self.report(w::INVALID_VISIBLE_OUTSIDE_TEMPLATE_ANNOTATION, span, &[]);
         }
     }
 
-    /// O nome de exibição de um `TargetKind` (`meta_meta.dart`).
-    fn exibicao_da_especie(nome: &str) -> Option<&'static str> {
-        Some(match nome {
+    /// The display name of a `TargetKind` (`meta_meta.dart`).
+    fn kind_display(name: &str) -> Option<&'static str> {
+        Some(match name {
             "classType" => "classes",
             "constructor" => "constructors",
             "directive" => "directives",
@@ -397,71 +397,71 @@ impl<'a> Ctx<'a> {
         })
     }
 
-    /// Os `TargetKind` do `@Target({...})` da classe `c` (a classe de uma
-    /// anotação): os nomes das constantes, na ordem escrita.
-    fn especies_da_classe(&self, c: ClassId) -> Vec<&'a str> {
+    /// The `TargetKind`s of the `@Target({...})` of class `c` (an annotation's
+    /// class): the names of the constants, in written order.
+    fn class_target_kinds(&self, c: ClassId) -> Vec<&'a str> {
         let Some(d) = self.program.class(c).decl else { return Vec::new() };
         let a = &self.program.unit(d.unit).ast;
-        let mut saida = Vec::new();
+        let mut out = Vec::new();
         for m in a.decl(d.decl).metadata.iter() {
             if !dartforge_types::anotacoes::e_construtor_de(self.program, self.interner, d.unit, m, "meta_meta", "Target") {
                 continue;
             }
-            let Some(primeiro) = m.arguments.as_ref().and_then(|args| args.args.iter().find(|x| x.name.is_none())) else { continue };
-            let ExprKind::SetOrMap { elements, .. } = &a.expr(primeiro.value).kind else { continue };
+            let Some(first) = m.arguments.as_ref().and_then(|args| args.args.iter().find(|x| x.name.is_none())) else { continue };
+            let ExprKind::SetOrMap { elements, .. } = &a.expr(first.value).kind else { continue };
             for el in elements.iter() {
                 if let ast::CollectionElement::Expression(e) = el
                     && let ExprKind::Property { name, .. } = &a.expr(*e).kind
                 {
-                    saida.push(self.texto(*name));
+                    out.push(self.text(*name));
                 }
             }
         }
-        saida
+        out
     }
 
-    /// A classe de uma anotação e o nome com que ela é citada na mensagem:
-    /// a classe do construtor chamado, ou a do valor de uma constante.
-    fn classe_da_anotacao(&self, m: &ast::Annotation) -> Option<(ClassId, String)> {
+    /// The class of an annotation and the name it is cited by in the message:
+    /// the class of the called constructor, or that of a constant's value.
+    fn annotation_class(&self, m: &ast::Annotation) -> Option<(ClassId, String)> {
         let program = self.program;
-        let u = self.unidade;
-        let simples = |n: ast::Name| program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter);
-        let (elemento, construtor) = match &m.name[..] {
-            [n] => (simples(*n)?, None),
+        let u = self.unit;
+        let simple = |n: ast::Name| program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter);
+        let (element, constructor) = match &m.name[..] {
+            [n] => (simple(*n)?, None),
             [p, n] => match program.lookup_prefixed_na_unidade(u, p.sym, n.sym).and_then(|b| b.getter) {
                 Some(e) => (e, None),
                 // `Classe.construtor`.
-                None => (simples(*p)?, Some(*n)),
+                None => (simple(*p)?, Some(*n)),
             },
             [p, n, k] => (program.lookup_prefixed_na_unidade(u, p.sym, n.sym).and_then(|b| b.getter)?, Some(*k)),
             _ => return None,
         };
-        match elemento {
+        match element {
             Element::Class(c) => {
-                let classe = self.interner.resolve(program.class(c).name);
-                let nome = match construtor {
-                    Some(k) => format!("{classe}.{}", self.texto(k)),
-                    None => classe.to_string(),
+                let class = self.interner.resolve(program.class(c).name);
+                let name = match constructor {
+                    Some(k) => format!("{class}.{}", self.text(k)),
+                    None => class.to_string(),
                 };
-                Some((c, nome))
+                Some((c, name))
             }
             Element::Variable(_) | Element::Function(_) => {
-                // Uma constante (`immutable`): a classe do tipo escrito, ou a
-                // da criação no inicializador.
-                let v = match elemento {
+                // A constant (`immutable`): the class of the written type, or
+                // that of the creation in the initializer.
+                let v = match element {
                     Element::Variable(v) => v,
                     Element::Function(f) => program.function(f).variable?,
                     _ => return None,
                 };
-                let variavel = program.variable(v);
-                let VariableRef::TopLevel { unit, decl, index } = variavel.node else { return None };
+                let variable_span = program.variable(v);
+                let VariableRef::TopLevel { unit, decl, index } = variable_span.node else { return None };
                 let a = &program.unit(unit).ast;
-                let DeclKind::Variables(lista) = &a.decl(decl).kind else { return None };
-                let nome_do_tipo: ast::Name = match lista.ty.map(|t| &a.types[t.0 as usize].kind) {
+                let DeclKind::Variables(list) = &a.decl(decl).kind else { return None };
+                let type_name: ast::Name = match list.ty.map(|t| &a.types[t.0 as usize].kind) {
                     Some(TypeKind::Named { name, .. }) => *name.last()?,
                     _ => {
-                        let inicializador = lista.variables.get(index)?.initializer?;
-                        match &a.expr(inicializador).kind {
+                        let initializer = list.variables.get(index)?.initializer?;
+                        match &a.expr(initializer).kind {
                             ExprKind::InstanceCreation { ty, .. } => match &a.types[ty.0 as usize].kind {
                                 TypeKind::Named { name, .. } => *name.last()?,
                                 _ => return None,
@@ -478,8 +478,8 @@ impl<'a> Ctx<'a> {
                         }
                     }
                 };
-                match program.lookup_na_unidade(unit, nome_do_tipo.sym).and_then(|b| b.getter)? {
-                    Element::Class(c) => Some((c, self.interner.resolve(variavel.name).to_string())),
+                match program.lookup_na_unidade(unit, type_name.sym).and_then(|b| b.getter)? {
+                    Element::Class(c) => Some((c, self.interner.resolve(variable_span.name).to_string())),
                     _ => None,
                 }
             }
@@ -487,21 +487,21 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// `_checkKinds` e `_isValidTarget` (`annotation_verifier.dart:160-185`,
-    /// `:505-568`): a anotação cuja classe tem `@Target({...})` num alvo que
-    /// não é de nenhuma das espécies.
-    fn especies(&mut self, m: &ast::Annotation, alvo: Alvo<'a>) {
-        let Some((classe, nome)) = self.classe_da_anotacao(m) else { return };
-        let especies = self.especies_da_classe(classe);
-        if especies.is_empty() {
+    /// `_checkKinds` and `_isValidTarget` (`annotation_verifier.dart:160-185`,
+    /// `:505-568`): the annotation whose class has `@Target({...})` on a target
+    /// that is of none of the kinds.
+    fn kinds(&mut self, m: &ast::Annotation, target: Target<'a>) {
+        let Some((class, name)) = self.annotation_class(m) else { return };
+        let kinds = self.class_target_kinds(class);
+        if kinds.is_empty() {
             return;
         }
-        let tem = |k: &str| especies.contains(&k);
-        // `overridableMember`: campo ou método de instância de classe,
-        // extension type ou mixin.
-        let sobrescrevivel = match alvo {
-            Alvo::Membro { membro, dono } if matches!(dono.kind, DeclKind::Class(_) | DeclKind::ExtensionType(_) | DeclKind::Mixin(_)) => {
-                match &membro.kind {
+        let has = |k: &str| kinds.contains(&k);
+        // `overridableMember`: an instance field or method of a class,
+        // extension type or mixin.
+        let sobrescrevivel = match target {
+            Target::Member { member, owner } if matches!(owner.kind, DeclKind::Class(_) | DeclKind::ExtensionType(_) | DeclKind::Mixin(_)) => {
+                match &member.kind {
                     MemberKind::Field(l) => !l.static_,
                     MemberKind::Method(f) => !self.a.function(*f).static_,
                     MemberKind::Constructor(_) => false,
@@ -509,142 +509,142 @@ impl<'a> Ctx<'a> {
             }
             _ => false,
         };
-        let valido = (tem("overridableMember") && sobrescrevivel)
-            || match alvo {
-                Alvo::Topo(d) => match &d.kind {
-                    DeclKind::Class(_) => tem("classType") || tem("type"),
-                    DeclKind::Enum(_) => tem("enumType") || tem("type"),
-                    DeclKind::Mixin(_) => tem("mixinType") || tem("type"),
-                    DeclKind::Typedef(_) => tem("typedefType") || tem("type"),
-                    DeclKind::ExtensionType(_) => tem("extensionType"),
-                    DeclKind::Extension(_) => tem("extension"),
-                    DeclKind::Variables(_) => tem("topLevelVariable"),
+        let valid = (has("overridableMember") && sobrescrevivel)
+            || match target {
+                Target::TopLevel(d) => match &d.kind {
+                    DeclKind::Class(_) => has("classType") || has("type"),
+                    DeclKind::Enum(_) => has("enumType") || has("type"),
+                    DeclKind::Mixin(_) => has("mixinType") || has("type"),
+                    DeclKind::Typedef(_) => has("typedefType") || has("type"),
+                    DeclKind::ExtensionType(_) => has("extensionType"),
+                    DeclKind::Extension(_) => has("extension"),
+                    DeclKind::Variables(_) => has("topLevelVariable"),
                     DeclKind::Function(f) => match self.a.function(*f).kind {
-                        FunctionKind::Getter => tem("getter"),
-                        FunctionKind::Setter => tem("setter"),
-                        _ => tem("function"),
+                        FunctionKind::Getter => has("getter"),
+                        FunctionKind::Setter => has("setter"),
+                        _ => has("function"),
                     },
                 },
-                Alvo::Membro { membro, .. } => match &membro.kind {
-                    MemberKind::Constructor(_) => tem("constructor"),
-                    MemberKind::Field(_) => tem("field"),
+                Target::Member { member, .. } => match &member.kind {
+                    MemberKind::Constructor(_) => has("constructor"),
+                    MemberKind::Field(_) => has("field"),
                     MemberKind::Method(f) => match self.a.function(*f).kind {
-                        FunctionKind::Getter => tem("getter"),
-                        FunctionKind::Setter => tem("setter"),
-                        _ => tem("method"),
+                        FunctionKind::Getter => has("getter"),
+                        FunctionKind::Setter => has("setter"),
+                        _ => has("method"),
                     },
                 },
-                Alvo::Constante { .. } => tem("enumValue"),
-                Alvo::Diretiva => tem("directive") || (self.primeira_diretiva && tem("library")),
-                Alvo::Parametro { opcional } => tem("parameter") || (opcional && tem("optionalParameter")),
-                Alvo::ParametroDeTipo(_) => tem("typeParameter"),
-                Alvo::FuncaoLocal(f) => match f.kind {
-                    FunctionKind::Getter => tem("getter"),
-                    FunctionKind::Setter => tem("setter"),
-                    _ => tem("function"),
+                Target::Constant { .. } => has("enumValue"),
+                Target::Directive => has("directive") || (self.first_directive && has("library")),
+                Target::Param { optional } => has("parameter") || (optional && has("optionalParameter")),
+                Target::TypeParam(_) => has("typeParameter"),
+                Target::LocalFunction(f) => match f.kind {
+                    FunctionKind::Getter => has("getter"),
+                    FunctionKind::Setter => has("setter"),
+                    _ => has("function"),
                 },
-                Alvo::Representacao => tem("parameter"),
-                Alvo::Outro => false,
+                Target::Representation => has("parameter"),
+                Target::Other => false,
             };
-        if valido {
+        if valid {
             return;
         }
-        // Os nomes de exibição, em ordem, juntados com vírgulas e `or`
+        // The display names, in order, joined with commas and `or`
         // (`commaSeparatedWithOr`).
-        let mut nomes: Vec<&str> = especies.iter().filter_map(|k| Self::exibicao_da_especie(k)).collect();
-        nomes.sort_unstable();
-        let lista = match nomes.len() {
+        let mut names: Vec<&str> = kinds.iter().filter_map(|k| Self::kind_display(k)).collect();
+        names.sort_unstable();
+        let list = match names.len() {
             0 => String::new(),
-            1 => nomes[0].to_string(),
-            2 => format!("{} or {}", nomes[0], nomes[1]),
-            n => format!("{}, or {}", nomes[..n - 1].join(", "), nomes[n - 1]),
+            1 => names[0].to_string(),
+            2 => format!("{} or {}", names[0], names[1]),
+            n => format!("{}, or {}", names[..n - 1].join(", "), names[n - 1]),
         };
-        let (span, _) = self.nome_da_anotacao(m);
-        self.relatar(w::INVALID_ANNOTATION_TARGET, span, &[nome.as_str(), lista.as_str()]);
+        let (span, _) = self.annotation_name(m);
+        self.report(w::INVALID_ANNOTATION_TARGET, span, &[name.as_str(), list.as_str()]);
     }
 
-    /// `checkAnnotation`: uma anotação, pelo primeiro papel que casa, e
-    /// depois as espécies de alvo (`_checkKinds`).
-    fn anotacao(&mut self, m: &ast::Annotation, alvo: Alvo<'a>, classe: Option<ClassId>) {
-        if self.getter_de(m, "meta", "factory") {
-            self.fabrica(alvo);
-        } else if self.getter_de(m, "meta", "internal") {
-            self.interno(m, alvo);
-        } else if self.getter_de(m, "meta", "literal") {
-            // `_checkLiteral`: só em construtor `const`.
-            let valido = matches!(alvo, Alvo::Membro { membro, .. } if matches!(&membro.kind, MemberKind::Constructor(k) if k.const_));
-            if !valido {
-                let (span, _) = self.nome_da_anotacao(m);
-                self.relatar(w::INVALID_LITERAL_ANNOTATION, span, &[]);
+    /// `checkAnnotation`: an annotation, by the first role that matches, and
+    /// then the target kinds (`_checkKinds`).
+    fn annotation(&mut self, m: &ast::Annotation, target: Target<'a>, class: Option<ClassId>) {
+        if self.is_getter_of(m, "meta", "factory") {
+            self.factory(target);
+        } else if self.is_getter_of(m, "meta", "internal") {
+            self.internal(m, target);
+        } else if self.is_getter_of(m, "meta", "literal") {
+            // `_checkLiteral`: only on a `const` constructor.
+            let valid = matches!(target, Target::Member { member, .. } if matches!(&member.kind, MemberKind::Constructor(k) if k.const_));
+            if !valid {
+                let (span, _) = self.annotation_name(m);
+                self.report(w::INVALID_LITERAL_ANNOTATION, span, &[]);
             }
-        } else if self.getter_de(m, "meta", "nonVirtual") {
-            self.nao_virtual(m, alvo);
-        } else if self.getter_de(m, "meta", "reopen") {
-            if matches!(alvo, Alvo::Topo(d) if matches!(d.kind, DeclKind::Class(_))) {
-                self.reabrir(m, classe);
+        } else if self.is_getter_of(m, "meta", "nonVirtual") {
+            self.non_virtual(m, target);
+        } else if self.is_getter_of(m, "meta", "reopen") {
+            if matches!(target, Target::TopLevel(d) if matches!(d.kind, DeclKind::Class(_))) {
+                self.reopen(m, class);
             }
-        } else if self.getter_de(m, "meta", "redeclare") {
-            self.redeclarar(m, alvo);
-        } else if self.construtor_de(m, "meta", "UseResult") || self.getter_de(m, "meta", "useResult") {
-            self.uso_de_resultado(m, alvo);
-        } else if self.getter_de(m, "angular.meta", "visibleForTemplate") || self.getter_de(m, "meta", "visibleForTesting") {
-            self.visibilidade(m, alvo, false);
-        } else if self.getter_de(m, "meta", "visibleForOverriding") {
-            self.visibilidade(m, alvo, true);
-        } else if self.getter_de(m, "angular.meta", "visibleOutsideTemplate") {
-            self.visibilidade(m, alvo, false);
-            self.fora_do_template(m, alvo);
+        } else if self.is_getter_of(m, "meta", "redeclare") {
+            self.redeclare(m, target);
+        } else if self.is_constructor_of(m, "meta", "UseResult") || self.is_getter_of(m, "meta", "useResult") {
+            self.use_result(m, target);
+        } else if self.is_getter_of(m, "angular.meta", "visibleForTemplate") || self.is_getter_of(m, "meta", "visibleForTesting") {
+            self.visibility(m, target, false);
+        } else if self.is_getter_of(m, "meta", "visibleForOverriding") {
+            self.visibility(m, target, true);
+        } else if self.is_getter_of(m, "angular.meta", "visibleOutsideTemplate") {
+            self.visibility(m, target, false);
+            self.outside_template(m, target);
         }
-        self.especies(m, alvo);
+        self.kinds(m, target);
     }
 
-    /// As anotações dos parâmetros (e dos aninhados de um parâmetro de tipo
-    /// função, com os parâmetros de tipo dele).
-    fn anotacoes_de_parametros(&mut self, lista: &'a [ast::Parameter]) {
-        for p in lista {
-            let opcional = match p.kind {
+    /// The annotations of the parameters (and of the nested ones of a
+    /// function-typed parameter, with its type parameters).
+    fn param_annotations(&mut self, list: &'a [ast::Parameter]) {
+        for p in list {
+            let optional = match p.kind {
                 ParameterKind::Optional => true,
                 ParameterKind::Named => !p.required,
                 ParameterKind::Required => false,
             };
             for m in p.metadata.iter() {
-                self.anotacao(m, Alvo::Parametro { opcional }, None);
+                self.annotation(m, Target::Param { optional }, None);
             }
-            self.anotacoes_de_parametros_de_tipo(&p.function_type_params);
+            self.type_param_annotations(&p.function_type_params);
             if let Some(fs) = &p.function_parameters {
-                self.anotacoes_de_parametros(fs);
+                self.param_annotations(fs);
             }
         }
     }
 
-    /// As anotações de uma lista de parâmetros de tipo.
-    fn anotacoes_de_parametros_de_tipo(&mut self, lista: &'a [ast::TypeParameter]) {
-        for tp in lista {
+    /// The annotations of a type parameter list.
+    fn type_param_annotations(&mut self, list: &'a [ast::TypeParameter]) {
+        for tp in list {
             for m in tp.metadata.iter() {
-                self.anotacao(m, Alvo::ParametroDeTipo(tp.name), None);
+                self.annotation(m, Target::TypeParam(tp.name), None);
             }
         }
     }
 
-    /// `_checkRequiredParameter`: `@required` onde não faz sentido.
-    fn parametros(&mut self, lista: &[ast::Parameter]) {
-        for p in lista {
-            if !p.metadata.iter().any(|m| self.construtor_de(m, "meta", "Required") || self.getter_de(m, "meta", "required")) {
+    /// `_checkRequiredParameter`: `@required` where it makes no sense.
+    fn params(&mut self, list: &[ast::Parameter]) {
+        for p in list {
+            if !p.metadata.iter().any(|m| self.is_constructor_of(m, "meta", "Required") || self.is_getter_of(m, "meta", "required")) {
                 continue;
             }
-            let nome = p.name.map_or("", |n| self.texto(n));
-            let codigo = match p.kind {
+            let name = p.name.map_or("", |n| self.text(n));
+            let code = match p.kind {
                 ParameterKind::Optional => w::INVALID_REQUIRED_OPTIONAL_POSITIONAL_PARAM,
                 ParameterKind::Required => w::INVALID_REQUIRED_POSITIONAL_PARAM,
                 ParameterKind::Named if p.default_value.is_some() => w::INVALID_REQUIRED_NAMED_PARAM,
                 ParameterKind::Named => continue,
             };
-            self.relatar(codigo, p.span, &[nome]);
+            self.report(code, p.span, &[name]);
         }
     }
 }
 
-fn membros_de(d: &ast::Decl) -> &[ast::MemberId] {
+fn members_of(d: &ast::Decl) -> &[ast::MemberId] {
     match &d.kind {
         DeclKind::Class(x) => &x.members,
         DeclKind::Mixin(x) => &x.members,
@@ -655,13 +655,13 @@ fn membros_de(d: &ast::Decl) -> &[ast::MemberId] {
     }
 }
 
-/// A classe, ou algo de que ela herda (mixins, interfaces, superclasse), é
-/// `@immutable` (`isOrInheritsImmutable`).
-fn imutavel(program: &Program, interner: &Interner, c: ClassId, vistos: &mut Vec<ClassId>) -> bool {
-    if vistos.contains(&c) {
+/// The class, or something it inherits from (mixins, interfaces,
+/// superclass), is `@immutable` (`isOrInheritsImmutable`).
+fn is_immutable(program: &Program, interner: &Interner, c: ClassId, seen: &mut Vec<ClassId>) -> bool {
+    if seen.contains(&c) {
         return false;
     }
-    vistos.push(c);
+    seen.push(c);
     let e = program.class(c);
     let anotada = e.decl.is_some_and(|d| {
         program
@@ -673,46 +673,46 @@ fn imutavel(program: &Program, interner: &Interner, c: ClassId, vistos: &mut Vec
             .any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, d.unit, m, "meta", "immutable"))
     });
     anotada
-        || e.mixin_classes.iter().any(|m| imutavel(program, interner, *m, vistos))
-        || e.interface_classes.iter().any(|m| imutavel(program, interner, *m, vistos))
-        || e.supertype_class.is_some_and(|s| imutavel(program, interner, s, vistos))
+        || e.mixin_classes.iter().any(|m| is_immutable(program, interner, *m, seen))
+        || e.interface_classes.iter().any(|m| is_immutable(program, interner, *m, seen))
+        || e.supertype_class.is_some_and(|s| is_immutable(program, interner, s, seen))
 }
 
-/// `Classe.campo` de cada campo de instância não final da classe.
-fn campos_nao_finais(program: &Program, interner: &Interner, c: ClassId, saida: &mut Vec<String>) {
+/// `Class.field` of each non-final instance field of the class.
+fn non_final_fields(program: &Program, interner: &Interner, c: ClassId, out: &mut Vec<String>) {
     let e = program.class(c);
-    let nome = interner.resolve(e.name);
+    let name = interner.resolve(e.name);
     for v in e.fields.iter().map(|v| program.variable(*v)) {
         if !v.final_ && !v.const_ && !v.static_ {
-            saida.push(format!("{nome}.{}", interner.resolve(v.name)));
+            out.push(format!("{name}.{}", interner.resolve(v.name)));
         }
     }
 }
 
-/// As anotações da declaração de um elemento de topo (as da variável, para
-/// um acessor implícito).
-fn anotacoes_do_topo(program: &Program, e: Element) -> &[ast::Annotation] {
-    let da_declaracao = |unit: UnitId, decl: ast::DeclId| &program.unit(unit).ast.decl(decl).metadata[..];
+/// The annotations of a top-level element's declaration (those of the
+/// variable, for an implicit accessor).
+fn top_level_annotations(program: &Program, e: Element) -> &[ast::Annotation] {
+    let from_decl = |unit: UnitId, decl: ast::DeclId| &program.unit(unit).ast.decl(decl).metadata[..];
     match e {
-        Element::Class(c) => program.class(c).decl.map_or(&[][..], |d| da_declaracao(d.unit, d.decl)),
+        Element::Class(c) => program.class(c).decl.map_or(&[][..], |d| from_decl(d.unit, d.decl)),
         Element::Typedef(t) => {
             let d = program.typedef(t).decl;
-            da_declaracao(d.unit, d.decl)
+            from_decl(d.unit, d.decl)
         }
         Element::Extension(x) => {
             let d = program.extension(x).decl;
-            da_declaracao(d.unit, d.decl)
+            from_decl(d.unit, d.decl)
         }
         Element::Variable(v) => match program.variable(v).node {
-            VariableRef::TopLevel { unit, decl, .. } => da_declaracao(unit, decl),
+            VariableRef::TopLevel { unit, decl, .. } => from_decl(unit, decl),
             _ => &[],
         },
         Element::Function(f) => {
-            let elemento = program.function(f);
-            if let Some(v) = elemento.variable {
-                return anotacoes_do_topo(program, Element::Variable(v));
+            let element = program.function(f);
+            if let Some(v) = element.variable {
+                return top_level_annotations(program, Element::Variable(v));
             }
-            match elemento.node {
+            match element.node {
                 FunctionRef::Function { unit, function } => program
                     .unit(unit)
                     .ast
@@ -727,32 +727,31 @@ fn anotacoes_do_topo(program: &Program, e: Element) -> &[ast::Annotation] {
     }
 }
 
-/// `_checkForInternalExport` (`best_practices_verifier.dart:952-990`): numa
-/// biblioteca da API pública, o `export` que traz um elemento `@internal`
-/// (`invalid_export_of_internal_element`), ou uma função cuja assinatura
-/// usa um `typedef` `@internal`
-/// (`invalid_export_of_internal_element_indirectly`). Os limites dos
-/// parâmetros de tipo da função não são olhados.
-fn exports_de_internos(program: &Program, lib: LibraryId, interner: &Interner, out: &mut Vec<(UnitId, Diagnostic)>) {
-    let Some(sym_interno) = interner.lookup("internal") else { return };
-    let interno = |m: &[ast::Annotation]| m.iter().any(|x| x.arguments.is_none() && x.name.last().is_some_and(|n| n.sym == sym_interno));
-    let biblioteca = program.library(lib);
-    for exp in biblioteca.exports.iter() {
-        let Some(diretiva) = program.unit(exp.unit).unit.directives.get(exp.directive) else { continue };
-        let alvo = program.library(exp.library);
-        // A própria biblioteca exportada é `@internal`.
-        let da_biblioteca = alvo
+/// `_checkForInternalExport` (`best_practices_verifier.dart:952-990`): in a
+/// public API library, the `export` that brings an `@internal` element
+/// (`invalid_export_of_internal_element`), or a function whose signature uses
+/// an `@internal` `typedef` (`invalid_export_of_internal_element_indirectly`).
+/// The bounds of the function's type parameters are not looked at.
+fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out: &mut Vec<(UnitId, Diagnostic)>) {
+    let Some(internal_sym) = interner.lookup("internal") else { return };
+    let internal = |m: &[ast::Annotation]| m.iter().any(|x| x.arguments.is_none() && x.name.last().is_some_and(|n| n.sym == internal_sym));
+    let library = program.library(lib);
+    for exp in library.exports.iter() {
+        let Some(directive) = program.unit(exp.unit).unit.directives.get(exp.directive) else { continue };
+        let target = program.library(exp.library);
+        // The exported library itself is `@internal`.
+        let from_library = target
             .units
             .first()
             .and_then(|u| program.unit(*u).unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::Library { .. })));
-        if let Some(d) = da_biblioteca
-            && interno(&d.metadata)
+        if let Some(d) = from_library
+            && internal(&d.metadata)
         {
-            let nome = alvo.name.as_ref().map(|partes| partes.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default();
-            out.push((exp.unit, Diagnostic::com_codigo(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, diretiva.span, [nome.as_str()])));
+            let name = target.name.as_ref().map(|parts| parts.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default();
+            out.push((exp.unit, Diagnostic::com_codigo(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, directive.span, [name.as_str()])));
         }
-        // O namespace que a diretiva exporta, em ordem de nome.
-        let mut nomes: Vec<SymbolId> = alvo
+        // The namespace the directive exports, in name order.
+        let mut names: Vec<SymbolId> = target
             .exported
             .keys()
             .copied()
@@ -763,36 +762,36 @@ fn exports_de_internos(program: &Program, lib: LibraryId, interner: &Interner, o
                 })
             })
             .collect();
-        nomes.sort_by_key(|k| interner.resolve(*k).to_string());
-        for k in nomes {
-            let Some(ligacao) = alvo.exported.get(&k) else { continue };
-            let texto = interner.resolve(k);
-            for e in ligacao.getter.into_iter().chain(ligacao.setter.filter(|s| Some(*s) != ligacao.getter)) {
-                if interno(anotacoes_do_topo(program, e)) {
-                    out.push((exp.unit, Diagnostic::com_codigo(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, diretiva.span, [texto])));
+        names.sort_by_key(|k| interner.resolve(*k).to_string());
+        for k in names {
+            let Some(binding) = target.exported.get(&k) else { continue };
+            let text = interner.resolve(k);
+            for e in binding.getter.into_iter().chain(binding.setter.filter(|s| Some(*s) != binding.getter)) {
+                if internal(top_level_annotations(program, e)) {
+                    out.push((exp.unit, Diagnostic::com_codigo(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, directive.span, [text])));
                     continue;
                 }
-                // Uma função: os tipos escritos da assinatura que são um
-                // `typedef` `@internal`.
+                // A function: the written types of the signature that are an
+                // `@internal` `typedef`.
                 let Element::Function(f) = e else { continue };
                 let FunctionRef::Function { unit, function } = program.function(f).node else { continue };
                 let a = &program.unit(unit).ast;
                 let func = a.function(function);
-                let tipos = func.parameters.iter().flat_map(|ps| ps.iter()).filter_map(|p| p.ty).chain(func.return_type);
-                for t in tipos {
+                let types = func.parameters.iter().flat_map(|ps| ps.iter()).filter_map(|p| p.ty).chain(func.return_type);
+                for t in types {
                     let ast::TypeKind::Named { name, .. } = &a.types[t.0 as usize].kind else { continue };
-                    let achado = match &name[..] {
+                    let found = match &name[..] {
                         [n] => program.lookup_na_unidade(unit, n.sym),
                         [p, n] => program.lookup_prefixed_na_unidade(unit, p.sym, n.sym),
                         _ => None,
                     };
-                    if let Some(alias @ Element::Typedef(td)) = achado.and_then(|b| b.getter)
-                        && interno(anotacoes_do_topo(program, alias))
+                    if let Some(alias @ Element::Typedef(td)) = found.and_then(|b| b.getter)
+                        && internal(top_level_annotations(program, alias))
                     {
-                        let nome_do_alias = interner.resolve(program.typedef(td).name);
+                        let alias_name = interner.resolve(program.typedef(td).name);
                         out.push((
                             exp.unit,
-                            Diagnostic::com_codigo(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT_INDIRECTLY, diretiva.span, [nome_do_alias, texto]),
+                            Diagnostic::com_codigo(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT_INDIRECTLY, directive.span, [alias_name, text]),
                         ));
                     }
                 }
@@ -801,177 +800,177 @@ fn exports_de_internos(program: &Program, lib: LibraryId, interner: &Interner, o
     }
 }
 
-/// Os relatos das anotações do `package:meta` na biblioteca `lib`.
-/// `em_api_publica`: a biblioteca é da API pública do pacote (está em
-/// `lib/`, fora de `lib/src/`).
-/// `ElementAnnotation.targetKinds` de uma anotação da unidade `u`: as
-/// espécies do `@Target({...})` da classe da anotação (a do construtor
-/// chamado, ou a do valor da constante), sem repetição.
-pub(crate) fn especies_da_anotacao(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Vec<String> {
-    let ctx = Ctx { program, interner, a: &program.unit(u).ast, unidade: u, em_api_publica: false, primeira_diretiva: false, out: Vec::new() };
-    let Some((classe, _)) = ctx.classe_da_anotacao(m) else { return Vec::new() };
+/// The reports of the `package:meta` annotations in library `lib`.
+/// `in_public_api`: the library belongs to the package's public API (it is in
+/// `lib/`, outside `lib/src/`).
+/// `ElementAnnotation.targetKinds` of an annotation of unit `u`: the kinds of
+/// the `@Target({...})` of the annotation's class (that of the called
+/// constructor, or that of the constant's value), without repetition.
+pub(crate) fn annotation_target_kinds(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Vec<String> {
+    let ctx = Ctx { program, interner, a: &program.unit(u).ast, unit: u, in_public_api: false, first_directive: false, out: Vec::new() };
+    let Some((class, _)) = ctx.annotation_class(m) else { return Vec::new() };
     let mut v: Vec<String> = Vec::new();
-    for k in ctx.especies_da_classe(classe) {
-        if exibicao_conhecida(k) && !v.iter().any(|x| x == k) {
+    for k in ctx.class_target_kinds(class) {
+        if is_known_display(k) && !v.iter().any(|x| x == k) {
             v.push(k.to_string());
         }
     }
     v
 }
 
-/// O nome é de um `TargetKind` (o `_targetKindsByName` descarta os outros).
-fn exibicao_conhecida(nome: &str) -> bool {
-    Ctx::exibicao_da_especie(nome).is_some()
+/// The name is that of a `TargetKind` (`_targetKindsByName` drops the others).
+fn is_known_display(name: &str) -> bool {
+    Ctx::kind_display(name).is_some()
 }
 
-pub fn verificar(program: &Program, lib: LibraryId, interner: &Interner, em_api_publica: bool) -> Vec<(UnitId, Diagnostic)> {
-    let biblioteca = program.library(lib);
+pub fn check(program: &Program, lib: LibraryId, interner: &Interner, in_public_api: bool) -> Vec<(UnitId, Diagnostic)> {
+    let library = program.library(lib);
     let mut out: Vec<(UnitId, Diagnostic)> = Vec::new();
-    // As classes desta biblioteca pela declaração.
-    let classe_de = |u: UnitId, d: ast::DeclId| {
+    // This library's classes, by declaration.
+    let class_of = |u: UnitId, d: ast::DeclId| {
         program.classes.iter().position(|c| c.library == lib && c.decl.is_some_and(|x| x.unit == u && x.decl == d)).map(|i| ClassId(i as u32))
     };
-    for &u in &biblioteca.units {
-        let unidade = program.unit(u);
-        let a = &unidade.ast;
-        let mut ctx = Ctx { program, interner, a, unidade: u, em_api_publica, primeira_diretiva: false, out: Vec::new() };
-        for (indice, diretiva) in unidade.unit.directives.iter().enumerate() {
-            ctx.primeira_diretiva = indice == 0;
-            for m in diretiva.metadata.iter() {
-                ctx.anotacao(m, Alvo::Diretiva, None);
+    for &u in &library.units {
+        let unit = program.unit(u);
+        let a = &unit.ast;
+        let mut ctx = Ctx { program, interner, a, unit: u, in_public_api, first_directive: false, out: Vec::new() };
+        for (index, directive) in unit.unit.directives.iter().enumerate() {
+            ctx.first_directive = index == 0;
+            for m in directive.metadata.iter() {
+                ctx.annotation(m, Target::Directive, None);
             }
         }
-        for &d in unidade.unit.declarations.iter() {
+        for &d in unit.unit.declarations.iter() {
             let decl = a.decl(d);
-            let classe = classe_de(u, d);
+            let class = class_of(u, d);
             for m in decl.metadata.iter() {
-                ctx.anotacao(m, Alvo::Topo(decl), classe);
+                ctx.annotation(m, Target::TopLevel(decl), class);
             }
             if let DeclKind::Enum(x) = &decl.kind {
-                for constante in x.constants.iter() {
-                    for m in constante.metadata.iter() {
-                        ctx.anotacao(m, Alvo::Constante { constante, dono: decl }, None);
+                for constant in x.constants.iter() {
+                    for m in constant.metadata.iter() {
+                        ctx.annotation(m, Target::Constant { constant, owner: decl }, None);
                     }
                 }
             }
-            for &mid in membros_de(decl) {
-                let membro = a.member(mid);
-                for m in membro.metadata.iter() {
-                    ctx.anotacao(m, Alvo::Membro { membro, dono: decl }, None);
+            for &mid in members_of(decl) {
+                let member = a.member(mid);
+                for m in member.metadata.iter() {
+                    ctx.annotation(m, Target::Member { member, owner: decl }, None);
                 }
-                if let MemberKind::Constructor(k) = &membro.kind {
-                    ctx.parametros(&k.parameters);
+                if let MemberKind::Constructor(k) = &member.kind {
+                    ctx.params(&k.parameters);
                 }
             }
-            // `must_be_immutable`: classe, aplicação de mixin ou mixin.
-            let nome = match &decl.kind {
+            // `must_be_immutable`: class, mixin application or mixin.
+            let name = match &decl.kind {
                 DeclKind::Class(x) => Some(x.name),
                 DeclKind::Mixin(x) => Some(x.name),
                 _ => None,
             };
-            if let (Some(nome), Some(c)) = (nome, classe)
-                && imutavel(program, interner, c, &mut Vec::new())
+            if let (Some(name), Some(c)) = (name, class)
+                && is_immutable(program, interner, c, &mut Vec::new())
             {
-                let mut campos: Vec<String> = Vec::new();
-                let mut vistos: Vec<ClassId> = Vec::new();
-                let mut atual = Some(c);
-                while let Some(x) = atual {
-                    if vistos.contains(&x) {
+                let mut fields: Vec<String> = Vec::new();
+                let mut seen: Vec<ClassId> = Vec::new();
+                let mut current = Some(c);
+                while let Some(x) = current {
+                    if seen.contains(&x) {
                         break;
                     }
-                    vistos.push(x);
-                    campos_nao_finais(program, interner, x, &mut campos);
+                    seen.push(x);
+                    non_final_fields(program, interner, x, &mut fields);
                     for m in program.class(x).mixin_classes.iter() {
-                        campos_nao_finais(program, interner, *m, &mut campos);
+                        non_final_fields(program, interner, *m, &mut fields);
                     }
-                    atual = program.class(x).supertype_class;
+                    current = program.class(x).supertype_class;
                 }
-                if !campos.is_empty() {
-                    let lista = campos.join(", ");
-                    ctx.relatar(w::MUST_BE_IMMUTABLE, nome.span, &[lista.as_str()]);
+                if !fields.is_empty() {
+                    let list = fields.join(", ");
+                    ctx.report(w::MUST_BE_IMMUTABLE, name.span, &[list.as_str()]);
                 }
             }
         }
-        // `@required` nas listas de parâmetros de funções e métodos.
+        // `@required` in the parameter lists of functions and methods.
         for f in a.functions.iter() {
             if let Some(ps) = &f.parameters {
-                ctx.parametros(ps);
+                ctx.params(ps);
             }
         }
-        // `_checkKinds` nos alvos que não são membros nem declarações de
-        // topo: parâmetros, parâmetros de tipo, funções e variáveis locais, a
-        // representação de tipo de extensão.
-        for &d in unidade.unit.declarations.iter() {
+        // `_checkKinds` on the targets that are neither members nor top-level
+        // declarations: parameters, type parameters, local functions and
+        // variables, the extension type representation.
+        for &d in unit.unit.declarations.iter() {
             let decl = a.decl(d);
             match &decl.kind {
-                DeclKind::Class(x) => ctx.anotacoes_de_parametros_de_tipo(&x.type_params),
-                DeclKind::Mixin(x) => ctx.anotacoes_de_parametros_de_tipo(&x.type_params),
-                DeclKind::Enum(x) => ctx.anotacoes_de_parametros_de_tipo(&x.type_params),
-                DeclKind::Extension(x) => ctx.anotacoes_de_parametros_de_tipo(&x.type_params),
+                DeclKind::Class(x) => ctx.type_param_annotations(&x.type_params),
+                DeclKind::Mixin(x) => ctx.type_param_annotations(&x.type_params),
+                DeclKind::Enum(x) => ctx.type_param_annotations(&x.type_params),
+                DeclKind::Extension(x) => ctx.type_param_annotations(&x.type_params),
                 DeclKind::ExtensionType(x) => {
-                    ctx.anotacoes_de_parametros_de_tipo(&x.type_params);
+                    ctx.type_param_annotations(&x.type_params);
                     for m in x.representation_metadata.iter() {
-                        ctx.anotacao(m, Alvo::Representacao, None);
+                        ctx.annotation(m, Target::Representation, None);
                     }
                 }
                 DeclKind::Typedef(x) => {
-                    ctx.anotacoes_de_parametros_de_tipo(&x.type_params);
+                    ctx.type_param_annotations(&x.type_params);
                     if let ast::TypedefKind::Legacy { parameters, .. } = &x.kind {
-                        ctx.anotacoes_de_parametros(parameters);
+                        ctx.param_annotations(parameters);
                     }
                 }
                 _ => {}
             }
-            for &mid in membros_de(decl) {
+            for &mid in members_of(decl) {
                 if let MemberKind::Constructor(k) = &a.member(mid).kind {
-                    ctx.anotacoes_de_parametros(&k.parameters);
+                    ctx.param_annotations(&k.parameters);
                 }
             }
         }
         for f in a.functions.iter() {
-            ctx.anotacoes_de_parametros_de_tipo(&f.type_params);
+            ctx.type_param_annotations(&f.type_params);
             if let Some(ps) = &f.parameters {
-                ctx.anotacoes_de_parametros(ps);
+                ctx.param_annotations(ps);
             }
         }
         for t in a.types.iter() {
             if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
-                ctx.anotacoes_de_parametros_de_tipo(type_params);
-                ctx.anotacoes_de_parametros(parameters);
+                ctx.type_param_annotations(type_params);
+                ctx.param_annotations(parameters);
             }
         }
         for (sid, meta) in a.metadados_locais.iter() {
-            let alvo = match &a.stmt(*sid).kind {
-                StmtKind::Function(f) => Alvo::FuncaoLocal(a.function(*f)),
-                _ => Alvo::Outro,
+            let target = match &a.stmt(*sid).kind {
+                StmtKind::Function(f) => Target::LocalFunction(a.function(*f)),
+                _ => Target::Other,
             };
             for m in meta.iter() {
-                ctx.anotacao(m, alvo, None);
+                ctx.annotation(m, target, None);
             }
         }
         for s in a.stmts.iter() {
             if let StmtKind::ForIn { target: ast::ForInTarget::Declared { metadata, .. }, .. } = &s.kind {
                 for m in metadata.iter() {
-                    ctx.anotacao(m, Alvo::Outro, None);
+                    ctx.annotation(m, Target::Other, None);
                 }
             }
         }
         out.append(&mut ctx.out);
     }
-    if em_api_publica {
-        exports_de_internos(program, lib, interner, &mut out);
+    if in_public_api {
+        internal_exports(program, lib, interner, &mut out);
     }
-    // `import_deferred_library_with_load_function`: o import adiado de uma
-    // biblioteca que exporta `loadLibrary`, na diretiva inteira.
+    // `import_deferred_library_with_load_function`: the deferred import of a
+    // library that exports `loadLibrary`, on the whole directive.
     if let Some(sym) = interner.lookup("loadLibrary") {
-        for imp in biblioteca.imports.iter().filter(|i| i.deferred && i.prefix.is_some()) {
-            let exporta = program.library(imp.library).exported.contains_key(&sym)
+        for imp in library.imports.iter().filter(|i| i.deferred && i.prefix.is_some()) {
+            let exports = program.library(imp.library).exported.contains_key(&sym)
                 && imp.combinators.iter().all(|c| match c {
                     Combinator::Show(ns) => ns.iter().any(|n| n.sym == sym),
                     Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == sym),
                 });
-            let diretiva = program.unit(imp.unit).unit.directives.get(imp.directive);
-            if let (true, Some(d)) = (exporta, diretiva)
+            let directive = program.unit(imp.unit).unit.directives.get(imp.directive);
+            if let (true, Some(d)) = (exports, directive)
                 && matches!(d.kind, DirectiveKind::Import { .. })
             {
                 out.push((imp.unit, Diagnostic::com_codigo(h::IMPORT_DEFERRED_LIBRARY_WITH_LOAD_FUNCTION, d.span, std::iter::empty::<&str>())));
@@ -982,16 +981,16 @@ pub fn verificar(program: &Program, lib: LibraryId, interner: &Interner, em_api_
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    /// Só as checagens que não dependem do programa: um contexto com a
-    /// árvore de uma unidade solta não se monta sem `Program`, então os
-    /// testes daqui ficam nas funções puras.
+    /// Only the checks that do not depend on the program: a context with the
+    /// tree of a loose unit cannot be built without a `Program`, so the tests
+    /// here stay on the pure functions.
     #[test]
-    fn membros_de_declaracao_sem_membros() {
-        let mut nomes = Interner::new();
-        let p = dartforge_frontend::parser::parse("void f() {}\n", &mut nomes);
-        assert!(membros_de(p.ast.decl(p.unit.declarations[0])).is_empty());
+    fn members_of_decl_without_members() {
+        let mut names = Interner::new();
+        let p = dartforge_frontend::parser::parse("void f() {}\n", &mut names);
+        assert!(members_of(p.ast.decl(p.unit.declarations[0])).is_empty());
     }
 }

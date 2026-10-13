@@ -714,7 +714,7 @@ impl Motor {
                         .and_then(|p| p.strip_prefix(root).ok())
                         .map(|p| p.to_string_lossy().replace('\\', "/"))
                         .is_some_and(|rel| rel.starts_with("lib/") && !rel.starts_with("lib/src/"));
-                    with_phase(phase::BEST_PRACTICES, dartforge_analysis::meta::verificar(&program, *lib, &interner, public))
+                    with_phase(phase::BEST_PRACTICES, dartforge_analysis::meta::check(&program, *lib, &interner, public))
                 })
             {
                 if let Some(p) = &program.unit(u).path {

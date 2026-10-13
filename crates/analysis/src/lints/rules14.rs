@@ -836,7 +836,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         };
         let mut conferir = |metadata: &[Annotation], e_primeira: bool| {
             for m in metadata {
-                let especies = crate::meta::especies_da_anotacao(program, interner, s.unidade, m);
+                let especies = crate::meta::annotation_target_kinds(program, interner, s.unidade, m);
                 if (especies.len() == 1 && especies[0] == "library" && e_primeira) || pragma_late_trust(m) {
                     relatar(&c::LIBRARY_ANNOTATIONS, m.span, &[]);
                 }
