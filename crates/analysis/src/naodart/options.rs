@@ -401,7 +401,7 @@ fn primeiro_plugin(opcoes: &No) -> Option<String> {
 
 /// `getOptionsFromString`: o mapa do texto; um documento que não é mapa
 /// (ou vazio) é um mapa vazio.
-fn mapa_de(texto: &str) -> Result<No, yaml::ErroDeYaml> {
+fn mapa_de(texto: &str) -> Result<No, yaml::YamlError> {
     let vazio = No { span: Span { start: 0, end: 0 }, valor: Valor::Mapa(Vec::new()) };
     Ok(match yaml::ler(texto)? {
         Some(no) if no.mapa().is_some() => no,
@@ -488,7 +488,7 @@ impl Analise<'_> {
                 self.erros.push(Relato::novo(
                     &c::INCLUDED_FILE_PARSE_ERROR,
                     onde,
-                    &[caminho.as_str(), posicao.as_str(), posicao.as_str(), e.mensagem.as_str()],
+                    &[caminho.as_str(), posicao.as_str(), posicao.as_str(), e.message.as_str()],
                 ));
             }
         }
@@ -501,7 +501,7 @@ pub fn analisar(conteudo: &str, ctx: &Contexto<'_>) -> Vec<Relato> {
     let mut analise = Analise { ctx, erros: Vec::new(), include_inicial: None, primeiro_plugin: None, cadeia: Vec::new() };
     match mapa_de(conteudo) {
         Ok(opcoes) => analise.validar(ctx.arquivo, &opcoes, conteudo),
-        Err(e) => analise.erros.push(Relato::novo(&c::PARSE_ERROR, Span { start: e.offset, end: e.offset }, &[e.mensagem.as_str()])),
+        Err(e) => analise.erros.push(Relato::novo(&c::PARSE_ERROR, Span { start: e.offset, end: e.offset }, &[e.message.as_str()])),
     }
     analise.erros
 }
