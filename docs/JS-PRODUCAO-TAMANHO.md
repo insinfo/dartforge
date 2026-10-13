@@ -592,7 +592,7 @@ como chave de JSON ou nome de coluna), os nomes das constantes de `enum`
 (`minificar::StringsIdentificador`):
 
 * as *strings* do runtime (o *bootstrap* e o módulo do SDK, antes da marca
-  `"dartforge:fim-do-sdk"` que `proprio::montar` põe depois do SDK)
+  `"dartforge:sdk-end"` que `proprio::montar` põe depois do SDK)
   continuam todas reservadas;
 * no programa, só as que estão nos argumentos de uma chamada `dart.X` (fora
   das que recebem mensagens, constantes e descrições: `privateName`,
@@ -1303,3 +1303,57 @@ as dart2js -O2)`). No corpus, só o `56_late` imprime a mensagem.
   com `AllLive` emitem o mesmo texto) quebrou com os literais estáticos
   ansiosos da §11.3: as escolhas de emissão do perfil de produção que não
   são poda perguntam `Liveness::production`, e o `AllLive` diz que não.
+
+### 13.7 Sem `_ti` para classe sem parâmetros de tipo próprios (`ctx.rs`)
+
+Uma classe sem parâmetros de tipo tem rti fechado mesmo sob `extends
+S<int>` (as *views* do ngdart: `_ViewX1 extends EmbeddedView<X>`), e o
+`instanceType` o acha pelo construtor. O construtor dela deixa de receber
+`_ti`, e criá-la deixa de avaliar a receita (`new Vt.o(J("|xR"), e, t)`, 943
+fábricas de *view* no `limitless_ui`); o construtor da superclasse genérica
+recebe `null` e guarda o rti da classe em `$ti`, como antes. Só no perfil de
+produção (`Ctx::production`). `limitless_ui` −26 KB brutos e −5,7 KB gzip;
+`new_sali` −42 KB e −8,5 KB. `DARTFORGE_JSPROD_CLOSED_TI=0` desliga.
+
+### 13.8 Resultado
+
+| alvo | §12.8 | agora | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| `print('hi')` | 52.007 (gz 17.996) | **46.336** (gz 16.169) | 5.076 |
+| `01_print` | 60.113 (gz 20.207) | **55.346** (gz 18.771) | 34.926 (gz 11.543) |
+| `120_convert_json` | 159.246 | **155.706** | 58.550 |
+| `135_convert_json_classes` | 227.638 | **224.481** | 101.193 |
+| `limitless_ui/example` | 3.726.961 (gz 1.099.111) | **3.546.977** (gz **1.026.260**) | 3.708.482 (gz 983.819) |
+| `new_sali/frontend` | 7.854.243 (gz 2.188.550) | **7.626.767** (gz **2.082.024**) | 7.616.042 (gz 2.018.951) |
+
+Corpus (240 programas com saída do `dart2js -O4`): 17.061.534 / 5.664.590 →
+**15.987.460 / 5.329.837** (bruto / gzip), contra 9.760.610 / 3.167.516; a
+mediana da razão nosso/`dart2js` caiu de 1,64×/1,72× para **1,51×/1,58×**.
+
+O `limitless_ui` ficou **menor que o `dart2js -O4` no bruto** (0,956×) e a
+1,043× no gzip (era 1,12×); o `new_sali` a 1,001× no bruto e 1,031× no gzip
+(era 1,08×).
+
+Medidos e descartados:
+
+* o `dart.fn` das *closures* e as assinaturas de método com uma análise de
+  fluxo de valores de função (§12.9, item 3): o limite superior, tirando
+  **todo** `dart.fn` do código do programa sem olhar a correção, é −16 KB
+  brutos e −5,2 KB gzip no `limitless_ui`, e as assinaturas que sobram já são
+  só as dos nomes usados dinamicamente (`dart.bind`, `dsend`). Não paga o
+  risco de uma análise que precisa provar que o rti nunca é observado.
+
+### 13.9 O que falta, por ganho esperado
+
+1. No gzip dos projetos, o que resta medido por ablação no `limitless_ui`:
+   as receitas rti (4.992 *strings*, ~17 KB gzip), a tabela de nomes `t$N`
+   (~8 KB gzip, necessária para `runtimeType`/`toString` com o nome da
+   classe; o `dart2js -O4` mostra nomes minificados) e as regras rti (~9 KB
+   gzip somando runtime e programa).
+2. O piso (`print('hi')` 46 KB): `Object.toString`, `runtimeType` e
+   `JSArray.toString` (sempre vivos pelo `str()` dinâmico) mantêm o
+   `_Universe`/`_Parser` e o `StringBuffer`; cortar pede saber que nenhum
+   objeto sem `toString` próprio chega ao `str()`, o que é inferência de
+   tipos de argumento à moda do `dart2js`.
+3. Os `let` por declaração (68 KB brutos no `limitless_ui` contra 22 KB de
+   `var` do `dart2js`) — juntá-los piorou o gzip na §11.5.
