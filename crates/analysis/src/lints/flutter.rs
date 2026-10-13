@@ -13,7 +13,7 @@ const CONTAINER: &str = "package:flutter/src/widgets/container.dart";
 const BASIC: &str = "package:flutter/src/widgets/basic.dart";
 const FOUNDATION: &str = "package:flutter/src/foundation/constants.dart";
 
-/// `isExactly(element, nome, uri)`.
+/// `isExactly(element, name, uri)`.
 pub fn is_exactly(program: &Program, interner: &Interner, c: ClassId, name: &str, uri: &str) -> bool {
     let k = program.class(c);
     interner.resolve(k.name) == name && k.decl.is_some_and(|r| program.unit(r.unit).uri == uri)

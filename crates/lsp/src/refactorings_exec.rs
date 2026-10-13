@@ -337,22 +337,22 @@ impl Context<'_> {
     /// `getNodePrefix`.
     pub(crate) fn node_prefix(&self, n: usize) -> String {
         let tx = Text::new(self.source);
-        let o = self.tree.nos[n].inicio;
+        let o = self.tree.nodes[n].start;
         if self.kind(n) == "FunctionExpression" { tx.line_prefix(o).to_string() } else { tx.prefix(o).to_string() }
     }
 
     /// The text of a node.
     pub(crate) fn node_text(&self, n: usize) -> &str {
-        let node = &self.tree.nos[n];
-        &self.source[node.inicio..node.fim]
+        let node = &self.tree.nodes[n];
+        &self.source[node.start..node.end]
     }
 
     /// The parser tree expression of the node: that of a `SimpleIdentifier`'s
     /// mark, otherwise the outermost one with the same range (parents enter the
     /// arena after their children).
     pub(crate) fn node_expr(&self, n: usize) -> Option<ExprId> {
-        let node = &self.tree.nos[n];
-        if let crate::arvore_analyzer::Marca::Expr(x) = node.marca
+        let node = &self.tree.nodes[n];
+        if let crate::analyzer_tree::Mark::Expr(x) = node.mark
             && self.kind(n) == "SimpleIdentifier"
         {
             return Some(x);
@@ -361,7 +361,7 @@ impl Context<'_> {
             .exprs
             .iter()
             .enumerate()
-            .filter(|(_, e)| e.span.start == node.inicio && e.span.end == node.fim)
+            .filter(|(_, e)| e.span.start == node.start && e.span.end == node.end)
             .map(|(i, _)| ExprId(i as u32))
             .max_by_key(|x| x.0)
     }
@@ -563,7 +563,7 @@ impl Context<'_> {
         let mut prefix: Option<&str> = None;
         if method
             && let Some(m) = self.with_parents(n).find(|&k| self.kind(k) == "MethodDeclaration")
-            && let crate::arvore_analyzer::Marca::Funcao(fid) = self.tree.nos[m].marca
+            && let crate::analyzer_tree::Mark::Function(fid) = self.tree.nodes[m].mark
             && let Some(name) = self.ast.function(fid).name
             && self.source[name.span.start..name.span.end].starts_with("build")
         {
@@ -612,9 +612,9 @@ impl Context<'_> {
                 let cn = *self.children(n).iter().find(|&&k| self.kind(k) == "ConstructorName")?;
                 let ty = *self.children(cn).first()?;
                 // The name of the `NamedType` (after the import prefix).
-                let node = &self.tree.nos[ty];
-                let start = self.children(ty).iter().find(|&&k| self.kind(k) == "ImportPrefixReference").map_or(node.inicio, |&k| self.tree.nos[k].fim);
-                let rest = &self.source[start..node.fim];
+                let node = &self.tree.nodes[ty];
+                let start = self.children(ty).iter().find(|&&k| self.kind(k) == "ImportPrefixReference").map_or(node.start, |&k| self.tree.nodes[k].end);
+                let rest = &self.source[start..node.end];
                 let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
                 return Some(rest[..end].trim().to_string());
             }
@@ -688,7 +688,7 @@ impl Context<'_> {
                         let _ = cn;
                         let target = self.constructors_by_target.iter().find(|(a, _)| {
                             let s = self.ast.expr(**a).span;
-                            s.start >= self.tree.nos[owner].inicio && s.end <= self.tree.nos[owner].fim
+                            s.start >= self.tree.nodes[owner].start && s.end <= self.tree.nodes[owner].end
                         })?;
                         *target.1
                     }
@@ -735,7 +735,7 @@ fn extract_widget(cx: &Context<'_>, request: &RefactoringRequest) -> Refactoring
         return e;
     }
     let end = request.offset + request.length;
-    let node = cx.tree.localizar(request.offset, end);
+    let node = cx.tree.locate(request.offset, end);
     let message = match node.map(|n| cx.kind(n)) {
         Some("Block") => "The last selected statement must return a widget.",
         _ => "Can only extract a widget expression or a method returning widget.",
@@ -788,7 +788,7 @@ impl Context<'_> {
     /// declared by a `VariableDeclaration`.
     pub(crate) fn local_conflicts(&self, offset: usize) -> HashSet<String> {
         let mut names = HashSet::new();
-        let Some(n) = self.tree.localizar(offset, offset) else { return names };
+        let Some(n) = self.tree.locate(offset, offset) else { return names };
         let Some(block) = self.with_parents(n).find(|&k| self.kind(k) == "Block") else { return names };
         let mut stack = vec![block];
         while let Some(k) = stack.pop() {
@@ -796,8 +796,8 @@ impl Context<'_> {
                 "NamedType" => {
                     let has_prefix = self.children(k).iter().any(|&f| self.kind(f) == "ImportPrefixReference");
                     if !has_prefix {
-                        let node = &self.tree.nos[k];
-                        let rest = &self.source[node.inicio..node.fim];
+                        let node = &self.tree.nodes[k];
+                        let rest = &self.source[node.start..node.end];
                         let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
                         names.insert(rest[..end].to_string());
                     }
@@ -808,8 +808,8 @@ impl Context<'_> {
                     }
                 }
                 "VariableDeclaration" => {
-                    let node = &self.tree.nos[k];
-                    let rest = &self.source[node.inicio..node.fim];
+                    let node = &self.tree.nodes[k];
+                    let rest = &self.source[node.start..node.end];
                     let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
                     names.insert(rest[..end].to_string());
                 }
@@ -850,11 +850,11 @@ impl Context<'_> {
     /// `TypedLiteral.isConst`/`InstanceCreationExpression.isConst`: a written
     /// `const`, or (without a keyword) the constant context.
     fn constant(&self, n: usize) -> bool {
-        let node = &self.tree.nos[n];
-        if self.source[node.inicio..node.fim].starts_with("const") && !self.source[node.inicio + 5..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+        let node = &self.tree.nodes[n];
+        if self.source[node.start..node.end].starts_with("const") && !self.source[node.start + 5..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
             return true;
         }
-        if self.source[node.inicio..node.fim].starts_with("new") && !self.source[node.inicio + 3..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+        if self.source[node.start..node.end].starts_with("new") && !self.source[node.start + 3..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
             return false;
         }
         let Some(x) = self.node_expr(n) else { return false };
@@ -897,7 +897,7 @@ impl Context<'_> {
         if let Some(e) = s.expression
             && self.parent(e).is_some_and(|p| self.kind(p) == "ExpressionStatement")
         {
-            let o = self.tree.nos[e].inicio;
+            let o = self.tree.nodes[e].start;
             m.add(uri, Span { start: o, end: o }, format!("{word} {name} = "));
             return m;
         }
@@ -910,14 +910,14 @@ impl Context<'_> {
         match self.declaration_target(start) {
             Some(Target2::Command(target)) => {
                 let prefix = self.node_prefix(target);
-                let o = self.tree.nos[target].inicio;
+                let o = self.tree.nodes[target].start;
                 m.add(uri, Span { start: o, end: o }, format!("{declaration}{eol}{prefix}"));
             }
             Some(Target2::ExpressionBody(body)) => {
                 let prefix = self.parent(body).map(|p| self.node_prefix(p)).unwrap_or_default();
                 let expr = *self.children(body).first().unwrap_or(&body);
-                let (ci, cf) = (self.tree.nos[body].inicio, self.tree.nos[body].fim);
-                let (ei, ef) = (self.tree.nos[expr].inicio, self.tree.nos[expr].fim);
+                let (ci, cf) = (self.tree.nodes[body].start, self.tree.nodes[body].end);
+                let (ei, ef) = (self.tree.nodes[expr].start, self.tree.nodes[expr].end);
                 let code = format!("{{{eol}{prefix}{ONE_INDENT}{declaration}{eol}{prefix}{ONE_INDENT}return ");
                 m.add(uri, Span { start: ci, end: ei }, code);
                 m.add(uri, Span { start: ef, end: cf }, format!(";{eol}{prefix}}}"));
@@ -931,7 +931,7 @@ impl Context<'_> {
 
     /// `_findDeclarationTarget([selectionRange])`.
     fn declaration_target(&self, offset: usize) -> Option<Target2> {
-        let common = self.tree.localizar(offset, offset)?;
+        let common = self.tree.locate(offset, offset)?;
         let path: Vec<usize> = self.with_parents(common).collect();
         let _ = &path;
         // `Block`, `SwitchCase`, `SwitchPatternCase`: the child on the path (with a
@@ -984,24 +984,24 @@ fn inline_local(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> Re
     let message = "Local variable declaration or reference must be selected to activate this refactoring.";
     let prepare = || -> Result<(usize, usize, usize, usize), State> {
         // The element and its declaration.
-        let n = cx.tree.localizar(o, o).ok_or_else(|| State::fatal(message))?;
+        let n = cx.tree.locate(o, o).ok_or_else(|| State::fatal(message))?;
         let decl = match cx.kind(n) {
             "SimpleIdentifier" => {
                 if cx.identifier_element(n, true) != Elem::LocalVariable {
                     return Err(State::fatal(message));
                 }
-                let crate::arvore_analyzer::Marca::Expr(x) = cx.tree.nos[n].marca else { return Err(State::fatal(message)) };
+                let crate::analyzer_tree::Mark::Expr(x) = cx.tree.nodes[n].mark else { return Err(State::fatal(message)) };
                 cx.bodies.local_declaration(x).ok_or_else(|| State::fatal(message))?
             }
-            "VariableDeclaration" if cx.tree.nos[n].marca == crate::arvore_analyzer::Marca::VariavelLocal => cx.tree.nos[n].inicio,
+            "VariableDeclaration" if cx.tree.nodes[n].mark == crate::analyzer_tree::Mark::LocalVariable => cx.tree.nodes[n].start,
             _ => return Err(State::fatal(message)),
         };
         // `getElementDeclaration`: the declaration node is a `VariableDeclaration`.
         let vd = cx
             .tree
-            .nos
+            .nodes
             .iter()
-            .position(|k| k.especie == "VariableDeclaration" && k.inicio == decl)
+            .position(|k| k.kind == "VariableDeclaration" && k.start == decl)
             .ok_or_else(|| State::fatal(message))?;
         // `_declarationStatement`.
         let list = cx.parent(vd).filter(|&l| cx.kind(l) == "VariableDeclarationList").ok_or_else(|| State::fatal(message))?;
@@ -1010,8 +1010,8 @@ fn inline_local(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> Re
             return Err(State::fatal(message));
         }
         let name = {
-            let node = &cx.tree.nos[vd];
-            let rest = &cx.source[node.inicio..node.fim];
+            let node = &cx.tree.nodes[vd];
+            let rest = &cx.source[node.start..node.end];
             let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
             rest[..end].to_string()
         };
@@ -1088,26 +1088,26 @@ impl Context<'_> {
     fn inline_local_change(&self, uri: &str, command: usize, initializer: usize, decl: usize) -> Change {
         let mut m = Change::default();
         let tx = Text::new(self.source);
-        let (ci, cf) = (self.tree.nos[command].inicio, self.tree.nos[command].fim);
+        let (ci, cf) = (self.tree.nodes[command].start, self.tree.nodes[command].end);
         m.add(uri, tx.line_range(ci, cf), "");
         let code = self.node_text(initializer).to_string();
-        let init_node = &self.tree.nos[initializer];
+        let init_node = &self.tree.nodes[initializer];
         for (s, _) in self.local_references(decl) {
-            let Some(n) = self.tree.localizar(s.start, s.start) else { continue };
+            let Some(n) = self.tree.locate(s.start, s.start) else { continue };
             let parent = self.parent(n);
             let interpolation = parent.filter(|&p| self.kind(p) == "InterpolationExpression");
             let (range, text) = if let Some(ip) = interpolation {
                 let target = self.parent(ip);
-                let simple_or_interp = matches!(init_node.especie, "SimpleStringLiteral" | "StringInterpolation");
+                let simple_or_interp = matches!(init_node.kind, "SimpleStringLiteral" | "StringInterpolation");
                 let merge = target.is_some_and(|a| self.kind(a) == "StringInterpolation")
                     && simple_or_interp
                     && !raw_string(&code)
                     && single_quotes(&code) == single_quotes(self.node_text(target.unwrap()))
                     && (!multiline_string(&code) || multiline_string(self.node_text(target.unwrap())));
-                let ipn = &self.tree.nos[ip];
+                let ipn = &self.tree.nodes[ip];
                 if merge {
-                    (Span { start: ipn.inicio, end: ipn.fim }, string_content(&code).to_string())
-                } else if !self.source[ipn.inicio..].starts_with("${") && init_node.especie != "SimpleIdentifier" {
+                    (Span { start: ipn.start, end: ipn.end }, string_content(&code).to_string())
+                } else if !self.source[ipn.start..].starts_with("${") && init_node.kind != "SimpleIdentifier" {
                     (s, format!("{{{code}}}"))
                 } else {
                     (s, code.clone())
@@ -1168,7 +1168,7 @@ impl Context<'_> {
     fn binary_precedence(&self, n: usize) -> u8 {
         let children = self.children(n);
         let (Some(&a), Some(&b)) = (children.first(), children.get(1)) else { return 0 };
-        let between = &self.source[self.tree.nos[a].fim..self.tree.nos[b].inicio];
+        let between = &self.source[self.tree.nodes[a].end..self.tree.nodes[b].start];
         let operator = dartforge_frontend::lexer::lex(between)
             .ok()
             .and_then(|v| {
@@ -1391,19 +1391,19 @@ fn method_to_getter(cx: &Context<'_>, request: &RefactoringRequest, command: &st
                     let cxu = contexts.entry(u).or_insert_with(|| Context::new(p, u));
                     let list = cxu
                         .tree
-                        .nos
+                        .nodes
                         .iter()
                         .enumerate()
-                        .find(|(_, k)| k.marca == crate::arvore_analyzer::Marca::Funcao(fid) && matches!(k.especie, "MethodDeclaration" | "FunctionDeclaration"))
+                        .find(|(_, k)| k.mark == crate::analyzer_tree::Mark::Function(fid) && matches!(k.kind, "MethodDeclaration" | "FunctionDeclaration"))
                         .and_then(|(i, k)| {
-                            let target = if k.especie == "FunctionDeclaration" {
+                            let target = if k.kind == "FunctionDeclaration" {
                                 cxu.children(i).iter().copied().find(|&c| cxu.kind(c) == "FunctionExpression").unwrap_or(i)
                             } else {
                                 i
                             };
                             cxu.children(target).iter().copied().find(|&c| cxu.kind(c) == "FormalParameterList")
                         })
-                        .map(|l| (cxu.tree.nos[l].inicio, cxu.tree.nos[l].fim));
+                        .map(|l| (cxu.tree.nodes[l].start, cxu.tree.nodes[l].end));
                     m.add(&uri, Span { start: name.span.start, end: name.span.start }, "get ");
                     if let Some((li, lf)) = list {
                         m.add(&uri, Span { start: li, end: lf }, "");
@@ -1414,9 +1414,9 @@ fn method_to_getter(cx: &Context<'_>, request: &RefactoringRequest, command: &st
             for (u, s) in function_references(p, f, false) {
                 let Some(uri) = p.unit_uri(u) else { continue };
                 let cxu = contexts.entry(u).or_insert_with(|| Context::new(p, u));
-                let Some(n) = cxu.tree.localizar(s.start, s.start) else { continue };
+                let Some(n) = cxu.tree.locate(s.start, s.start) else { continue };
                 if let Some(inv) = cxu.with_parents(n).find(|&k| cxu.kind(k) == "MethodInvocation") {
-                    let end = cxu.tree.nos[inv].fim;
+                    let end = cxu.tree.nodes[inv].end;
                     m.add(&uri, Span { start: s.end, end: end }, "");
                 }
             }

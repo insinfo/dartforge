@@ -8,24 +8,24 @@
 //!   invocation or creation) after an async gap without the guard of the
 //!   associated `mounted` (`State.mounted` for a `State`'s `context`,
 //!   otherwise the type's `mounted`), through the whole `AsyncStateVisitor`
-//!   over the tree in the analyzer's shape ([`crate::arvore_analyzer`], in the
+//!   over the tree in the analyzer's shape ([`crate::analyzer_tree`], in the
 //!   resolved form): from the node up to the function body, each parent gives
 //!   the state relative to the child; an `await` already seen as a parent
 //!   stays in the cache. In the body of a closure passed to a protected
 //!   constructor or method (`Future`, `Stream`, `StreamController`,
 //!   `StreamSubscription`), the use is reported too. Another element's
 //!   `mounted` switches the code to `wrong_mounted`. `terminatesControl` uses
-//!   the `ExitDetector` ([`crate::saida`]); `constantBoolValue`, the
+//!   the `ExitDetector` ([`crate::exit_detector`]); `constantBoolValue`, the
 //!   `true`/`false` literals, the parentheses, `!` and top-level constants
 //!   with a boolean initializer.
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::arvore_analyzer::{Arvore, Ligacao, Marca};
-use crate::Unidade;
+use super::LintCode;
+use crate::analyzer_tree::{AnalyzerTree, Binding, Mark};
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionKind, FunctionRef, VariableId, VariableRef};
 use dartforge_frontend::ast::{DeclKind, ExprId, ExprKind, MemberKind};
@@ -50,7 +50,7 @@ const BODIES: &[&str] = &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyF
 
 /// The tree, the text and the semantics.
 struct Cx<'a> {
-    tree: &'a Arvore,
+    tree: &'a AnalyzerTree,
     source: &'a str,
     s: &'a super::Semantics<'a>,
     interner: &'a Interner,
@@ -58,38 +58,38 @@ struct Cx<'a> {
 
 impl<'a> Cx<'a> {
     fn kind(&self, n: usize) -> &'static str {
-        self.tree.nos[n].especie
+        self.tree.nodes[n].kind
     }
 
     fn children(&self, n: usize) -> &'a [usize] {
-        &self.tree.nos[n].filhos
+        &self.tree.nodes[n].children
     }
 
     fn parent(&self, n: usize) -> Option<usize> {
-        self.tree.nos[n].pai
+        self.tree.nodes[n].parent
     }
 
     fn text(&self, n: usize) -> &'a str {
-        let node = &self.tree.nos[n];
-        &self.source[node.inicio..node.fim]
+        let node = &self.tree.nodes[n];
+        &self.source[node.start..node.end]
     }
 
     fn span(&self, n: usize) -> Span {
-        Span { start: self.tree.nos[n].inicio, end: self.tree.nos[n].fim }
+        Span { start: self.tree.nodes[n].start, end: self.tree.nodes[n].end }
     }
 
     /// The operator between two children (`BinaryExpression`,
     /// `AssignmentExpression`).
     fn operator_between(&self, l: usize, r: usize) -> &'a str {
-        self.source[self.tree.nos[l].fim..self.tree.nos[r].inicio].trim()
+        self.source[self.tree.nodes[l].end..self.tree.nodes[r].start].trim()
     }
 
     /// The DartForge expression that the node represents.
     fn expr(&self, n: usize) -> Option<ExprId> {
-        match self.tree.nos[n].ligacao {
-            Ligacao::Expr(e) => Some(e),
-            _ => match self.tree.nos[n].marca {
-                Marca::Expr(e) => Some(e),
+        match self.tree.nodes[n].binding {
+            Binding::Expr(e) => Some(e),
+            _ => match self.tree.nodes[n].mark {
+                Mark::Expr(e) => Some(e),
                 _ => None,
             },
         }
@@ -102,8 +102,8 @@ impl<'a> Cx<'a> {
 
     /// The resolved element of an identifier (its mark).
     fn resolved(&self, n: usize) -> Option<&'a Resolved> {
-        match self.tree.nos[n].marca {
-            Marca::Expr(e) => self.s.body.get_resolved(e),
+        match self.tree.nodes[n].mark {
+            Mark::Expr(e) => self.s.body.get_resolved(e),
             _ => None,
         }
     }
@@ -165,7 +165,7 @@ impl<'a> Cx<'a> {
             "ReturnStatement" | "BreakStatement" | "ContinueStatement" => true,
             _ => {
                 let element = |m: usize| element_exits(self, m);
-                crate::saida::Saida::novo(self.tree, self.source, &element).sai(n).unwrap_or(false)
+                crate::exit_detector::ExitDetector::new(self.tree, self.source, &element).exits(n).unwrap_or(false)
             }
         }
     }
@@ -212,7 +212,7 @@ fn element_exits(cx: &Cx<'_>, m: usize) -> bool {
             never || function_annotations(s, *f).is_some_and(|(meta, u)| meta.iter().any(|a| dartforge_types::annotations::is_getter_of(s.program, cx.interner, u, a, "meta", "alwaysThrows")))
         }
         Some(Resolved::Local(_)) => {
-            let Marca::Expr(e) = cx.tree.nos[m].marca else { return false };
+            let Mark::Expr(e) = cx.tree.nodes[m].mark else { return false };
             let Some(d) = s.body.local_declaration(e) else { return false };
             matches!(s.body.local_type(d).map(|t| s.table.get(t)), Some(Type::Function { ret, .. }) if matches!(s.table.get(*ret), Type::Never))
         }
@@ -290,16 +290,16 @@ impl AsyncStateVisitor<'_, '_> {
     }
 
     /// `_visitBlockLike`.
-    fn as_block(&mut self, stmts: &[usize], pai: Option<usize>) -> Option<AsyncState> {
+    fn as_block(&mut self, stmts: &[usize], parent: Option<usize>) -> Option<AsyncState> {
         let r = self.reference;
-        if crate::arvore_analyzer::e_comando(self.cx.kind(r))
+        if crate::analyzer_tree::is_statement(self.cx.kind(r))
             && let Some(i) = stmts.iter().position(|&c| c == r)
         {
             let previous = self.in_order_guardable(stmts);
             if previous.is_some() {
                 return previous;
             }
-            if pai.is_some_and(|p| matches!(self.cx.kind(p), "DoStatement" | "ForStatement" | "WhileStatement")) {
+            if parent.is_some_and(|p| matches!(self.cx.kind(p), "DoStatement" | "ForStatement" | "WhileStatement")) {
                 return only_async(self.in_order_guardable(&stmts[i + 1..]));
             }
             return None;
@@ -412,19 +412,19 @@ impl AsyncStateVisitor<'_, '_> {
         let body_and_reference = body == Some(self.reference);
         match cx.kind(parts) {
             "ForPartsWithDeclarations" | "ForPartsWithExpression" => {
-                let p = cx.tree.partes_de_for.get(&parts).cloned().unwrap_or_default();
+                let p = cx.tree.for_parts.get(&parts).cloned().unwrap_or_default();
                 let mut nodes: Vec<(Option<usize>, bool)> = Vec::new();
                 if cx.kind(parts) == "ForPartsWithDeclarations" {
-                    if let Some(list) = p.inicio {
+                    if let Some(list) = p.initialization {
                         for &v in cx.children(list).iter().filter(|&&v| cx.kind(v) == "VariableDeclaration") {
                             nodes.push((Some(v), false));
                         }
                     }
                 } else {
-                    nodes.push((p.inicio, false));
+                    nodes.push((p.initialization, false));
                 }
-                nodes.push((p.condicao, body_and_reference));
-                for &u in &p.atualizacoes {
+                nodes.push((p.condition, body_and_reference));
+                for &u in &p.updaters {
                     nodes.push((Some(u), false));
                 }
                 nodes.push((body, false));
@@ -527,8 +527,8 @@ impl AsyncStateVisitor<'_, '_> {
                 }
             }
             "Block" => {
-                let pai = cx.parent(n);
-                self.as_block(f, pai)
+                let parent = cx.parent(n);
+                self.as_block(f, parent)
             }
             "BlockFunctionBody" | "ExpressionFunctionBody" => None,
             "CaseClause" => f.iter().copied().find(|&k| cx.kind(k) == "GuardedPattern").and_then(|k| self.visit(k)),
@@ -662,9 +662,9 @@ impl AsyncStateVisitor<'_, '_> {
                 if gp == r {
                     return None;
                 }
-                let stmts: Vec<usize> = f.iter().copied().filter(|&k| crate::arvore_analyzer::e_comando(cx.kind(k))).collect();
-                let pai = cx.parent(n);
-                let e = self.as_block(&stmts, pai);
+                let stmts: Vec<usize> = f.iter().copied().filter(|&k| crate::analyzer_tree::is_statement(cx.kind(k))).collect();
+                let parent = cx.parent(n);
+                let e = self.as_block(&stmts, parent);
                 if e.is_some() {
                     return e;
                 }
@@ -696,7 +696,7 @@ impl AsyncStateVisitor<'_, '_> {
                             return Some(AsyncState::Async);
                         }
                         if fall {
-                            let empty = !cx.children(case).iter().any(|&k| crate::arvore_analyzer::e_comando(cx.kind(k)));
+                            let empty = !cx.children(case).iter().any(|&k| crate::analyzer_tree::is_statement(cx.kind(k)));
                             let falls = i == index || empty;
                             if falls {
                                 all_mounted &= when == Some(AsyncState::Mounted);
@@ -741,7 +741,7 @@ impl AsyncStateVisitor<'_, '_> {
                 self.any_async(&body_and_captures)
             }
             "VariableDeclaration" => {
-                let init = f.iter().copied().find(|&k| crate::arvore_analyzer::e_expressao(cx.kind(k)));
+                let init = f.iter().copied().find(|&k| crate::analyzer_tree::is_expression(cx.kind(k)));
                 only_async(init.and_then(|k| self.visit(k)))
             }
             "VariableDeclarationStatement" => {
@@ -751,7 +751,7 @@ impl AsyncStateVisitor<'_, '_> {
                     .iter()
                     .copied()
                     .filter(|&v| cx.kind(v) == "VariableDeclaration")
-                    .filter_map(|v| cx.children(v).iter().copied().find(|&k| crate::arvore_analyzer::e_expressao(cx.kind(k))))
+                    .filter_map(|v| cx.children(v).iter().copied().find(|&k| crate::analyzer_tree::is_expression(cx.kind(k))))
                     .collect();
                 self.any_async(&inits)
             }
@@ -852,7 +852,7 @@ fn context_element(cx: &Cx<'_>, interner: &Interner, mut n: usize) -> Option<Con
     match cx.kind(n) {
         "SimpleIdentifier" | "PrefixedIdentifier" => {
             let id = if cx.kind(n) == "PrefixedIdentifier" { *cx.children(n).last()? } else { n };
-            let Marca::Expr(e) = cx.tree.nos[id].marca else { return None };
+            let Mark::Expr(e) = cx.tree.nodes[id].mark else { return None };
             let r = s.body.get_resolved(e)?;
             let function = match r {
                 Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) | Resolved::ExtensionMember { member: f, .. } => Some(*f),
@@ -935,7 +935,7 @@ fn associated_getter(s: &super::Semantics<'_>, interner: &Interner, c: ContextEl
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !enabled("use_build_context_synchronously") {
@@ -972,22 +972,22 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         }
     }
     let before_3_0 = lib.features.version().major < 3;
-    let tree = crate::arvore_analyzer::construir_resolvida(u.fonte, a, u.unit, before_3_0, &constructors, &prefixes);
-    let cx = Cx { tree: &tree, source: u.fonte, s, interner };
-    let mut findings: Vec<(Span, &'static CodigoLint)> = Vec::new();
+    let tree = crate::analyzer_tree::build_resolved(u.source, a, u.unit, before_3_0, &constructors, &prefixes);
+    let cx = Cx { tree: &tree, source: u.source, s, interner };
+    let mut findings: Vec<(Span, &'static LintCode)> = Vec::new();
 
     // `check`.
-    let check = |node: usize, mounted: FunctionElementId, findings: &mut Vec<(Span, &'static CodigoLint)>| {
+    let check = |node: usize, mounted: FunctionElementId, findings: &mut Vec<(Span, &'static LintCode)>| {
         let mut v = AsyncStateVisitor { cx: &cx, reference: node, mounted, cache: HashMap::new(), unrelated: false };
         let mut child = node;
         loop {
             if BODIES.contains(&cx.kind(child)) {
                 break;
             }
-            let Some(pai) = cx.parent(child) else { break };
+            let Some(parent) = cx.parent(child) else { break };
             v.reference = child;
-            let state = v.visit(pai);
-            v.cache.insert(pai, state);
+            let state = v.visit(parent);
+            v.cache.insert(parent, state);
             if matches!(state, Some(AsyncState::Mounted | AsyncState::NotMounted)) {
                 return;
             }
@@ -996,7 +996,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 findings.push((cx.span(node), code));
                 return;
             }
-            child = pai;
+            child = parent;
         }
         if !BODIES.contains(&cx.kind(child)) {
             return;
@@ -1015,10 +1015,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             return;
         }
         let Some(invocation) = cx.parent(grandparent) else { return };
-        let argumentos = cx.children(grandparent);
-        let positional: Vec<usize> = argumentos.iter().copied().filter(|&k| cx.kind(k) != "NamedExpression").collect();
-        let named: Vec<usize> = argumentos.iter().copied().filter(|&k| cx.kind(k) == "NamedExpression").collect();
-        let protected = |p: &Protected, findings: &mut Vec<(Span, &'static CodigoLint)>| {
+        let arguments = cx.children(grandparent);
+        let positional: Vec<usize> = arguments.iter().copied().filter(|&k| cx.kind(k) != "NamedExpression").collect();
+        let named: Vec<usize> = arguments.iter().copied().filter(|&k| cx.kind(k) == "NamedExpression").collect();
+        let protected = |p: &Protected, findings: &mut Vec<(Span, &'static LintCode)>| {
             for &i in p.positional {
                 if positional.get(i) == Some(&function) {
                     findings.push((cx.span(node), &c::USE_BUILD_CONTEXT_SYNCHRONOUSLY_ASYNC_USE));
@@ -1088,7 +1088,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
 
     // The visited nodes: `MethodInvocation`, `PrefixedIdentifier` and the
     // argument lists of invocations and creations.
-    for n in 0..tree.nos.len() {
+    for n in 0..tree.nodes.len() {
         match cx.kind(n) {
             "MethodInvocation" => {
                 if let Some(target) = cx.method_target(n)
@@ -1130,8 +1130,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             _ => {}
         }
     }
-    findings.sort_by_key(|(sp, c)| (sp.start, sp.end, c.unico));
-    findings.dedup_by(|x, y| x.0 == y.0 && x.1.unico == y.1.unico);
+    findings.sort_by_key(|(sp, c)| (sp.start, sp.end, c.unique));
+    findings.dedup_by(|x, y| x.0 == y.0 && x.1.unique == y.1.unique);
     for (span, code) in findings {
         out.push(LintReport { code, span, args: Vec::new() });
     }

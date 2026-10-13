@@ -413,11 +413,11 @@ impl Reader<'_> {
                         if prefix.map(|p| p.sym) != wanted_prefix {
                             continue;
                         }
-                        let sintetica = !lib
+                        let synthetic = !lib
                             .imports
                             .iter()
                             .any(|im| im.unit == uid && im.directive == i && !self.program.library(im.library).units.is_empty());
-                        if !sintetica {
+                        if !synthetic {
                             continue;
                         }
                         let shows: Vec<&Vec<ast::Name>> = combinators
@@ -609,7 +609,7 @@ fn evaluate(l: &Reader<'_>, lib: LibraryId, id: ClassId) -> Option<GateResult> {
     let mut closed = false;
     let mut uncertain = false;
     let target = |t: ast::TypeId| l.target(u, ast_, t, 0);
-    // `_checkForExtendsOrImplementsDisallowedClass`: nunca numa biblioteca `dart:`.
+    // `_checkForExtendsOrImplementsDisallowedClass`: never in a `dart:` library.
     let forbidden = |a: ClauseTarget| !sdk && matches!(a, ClauseTarget::Class(c) if l.is_forbidden(c));
 
     if class.kind == ClassKind::Mixin {
@@ -711,17 +711,17 @@ fn evaluate(l: &Reader<'_>, lib: LibraryId, id: ClassId) -> Option<GateResult> {
 fn superclass_unnamed_constructor(l: &Reader<'_>, s: ClassId) -> Option<Result<dartforge_elements::model::FunctionElementId, ()>> {
     let empty = l.names.lookup("");
     let mut current = s;
-    let mut repassado = false;
+    let mut forwarded = false;
     for _ in 0..16 {
         let ce = l.program.class(current);
         if ce.kind == ClassKind::MixinApplication {
             current = ce.supertype_class?;
-            repassado = true;
+            forwarded = true;
             continue;
         }
         if let Some(&f) = empty.and_then(|v| ce.constructors.get(&v)) {
             let fe = l.program.function(f);
-            if repassado && fe.factory {
+            if forwarded && fe.factory {
                 return None;
             }
             if matches!(fe.node, dartforge_elements::model::FunctionRef::None) {
@@ -919,14 +919,14 @@ fn mixins(
             *closed = true;
         }
         let el = l.program.class(m);
-        let duplicada = l
+        let duplicated = l
             .program
             .classes
             .iter()
             .filter(|c| c.library == el.library && c.name == el.name)
             .count()
             > 1;
-        if m == id && duplicada {
+        if m == id && duplicated {
             // `class A {}` and then `class A with A` (`duplicate_definition`):
             // for the analyzer the name is the first declaration's, and here it
             // resolved to the second; not decided.
@@ -984,7 +984,7 @@ fn mixins(
                     *closed = true;
                 }
                 // `_checkForMixinInheritsNotFromObject`.
-                let objeto = match el.supertype_class {
+                let object = match el.supertype_class {
                     None => el.supertype.is_none(),
                     Some(s) => {
                         let sc = l.program.class(s);
@@ -992,15 +992,15 @@ fn mixins(
                             && l.program.library(sc.library).uri == "dart:core"
                     }
                 };
-                let resolvida = el.supertype.is_none() || el.supertype_class.is_some();
-                if !resolvida || el.mixins.len() != el.mixin_classes.len() {
+                let resolved = el.supertype.is_none() || el.supertype_class.is_some();
+                if !resolved || el.mixins.len() != el.mixin_classes.len() {
                     *uncertain = true;
                     continue;
                 }
-                let herda = !objeto
+                let inherits = !object
                     || !(el.mixins.is_empty()
                         || el.kind == ClassKind::MixinApplication && el.mixins.len() < 2);
-                if herda {
+                if inherits {
                     reports.push(Diagnostic::with_code(
                         c::MIXIN_INHERITS_FROM_NOT_OBJECT,
                         span,
@@ -1167,7 +1167,7 @@ fn constraints_satisfied(
     // A mixin with `augment` (the constraint may come from the augmentation,
     // which the analyzer does not read without the experiment) or a class in
     // an inheritance cycle.
-    let aumentado = l.program.library(mixin.library).units.iter().any(|&u| {
+    let augmented_lib = l.program.library(mixin.library).units.iter().any(|&u| {
         let a = &l.program.unit(u).ast;
         l.program.unit(u).unit.declarations.iter().any(|&d| {
             a.decl(d).augment && matches!(&a.decl(d).kind, DeclKind::Mixin(x) if x.name.sym == mixin.name)
@@ -1175,7 +1175,7 @@ fn constraints_satisfied(
     });
     let repeated = l.program.classes.iter().filter(|c| c.library == mixin.library && c.name == mixin.name).count() > 1;
     let mut steps = 0;
-    if aumentado || repeated || cycle(l, id, id, &mut Vec::new(), &mut steps).is_some() || steps > 20_000 {
+    if augmented_lib || repeated || cycle(l, id, id, &mut Vec::new(), &mut steps).is_some() || steps > 20_000 {
         return None;
     }
     for &(u, t) in &mixin.on {
@@ -1239,13 +1239,13 @@ fn not_implemented(
     let mixin = l.program.class(m);
     let (mu, mt) = *mixin.on.get(i)?;
     let mast = &l.program.unit(mu).ast;
-    let restricao = l.display(mu, mast, mt, &[])?;
+    let constraint = l.display(mu, mast, mt, &[])?;
     let TypeKind::Named { name, .. } = &ast_.ty(t).kind else { return None };
     let span = name.last()?.span;
     Some(Diagnostic::with_code(
         c::MIXIN_APPLICATION_NOT_IMPLEMENTED_INTERFACE,
         span,
-        [mixin_text.as_str(), super_txt.as_str(), restricao.as_str()],
+        [mixin_text.as_str(), super_txt.as_str(), constraint.as_str()],
     ))
 }
 
@@ -1338,33 +1338,33 @@ fn cycle(l: &Reader<'_>, target: ClassId, el: ClassId, path: &mut Vec<ClassId>, 
 /// `C, B, A` in all three). `None` if `target` is not in a component of more
 /// than one class, or if the hierarchy is too large.
 fn component_3_13(l: &Reader<'_>, lib: LibraryId, target: ClassId) -> Option<Vec<ClassId>> {
-    struct Andar {
+    struct Walk {
         /// (index, lowest index reached) of the nodes seen in this walk.
         indices: std::collections::HashMap<ClassId, (u32, u32)>,
-        avaliados: std::collections::HashSet<ClassId>,
-        pilha: Vec<ClassId>,
-        proximo: u32,
-        passos: u32,
-        achado: Option<Vec<ClassId>>,
+        evaluated: std::collections::HashSet<ClassId>,
+        stack: Vec<ClassId>,
+        next: u32,
+        steps: u32,
+        found: Option<Vec<ClassId>>,
     }
-    fn conectar(l: &Reader<'_>, a: &mut Andar, node: ClassId, target: ClassId) {
-        a.passos += 1;
-        let meu = a.proximo;
-        a.proximo += 1;
-        a.indices.insert(node, (meu, meu));
-        a.pilha.push(node);
+    fn connect(l: &Reader<'_>, a: &mut Walk, node: ClassId, target: ClassId) {
+        a.steps += 1;
+        let mine = a.next;
+        a.next += 1;
+        a.indices.insert(node, (mine, mine));
+        a.stack.push(node);
         let (sup, mixins, on, interfaces) = direct_supertypes(l, node);
         for d in sup.into_iter().chain(mixins).chain(interfaces).chain(on) {
-            if a.passos > 20_000 {
+            if a.steps > 20_000 {
                 return;
             }
-            if d == node || a.avaliados.contains(&d) {
+            if d == node || a.evaluated.contains(&d) {
                 continue;
             }
             let seen = match a.indices.get(&d) {
                 Some(&(i, _)) => i,
                 None => {
-                    conectar(l, a, d, target);
+                    connect(l, a, d, target);
                     a.indices.get(&d).map_or(u32::MAX, |x| x.1)
                 }
             };
@@ -1375,46 +1375,46 @@ fn component_3_13(l: &Reader<'_>, lib: LibraryId, target: ClassId) -> Option<Vec
             }
         }
         if a.indices.get(&node).is_some_and(|&(i, lowest)| i == lowest) {
-            let mut componente = Vec::new();
-            while let Some(other) = a.pilha.pop() {
-                componente.push(other);
-                a.avaliados.insert(other);
+            let mut component = Vec::new();
+            while let Some(other) = a.stack.pop() {
+                component.push(other);
+                a.evaluated.insert(other);
                 if other == node {
                     break;
                 }
             }
-            if componente.len() > 1 && componente.contains(&target) {
-                a.achado = Some(componente);
+            if component.len() > 1 && component.contains(&target) {
+                a.found = Some(component);
             }
         }
     }
-    let mut a = Andar {
+    let mut a = Walk {
         indices: std::collections::HashMap::new(),
-        avaliados: std::collections::HashSet::new(),
-        pilha: Vec::new(),
-        proximo: 1,
-        passos: 0,
-        achado: None,
+        evaluated: std::collections::HashSet::new(),
+        stack: Vec::new(),
+        next: 1,
+        steps: 0,
+        found: None,
     };
     for (i, class) in l.program.classes.iter().enumerate() {
         let id = ClassId(i as u32);
-        if class.library != lib || class.decl.is_none() || a.avaliados.contains(&id) {
+        if class.library != lib || class.decl.is_none() || a.evaluated.contains(&id) {
             continue;
         }
         // Each walk restarts the indices; the nodes of earlier walks are all
         // already evaluated.
         a.indices.clear();
-        a.pilha.clear();
-        a.proximo = 1;
-        conectar(l, &mut a, id, target);
-        if a.passos > 20_000 {
+        a.stack.clear();
+        a.next = 1;
+        connect(l, &mut a, id, target);
+        if a.steps > 20_000 {
             return None;
         }
-        if a.achado.is_some() || a.avaliados.contains(&target) {
+        if a.found.is_some() || a.evaluated.contains(&target) {
             break;
         }
     }
-    a.achado
+    a.found
 }
 
 /// The classes, aliases, enums and mixins of `lib` on which the analyzer's
@@ -1426,7 +1426,7 @@ pub fn inheritance_verifier_proceeds(program: &Program, lib: LibraryId, names: &
     let l = Reader { program, names };
     let consumer = program.library(lib);
     let version = consumer.features.version();
-    let enums_melhorados = (version.major, version.minor) >= (2, 17);
+    let enhanced_enums = (version.major, version.minor) >= (2, 17);
     let mut v = Vec::new();
     for (i, class) in program.classes.iter().enumerate() {
         if class.library != lib {
@@ -1448,7 +1448,7 @@ pub fn inheritance_verifier_proceeds(program: &Program, lib: LibraryId, names: &
             match l.target(decl.unit, ast_, t, 0) {
                 ClauseTarget::Class(a) => {
                     if !consumer.is_sdk {
-                        if l.is_core_enum(a) && enums_melhorados {
+                        if l.is_core_enum(a) && enhanced_enums {
                             error |= !may_have_enum;
                         } else if l.is_forbidden(a) {
                             error = true;
@@ -1660,7 +1660,7 @@ pub fn check(
         let mut direct_error = false;
         if !consumer.is_sdk {
             let version = consumer.features.version();
-            let enums_melhorados = (version.major, version.minor) >= (2, 17);
+            let enhanced_enums = (version.major, version.minor) >= (2, 17);
             let may_have_enum = class.kind == ClassKind::Enum
                 || class.kind == ClassKind::Mixin
                 || class.modifiers.abstract_;
@@ -1676,7 +1676,7 @@ pub fn check(
                         continue;
                     };
                     let span = ast_.ty(t).span;
-                    if l.is_core_enum(target) && enums_melhorados {
+                    if l.is_core_enum(target) && enhanced_enums {
                         if !may_have_enum {
                             direct_error = true;
                             out.push((
@@ -1753,15 +1753,15 @@ pub fn check(
                 let d = if cycle.len() > 1 {
                     let mut text: Vec<&str> = cycle.iter().map(|&x| l.name(program.class(x).name)).collect();
                     text.push(name);
-                    let antigo = text.join(", ");
+                    let old = text.join(", ");
                     // The third argument is the path as 3.13.4 writes it (T2,
                     // case c21); only the 3.13 variant uses it.
                     match component_3_13(&l, lib, id) {
-                        Some(componente) => {
-                            let new = componente.iter().map(|&x| l.name(program.class(x).name)).collect::<Vec<&str>>().join(", ");
-                            Diagnostic::with_code(c::RECURSIVE_INTERFACE_INHERITANCE, span, [name, antigo.as_str(), new.as_str()])
+                        Some(component) => {
+                            let new = component.iter().map(|&x| l.name(program.class(x).name)).collect::<Vec<&str>>().join(", ");
+                            Diagnostic::with_code(c::RECURSIVE_INTERFACE_INHERITANCE, span, [name, old.as_str(), new.as_str()])
                         }
-                        None => Diagnostic::with_code(c::RECURSIVE_INTERFACE_INHERITANCE, span, [name, antigo.as_str()]),
+                        None => Diagnostic::with_code(c::RECURSIVE_INTERFACE_INHERITANCE, span, [name, old.as_str()]),
                     }
                 } else {
                     let (sup, mixins, on, _) = direct_supertypes(&l, id);
@@ -1864,13 +1864,13 @@ pub fn check(
             {
                 continue;
             }
-            let origem = program.library(target.library);
-            if origem.features.version().major < 3 {
+            let origin = program.library(target.library);
+            if origin.features.version().major < 3 {
                 continue;
             }
             // `_mayIgnoreClassModifiers`.
-            if origem.is_sdk
-                && origem.uri != "dart:ffi"
+            if origin.is_sdk
+                && origin.uri != "dart:ffi"
                 && (consumer.is_sdk || consumer.features.version().major < 3)
             {
                 continue;

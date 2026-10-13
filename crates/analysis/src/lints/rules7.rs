@@ -20,11 +20,11 @@
 //! line).
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::strings::{comments, decode, literals, Literal};
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{DirectiveKind, ExprKind, StringLit};
 use dartforge_intern::Interner;
@@ -105,11 +105,11 @@ fn only_escapes_backslash_and_dollar(content: &str) -> bool {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let source = u.fonte;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.source;
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let rules = [
@@ -320,7 +320,7 @@ mod tests {
     fn only(rule: &str, source: &str) -> Vec<String> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         let mut reports = run(u, &names, &|r| r == rule, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
         reports.into_iter().map(|r| source[r.span.start..r.span.end].to_string()).collect()

@@ -11,7 +11,7 @@
 //! already seen; and everything inside the `ConstructorName` of a factory
 //! redirection.
 
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::project::{Target, Project};
 use crate::refactorings::Context;
 use dartforge_elements::model::{Element, UnitId, UnitRole};
@@ -134,8 +134,8 @@ impl Computer<'_, '_> {
     /// The function marked on the node or on the child `FunctionExpression`.
     fn function(&self, k: usize) -> Option<ast::FunctionId> {
         let cx = self.cx;
-        std::iter::once(k).chain(cx.children(k).iter().copied()).find_map(|n| match cx.tree.nos[n].marca {
-            Marca::Funcao(f) => Some(f),
+        std::iter::once(k).chain(cx.children(k).iter().copied()).find_map(|n| match cx.tree.nodes[n].mark {
+            Mark::Function(f) => Some(f),
             _ => None,
         })
     }
@@ -162,7 +162,7 @@ impl Computer<'_, '_> {
                             for &list in cx.children(s) {
                                 for &v in cx.children(list) {
                                     if cx.kind(v) == "VariableDeclaration" {
-                                        e.insert(identifier_in(cx.source, cx.tree.nos[v].inicio).to_string());
+                                        e.insert(identifier_in(cx.source, cx.tree.nodes[v].start).to_string());
                                     }
                                 }
                             }
@@ -172,7 +172,7 @@ impl Computer<'_, '_> {
                 }
             }
             "ClassDeclaration" | "ClassTypeAlias" | "ExtensionTypeDeclaration" | "FunctionTypeAlias" => {
-                let Marca::Decl(did) = cx.tree.nos[k].marca else { return Some(e) };
+                let Mark::Decl(did) = cx.tree.nodes[k].mark else { return Some(e) };
                 match &ast.decl(did).kind {
                     DeclKind::Class(c) if c.mixin_application => self.type_parameters(&mut e, &c.type_params),
                     DeclKind::Class(c) => self.members(&mut e, &c.type_params, &c.members),
@@ -183,9 +183,9 @@ impl Computer<'_, '_> {
             }
             // `forConstructor`: only the parameters.
             "ConstructorDeclaration" => {
-                let end = cx.tree.nos[k].fim;
-                let owner = cx.parent(k).and_then(|p| match cx.tree.nos[p].marca {
-                    Marca::Decl(d) => Some(d),
+                let end = cx.tree.nodes[k].end;
+                let owner = cx.parent(k).and_then(|p| match cx.tree.nodes[p].mark {
+                    Mark::Decl(d) => Some(d),
                     _ => None,
                 });
                 let members: &[ast::MemberId] = match owner.map(|d| &ast.decl(d).kind) {
@@ -262,7 +262,7 @@ impl Computer<'_, '_> {
             "ConstructorName" if cx.parent(k).is_some_and(|p| cx.kind(p) == "ConstructorDeclaration") => return,
             "ImportDirective" => {
                 for &f in cx.children(k) {
-                    if cx.kind(f) == "SimpleIdentifier" && matches!(cx.tree.nos[f].marca, Marca::ContextoDeDeclaracao) {
+                    if cx.kind(f) == "SimpleIdentifier" && matches!(cx.tree.nodes[f].mark, Mark::DeclarationContext) {
                         self.prefixes.insert(cx.node_text(f).to_string());
                     }
                 }
@@ -271,10 +271,10 @@ impl Computer<'_, '_> {
                 let prefix = cx.children(k).iter().copied().find(|&f| cx.kind(f) == "ImportPrefixReference");
                 let start = match prefix {
                     Some(p) => {
-                        let end = cx.tree.nos[p].fim;
+                        let end = cx.tree.nodes[p].end;
                         end + cx.source[end..].len() - cx.source[end..].trim_start().len()
                     }
-                    None => cx.tree.nos[k].inicio,
+                    None => cx.tree.nodes[k].start,
                 };
                 let name = identifier_in(cx.source, start).to_string();
                 // `_addIfNotShadowed`.
@@ -303,7 +303,7 @@ impl Computer<'_, '_> {
 
     fn identifier(&mut self, k: usize) {
         let cx = self.cx;
-        if matches!(cx.tree.nos[k].marca, Marca::ContextoDeDeclaracao) {
+        if matches!(cx.tree.nodes[k].mark, Mark::DeclarationContext) {
             return;
         }
         let Some(parent) = cx.parent(k) else { return };

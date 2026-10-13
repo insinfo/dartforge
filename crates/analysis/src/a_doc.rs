@@ -13,7 +13,7 @@
 //! opens the comment line, outside a fenced (` ``` `) or indented code block.
 //! Written without compiling or running (2026-10-04).
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 
@@ -40,7 +40,7 @@ const YOUTUBE_PREFIX: &str = "https://www.youtube.com/watch?v=";
 
 /// A directive type (`DocDirectiveType`).
 struct DirectiveType {
-    nome: &'static str,
+    name: &'static str,
     positional: &'static [(&'static str, Format)],
     named: &'static [&'static str],
     rest: bool,
@@ -48,23 +48,23 @@ struct DirectiveType {
 
 const DIRECTIVE_TYPES: &[DirectiveType] = &[
     DirectiveType {
-        nome: "animation",
+        name: "animation",
         positional: &[("width", Format::Integer), ("height", Format::Integer), ("url", Format::Uri)],
         named: &["id"],
         rest: false,
     },
-    DirectiveType { nome: "canonicalFor", positional: &[("element", Format::Any)], named: &[], rest: false },
-    DirectiveType { nome: "category", positional: &[], named: &[], rest: true },
-    DirectiveType { nome: "end-inject-html", positional: &[], named: &[], rest: false },
-    DirectiveType { nome: "end-tool", positional: &[], named: &[], rest: false },
-    DirectiveType { nome: "endtemplate", positional: &[], named: &[], rest: false },
-    DirectiveType { nome: "inject-html", positional: &[], named: &[], rest: false },
-    DirectiveType { nome: "macro", positional: &[("name", Format::Any)], named: &[], rest: false },
-    DirectiveType { nome: "subCategory", positional: &[], named: &[], rest: true },
-    DirectiveType { nome: "template", positional: &[("name", Format::Any)], named: &[], rest: false },
-    DirectiveType { nome: "tool", positional: &[("name", Format::Any)], named: &[], rest: true },
+    DirectiveType { name: "canonicalFor", positional: &[("element", Format::Any)], named: &[], rest: false },
+    DirectiveType { name: "category", positional: &[], named: &[], rest: true },
+    DirectiveType { name: "end-inject-html", positional: &[], named: &[], rest: false },
+    DirectiveType { name: "end-tool", positional: &[], named: &[], rest: false },
+    DirectiveType { name: "endtemplate", positional: &[], named: &[], rest: false },
+    DirectiveType { name: "inject-html", positional: &[], named: &[], rest: false },
+    DirectiveType { name: "macro", positional: &[("name", Format::Any)], named: &[], rest: false },
+    DirectiveType { name: "subCategory", positional: &[], named: &[], rest: true },
+    DirectiveType { name: "template", positional: &[("name", Format::Any)], named: &[], rest: false },
+    DirectiveType { name: "tool", positional: &[("name", Format::Any)], named: &[], rest: true },
     DirectiveType {
-        nome: "youtube",
+        name: "youtube",
         positional: &[("width", Format::Integer), ("height", Format::Integer), ("url", Format::Youtube)],
         named: &[],
         rest: false,
@@ -74,7 +74,7 @@ const DIRECTIVE_TYPES: &[DirectiveType] = &[
 /// A parsed argument: the absolute range and, if it is named, the name.
 struct Argument<'a> {
     span: Span,
-    nome: Option<&'a str>,
+    name: Option<&'a str>,
     value: &'a str,
 }
 
@@ -135,7 +135,7 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
     while i < n && is_blank(b[i]) {
         i += 1;
     }
-    let Some(ty) = DIRECTIVE_TYPES.iter().find(|t| t.nome == name) else { return };
+    let Some(ty) = DIRECTIVE_TYPES.iter().find(|t| t.name == name) else { return };
     // `_offset + index`: the offset of the `{@` plus the index in the line contents.
     let in_analyzer = |index_in_contents: usize| base + start + before + index_in_contents;
     // `_parseArguments`.
@@ -178,9 +178,9 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
         let span = Span { start: base + arg_start, end: base + i };
         match named_arg {
             Some((name_end, value_start)) => {
-                named.push(Argument { span, nome: Some(&contents[arg_start..name_end]), value: &contents[value_start..i] })
+                named.push(Argument { span, name: Some(&contents[arg_start..name_end]), value: &contents[value_start..i] })
             }
-            None => positional.push(Argument { span, nome: None, value: &contents[arg_start..i] }),
+            None => positional.push(Argument { span, name: None, value: &contents[arg_start..i] }),
         }
         while i < n && is_blank(b[i]) {
             i += 1;
@@ -205,7 +205,7 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
             _ => None,
         };
         if let Some(code) = code {
-            let mut args: Vec<&str> = vec![ty.nome];
+            let mut args: Vec<&str> = vec![ty.name];
             args.extend(names);
             out.push(Diagnostic::with_code(code, tag, args));
         }
@@ -214,16 +214,16 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
         if positional.len() > required {
             let span = Span { start: positional[required].span.start, end: positional[positional.len() - 1].span.end };
             let (given, expected) = (positional.len().to_string(), required.to_string());
-            out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_HAS_EXTRA_ARGUMENTS, span, [ty.nome, given.as_str(), expected.as_str()]));
+            out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_HAS_EXTRA_ARGUMENTS, span, [ty.name, given.as_str(), expected.as_str()]));
         }
         for a in &named {
-            let arg_name = a.nome.unwrap_or("");
+            let arg_name = a.name.unwrap_or("");
             if !ty.named.contains(&arg_name) {
-                out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_HAS_UNEXPECTED_NAMED_ARGUMENT, a.span, [ty.nome, arg_name]));
+                out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_HAS_UNEXPECTED_NAMED_ARGUMENT, a.span, [ty.name, arg_name]));
             }
         }
     }
-    // `validateArgumentFormat`: roda sempre.
+    // `validateArgumentFormat`: always runs.
     for (a, (param_name, format)) in positional.iter().zip(ty.positional.iter()) {
         let ok = match format {
             Format::Any => true,
@@ -286,9 +286,9 @@ fn doc_import(contents: &str, base: usize, index: usize) -> Option<DocImport> {
 
 /// The `@docImport`s of the documentation comment of the `library` directive
 /// (the only ones the `LibraryAnalyzer` resolves).
-pub fn library_doc_imports(u: Unidade<'_>) -> Vec<DocImport> {
+pub fn library_doc_imports(u: Unit<'_>) -> Vec<DocImport> {
     let Some(d) = u.unit.directives.iter().find(|d| matches!(d.kind, dartforge_frontend::ast::DirectiveKind::Library { .. })) else { return Vec::new() };
-    let source = u.fonte;
+    let source = u.source;
     let comments = dartforge_frontend::comments::Comments::scan(source);
     let before = d.metadata.first().map_or(d.span.start, |m| m.span.start.min(d.span.start));
     let Some(doc) = comments.dart_doc(source, before) else { return Vec::new() };
@@ -372,8 +372,8 @@ fn references_with_new(contents: &str, base: usize, out: &mut Vec<Diagnostic>) {
 }
 
 /// The diagnostics of the documentation directives of a unit.
-pub fn check(u: Unidade<'_>) -> Vec<Diagnostic> {
-    let source = u.fonte;
+pub fn check(u: Unit<'_>) -> Vec<Diagnostic> {
+    let source = u.source;
     let mut out = Vec::new();
     let mut pos = 0;
     // The state of the current comment (a sequence of `///` lines).
@@ -455,7 +455,7 @@ mod tests {
     fn reports(source: &str) -> Vec<(&'static str, usize, usize)> {
         let mut names = dartforge_intern::Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         check(u).into_iter().map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end - d.span.start)).collect()
     }
 

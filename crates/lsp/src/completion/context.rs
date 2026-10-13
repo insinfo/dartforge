@@ -11,7 +11,7 @@
 
 use super::isp::Isp;
 use super::*;
-use crate::arvore_analyzer::Ligacao;
+use crate::analyzer_tree::Binding;
 use dartforge_frontend::token::Op;
 
 /// The names with an implied type (`_impliedDartTypeWithName`, `FC:28-44`).
@@ -278,7 +278,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     fn list_type(&self, list: usize) -> Option<TypeId> {
         let l = self.real_list(list)?;
         let t = l.ty?;
-        let node = self.children(list).iter().copied().find(|&k| self.link(k) == Ligacao::Tipo(t))?;
+        let node = self.children(list).iter().copied().find(|&k| self.link(k) == Binding::Type(t))?;
         self.type_node_type(node)
     }
 
@@ -300,7 +300,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `requiredType` of a pattern (`pattern_types`).
     fn required_type(&self, pattern: usize) -> Option<TypeId> {
-        let Ligacao::Padrao(pid) = self.link(pattern) else { return None };
+        let Binding::Pattern(pid) = self.link(pattern) else { return None };
         let s = self.a.pattern(pid).span;
         let (start, end) = (self.map(s.start), self.map_end(s.end));
         let ast_c = &self.query.program.unit(self.unit).ast;

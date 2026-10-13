@@ -5,7 +5,7 @@
 //! `VisibleRangesComputer`) and the removal of the declaration.
 //! Written without compiling or running (2026-10-05).
 
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::refactorings::{Context, Elem, RefactoringRequest, RefactoringResult};
 use crate::refactorings_exec::{State, Change, Severity, Text};
 use dartforge_diagnostics::Span;
@@ -84,9 +84,9 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
     };
     let Some(node) = cxm
         .tree
-        .nos
+        .nodes
         .iter()
-        .position(|k| k.marca == Marca::Funcao(fid) && matches!(k.especie, "FunctionDeclaration" | "MethodDeclaration"))
+        .position(|k| k.mark == Mark::Function(fid) && matches!(k.kind, "FunctionDeclaration" | "MethodDeclaration"))
     else {
         return fail(State::fatal(fatal));
     };
@@ -233,7 +233,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
             contexts.get(&u).unwrap()
         };
         let Some(uri_r) = p.unit_uri(u) else { continue };
-        let Some(n) = cxr.tree.localizar(s.start, s.start) else { continue };
+        let Some(n) = cxr.tree.locate(s.start, s.start) else { continue };
         if cxr.kind(n) != "SimpleIdentifier" {
             return R::InternalError(format!("type '{}Impl' is not a subtype of type 'SimpleIdentifier' in type cast", cxr.kind(n)));
         }
@@ -266,7 +266,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
 
 /// The range of a node.
 fn range(cx: &Context<'_>, n: usize) -> (usize, usize) {
-    (cx.tree.nos[n].inicio, cx.tree.nos[n].fim)
+    (cx.tree.nodes[n].start, cx.tree.nodes[n].end)
 }
 
 /// `_skipEmptyLinesLeft`.
@@ -316,7 +316,7 @@ impl<'c, 'p> Method<'c, 'p> {
                         self.parameter(k, &parameter_names, &mut part);
                         let e = cxm.identifier_element(k, true);
                         if e == Elem::LocalVariable
-                            && let Marca::Expr(x) = cxm.tree.nos[k].marca
+                            && let Mark::Expr(x) = cxm.tree.nodes[k].mark
                             && let Some(d) = cxm.bodies.local_declaration(x)
                         {
                             add_variable(&mut part, d, cxm.node_text(k).to_string(), (ki - a, kf - a));
@@ -363,7 +363,7 @@ impl<'c, 'p> Method<'c, 'p> {
                 return;
             }
         }
-        let Marca::Expr(x) = cxm.tree.nos[n].marca else { return };
+        let Mark::Expr(x) = cxm.tree.nodes[n].mark else { return };
         let (class, is_static): (Option<ClassId>, bool) = match cxm.bodies.get_resolved(x) {
             Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
                 let fe = prog.function(*f);
@@ -382,7 +382,7 @@ impl<'c, 'p> Method<'c, 'p> {
             _ => return,
         };
         let Some(c) = class else { return };
-        let o = cxm.tree.nos[n].inicio - part.base;
+        let o = cxm.tree.nodes[n].start - part.base;
         if is_static {
             let name = cxm.p.name(prog.class(c).name).to_string();
             match part.implicit_classes.iter_mut().find(|(k, _)| *k == name) {
@@ -400,7 +400,7 @@ impl<'c, 'p> Method<'c, 'p> {
         if cxm.identifier_element(n, true) != Elem::Parameter {
             return;
         }
-        let Marca::Expr(x) = cxm.tree.nos[n].marca else { return };
+        let Mark::Expr(x) = cxm.tree.nodes[n].mark else { return };
         let Some(d) = cxm.bodies.local_declaration(x) else { return };
         let Some((_, name)) = names.iter().find(|(o, _)| *o == d) else { return };
         let (ki, kf) = range(cxm, n);
@@ -437,7 +437,7 @@ impl<'c, 'p> Method<'c, 'p> {
                 let (a, b) = range(cxr, c);
                 (Some(tx.line_range(a, b)), cxr.node_prefix(c))
             }
-            None => (None, tx.line_prefix(cxr.tree.nos[n].inicio).to_string()),
+            None => (None, tx.line_prefix(cxr.tree.nodes[n].start).to_string()),
         };
         // `_shouldProcess`.
         if !inline_all {
@@ -467,7 +467,7 @@ impl<'c, 'p> Method<'c, 'p> {
                 let key = (u, ref_element.map_or(usize::MAX, |(k, _)| k));
                 if !already_async.contains(&key) {
                     already_async.push(key);
-                    let o = cxr.tree.nos[body].inicio;
+                    let o = cxr.tree.nodes[body].start;
                     m.add(uri_r, Span { start: o, end: o }, "async ");
                 }
             }
@@ -521,8 +521,8 @@ impl<'c, 'p> Method<'c, 'p> {
                 }
             }
             let mut arguments = Vec::new();
-            let write = match cxr.tree.nos[n].marca {
-                Marca::Expr(x) => cxr.writes.contains(&x),
+            let write = match cxr.tree.nodes[n].mark {
+                Mark::Expr(x) => cxr.writes.contains(&x),
                 _ => false,
             };
             if write
@@ -734,7 +734,7 @@ fn enclosing_executable(cx: &Context<'_>, n: usize) -> Option<(usize, bool)> {
         let kind = cx.kind(k);
         let local = kind == "FunctionDeclaration" && cx.parent(k).is_some_and(|x| cx.kind(x) == "FunctionDeclarationStatement");
         if matches!(kind, "MethodDeclaration" | "FunctionDeclaration") && !local {
-            let Marca::Funcao(fid) = cx.tree.nos[k].marca else { return None };
+            let Mark::Function(fid) = cx.tree.nodes[k].mark else { return None };
             let f = p.node_function(cx.unit, fid)?;
             let ret = p.query.outline.functions.get(f.0 as usize).map(|d| d.return_type);
             let future = ret.is_some_and(|t| matches!(p.query.table.get(t), Type::Interface { class, .. } if Some(*class) == p.query.core.future_class));
@@ -755,7 +755,7 @@ fn names_in_conflict(cx: &Context<'_>, n: usize) -> Vec<String> {
     let mut v: Vec<String> = Vec::new();
     // `_getLocalsConflictingRange`.
     let (start, end) = match cx.with_parents(n).find(|&k| cx.kind(k) == "Block") {
-        Some(b) => (cx.tree.nos[n].inicio, cx.tree.nos[b].fim),
+        Some(b) => (cx.tree.nodes[n].start, cx.tree.nodes[b].end),
         None => match cx.with_parents(n).find(|&k| matches!(cx.kind(k), "FunctionDeclaration" | "ConstructorDeclaration" | "MethodDeclaration")) {
             Some(x) => range(cx, x),
             None => (0, 0),
@@ -772,7 +772,7 @@ fn names_in_conflict(cx: &Context<'_>, n: usize) -> Vec<String> {
     let p = cx.p;
     let prog = p.program();
     if let Some(decl) = cx.with_parents(n).find(|&k| matches!(cx.kind(k), "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration"))
-        && let Marca::Decl(d) = cx.tree.nos[decl].marca
+        && let Mark::Decl(d) = cx.tree.nodes[decl].mark
         && let Some(c) = cx.declaration_class(cx.unit, d)
     {
         let mut classes: Vec<ClassId> = p.supertypes(c).into_iter().filter(|&x| x != c).collect();
@@ -848,7 +848,7 @@ pub(crate) fn visible_ranges(cx: &Context<'_>, root: usize) -> Vec<(String, (usi
                 if let Some(s) = cx.parent(k)
                     && let Some(b) = cx.parent(s)
                     && cx.kind(b) == "Block"
-                    && let Marca::Funcao(fid) = cx.tree.nos[k].marca
+                    && let Mark::Function(fid) = cx.tree.nodes[k].mark
                     && let Some(name) = cx.ast.function(fid).name
                 {
                     v.push((cx.source[name.span.start..name.span.end].to_string(), range(cx, b)));

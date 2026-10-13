@@ -19,10 +19,10 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionRef, LibraryId};
 use dartforge_frontend::ast::{BinaryOp, DeclKind, ExprId, ExprKind, Initializer, MemberKind, ParameterKind};
@@ -176,11 +176,11 @@ fn token_null_aware(source: &str, target_end: usize, len: usize) -> Span {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let source = u.fonte;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.source;
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 

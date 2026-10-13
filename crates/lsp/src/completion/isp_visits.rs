@@ -5,7 +5,7 @@
 use super::isp::{Flags, Initial, Isp};
 use super::*;
 use dartforge_elements::model::UnitId;
-use crate::arvore_analyzer::Ligacao;
+use crate::analyzer_tree::Binding;
 use dartforge_frontend::token::Op;
 
 /// The text of an argument `completionLocation`.
@@ -718,12 +718,12 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// The resolved type of a type node (`type.typeOrThrow`): the bodies'
     /// (`annotation_types`) or the outline's (`written_types`).
     pub(super) fn type_node_type(&self, t: usize) -> Option<TypeId> {
-        let Ligacao::Tipo(tid) = self.link(t) else {
+        let Binding::Type(tid) = self.link(t) else {
             // The `NamedType` the tree builds for a creation without `new` (`A()`,
             // `A.n()`): the created type.
             let name = self.parent(t).filter(|&p| self.kind(p) == "ConstructorName")?;
             let creation = self.parent(name).filter(|&p| self.kind(p) == "InstanceCreationExpression")?;
-            let Ligacao::Expr(e) = self.link(creation) else { return None };
+            let Binding::Expr(e) = self.link(creation) else { return None };
             return self.static_type(e);
         };
         let s = self.a.ty(tid).span;
@@ -736,7 +736,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `matchedValueType` of a pattern.
     pub(super) fn matched_type(&self, pattern: usize) -> Option<TypeId> {
-        let Ligacao::Padrao(pid) = self.link(pattern) else { return None };
+        let Binding::Pattern(pid) = self.link(pattern) else { return None };
         let s = self.a.pattern(pid).span;
         let (start, end) = (self.map(s.start), self.map_end(s.end));
         let ast_c = &self.query.program.unit(self.unit).ast;
@@ -1247,7 +1247,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `ast::Annotation` of an `Annotation` node.
     pub(super) fn real_annotation(&self, n: usize) -> Option<&'a ast::Annotation> {
-        let Ligacao::Anotacao(end) = self.link(n) else { return None };
+        let Binding::Annotation(end) = self.link(n) else { return None };
         let all = self
             .a
             .decls
@@ -1262,7 +1262,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 _ => Vec::new(),
             }));
         for m in all {
-            if crate::arvore_analyzer::endereco(m) == end {
+            if crate::analyzer_tree::address(m) == end {
                 return Some(m);
             }
         }
@@ -2200,8 +2200,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_for_parts_with_declarations(&mut self, n: usize) {
-        let parts = self.tree.partes_de_for.get(&n).cloned().unwrap_or_default();
-        let list = parts.inicio;
+        let parts = self.tree.for_parts.get(&n).cloned().unwrap_or_default();
+        let list = parts.initialization;
         let after_list = list.map_or(self.start(n), |l| self.end(l));
         let p1 = self.op_in(Op::Semicolon, after_list, self.end(n).max(self.offset + 1));
         let p2 = p1.and_then(|a| self.op_in(Op::Semicolon, self.span_tok(a).end, usize::MAX));
@@ -2209,7 +2209,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let start_p2 = p2.map_or(self.synthetic(end_p1).start, |i| self.span_tok(i).start);
         if self.offset >= end_p1 && self.offset <= start_p2 {
             self.local("ForParts_condition");
-            if let Some(c) = parts.condicao
+            if let Some(c) = parts.condition
                 && self.kind(c) == "SimpleIdentifier"
                 && p1.is_none()
                 && p2.is_none()
@@ -2288,7 +2288,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                         if let Some(t) = l.ty {
                             let ts = self.a.ty(t).span;
                             if self.covers(ts.start, ts.end)
-                                && let Some(node_t) = self.children(list).iter().copied().find(|&k| self.link(k) == Ligacao::Tipo(t))
+                                && let Some(node_t) = self.children(list).iter().copied().find(|&k| self.link(k) == Binding::Type(t))
                             {
                                 self.visit(node_t);
                             }
@@ -2297,7 +2297,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
                 "ForPartsWithExpression" => {
                     let p1 = self.op_in(Op::Semicolon, self.start(parts), self.end(parts).max(self.offset + 1));
-                    let initialization = self.tree.partes_de_for.get(&parts).and_then(|p| p.inicio);
+                    let initialization = self.tree.for_parts.get(&parts).and_then(|p| p.initialization);
                     if p1.is_none() && initialization.is_some_and(|i| self.kind(i) == "SimpleIdentifier") {
                         self.kw("final");
                         self.kw("var");
@@ -3265,7 +3265,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let ast::DeclKind::ExtensionType(x) = &d.kind else { return };
         let name = x.representation_name;
         if self.offset <= name.span.end {
-            let ty = self.children(n).iter().copied().find(|&k| self.link(k) == Ligacao::Tipo(x.representation_type));
+            let ty = self.children(n).iter().copied().find(|&k| self.link(k) == Binding::Type(x.representation_type));
             match ty {
                 None => {
                     let opens = self.op_in(Op::LParen, self.start(n), self.end(n));
@@ -3328,7 +3328,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         match p.ty {
             Some(t) => {
                 self.local("FormalParameterList_parameter");
-                let node_t = self.children(n).iter().copied().find(|&k| self.link(k) == Ligacao::Tipo(t));
+                let node_t = self.children(n).iter().copied().find(|&k| self.link(k) == Binding::Type(t));
                 if let Some(nt) = node_t
                     && self.kind(nt) == "NamedType"
                     && let Some(pr) = self.child(nt, "ImportPrefixReference")
@@ -3761,7 +3761,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
                 Some(t) => {
                     let private = matches!(grandparent_kind, Some("FieldDeclaration" | "TopLevelVariableDeclaration"));
-                    let node_t = self.children(list_node).iter().copied().find(|&k| self.link(k) == Ligacao::Tipo(t));
+                    let node_t = self.children(list_node).iter().copied().find(|&k| self.link(k) == Binding::Type(t));
                     self.ih(private);
                     self.ih_variable(node_t);
                 }
@@ -3826,7 +3826,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.local("VariableDeclaration_initializer");
                 self.to_expression(n, false, true);
                 if let Some(t) = self.local_type(v.name.span.start).or_else(|| list.ty.and_then(|t| {
-                    let node = self.children(list_node).iter().copied().find(|&k| self.link(k) == Ligacao::Tipo(t))?;
+                    let node = self.children(list_node).iter().copied().find(|&k| self.link(k) == Binding::Type(t))?;
                     self.type_node_type(node)
                 })) && matches!(self.query.table.get(t), Type::Function { .. })
                 {

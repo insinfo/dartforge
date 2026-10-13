@@ -6,7 +6,7 @@
 //! | `Convert to for-index loop` | `refactor.convert.forEachToForIndex` | `ConvertIntoForIndex` |
 
 use crate::actions::CodeAction;
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::refactorings::Context;
 use crate::refactorings_exec::{Text, ONE_INDENT};
 use crate::Edit;
@@ -33,13 +33,13 @@ impl Context<'_> {
     /// `for (int i = 0; i < list.length; i++)` with `final x = list[i];` at the
     /// start of the block.
     pub(crate) fn convert_to_for_index(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let loop_ = self.with_parents(node).find(|&k| self.kind(k) == "ForStatement")?;
         let parts = self.children(loop_).iter().copied().find(|&k| self.kind(k).starts_with("ForEachParts"))?;
         let body = *self.children(loop_).last()?;
         // `selectionOffset < forStatement.offset || rightParenthesis.end < selectionOffset`.
-        let closes = self.previous_token(self.tree.nos[body].inicio)?;
-        if start < self.tree.nos[loop_].inicio || closes.end < start {
+        let closes = self.previous_token(self.tree.nodes[body].start)?;
+        if start < self.tree.nodes[loop_].start || closes.end < start {
             return None;
         }
         if self.kind(parts) != "ForEachPartsWithDeclaration" {
@@ -53,7 +53,7 @@ impl Context<'_> {
         }
         // `iterable.element is VariableElement2`: a local or a parameter (a field
         // and a top-level variable resolve to the getter).
-        let Marca::Expr(x) = self.tree.nos[iterable].marca else { return None };
+        let Mark::Expr(x) = self.tree.nodes[iterable].mark else { return None };
         if !matches!(self.bodies.get_resolved(x), Some(Resolved::Local(_) | Resolved::Parameter { .. })) {
             return None;
         }
@@ -65,13 +65,13 @@ impl Context<'_> {
         if self.kind(body) != "Block" {
             return None;
         }
-        let conflicts = self.local_conflicts(self.tree.nos[loop_].inicio);
+        let conflicts = self.local_conflicts(self.tree.nodes[loop_].start);
         let index = ["i", "j", "k"].into_iter().find(|n| !conflicts.contains(*n))?;
         let list_name = self.node_text(iterable).to_string();
         let tx = Text::new(self.source);
         let prefix = self.node_prefix(loop_);
         // `getLineContentEnd(body.leftBracket.end)`.
-        let first_line = tx.content_end(self.tree.nos[body].inicio + 1);
+        let first_line = tx.content_end(self.tree.nodes[body].start + 1);
         let variable_source = as_source(self.node_text(variable));
         let eol = tx.eol();
         Some(CodeAction {
@@ -80,7 +80,7 @@ impl Context<'_> {
             edits: vec![
                 Edit {
                     uri: uri.to_string(),
-                    span: Span { start: self.tree.nos[loop_].inicio, end: closes.end },
+                    span: Span { start: self.tree.nodes[loop_].start, end: closes.end },
                     text: format!("for (int {index} = 0; {index} < {list_name}.length; {index}++)"),
                 },
                 Edit {

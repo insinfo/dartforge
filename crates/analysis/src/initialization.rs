@@ -1,7 +1,7 @@
 //! `final_not_initialized` as in the analyzer `ErrorVerifier`'s
 //! `_checkForNotInitializedFieldDeclaration` and top-level variable check.
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_frontend::ast::{Ast, DeclKind, Initializer, MemberKind, TypeId, TypeKind, VariableList};
@@ -51,11 +51,11 @@ fn non_final_non_nullable_instance(v: &VariableList, ast: &Ast, names: &Interner
         return;
     }
     for var in v.variables.iter().filter(|var| var.initializer.is_none()) {
-        let potencial = match non_nullable(unit, var.name.span.start) {
+        let potential = match non_nullable(unit, var.name.span.start) {
             Some(b) => b,
             None => !v.const_ && v.ty.is_some_and(|t| surely_non_nullable_type(ast, t, names, aliases)),
         };
-        if !potencial {
+        if !potential {
             continue;
         }
         if enum_index && names.resolve(var.name.sym) == "index" { continue; }
@@ -79,7 +79,7 @@ type Key = (bool, SymbolId, usize, usize);
 /// variable without an initializer in a top-level, field (any declaration) or
 /// local `const` list — not the one in a `for` header. On the name. Written
 /// without compiling or running (2026-10-05).
-pub fn uninitialized_constants(u: &Unidade<'_>, names: &Interner) -> Vec<Diagnostic> {
+pub fn uninitialized_constants(u: &Unit<'_>, names: &Interner) -> Vec<Diagnostic> {
     let a = u.ast;
     let mut out = Vec::new();
     let mut list = |l: &VariableList| {
@@ -108,15 +108,15 @@ pub fn uninitialized_constants(u: &Unidade<'_>, names: &Interner) -> Vec<Diagnos
     out
 }
 
-pub fn finais_nao_inicializados(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
+pub fn uninitialized_finals(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
     uninitialized_finals_with(units, names, &|_, _| None)
 }
 
-/// Like [`finais_nao_inicializados`], with the semantic predicate
+/// Like [`uninitialized_finals`], with the semantic predicate
 /// "potentially non-nullable" on each field's type (by unit, in the order of
 /// `units`, and by the start of the name); `None` falls back to the syntactic
 /// evidence.
-pub fn uninitialized_finals_with(units: &[Unidade<'_>], names: &Interner, non_nullable: &dyn Fn(usize, usize) -> Option<bool>) -> Vec<(usize, Diagnostic)> {
+pub fn uninitialized_finals_with(units: &[Unit<'_>], names: &Interner, non_nullable: &dyn Fn(usize, usize) -> Option<bool>) -> Vec<(usize, Diagnostic)> {
     let aliases: HashSet<_> = units.iter().flat_map(|u| u.unit.declarations.iter().filter_map(|&id| {
         match &u.ast.decl(id).kind {
             DeclKind::Typedef(x) => Some(x.name.sym),
@@ -179,14 +179,14 @@ pub fn uninitialized_finals_with(units: &[Unidade<'_>], names: &Interner, non_nu
 
     // The official verifier ignores duplicate field names; the duplicate
     // diagnostic is already emitted by another verifier.
-    let mut pendentes = HashMap::<Key, Vec<SymbolId>>::new();
+    let mut pending = HashMap::<Key, Vec<SymbolId>>::new();
     let mut pending_non_finals = HashMap::<Key, Vec<SymbolId>>::new();
     // A repeated name counts once (the 3.6.2 oracle reports `'v'` once for
     // `final int v; final int v;` without initializing), by the first.
     for (key, fields) in fields {
         let mut seen = std::collections::HashSet::<SymbolId>::new();
         let first: Vec<&(SymbolId, bool, bool)> = fields.iter().filter(|(name, _, _)| seen.insert(*name)).collect();
-        pendentes.insert(key, first.iter().filter_map(|(name, missing, _)| missing.then_some(*name)).collect());
+        pending.insert(key, first.iter().filter_map(|(name, missing, _)| missing.then_some(*name)).collect());
         pending_non_finals.insert(key, first.iter().filter_map(|(name, _, missing)| missing.then_some(*name)).collect());
     }
 
@@ -244,9 +244,9 @@ pub fn uninitialized_finals_with(units: &[Unidade<'_>], names: &Interner, non_nu
                                 continue;
                             }
                             let rep = x.representation_name.sym;
-                            let inicializa = k.parameters.iter().any(|p| p.this_ && p.name.is_some_and(|n| n.sym == rep))
+                            let initializes = k.parameters.iter().any(|p| p.this_ && p.name.is_some_and(|n| n.sym == rep))
                                 || k.initializers.iter().any(|y| matches!(y, Initializer::Field { name, .. } if name.sym == rep));
-                            if !inicializa && !names.resolve(rep).is_empty() {
+                            if !initializes && !names.resolve(rep).is_empty() {
                                 let name = names.resolve(rep).to_string();
                                 out.push((i, Diagnostic::with_code(c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_1, k.class_name.span, [name])));
                             }
@@ -266,12 +266,12 @@ pub fn uninitialized_finals_with(units: &[Unidade<'_>], names: &Interner, non_nu
                             k.parameters.iter().any(|p| p.this_ && p.name.is_some_and(|n| n.sym == *wanted))
                                 || k.initializers.iter().any(|x| matches!(x, Initializer::Field { name, .. } if name.sym == *wanted))
                         };
-                        let mut faltantes = pendentes.get(&key).cloned().unwrap_or_default();
-                        faltantes.retain(|name| !initialized(name));
+                        let mut missing = pending.get(&key).cloned().unwrap_or_default();
+                        missing.retain(|name| !initialized(name));
                         // The 3.6.2 oracle marks only the class name, even in
                         // `A.named()`; analyzer main extends it to `.named`.
-                        if !faltantes.is_empty() {
-                            let mut missing_names: Vec<_> = faltantes.iter().map(|s| names.resolve(*s).to_string()).collect();
+                        if !missing.is_empty() {
+                            let mut missing_names: Vec<_> = missing.iter().map(|s| names.resolve(*s).to_string()).collect();
                             missing_names.sort();
                             let code = match missing_names.len() {
                                 1 => c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_1,
@@ -312,7 +312,7 @@ mod tests {
     fn run(source: &str) -> Vec<(String, String)> {
         let mut names = Interner::new();
         let parsed = parse(source, &mut names);
-        finais_nao_inicializados(&[Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source }], &names)
+        uninitialized_finals(&[Unit { ast: &parsed.ast, unit: &parsed.unit, source }], &names)
             .into_iter()
             .map(|(_, d)| {
                 let name = source[d.span.start as usize..d.span.end as usize].to_string();
@@ -324,9 +324,9 @@ mod tests {
     #[test]
     fn top_level_static_instance_and_exceptions_from_oracle() {
         let source = "final int topo; class A { static final int estatico; final int instancia; factory A() => throw 0; } class B { final int delegado; B(); } abstract class C { abstract final int abstrato; external final int externo; late final int tardio; }";
-        let mut encontrados = run(source);
-        encontrados.sort();
-        assert_eq!(encontrados, vec![
+        let mut found_items = run(source);
+        found_items.sort();
+        assert_eq!(found_items, vec![
             ("B".into(), "All final variables must be initialized, but 'delegado' isn't.".into()),
             ("estatico".into(), "The final variable 'estatico' must be initialized.".into()),
             ("instancia".into(), "The final variable 'instancia' must be initialized.".into()),
@@ -336,8 +336,8 @@ mod tests {
 
     #[test]
     fn partial_list_and_nullable_follow_same_rule() {
-        let encontrados = run("final Object? v; class A { static final int a = 0, b, c = 0; }");
-        assert_eq!(encontrados, vec![
+        let found_items = run("final Object? v; class A { static final int a = 0, b, c = 0; }");
+        assert_eq!(found_items, vec![
             ("v".into(), "The final variable 'v' must be initialized.".into()),
             ("b".into(), "The final variable 'b' must be initialized.".into()),
         ]);
@@ -367,9 +367,9 @@ mod tests {
 
     #[test]
     fn constructors_initialize_fields_by_parameter_or_list() {
-        let mut encontrados = run("class A { final int x; final int y; A(this.x); A.named() : y = 0; } class B { final int v; B() : this.named(); B.named() : v = 0; }");
-        encontrados.sort();
-        assert_eq!(encontrados, vec![
+        let mut found_items = run("class A { final int x; final int y; A(this.x); A.named() : y = 0; } class B { final int v; B() : this.named(); B.named() : v = 0; }");
+        found_items.sort();
+        assert_eq!(found_items, vec![
             ("A".into(), "All final variables must be initialized, but 'x' isn't.".into()),
             ("A".into(), "All final variables must be initialized, but 'y' isn't.".into()),
         ]);
@@ -377,8 +377,8 @@ mod tests {
 
     #[test]
     fn constructor_with_three_fields_uses_3_plus_variant() {
-        let encontrados = run("class A { final int z; final int x; final int y; A(); }");
-        assert_eq!(encontrados, vec![(
+        let found_items = run("class A { final int z; final int x; final int y; A(); }");
+        assert_eq!(found_items, vec![(
             "A".into(),
             "All final variables must be initialized, but 'x', 'y', and 1 others aren't.".into(),
         )]);
@@ -415,7 +415,7 @@ mod tests {
         ] {
             let mut names = Interner::new();
             let parsed = parse(source, &mut names);
-            let found = finais_nao_inicializados(&[Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source }], &names);
+            let found = uninitialized_finals(&[Unit { ast: &parsed.ast, unit: &parsed.unit, source }], &names);
             assert_eq!(found.len(), 1, "{found:?}");
             let d = &found[0].1;
             assert_eq!(d.code, Some(code), "{found:?}");
@@ -446,7 +446,7 @@ mod tests {
             )]);
             let mut names = Interner::new();
             let parsed = parse(source, &mut names);
-            let found = finais_nao_inicializados(&[Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source }], &names);
+            let found = uninitialized_finals(&[Unit { ast: &parsed.ast, unit: &parsed.unit, source }], &names);
             assert_eq!(found[0].1.code, Some(c::NOT_INITIALIZED_NON_NULLABLE_INSTANCE_FIELD));
             assert_eq!((found[0].1.span.start, found[0].1.span.end), (16, 17));
             assert_eq!(found[0].1.code.unwrap().info().correction, Some("Try adding an initializer expression, or a generative constructor that initializes it, or mark it 'late'."));
@@ -473,7 +473,7 @@ mod tests {
         ] {
             let mut names = Interner::new();
             let parsed = parse(source, &mut names);
-            let found = finais_nao_inicializados(&[Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source }], &names);
+            let found = uninitialized_finals(&[Unit { ast: &parsed.ast, unit: &parsed.unit, source }], &names);
             assert_eq!(found.len(), 1, "{found:?}");
             let d = &found[0].1;
             assert_eq!(d.code, Some(c::NOT_INITIALIZED_NON_NULLABLE_INSTANCE_FIELD_CONSTRUCTOR));

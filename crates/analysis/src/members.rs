@@ -285,16 +285,16 @@ impl Ctx<'_> {
         superclass: Option<&str>,
     ) {
         let is_enum = container == Container::Enum;
-        let mut redirecionamentos = 0;
+        let mut redirections = 0;
         let mut supers = 0;
         let mut last_super = None;
         for (i, start) in k.initializers.iter().enumerate() {
             match start {
                 Initializer::Redirect { span, .. } => {
-                    if redirecionamentos > 0 && !self.super_in_primary {
+                    if redirections > 0 && !self.super_in_primary {
                         self.report(c::MULTIPLE_REDIRECTING_CONSTRUCTOR_INVOCATIONS, *span, &[]);
                     }
-                    redirecionamentos += 1;
+                    redirections += 1;
                 }
                 Initializer::Super { span, .. } => {
                     if is_enum {
@@ -319,7 +319,7 @@ impl Ctx<'_> {
         }
         // A primary that redirects is `primary_constructor_cannot_redirect`
         // (reported elsewhere); the redirection rules do not apply.
-        if redirecionamentos > 0 && !self.super_in_primary {
+        if redirections > 0 && !self.super_in_primary {
             for start in k.initializers.iter() {
                 match start {
                     Initializer::Super { span, .. } if !is_enum => {
@@ -336,7 +336,7 @@ impl Ctx<'_> {
             }
         }
         if !is_enum
-            && redirecionamentos == 0
+            && redirections == 0
             && supers == 1
             && let Some(i) = last_super
             && i + 1 != k.initializers.len()
@@ -383,7 +383,7 @@ impl Ctx<'_> {
                 _ => {}
             }
         }
-        let redireciona = k
+        let redirects = k
             .initializers
             .iter()
             .any(|i| matches!(i, Initializer::Redirect { .. }));
@@ -392,7 +392,7 @@ impl Ctx<'_> {
                 let s = self.span_without_default(p);
                 if k.factory {
                     self.report(c::FIELD_INITIALIZER_FACTORY_CONSTRUCTOR, s, &[]);
-                } else if redireciona {
+                } else if redirects {
                     self.report(c::FIELD_INITIALIZER_REDIRECTING_CONSTRUCTOR, s, &[]);
                 }
             }
@@ -463,7 +463,7 @@ fn misplaced_covariant(cx: &mut Ctx<'_>, ast_: &ast::Ast) {
     // (`INVALID_COVARIANT_MODIFIER_IN_PRIMARY_CONSTRUCTOR`/
     // `EXTRANEOUS_MODIFIER_IN_PRIMARY_CONSTRUCTOR`), and the verifier returns
     // (`parent is PrimaryConstructorDeclaration`).
-    let primarios: std::collections::HashSet<u32> = ast_
+    let primaries: std::collections::HashSet<u32> = ast_
         .decls
         .iter()
         .filter_map(|d| match &d.kind {
@@ -479,7 +479,7 @@ fn misplaced_covariant(cx: &mut Ctx<'_>, ast_: &ast::Ast) {
             continue;
         }
         // In an extension type the parser reports (`EXTRANEOUS_MODIFIER_IN_EXTENSION_TYPE`).
-        if !inside(&extension_types, m.span) && !primarios.contains(&(mi as u32)) {
+        if !inside(&extension_types, m.span) && !primaries.contains(&(mi as u32)) {
             report_list(cx, &k.parameters);
         }
         nested(cx, &k.parameters);
@@ -589,13 +589,13 @@ fn this_without_access(cx: &mut Ctx<'_>) {
         _ => None,
     };
     // The roles of the declared functions; the others in the arena are local.
-    let mut papel: std::collections::HashMap<u32, Access> = std::collections::HashMap::new();
+    let mut role: std::collections::HashMap<u32, Access> = std::collections::HashMap::new();
     let mut regions: Vec<(Span, Access)> = Vec::new();
     let program = cx.program;
     for &id in &program.unit(cx.u).unit.declarations {
         match &ast_.decl(id).kind {
             DeclKind::Function(f) => {
-                papel.insert(f.0, Access::HasNot);
+                role.insert(f.0, Access::HasNot);
             }
             DeclKind::Variables(vl) => {
                 for v in vl.variables.iter() {
@@ -617,7 +617,7 @@ fn this_without_access(cx: &mut Ctx<'_>) {
                     match &ast_.member(m).kind {
                         MemberKind::Method(f) => {
                             let is_static = ast_.function(*f).static_;
-                            papel.insert(f.0, if is_static { Access::HasNot } else { Access::Has });
+                            role.insert(f.0, if is_static { Access::HasNot } else { Access::Has });
                         }
                         MemberKind::Field(vl) => {
                             let access = if !vl.static_ && vl.late { Access::Has } else { Access::HasNot };
@@ -640,7 +640,7 @@ fn this_without_access(cx: &mut Ctx<'_>) {
     }
     // The parameters that an extension type's representation drops do not
     // exist for the analyzer (`AstBuilder.endPrimaryConstructor`).
-    let descartados: Vec<Span> = program
+    let discarded: Vec<Span> = program
         .unit(cx.u)
         .unit
         .declarations
@@ -651,10 +651,10 @@ fn this_without_access(cx: &mut Ctx<'_>) {
         })
         .collect();
     let sites: Vec<Span> =
-        sites.into_iter().filter(|u| !descartados.iter().any(|d| d.start <= u.start && u.end <= d.end)).collect();
+        sites.into_iter().filter(|u| !discarded.iter().any(|d| d.start <= u.start && u.end <= d.end)).collect();
     for (i, f) in ast_.functions.iter().enumerate() {
         if let Some(sp) = body(&f.body) {
-            regions.push((sp, papel.get(&(i as u32)).copied().unwrap_or(Access::Inherits)));
+            regions.push((sp, role.get(&(i as u32)).copied().unwrap_or(Access::Inherits)));
         }
     }
     // From the narrowest to the widest.
@@ -684,8 +684,8 @@ fn this_without_access(cx: &mut Ctx<'_>) {
 /// something other than declaration `decl` (the same-named one that enters
 /// the scope first).
 fn name_designates_another(program: &Program, lib: LibraryId, name: SymbolId, decl: DeclRef) -> bool {
-    let Some(designado) = program.library(lib).declared.get(&name).and_then(|d| d.getter) else { return false };
-    match designado {
+    let Some(designated) = program.library(lib).declared.get(&name).and_then(|d| d.getter) else { return false };
+    match designated {
         Element::Class(c) => program.class(c).decl.is_some_and(|d| d.unit != decl.unit || d.decl != decl.decl),
         Element::Extension(_) | Element::Prefix(..) => false,
         _ => true,

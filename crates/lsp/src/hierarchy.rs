@@ -24,7 +24,7 @@
 //!   carried by the anchor; direct subtypes through the index relations;
 //!   the item carries the class's `ElementLocation` in `data.ref`.
 
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 
 /// The element whose "super" `dart/textDocument/super` looks for.
 enum SuperElement {
@@ -700,7 +700,7 @@ impl Project {
         let (written, declared) = {
             let cx = Context::new(self, unit);
             let n = cx.coverage(offset, 0)?;
-            let chain = cx.tree.cadeia(n);
+            let chain = cx.tree.chain(n);
             match chain.iter().copied().find(|&k| cx.kind(k) == "NamedType") {
                 Some(k) => (Some(self.named_type_type(&cx, k)?), None),
                 None => {
@@ -708,7 +708,7 @@ impl Project {
                         .iter()
                         .copied()
                         .find(|&k| matches!(cx.kind(k), "ClassDeclaration" | "MixinDeclaration" | "ExtensionTypeDeclaration" | "EnumDeclaration"))?;
-                    let Marca::Decl(did) = cx.tree.nos[d].marca else { return None };
+                    let Mark::Decl(did) = cx.tree.nodes[d].mark else { return None };
                     (None, Some(self.declaration_class(unit, did)?))
                 }
             }
@@ -738,7 +738,7 @@ impl Project {
             let Some(d) = p.class(c).decl else { continue };
             let Some((u, selection)) = self.top_element_name(Element::Class(c)) else { continue };
             let cx = trees.entry(d.unit).or_insert_with(|| Context::new(self, d.unit));
-            let Some(node) = cx.tree.nos.iter().position(|n| matches!(n.marca, Marca::Decl(x) if x == d.decl)) else { continue };
+            let Some(node) = cx.tree.nodes.iter().position(|n| matches!(n.mark, Mark::Decl(x) if x == d.decl)) else { continue };
             let range = cx.tree.span(node);
             let (Some(uri), Some(reference)) = (self.unit_uri(u), self.class_reference(c)) else { continue };
             output.push(crate::TypeItem {

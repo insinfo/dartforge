@@ -12,31 +12,31 @@
 //! [`YamlIgnores`], which also applies to the `PubspecValidator`.
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::naodart::yaml::{self, No, Valor};
+use super::LintCode;
+use crate::non_dart::yaml::{self, Node, Value};
 use dartforge_diagnostics::Span;
 
 /// `_PSNode.text`.
-fn text(node: &No) -> Option<String> {
-    match &node.valor {
-        Valor::Texto(t) | Valor::Outro(t) => Some(t.clone()),
+fn text(node: &Node) -> Option<String> {
+    match &node.value {
+        Value::Text(t) | Value::Other(t) => Some(t.clone()),
         _ => None,
     }
 }
 
 /// The text of a scalar key (`key.toString()`).
-fn key_text(node: &No) -> Option<String> {
-    if node.escalar() { text(node).or_else(|| node.nulo().then(|| "null".to_string())) } else { None }
+fn key_text(node: &Node) -> Option<String> {
+    if node.is_scalar() { text(node).or_else(|| node.is_null().then(|| "null".to_string())) } else { None }
 }
 
 /// `_findEntry(map, key)`: the scalar value of the last equal key.
-fn find_entry<'a>(map: &'a No, name: &str) -> Option<&'a No> {
+fn find_entry<'a>(map: &'a Node, name: &str) -> Option<&'a Node> {
     let mut found = None;
-    for (k, v) in map.mapa()? {
+    for (k, v) in map.map()? {
         if key_text(k).as_deref() == Some(name) {
-            found = Some(v).filter(|v| v.escalar());
+            found = Some(v).filter(|v| v.is_scalar());
         }
     }
     found
@@ -44,42 +44,42 @@ fn find_entry<'a>(map: &'a No, name: &str) -> Option<&'a No> {
 
 /// A dependency (`_PSDependency`).
 pub struct Dependency<'a> {
-    pub name: &'a No,
+    pub name: &'a Node,
     /// The `git` `url` and the `hosted` one.
-    pub urls: Vec<&'a No>,
+    pub urls: Vec<&'a Node>,
 }
 
 /// The `pubspec.yaml` in the linter's model.
 #[derive(Default)]
 pub struct Pubspec<'a> {
-    pub name: Option<&'a No>,
-    pub documentation: Option<&'a No>,
-    pub homepage: Option<&'a No>,
-    pub issue_tracker: Option<&'a No>,
-    pub repository: Option<&'a No>,
+    pub name: Option<&'a Node>,
+    pub documentation: Option<&'a Node>,
+    pub homepage: Option<&'a Node>,
+    pub issue_tracker: Option<&'a Node>,
+    pub repository: Option<&'a Node>,
     pub dependencies: Option<Vec<Dependency<'a>>>,
     pub dev_dependencies: Option<Vec<Dependency<'a>>>,
     pub dependency_overrides: Option<Vec<Dependency<'a>>>,
 }
 
 /// `_processDependencies`.
-fn dependencies_of(v: &No) -> Option<Vec<Dependency<'_>>> {
-    let pairs = v.mapa()?;
+fn dependencies_of(v: &Node) -> Option<Vec<Dependency<'_>>> {
+    let pairs = v.map()?;
     let mut list = Vec::new();
     for (k, value) in pairs {
-        if !k.escalar() {
+        if !k.is_scalar() {
             continue;
         }
-        let mut git: Option<&No> = None;
-        let mut hosted: Option<&No> = None;
-        if let Some(details) = value.mapa() {
+        let mut git: Option<&Node> = None;
+        let mut hosted: Option<&Node> = None;
+        if let Some(details) = value.map() {
             for (dk, dv) in details {
                 match key_text(dk).as_deref() {
                     Some("hosted") => {
-                        hosted = if dv.escalar() { Some(dv) } else if dv.mapa().is_some() { find_entry(dv, "url") } else { None };
+                        hosted = if dv.is_scalar() { Some(dv) } else if dv.map().is_some() { find_entry(dv, "url") } else { None };
                     }
                     Some("git") => {
-                        git = if dv.escalar() { Some(dv) } else if dv.mapa().is_some() { find_entry(dv, "url") } else { None };
+                        git = if dv.is_scalar() { Some(dv) } else if dv.map().is_some() { find_entry(dv, "url") } else { None };
                     }
                     _ => {}
                 }
@@ -91,14 +91,14 @@ fn dependencies_of(v: &No) -> Option<Vec<Dependency<'_>>> {
 }
 
 /// `Pubspec.parseYaml`.
-pub fn read(root: &No) -> Pubspec<'_> {
+pub fn read(root: &Node) -> Pubspec<'_> {
     let mut p = Pubspec::default();
-    let Some(pairs) = root.mapa() else { return p };
+    let Some(pairs) = root.map() else { return p };
     for (k, v) in pairs {
-        if !k.escalar() {
+        if !k.is_scalar() {
             continue;
         }
-        let scalar = || Some(v).filter(|v| v.escalar());
+        let scalar = || Some(v).filter(|v| v.is_scalar());
         match key_text(k).as_deref() {
             Some("homepage") => p.homepage = scalar(),
             Some("repository") => p.repository = scalar(),
@@ -184,9 +184,9 @@ fn scheme(t: &str) -> Option<String> {
 /// The `pubspec.yaml` lints for the text `source`.
 pub fn run(source: &str, enabled: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
-    let Ok(Some(root)) = yaml::ler(source) else { return out };
+    let Ok(Some(root)) = yaml::parse(source) else { return out };
     let p = read(&root);
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let lists = [&p.dependencies, &p.dev_dependencies, &p.dependency_overrides];
@@ -203,7 +203,7 @@ pub fn run(source: &str, enabled: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
     // `secure_pubspec_urls`: in the order of `accept` (documentation,
     // homepage, issue_tracker, repository; then the dependencies).
     if enabled("secure_pubspec_urls") {
-        let mut check = |node: &No| {
+        let mut check = |node: &Node| {
             if let Some(t) = text(node)
                 && let Some(s) = scheme(&t)
                 && (s == "http" || s == "git")
@@ -246,7 +246,7 @@ pub fn run(source: &str, enabled: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
 /// What `depend_on_referenced_packages` reads: the package name, the
 /// dependencies and the dev dependencies.
 pub fn available_dependencies(source: &str, with_dev: bool) -> Option<Vec<String>> {
-    let root = yaml::ler(source).ok()??;
+    let root = yaml::parse(source).ok()??;
     let p = read(&root);
     let mut v = vec![text(p.name?)?];
     for d in p.dependencies.iter().flatten() {

@@ -15,7 +15,7 @@
 //!
 //! Written without compiling or running (2026-10-04).
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::ast::{
@@ -66,8 +66,8 @@ struct Visitor<'a> {
 }
 
 /// The context diagnostics of a unit.
-pub fn check(u: Unidade<'_>) -> Vec<Diagnostic> {
-    let mut v = Visitor { a: u.ast, source: u.fonte, out: Vec::new(), sup: Sup::Static, modifier: AsyncModifier::None, in_late_local: false };
+pub fn check(u: Unit<'_>) -> Vec<Diagnostic> {
+    let mut v = Visitor { a: u.ast, source: u.source, out: Vec::new(), sup: Sup::Static, modifier: AsyncModifier::None, in_late_local: false };
     for &d in u.unit.declarations.iter() {
         v.decl(d);
     }
@@ -622,7 +622,7 @@ mod tests {
     fn codes(source: &str) -> Vec<(&'static str, usize, usize)> {
         let mut names = dartforge_intern::Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         check(u).into_iter().map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end)).collect()
     }
 

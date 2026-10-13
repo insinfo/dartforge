@@ -286,18 +286,18 @@ pub fn undefined_shown_names(program: &Program, lib: LibraryId, interner: &Inter
         .iter()
         .map(|i| (i.unit, i.library, &i.combinators))
         .chain(library.exports.iter().map(|e| (e.unit, e.library, &e.combinators)));
-    for (unit, target, combinadores) in directives {
+    for (unit, target, combinators) in directives {
         // A target that does not exist (`importedLibrary == null`, only
         // `URI_DOES_NOT_EXIST`): the library has no units.
         if program.library(target).units.is_empty() {
             continue;
         }
-        let exportado = &program.library(target).exported;
+        let exported = &program.library(target).exported;
         let uri = program.library(target).uri.as_str();
-        for k in combinadores.iter() {
+        for k in combinators.iter() {
             let Combinator::Show(names) = k else { continue };
             for n in names.iter() {
-                if !exportado.contains_key(&n.sym) {
+                if !exported.contains_key(&n.sym) {
                     out.push((unit, Diagnostic::with_code(w::UNDEFINED_SHOWN_NAME, n.span, [uri, interner.resolve(n.sym)])));
                 }
             }
@@ -350,12 +350,12 @@ pub fn ambiguous_exports(program: &Program, lib: LibraryId, interner: &Interner)
             }
         }
         entries.sort_by(|x, y| interner.resolve(x.0 .0).cmp(interner.resolve(y.0 .0)).then(x.0 .1.cmp(&y.0 .1)));
-        let mut conflito: Option<(SymbolId, Element, Element)> = None;
+        let mut conflict: Option<(SymbolId, Element, Element)> = None;
         let mut new: Vec<((SymbolId, bool), Element)> = Vec::new();
         for (key, e) in entries {
             match seen.get(&key) {
                 Some(previous) if *previous != e => {
-                    conflito = Some((key.0, *previous, e));
+                    conflict = Some((key.0, *previous, e));
                     break;
                 }
                 Some(_) => {}
@@ -365,7 +365,7 @@ pub fn ambiguous_exports(program: &Program, lib: LibraryId, interner: &Interner)
         for (key, e) in new {
             seen.insert(key, e);
         }
-        let Some((name, previous, current)) = conflito else { continue };
+        let Some((name, previous, current)) = conflict else { continue };
         let Some(dir) = program.unit(exp.unit).unit.directives.get(exp.directive) else { continue };
         let DirectiveKind::Export { uri, .. } = &dir.kind else { continue };
         let uri_of = |e: Element| -> String { element_library(program, e).map(|l| program.library(l).uri.clone()).unwrap_or_default() };
@@ -385,7 +385,7 @@ pub fn ambiguous_exports(program: &Program, lib: LibraryId, interner: &Interner)
 /// indexed by `p.x`). The extensions used without a name are left to the
 /// caller, which has the unit's bodies. `None`: the directive is not an
 /// import with a target.
-pub fn nomes_usados_do_import(program: &Program, u: dartforge_elements::model::UnitId, directive: usize, interner: &Interner) -> Option<Vec<SymbolId>> {
+pub fn import_used_names(program: &Program, u: dartforge_elements::model::UnitId, directive: usize, interner: &Interner) -> Option<Vec<SymbolId>> {
     let lib = program.unit(u).library;
     let library = program.library(lib);
     let mut imps: Vec<Imp<'_>> = Vec::new();
@@ -526,14 +526,14 @@ fn unit_lookups(
     let comments = dartforge_frontend::comments::Comments::scan(source);
     for (doc, pos, extras) in doc_comments(a, &unit.unit, source, &comments) {
         for parts in doc_references(&source[doc.start..doc.end]) {
-            let simbolos: Vec<Option<SymbolId>> = parts.iter().map(|x| interner.lookup(x)).collect();
-            let Some(first) = simbolos[0] else { continue };
+            let symbols: Vec<Option<SymbolId>> = parts.iter().map(|x| interner.lookup(x)).collect();
+            let Some(first) = symbols[0] else { continue };
             if extras.contains(&first) || dartforge_types::annotations::is_shadowed(a, interner, pos, first) {
                 continue;
             }
             let prefix = simple_prefix(first);
             if prefix {
-                match simbolos.get(1) {
+                match symbols.get(1) {
                     Some(Some(n)) => f(Lookup::Prefixed(first, *n)),
                     Some(None) => {}
                     // `[p]`: the prefix cited in a comment.
@@ -850,7 +850,7 @@ pub fn unused(
     // `generateUnnecessaryImportHints`: a used import is unnecessary if another
     // used import with the same prefix provides all of its used elements and
     // strictly more (without those of a deprecated export).
-    let acessados: Vec<HashSet<Element>> = imps
+    let accessed: Vec<HashSet<Element>> = imps
         .iter()
         .enumerate()
         .map(|(i, imp)| used[i].iter().copied().filter(|e| !from_deprecated_export(program, interner, imp.target, *e)).collect())
@@ -859,17 +859,17 @@ pub fn unused(
         if unused_one[i] || program.library(first.target).uri == "dart:core" || program.library(first.target).units.is_empty() {
             continue;
         }
-        for (j, segundo) in imps.iter().enumerate() {
-            if i == j || unused_one[j] || program.library(segundo.target).units.is_empty() || first.prefix != segundo.prefix {
+        for (j, second) in imps.iter().enumerate() {
+            if i == j || unused_one[j] || program.library(second.target).units.is_empty() || first.prefix != second.prefix {
                 continue;
             }
-            if acessados[i].is_subset(&acessados[j]) && acessados[j].len() > acessados[i].len() {
+            if accessed[i].is_subset(&accessed[j]) && accessed[j].len() > accessed[i].len() {
                 out.push((
                     first.unit,
                     Diagnostic::with_code(
                         dartforge_diagnostics::codes::hint::UNNECESSARY_IMPORT,
                         first.uri,
-                        [first.text.as_str(), segundo.text.as_str()],
+                        [first.text.as_str(), second.text.as_str()],
                     ),
                 ));
                 break;

@@ -168,7 +168,7 @@ impl Project {
                         // linked group `NAME`.
                         let es = ast.expr(*e).span;
                         let cx = crate::refactorings::Context::new(self, unit);
-                        let suggestions = match cx.tree.localizar(es.start, es.end) {
+                        let suggestions = match cx.tree.locate(es.start, es.end) {
                             Some(n) => {
                                 let excluded = cx.names_in_scope(n, es.start);
                                 cx.names_to_expression(Some(t), n, &excluded, false)

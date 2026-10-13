@@ -20,7 +20,7 @@ impl Context<'_> {
     /// in the statement enclosing the selection node, `T v = c ? a : b;`,
     /// `v = c ? a : b;` or `return c ? a : b;` becomes an `if`/`else`.
     pub(crate) fn conditional_to_if_else(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let command = self.with_parents(node).find(|&k| self.is_command(k))?;
         let tx = Text::new(self.source);
         let eol = tx.eol();
@@ -40,14 +40,14 @@ impl Context<'_> {
                     if self.kind(conditional) != "ConditionalExpression" {
                         continue;
                     }
-                    let name = self.next_token(self.tree.nos[variable].inicio)?;
+                    let name = self.next_token(self.tree.nodes[variable].start)?;
                     if !has_type {
                         let mut writer = crate::write_type::Writer::new(self, name.start);
                         let ty = self.node_expr(conditional).and_then(|x| self.bodies.get_type(x));
                         let written = writer.write_type(ty, false).unwrap_or_default();
                         import.extend(writer.import.iter().copied());
                         // The list's keyword (`late` apart).
-                        let mut k = self.next_token(self.tree.nos[list].inicio)?;
+                        let mut k = self.next_token(self.tree.nodes[list].start)?;
                         if &self.source[k.start..k.end] == "late" {
                             k = self.next_token(k.end)?;
                         }
@@ -58,13 +58,13 @@ impl Context<'_> {
                         }
                     }
                     // `range.endEnd(variable.name, conditional)`.
-                    m.add(uri, Span { start: name.end, end: self.tree.nos[conditional].fim }, String::new());
+                    m.add(uri, Span { start: name.end, end: self.tree.nodes[conditional].end }, String::new());
                     let (c, a, b) = parts(self, conditional)?;
                     let n = &self.source[name.start..name.end];
                     let src = format!(
                         "{eol}{prefix}if ({c}) {{{eol}{prefix}{ONE_INDENT}{n} = {a};{eol}{prefix}}} else {{{eol}{prefix}{ONE_INDENT}{n} = {b};{eol}{prefix}}}"
                     );
-                    let command_end = self.tree.nos[command].fim;
+                    let command_end = self.tree.nodes[command].end;
                     m.add(uri, Span { start: command_end, end: command_end }, src);
                 }
                 crate::refactorings_move::builder_imports(self, &mut m, &import);
@@ -76,7 +76,7 @@ impl Context<'_> {
                 }
                 let f = self.children(assignment);
                 let (&left, &conditional) = (f.first()?, f.get(1)?);
-                let operator = self.source[self.tree.nos[left].fim..self.tree.nos[conditional].inicio].trim();
+                let operator = self.source[self.tree.nodes[left].end..self.tree.nodes[conditional].start].trim();
                 if operator != "=" || self.kind(conditional) != "ConditionalExpression" {
                     return None;
                 }
@@ -117,11 +117,11 @@ impl Context<'_> {
     pub(crate) fn selected_operator(&self, binary: usize, start: usize, end: usize) -> bool {
         let f = self.children(binary);
         let (Some(&left), Some(&right)) = (f.first(), f.get(1)) else { return false };
-        let (e, d) = (&self.tree.nos[left], &self.tree.nos[right]);
-        if start >= e.fim && end <= d.inicio {
+        let (e, d) = (&self.tree.nodes[left], &self.tree.nodes[right]);
+        if start >= e.end && end <= d.start {
             return true;
         }
-        if start == e.inicio && end == d.fim {
+        if start == e.start && end == d.end {
             return self.kind(left) != "BinaryExpression" && self.kind(right) != "BinaryExpression";
         }
         false
@@ -131,7 +131,7 @@ impl Context<'_> {
     pub(crate) fn binary_operator(&self, binary: usize) -> Option<&str> {
         let f = self.children(binary);
         let (e, d) = (*f.first()?, *f.get(1)?);
-        Some(self.source[self.tree.nos[e].fim..self.tree.nos[d].inicio].trim())
+        Some(self.source[self.tree.nodes[e].end..self.tree.nodes[d].start].trim())
     }
 
     /// `SplitAndCondition` (split_and_condition.dart): with the top-level `&&`
@@ -139,7 +139,7 @@ impl Context<'_> {
     /// becomes an `if` nested around the `then`, which gets one more level of
     /// indentation.
     pub(crate) fn split_and_condition(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let binary = self.tree.localizar(start, end)?;
+        let binary = self.tree.locate(start, end)?;
         if self.kind(binary) != "BinaryExpression" || !self.selected_operator(binary, start, end) || self.binary_operator(binary)? != "&&" {
             return None;
         }
@@ -170,24 +170,24 @@ impl Context<'_> {
         let prefix = self.node_prefix(command);
         let f = self.children(binary);
         let (left, right) = (f[0], f[1]);
-        let right_source = &self.source[self.tree.nos[right].inicio..self.tree.nos[condition].fim];
+        let right_source = &self.source[self.tree.nodes[right].start..self.tree.nodes[condition].end];
         let mut m = Change::default();
         // Removes "&& right".
-        m.add(uri, Span { start: self.tree.nos[left].fim, end: self.tree.nos[condition].fim }, String::new());
+        m.add(uri, Span { start: self.tree.nodes[left].end, end: self.tree.nodes[condition].end }, String::new());
         let commands: Vec<usize> = if self.kind(then) == "Block" {
             let block = self.tree.span(then);
             m.add(uri, Span { start: block.start + 1, end: block.start + 1 }, format!("{eol}{prefix}{ONE_INDENT}if ({right_source}) {{"));
             m.add(uri, Span { start: block.end - 1, end: block.end - 1 }, format!("{ONE_INDENT}}}{eol}{prefix}"));
             self.children(then).to_vec()
         } else {
-            let closes = self.previous_token(self.tree.nos[then].inicio)?;
+            let closes = self.previous_token(self.tree.nodes[then].start)?;
             m.add(uri, Span { start: closes.start + 1, end: closes.start + 1 }, format!("{eol}{prefix}{ONE_INDENT}if ({right_source})"));
             vec![then]
         };
         // The indentation of the `then` statements (`getLinesRangeStatements`,
         // which fails without statements).
         let (&first, &last) = (commands.first()?, commands.last()?);
-        let lines = tx.line_range(self.tree.nos[first].inicio, self.tree.nos[last].fim);
+        let lines = tx.line_range(self.tree.nodes[first].start, self.tree.nodes[last].end);
         let old = format!("{prefix}{ONE_INDENT}");
         let new = format!("{old}{ONE_INDENT}");
         m.add(uri, lines, tx.swap_indent(&self.source[lines.start..lines.end], &old, &new, true, true));
@@ -222,14 +222,14 @@ impl Context<'_> {
     /// The access operator (`.`, `?.`, `..`) between the target `target` and the
     /// following name.
     fn access_operator(&self, target: usize) -> Option<Span> {
-        let s = self.next_token(self.tree.nos[target].fim)?;
+        let s = self.next_token(self.tree.nodes[target].end)?;
         matches!(&self.source[s.start..s.end], "." | "?." | ".." | "?..").then_some(s)
     }
 
     /// `ConvertToNullAware` (convert_to_null_aware.dart): `x == null ? null :
     /// x.y` (or with `!=`) becomes `x?.y`.
     pub(crate) fn convert_to_null_aware(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let mut target = node;
         if let Some(p) = self.parent(node)
             && self.kind(p) == "BinaryExpression"
@@ -277,7 +277,7 @@ impl Context<'_> {
                     // Without a target, the producer's `default`.
                     let first = *self.children(result).first()?;
                     let op = self.access_operator(first)?;
-                    if op.start < self.tree.nos[first].fim {
+                    if op.start < self.tree.nodes[first].end {
                         return None;
                     }
                     if self.kind(result) == "MethodInvocation" && self.method_name(result) == Some(first) {
@@ -286,7 +286,7 @@ impl Context<'_> {
                     operator = Some(op);
                     result = first;
                 }
-                "PostfixExpression" if self.source[self.tree.nos[result].inicio..self.tree.nos[result].fim].ends_with('!') => {
+                "PostfixExpression" if self.source[self.tree.nodes[result].start..self.tree.nodes[result].end].ends_with('!') => {
                     result = *self.children(result).first()?;
                 }
                 _ => return None,
@@ -298,17 +298,17 @@ impl Context<'_> {
         let (range, question) = match operator {
             Some(op) => {
                 let q = if &self.source[op.start..op.end] == "." { "?" } else { "" };
-                (Span { start: self.tree.nos[result].fim, end: op.start }, q)
+                (Span { start: self.tree.nodes[result].end, end: op.start }, q)
             }
             None if self.parent(result).is_some_and(|p| self.kind(p) == "PostfixExpression") => {
-                (Span { start: self.tree.nos[result].fim, end: self.tree.nos[self.parent(result)?].fim }, "")
+                (Span { start: self.tree.nodes[result].end, end: self.tree.nodes[self.parent(result)?].end }, "")
             }
             None => return None,
         };
         let mut m = Change::default();
-        m.add(uri, Span { start: self.tree.nos[target].inicio, end: self.tree.nos[non_null].inicio }, String::new());
+        m.add(uri, Span { start: self.tree.nodes[target].start, end: self.tree.nodes[non_null].start }, String::new());
         m.add(uri, range, question.to_string());
-        m.add(uri, Span { start: self.tree.nos[non_null].fim, end: self.tree.nos[target].fim }, String::new());
+        m.add(uri, Span { start: self.tree.nodes[non_null].end, end: self.tree.nodes[target].end }, String::new());
         if m.conflict.is_some() {
             return None;
         }
@@ -332,7 +332,7 @@ impl Context<'_> {
         let mut stack = vec![n];
         while let Some(k) = stack.pop() {
             if self.kind(k) == "SimpleIdentifier"
-                && let crate::arvore_analyzer::Marca::Expr(x) = self.tree.nos[k].marca
+                && let crate::analyzer_tree::Mark::Expr(x) = self.tree.nodes[k].mark
                 && matches!(self.bodies.get_resolved(x), Some(dartforge_types::Resolved::Local(_)))
                 && self.bodies.local_declaration(x) == Some(name)
             {
@@ -352,11 +352,11 @@ impl Context<'_> {
         let list = *self.children(command).first()?;
         let variables: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) == "VariableDeclaration").collect();
         let [variable] = variables[..] else { return None };
-        let name = self.next_token(self.tree.nos[variable].inicio)?;
+        let name = self.next_token(self.tree.nodes[variable].start)?;
         self.bodies.local_types.get(&name.start)?;
         let initializer = *self.children(variable).first()?;
         let final_ = self.tokens.iter().any(|t| {
-            t.span.start >= self.tree.nos[list].inicio && t.span.end <= name.start && matches!(&self.source[t.span.start..t.span.end], "final" | "const")
+            t.span.start >= self.tree.nodes[list].start && t.span.end <= name.start && matches!(&self.source[t.span.start..t.span.end], "final" | "const")
         });
         Some((name, initializer, final_))
     }
@@ -368,7 +368,7 @@ impl Context<'_> {
         if !self.with_patterns() {
             return None;
         }
-        let command = self.tree.localizar(start, end)?;
+        let command = self.tree.locate(start, end)?;
         if self.kind(command) != "IfStatement" {
             return None;
         }
@@ -411,7 +411,7 @@ impl Context<'_> {
         };
         let edits = vec![
             Edit { uri: uri.to_string(), span: self.tree.span(condition), text: format!("{} case {pattern}", self.node_text(initializer)) },
-            Edit { uri: uri.to_string(), span: Span { start: self.tree.nos[previous].inicio, end: self.tree.nos[command].inicio }, text: String::new() },
+            Edit { uri: uri.to_string(), span: Span { start: self.tree.nodes[previous].start, end: self.tree.nodes[command].start }, text: String::new() },
         ];
         Some(CodeAction {
             title: "Convert to 'if-case' statement".into(),
@@ -449,15 +449,15 @@ impl Context<'_> {
         }
         let (Some(&first), Some(&last)) = (commands.first(), commands.last()) else { return String::new() };
         let tx = Text::new(self.source);
-        let range = tx.line_range(self.tree.nos[first].inicio, self.tree.nos[last].fim);
-        let first_indent = tx.line_prefix(self.tree.nos[first].inicio);
+        let range = tx.line_range(self.tree.nodes[first].start, self.tree.nodes[last].end);
+        let first_indent = tx.line_prefix(self.tree.nodes[first].start);
         tx.swap_indent(&self.source[range.start..range.end], first_indent, &format!("{indent}{ONE_INDENT}"), true, true)
     }
 
     /// `ConvertToIfCaseStatementChain`: a `switch` of pattern cases becomes an
     /// `if-case` chain, with the `default` as the `else`.
     pub(crate) fn switch_to_if_case_chain(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let switch = self.tree.localizar(start, end)?;
+        let switch = self.tree.locate(start, end)?;
         if self.kind(switch) != "SwitchStatement" {
             return None;
         }
@@ -467,7 +467,7 @@ impl Context<'_> {
         }
         let tx = Text::new(self.source);
         let eol = tx.eol();
-        let indent = tx.line_prefix(self.tree.nos[switch].inicio).to_string();
+        let indent = tx.line_prefix(self.tree.nodes[switch].start).to_string();
         let expression = self.node_text(*self.children(switch).first()?).to_string();
         let mut s = String::new();
         for (i, (members, commands)) in groups.iter().enumerate() {

@@ -3,14 +3,14 @@
 //! parameters (`_checkForOptionalParameterInOperator`) and the return type of
 //! `[]=` (`_checkForNonVoidReturnTypeForOperator`).
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_frontend::ast::{Ast, DeclKind, FunctionKind, MemberKind, ParameterKind, TypeId, TypeKind, TypedefKind};
 use dartforge_intern::{Interner, SymbolId};
 
 /// Checks the operator members of classes, mixins, enums, extensions and extension types.
-pub fn aridade(unit: Unidade<'_>, names: &Interner) -> Vec<Diagnostic> {
+pub fn arity(unit: Unit<'_>, names: &Interner) -> Vec<Diagnostic> {
     let ast = unit.ast;
     let void_aliases = void_aliases(unit);
     let mut out = Vec::new();
@@ -90,7 +90,7 @@ pub fn aridade(unit: Unidade<'_>, names: &Interner) -> Vec<Diagnostic> {
 }
 
 /// The unit's `typedef`s that are aliases of `void`.
-fn void_aliases(unit: Unidade<'_>) -> Vec<SymbolId> {
+fn void_aliases(unit: Unit<'_>) -> Vec<SymbolId> {
     let ast = unit.ast;
     unit
         .unit
@@ -144,7 +144,7 @@ mod tests {
         ] {
             let mut names = Interner::new();
             let parsed = parse(source, &mut names);
-            let found = aridade(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source }, &names);
+            let found = arity(Unit { ast: &parsed.ast, unit: &parsed.unit, source }, &names);
             let start = source.find(&format!("operator {operator}")).unwrap() + "operator ".len();
             assert!(found.iter().any(|d|
                 d.code == Some(code) && d.span.start == start && d.span.end == start + operator.len()
@@ -159,11 +159,11 @@ mod tests {
             "class A { operator -() => this; operator -(a) => this; operator -(a, b) => this; }";
         let mut names = Interner::new();
         let parsed = parse(source, &mut names);
-        let found = aridade(
-            Unidade {
+        let found = arity(
+            Unit {
                 ast: &parsed.ast,
                 unit: &parsed.unit,
-                fonte: source,
+                source,
             },
             &names,
         );
@@ -185,7 +185,7 @@ mod tests {
         let source = "typedef V = void;\nclass A {\n  operator ==([dynamic a]) => true;\n  operator <({a = 1}) => true;\n  operator >({required a}) => true;\n  operator +([a, b]) => 0;\n  int operator []=(a, b) => 0;\n  V operator []=(a, b) {}\n}";
         let mut names = Interner::new();
         let parsed = parse(source, &mut names);
-        let found = aridade(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source }, &names);
+        let found = arity(Unit { ast: &parsed.ast, unit: &parsed.unit, source }, &names);
         let v: Vec<(&str, &str)> = found
             .iter()
             .map(|d| (d.code.unwrap().info().name, &source[d.span.start..d.span.end]))

@@ -5,7 +5,7 @@
 //! §13.7.4.0), and `CreateConstructor` (`create_constructor.dart`).
 //! Written without compiling or running (2026-10-05).
 
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::write_type::Writer;
 use crate::refactorings::Context;
 use crate::refactorings_exec::{Text, ONE_INDENT, add_letter, add_all, camel_combinations};
@@ -40,8 +40,8 @@ impl Context<'_> {
     }
 
     fn is_getter(&self, m: usize) -> bool {
-        match self.tree.nos[m].marca {
-            Marca::Funcao(fid) => self.ast.function(fid).kind == ast::FunctionKind::Getter,
+        match self.tree.nodes[m].mark {
+            Mark::Function(fid) => self.ast.function(fid).kind == ast::FunctionKind::Getter,
             _ => false,
         }
     }
@@ -66,7 +66,7 @@ impl Context<'_> {
         // The constants' `;`.
         let semicolon = if enum_ {
             constants.last().and_then(|&c| {
-                let mut t = self.next_token(self.tree.nos[c].fim)?;
+                let mut t = self.next_token(self.tree.nodes[c].end)?;
                 if &self.source[t.start..t.end] == "," {
                     t = self.next_token(t.end)?;
                 }
@@ -77,8 +77,8 @@ impl Context<'_> {
         };
         // The declaration's `{` (the first one after the header).
         let key = {
-            let mut pos = self.tree.nos[container].inicio;
-            let limit = members.first().map_or(self.tree.nos[container].fim, |&m| self.tree.nos[m].inicio).min(constants.first().map_or(usize::MAX, |&c| self.tree.nos[c].inicio));
+            let mut pos = self.tree.nodes[container].start;
+            let limit = members.first().map_or(self.tree.nodes[container].end, |&m| self.tree.nodes[m].start).min(constants.first().map_or(usize::MAX, |&c| self.tree.nodes[c].start));
             let mut found = None;
             while let Some(t) = self.next_token(pos) {
                 if t.start >= limit {
@@ -92,10 +92,10 @@ impl Context<'_> {
             found
         };
         let offset = match target {
-            Some(m) => self.tree.nos[m].fim,
+            Some(m) => self.tree.nodes[m].end,
             None if enum_ => match semicolon {
                 Some(p) => p.end,
-                None => self.tree.nos[*constants.last()?].fim,
+                None => self.tree.nodes[*constants.last()?].end,
             },
             None => key?.end,
         };
@@ -116,9 +116,9 @@ impl Context<'_> {
             if !members.is_empty() {
                 s.push_str(eol);
             } else {
-                let start = self.first_token_after_comment_and_metadata(container).map_or(self.tree.nos[container].inicio, |t| t.start);
+                let start = self.first_token_after_comment_and_metadata(container).map_or(self.tree.nodes[container].start, |t| t.start);
                 let line_begin = self.source[..start].matches('\n').count();
-                let line_end = self.source[..self.tree.nos[container].fim].matches('\n').count();
+                let line_end = self.source[..self.tree.nodes[container].end].matches('\n').count();
                 if line_begin == line_end {
                     s.push_str(eol);
                 }
@@ -147,7 +147,7 @@ impl Context<'_> {
                 let cn = self.kind_children(e, "ConstructorName").first().copied()?;
                 let ty = self.kind_children(cn, "NamedType").first().copied()?;
                 // The type's `name2`: the identifier after the prefix.
-                let prefix_end = self.kind_children(ty, "ImportPrefixReference").first().map_or(self.tree.nos[ty].inicio, |&p| self.tree.nos[p].fim);
+                let prefix_end = self.kind_children(ty, "ImportPrefixReference").first().map_or(self.tree.nodes[ty].start, |&p| self.tree.nodes[p].end);
                 let s = crate::project::word(self.source, self.next_token(prefix_end)?.start)?;
                 return Some(self.source[s.start..s.end].to_string());
             }
@@ -288,7 +288,7 @@ pub(crate) struct Constructor {
 /// name in an `InstanceCreationExpression` (`new A.b()`); the class (only a
 /// `ClassDeclaration`) gets `A.b(<parameters>);` through `insertConstructor`.
 pub(crate) fn create_constructor(cx: &Context<'_>, error: Span) -> Option<Constructor> {
-    let node = cx.tree.localizar(error.start, error.end)?;
+    let node = cx.tree.locate(error.start, error.end)?;
     if cx.kind(node) != "SimpleIdentifier" {
         return None;
     }
@@ -299,7 +299,7 @@ pub(crate) fn create_constructor(cx: &Context<'_>, error: Span) -> Option<Constr
     let creation = cx.parent(cn).filter(|&c| cx.kind(c) == "InstanceCreationExpression")?;
     let name = cx.node_text(cn).split_whitespace().collect::<String>();
     // The type's class.
-    let ty = cx.ast.types.iter().enumerate().find(|(_, t)| t.span.start == cx.tree.nos[cn].inicio).map(|(i, _)| ast::TypeId(i as u32))?;
+    let ty = cx.ast.types.iter().enumerate().find(|(_, t)| t.span.start == cx.tree.nodes[cn].start).map(|(i, _)| ast::TypeId(i as u32))?;
     let class = cx.p.type_class(cx.unit, ty)?;
     let prog = cx.p.program();
     let c = prog.class(class);
@@ -308,7 +308,7 @@ pub(crate) fn create_constructor(cx: &Context<'_>, error: Span) -> Option<Constr
     }
     let decl = c.decl?;
     let target = crate::refactorings::Context::new(cx.p, decl.unit);
-    let container = target.tree.nos.iter().position(|n| n.especie == "ClassDeclaration" && matches!(n.marca, Marca::Decl(d) if d == decl.decl))?;
+    let container = target.tree.nodes.iter().position(|n| n.kind == "ClassDeclaration" && matches!(n.mark, Mark::Decl(d) if d == decl.decl))?;
     let first_constructors = crate::refactorings_exec::enabled_rule(cx.p, decl.unit, "sort_constructors_first");
     let list = cx.kind_children(creation, "ArgumentList").first().copied()?;
     // The insertion point (for the type writer) before writing.

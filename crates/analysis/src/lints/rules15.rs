@@ -22,10 +22,10 @@
 //! Written without compiling or running (2026-10-05).
 
 use super::walk::{walk, Node};
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, FunctionRef, VariableRef};
 use dartforge_frontend::ast::{
@@ -37,7 +37,7 @@ use dartforge_types::resolved::Resolved;
 use dartforge_types::table::{Type, TypeId, TypeTable};
 use std::collections::HashMap;
 
-/// `TypeSystemImpl.isNullable` (sintático).
+/// `TypeSystemImpl.isNullable` (syntactic).
 fn is_nullable(table: &TypeTable, core: &dartforge_types::table::CoreTypes, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => true,
@@ -49,7 +49,7 @@ fn is_nullable(table: &TypeTable, core: &dartforge_types::table::CoreTypes, t: T
     }
 }
 
-/// `TypeSystemImpl.isNonNullable` (sintático).
+/// `TypeSystemImpl.isNonNullable` (syntactic).
 fn is_non_nullable(table: &TypeTable, core: &dartforge_types::table::CoreTypes, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => false,
@@ -149,11 +149,11 @@ fn variable_type(s: &super::Semantics<'_>, ref_: VariableRef, name_pos: usize, i
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let any_enabled = ["implicit_call_tearoffs", "prefer_iterable_whereType", "null_check_on_nullable_type_parameter"].iter().any(|r| enabled(r));

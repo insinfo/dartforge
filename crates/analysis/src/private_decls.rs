@@ -28,7 +28,7 @@
 //!
 //! Libraries with a syntax error or with `augment` are left out.
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{self, DeclKind, Initializer, MemberKind};
@@ -148,7 +148,7 @@ impl Collector<'_> {
         for &mid in members {
             let m = ast_.member(mid);
             self.augment |= m.augment;
-            let anot = is_annotated(&m.metadata, self.names);
+            let annotated = is_annotated(&m.metadata, self.names);
             match &m.kind {
                 MemberKind::Method(f) => {
                     let func = ast_.function(*f);
@@ -156,12 +156,12 @@ impl Collector<'_> {
                     self.declare(u, n);
                     let name = self.text(n);
                     // `_isPubliclyAccessible`.
-                    let acessivel =
+                    let accessible =
                         !is_private(&name) && !(private_type && (func.static_ || extension));
                     // Operators and `call` are used without the name (`-x`,
                     // `x[i]`, `x()`): binding by name does not see them.
                     let unnamed = func.kind == ast::FunctionKind::Operator || name == "call";
-                    if !acessivel && !anot && !unnamed {
+                    if !accessible && !annotated && !unnamed {
                         self.candidate(u, n, name, Rule::Element, None);
                     }
                 }
@@ -172,7 +172,7 @@ impl Collector<'_> {
                         // `_isReadMember`: a public one only counts if it is a
                         // static one of a private type.
                         let candidate = is_private(&name) || (list.static_ && private_type);
-                        if candidate && !anot && !self.from_primary.contains(&(u, v.name.span.start)) {
+                        if candidate && !annotated && !self.from_primary.contains(&(u, v.name.span.start)) {
                             self.candidate(u, v.name, name, Rule::Field, None);
                         }
                     }
@@ -202,8 +202,8 @@ impl Collector<'_> {
                     if !is_private(&name) && self.exposed.contains(type_name) {
                         continue;
                     }
-                    let acessivel = !is_private(&name) && !private_type && !(enum_ && !k.factory);
-                    if constructors > 1 && !acessivel && !anot && !k.primary_body_part {
+                    let accessible = !is_private(&name) && !private_type && !(enum_ && !k.factory);
+                    if constructors > 1 && !accessible && !annotated && !k.primary_body_part {
                         self.candidate(u, n, format!("{type_name}.{name}"), Rule::Element, None);
                     }
                 }
@@ -216,14 +216,14 @@ impl Collector<'_> {
 /// when its name is cited in some fragment the parser skipped in any unit of
 /// the library (`skipped`, one per unit, in the same order).
 pub fn unused_with_skipped(
-    units: &[Unidade<'_>],
+    units: &[Unit<'_>],
     names: &Interner,
-    skipped: &[crate::Pulados<'_>],
+    skipped: &[crate::Skipped<'_>],
 ) -> Vec<(usize, Diagnostic)> {
     let mut out = unused(units, names);
     if skipped.iter().any(|p| !p.is_empty()) {
         out.retain(|(i, d)| {
-            let name = units.get(*i).and_then(|u| u.fonte.get(d.span.start..d.span.end)).unwrap_or("");
+            let name = units.get(*i).and_then(|u| u.source.get(d.span.start..d.span.end)).unwrap_or("");
             !skipped.iter().any(|p| p.mentions(name))
         });
     }
@@ -232,7 +232,7 @@ pub fn unused_with_skipped(
 
 /// The diagnostics of unused private declarations of the library formed by
 /// `units` (in library order), with the unit's index.
-pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
+pub fn unused(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
     // `visitGenericTypeAlias`: the type of a public `typedef`, by name.
     let mut exposed = HashSet::new();
     for un in units {
@@ -263,7 +263,7 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
             if decl.augment {
                 return Vec::new();
             }
-            let anot = is_annotated(&decl.metadata, names);
+            let annotated = is_annotated(&decl.metadata, names);
             match &decl.kind {
                 DeclKind::Class(k) => {
                     c.declare(u, k.name);
@@ -271,7 +271,7 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
                     let p = is_private(&name);
                     // The class alias (`class _A = S with M;`) is not visited
                     // by the analyzer's verifier: it is never reported.
-                    if p && !anot && !k.mixin_application {
+                    if p && !annotated && !k.mixin_application {
                         c.candidate(u, k.name, name.clone(), Rule::Element, Some(decl.span));
                     }
                     if let Some(k2) = k.primary_constructor
@@ -285,7 +285,7 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
                     c.declare(u, k.name);
                     let name = c.text(k.name);
                     let p = is_private(&name);
-                    if p && !anot {
+                    if p && !annotated {
                         c.candidate(u, k.name, name.clone(), Rule::Element, None);
                     }
                     c.members(u, ast_, &name, &k.members, p, false, false);
@@ -294,7 +294,7 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
                     c.declare(u, k.name);
                     let name = c.text(k.name);
                     let p = is_private(&name);
-                    if p && !anot {
+                    if p && !annotated {
                         c.candidate(u, k.name, name.clone(), Rule::Element, None);
                     }
                     for k2 in &k.constants {
@@ -319,7 +319,7 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
                     }
                     let name = c.text(k.name);
                     let p = is_private(&name);
-                    if p && !anot {
+                    if p && !annotated {
                         c.candidate(u, k.name, name.clone(), Rule::Element, None);
                     }
                     // The primary constructor also counts for the analyzer;
@@ -344,7 +344,7 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
                 DeclKind::Typedef(t) => {
                     c.declare(u, t.name);
                     let name = c.text(t.name);
-                    if is_private(&name) && !anot {
+                    if is_private(&name) && !annotated {
                         c.candidate(u, t.name, name, Rule::Element, None);
                     }
                 }
@@ -353,7 +353,7 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
                     let Some(n) = func.name else { continue };
                     c.declare(u, n);
                     let name = c.text(n);
-                    if is_private(&name) && !anot {
+                    if is_private(&name) && !annotated {
                         c.candidate(u, n, name, Rule::Element, None);
                     }
                 }
@@ -361,7 +361,7 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
                     for v in list.variables.iter() {
                         c.declare(u, v.name);
                         let name = c.text(v.name);
-                        if is_private(&name) && !anot {
+                        if is_private(&name) && !annotated {
                             c.candidate(u, v.name, name, Rule::TopLevelVariable, None);
                         }
                     }
@@ -374,9 +374,9 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
     }
 
     // The identifiers of every unit.
-    let mut ocorrencias: HashMap<&str, Vec<Occurrence>> = HashMap::new();
+    let mut occurrences: HashMap<&str, Vec<Occurrence>> = HashMap::new();
     for (u, un) in units.iter().enumerate() {
-        let Ok(tokens) = dartforge_frontend::lexer::lex(un.fonte) else {
+        let Ok(tokens) = dartforge_frontend::lexer::lex(un.source) else {
             return Vec::new();
         };
         for (i, t) in tokens.iter().enumerate() {
@@ -387,8 +387,8 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
                 .get(i + 1)
                 .is_some_and(|p| p.kind == Kind::Op(Op::Assign));
             let write = assigned || c.writes.contains(&(u, t.span.start));
-            ocorrencias
-                .entry(t.text(un.fonte))
+            occurrences
+                .entry(t.text(un.source))
                 .or_default()
                 .push(Occurrence {
                     unit: u,
@@ -397,11 +397,11 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
                 });
         }
     }
-    let values_read = ocorrencias.contains_key("values");
+    let values_read = occurrences.contains_key("values");
 
     let mut out = Vec::new();
     for k in &c.candidates {
-        let used = ocorrencias.get(k.name.as_str()).is_some_and(|v| {
+        let used = occurrences.get(k.name.as_str()).is_some_and(|v| {
             v.iter().any(|o| {
                 let inside = k.own.is_some_and(|p| {
                     o.unit == k.unit && p.start <= o.span.start && o.span.end <= p.end
@@ -436,10 +436,10 @@ mod tests {
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut interner);
         assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
-        let u = Unidade {
+        let u = Unit {
             ast: &p.ast,
             unit: &p.unit,
-            fonte: source,
+            source,
         };
         let mut v: Vec<_> = unused(&[u], &interner)
             .into_iter()
@@ -494,9 +494,9 @@ mod tests {
             element("_comentado"),
         ];
         expected.sort();
-        let obtido: Vec<(String, String)> =
+        let obtained: Vec<(String, String)> =
             v.iter().map(|(a, b, _)| (a.clone(), b.clone())).collect();
-        assert_eq!(obtido, expected);
+        assert_eq!(obtained, expected);
         let other = v.iter().find(|x| x.1 == "_outro").unwrap();
         assert_eq!(other.2, "The declaration 'C._outro' isn't referenced.");
         let e = v.iter().find(|x| x.1 == "_escrito").unwrap();

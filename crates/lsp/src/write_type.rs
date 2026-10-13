@@ -33,12 +33,12 @@ impl<'a, 'p> Writer<'a, 'p> {
         let library = prog.unit(cx.unit).library;
         let mut class = None;
         let mut executable = None;
-        if let Some(n) = cx.tree.localizar_exclusivo(offset) {
+        if let Some(n) = cx.tree.locate_exclusive(offset) {
             let mut current = Some(n);
             while let Some(k) = current {
-                match (cx.kind(k), cx.tree.nos[k].marca) {
-                    ("ClassDeclaration", crate::arvore_analyzer::Marca::Decl(d)) => class = cx.declaration_class(cx.unit, d),
-                    ("MethodDeclaration" | "FunctionDeclaration", crate::arvore_analyzer::Marca::Funcao(fid)) => {
+                match (cx.kind(k), cx.tree.nodes[k].mark) {
+                    ("ClassDeclaration", crate::analyzer_tree::Mark::Decl(d)) => class = cx.declaration_class(cx.unit, d),
+                    ("MethodDeclaration" | "FunctionDeclaration", crate::analyzer_tree::Mark::Function(fid)) => {
                         executable = cx.p.node_function(cx.unit, fid);
                     }
                     ("ConstructorDeclaration", _) => {

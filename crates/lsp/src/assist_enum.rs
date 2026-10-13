@@ -7,7 +7,7 @@
 //! | `Convert class to an enum` | `refactor.convert.classToEnum` |
 
 use crate::actions::CodeAction;
-use crate::arvore_analyzer::{Ligacao, Marca};
+use crate::analyzer_tree::{Binding, Mark};
 use crate::refactorings::Context;
 use crate::refactorings_exec::{Text, ONE_INDENT};
 use dartforge_diagnostics::Span;
@@ -66,11 +66,11 @@ impl Context<'_> {
         if prog.library(lib).units.len() > 1 {
             return None;
         }
-        let declaration = self.tree.localizar(start, end)?;
+        let declaration = self.tree.locate(start, end)?;
         if self.kind(declaration) != "ClassDeclaration" {
             return None;
         }
-        let Marca::Decl(d) = self.tree.nos[declaration].marca else { return None };
+        let Mark::Decl(d) = self.tree.nodes[declaration].mark else { return None };
         let DeclKind::Class(k) = &self.ast.decl(d).kind else { return None };
         // `declaration.name == token`.
         if k.mixin_application || start < k.name.span.start || start > k.name.span.end {
@@ -91,7 +91,7 @@ impl Context<'_> {
         let member_nodes: Vec<usize> = k
             .members
             .iter()
-            .map(|&m| class_children.iter().copied().find(|&f| self.tree.nos[f].ligacao == Ligacao::Membro(m)))
+            .map(|&m| class_children.iter().copied().find(|&f| self.tree.nodes[f].binding == Binding::Member(m)))
             .collect::<Option<_>>()?;
         let name_of = |s: Span| &self.source[s.start..s.end];
 
@@ -219,9 +219,9 @@ impl Context<'_> {
 
         // `_EnumVisitor` and `_NonEnumVisitor`: no creation through a generative
         // constructor of the class outside the initializer of a field to convert.
-        let (ci, cf) = (self.tree.nos[declaration].inicio, self.tree.nos[declaration].fim);
+        let (ci, cf) = (self.tree.nodes[declaration].start, self.tree.nodes[declaration].end);
         let allowed: HashSet<usize> = fields.iter().map(|c| c.creation).collect();
-        for n in 0..self.tree.nos.len() {
+        for n in 0..self.tree.nodes.len() {
             if self.kind(n) != "InstanceCreationExpression" {
                 continue;
             }
@@ -232,7 +232,7 @@ impl Context<'_> {
             if !generator {
                 continue;
             }
-            let inside = self.tree.nos[n].inicio >= ci && self.tree.nos[n].fim <= cf;
+            let inside = self.tree.nodes[n].start >= ci && self.tree.nodes[n].end <= cf;
             if !inside || !allowed.contains(&n) {
                 return None;
             }
@@ -308,8 +308,8 @@ impl Context<'_> {
             .next_back()?;
         edits.push((class_word, "enum".to_string()));
         if let Some(&extends) = class_children.iter().find(|&&f| self.kind(f) == "ExtendsClause") {
-            let next = self.next_token(self.tree.nos[extends].fim)?;
-            edits.push((Span { start: self.tree.nos[extends].inicio, end: next.start }, String::new()));
+            let next = self.next_token(self.tree.nodes[extends].end)?;
+            edits.push((Span { start: self.tree.nodes[extends].start, end: next.start }, String::new()));
         }
         let eol = Text::new(self.source).eol();
         let indent = ONE_INDENT;
@@ -362,8 +362,8 @@ impl Context<'_> {
                 constants.push('(');
                 let index = pair.position;
                 let last = arguments.len() - 1;
-                let start_ = |a: usize| self.tree.nos[a].inicio;
-                let end_of = |a: usize| self.tree.nos[a].fim;
+                let start_ = |a: usize| self.tree.nodes[a].start;
+                let end_of = |a: usize| self.tree.nodes[a].end;
                 if index == 0 {
                     constants.push_str(&self.source[start_(arguments[1])..end_of(arguments[last])]);
                 } else if index == last {
@@ -372,7 +372,7 @@ impl Context<'_> {
                     constants.push_str(&self.source[start_(arguments[0])..until]);
                 } else {
                     constants.push_str(&self.source[start_(arguments[0])..start_(arguments[index])]);
-                    let closes = self.tree.nos[list].fim - 1;
+                    let closes = self.tree.nodes[list].end - 1;
                     constants.push_str(&self.source[start_(arguments[index + 1])..closes]);
                 }
                 constants.push(')');
@@ -414,10 +414,10 @@ impl Context<'_> {
         let kind = "refactor.convert.classToEnum";
         let (first, last) = (*member_nodes.first()?, *member_nodes.last()?);
         if members_to_exclude.len() == member_nodes.len() {
-            edits.push((Span { start: self.tree.nos[first].inicio, end: self.tree.nos[last].fim }, constants));
+            edits.push((Span { start: self.tree.nodes[first].start, end: self.tree.nodes[last].end }, constants));
             return Some(self.simple_action(uri, title, kind, edits));
         }
-        let key = self.previous_token(self.tree.nos[first].inicio)?;
+        let key = self.previous_token(self.tree.nodes[first].start)?;
         if &self.source[key.start..key.end] != "{" {
             return None;
         }
@@ -433,9 +433,9 @@ impl Context<'_> {
         }
         for (inf, sup) in index_groups {
             let span = if inf == 0 {
-                Span { start: self.tree.nos[member_nodes[inf]].inicio, end: self.tree.nos[*member_nodes.get(sup + 1)?].inicio }
+                Span { start: self.tree.nodes[member_nodes[inf]].start, end: self.tree.nodes[*member_nodes.get(sup + 1)?].start }
             } else {
-                Span { start: self.tree.nos[member_nodes[inf - 1]].fim, end: self.tree.nos[member_nodes[sup]].fim }
+                Span { start: self.tree.nodes[member_nodes[inf - 1]].end, end: self.tree.nodes[member_nodes[sup]].end }
             };
             edits.push((span, String::new()));
         }

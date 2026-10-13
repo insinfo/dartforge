@@ -38,7 +38,7 @@ impl Context<'_> {
     /// `DeclaredIdentifier`, `SimpleFormalParameter`, `SuperFormalParameter` or
     /// `VariableDeclarationList` among the selection node and its ancestors.
     pub(crate) fn remove_type_annotation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let target = self.with_parents(node).find(|&k| {
             matches!(self.kind(k), "DeclaredIdentifier" | "SimpleFormalParameter" | "SuperFormalParameter" | "VariableDeclarationList")
         })?;
@@ -48,9 +48,9 @@ impl Context<'_> {
                 // `_removeTypeAnnotation`: from the type to the next token; in a
                 // `super.f(int a)`, also the parameter list.
                 let ty = self.type_child(target)?;
-                let type_end = self.tree.nos[ty].fim;
+                let type_end = self.tree.nodes[ty].end;
                 let next = self.next_token(type_end)?.start;
-                let mut v = vec![(Span { start: self.tree.nos[ty].inicio, end: next }, String::new())];
+                let mut v = vec![(Span { start: self.tree.nodes[ty].start, end: next }, String::new())];
                 if self.kind(target) == "SuperFormalParameter"
                     && let Some(list) = self.children(target).iter().copied().find(|&f| self.kind(f) == "FormalParameterList")
                 {
@@ -77,9 +77,9 @@ impl Context<'_> {
     fn remove_from_declared_identifier(&self, target: usize) -> Option<Vec<(Span, String)>> {
         let ty = self.type_child(target)?;
         // The name: the node's last token.
-        let name = self.previous_token(self.tree.nos[target].fim)?;
-        let word = self.declaration_word(self.tree.nos[target].inicio, self.tree.nos[ty].inicio);
-        let range = Span { start: self.tree.nos[ty].inicio, end: name.start };
+        let name = self.previous_token(self.tree.nodes[target].end)?;
+        let word = self.declaration_word(self.tree.nodes[target].start, self.tree.nodes[ty].start);
+        let range = Span { start: self.tree.nodes[ty].start, end: name.start };
         Some(vec![(range, if word.is_some_and(|p| p != "var") { String::new() } else { "var ".to_string() })])
     }
 
@@ -88,9 +88,9 @@ impl Context<'_> {
         let ty = self.type_child(list)?;
         let variables = self.kind_children(list, "VariableDeclaration");
         let first = *variables.first()?;
-        let name = self.next_token(self.tree.nos[first].inicio)?;
+        let name = self.next_token(self.tree.nodes[first].start)?;
         // Incomplete declaration (synthetic name).
-        if variables.len() == 1 && name.start != self.tree.nos[first].inicio {
+        if variables.len() == 1 && name.start != self.tree.nodes[first].start {
             return None;
         }
         if selection > name.end {
@@ -113,7 +113,7 @@ impl Context<'_> {
                         let opens = self
                             .tokens
                             .iter()
-                            .find(|t| t.span.start >= self.tree.nos[initializer].inicio && matches!(&self.source[t.span.start..t.span.end], "[" | "{"))?;
+                            .find(|t| t.span.start >= self.tree.nodes[initializer].start && matches!(&self.source[t.span.start..t.span.end], "[" | "{"))?;
                         arguments = Some((text, opens.span.start));
                     }
                 }
@@ -121,7 +121,7 @@ impl Context<'_> {
                     let constructor_name = self.children(initializer).iter().copied().find(|&f| self.kind(f) == "ConstructorName")?;
                     let created_type = self.children(constructor_name).iter().copied().find(|&f| self.kind(f) == "NamedType")?;
                     if !self.children(created_type).iter().any(|&f| self.kind(f) == "TypeArgumentList") {
-                        arguments = Some((text, self.tree.nos[created_type].fim));
+                        arguments = Some((text, self.tree.nodes[created_type].end));
                     }
                 }
                 _ => {}
@@ -134,8 +134,8 @@ impl Context<'_> {
         {
             return None;
         }
-        let word = self.declaration_word(self.tree.nos[list].inicio, self.tree.nos[ty].inicio);
-        let range = Span { start: self.tree.nos[ty].inicio, end: name.start };
+        let word = self.declaration_word(self.tree.nodes[list].start, self.tree.nodes[ty].start);
+        let range = Span { start: self.tree.nodes[ty].start, end: name.start };
         let mut v = vec![(range, if word.is_some_and(|p| p != "var") { String::new() } else { "var ".to_string() })];
         if let Some((text, at)) = arguments {
             v.push((Span { start: at, end: at }, text));
@@ -150,7 +150,7 @@ impl Context<'_> {
     /// literal; otherwise the first `VariableDeclarationList`,
     /// `DeclaredIdentifier` or `ForStatement` among the ancestors.
     pub(crate) fn add_type_annotation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let change = match self.kind(node) {
             "SimpleFormalParameter" => self.simple_parameter_type(node)?,
             "DeclaredVariablePattern" => self.declared_pattern_type(node)?,
@@ -168,7 +168,7 @@ impl Context<'_> {
                         let parts = self.children(target).iter().copied().find(|&f| self.kind(f) == "ForEachPartsWithDeclaration")?;
                         let declared = self.children(parts).iter().copied().find(|&f| self.kind(f) == "DeclaredIdentifier")?;
                         let iterable = *self.children(parts).last()?;
-                        if self.tree.nos[node].inicio >= self.tree.nos[iterable].inicio {
+                        if self.tree.nodes[node].start >= self.tree.nodes[iterable].start {
                             return None;
                         }
                         self.declared_identifier_type(declared)?
@@ -219,7 +219,7 @@ impl Context<'_> {
             return None;
         }
         // The name: the node's last token.
-        let name = self.previous_token(self.tree.nos[node].fim)?;
+        let name = self.previous_token(self.tree.nodes[node].end)?;
         if !self.source[name.start..name.end].chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$') {
             return None;
         }
@@ -245,7 +245,7 @@ impl Context<'_> {
         let word = self
             .tokens
             .iter()
-            .find(|tk| tk.span.start >= self.tree.nos[node].inicio && tk.span.end <= name.span.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final"))
+            .find(|tk| tk.span.start >= self.tree.nodes[node].start && tk.span.end <= name.span.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final"))
             .map(|tk| tk.span);
         self.apply_type(word, name.span, t)
     }
@@ -263,7 +263,7 @@ impl Context<'_> {
         let opens = self
             .tokens
             .iter()
-            .find(|tk| tk.span.start >= self.tree.nos[node].inicio && matches!(&self.source[tk.span.start..tk.span.end], "[" | "{"))?
+            .find(|tk| tk.span.start >= self.tree.nodes[node].start && matches!(&self.source[tk.span.start..tk.span.end], "[" | "{"))?
             .span
             .start;
         let mut writer = crate::write_type::Writer::new(self, opens);
@@ -277,7 +277,7 @@ impl Context<'_> {
         if self.type_child(node).is_some() {
             return None;
         }
-        let name = self.previous_token(self.tree.nos[node].fim)?;
+        let name = self.previous_token(self.tree.nodes[node].end)?;
         let t = self.bodies.local_type(name.start)?;
         if !(self.is_interface_type(t)
             || matches!(self.p.query.table.get(t), Type::Function { .. } | Type::Record { .. } | Type::TypeParameter { .. } | Type::Intersection { .. }))
@@ -287,7 +287,7 @@ impl Context<'_> {
         let word = self
             .tokens
             .iter()
-            .find(|tk| tk.span.start >= self.tree.nos[node].inicio && tk.span.end <= name.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final" | "const"))
+            .find(|tk| tk.span.start >= self.tree.nodes[node].start && tk.span.end <= name.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final" | "const"))
             .map(|tk| tk.span);
         self.apply_type(word, name, t)
     }
@@ -295,7 +295,7 @@ impl Context<'_> {
     /// `_typeForVariable`: the initializer's type; without one, for a block
     /// local, the LUB of the types assigned in the following statements.
     fn variable_type(&self, variable: usize) -> Option<TypeId> {
-        let name = self.next_token(self.tree.nos[variable].inicio)?;
+        let name = self.next_token(self.tree.nodes[variable].start)?;
         if let Some(&start) = self.children(variable).first() {
             return self.node_expr(start).and_then(|x| self.bodies.get_type(x));
         }
@@ -306,8 +306,8 @@ impl Context<'_> {
         if self.kind(command) != "VariableDeclarationStatement" || self.kind(block) != "Block" {
             return None;
         }
-        let command_end = self.tree.nos[command].fim;
-        let block_end = self.tree.nos[block].fim;
+        let command_end = self.tree.nodes[command].end;
+        let block_end = self.tree.nodes[block].end;
         let mut types: Vec<TypeId> = Vec::new();
         for (i, e) in self.ast.exprs.iter().enumerate() {
             let ExprKind::Assign { op: ast::AssignOp::Assign, target, value } = &e.kind else { continue };
@@ -348,7 +348,7 @@ impl Context<'_> {
         }
         let variables = self.kind_children(list, "VariableDeclaration");
         let first = *variables.first()?;
-        let name = self.next_token(self.tree.nos[first].inicio)?;
+        let name = self.next_token(self.tree.nodes[first].start)?;
         if selection > name.end {
             return None;
         }
@@ -366,7 +366,7 @@ impl Context<'_> {
         let word = self
             .tokens
             .iter()
-            .find(|tk| tk.span.start >= self.tree.nos[list].inicio && tk.span.end <= name.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final" | "const"))
+            .find(|tk| tk.span.start >= self.tree.nodes[list].start && tk.span.end <= name.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final" | "const"))
             .map(|tk| tk.span);
         let _ = StmtKind::Empty;
         self.apply_type(word, name, t)
@@ -397,7 +397,7 @@ impl Context<'_> {
         }
         let variables: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) == "VariableDeclaration").collect();
         let Some(&first) = variables.first() else { return false };
-        let Some(name) = self.next_token(self.tree.nos[first].inicio) else { return false };
+        let Some(name) = self.next_token(self.tree.nodes[first].start) else { return false };
         let Some(declared) = self.local_declared_type(name.start) else { return false };
         variables.iter().all(|&v| {
             self.children(v).first().and_then(|&i| self.node_expr(i)).and_then(|x| self.bodies.get_type(x)) == Some(declared)
@@ -417,7 +417,7 @@ impl Context<'_> {
                     let children = self.children(k);
                     let Some(&variable) = children.iter().find(|&&f| self.kind(f) == "DeclaredIdentifier") else { return false };
                     let Some(&iterable) = children.last() else { return false };
-                    let Some(name) = self.previous_token(self.tree.nos[variable].fim) else { return false };
+                    let Some(name) = self.previous_token(self.tree.nodes[variable].end) else { return false };
                     let Some(declared) = self.local_declared_type(name.start) else { return false };
                     // `loopVariable.type?.type`: without an annotation, nothing.
                     if !self.children(variable).iter().any(|&f| matches!(self.kind(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation")) {
@@ -447,7 +447,7 @@ impl Context<'_> {
     /// (or disappears, with `final`/`const`), and the type arguments move to
     /// the literal or the creation without them.
     pub(crate) fn swap_to_var(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let ty = self.type_to_swap(node)?;
         if !self.swappable_to_var(node) {
             return None;
@@ -455,9 +455,9 @@ impl Context<'_> {
         let parent = self.parent(ty)?;
         let grandparent = self.parent(parent)?;
         let final_or_const_word = |list: usize| -> bool {
-            let mut k = self.next_token(self.tree.nos[list].inicio);
+            let mut k = self.next_token(self.tree.nodes[list].start);
             while let Some(s) = k {
-                if s.start >= self.tree.nos[ty].inicio {
+                if s.start >= self.tree.nodes[ty].start {
                     return false;
                 }
                 if matches!(&self.source[s.start..s.end], "final" | "const") {
@@ -487,7 +487,7 @@ impl Context<'_> {
                         "ListLiteral" | "SetOrMapLiteral" => {
                             if self.type_arguments(i).is_none() {
                                 // `leftBracket.offset`.
-                                let opens = self.tokens.iter().find(|t| t.span.start >= self.tree.nos[i].inicio && matches!(&self.source[t.span.start..t.span.end], "[" | "{"))?;
+                                let opens = self.tokens.iter().find(|t| t.span.start >= self.tree.nodes[i].start && matches!(&self.source[t.span.start..t.span.end], "[" | "{"))?;
                                 transfer = Some((self.node_text(args).to_string(), opens.span.start));
                             }
                         }
@@ -495,7 +495,7 @@ impl Context<'_> {
                             let constructor_name = self.children(i).iter().copied().find(|&k| self.kind(k) == "ConstructorName")?;
                             let constructor_type = *self.children(constructor_name).first()?;
                             if self.type_arguments(constructor_type).is_none() {
-                                transfer = Some((self.node_text(args).to_string(), self.tree.nos[constructor_type].fim));
+                                transfer = Some((self.node_text(args).to_string(), self.tree.nodes[constructor_type].end));
                             }
                         }
                         _ => {}
@@ -510,7 +510,7 @@ impl Context<'_> {
                 return None;
             }
             if final_or_const_word(parent) {
-                edits.push((Span { start: self.tree.nos[ty].inicio, end: self.tree.nos[variables[0]].inicio }, String::new()));
+                edits.push((Span { start: self.tree.nodes[ty].start, end: self.tree.nodes[variables[0]].start }, String::new()));
             } else {
                 edits.push((self.tree.span(ty), "var".into()));
             }
@@ -522,12 +522,12 @@ impl Context<'_> {
             if let Some(args) = type_args {
                 let iterable = *self.children(grandparent).last()?;
                 if matches!(self.kind(iterable), "ListLiteral" | "SetOrMapLiteral") && self.type_arguments(iterable).is_none() {
-                    transfer = Some((self.node_text(args).to_string(), self.tree.nos[iterable].inicio));
+                    transfer = Some((self.node_text(args).to_string(), self.tree.nodes[iterable].start));
                 }
             }
-            let name = self.previous_token(self.tree.nos[parent].fim)?;
+            let name = self.previous_token(self.tree.nodes[parent].end)?;
             if final_or_const_word(parent) {
-                edits.push((Span { start: self.tree.nos[ty].inicio, end: name.start }, String::new()));
+                edits.push((Span { start: self.tree.nodes[ty].start, end: name.start }, String::new()));
             } else {
                 edits.push((self.tree.span(ty), "var".into()));
             }
@@ -558,12 +558,12 @@ impl Context<'_> {
     /// `R f(P)` becomes `R Function(P) f`; inside a parameter list, only the
     /// parameter itself.
     pub(crate) fn convert_to_function_syntax(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let target = self.with_parents(node).find(|&k| matches!(self.kind(k), "FunctionTypeAlias" | "FunctionTypedFormalParameter" | "FormalParameterList"))?;
         let children = self.children(target).to_vec();
         let list = *children.iter().rev().find(|&&k| self.kind(k) == "FormalParameterList")?;
         let parameter_types = children.iter().copied().find(|&k| self.kind(k) == "TypeParameterList");
-        let return_ = children.iter().copied().find(|&k| RETURN_TYPES.contains(&self.kind(k)) && self.tree.nos[k].fim <= self.tree.nos[list].inicio);
+        let return_ = children.iter().copied().find(|&k| RETURN_TYPES.contains(&self.kind(k)) && self.tree.nodes[k].end <= self.tree.nodes[list].start);
         let parameters = self.node_text(list).to_string();
         match self.kind(target) {
             "FunctionTypeAlias" => {
@@ -571,22 +571,22 @@ impl Context<'_> {
                     return None;
                 }
                 // The name: the token before the type parameters or the list.
-                let after_name = parameter_types.map_or(self.tree.nos[list].inicio, |t| self.tree.nos[t].inicio);
+                let after_name = parameter_types.map_or(self.tree.nodes[list].start, |t| self.tree.nodes[t].start);
                 let name = self.previous_token(after_name)?;
-                let name_end = parameter_types.map_or(name.end, |t| self.tree.nos[t].fim);
+                let name_end = parameter_types.map_or(name.end, |t| self.tree.nodes[t].end);
                 let function_name = &self.source[name.start..name_end];
                 let swap = match return_ {
                     None => format!("{function_name} = Function{parameters}"),
                     Some(r) => format!("{function_name} = {} Function{parameters}", self.node_text(r)),
                 };
-                let typedef = self.next_token(self.tree.nos[target].inicio)?;
+                let typedef = self.next_token(self.tree.nodes[target].start)?;
                 let typedef = if &self.source[typedef.start..typedef.end] == "typedef" {
                     typedef
                 } else {
-                    self.tokens.iter().find(|t| t.span.start >= self.tree.nos[target].inicio && &self.source[t.span.start..t.span.end] == "typedef")?.span
+                    self.tokens.iter().find(|t| t.span.start >= self.tree.nodes[target].start && &self.source[t.span.start..t.span.end] == "typedef")?.span
                 };
                 let after_typedef = self.next_token(typedef.end)?;
-                let semicolon = self.previous_token(self.tree.nos[target].fim)?;
+                let semicolon = self.previous_token(self.tree.nodes[target].end)?;
                 Some(self.type_action(
                     uri,
                     "Convert into 'Function' syntax",
@@ -600,24 +600,24 @@ impl Context<'_> {
                 }
                 let before_type = return_.map_or_else(
                     || {
-                        let after = parameter_types.map_or(self.tree.nos[list].inicio, |t| self.tree.nos[t].inicio);
-                        self.previous_token(after).map_or(self.tree.nos[target].inicio, |s| s.start)
+                        let after = parameter_types.map_or(self.tree.nodes[list].start, |t| self.tree.nodes[t].start);
+                        self.previous_token(after).map_or(self.tree.nodes[target].start, |s| s.start)
                     },
-                    |r| self.tree.nos[r].inicio,
+                    |r| self.tree.nodes[r].start,
                 );
                 let words: Vec<&str> = self
                     .tokens
                     .iter()
-                    .filter(|t| t.span.start >= self.tree.nos[target].inicio && t.span.end <= before_type)
+                    .filter(|t| t.span.start >= self.tree.nodes[target].start && t.span.end <= before_type)
                     .map(|t| &self.source[t.span.start..t.span.end])
                     .collect();
                 let required = if words.contains(&"required") { "required " } else { "" };
                 let covariant = if words.contains(&"covariant") { "covariant " } else { "" };
                 let return_type = return_.map_or(String::new(), |r| format!("{} ", self.node_text(r)));
-                let after_name = parameter_types.map_or(self.tree.nos[list].inicio, |t| self.tree.nos[t].inicio);
+                let after_name = parameter_types.map_or(self.tree.nodes[list].start, |t| self.tree.nodes[t].start);
                 let name = self.previous_token(after_name)?;
                 let tp = parameter_types.map_or(String::new(), |t| self.node_text(t).to_string());
-                let question = if self.source[self.tree.nos[list].fim..self.tree.nos[target].fim].trim() == "?" { "?" } else { "" };
+                let question = if self.source[self.tree.nodes[list].end..self.tree.nodes[target].end].trim() == "?" { "?" } else { "" };
                 let swap = format!(
                     "{required}{covariant}{return_type}Function{tp}{parameters}{question} {}",
                     &self.source[name.start..name.end]

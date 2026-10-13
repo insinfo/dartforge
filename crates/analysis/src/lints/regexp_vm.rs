@@ -900,14 +900,14 @@ impl Parser<'_> {
         match &name2 {
             // The general category, `Any`/`ASCII`/`Assigned` and the binary ones.
             None => {
-                in_list(&tables::CATEGORIAS_GERAIS, &name1)
+                in_list(&tables::GENERAL_CATEGORIES, &name1)
                     || matches!(name1.as_str(), "Any" | "ASCII" | "Assigned")
-                    || in_list(&tables::PROPRIEDADES_BINARIAS, &name1)
+                    || in_list(&tables::BINARY_PROPERTIES, &name1)
             }
             Some(value) => match name1.as_str() {
-                "gc" | "General_Category" => in_list(&tables::CATEGORIAS_GERAIS, value),
-                "sc" | "Script" => in_list(&tables::ESCRITAS, value),
-                "scx" | "Script_Extensions" => in_list(&tables::ESCRITAS_ESTENDIDAS, value),
+                "gc" | "General_Category" => in_list(&tables::GENERAL_CATEGORIES, value),
+                "sc" | "Script" => in_list(&tables::SCRIPTS, value),
+                "scx" | "Script_Extensions" => in_list(&tables::SCRIPT_EXTENSIONS, value),
                 _ => false,
             },
         }

@@ -11,7 +11,7 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
     self, Ast, CollectionElement, DeclId, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody, FunctionId, Initializer,
@@ -43,7 +43,7 @@ struct Walker<'a, 'f> {
 
 /// Calls `f(node, ancestors)` for each node of the unit; `ancestors` goes from
 /// the top-level declaration to the node's parent.
-pub fn walk(u: Unidade<'_>, f: &mut dyn FnMut(Node, &[Node])) {
+pub fn walk(u: Unit<'_>, f: &mut dyn FnMut(Node, &[Node])) {
     let mut x = Walker { a: u.ast, stack: Vec::new(), f };
     for &d in u.unit.declarations.iter() {
         x.decl(d);
@@ -358,8 +358,8 @@ impl<'a> Walker<'a, '_> {
             | ExprKind::Rethrow
             | ExprKind::DotShorthand { .. } => {}
             ExprKind::String(lit) => {
-                for parte in lit.parts.iter() {
-                    if let StringPart::Interpolation(x) = parte {
+                for part in lit.parts.iter() {
+                    if let StringPart::Interpolation(x) = part {
                         self.expr(*x);
                     }
                 }
@@ -476,7 +476,7 @@ mod tests {
         let source = "void f() {\n  try {\n  } finally {\n    g(() => 1);\n  }\n}\n";
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         let mut ints = Vec::new();
         walk(u, &mut |node, stack| {
             if let Node::Expr(e) = node

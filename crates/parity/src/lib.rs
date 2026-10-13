@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub use dartforge_analysis::publicacao::{VERIFICADOS, publicado, verificados};
+pub use dartforge_analysis::publication::{VERIFIED, is_published, verified};
 
 /// The analysis diagnostics in JSON v1, with the filters applied (the root
 /// `analysis_options.yaml` and `// ignore:`). `only_published` applies the
@@ -74,42 +74,42 @@ pub fn diagnosticos_json(analysis: &Analise, root: &Path, options: &filtros::Opc
             // The reports over the program's tree, with semantics; without it
             // (a file outside the program), over the text's tree.
             let mut reports = match &a.lint_reports {
-                Some(r) => r.iter().filter(|x| enabled(x.code.nome)).cloned().collect::<Vec<_>>(),
+                Some(r) => r.iter().filter(|x| enabled(x.code.name)).cloned().collect::<Vec<_>>(),
                 None => {
                     let mut names = dartforge_intern::Interner::new();
                     let parsed = dartforge_frontend::parser::parse(&a.texto, &mut names);
-                    let unit = dartforge_analysis::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: &a.texto };
+                    let unit = dartforge_analysis::Unit { ast: &parsed.ast, unit: &parsed.unit, source: &a.texto };
                     dartforge_analysis::lints::run(unit, &names, &enabled)
                 }
             };
             // Those of the rules that need the resolved program, already
             // computed by the engine.
             for l in &a.semantic_lints {
-                if let Some(code) = dartforge_analysis::lints::codigos_g::TODOS.iter().copied().find(|k| k.unico == l.unico)
-                    && enabled(code.nome)
+                if let Some(code) = dartforge_analysis::lints::codes_g::ALL.iter().copied().find(|k| k.unique == l.unico)
+                    && enabled(code.name)
                 {
                     reports.push(dartforge_analysis::lints::rules::LintReport { code, span: l.span, args: l.args.clone() });
                 }
             }
-            reports.sort_by_key(|r| (r.span.start, r.span.end, r.code.unico));
+            reports.sort_by_key(|r| (r.span.start, r.span.end, r.code.unique));
             // The same code at the same place with the same arguments is
             // reported only once (`final (a, b) = …` reports the keyword per
             // variable).
-            reports.dedup_by(|x, y| x.span == y.span && x.code.unico == y.code.unico && x.args == y.args);
+            reports.dedup_by(|x, y| x.span == y.span && x.code.unique == y.code.unique && x.args == y.args);
             for r in reports {
-                let severity = match options.errors.get(r.code.nome) {
+                let severity = match options.errors.get(r.code.name) {
                     Some(None) => continue,
                     Some(Some(s)) => s.name(),
                     None => "INFO",
                 };
                 // `cannot-ignore` with the lint's name: `// ignore:` does not silence it.
-                if options.lint_ignorable(r.code.nome, r.code.unico)
-                    && ignored.ignores_lint(r.code.nome, r.code.unico, lines.ponto(r.span.start).line)
+                if options.lint_ignorable(r.code.name, r.code.unique)
+                    && ignored.ignores_lint(r.code.name, r.code.unique, lines.ponto(r.span.start).line)
                 {
                     continue;
                 }
                 out.push(json::DiagJson {
-                    code: r.code.nome.to_string(),
+                    code: r.code.name.to_string(),
                     severity: severity.to_string(),
                     tipo: "LINT".to_string(),
                     location: json::Local {
@@ -119,7 +119,7 @@ pub fn diagnosticos_json(analysis: &Analise, root: &Path, options: &filtros::Opc
                     problem_message: r.message(),
                     correction_message: r.correction(),
                     context_messages: Vec::new(),
-                    documentation: r.code.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.code.nome)),
+                    documentation: r.code.documented.then(|| format!("https://dart.dev/diagnostics/{}", r.code.name)),
                 });
             }
         }
@@ -129,11 +129,11 @@ pub fn diagnosticos_json(analysis: &Analise, root: &Path, options: &filtros::Opc
 }
 
 /// A report on a non-Dart file, in JSON v1.
-fn report_to_json(file: &str, lines: &json::Linhas<'_>, r: &dartforge_analysis::naodart::Report) -> json::DiagJson {
+fn report_to_json(file: &str, lines: &json::Linhas<'_>, r: &dartforge_analysis::non_dart::Report) -> json::DiagJson {
     json::DiagJson {
-        code: r.code.nome.to_string(),
-        severity: r.code.severidade.name().to_string(),
-        tipo: r.code.tipo.name().to_string(),
+        code: r.code.name.to_string(),
+        severity: r.code.severity.name().to_string(),
+        tipo: r.code.error_type.name().to_string(),
         location: json::Local {
             file: file.to_string(),
             range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
@@ -141,12 +141,12 @@ fn report_to_json(file: &str, lines: &json::Linhas<'_>, r: &dartforge_analysis::
         problem_message: r.message(),
         correction_message: r.correction(),
         context_messages: Vec::new(),
-        documentation: r.code.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.code.nome)),
+        documentation: r.code.documented.then(|| format!("https://dart.dev/diagnostics/{}", r.code.name)),
     }
 }
 
 /// The diagnostics of each `AndroidManifest.xml` under `root` (the analyzer's
-/// `ManifestValidator`, `dartforge_analysis::naodart::manifest`), in JSON v1.
+/// `ManifestValidator`, `dartforge_analysis::non_dart::manifest`), in JSON v1.
 /// Only with `analyzer: optional-checks: chrome-os-manifest-checks` in the
 /// options; hidden folders are skipped.
 pub fn diagnosticos_do_manifesto(root: &Path, options: &filtros::Opcoes) -> Vec<json::DiagJson> {
@@ -175,13 +175,13 @@ pub fn diagnosticos_do_manifesto(root: &Path, options: &filtros::Opcoes) -> Vec<
         let Ok(text) = std::fs::read_to_string(&file) else { continue };
         let lines = json::Linhas::new(&text);
         let path = file.to_string_lossy();
-        out.extend(dartforge_analysis::naodart::manifest::validate(&text).iter().map(|r| report_to_json(&path, &lines, r)));
+        out.extend(dartforge_analysis::non_dart::manifest::validate(&text).iter().map(|r| report_to_json(&path, &lines, r)));
     }
     out
 }
 
 /// The diagnostics of the `analysis_options.yaml` of `root`
-/// (`analyzeAnalysisOptions`, `dartforge_analysis::naodart::options`), in
+/// (`analyzeAnalysisOptions`, `dartforge_analysis::non_dart::options`), in
 /// JSON v1. An `include:` is relative to the including file, or `package:`
 /// through the `package_config.json` found above the root. The SDK constraint
 /// is not passed: a lint rule removed with `since` is not reported.
@@ -198,7 +198,7 @@ pub fn diagnosticos_das_opcoes(root: &Path) -> Vec<json::DiagJson> {
         }
     };
     let root_text = root.to_string_lossy();
-    let ctx = dartforge_analysis::naodart::options::OptionsContext {
+    let ctx = dartforge_analysis::non_dart::options::OptionsContext {
         file: &file,
         context_root: root_text.as_ref(),
         resolver: &resolver,
@@ -206,11 +206,11 @@ pub fn diagnosticos_das_opcoes(root: &Path) -> Vec<json::DiagJson> {
     };
     let lines = json::Linhas::new(&text);
     let path = file.to_string_lossy();
-    dartforge_analysis::naodart::options::analyze(&text, &ctx).iter().map(|r| report_to_json(&path, &lines, r)).collect()
+    dartforge_analysis::non_dart::options::analyze(&text, &ctx).iter().map(|r| report_to_json(&path, &lines, r)).collect()
 }
 
 /// The diagnostics of the `pubspec.yaml` of `root` (the analyzer's
-/// `PubspecValidator`, `dartforge_analysis::naodart::pubspec`, and the pubspec
+/// `PubspecValidator`, `dartforge_analysis::non_dart::pubspec`, and the pubspec
 /// lints enabled in the options, `dartforge_analysis::lints::pubspec`), in
 /// JSON v1, without those silenced by `# ignore:`/`# ignore_for_file:` (the
 /// `IgnoreInfo.forYaml` at the end of `validatePubspec`). Without the file,
@@ -222,13 +222,13 @@ pub fn diagnosticos_do_pubspec(root: &Path, options: &filtros::Opcoes) -> Vec<js
     let lines = json::Linhas::new(&text);
     let path = file.to_string_lossy();
     let ignored = dartforge_analysis::lints::pubspec::YamlIgnores::parse(&text);
-    let mut out: Vec<json::DiagJson> = dartforge_analysis::naodart::pubspec::validate(&text, root)
+    let mut out: Vec<json::DiagJson> = dartforge_analysis::non_dart::pubspec::validate(&text, root)
         .into_iter()
-        .filter(|r| !ignored.ignores(r.code.nome, r.code.nome, r.span.start))
+        .filter(|r| !ignored.ignores(r.code.name, r.code.name, r.span.start))
         .map(|r| json::DiagJson {
-            code: r.code.nome.to_string(),
-            severity: r.code.severidade.name().to_string(),
-            tipo: r.code.tipo.name().to_string(),
+            code: r.code.name.to_string(),
+            severity: r.code.severity.name().to_string(),
+            tipo: r.code.error_type.name().to_string(),
             location: json::Local {
                 file: path.to_string(),
                 range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
@@ -236,22 +236,22 @@ pub fn diagnosticos_do_pubspec(root: &Path, options: &filtros::Opcoes) -> Vec<js
             problem_message: r.message(),
             correction_message: r.correction(),
             context_messages: Vec::new(),
-            documentation: r.code.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.code.nome)),
+            documentation: r.code.documented.then(|| format!("https://dart.dev/diagnostics/{}", r.code.name)),
         })
         .collect();
     if options.regras.values().any(|enabled| *enabled) {
         let enabled = |rule: &str| options.regras.get(rule).copied().unwrap_or(false);
         for r in dartforge_analysis::lints::pubspec::run(&text, &enabled) {
-            if ignored.ignores(r.code.nome, r.code.unico, r.span.start) {
+            if ignored.ignores(r.code.name, r.code.unique, r.span.start) {
                 continue;
             }
-            let severity = match options.errors.get(r.code.nome) {
+            let severity = match options.errors.get(r.code.name) {
                 Some(None) => continue,
                 Some(Some(s)) => s.name(),
                 None => "INFO",
             };
             out.push(json::DiagJson {
-                code: r.code.nome.to_string(),
+                code: r.code.name.to_string(),
                 severity: severity.to_string(),
                 tipo: "LINT".to_string(),
                 location: json::Local {
@@ -261,7 +261,7 @@ pub fn diagnosticos_do_pubspec(root: &Path, options: &filtros::Opcoes) -> Vec<js
                 problem_message: r.message(),
                 correction_message: r.correction(),
                 context_messages: Vec::new(),
-                documentation: r.code.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.code.nome)),
+                documentation: r.code.documented.then(|| format!("https://dart.dev/diagnostics/{}", r.code.name)),
             });
         }
     }
@@ -278,7 +278,7 @@ pub fn publicaveis(a: &analise::Arquivo, options: &filtros::Opcoes, only_publish
     let mut out = Vec::new();
     for (i, d) in a.diags.iter().enumerate() {
         let syntax = i < a.syntactic_count;
-        if only_published && !publicado(d, syntax) {
+        if only_published && !is_published(d, syntax) {
             continue;
         }
         // The two `inference_failure_on_*` of the `BestPracticesVerifier` only
@@ -299,7 +299,7 @@ pub fn publicaveis(a: &analise::Arquivo, options: &filtros::Opcoes, only_publish
     // `IgnoreValidator` (the unit's last phase): the names repeated in the
     // `ignore` comments.
     for d in ignored.duplicados() {
-        if only_published && !publicado(&d, false) {
+        if only_published && !is_published(&d, false) {
             continue;
         }
         if let Some(d) = options.processar(d) {

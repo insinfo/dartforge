@@ -35,7 +35,7 @@ impl Context<'_> {
     /// becomes `x.isNotEmpty` when whoever declares the resolved `isEmpty` also
     /// declares an `isNotEmpty` (`getChildren`).
     pub(crate) fn convert_to_is_not_empty(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         if self.kind(node) != "SimpleIdentifier" {
             return None;
         }
@@ -86,7 +86,7 @@ impl Context<'_> {
         if self.kind(prefix) != "PrefixExpression" {
             return None;
         }
-        let operator = self.next_token(self.tree.nos[prefix].inicio)?;
+        let operator = self.next_token(self.tree.nodes[prefix].start)?;
         if &self.source[operator.start..operator.end] != "!" {
             return None;
         }
@@ -96,7 +96,7 @@ impl Context<'_> {
             "refactor.convert.isNotEmpty",
             vec![
                 // `range.startStart(prefixExpression, prefixExpression.operand)`.
-                (Span { start: self.tree.nos[prefix].inicio, end: self.tree.nos[access].inicio }, String::new()),
+                (Span { start: self.tree.nodes[prefix].start, end: self.tree.nodes[access].start }, String::new()),
                 (self.tree.span(identifier), "isNotEmpty".into()),
             ],
         ))
@@ -106,7 +106,7 @@ impl Context<'_> {
     /// with an integer value becomes an `int` (cut at the `.`, which preserves
     /// digit separators, when there is no exponent).
     pub(crate) fn convert_to_int_literal(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         if self.kind(node) != "DoubleLiteral" {
             return None;
         }
@@ -147,7 +147,7 @@ impl Context<'_> {
     /// `c ? a : []`); with a list literal, its elements
     /// (`Inline invocation of 'addAll'`).
     pub(crate) fn convert_add_all_to_spread(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let name = self.tree.localizar(start, end)?;
+        let name = self.tree.locate(start, end)?;
         if self.kind(name) != "SimpleIdentifier" {
             return None;
         }
@@ -156,7 +156,7 @@ impl Context<'_> {
             return None;
         }
         // `isCascaded`: the name's operator is `..` or `?..`.
-        let operator = self.previous_token(self.tree.nos[name].inicio)?;
+        let operator = self.previous_token(self.tree.nodes[name].start)?;
         if !matches!(&self.source[operator.start..operator.end], ".." | "?..") {
             return None;
         }
@@ -190,16 +190,16 @@ impl Context<'_> {
             "ListLiteral" => {
                 let elements = self.list_elements(argument);
                 let (&first_, &last) = (elements.first()?, elements.last()?);
-                text = Some(self.source[self.tree.nos[first_].inicio..self.tree.nos[last].fim].to_string());
+                text = Some(self.source[self.tree.nodes[first_].start..self.tree.nodes[last].end].to_string());
             }
             _ => {}
         }
         let text = text.unwrap_or_else(|| format!("...{}", self.node_text(argument)));
         let target_elements = self.list_elements(target);
         let insertion = match target_elements.last() {
-            Some(&u) => (Span { start: self.tree.nos[u].fim, end: self.tree.nos[u].fim }, format!(", {text}")),
+            Some(&u) => (Span { start: self.tree.nodes[u].end, end: self.tree.nodes[u].end }, format!(", {text}")),
             None => {
-                let opens = self.tokens.iter().find(|t| t.span.start >= self.tree.nos[target].inicio && &self.source[t.span.start..t.span.end] == "[")?.span;
+                let opens = self.tokens.iter().find(|t| t.span.start >= self.tree.nodes[target].start && &self.source[t.span.start..t.span.end] == "[")?.span;
                 (Span { start: opens.end, end: opens.end }, text)
             }
         };
@@ -214,7 +214,7 @@ impl Context<'_> {
     /// `InlineInvocation` (inline_invocation.dart): on the name of the first
     /// `..add(e)` of a cascade over a list literal, `e` goes into the list.
     pub(crate) fn inline_invocation_add(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let name = self.tree.localizar(start, end)?;
+        let name = self.tree.locate(start, end)?;
         if self.kind(name) != "SimpleIdentifier" || self.node_text(name) != "add" {
             return None;
         }
@@ -222,7 +222,7 @@ impl Context<'_> {
         if self.kind(invocation) != "MethodInvocation" || self.method_name(invocation) != Some(name) {
             return None;
         }
-        let operator = self.previous_token(self.tree.nos[name].inicio)?;
+        let operator = self.previous_token(self.tree.nodes[name].start)?;
         if !matches!(&self.source[operator.start..operator.end], ".." | "?..") {
             return None;
         }
@@ -241,9 +241,9 @@ impl Context<'_> {
         }
         let text = self.node_text(arguments[0]).to_string();
         let insertion = match self.list_elements(target).last() {
-            Some(&u) => (Span { start: self.tree.nos[u].fim, end: self.tree.nos[u].fim }, format!(", {text}")),
+            Some(&u) => (Span { start: self.tree.nodes[u].end, end: self.tree.nodes[u].end }, format!(", {text}")),
             None => {
-                let opens = self.tokens.iter().find(|t| t.span.start >= self.tree.nos[target].inicio && &self.source[t.span.start..t.span.end] == "[")?.span;
+                let opens = self.tokens.iter().find(|t| t.span.start >= self.tree.nodes[target].start && &self.source[t.span.start..t.span.end] == "[")?.span;
                 (Span { start: opens.end, end: opens.end }, text)
             }
         };
@@ -253,7 +253,7 @@ impl Context<'_> {
     /// `ConvertConditionalExpressionToIfElement`: a conditional element of a
     /// list or set literal (through parentheses) becomes `if (c) a else b`.
     pub(crate) fn conditional_to_if_element(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let conditional = self.with_parents(node).find(|&k| self.kind(k) == "ConditionalExpression")?;
         let mut swap = conditional;
         let mut parent = self.parent(conditional)?;
@@ -303,7 +303,7 @@ impl Context<'_> {
     /// `ConvertDocumentationIntoBlock`: a documentation comment made only of
     /// `///` lines becomes `/** … */`.
     pub(crate) fn block_documentation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let comment = self.with_parents(node).find(|&k| self.kind(k) == "Comment")?;
         let tokens = self.comment_tokens(comment);
         if tokens.is_empty() || tokens.iter().any(|&(s, line)| !line || !self.source[s.start..s.end].starts_with("///")) {
@@ -321,7 +321,7 @@ impl Context<'_> {
 
     /// `ConvertDocumentationIntoLine`: the `/** … */` becomes `///` lines.
     pub(crate) fn line_documentation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let comment = self.with_parents(node).find(|&k| self.kind(k) == "Comment")?;
         let tokens = self.comment_tokens(comment);
         let [(token, false)] = tokens[..] else { return None };
@@ -361,11 +361,11 @@ impl Context<'_> {
     /// `LinkedHashMap()` without arguments becomes `{}`, with the written type
     /// arguments or, outside a typed declaration, those of the static type.
     pub(crate) fn convert_to_map_literal(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let creation = self.with_parents(node).find(|&k| self.kind(k) == "InstanceCreationExpression")?;
         let arguments = self.children(creation).iter().copied().find(|&k| self.kind(k) == "ArgumentList")?;
         let constructor_name = self.children(creation).iter().copied().find(|&k| self.kind(k) == "ConstructorName")?;
-        if self.tree.nos[node].inicio > self.tree.nos[arguments].inicio || self.children(constructor_name).len() > 1 || !self.children(arguments).is_empty() {
+        if self.tree.nodes[node].start > self.tree.nodes[arguments].start || self.children(constructor_name).len() > 1 || !self.children(arguments).is_empty() {
             return None;
         }
         let ty = self.node_expr(creation).and_then(|x| self.bodies.get_type(x))?;
@@ -392,7 +392,7 @@ impl Context<'_> {
                     && args.last().is_some_and(|&a| matches!(query.table.get(a), dartforge_types::Type::Dynamic));
                 if !typed_list && !args.is_empty() && !all_dynamic {
                     // `writeTypes`: each one through `writeType`, with ", ".
-                    let mut writer = crate::write_type::Writer::new(self, self.tree.nos[creation].inicio);
+                    let mut writer = crate::write_type::Writer::new(self, self.tree.nodes[creation].start);
                     let written: Vec<String> = args.iter().map(|&a| writer.write_type(Some(a), false).unwrap_or_default()).collect();
                     import = writer.import;
                     text.push('<');
@@ -469,8 +469,8 @@ impl Context<'_> {
     /// `Set()`, `Set.from([…])` and `Set.of([…])` become a set literal, with
     /// `<dynamic>` when the literal without type arguments would be a map.
     pub(crate) fn convert_to_set_literal(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
-        let node_start = self.tree.nos[node].inicio;
+        let node = self.tree.locate(start, end)?;
+        let node_start = self.tree.nodes[node].start;
         let opens_and_closes = |list: usize| -> Option<(Span, Span)> {
             let span = self.tree.span(list);
             let opens = self.tokens.iter().find(|t| t.span.start >= span.start && &self.source[t.span.start..t.span.end] == "[")?.span;
@@ -480,7 +480,7 @@ impl Context<'_> {
         // `_findInvocationOfToSet`.
         if let Some(invocation) = self.with_parents(node).find(|&k| self.kind(k) == "MethodInvocation")
             && let Some(args) = self.children(invocation).iter().copied().find(|&k| self.kind(k) == "ArgumentList")
-            && node_start <= self.tree.nos[args].inicio
+            && node_start <= self.tree.nodes[args].start
             && self.method_name(invocation).is_some_and(|n| self.node_text(n) == "toSet")
             && let Some(&target) = self.children(invocation).first()
             && self.kind(target) == "ListLiteral"
@@ -493,13 +493,13 @@ impl Context<'_> {
                 uri,
                 "Convert to set literal",
                 "refactor.convert.toSetLiteral",
-                vec![(opens, new.into()), (Span { start: closes.start, end: self.tree.nos[invocation].fim }, "}".into())],
+                vec![(opens, new.into()), (Span { start: closes.start, end: self.tree.nodes[invocation].end }, "}".into())],
             ));
         }
         // `_findSetCreation`.
         let creation = self.with_parents(node).find(|&k| self.kind(k) == "InstanceCreationExpression")?;
         let arguments = self.children(creation).iter().copied().find(|&k| self.kind(k) == "ArgumentList")?;
-        if node_start > self.tree.nos[arguments].inicio {
+        if node_start > self.tree.nodes[arguments].start {
             return None;
         }
         let ty = self.node_expr(creation).and_then(|x| self.bodies.get_type(x))?;
@@ -532,7 +532,7 @@ impl Context<'_> {
                     && self.kind(list) == "VariableDeclarationList"
                     && let Some(&annotation) = self.children(list).iter().find(|&&f| self.kind(f) == "NamedType")
                     && let Some(&first) = self.children(list).iter().find(|&&f| self.kind(f) == "VariableDeclaration")
-                    && let Some(name) = self.next_token(self.tree.nos[first].inicio)
+                    && let Some(name) = self.next_token(self.tree.nodes[first].start)
                     && let Some(&t) = self.bodies.local_types.get(&name.start)
                     && self.is_set_type(t)
                 {
@@ -590,7 +590,7 @@ impl Context<'_> {
         if self.kind(parameter) != "SimpleFormalParameter" {
             return None;
         }
-        let name_p = self.previous_token(self.tree.nos[parameter].fim)?;
+        let name_p = self.previous_token(self.tree.nodes[parameter].end)?;
         let body = *fe.last()?;
         let body = match self.kind(body) {
             "ExpressionFunctionBody" => *self.children(body).first()?,
@@ -626,8 +626,8 @@ impl Context<'_> {
         let mut stack = vec![body];
         while let Some(k) = stack.pop() {
             if self.kind(k) == "SimpleIdentifier" {
-                let marks_parameter = match self.tree.nos[k].marca {
-                    crate::arvore_analyzer::Marca::Expr(x) => match self.bodies.get_resolved(x) {
+                let marks_parameter = match self.tree.nodes[k].mark {
+                    crate::analyzer_tree::Mark::Expr(x) => match self.bodies.get_resolved(x) {
                         Some(Resolved::Parameter { name, .. }) => self.p.name(*name) == name_text,
                         Some(Resolved::Local(_)) => self.bodies.local_declaration(x) == Some(name_.start),
                         _ => false,
@@ -635,7 +635,7 @@ impl Context<'_> {
                     _ => false,
                 };
                 if marks_parameter {
-                    refs.push(self.tree.nos[k].inicio);
+                    refs.push(self.tree.nodes[k].start);
                 } else if !self.qualified(k) {
                     others.insert(self.node_text(k).to_string());
                 }
@@ -650,7 +650,7 @@ impl Context<'_> {
     /// (convert_map_from_iterable_to_for_literal.dart): `Map.fromIterable(i,
     /// key: (k) => …, value: (v) => …)` becomes `{ for (var e in i) … : … }`.
     pub(crate) fn map_from_iterable_to_for(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let creation = self.with_parents(node).find(|&k| self.kind(k) == "InstanceCreationExpression")?;
         let constructor_name = self.children(creation).iter().copied().find(|&k| self.kind(k) == "ConstructorName")?;
         if self.children(constructor_name).get(1).map(|&n| self.node_text(n)) != Some("fromIterable") {
@@ -698,7 +698,7 @@ impl Context<'_> {
             if refs_v.is_empty() {
                 if others_v.contains(&nk) {
                     let n = free();
-                    text_k = swap(&text_k, &refs_k, self.tree.nos[body_k].inicio, nk.len(), &n);
+                    text_k = swap(&text_k, &refs_k, self.tree.nodes[body_k].start, nk.len(), &n);
                     n
                 } else {
                     nk
@@ -706,15 +706,15 @@ impl Context<'_> {
             } else if refs_k.is_empty() {
                 if others_k.contains(&nv) {
                     let n = free();
-                    text_v = swap(&text_v, &refs_v, self.tree.nos[body_v].inicio, nv.len(), &n);
+                    text_v = swap(&text_v, &refs_v, self.tree.nodes[body_v].start, nv.len(), &n);
                     n
                 } else {
                     nv
                 }
             } else {
                 let n = free();
-                text_k = swap(&text_k, &refs_k, self.tree.nos[body_k].inicio, nk.len(), &n);
-                text_v = swap(&text_v, &refs_v, self.tree.nos[body_v].inicio, nv.len(), &n);
+                text_k = swap(&text_k, &refs_k, self.tree.nodes[body_k].start, nk.len(), &n);
+                text_v = swap(&text_v, &refs_v, self.tree.nodes[body_v].start, nv.len(), &n);
                 n
             }
         };

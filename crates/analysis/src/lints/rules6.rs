@@ -28,10 +28,10 @@
 //! Written without compiling or running (2026-10-05).
 
 use super::walk::{walk, Node};
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
     self, AssignOp, Ast, AsyncModifier, BinaryOp, Combinator, DeclKind, DirectiveKind, ExprId, ExprKind, FunctionBody, FunctionId, FunctionKind,
@@ -129,11 +129,11 @@ fn identifier(a: &Ast, e: ExprId) -> Option<(Option<SymbolId>, SymbolId)> {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let source = u.fonte;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.source;
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let method_fns: HashSet<FunctionId> = a
@@ -524,7 +524,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         // The code of `return null`: that of the nearest function (literal,
         // declared or method), if the element's return type is `void` (or
         // `Future<void>` in an async body). Needs the unit's semantics.
-        let null_code = |stack: &[Node], own: Option<FunctionId>| -> Option<&'static CodigoLint> {
+        let null_code = |stack: &[Node], own: Option<FunctionId>| -> Option<&'static LintCode> {
             let s = sem?;
             let f = own.or_else(|| {
                 stack.iter().rev().find_map(|n| match n {
@@ -566,12 +566,12 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                             report(&c::CONTROL_FLOW_IN_FINALLY, n.span, &["continue"]);
                         }
                     }
-                    StmtKind::Return(valor) => {
+                    StmtKind::Return(value) => {
                         if in_finally && escapes_finally(a, stack, &Flow::Exit) {
                             report(&c::CONTROL_FLOW_IN_FINALLY, n.span, &["return"]);
                         }
                         if null_for_void_on
-                            && valor.is_some_and(is_null)
+                            && value.is_some_and(is_null)
                             && let Some(code) = null_code(stack, None)
                         {
                             report(code, n.span, &[]);
@@ -607,10 +607,10 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         let mut reports = run(u, &names, &|_| true, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
-        reports.into_iter().map(|r| (r.code.unico, source[r.span.start..r.span.end].to_string())).collect()
+        reports.into_iter().map(|r| (r.code.unique, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     fn only(rule: &str, source: &str) -> Vec<String> {

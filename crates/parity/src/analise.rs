@@ -59,7 +59,7 @@ pub struct Arquivo {
 #[derive(Debug, Clone)]
 pub struct SemanticLint {
     /// The code's unique name (`LinterLintCode`), which is also the key in
-    /// `dartforge_analysis::lints::codigos_g::ALL`.
+    /// `dartforge_analysis::lints::codes_g::ALL`.
     pub unico: &'static str,
     pub span: dartforge_diagnostics::Span,
     pub args: Vec<String>,
@@ -535,7 +535,7 @@ impl Motor {
             // `_resolveLibraryDocImportDirective`: the `@docImport`s of the
             // `library` directive's doc with a missing target
             // (`URI_DOES_NOT_EXIST_IN_DOC_IMPORT`).
-            let tree = dartforge_analysis::Unidade { ast: &unit.ast, unit: &unit.unit, fonte: &unit.source };
+            let tree = dartforge_analysis::Unit { ast: &unit.ast, unit: &unit.unit, source: &unit.source };
             for i in dartforge_analysis::a_doc::library_doc_imports(tree) {
                 // The interpolated URI (`DirectiveUriWithInterpolation`, on the literal).
                 if i.interpolated {
@@ -631,9 +631,9 @@ impl Motor {
                 .copied()
                 .filter(|u| program.unit(*u).role != dartforge_elements::model::UnitRole::Patch)
                 .collect();
-            let units: Vec<dartforge_analysis::Unidade<'_>> = ids
+            let units: Vec<dartforge_analysis::Unit<'_>> = ids
                 .iter()
-                .map(|u| dartforge_analysis::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, fonte: &program.unit(*u).source })
+                .map(|u| dartforge_analysis::Unit { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, source: &program.unit(*u).source })
                 .collect();
             let wildcard = library.features.has(dartforge_frontend::features::Feature::WildcardVariables);
             // 6.11 merges declarations with the same name; 3.13.4 (the
@@ -644,27 +644,27 @@ impl Motor {
             let new_syntax = program.library_reference(*lib) == dartforge_diagnostics::AnalyzerReference::V3_13;
             let paths: Vec<String> = ids.iter().map(|u| program.unit_path(*u)).collect();
             let mut found: Vec<(usize, Diagnostic, u16)> =
-                with_phase(phase::ERROR_VERIFIER, dartforge_analysis::duplicatas::duplicates_with_paths(&units, &paths, &interner, wildcard, !new_syntax)).collect();
-            found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::enums::sem_constantes(&units)));
-            // `finais_nao_inicializados` comes after body inference (the type
+                with_phase(phase::ERROR_VERIFIER, dartforge_analysis::duplicates::duplicates_with_paths(&units, &paths, &interner, wildcard, !new_syntax)).collect();
+            found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::enums::without_constants(&units)));
+            // `uninitialized_finals` comes after body inference (the type
             // of a field without a type comes from it).
 
             found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::constructors::check(&units, &interner)));
             for (i, u) in units.iter().enumerate() {
-                let skipped = dartforge_analysis::Pulados { fonte: u.fonte, trechos: &program.unit(ids[i]).skipped };
+                let skipped = dartforge_analysis::Skipped { source: u.source, spans: &program.unit(ids[i]).skipped };
                 found.extend(with_phase(
                     phase::UNUSED_LOCAL_ELEMENTS,
-                    dartforge_analysis::locais::nao_usados_com_pulados(*u, &interner, wildcard, skipped).into_iter().map(|d| (i, d)),
+                    dartforge_analysis::locals::unused_with_skipped(*u, &interner, wildcard, skipped).into_iter().map(|d| (i, d)),
                 ));
-                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::externos::inicializadores(*u).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::externals::initializers(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::a_context::check(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::BEST_PRACTICES, dartforge_analysis::a_doc::check(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::c2_syntactic::check(*u, &interner).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::UNICODE_TEXT, dartforge_analysis::phases::bidi_text(*u).into_iter().map(|d| (i, d))));
-                found.extend(with_phase(phase::TODO_FINDER, dartforge_analysis::todos::check(u.fonte).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::TODO_FINDER, dartforge_analysis::todos::check(u.source).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::LANGUAGE_VERSION, dartforge_analysis::language_version::check(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::records::check(u, &interner, library.features).into_iter().map(|d| (i, d))));
-                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::inicializacao::uninitialized_constants(u, &interner).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::initialization::uninitialized_constants(u, &interner).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::PARSER,
                     dartforge_analysis::phases::colon_for_default_value(*u, library.features.version().major < 3).into_iter().map(|d| (i, d)),
                 ));
@@ -676,7 +676,7 @@ impl Motor {
                 )
                 .into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::PARSER, dartforge_analysis::natives::outside_sdk(*u).into_iter().map(|d| (i, d))));
-                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::operators::arity(*u, &interner).into_iter().map(|d| (i, d))));
             }
             // Unused privates: the `UnusedLocalElementsVerifier` runs on every
             // library, with or without syntax errors (`_computeWarnings`,
@@ -684,9 +684,9 @@ impl Motor {
             // inference, and the by-name report kept for when there are no
             // bodies. A name cited in a fragment the parser skipped is not
             // reported (fasta would have read it).
-            let skipped: Vec<dartforge_analysis::Pulados<'_>> = ids
+            let skipped: Vec<dartforge_analysis::Skipped<'_>> = ids
                 .iter()
-                .map(|u| dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).skipped })
+                .map(|u| dartforge_analysis::Skipped { source: &program.unit(*u).source, spans: &program.unit(*u).skipped })
                 .collect();
             let deferred = dartforge_analysis::private_decls::unused_with_skipped(&units, &interner, &skipped);
             deferred_privates.insert(*lib, deferred.into_iter().map(|(i, d)| (ids[i], d, phase::UNUSED_LOCAL_ELEMENTS)).collect());
@@ -695,12 +695,12 @@ impl Motor {
                     analysis.report(&chave(p), d, f);
                 }
             }
-            for (u, d, f) in with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::deferred_extensions(&program, *lib))
+            for (u, d, f) in with_phase(phase::DIRECTIVES, dartforge_analysis::imports::deferred_extensions(&program, *lib))
                 .into_iter()
-                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::internal_and_deferred_directives(&program, *lib)))
-                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::undefined_shown_names(&program, *lib, &interner)))
-                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::ambiguous_exports(&program, *lib, &interner)))
-                .chain(with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::importacoes::deferred_types(&program, *lib, &interner)))
+                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::imports::internal_and_deferred_directives(&program, *lib)))
+                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::imports::undefined_shown_names(&program, *lib, &interner)))
+                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::imports::ambiguous_exports(&program, *lib, &interner)))
+                .chain(with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::imports::deferred_types(&program, *lib, &interner)))
                 // NEW PHASES (INFRA step 6): the per-library warning verifiers.
                 .chain(with_phase(phase::IMPORTS_VERIFIER, dartforge_analysis::phases::repeated_directives(&program, *lib, &interner)))
                 // The `package:meta` annotations (batch II.7). Public API: the
@@ -913,9 +913,9 @@ impl Motor {
                 .copied()
                 .filter(|u| program.unit(*u).role != dartforge_elements::model::UnitRole::Patch)
                 .collect();
-            let units: Vec<dartforge_analysis::Unidade<'_>> = ids
+            let units: Vec<dartforge_analysis::Unit<'_>> = ids
                 .iter()
-                .map(|u| dartforge_analysis::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, fonte: &program.unit(*u).source })
+                .map(|u| dartforge_analysis::Unit { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, source: &program.unit(*u).source })
                 .collect();
             let mut non_nullable: std::collections::HashMap<(usize, usize), bool> = std::collections::HashMap::new();
             for (vi, var) in program.variables.iter().enumerate() {
@@ -932,7 +932,7 @@ impl Motor {
                 let nullable = dartforge_types::subtyping::is_subtype(core.null, t, &mut env);
                 non_nullable.insert((ui, v.name.span.start), !nullable);
             }
-            let found = dartforge_analysis::inicializacao::uninitialized_finals_with(&units, &interner, &|u, s| non_nullable.get(&(u, s)).copied());
+            let found = dartforge_analysis::initialization::uninitialized_finals_with(&units, &interner, &|u, s| non_nullable.get(&(u, s)).copied());
             attributed.extend(with_phase(phase::ERROR_VERIFIER, found.into_iter().map(|(i, d)| (ids[i], d))));
         }
         // Invalid overrides, in the classes where the `verify()` of the
@@ -1009,7 +1009,7 @@ impl Motor {
                         unused.retain(|(u, d)| {
                             let name = program.unit(*u).source.get(d.span.start..d.span.end).unwrap_or("");
                             !units.iter().any(|x| {
-                                dartforge_analysis::Pulados { fonte: &program.unit(*x).source, trechos: &program.unit(*x).skipped }.mentions(name)
+                                dartforge_analysis::Skipped { source: &program.unit(*x).source, spans: &program.unit(*x).skipped }.mentions(name)
                             })
                         });
                         attributed.extend(with_phase(phase::UNUSED_LOCAL_ELEMENTS, unused));
@@ -1091,7 +1091,7 @@ impl Motor {
                         outline: &outline,
                         can_be_const: Some(&can_be_const),
                     };
-                    let tree = dartforge_analysis::Unidade { ast: &un.ast, unit: &un.unit, fonte: &un.source };
+                    let tree = dartforge_analysis::Unit { ast: &un.ast, unit: &un.unit, source: &un.source };
                     let reports = dartforge_analysis::lints::run_with(tree, &interner, &|_| true, Some(&sem));
                     if let Some(p) = &un.path
                         && let Some(a) = analysis.arquivos.get_mut(&chave(p))
@@ -1189,7 +1189,7 @@ impl Motor {
                 .filter_map(|k| analysis.arquivos.get(k))
                 .flat_map(|a| a.diags.iter().cloned())
                 .collect();
-            for (u, d) in dartforge_analysis::importacoes::unused(&program, *lib, &interner, &existing, bodies.as_ref()) {
+            for (u, d) in dartforge_analysis::imports::unused(&program, *lib, &interner, &existing, bodies.as_ref()) {
                 if let Some(p) = &program.unit(u).path {
                     analysis.report(&chave(p), d, phase::IMPORTS_VERIFIER);
                 }
@@ -1220,7 +1220,7 @@ impl Motor {
                 let Some(units) = library_units.get(k) else { continue };
                 let Some(&own_unit) = unit_of.get(k) else { continue };
                 let source = program.unit(own_unit).source.as_str();
-                let own_skipped = dartforge_analysis::Pulados { fonte: source, trechos: &program.unit(own_unit).skipped };
+                let own_skipped = dartforge_analysis::Skipped { source, spans: &program.unit(own_unit).skipped };
                 let n = a.syntactic_count;
                 let mut i = 0;
                 a.diags.retain(|d| {
@@ -1232,7 +1232,7 @@ impl Motor {
                     if depends_on_declarations(c) {
                         let name = source.get(d.span.start..d.span.end).unwrap_or("");
                         return !units.iter().any(|u| {
-                            dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).skipped }.mentions(name)
+                            dartforge_analysis::Skipped { source: &program.unit(*u).source, spans: &program.unit(*u).skipped }.mentions(name)
                         });
                     }
                     if depends_on_line(c) {

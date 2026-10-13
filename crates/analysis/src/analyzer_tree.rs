@@ -26,104 +26,104 @@ use std::collections::HashMap;
 
 /// Where the node came from in the parser's tree (to find its element).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Marca {
-    Nenhuma,
+pub enum Mark {
+    Nothing,
     /// A `SimpleIdentifier` whose element is the one resolved in this
     /// expression (the identifier itself, the property it names, the target of
     /// the invocation whose `methodName` it is).
     Expr(ExprId),
     /// The `FunctionDeclaration`, `MethodDeclaration` or `FunctionExpression`
     /// of this function.
-    Funcao(ast::FunctionId),
+    Function(ast::FunctionId),
     /// The `VariableDeclaration` of a local variable.
-    VariavelLocal,
+    LocalVariable,
     /// A top-level declaration.
     Decl(ast::DeclId),
     /// A `SimpleIdentifier` in a declaration context (`inDeclarationContext`:
     /// the `as p` prefix and a statement's label).
-    ContextoDeDeclaracao,
+    DeclarationContext,
     /// The `PrefixExpression` of this expression (the `staticElement` is the operator).
-    Operador(ExprId),
+    Operator(ExprId),
 }
 
 /// The DartForge AST entity the node represents (completion reads its parts).
 /// Those without an id in the parser's tree go by address (only compared,
 /// never followed).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Ligacao {
-    Nenhuma,
+pub enum Binding {
+    Nothing,
     Expr(ExprId),
     Stmt(StmtId),
     Decl(ast::DeclId),
-    Membro(ast::MemberId),
-    Funcao(ast::FunctionId),
-    Tipo(TypeId),
-    Padrao(PatternId),
+    Member(ast::MemberId),
+    Function(ast::FunctionId),
+    Type(TypeId),
+    Pattern(PatternId),
     /// `ast::Parameter`.
-    Parametro(usize),
+    Parameter(usize),
     /// `ast::Initializer`.
-    Inicializador(usize),
+    Initializer(usize),
     /// `ast::EnumConstant`.
-    ConstanteDeEnum(usize),
+    EnumConstant(usize),
     /// `ast::SwitchCase`.
-    Caso(usize),
+    Case(usize),
     /// `ast::Directive`.
-    Diretiva(usize),
+    Directive(usize),
     /// `ast::CatchClause`.
     Catch(usize),
     /// `ast::Arguments`.
-    Argumentos(usize),
+    Arguments(usize),
     /// `ast::CollectionElement`.
-    Elemento(usize),
+    Element(usize),
     /// `ast::Combinator`.
-    Combinador(usize),
+    Combinator(usize),
     /// `ast::Annotation`.
-    Anotacao(usize),
+    Annotation(usize),
     /// `ast::TypeParameter`.
-    ParametroDeTipo(usize),
+    TypeParameter(usize),
     /// The `SwitchExpressionCase` with index `.1` of the `switch` expression `.0`.
-    CasoDeSwitchExpr(ExprId, usize),
+    SwitchExprCase(ExprId, usize),
 }
 
-/// The address of an AST entity, for the [`Ligacao`].
-pub fn endereco<T>(x: &T) -> usize {
+/// The address of an AST entity, for the [`Binding`].
+pub fn address<T>(x: &T) -> usize {
     x as *const T as usize
 }
 
 /// An analyzer node.
 #[derive(Debug, Clone)]
-pub struct No {
-    pub especie: &'static str,
-    pub inicio: usize,
-    pub fim: usize,
-    pub filhos: Vec<usize>,
-    pub pai: Option<usize>,
+pub struct Node {
+    pub kind: &'static str,
+    pub start: usize,
+    pub end: usize,
+    pub children: Vec<usize>,
+    pub parent: Option<usize>,
     /// The position of the end of the name that the `NodeLocator` overrides
     /// (class, function, method, constructor).
-    pub sobrescrita: Option<usize>,
-    pub marca: Marca,
-    pub ligacao: Ligacao,
+    pub name_override: Option<usize>,
+    pub mark: Mark,
+    pub binding: Binding,
 }
 
 /// The parts of a `ForParts` (`initialization`/`variables`, `condition`,
 /// `updaters`), by node.
 #[derive(Debug, Clone, Default)]
-pub struct PartesDeFor {
-    pub inicio: Option<usize>,
-    pub condicao: Option<usize>,
-    pub atualizacoes: Vec<usize>,
+pub struct ForParts {
+    pub initialization: Option<usize>,
+    pub condition: Option<usize>,
+    pub updaters: Vec<usize>,
 }
 
 /// The tree; node 0 is the `CompilationUnit`.
-pub struct Arvore {
-    pub nos: Vec<No>,
+pub struct AnalyzerTree {
+    pub nodes: Vec<Node>,
     /// The parts of each `ForPartsWith*`, by node.
-    pub partes_de_for: HashMap<usize, PartesDeFor>,
+    pub for_parts: HashMap<usize, ForParts>,
 }
 
-impl Arvore {
-    /// `NodeLocator(ini, fim).searchWithin(unit)`.
-    pub fn localizar(&self, start: usize, end: usize) -> Option<usize> {
+impl AnalyzerTree {
+    /// `NodeLocator(ini, end).searchWithin(unit)`.
+    pub fn locate(&self, start: usize, end: usize) -> Option<usize> {
         let mut found = None;
         self.visit(0, start, end, &mut found);
         found
@@ -133,24 +133,24 @@ impl Arvore {
         if found.is_some() {
             return;
         }
-        let node = &self.nos[n];
-        if let Some(s) = node.sobrescrita
+        let node = &self.nodes[n];
+        if let Some(s) = node.name_override
             && start == end
             && start == s
         {
             *found = Some(n);
             return;
         }
-        if node.fim < start || node.inicio > end {
+        if node.end < start || node.start > end {
             return;
         }
-        for &f in &node.filhos {
+        for &f in &node.children {
             self.visit(f, start, end, found);
             if found.is_some() {
                 return;
             }
         }
-        if node.inicio <= start && end <= node.fim {
+        if node.start <= start && end <= node.end {
             *found = Some(n);
         }
     }
@@ -158,7 +158,7 @@ impl Arvore {
     /// `NodeLocator2` (exclusive end): the deepest node with
     /// `start <= pos < end`, the first child that covers, with the `name.end`
     /// overrides.
-    pub fn localizar_exclusivo(&self, pos: usize) -> Option<usize> {
+    pub fn locate_exclusive(&self, pos: usize) -> Option<usize> {
         let mut found = None;
         self.visit_exclusive(0, pos, &mut found);
         found
@@ -168,30 +168,30 @@ impl Arvore {
         if found.is_some() {
             return;
         }
-        let node = &self.nos[n];
-        if let Some(s) = node.sobrescrita
+        let node = &self.nodes[n];
+        if let Some(s) = node.name_override
             && pos == s
         {
             *found = Some(n);
             return;
         }
-        if node.fim <= pos || node.inicio > pos {
+        if node.end <= pos || node.start > pos {
             return;
         }
-        for &f in &node.filhos {
+        for &f in &node.children {
             self.visit_exclusive(f, pos, found);
             if found.is_some() {
                 return;
             }
         }
-        if node.inicio <= pos && pos < node.fim {
+        if node.start <= pos && pos < node.end {
             *found = Some(n);
         }
     }
 
     /// `NodeLocator2(start, end)`: the deepest node with `start <= ini` and
     /// `end < node.end` (the fixes' `coveringNode`).
-    pub fn localizar2(&self, start: usize, end: usize) -> Option<usize> {
+    pub fn locate2(&self, start: usize, end: usize) -> Option<usize> {
         let mut found = None;
         self.visit2(0, start, end, &mut found);
         found
@@ -201,23 +201,23 @@ impl Arvore {
         if found.is_some() {
             return;
         }
-        let node = &self.nos[n];
-        if node.fim <= start || node.inicio > end {
+        let node = &self.nodes[n];
+        if node.end <= start || node.start > end {
             return;
         }
-        for &f in &node.filhos {
+        for &f in &node.children {
             self.visit2(f, start, end, found);
             if found.is_some() {
                 return;
             }
         }
-        if node.inicio <= start && end < node.fim {
+        if node.start <= start && end < node.end {
             *found = Some(n);
         }
     }
 
     /// The node and its ancestors, without the `CompilationUnit`.
-    pub fn cadeia(&self, n: usize) -> Vec<usize> {
+    pub fn chain(&self, n: usize) -> Vec<usize> {
         let mut v = Vec::new();
         let mut current = Some(n);
         while let Some(k) = current {
@@ -225,13 +225,13 @@ impl Arvore {
                 break;
             }
             v.push(k);
-            current = self.nos[k].pai;
+            current = self.nodes[k].parent;
         }
         v
     }
 
     pub fn span(&self, n: usize) -> Span {
-        Span { start: self.nos[n].inicio, end: self.nos[n].fim }
+        Span { start: self.nodes[n].start, end: self.nodes[n].end }
     }
 }
 
@@ -342,7 +342,7 @@ struct Builder<'a> {
     source: &'a str,
     t: Tokens,
     comments: Comments,
-    nos: Vec<No>,
+    nodes: Vec<Node>,
     /// The language version is before 3.0 (`case e:` is a `SwitchCase`).
     before_3_0: bool,
     /// The metadata of the statements (local variables and functions).
@@ -353,25 +353,25 @@ struct Builder<'a> {
     constructor_calls: Option<&'a std::collections::HashSet<ExprId>>,
     /// The identifiers that are an import prefix (resolved shape).
     prefix_idents: Option<&'a std::collections::HashSet<ExprId>>,
-    partes_de_for: HashMap<usize, PartesDeFor>,
+    for_parts: HashMap<usize, ForParts>,
 }
 
 /// Builds the tree of the already parsed text.
-pub fn construir(source: &str, a: &Ast, unit: &CompilationUnit, before_3_0: bool) -> Arvore {
+pub fn build(source: &str, a: &Ast, unit: &CompilationUnit, before_3_0: bool) -> AnalyzerTree {
     build_with(source, a, unit, before_3_0, None, None)
 }
 
 /// The tree in the resolved shape: `construtores` are the calls (`Call` or
 /// `InstanceCreation` without a keyword) that invoke a constructor, and
 /// `prefixos` the identifiers that denote an import prefix.
-pub fn construir_resolvida(
+pub fn build_resolved(
     source: &str,
     a: &Ast,
     unit: &CompilationUnit,
     before_3_0: bool,
     constructor_calls: &std::collections::HashSet<ExprId>,
     prefix_idents: &std::collections::HashSet<ExprId>,
-) -> Arvore {
+) -> AnalyzerTree {
     build_with(source, a, unit, before_3_0, Some(constructor_calls), Some(prefix_idents))
 }
 
@@ -382,21 +382,21 @@ fn build_with<'a>(
     before_3_0: bool,
     constructor_calls: Option<&'a std::collections::HashSet<ExprId>>,
     prefix_idents: Option<&'a std::collections::HashSet<ExprId>>,
-) -> Arvore {
+) -> AnalyzerTree {
     let mut c = Builder {
         a,
         source,
         t: Tokens::new(source),
         comments: Comments::scan(source),
-        nos: Vec::new(),
+        nodes: Vec::new(),
         before_3_0,
         local_metadata: a.local_metadata.iter().map(|(s, m)| (s.0, &m[..])).collect(),
         constructor_calls,
         prefix_idents,
-        partes_de_for: HashMap::new(),
+        for_parts: HashMap::new(),
     };
     // The root first (index 0), the children afterwards.
-    c.nos.push(No { especie: "CompilationUnit", inicio: 0, fim: source.len(), filhos: Vec::new(), pai: None, sobrescrita: None, marca: Marca::Nenhuma, ligacao: Ligacao::Nenhuma });
+    c.nodes.push(Node { kind: "CompilationUnit", start: 0, end: source.len(), children: Vec::new(), parent: None, name_override: None, mark: Mark::Nothing, binding: Binding::Nothing });
     let mut children = Vec::new();
     if let Some(s) = unit.script_tag {
         children.extend(c.leaf("ScriptTag", s));
@@ -415,7 +415,7 @@ fn build_with<'a>(
         children.extend(n);
     }
     c.link(0, children);
-    Arvore { nos: c.nos, partes_de_for: c.partes_de_for }
+    AnalyzerTree { nodes: c.nodes, for_parts: c.for_parts }
 }
 
 impl<'a> Builder<'a> {
@@ -426,17 +426,17 @@ impl<'a> Builder<'a> {
         if end <= start {
             return None;
         }
-        let id = self.nos.len();
-        self.nos.push(No { especie: kind, inicio: start, fim: end, filhos: Vec::new(), pai: None, sobrescrita: None, marca: Marca::Nenhuma, ligacao: Ligacao::Nenhuma });
+        let id = self.nodes.len();
+        self.nodes.push(Node { kind, start, end, children: Vec::new(), parent: None, name_override: None, mark: Mark::Nothing, binding: Binding::Nothing });
         self.link(id, children);
         Some(id)
     }
 
     fn link(&mut self, parent: usize, children: Vec<usize>) {
         for &f in &children {
-            self.nos[f].pai = Some(parent);
+            self.nodes[f].parent = Some(parent);
         }
-        self.nos[parent].filhos = children;
+        self.nodes[parent].children = children;
     }
 
     fn leaf(&mut self, kind: &'static str, s: Span) -> Option<usize> {
@@ -447,39 +447,39 @@ impl<'a> Builder<'a> {
         // The recovery's synthetic identifier (`b.` before `}`) stays in the
         // tree with length zero, as in the analyzer.
         if n.span.start == n.span.end {
-            let id = self.nos.len();
-            self.nos.push(No {
-                especie: "SimpleIdentifier",
-                inicio: n.span.start,
-                fim: n.span.end,
-                filhos: Vec::new(),
-                pai: None,
-                sobrescrita: None,
-                marca: Marca::Nenhuma,
-                ligacao: Ligacao::Nenhuma,
+            let id = self.nodes.len();
+            self.nodes.push(Node {
+                kind: "SimpleIdentifier",
+                start: n.span.start,
+                end: n.span.end,
+                children: Vec::new(),
+                parent: None,
+                name_override: None,
+                mark: Mark::Nothing,
+                binding: Binding::Nothing,
             });
             return Some(id);
         }
         self.leaf("SimpleIdentifier", n.span)
     }
 
-    fn bind_to(&mut self, n: Option<usize>, l: Ligacao) -> Option<usize> {
+    fn bind_to(&mut self, n: Option<usize>, l: Binding) -> Option<usize> {
         if let Some(k) = n {
-            self.nos[k].ligacao = l;
+            self.nodes[k].binding = l;
         }
         n
     }
 
-    fn mark(&mut self, n: Option<usize>, m: Marca) -> Option<usize> {
+    fn mark(&mut self, n: Option<usize>, m: Mark) -> Option<usize> {
         if let Some(k) = n {
-            self.nos[k].marca = m;
+            self.nodes[k].mark = m;
         }
         n
     }
 
     fn with_override(&mut self, n: Option<usize>, pos: usize) -> Option<usize> {
         if let Some(k) = n {
-            self.nos[k].sobrescrita = Some(pos);
+            self.nodes[k].name_override = Some(pos);
         }
         n
     }
@@ -492,23 +492,23 @@ impl<'a> Builder<'a> {
     /// tokens from it on.
     fn doc(&mut self, pos: usize) -> Option<(usize, usize, Vec<Span>)> {
         let start = self.comments.dart_doc(self.source, pos)?;
-        let cadeia: Vec<Span> = self.comments.before(self.source, pos).into_iter().filter(|s| s.start >= start.start).collect();
+        let chain: Vec<Span> = self.comments.before(self.source, pos).into_iter().filter(|s| s.start >= start.start).collect();
         let text = &self.source[start.start..start.end];
         let mut end = start.end;
         if text.starts_with("///") {
-            for s in &cadeia {
+            for s in &chain {
                 if self.source[s.start..s.end].starts_with("///") {
                     end = s.end;
                 }
             }
         }
-        Some((start.start, end, cadeia))
+        Some((start.start, end, chain))
     }
 
     /// The `Comment` node with the `CommentReference`s (the `DocCommentBuilder`).
-    fn comment_node(&mut self, start: usize, end: usize, cadeia: &[Span]) -> Option<usize> {
+    fn comment_node(&mut self, start: usize, end: usize, chain: &[Span]) -> Option<usize> {
         let mut refs = Vec::new();
-        for r in dartforge_frontend::doc_references::references(self.source, cadeia) {
+        for r in dartforge_frontend::doc_references::references(self.source, chain) {
             let names: Vec<Span> = r.parts.iter().map(|(s, _)| *s).collect();
             let (Some(first), Some(last)) = (names.first().copied(), names.last().copied()) else { continue };
             // The `CommentReference` goes from the `new` (when present) to the end of the name.
@@ -544,11 +544,11 @@ impl<'a> Builder<'a> {
     /// otherwise before each annotation, from the last to the first).
     fn doc_and_annotations(&mut self, start: usize, metadata: &'a [Annotation]) -> (usize, Vec<usize>) {
         // The token after the annotations (the declaration's).
-        let apos = match metadata.last() {
+        let after = match metadata.last() {
             Some(m) => self.t.after(m.span.end).map_or(start, |i| self.t.span(i).start),
             None => start,
         };
-        let mut doc = self.doc(apos);
+        let mut doc = self.doc(after);
         if doc.is_none() {
             for m in metadata.iter().rev() {
                 doc = self.doc(m.span.start);
@@ -557,26 +557,26 @@ impl<'a> Builder<'a> {
                 }
             }
         }
-        let mut comeco = start;
+        let mut start_pos = start;
         if let Some(m) = metadata.first() {
-            comeco = comeco.min(m.span.start);
+            start_pos = start_pos.min(m.span.start);
         }
         let mut items: Vec<(usize, Option<usize>)> = Vec::new();
-        if let Some((a, b, cadeia)) = doc {
-            comeco = comeco.min(a);
-            items.push((a, self.comment_node(a, b, &cadeia)));
+        if let Some((a, b, chain)) = doc {
+            start_pos = start_pos.min(a);
+            items.push((a, self.comment_node(a, b, &chain)));
         }
         for m in metadata {
             items.push((m.span.start, self.annotation(m)));
         }
         items.sort_by_key(|(p, _)| *p);
-        (comeco, items.into_iter().filter_map(|(_, n)| n).collect())
+        (start_pos, items.into_iter().filter_map(|(_, n)| n).collect())
     }
 
     /// `Annotation`: `@` → arguments ?? constructor name ?? name.
     fn annotation(&mut self, m: &'a Annotation) -> Option<usize> {
         let n = self.annotation_raw(m);
-        self.bind_to(n, Ligacao::Anotacao(endereco(m)))
+        self.bind_to(n, Binding::Annotation(address(m)))
     }
 
     fn annotation_raw(&mut self, m: &'a Annotation) -> Option<usize> {
@@ -632,7 +632,7 @@ impl<'a> Builder<'a> {
 
     fn combinator(&mut self, c: &'a Combinator) -> Option<usize> {
         let n = self.combinator_raw(c);
-        self.bind_to(n, Ligacao::Combinador(endereco(c)))
+        self.bind_to(n, Binding::Combinator(address(c)))
     }
 
     fn combinator_raw(&mut self, c: &'a Combinator) -> Option<usize> {
@@ -648,7 +648,7 @@ impl<'a> Builder<'a> {
 
     fn directive(&mut self, d: &'a ast::Directive) -> Option<usize> {
         let n = self.directive_raw(d);
-        self.bind_to(n, Ligacao::Diretiva(endereco(d)))
+        self.bind_to(n, Binding::Directive(address(d)))
     }
 
     fn directive_raw(&mut self, d: &'a ast::Directive) -> Option<usize> {
@@ -668,7 +668,7 @@ impl<'a> Builder<'a> {
                 }
                 if let Some(p) = prefix {
                     let id = self.identifier(*p);
-                    children.extend(self.mark(id, Marca::ContextoDeDeclaracao));
+                    children.extend(self.mark(id, Mark::DeclarationContext));
                 }
                 for c in combinators {
                     children.extend(self.combinator(c));
@@ -722,10 +722,10 @@ impl<'a> Builder<'a> {
 
     fn decl(&mut self, did: ast::DeclId) -> Option<usize> {
         let n = self.decl_unmarked(did);
-        let n = self.bind_to(n, Ligacao::Decl(did));
+        let n = self.bind_to(n, Binding::Decl(did));
         // The top-level function keeps the function's mark.
         match n {
-            Some(k) if self.nos[k].marca == Marca::Nenhuma => self.mark(n, Marca::Decl(did)),
+            Some(k) if self.nodes[k].mark == Mark::Nothing => self.mark(n, Mark::Decl(did)),
             _ => n,
         }
     }
@@ -787,7 +787,7 @@ impl<'a> Builder<'a> {
             }
             DeclKind::ExtensionType(x) => {
                 children.extend(self.type_params(&x.type_params));
-                // `RepresentationDeclaration`: `.nome` ?? `(` → `)`.
+                // `RepresentationDeclaration`: `.name` ?? `(` → `)`.
                 let mut rep = Vec::new();
                 if let Some(c) = x.constructor {
                     let dot = self.t.op_before(c.span.start, Op::Dot).map_or(c.span.start, |i| self.t.span(i).start);
@@ -843,8 +843,8 @@ impl<'a> Builder<'a> {
         }
         children.extend(self.function_expr(fid, from_decl));
         let n = self.node("FunctionDeclaration", start, f.span.end, children);
-        let n = self.bind_to(n, Ligacao::Funcao(fid));
-        self.mark(n, Marca::Funcao(fid))
+        let n = self.bind_to(n, Binding::Function(fid));
+        self.mark(n, Mark::Function(fid))
     }
 
     /// `FunctionExpression`: type parameters ?? parameters ?? body → end of
@@ -854,17 +854,17 @@ impl<'a> Builder<'a> {
         let after_name = f.name.map_or(f.span.start, |n| n.span.end);
         let mut children = Vec::new();
         let tps = self.type_params(&f.type_params);
-        let after_types = tps.map_or(after_name, |n| self.nos[n].fim);
+        let after_types = tps.map_or(after_name, |n| self.nodes[n].end);
         children.extend(tps);
         let params = f.parameters.as_ref().and_then(|ps| self.param_list(ps, after_types));
         children.extend(params);
         let body = self.body(&f.body, f.modifier, f.span.end, from_decl);
         children.extend(body);
-        let start = children.first().map_or(f.span.start, |&n| self.nos[n].inicio);
-        let end = body.map_or(f.span.end, |n| self.nos[n].fim);
+        let start = children.first().map_or(f.span.start, |&n| self.nodes[n].start);
+        let end = body.map_or(f.span.end, |n| self.nodes[n].end);
         let n = self.node("FunctionExpression", start, end, children);
-        let n = self.bind_to(n, Ligacao::Funcao(fid));
-        self.mark(n, Marca::Funcao(fid))
+        let n = self.bind_to(n, Binding::Function(fid));
+        self.mark(n, Mark::Function(fid))
     }
 
     /// A function's body.
@@ -878,8 +878,8 @@ impl<'a> Builder<'a> {
             }
             FunctionBody::Expression(e) => {
                 let es = self.a.expr(*e).span;
-                let seta = self.t.last_op(Op::Arrow, 0, es.start);
-                let start = match (modifier, seta) {
+                let arrow = self.t.last_op(Op::Arrow, 0, es.start);
+                let start = match (modifier, arrow) {
                     (AsyncModifier::None, Some(i)) => self.t.span(i).start,
                     (_, Some(i)) => self.modifier_start(self.t.span(i).start),
                     (_, None) => es.start,
@@ -920,14 +920,14 @@ impl<'a> Builder<'a> {
 
     fn enum_constant(&mut self, k: &'a ast::EnumConstant) -> Option<usize> {
         let n = self.enum_constant_raw(k);
-        self.bind_to(n, Ligacao::ConstanteDeEnum(endereco(k)))
+        self.bind_to(n, Binding::EnumConstant(address(k)))
     }
 
     fn enum_constant_raw(&mut self, k: &'a ast::EnumConstant) -> Option<usize> {
         let (start, mut children) = self.doc_and_annotations(k.span.start, &k.metadata);
         let mut args = Vec::new();
         let tas = self.type_args(&k.type_args);
-        let mut args_start = tas.map(|n| self.nos[n].inicio);
+        let mut args_start = tas.map(|n| self.nodes[n].start);
         args.extend(tas);
         if let Some(c) = k.constructor {
             let dot = self.t.op_before(c.span.start, Op::Dot).map_or(c.span.start, |i| self.t.span(i).start);
@@ -944,7 +944,7 @@ impl<'a> Builder<'a> {
 
     fn member(&mut self, mid: ast::MemberId) -> Option<usize> {
         let n = self.member_raw(mid);
-        self.bind_to(n, Ligacao::Membro(mid))
+        self.bind_to(n, Binding::Member(mid))
     }
 
     fn member_raw(&mut self, mid: ast::MemberId) -> Option<usize> {
@@ -963,14 +963,14 @@ impl<'a> Builder<'a> {
                 }
                 let after_name = f.name.map_or(f.span.start, |n| n.span.end);
                 let tps = self.type_params(&f.type_params);
-                let after_types = tps.map_or(after_name, |n| self.nos[n].fim);
+                let after_types = tps.map_or(after_name, |n| self.nodes[n].end);
                 children.extend(tps);
                 if let Some(ps) = &f.parameters {
                     children.extend(self.param_list(ps, after_types));
                 }
                 children.extend(self.body(&f.body, f.modifier, m.span.end, true));
                 let n = self.node("MethodDeclaration", start, m.span.end, children);
-                let n = self.mark(n, Marca::Funcao(*fid));
+                let n = self.mark(n, Mark::Function(*fid));
                 match f.name {
                     Some(name) => self.with_override(n, name.span.end),
                     None => n,
@@ -1005,7 +1005,7 @@ impl<'a> Builder<'a> {
 
     fn initializer(&mut self, i: &'a Initializer) -> Option<usize> {
         let n = self.initializer_raw(i);
-        self.bind_to(n, Ligacao::Inicializador(endereco(i)))
+        self.bind_to(n, Binding::Initializer(address(i)))
     }
 
     fn initializer_raw(&mut self, i: &'a Initializer) -> Option<usize> {
@@ -1084,7 +1084,7 @@ impl<'a> Builder<'a> {
             let end_v = v.initializer.map_or(v.name.span.end, |e| self.a.expr(e).span.end);
             let start = v.initializer.and_then(|e| self.expr(e));
             let n = self.node("VariableDeclaration", v.name.span.start, end_v, start.into_iter().collect());
-            children.extend(if locals { self.mark(n, Marca::VariavelLocal) } else { n });
+            children.extend(if locals { self.mark(n, Mark::LocalVariable) } else { n });
         }
         self.node("VariableDeclarationList", start, end, children)
     }
@@ -1106,7 +1106,7 @@ impl<'a> Builder<'a> {
 
     fn param(&mut self, p: &'a Parameter) -> Option<usize> {
         let n = self.param_raw(p);
-        self.bind_to(n, Ligacao::Parametro(endereco(p)))
+        self.bind_to(n, Binding::Parameter(address(p)))
     }
 
     fn param_raw(&mut self, p: &'a Parameter) -> Option<usize> {
@@ -1122,10 +1122,10 @@ impl<'a> Builder<'a> {
             }
             let after = p.name.map_or(start, |n| n.span.end);
             let tps = self.type_params(&p.function_type_params);
-            let after = tps.map_or(after, |n| self.nos[n].fim);
+            let after = tps.map_or(after, |n| self.nodes[n].end);
             children.extend(tps);
             let list = self.param_list(fps, after);
-            let mut end = list.map_or(after, |n| self.nos[n].fim);
+            let mut end = list.map_or(after, |n| self.nodes[n].end);
             children.extend(list);
             if p.function_nullable
                 && let Some(i) = self.t.op_after(end, Op::Question)
@@ -1155,7 +1155,7 @@ impl<'a> Builder<'a> {
             (kind, end)
         };
         let inner = self.node(kind, start, end, children);
-        let inner = self.bind_to(inner, Ligacao::Parametro(endereco(p)));
+        let inner = self.bind_to(inner, Binding::Parameter(address(p)));
         if p.kind == ParameterKind::Required {
             return inner;
         }
@@ -1182,7 +1182,7 @@ impl<'a> Builder<'a> {
                 f.extend(self.ty(b));
             }
             let n = self.node("TypeParameter", start, tp.span.end, f);
-            children.extend(self.bind_to(n, Ligacao::ParametroDeTipo(endereco(tp))));
+            children.extend(self.bind_to(n, Binding::TypeParameter(address(tp))));
         }
         self.node("TypeParameterList", self.t.span(lt).start, self.t.span(gt).end, children)
     }
@@ -1202,7 +1202,7 @@ impl<'a> Builder<'a> {
     /// with the `Label`.
     fn arg_list(&mut self, args: &'a Arguments) -> Option<usize> {
         let n = self.arg_list_raw(args);
-        self.bind_to(n, Ligacao::Argumentos(endereco(args)))
+        self.bind_to(n, Binding::Arguments(address(args)))
     }
 
     fn arg_list_raw(&mut self, args: &'a Arguments) -> Option<usize> {
@@ -1231,7 +1231,7 @@ impl<'a> Builder<'a> {
 
     fn ty(&mut self, t: TypeId) -> Option<usize> {
         let n = self.ty_raw(t);
-        self.bind_to(n, Ligacao::Tipo(t))
+        self.bind_to(n, Binding::Type(t))
     }
 
     fn ty_raw(&mut self, t: TypeId) -> Option<usize> {
@@ -1254,7 +1254,7 @@ impl<'a> Builder<'a> {
                     children.extend(self.ty(*r));
                 }
                 let tps = self.type_params(type_params);
-                let after = tps.map_or_else(|| self.function_keyword_pos(ty.span), |n| self.nos[n].fim);
+                let after = tps.map_or_else(|| self.function_keyword_pos(ty.span), |n| self.nodes[n].end);
                 children.extend(tps);
                 children.extend(self.param_list(parameters, after));
                 self.node("GenericFunctionType", ty.span.start, ty.span.end, children)
@@ -1307,7 +1307,7 @@ impl<'a> Builder<'a> {
 
     fn stmt(&mut self, sid: StmtId) -> Option<usize> {
         let n = self.stmt_raw(sid);
-        self.bind_to(n, Ligacao::Stmt(sid))
+        self.bind_to(n, Binding::Stmt(sid))
     }
 
     fn stmt_raw(&mut self, sid: StmtId) -> Option<usize> {
@@ -1321,7 +1321,7 @@ impl<'a> Builder<'a> {
             StmtKind::Variables(l) => {
                 let meta = self.local_metadata.get(&sid.0).copied().unwrap_or(&[]);
                 let list = self.local_variable_list(l, s.span.start, meta);
-                let start = list.map_or(s.span.start, |n| self.nos[n].inicio.min(s.span.start));
+                let start = list.map_or(s.span.start, |n| self.nodes[n].start.min(s.span.start));
                 self.node("VariableDeclarationStatement", start, s.span.end, list.into_iter().collect())
             }
             StmtKind::PatternVariables { pattern, value, .. } => {
@@ -1340,8 +1340,8 @@ impl<'a> Builder<'a> {
                     Some(p) => self.with_override(d, p),
                     None => d,
                 };
-                let start = d.map_or(s.span.start, |n| self.nos[n].inicio);
-                let end = d.map_or(s.span.end, |n| self.nos[n].fim);
+                let start = d.map_or(s.span.start, |n| self.nodes[n].start);
+                let end = d.map_or(s.span.end, |n| self.nodes[n].end);
                 self.node("FunctionDeclarationStatement", start, end, d.into_iter().collect())
             }
             StmtKind::Expression(e) => {
@@ -1415,7 +1415,7 @@ impl<'a> Builder<'a> {
                     }
                     f.extend(self.stmt(c.body));
                     let cc = self.node("CatchClause", c.span.start, c.span.end, f);
-                    children.extend(self.bind_to(cc, Ligacao::Catch(endereco(c))));
+                    children.extend(self.bind_to(cc, Binding::Catch(address(c))));
                 }
                 if let Some(fi) = finally_ {
                     children.extend(self.stmt(*fi));
@@ -1446,7 +1446,7 @@ impl<'a> Builder<'a> {
     fn label(&mut self, n: ast::Name) -> Option<usize> {
         let end = self.t.op_after(n.span.end, Op::Colon).map_or(n.span.end, |i| self.t.span(i).end);
         let id = self.identifier(n);
-        let id = self.mark(id, Marca::ContextoDeDeclaracao);
+        let id = self.mark(id, Mark::DeclarationContext);
         self.node("Label", n.span.start, end, id.into_iter().collect())
     }
 
@@ -1456,7 +1456,7 @@ impl<'a> Builder<'a> {
         let ps = self.a.pattern(p).span;
         let word = self.t.before(ps.start).map_or(ps.start, |i| self.t.span(i).start);
         let gp = self.guarded_pattern(p, guard);
-        let end = gp.map_or(ps.end, |n| self.nos[n].fim);
+        let end = gp.map_or(ps.end, |n| self.nodes[n].end);
         self.node("CaseClause", word, end, gp.into_iter().collect())
     }
 
@@ -1478,7 +1478,7 @@ impl<'a> Builder<'a> {
 
     fn case(&mut self, c: &'a ast::SwitchCase) -> Option<usize> {
         let n = self.case_raw(c);
-        self.bind_to(n, Ligacao::Caso(endereco(c)))
+        self.bind_to(n, Binding::Case(address(c)))
     }
 
     fn case_raw(&mut self, c: &'a ast::SwitchCase) -> Option<usize> {
@@ -1512,7 +1512,7 @@ impl<'a> Builder<'a> {
         let Some(open) = self.t.first_op(Op::LParen, for_start, usize::MAX) else { return (None, None, None) };
         let Some(close) = self.t.pair_of(open) else { return (Some(open), None, None) };
         let mut first = None;
-        let mut segundo = None;
+        let mut second = None;
         let mut i = open + 1;
         while i < close {
             if let Some(j) = self.t.pair_of(i)
@@ -1525,13 +1525,13 @@ impl<'a> Builder<'a> {
                 if first.is_none() {
                     first = Some(i);
                 } else {
-                    segundo = Some(i);
+                    second = Some(i);
                     break;
                 }
             }
             i += 1;
         }
-        (Some(open), first, segundo)
+        (Some(open), first, second)
     }
 
     fn for_parts(&mut self, for_start: usize, init: Option<&'a ForInit>, cond: Option<ExprId>, updates: &'a [ExprId]) -> Option<usize> {
@@ -1541,13 +1541,13 @@ impl<'a> Builder<'a> {
             None => p2.map(|i| self.t.span(i).end)?,
         };
         let mut children = Vec::new();
-        let mut parts = PartesDeFor::default();
+        let mut parts = ForParts::default();
         let (kind, start) = match init {
             Some(ForInit::Variables(l)) => {
                 // The list starts right after the `(` of the `for`.
                 let after_paren = self.t.first_op(Op::LParen, for_start, usize::MAX).map_or(for_start, |i| self.t.span(i).end);
                 let list = self.local_variable_list(l, after_paren, &[]);
-                let start = list.map_or(after_paren, |n| self.nos[n].inicio);
+                let start = list.map_or(after_paren, |n| self.nodes[n].start);
                 children.extend(list);
                 ("ForPartsWithDeclarations", start)
             }
@@ -1567,20 +1567,20 @@ impl<'a> Builder<'a> {
             }
             None => ("ForPartsWithExpression", p1.map(|i| self.t.span(i).start)?),
         };
-        parts.inicio = if init.is_some() { children.first().copied() } else { None };
+        parts.initialization = if init.is_some() { children.first().copied() } else { None };
         if let Some(c) = cond {
             let n = self.expr(c);
-            parts.condicao = n;
+            parts.condition = n;
             children.extend(n);
         }
         for u in updates.iter() {
             let n = self.expr(*u);
-            parts.atualizacoes.extend(n);
+            parts.updaters.extend(n);
             children.extend(n);
         }
         let n = self.node(kind, start, end, children);
         if let Some(k) = n {
-            self.partes_de_for.insert(k, parts);
+            self.for_parts.insert(k, parts);
         }
         n
     }
@@ -1597,7 +1597,7 @@ impl<'a> Builder<'a> {
                     f.extend(self.ty(*t));
                 }
                 let d = self.node("DeclaredIdentifier", start, name.span.end, f);
-                let start = d.map_or(start, |n| self.nos[n].inicio);
+                let start = d.map_or(start, |n| self.nodes[n].start);
                 children.extend(d);
                 ("ForEachPartsWithDeclaration", start)
             }
@@ -1655,7 +1655,7 @@ impl<'a> Builder<'a> {
 
     fn expr(&mut self, e: ExprId) -> Option<usize> {
         let n = self.expr_raw(e);
-        self.bind_to(n, Ligacao::Expr(e))
+        self.bind_to(n, Binding::Expr(e))
     }
 
     fn expr_raw(&mut self, e: ExprId) -> Option<usize> {
@@ -1671,7 +1671,7 @@ impl<'a> Builder<'a> {
             ExprKind::Symbol(_) => self.leaf("SymbolLiteral", s),
             ExprKind::Identifier(_) => {
                 let n = self.leaf("SimpleIdentifier", s);
-                self.mark(n, Marca::Expr(e))
+                self.mark(n, Mark::Expr(e))
             }
             ExprKind::This => self.leaf("ThisExpression", s),
             ExprKind::Super => self.leaf("SuperExpression", s),
@@ -1736,7 +1736,7 @@ impl<'a> Builder<'a> {
                 let mut children = Vec::new();
                 children.extend(self.expr(*target));
                 let id = self.identifier(*name);
-                children.extend(self.mark(id, Marca::Expr(e)));
+                children.extend(self.mark(id, Mark::Expr(e)));
                 let prefixed = !*null_aware && matches!(a.expr(*target).kind, ExprKind::Identifier(_)) && !self.in_cascade(e);
                 self.node(if prefixed { "PrefixedIdentifier" } else { "PropertyAccess" }, s.start, s.end, children)
             }
@@ -1760,7 +1760,7 @@ impl<'a> Builder<'a> {
                 };
                 let f = self.expr(*operand);
                 let n = self.node(kind, s.start, s.end, f.into_iter().collect());
-                if kind == "PrefixExpression" { self.mark(n, Marca::Operador(e)) } else { n }
+                if kind == "PrefixExpression" { self.mark(n, Mark::Operator(e)) } else { n }
             }
             ExprKind::Binary { left, right, .. } => {
                 let l = self.expr(*left);
@@ -1815,7 +1815,7 @@ impl<'a> Builder<'a> {
                     let start = self.a.pattern(c.pattern).span.start;
                     let end = self.a.expr(c.body).span.end;
                     let n = self.node("SwitchExpressionCase", start, end, gp.into_iter().chain(b).collect());
-                    f.extend(self.bind_to(n, Ligacao::CasoDeSwitchExpr(e, k)));
+                    f.extend(self.bind_to(n, Binding::SwitchExprCase(e, k)));
                 }
                 self.node("SwitchExpression", s.start, s.end, f)
             }
@@ -1867,13 +1867,13 @@ impl<'a> Builder<'a> {
             }
             ExprKind::Identifier(n) => {
                 let id = self.identifier(*n);
-                children.extend(self.mark(id, Marca::Expr(callee)));
+                children.extend(self.mark(id, Mark::Expr(callee)));
                 "MethodInvocation"
             }
             ExprKind::Property { target, name, .. } => {
                 children.extend(self.expr(*target));
                 let id = self.identifier(*name);
-                children.extend(self.mark(id, Marca::Expr(callee)));
+                children.extend(self.mark(id, Mark::Expr(callee)));
                 "MethodInvocation"
             }
             _ => {
@@ -1895,19 +1895,19 @@ impl<'a> Builder<'a> {
     /// to the `NamedType`.
     fn creation_without_new(&mut self, s: Span, callee: ExprId, types: &'a [TypeId], arguments: &'a Arguments) -> Option<usize> {
         let a = self.a;
-        let e_prefixo = |x: ExprId| self.prefix_idents.is_some_and(|p| p.contains(&x));
+        let is_prefix = |x: ExprId| self.prefix_idents.is_some_and(|p| p.contains(&x));
         // `A<T>.n()` and `p.A<T>.n()` (`parseImplicitCreationExpression`): the
         // type arguments come between the type and the constructor name and
         // stay on the `NamedType`.
         let mut type_types: Option<&'a [TypeId]> = None;
-        // (prefixo, tipo, construtor nomeado)
+        // (prefix, type, named constructor)
         let (prefix, ty, name): (Option<ast::Name>, ast::Name, Option<(ast::Name, ExprId)>) = match &a.expr(callee).kind {
             ExprKind::Identifier(n) => (None, *n, None),
             ExprKind::Property { target, name, .. } => match &a.expr(*target).kind {
-                ExprKind::Identifier(p) if e_prefixo(*target) => (Some(*p), *name, None),
+                ExprKind::Identifier(p) if is_prefix(*target) => (Some(*p), *name, None),
                 ExprKind::Identifier(c) => (None, *c, Some((*name, callee))),
                 ExprKind::Property { target: t2, name: c, .. } => match &a.expr(*t2).kind {
-                    ExprKind::Identifier(p) if e_prefixo(*t2) => (Some(*p), *c, Some((*name, callee))),
+                    ExprKind::Identifier(p) if is_prefix(*t2) => (Some(*p), *c, Some((*name, callee))),
                     _ => return None,
                 },
                 ExprKind::TypeArguments { target: inner, type_args } => {
@@ -1915,7 +1915,7 @@ impl<'a> Builder<'a> {
                     match &a.expr(*inner).kind {
                         ExprKind::Identifier(c) => (None, *c, Some((*name, callee))),
                         ExprKind::Property { target: t2, name: c, .. } => match &a.expr(*t2).kind {
-                            ExprKind::Identifier(p) if e_prefixo(*t2) => (Some(*p), *c, Some((*name, callee))),
+                            ExprKind::Identifier(p) if is_prefix(*t2) => (Some(*p), *c, Some((*name, callee))),
                             _ => return None,
                         },
                         _ => return None,
@@ -1939,7 +1939,7 @@ impl<'a> Builder<'a> {
         if args_on_type {
             let n = self.type_args(type_types.unwrap_or(types));
             if let Some(k) = n {
-                type_end = self.nos[k].fim;
+                type_end = self.nodes[k].end;
             }
             f.extend(n);
         }
@@ -1949,7 +1949,7 @@ impl<'a> Builder<'a> {
         let mut end_cn = type_end;
         if let Some((n, from)) = name {
             let id = self.identifier(n);
-            cn.extend(self.mark(id, Marca::Expr(from)));
+            cn.extend(self.mark(id, Mark::Expr(from)));
             end_cn = n.span.end;
         }
         let constructor_name = self.node("ConstructorName", type_start, end_cn, cn);
@@ -1964,7 +1964,7 @@ impl<'a> Builder<'a> {
     /// A collection element.
     fn element(&mut self, el: &'a CollectionElement) -> Option<usize> {
         let n = self.element_raw(el);
-        self.bind_to(n, Ligacao::Elemento(endereco(el)))
+        self.bind_to(n, Binding::Element(address(el)))
     }
 
     fn element_raw(&mut self, el: &'a CollectionElement) -> Option<usize> {
@@ -2003,11 +2003,11 @@ impl<'a> Builder<'a> {
                 f.extend(self.expr(*condition));
                 f.extend(self.case_clause(*case_pattern, *guard));
                 let t = self.element(then);
-                let mut end = t.map_or(cs.end, |n| self.nos[n].fim);
+                let mut end = t.map_or(cs.end, |n| self.nodes[n].end);
                 f.extend(t);
                 if let Some(e) = else_ {
                     let x = self.element(e);
-                    end = x.map_or(end, |n| self.nos[n].fim);
+                    end = x.map_or(end, |n| self.nodes[n].end);
                     f.extend(x);
                 }
                 self.node("IfElement", word, end, f)
@@ -2017,7 +2017,7 @@ impl<'a> Builder<'a> {
                 let (word, open) = self.for_before(body_start, *await_);
                 let parts = self.for_parts(open, init.as_ref(), *condition, updates);
                 let b = self.element(body);
-                let end = b.map_or(body_start, |n| self.nos[n].fim);
+                let end = b.map_or(body_start, |n| self.nodes[n].end);
                 self.node("ForElement", word, end, parts.into_iter().chain(b).collect())
             }
             CollectionElement::ForIn { await_, target, iterable, body } => {
@@ -2025,7 +2025,7 @@ impl<'a> Builder<'a> {
                 let (word, open) = self.for_before(body_start, *await_);
                 let parts = self.for_in_parts(open, target, *iterable);
                 let b = self.element(body);
-                let end = b.map_or(body_start, |n| self.nos[n].fim);
+                let end = b.map_or(body_start, |n| self.nodes[n].end);
                 self.node("ForElement", word, end, parts.into_iter().chain(b).collect())
             }
         }
@@ -2091,7 +2091,7 @@ impl<'a> Builder<'a> {
                     let mut elements = Vec::new();
                     let mut fragment = tk.span;
                     let mut mode = interp;
-                    let mut fechou = false;
+                    let mut closed_now = false;
                     let mut end = tk.span.end;
                     loop {
                         // The text without the trailing `$`/`${`.
@@ -2134,12 +2134,12 @@ impl<'a> Builder<'a> {
                                 elements.extend(self.leaf("InterpolationString", Span { start: text_start, end: t2.span.end }));
                                 end = t2.span.end;
                                 i = j + 1;
-                                fechou = true;
+                                closed_now = true;
                                 break;
                             }
                         }
                     }
-                    if !fechou {
+                    if !closed_now {
                         i += 1;
                     }
                     groups.extend(self.node("StringInterpolation", start, end, elements));
@@ -2151,8 +2151,8 @@ impl<'a> Builder<'a> {
             0 => None,
             1 => Some(groups[0]),
             _ => {
-                let start = self.nos[groups[0]].inicio;
-                let end = self.nos[*groups.last().expect("non-empty")].fim;
+                let start = self.nodes[groups[0]].start;
+                let end = self.nodes[*groups.last().expect("non-empty")].end;
                 self.node("AdjacentStrings", start, end, groups)
             }
         }
@@ -2162,7 +2162,7 @@ impl<'a> Builder<'a> {
 
     fn pattern(&mut self, p: PatternId) -> Option<usize> {
         let n = self.pattern_raw(p);
-        self.bind_to(n, Ligacao::Padrao(p))
+        self.bind_to(n, Binding::Pattern(p))
     }
 
     fn pattern_raw(&mut self, p: PatternId) -> Option<usize> {
@@ -2279,15 +2279,15 @@ impl<'a> Builder<'a> {
 /// The selection ranges at `offset`: the `NodeLocator` node and its ancestors,
 /// without the unit, without repeating the previous range
 /// (`DartSelectionRangeComputer`).
-pub fn selecoes(text: &str, features: dartforge_frontend::LibraryFeatures, offset: usize) -> Vec<Span> {
+pub fn selections(text: &str, features: dartforge_frontend::LibraryFeatures, offset: usize) -> Vec<Span> {
     let before_3_0 = features.version().major < 3;
     let mut names = dartforge_intern::Interner::new();
     let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
-    let arvore = construir(text, &parsed.ast, &parsed.unit, before_3_0);
-    let Some(node) = arvore.localizar(offset, offset) else { return Vec::new() };
+    let tree = build(text, &parsed.ast, &parsed.unit, before_3_0);
+    let Some(node) = tree.locate(offset, offset) else { return Vec::new() };
     let mut v: Vec<Span> = Vec::new();
-    for n in arvore.cadeia(node) {
-        let s = arvore.span(n);
+    for n in tree.chain(node) {
+        let s = tree.span(n);
         if v.last() != Some(&s) {
             v.push(s);
         }
@@ -2302,7 +2302,7 @@ mod tests {
     fn chain(text: &str, cursor: &str) -> Vec<String> {
         let offset = text.find(cursor).expect("cursor") + cursor.len() / 2;
         let features = dartforge_frontend::LibraryFeatures::new(dartforge_frontend::LanguageVersion::CURRENT, &[]);
-        selecoes(text, features, offset).into_iter().map(|s| text[s.start..s.end].to_string()).collect()
+        selections(text, features, offset).into_iter().map(|s| text[s.start..s.end].to_string()).collect()
     }
 
     #[test]
@@ -2339,7 +2339,7 @@ mod tests {
 }
 
 /// The `Expression` subclasses the tree produces.
-pub const EXPRESSOES: &[&str] = &[
+pub const EXPRESSIONS: &[&str] = &[
     "SimpleIdentifier",
     "PrefixedIdentifier",
     "MethodInvocation",
@@ -2381,7 +2381,7 @@ pub const EXPRESSOES: &[&str] = &[
 ];
 
 /// The `Statement` subclasses.
-pub const COMANDOS: &[&str] = &[
+pub const STATEMENTS: &[&str] = &[
     "Block",
     "ExpressionStatement",
     "VariableDeclarationStatement",
@@ -2403,11 +2403,11 @@ pub const COMANDOS: &[&str] = &[
 ];
 
 /// The kind is a subclass of `Statement`.
-pub fn e_comando(kind: &str) -> bool {
-    COMANDOS.contains(&kind)
+pub fn is_statement(kind: &str) -> bool {
+    STATEMENTS.contains(&kind)
 }
 
 /// The kind is a subclass of `Expression`.
-pub fn e_expressao(kind: &str) -> bool {
-    EXPRESSOES.contains(&kind)
+pub fn is_expression(kind: &str) -> bool {
+    EXPRESSIONS.contains(&kind)
 }

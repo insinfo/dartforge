@@ -7,7 +7,7 @@
 //! override families, without repeated ranges.
 //! Written without compiling or running (2026-10-05).
 
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::project::{Target, Concrete, Project};
 use crate::refactorings::Context;
 use dartforge_diagnostics::Span;
@@ -78,11 +78,11 @@ impl Project {
 
 /// The records (`key`, `nameLength`, offset) that node `n` makes.
 fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> {
-    let node = &cx.tree.nos[n];
+    let node = &cx.tree.nodes[n];
     let mut v = Vec::new();
-    match node.especie {
+    match node.kind {
         "ClassDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration" => {
-            if let Marca::Decl(d) = node.marca
+            if let Mark::Decl(d) = node.mark
                 && let Some(c) = cx.declaration_class(cx.unit, d)
                 && let Some(name) = cx.declaration_name(d)
             {
@@ -90,10 +90,10 @@ fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> 
             }
         }
         "FunctionDeclaration" | "MethodDeclaration" => {
-            if let Marca::Funcao(fid) = node.marca
+            if let Mark::Function(fid) = node.mark
                 && let Some(name) = cx.ast.function(fid).name
             {
-                let local = node.especie == "FunctionDeclaration" && cx.parent(n).is_some_and(|x| cx.kind(x) == "FunctionDeclarationStatement");
+                let local = node.kind == "FunctionDeclaration" && cx.parent(n).is_some_and(|x| cx.kind(x) == "FunctionDeclarationStatement");
                 let key = if local {
                     Some(Key::Local(name.span.start))
                 } else {
@@ -106,21 +106,21 @@ fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> 
         }
         "VariableDeclaration" => {
             let name = crate::refactorings_exec::name_at_start_pub(cx.node_text(n));
-            let key = if node.marca == Marca::VariavelLocal {
-                Some(Key::Local(node.inicio))
+            let key = if node.mark == Mark::LocalVariable {
+                Some(Key::Local(node.start))
             } else {
-                variable_declared_in(p, cx.unit, node.inicio).map(Key::Variable)
+                variable_declared_in(p, cx.unit, node.start).map(Key::Variable)
             };
             if let Some(k) = key {
-                v.push((k, name.len(), node.inicio));
+                v.push((k, name.len(), node.start));
             }
         }
         "DeclaredIdentifier" | "DeclaredVariablePattern" | "SuperFormalParameter" | "SimpleFormalParameter" | "FieldFormalParameter" | "EnumConstantDeclaration" => {
             // The name: the last identifier before `=`/`:`/`(` (in an enum constant,
             // the first).
-            let declared = if node.especie == "EnumConstantDeclaration" { first_identifier(cx, n) } else { declared_name(cx, n) };
+            let declared = if node.kind == "EnumConstantDeclaration" { first_identifier(cx, n) } else { declared_name(cx, n) };
             if let Some((o, name)) = declared {
-                let key = match node.especie {
+                let key = match node.kind {
                     "EnumConstantDeclaration" => variable_declared_in(p, cx.unit, o).map(Key::Variable),
                     "FieldFormalParameter" => this_field(p, cx, n, &name).map(Key::Variable),
                     _ => Some(Key::Local(o)),
@@ -132,7 +132,7 @@ fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> 
         }
         "ConstructorDeclaration" => {
             // Only a named constructor (the name written after the dot).
-            if let Some(f) = declared_constructor_in(p, cx.unit, node.inicio, node.fim)
+            if let Some(f) = declared_constructor_in(p, cx.unit, node.start, node.end)
                 && !p.name(p.program().function(f).name).is_empty()
                 && let Some((_, s)) = p.function_name(f)
             {
@@ -141,13 +141,13 @@ fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> 
         }
         "NamedType" => {
             if let Some((k, length)) = type_element(p, cx, n) {
-                v.push((k, length, node.inicio));
+                v.push((k, length, node.start));
             }
         }
         "SimpleIdentifier" => {
             if let Some(k) = identifier_key(p, cx, n) {
-                let length = name_length(p, &k, node.fim - node.inicio);
-                v.push((k, length, node.inicio));
+                let length = name_length(p, &k, node.end - node.start);
+                v.push((k, length, node.start));
             }
         }
         _ => {}
@@ -202,19 +202,19 @@ fn function_key(p: &Project, f: FunctionElementId) -> Option<Key> {
 /// documentation, argument labels, the constructor's `returnType`), or the
 /// label of a statement.
 fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
-    let node = &cx.tree.nos[n];
+    let node = &cx.tree.nodes[n];
     // The `returnType` of a constructor declaration (the `A` of `A(…)` and of
     // `A.n(…)`): its `staticElement` is the class.
     if let Some(parent) = cx.parent(n)
         && cx.kind(parent) == "ConstructorDeclaration"
     {
-        let f = declared_constructor_in(p, cx.unit, cx.tree.nos[parent].inicio, cx.tree.nos[parent].fim)?;
+        let f = declared_constructor_in(p, cx.unit, cx.tree.nodes[parent].start, cx.tree.nodes[parent].end)?;
         return p.program().function(f).class.map(Key::Class);
     }
     // Statement labels and `break`/`continue`.
     if let Some(parent) = cx.parent(n) {
         if cx.kind(parent) == "Label" && cx.parent(parent).is_some_and(|g| matches!(cx.kind(g), "LabeledStatement" | "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")) {
-            return Some(Key::Label(node.inicio));
+            return Some(Key::Label(node.start));
         }
         if matches!(cx.kind(parent), "BreakStatement" | "ContinueStatement") {
             let name = cx.node_text(n);
@@ -224,14 +224,14 @@ fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
                         && let Some(&i) = cx.children(l).first()
                         && cx.node_text(i) == name
                     {
-                        return Some(Key::Label(cx.tree.nos[i].inicio));
+                        return Some(Key::Label(cx.tree.nodes[i].start));
                     }
                 }
             }
             return None;
         }
     }
-    if let Marca::Expr(x) = node.marca {
+    if let Mark::Expr(x) = node.mark {
         return match cx.bodies.get_resolved(x) {
             Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. }) => {
                 let d = cx.bodies.local_declaration(x)?;
@@ -272,8 +272,8 @@ fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
         };
     }
     // Through `identify`.
-    let d = p.identify(cx.unit, node.inicio).ok()??;
-    if d.name.start != node.inicio {
+    let d = p.identify(cx.unit, node.start).ok()??;
+    if d.name.start != node.start {
         return None;
     }
     match &d.target {
@@ -299,10 +299,10 @@ fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
 /// unit or of a type parameter), with the length of the element's name.
 fn type_element(p: &Project, cx: &Context<'_>, n: usize) -> Option<(Key, usize)> {
     let prog = p.program();
-    let node = &cx.tree.nos[n];
+    let node = &cx.tree.nodes[n];
     let prefix = cx.children(n).iter().copied().find(|&k| cx.kind(k) == "ImportPrefixReference");
-    let name_start = prefix.map_or(node.inicio, |k| cx.tree.nos[k].fim);
-    let rest = cx.source[name_start..node.fim].trim_start();
+    let name_start = prefix.map_or(node.start, |k| cx.tree.nodes[k].end);
+    let rest = cx.source[name_start..node.end].trim_start();
     let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
     let name = &rest[..end];
     if name.is_empty() || name == "dynamic" || name == "void" {
@@ -318,7 +318,7 @@ fn type_element(p: &Project, cx: &Context<'_>, n: usize) -> Option<(Key, usize)>
         }
         None => {
             // A type parameter in scope comes before the unit scope.
-            if let Some(d) = crate::project::type_parameter_declaration(cx.ast, node.inicio, s) {
+            if let Some(d) = crate::project::type_parameter_declaration(cx.ast, node.start, s) {
                 return Some((Key::TypeParameter(d), name.len()));
             }
             prog.lookup_in_unit(cx.unit, s)
@@ -336,7 +336,7 @@ fn type_element(p: &Project, cx: &Context<'_>, n: usize) -> Option<(Key, usize)>
 /// The declared name of a parameter or of a simple declaration: the offset
 /// and the text.
 fn declared_name(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
-    let node = &cx.tree.nos[n];
+    let node = &cx.tree.nodes[n];
     let t = cx.node_text(n);
     // Without the children (type, annotations, default value): the first
     // identifier stretch outside them, the last one before `=`, `:`, `(`.
@@ -346,8 +346,8 @@ fn declared_name(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
     while i < b.len() {
         let c = b[i];
         let inside_child = cx.children(n).iter().any(|&f| {
-            let s = &cx.tree.nos[f];
-            s.inicio <= node.inicio + i && node.inicio + i < s.fim
+            let s = &cx.tree.nodes[f];
+            s.start <= node.start + i && node.start + i < s.end
         });
         if inside_child {
             i += 1;
@@ -363,7 +363,7 @@ fn declared_name(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
             }
             let word = &t[start..i];
             if !matches!(word, "final" | "var" | "const" | "late" | "covariant" | "required" | "this" | "super") {
-                best = Some((node.inicio + start, word.to_string()));
+                best = Some((node.start + start, word.to_string()));
             }
             continue;
         }
@@ -375,21 +375,21 @@ fn declared_name(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
 /// The first identifier outside the children (the name of an enum constant,
 /// after the annotations).
 fn first_identifier(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
-    let node = &cx.tree.nos[n];
+    let node = &cx.tree.nodes[n];
     let t = cx.node_text(n);
     let b = t.as_bytes();
     let mut i = 0;
     while i < b.len() {
         let inside = cx.children(n).iter().any(|&f| {
-            let s = &cx.tree.nos[f];
-            s.inicio <= node.inicio + i && node.inicio + i < s.fim
+            let s = &cx.tree.nodes[f];
+            s.start <= node.start + i && node.start + i < s.end
         });
         if !inside && (b[i].is_ascii_alphabetic() || b[i] == b'_' || b[i] == b'$') {
             let start = i;
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$') {
                 i += 1;
             }
-            return Some((node.inicio + start, t[start..i].to_string()));
+            return Some((node.start + start, t[start..i].to_string()));
         }
         i += 1;
     }
@@ -398,7 +398,7 @@ fn first_identifier(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
 
 /// The field of `this.x` (the `FieldFormalParameter` at `n`).
 fn this_field(p: &Project, cx: &Context<'_>, n: usize, name: &str) -> Option<VariableId> {
-    class_field_in(p, cx, cx.tree.nos[n].inicio, name)
+    class_field_in(p, cx, cx.tree.nodes[n].start, name)
 }
 
 /// The field `name` of the class containing the offset.

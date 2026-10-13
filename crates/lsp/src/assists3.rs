@@ -381,7 +381,7 @@ impl crate::refactorings::Context<'_> {
     /// (invert_conditional_expression.dart): the conditional "close enough" to
     /// the selection node.
     pub(crate) fn next_conditional(&self, offset: usize) -> Option<usize> {
-        let mut node = self.tree.localizar(offset, offset)?;
+        let mut node = self.tree.locate(offset, offset)?;
         node = self.this_or_parent_of(node, &["MethodInvocation"]).unwrap_or(node);
         node = self.this_or_parent_of(node, &["AwaitExpression"]).unwrap_or(node);
         let boolean = ["IsExpression", "BinaryExpression", "BooleanLiteral"];

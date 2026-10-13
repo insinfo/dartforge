@@ -20,7 +20,7 @@
 //! Names made only of `_` (`_`, `__`) are not reported; with
 //! `wildcard-variables` (3.7+), `_` does not even declare.
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{
@@ -32,7 +32,7 @@ use dartforge_intern::{Interner, SymbolId};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LocalKind {
-    /// Variável local relatável.
+    /// A reportable local variable.
     Variable,
     /// A local function.
     Function,
@@ -606,9 +606,9 @@ impl<'a> Visitor<'a> {
     /// The body of a local function, with it as the `_enclosingExec`.
     fn local_function(&mut self, f: ast::FunctionId) {
         let i = self.ast.function(f).name.and_then(|n| self.find(n.sym));
-        let salvo = std::mem::replace(&mut self.executable, i);
+        let saved = std::mem::replace(&mut self.executable, i);
         self.function(f, false);
-        self.executable = salvo;
+        self.executable = saved;
     }
 
     fn stmt(&mut self, s: StmtId) {
@@ -721,8 +721,8 @@ impl<'a> Visitor<'a> {
                     // `visitCatchClause`: the exception counts as used when
                     // there is a stack or there is no `on`.
                     if let Some(n) = c.exception {
-                        let usada = c.stack_trace.is_some() || c.on_type.is_none();
-                        self.declare(n, if usada { LocalKind::Hidden } else { LocalKind::CatchException }, None);
+                        let used = c.stack_trace.is_some() || c.on_type.is_none();
+                        self.declare(n, if used { LocalKind::Hidden } else { LocalKind::CatchException }, None);
                     }
                     if let Some(n) = c.stack_trace {
                         self.declare(n, LocalKind::CatchStack, None);
@@ -833,7 +833,7 @@ impl<'a> Visitor<'a> {
 /// The ranges of the unit's executable declarations: a top-level function or
 /// variable, and each member of a class, mixin, extension, extension type and
 /// enum.
-fn executables(u: Unidade<'_>) -> Vec<Span> {
+fn executables(u: Unit<'_>) -> Vec<Span> {
     let ast = u.ast;
     let mut out = Vec::new();
     for &d in &u.unit.declarations {
@@ -866,13 +866,13 @@ fn executables(u: Unidade<'_>) -> Vec<Span> {
 /// local is only left out when its name is cited in a fragment the parser
 /// skipped inside the same executable declaration (a use fasta may have
 /// kept).
-pub fn nao_usados_com_pulados(u: Unidade<'_>, interner: &Interner, wildcard: bool, skipped: crate::Pulados<'_>) -> Vec<Diagnostic> {
+pub fn unused_with_skipped(u: Unit<'_>, interner: &Interner, wildcard: bool, skipped: crate::Skipped<'_>) -> Vec<Diagnostic> {
     let mut out = unused_unfiltered(u, interner, wildcard);
     if !skipped.is_empty() {
         let execs = executables(u);
         let blocks = block_scopes(u.ast);
         out.retain(|d| {
-            let name = u.fonte.get(d.span.start..d.span.end).unwrap_or("");
+            let name = u.source.get(d.span.start..d.span.end).unwrap_or("");
             // Only a fragment inside the local's scope and after the declared
             // name may hold a use of it: the smallest block, `switch` case,
             // loop, `if` or `try` that contains the declaration.
@@ -914,13 +914,13 @@ fn block_scopes(ast: &Ast) -> Vec<Span> {
 
 /// The unused locals of the unit, without the skipped-fragments rule (a unit
 /// the parser read entirely).
-pub fn unused(u: Unidade<'_>, interner: &Interner, wildcard: bool) -> Vec<Diagnostic> {
+pub fn unused(u: Unit<'_>, interner: &Interner, wildcard: bool) -> Vec<Diagnostic> {
     unused_unfiltered(u, interner, wildcard)
 }
 
-fn unused_unfiltered(u: Unidade<'_>, interner: &Interner, wildcard: bool) -> Vec<Diagnostic> {
+fn unused_unfiltered(u: Unit<'_>, interner: &Interner, wildcard: bool) -> Vec<Diagnostic> {
     let ast = u.ast;
-    let mut v = Visitor { ast, interner, wildcard, source: u.fonte, locals: Vec::new(), scopes: vec![Vec::new()], groups: 0, refutable: false, shared_region: None, pattern_start: None, guard_vars: Vec::new(), executable: None };
+    let mut v = Visitor { ast, interner, wildcard, source: u.source, locals: Vec::new(), scopes: vec![Vec::new()], groups: 0, refutable: false, shared_region: None, pattern_start: None, guard_vars: Vec::new(), executable: None };
     for &d in &u.unit.declarations {
         match &ast.decl(d).kind {
             DeclKind::Function(f) => v.function(*f, true),
@@ -986,7 +986,7 @@ mod tests {
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut interner);
         assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         let mut v: Vec<_> = unused(u, &interner, false)
             .into_iter()
             .map(|d| (d.code.unwrap().info().name.to_string(), source[d.span.start..d.span.end].to_string()))
@@ -1033,7 +1033,7 @@ mod tests {
         let f = "void f() {\n  for (int i = 0, i = 0; i < 5;) {}\n}\n";
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(f, &mut interner);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: f };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source: f };
         let r: Vec<usize> = unused(u, &interner, false).iter().map(|d| d.span.start).collect();
         assert_eq!(r, vec![f.find(", i").unwrap() + 2]);
     }
@@ -1043,17 +1043,17 @@ mod tests {
         let f = "void f() {\n  var a = 1;\n  // a b c\n}\nvoid g() {\n  var b = 1;\n}\n";
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(f, &mut interner);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: f };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source: f };
         // A skipped fragment in the body of `f` that cites `a`: `a` is not
         // reported (fasta would have read the read); `b`, from `g`, is.
         let fragment = Span { start: f.find("a b c").unwrap(), end: f.find("a b c").unwrap() + 5 };
-        let skipped = crate::Pulados { fonte: f, trechos: &[fragment] };
-        let r: Vec<usize> = nao_usados_com_pulados(u, &interner, false, skipped).iter().map(|d| d.span.start).collect();
+        let skipped = crate::Skipped { source: f, spans: &[fragment] };
+        let r: Vec<usize> = unused_with_skipped(u, &interner, false, skipped).iter().map(|d| d.span.start).collect();
         assert_eq!(r, vec![f.find("b = 1;\n}\n").unwrap()]);
         // The fragment only counts inside the executable declaration it touches.
         let outside = Span { start: f.find("void g").unwrap(), end: f.find("void g").unwrap() + 4 };
-        let skipped = crate::Pulados { fonte: f, trechos: &[outside] };
-        assert_eq!(nao_usados_com_pulados(u, &interner, false, skipped).len(), 2);
+        let skipped = crate::Skipped { source: f, spans: &[outside] };
+        assert_eq!(unused_with_skipped(u, &interner, false, skipped).len(), 2);
     }
 
     #[test]

@@ -27,10 +27,10 @@
 //! Written without compiling or running (2026-10-05).
 
 use super::walk::Node;
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionKind, FunctionRef};
 use dartforge_frontend::ast::{self, AssignOp, Ast, CollectionElement, DeclId, DeclKind, ExprId, ExprKind, FunctionBody, Initializer, MemberKind, StmtKind, TypeKind};
@@ -126,15 +126,15 @@ fn has_inherited_method(s: &super::Semantics<'_>, interner: &Interner, class_id:
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
-    let source = u.fonte;
+    let source = u.source;
     let program = s.program;
     let table = s.table;
     let lib = program.unit(s.unit).library;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let empty = dartforge_types::typed_lints6::CanBeConst::default();
@@ -437,12 +437,12 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => &**arguments,
                 _ => continue,
             };
-            // Todos nomeados.
+            // All named.
             if args.args.iter().any(|x| x.name.is_none()) {
                 continue;
             }
             let names: Vec<(&str, ExprId)> = args.args.iter().map(|x| (interner.resolve(x.name.expect("named").sym), x.value)).collect();
-            let only = |permitidos: &[&str]| names.iter().all(|(n, _)| permitidos.contains(n));
+            let only = |allowed: &[&str]| names.iter().all(|(n, _)| allowed.contains(n));
             let has = |n: &str| names.iter().any(|(x, _)| *x == n);
             if enabled("use_decorated_box") && only(&["child", "decoration", "key"]) && has("child") && has("decoration") {
                 report(&c::USE_DECORATED_BOX, constructor_name_span(a, e), &[]);

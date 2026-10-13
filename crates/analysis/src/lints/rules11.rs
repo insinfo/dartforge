@@ -26,11 +26,11 @@
 //! - `prefer_null_aware_method_calls`: the `toSource` of both sides.
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::strings;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
     self, Ast, BinaryOp, CollectionElement, DeclKind, DirectiveKind, ExprId, ExprKind, FunctionBody, FunctionKind, MemberKind, StmtKind,
@@ -88,11 +88,11 @@ fn todo_out_of_style(text: &str) -> bool {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let source = u.fonte;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.source;
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 

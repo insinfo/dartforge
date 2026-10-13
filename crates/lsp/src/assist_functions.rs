@@ -6,7 +6,7 @@
 //! | `Convert to async function body` | `refactor.convert.bodyToAsync` | `ConvertIntoAsyncBody` |
 
 use crate::actions::CodeAction;
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::refactorings::Context;
 use crate::Edit;
 use dartforge_diagnostics::Span;
@@ -34,14 +34,14 @@ impl Context<'_> {
 
     /// The parser function whose body is `body` (the parent's mark).
     fn body_function(&self, body: usize) -> Option<ast::FunctionId> {
-        match self.tree.nos[self.parent(body)?].marca {
-            Marca::Funcao(fid) => Some(fid),
+        match self.tree.nodes[self.parent(body)?].mark {
+            Mark::Function(fid) => Some(fid),
             _ => {
                 // The `FunctionExpression` of a `FunctionDeclaration`: the mark is on the
                 // grandparent.
                 let grandparent = self.parent(self.parent(body)?)?;
-                match self.tree.nos[grandparent].marca {
-                    Marca::Funcao(fid) => Some(fid),
+                match self.tree.nodes[grandparent].mark {
+                    Mark::Function(fid) => Some(fid),
                     _ => None,
                 }
             }
@@ -61,7 +61,7 @@ impl Context<'_> {
     /// `ConvertIntoAsyncBody` (convert_into_async_body.dart) with the
     /// `convertFunctionFromSyncToAsync` of `DartFileEditBuilder`.
     pub(crate) fn convert_to_async_body(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let body = self.enclosing_body(node)?;
         if self.kind(body) == "EmptyFunctionBody" {
             return None;
@@ -77,7 +77,7 @@ impl Context<'_> {
             return None;
         }
         // Only at the start of the body: up to the end of the `{` or of the `=>`.
-        let first = self.next_token(self.tree.nos[body].inicio)?;
+        let first = self.next_token(self.tree.nodes[body].start)?;
         if start > first.end {
             return None;
         }
@@ -177,12 +177,12 @@ impl Context<'_> {
     /// function without a return type (and not a setter), the type inferred from
     /// the body before the `operator`/`get` or the name.
     pub(crate) fn add_return_type(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let declaration = match self.kind(node) {
             "MethodDeclaration" | "FunctionDeclaration" => node,
             _ => return None,
         };
-        let Marca::Funcao(fid) = self.tree.nos[declaration].marca else { return None };
+        let Mark::Function(fid) = self.tree.nodes[declaration].mark else { return None };
         let function = self.ast.function(fid);
         let name = function.name?.span;
         // `executable.name == token`: the selection is on the name.

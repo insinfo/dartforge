@@ -35,11 +35,11 @@
 //! Written without compiling or running (2026-10-05).
 
 use super::walk::{walk, Node};
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::scope::{EntryKind, Scopes};
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, VariableId, VariableRef};
 use dartforge_frontend::ast::{
@@ -66,7 +66,7 @@ fn is_class_named(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, name
     }
 }
 
-/// `implementsInterface(nome, biblioteca)`.
+/// `implementsInterface(name, biblioteca)`.
 fn implements_class(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, name: &str, library: &str) -> bool {
     let (Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. }) = s.table.get(t) else { return false };
     let e = |k: ClassId| {
@@ -156,7 +156,7 @@ pub(super) struct NodeParents {
     pub(super) ancestors: HashMap<ExprId, Vec<Node>>,
 }
 
-pub(super) fn unit_parents(u: Unidade<'_>, keep: &dyn Fn(ExprId) -> bool) -> NodeParents {
+pub(super) fn unit_parents(u: Unit<'_>, keep: &dyn Fn(ExprId) -> bool) -> NodeParents {
     let mut p = NodeParents { expr: HashMap::new(), function: HashMap::new(), ancestors: HashMap::new() };
     walk(u, &mut |node, ancestors| {
         match node {
@@ -391,14 +391,14 @@ fn written_field(s: &super::Semantics<'_>, body: &dartforge_types::resolved::Uni
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
-    let source = u.fonte;
+    let source = u.source;
     let program = s.program;
     let table = s.table;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let rules = [
@@ -829,10 +829,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
 
     // `prefer_interpolation_to_compose_strings`.
     if enabled("prefer_interpolation_to_compose_strings") {
-        fn adicoes(a: &Ast, e: ExprId) -> Vec<ExprId> {
+        fn additions(a: &Ast, e: ExprId) -> Vec<ExprId> {
             match &a.expr(e).kind {
                 ExprKind::Binary { op: BinaryOp::Add, left, right } => {
-                    let mut v = adicoes(a, *left);
+                    let mut v = additions(a, *left);
                     v.push(*right);
                     v
                 }
@@ -863,7 +863,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             if !matches!(e.kind, ExprKind::Binary { op: BinaryOp::Add, .. }) {
                 continue;
             }
-            let chain = adicoes(a, ExprId(k as u32));
+            let chain = additions(a, ExprId(k as u32));
             let mut i = 0;
             while i + 1 < chain.len() {
                 let (l, r) = (chain[i], chain[i + 1]);
@@ -1202,14 +1202,14 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                         }
                         Some((*cl, field))
                     });
-                    let Some((dona, field)) = found else { continue };
+                    let Some((owner, field)) = found else { continue };
                     // `isAbstract` of the accessor: the `abstract` field.
                     let is_abstract = match program.variable(field).node {
                         VariableRef::Field { unit, member, .. } => matches!(&program.unit(unit).ast.member(member).kind, MemberKind::Field(l2) if l2.abstract_),
                         _ => false,
                     };
                     if !is_abstract {
-                        let owner_name = interner.resolve(program.class(dona).name);
+                        let owner_name = interner.resolve(program.class(owner).name);
                         report(&c::OVERRIDDEN_FIELDS, v.name.span, &[owner_name]);
                     }
                 }

@@ -75,11 +75,11 @@ impl Ctx<'_> {
     /// the SDK itself or from a library older than the modifiers (`dart:ffi`
     /// is not part of the `ErrorVerifier`'s first exception).
     fn may_ignore(&self, from: LibraryId, ffi_counts: bool) -> bool {
-        let origem = self.program.library(from);
-        if !origem.is_sdk {
+        let origin = self.program.library(from);
+        if !origin.is_sdk {
             return false;
         }
-        if ffi_counts && origem.uri == "dart:ffi" {
+        if ffi_counts && origin.uri == "dart:ffi" {
             return false;
         }
         let current = self.program.library(self.lib);
@@ -218,7 +218,7 @@ pub fn outside_library(program: &Program, lib: LibraryId, names: &Interner) -> V
                     by(c::FINAL_CLASS_USED_AS_MIXIN_CONSTRAINT_OUTSIDE_OF_LIBRARY, span(t), &[&cx.name_of(s)], None);
                 }
             }
-            // sealed: qualquer cláusula.
+            // sealed: any clause.
             for &(t, target) in cl.extends.iter().chain(cl.with.iter()).chain(cl.implements.iter()).chain(cl.on.iter()) {
                 let Some(s) = target else { continue };
                 if cx.is_sealed(s) && cx.class_of(s).library != lib {
@@ -233,13 +233,13 @@ pub fn outside_library(program: &Program, lib: LibraryId, names: &Interner) -> V
             continue;
         }
         let Some(name_span) = decl_name(&ast.decl(decl.decl).kind) else { continue };
-        let supertipo: Vec<(Option<ast::TypeId>, ClassId)> = cl.extends.and_then(|(_, c)| c).map(|c| (None, c)).into_iter().collect();
+        let supertype: Vec<(Option<ast::TypeId>, ClassId)> = cl.extends.and_then(|(_, c)| c).map(|c| (None, c)).into_iter().collect();
         let interfaces: Vec<(Option<ast::TypeId>, ClassId)> =
             cl.implements.iter().filter_map(|&(t, c)| c.map(|c| (Some(t), c))).collect();
         let mixins: Vec<(Option<ast::TypeId>, ClassId)> = cl.with.iter().filter_map(|&(_, c)| c.map(|c| (None, c))).collect();
         let on: Vec<(Option<ast::TypeId>, ClassId)> = cl.on.iter().filter_map(|&(_, c)| c.map(|c| (None, c))).collect();
-        for group in [supertipo, interfaces, mixins, on] {
-            let mut relatou = false;
+        for group in [supertype, interfaces, mixins, on] {
+            let mut reported = false;
             for (implemented, sup) in group {
                 if let Some((code, sp, args, context)) = restriction(&cx, id, sup, implemented.map(span), name_span) {
                     let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -251,11 +251,11 @@ pub fn outside_library(program: &Program, lib: LibraryId, names: &Interner) -> V
                         message: message.into(),
                     });
                     by(code, sp, &args, context);
-                    relatou = true;
+                    reported = true;
                     break;
                 }
             }
-            if relatou {
+            if reported {
                 break;
             }
         }
@@ -278,8 +278,8 @@ fn restriction(
     let lib_sup = cx.class_of(sup).library;
     // A `sealed` that extends `base`/`final` inherits the modifier (it is an
     // induced `base`/`final`, as in the analyzer's element).
-    let induzida = cx.is_sealed(sup) && cx.explicit_base_or_final(sup, &mut Vec::new()).is_some();
-    if !(cx.is_base(sup) || cx.is_final(sup) || induzida || (!cx.has_modifiers(lib_sup) && cx.has_modifiers(lib_el))) {
+    let induced = cx.is_sealed(sup) && cx.explicit_base_or_final(sup, &mut Vec::new()).is_some();
+    if !(cx.is_base(sup) || cx.is_final(sup) || induced || (!cx.has_modifiers(lib_sup) && cx.has_modifiers(lib_el))) {
         return None;
     }
     let bf = cx.explicit_base_or_final(sup, &mut Vec::new())?;
@@ -291,7 +291,7 @@ fn restriction(
         let (s, b) = (cx.name_of(sup), cx.name_of(bf));
         (u, span, format!("The type '{s}' is a subtype of '{b}', and '{b}' is defined here."))
     });
-    let se_selada = |x: Option<(UnitId, Span, String)>| if cx.is_sealed(sup) { x } else { None };
+    let if_sealed = |x: Option<(UnitId, Span, String)>| if cx.is_sealed(sup) { x } else { None };
     if let Some(sp) = implemented {
         if cx.is_sealed(sup) && lib_bf != lib_el && cx.is_base(bf) {
             let code = if cx.is_mixin(bf) { c::BASE_MIXIN_IMPLEMENTED_OUTSIDE_OF_LIBRARY } else { c::BASE_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY };
@@ -309,11 +309,11 @@ fn restriction(
             return None;
         }
         let code = if mixin { c::MIXIN_SUBTYPE_OF_FINAL_IS_NOT_BASE } else { c::SUBTYPE_OF_FINAL_IS_NOT_BASE_FINAL_OR_SEALED };
-        return Some((code, name_span, vec![cx.name_of(element), cx.name_of(bf)], se_selada(context)));
+        return Some((code, name_span, vec![cx.name_of(element), cx.name_of(bf)], if_sealed(context)));
     }
     if cx.is_base(bf) {
         let code = if mixin { c::MIXIN_SUBTYPE_OF_BASE_IS_NOT_BASE } else { c::SUBTYPE_OF_BASE_IS_NOT_BASE_FINAL_OR_SEALED };
-        return Some((code, name_span, vec![cx.name_of(element), cx.name_of(bf)], se_selada(context)));
+        return Some((code, name_span, vec![cx.name_of(element), cx.name_of(bf)], if_sealed(context)));
     }
     None
 }

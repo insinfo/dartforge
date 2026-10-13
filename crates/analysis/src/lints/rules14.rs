@@ -43,10 +43,10 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassKind, Element};
 use dartforge_frontend::ast::{
@@ -304,9 +304,9 @@ fn type_parameters(a: &Ast) -> Vec<&ast::TypeParameter> {
 
 /// The documentation comments of all the nodes the `AstBuilder` attaches
 /// them to, without repetition.
-pub(super) fn unit_docs(u: Unidade<'_>, comments: &Comments) -> Vec<Doc> {
+pub(super) fn unit_docs(u: Unit<'_>, comments: &Comments) -> Vec<Doc> {
     let a = u.ast;
-    let source = u.fonte;
+    let source = u.source;
     let mut docs: Vec<Doc> = Vec::new();
     let add = |d: Option<Doc>, docs: &mut Vec<Doc>| {
         if let Some(d) = d
@@ -453,7 +453,7 @@ fn match_markdown(t: &str, i: usize) -> Option<(usize, bool)> {
                     }
                 }
             }
-            // Comentário HTML: `<!--(?:-?>|[^]*?-->)`.
+            // HTML comment: `<!--(?:-?>|[^]*?-->)`.
             if b[i..].starts_with(b"<!--") {
                 let j = i + 4;
                 if b[j..].starts_with(b"->") {
@@ -488,7 +488,7 @@ fn match_markdown(t: &str, i: usize) -> Option<(usize, bool)> {
                     return Some((from + k + 2, false));
                 }
             }
-            // Tag válida: `<(?<et>/?)(?:tags)(?:/(?=\k<et>)>|>|[\x20\r\n\t][^]*?>)`.
+            // Valid tag: `<(?<et>/?)(?:tags)(?:/(?=\k<et>)>|>|[\x20\r\n\t][^]*?>)`.
             let closing_tag = b.get(i + 1) == Some(&b'/');
             let p = if closing_tag { i + 2 } else { i + 1 };
             for tag in HTML_TAGS.iter() {
@@ -636,11 +636,11 @@ fn only_underscores(s: &str) -> bool {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let source = u.fonte;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.source;
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let needs_comments = enabled("dangling_library_doc_comments") || enabled("unintended_html_in_doc_comment");

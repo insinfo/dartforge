@@ -3,7 +3,7 @@
 //! full; docs/LSP-ESPECIFICACAO.md §14.13 and §14.14).
 //!
 //! The context is decided over the tree of the **real text** in the
-//! analyzer's shape ([`crate::arvore_analyzer`]): the `coveringNode` of
+//! analyzer's shape ([`crate::analyzer_tree`]): the `coveringNode` of
 //! `unit.select` (§14.13.4, with the two boundary exceptions), the
 //! `_completionNode` (walking up while the parent starts at the same token
 //! and the child is not in a list) and one `visit*` per node kind
@@ -26,7 +26,7 @@
 //! would put it).
 
 use super::*;
-use crate::arvore_analyzer::{Arvore, Ligacao};
+use crate::analyzer_tree::{AnalyzerTree, Binding};
 use dartforge_elements::model::UnitId;
 use dartforge_frontend::token::{Kind, Op, Token};
 
@@ -173,7 +173,7 @@ pub(super) struct Isp<'a, 'c> {
     pub a: &'a ast::Ast,
     pub cu: &'a ast::CompilationUnit,
     pub nr: &'a Interner,
-    pub tree: &'a Arvore,
+    pub tree: &'a AnalyzerTree,
     pub toks: Vec<Token>,
     pub offset: usize,
     pub features: LibraryFeatures,
@@ -224,7 +224,7 @@ pub(super) fn run(
 ) -> ResultIsp {
     let mut names = Interner::new();
     let analyzed = dartforge_frontend::parser::parse_with(text, &mut names, features);
-    let tree = crate::arvore_analyzer::construir(text, &analyzed.ast, &analyzed.unit, before_3);
+    let tree = crate::analyzer_tree::build(text, &analyzed.ast, &analyzed.unit, before_3);
     let toks = dartforge_frontend::lexer::lex(text).unwrap_or_default();
     let mut exprs = HashMap::new();
     for (i, e) in query.program.unit(unit).ast.exprs.iter().enumerate() {
@@ -384,27 +384,27 @@ impl<'a, 'c> Isp<'a, 'c> {
     // -- Nodes ---------------------------------------------------------------------
 
     pub(super) fn kind(&self, n: usize) -> &'static str {
-        self.tree.nos[n].especie
+        self.tree.nodes[n].kind
     }
 
     pub(super) fn parent(&self, n: usize) -> Option<usize> {
-        self.tree.nos[n].pai
+        self.tree.nodes[n].parent
     }
 
     pub(super) fn children(&self, n: usize) -> &[usize] {
-        &self.tree.nos[n].filhos
+        &self.tree.nodes[n].children
     }
 
     pub(super) fn start(&self, n: usize) -> usize {
-        self.tree.nos[n].inicio
+        self.tree.nodes[n].start
     }
 
     pub(super) fn end(&self, n: usize) -> usize {
-        self.tree.nos[n].fim
+        self.tree.nodes[n].end
     }
 
-    pub(super) fn link(&self, n: usize) -> Ligacao {
-        self.tree.nos[n].ligacao
+    pub(super) fn link(&self, n: usize) -> Binding {
+        self.tree.nodes[n].binding
     }
 
     /// The first child of the kind.
@@ -683,7 +683,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             | "RecordTypeAnnotationPositionalField" | "RepresentationDeclaration" | "TopLevelVariableDeclaration" | "TypeParameter"
             | "VariableDeclaration" => annotation,
             "ForPartsWithDeclarations" | "ForPartsWithExpression" | "ForPartsWithPattern" => {
-                self.tree.partes_de_for.get(&parent).is_some_and(|p| p.atualizacoes.contains(&child))
+                self.tree.for_parts.get(&parent).is_some_and(|p| p.updaters.contains(&child))
             }
             "LabeledStatement" => f == "Label",
             "ListLiteral" | "SetOrMapLiteral" | "ListPattern" | "MapPattern" => f != "TypeArgumentList",
@@ -739,28 +739,28 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     pub(super) fn real_expr(&self, n: usize) -> Option<ExprId> {
         match self.link(n) {
-            Ligacao::Expr(e) => Some(e),
+            Binding::Expr(e) => Some(e),
             _ => None,
         }
     }
 
     pub(super) fn real_stmt(&self, n: usize) -> Option<&'a ast::Stmt> {
         match self.link(n) {
-            Ligacao::Stmt(s) => Some(self.a.stmt(s)),
+            Binding::Stmt(s) => Some(self.a.stmt(s)),
             _ => None,
         }
     }
 
     pub(super) fn real_decl(&self, n: usize) -> Option<&'a ast::Decl> {
         match self.link(n) {
-            Ligacao::Decl(d) => Some(self.a.decl(d)),
+            Binding::Decl(d) => Some(self.a.decl(d)),
             _ => None,
         }
     }
 
     pub(super) fn real_member(&self, n: usize) -> Option<&'a ast::Member> {
         match self.link(n) {
-            Ligacao::Membro(m) => Some(self.a.member(m)),
+            Binding::Member(m) => Some(self.a.member(m)),
             _ => None,
         }
     }
@@ -769,20 +769,20 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `FunctionExpression`.
     pub(super) fn real_function(&self, n: usize) -> Option<&'a ast::Function> {
         match self.link(n) {
-            Ligacao::Funcao(f) => Some(self.a.function(f)),
-            Ligacao::Decl(d) => match &self.a.decl(d).kind {
+            Binding::Function(f) => Some(self.a.function(f)),
+            Binding::Decl(d) => match &self.a.decl(d).kind {
                 ast::DeclKind::Function(f) => Some(self.a.function(*f)),
                 _ => None,
             },
-            Ligacao::Membro(m) => match &self.a.member(m).kind {
+            Binding::Member(m) => match &self.a.member(m).kind {
                 ast::MemberKind::Method(f) => Some(self.a.function(*f)),
                 _ => None,
             },
-            Ligacao::Expr(e) => match &self.a.expr(e).kind {
+            Binding::Expr(e) => match &self.a.expr(e).kind {
                 ast::ExprKind::FunctionExpression(f) => Some(self.a.function(*f)),
                 _ => None,
             },
-            Ligacao::Stmt(s) => match &self.a.stmt(s).kind {
+            Binding::Stmt(s) => match &self.a.stmt(s).kind {
                 ast::StmtKind::Function(f) => Some(self.a.function(*f)),
                 _ => None,
             },
@@ -802,16 +802,16 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn real_list(&self, n: usize) -> Option<&'a ast::VariableList> {
         let p = if self.kind(n) == "VariableDeclarationList" { self.parent(n)? } else { n };
         match self.link(p) {
-            Ligacao::Stmt(s) => match &self.a.stmt(s).kind {
+            Binding::Stmt(s) => match &self.a.stmt(s).kind {
                 ast::StmtKind::Variables(l) => Some(l),
                 ast::StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => Some(l),
                 _ => None,
             },
-            Ligacao::Decl(d) => match &self.a.decl(d).kind {
+            Binding::Decl(d) => match &self.a.decl(d).kind {
                 ast::DeclKind::Variables(l) => Some(l),
                 _ => None,
             },
-            Ligacao::Membro(m) => match &self.a.member(m).kind {
+            Binding::Member(m) => match &self.a.member(m).kind {
                 ast::MemberKind::Field(l) => Some(l),
                 _ => None,
             },
@@ -819,11 +819,11 @@ impl<'a, 'c> Isp<'a, 'c> {
                 // `ForPartsWithDeclarations` (of a statement or an element).
                 let grandparent = self.parent(p)?;
                 match self.link(grandparent) {
-                    Ligacao::Stmt(s) => match &self.a.stmt(s).kind {
+                    Binding::Stmt(s) => match &self.a.stmt(s).kind {
                         ast::StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => Some(l),
                         _ => None,
                     },
-                    Ligacao::Elemento(_) => self.real_element(grandparent).and_then(|el| match el {
+                    Binding::Element(_) => self.real_element(grandparent).and_then(|el| match el {
                         ast::CollectionElement::For { init: Some(ast::ForInit::Variables(l)), .. } => Some(l),
                         _ => None,
                     }),
@@ -841,8 +841,8 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `ast::Parameter` of a parameter node.
     pub(super) fn real_parameter(&self, n: usize) -> Option<&'a ast::Parameter> {
-        let Ligacao::Parametro(end) = self.link(n) else { return None };
-        let find = |ps: &'a [ast::Parameter]| ps.iter().find(|p| crate::arvore_analyzer::endereco(*p) == end);
+        let Binding::Parameter(end) = self.link(n) else { return None };
+        let find = |ps: &'a [ast::Parameter]| ps.iter().find(|p| crate::analyzer_tree::address(*p) == end);
         for f in self.a.functions.iter() {
             if let Some(ps) = &f.parameters {
                 if let Some(p) = find(ps) {
@@ -884,10 +884,10 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `ast::Initializer` of an initializer node.
     pub(super) fn real_initializer(&self, n: usize) -> Option<&'a ast::Initializer> {
-        let Ligacao::Inicializador(end) = self.link(n) else { return None };
+        let Binding::Initializer(end) = self.link(n) else { return None };
         for m in self.a.members.iter() {
             if let ast::MemberKind::Constructor(k) = &m.kind
-                && let Some(i) = k.initializers.iter().find(|i| crate::arvore_analyzer::endereco(*i) == end)
+                && let Some(i) = k.initializers.iter().find(|i| crate::analyzer_tree::address(*i) == end)
             {
                 return Some(i);
             }
@@ -897,10 +897,10 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `ast::SwitchCase` of a `switch` member.
     pub(super) fn real_case(&self, n: usize) -> Option<&'a ast::SwitchCase> {
-        let Ligacao::Caso(end) = self.link(n) else { return None };
+        let Binding::Case(end) = self.link(n) else { return None };
         for s in self.a.stmts.iter() {
             if let ast::StmtKind::Switch { cases, .. } = &s.kind
-                && let Some(c) = cases.iter().find(|c| crate::arvore_analyzer::endereco(*c) == end)
+                && let Some(c) = cases.iter().find(|c| crate::analyzer_tree::address(*c) == end)
             {
                 return Some(c);
             }
@@ -910,16 +910,16 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `ast::Directive`.
     pub(super) fn real_directive(&self, n: usize) -> Option<&'a ast::Directive> {
-        let Ligacao::Diretiva(end) = self.link(n) else { return None };
-        self.cu.directives.iter().find(|d| crate::arvore_analyzer::endereco(*d) == end)
+        let Binding::Directive(end) = self.link(n) else { return None };
+        self.cu.directives.iter().find(|d| crate::analyzer_tree::address(*d) == end)
     }
 
     /// The `ast::CatchClause`.
     pub(super) fn real_catch(&self, n: usize) -> Option<&'a ast::CatchClause> {
-        let Ligacao::Catch(end) = self.link(n) else { return None };
+        let Binding::Catch(end) = self.link(n) else { return None };
         for s in self.a.stmts.iter() {
             if let ast::StmtKind::Try { catches, .. } = &s.kind
-                && let Some(c) = catches.iter().find(|c| crate::arvore_analyzer::endereco(*c) == end)
+                && let Some(c) = catches.iter().find(|c| crate::analyzer_tree::address(*c) == end)
             {
                 return Some(c);
             }
@@ -929,10 +929,10 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `ast::CollectionElement`.
     pub(super) fn real_element(&self, n: usize) -> Option<&'a ast::CollectionElement> {
-        let Ligacao::Elemento(end) = self.link(n) else { return None };
+        let Binding::Element(end) = self.link(n) else { return None };
         fn at<'x>(els: &'x [ast::CollectionElement], end: usize) -> Option<&'x ast::CollectionElement> {
             for el in els {
-                if crate::arvore_analyzer::endereco(el) == end {
+                if crate::analyzer_tree::address(el) == end {
                     return Some(el);
                 }
                 let inside: Vec<&ast::CollectionElement> = match el {
@@ -960,8 +960,8 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `ast::Arguments` of an `ArgumentList`.
     pub(super) fn real_arguments(&self, n: usize) -> Option<&'a ast::Arguments> {
-        let Ligacao::Argumentos(end) = self.link(n) else { return None };
-        let e = |a: &'a ast::Arguments| (crate::arvore_analyzer::endereco(a) == end).then_some(a);
+        let Binding::Arguments(end) = self.link(n) else { return None };
+        let e = |a: &'a ast::Arguments| (crate::analyzer_tree::address(a) == end).then_some(a);
         for x in self.a.exprs.iter() {
             match &x.kind {
                 ast::ExprKind::Call { arguments, .. } | ast::ExprKind::InstanceCreation { arguments, .. } => {

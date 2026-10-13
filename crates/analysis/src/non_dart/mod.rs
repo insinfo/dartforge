@@ -2,16 +2,16 @@
 //! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §7.2 and batch II.10): the
 //! `pubspec.yaml` ([`pubspec`]) and the `analysis_options.yaml` ([`options`])
 //! over YAML with positions ([`yaml`]). The codes are those of the generated
-//! tables ([`codigos_g`]): they are not in the `crates/diagnostics` catalog
+//! tables ([`codes_g`]): they are not in the `crates/diagnostics` catalog
 //! yet, so a report from here is a [`Report`], not a `Diagnostic` with a code.
 //!
 //! Written without compiling or running (2026-10-05).
 
 use dartforge_diagnostics::{Severity, Span, ErrorType};
 
-pub mod codigos_g;
+pub mod codes_g;
 pub mod manifest;
-pub mod nomes_g;
+pub mod names_g;
 pub mod options;
 pub mod pubspec;
 pub mod yaml;
@@ -19,24 +19,24 @@ pub mod yaml;
 /// A diagnostic code of a non-Dart file (`AnalysisOptions*Code`,
 /// `PubspecWarningCode`, `ManifestWarningCode`).
 #[derive(Debug, PartialEq, Eq)]
-pub struct CodigoNaoDart {
+pub struct NonDartCode {
     /// The reported name (`ErrorCode.name` in lower case).
-    pub nome: &'static str,
+    pub name: &'static str,
     /// `ErrorCode.uniqueName`.
-    pub unico: &'static str,
+    pub unique: &'static str,
     /// The message template, with `{0}`, `{1}`...
-    pub mensagem: &'static str,
+    pub message: &'static str,
     /// The correction template.
-    pub correcao: Option<&'static str>,
-    pub tipo: ErrorType,
-    pub severidade: Severity,
-    pub documentado: bool,
+    pub correction: Option<&'static str>,
+    pub error_type: ErrorType,
+    pub severity: Severity,
+    pub documented: bool,
 }
 
 /// A diagnostic of a non-Dart file.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Report {
-    pub code: &'static CodigoNaoDart,
+    pub code: &'static NonDartCode,
     pub span: Span,
     pub args: Vec<String>,
 }
@@ -51,18 +51,18 @@ fn fill(template: &str, args: &[String]) -> String {
 }
 
 impl Report {
-    pub fn new(code: &'static CodigoNaoDart, span: Span, args: &[&str]) -> Report {
+    pub fn new(code: &'static NonDartCode, span: Span, args: &[&str]) -> Report {
         Report { code, span, args: args.iter().map(|a| a.to_string()).collect() }
     }
 
     /// The message of the problem.
     pub fn message(&self) -> String {
-        fill(self.code.mensagem, &self.args)
+        fill(self.code.message, &self.args)
     }
 
     /// The correction message, if the code has one.
     pub fn correction(&self) -> Option<String> {
-        self.code.correcao.map(|c| fill(c, &self.args))
+        self.code.correction.map(|c| fill(c, &self.args))
     }
 }
 
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn message_with_arguments() {
-        let r = Report::new(&codigos_g::pubspec::DEPRECATED_FIELD, Span { start: 0, end: 6 }, &["author"]);
+        let r = Report::new(&codes_g::pubspec::DEPRECATED_FIELD, Span { start: 0, end: 6 }, &["author"]);
         assert!(r.message().contains("author"));
     }
 }

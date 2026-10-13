@@ -23,8 +23,8 @@
 
 use super::rules::LintReport;
 use super::rules16::is_method_invocation;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_elements::model::{ClassId, ClassKind};
 use dartforge_frontend::ast::{ExprId, ExprKind};
 use dartforge_intern::Interner;
@@ -32,39 +32,39 @@ use dartforge_types::resolved::Resolved;
 use dartforge_types::table::{Type, TypeId};
 
 /// `_Visitor.unsafeAttributeCode`.
-pub static UNSAFE_HTML_ATTRIBUTE: CodigoLint = CodigoLint {
-    nome: "unsafe_html",
-    unico: "unsafe_html_attribute",
-    mensagem: "Avoid unsafe HTML APIs (assigning \"{0}\" attribute).",
-    correcao: None,
-    documentado: false,
+pub static UNSAFE_HTML_ATTRIBUTE: LintCode = LintCode {
+    name: "unsafe_html",
+    unique: "unsafe_html_attribute",
+    message: "Avoid unsafe HTML APIs (assigning \"{0}\" attribute).",
+    correction: None,
+    documented: false,
 };
 
 /// `_Visitor.unsafeMethodCode`.
-pub static UNSAFE_HTML_METHOD: CodigoLint = CodigoLint {
-    nome: "unsafe_html",
-    unico: "unsafe_html_method",
-    mensagem: "Avoid unsafe HTML APIs (calling the '{0}' method of {1}).",
-    correcao: None,
-    documentado: false,
+pub static UNSAFE_HTML_METHOD: LintCode = LintCode {
+    name: "unsafe_html",
+    unique: "unsafe_html_method",
+    message: "Avoid unsafe HTML APIs (calling the '{0}' method of {1}).",
+    correction: None,
+    documented: false,
 };
 
 /// `_Visitor.unsafeConstructorCode`.
-pub static UNSAFE_HTML_CONSTRUCTOR: CodigoLint = CodigoLint {
-    nome: "unsafe_html",
-    unico: "unsafe_html_constructor",
-    mensagem: "Avoid unsafe HTML APIs (calling the '{0}' constructor of {1}).",
-    correcao: None,
-    documentado: false,
+pub static UNSAFE_HTML_CONSTRUCTOR: LintCode = LintCode {
+    name: "unsafe_html",
+    unique: "unsafe_html_constructor",
+    message: "Avoid unsafe HTML APIs (calling the '{0}' constructor of {1}).",
+    correction: None,
+    documented: false,
 };
 
 /// `AnalyzerUseNewElements.code`.
-pub static ANALYZER_USE_NEW_ELEMENTS: CodigoLint = CodigoLint {
-    nome: "analyzer_use_new_elements",
-    unico: "analyzer_use_new_elements",
-    mensagem: "This code uses the old analyzer element model.",
-    correcao: Some("Try using the new elements."),
-    documentado: false,
+pub static ANALYZER_USE_NEW_ELEMENTS: LintCode = LintCode {
+    name: "analyzer_use_new_elements",
+    unique: "analyzer_use_new_elements",
+    message: "This code uses the old analyzer element model.",
+    correction: Some("Try using the new elements."),
+    documented: false,
 };
 
 /// The type of a target: `Some(None)` for `dynamic`, `Some(Some(class))` for
@@ -76,7 +76,7 @@ enum TargetType {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if enabled("analyzer_use_new_elements") {
@@ -150,7 +150,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             _ => None,
         }
     };
-    let mut findings: Vec<(dartforge_diagnostics::Span, &'static CodigoLint, Vec<String>)> = Vec::new();
+    let mut findings: Vec<(dartforge_diagnostics::Span, &'static LintCode, Vec<String>)> = Vec::new();
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
         match &e.kind {
@@ -256,7 +256,7 @@ fn is_old_model_type(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, d
 }
 
 /// `analyzer_use_new_elements`.
-fn new_elements_rule(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'_>) -> Vec<LintReport> {
+fn new_elements_rule(u: Unit<'_>, interner: &Interner, s: &super::Semantics<'_>) -> Vec<LintReport> {
     let mut out = Vec::new();
     let program = s.program;
     // `_isEnabledForFile`: the pub package, the option file and the prefixes.

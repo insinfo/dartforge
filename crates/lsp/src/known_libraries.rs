@@ -337,15 +337,15 @@ fn outside_lib_bin_web(file: &Path, root: &Path) -> bool {
 fn dependencies(root: &Path, dev: bool) -> BTreeSet<String> {
     let mut v = BTreeSet::new();
     let Ok(text) = std::fs::read_to_string(root.join("pubspec.yaml")) else { return v };
-    let Ok(Some(r)) = dartforge_analysis::naodart::yaml::ler(&text) else { return v };
+    let Ok(Some(r)) = dartforge_analysis::non_dart::yaml::parse(&text) else { return v };
     let mut keys = vec!["dependencies"];
     if dev {
         keys.push("dev_dependencies");
     }
     for c in keys {
-        if let Some(m) = r.campo(c).and_then(|x| x.mapa()) {
+        if let Some(m) = r.field(c).and_then(|x| x.map()) {
             for (k, _) in m {
-                if let Some(t) = k.texto() {
+                if let Some(t) = k.text() {
                     v.insert(t.to_string());
                 }
             }

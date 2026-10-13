@@ -20,7 +20,7 @@
 //!   the called element.
 //! Written without compiling or running (2026-10-05).
 
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::project::{Target, Project};
 use crate::refactorings::Context;
 use dartforge_diagnostics::Span;
@@ -170,30 +170,30 @@ impl Project {
                 }
                 let (u, name) = self.function_name(f)?;
                 let cx = Context::new(self, u);
-                let node = cx.tree.localizar(name.start, name.end)?;
-                let decl = cx.tree.cadeia(node).into_iter().find(|&k| matches!(cx.kind(k), "FunctionDeclaration" | "MethodDeclaration" | "ConstructorDeclaration" | "VariableDeclaration"))?;
+                let node = cx.tree.locate(name.start, name.end)?;
+                let decl = cx.tree.chain(node).into_iter().find(|&k| matches!(cx.kind(k), "FunctionDeclaration" | "MethodDeclaration" | "ConstructorDeclaration" | "VariableDeclaration"))?;
                 Some((u, name, cx.tree.span(decl)))
             }
             CallElem::Local(u, f) => {
                 let name = p.unit(u).ast.function(ast::FunctionId(f)).name?.span;
                 let cx = Context::new(self, u);
-                let node = cx.tree.localizar(name.start, name.end)?;
-                let decl = cx.tree.cadeia(node).into_iter().find(|&k| cx.kind(k) == "FunctionDeclaration")?;
+                let node = cx.tree.locate(name.start, name.end)?;
+                let decl = cx.tree.chain(node).into_iter().find(|&k| cx.kind(k) == "FunctionDeclaration")?;
                 Some((u, name, cx.tree.span(decl)))
             }
             CallElem::Class(c) => {
                 let (u, name) = self.top_element_name(Element::Class(c))?;
                 let d = p.class(c).decl?;
                 let cx = Context::new(self, u);
-                let node = cx.tree.nos.iter().position(|n| matches!(n.marca, Marca::Decl(x) if x == d.decl) && n.especie.ends_with("Declaration"))?;
+                let node = cx.tree.nodes.iter().position(|n| matches!(n.mark, Mark::Decl(x) if x == d.decl) && n.kind.ends_with("Declaration"))?;
                 Some((u, name, cx.tree.span(node)))
             }
             CallElem::Extension(x) => {
                 let d = p.extension(x).decl;
                 let cx = Context::new(self, d.unit);
-                let node = cx.tree.nos.iter().position(|n| matches!(n.marca, Marca::Decl(k) if k == d.decl) && n.especie == "ExtensionDeclaration")?;
+                let node = cx.tree.nodes.iter().position(|n| matches!(n.mark, Mark::Decl(k) if k == d.decl) && n.kind == "ExtensionDeclaration")?;
                 let name = match &p.unit(d.unit).ast.decl(d.decl).kind {
-                    ast::DeclKind::Extension(e) => e.name.map_or(Span { start: cx.tree.nos[node].inicio, end: cx.tree.nos[node].inicio }, |n| n.span),
+                    ast::DeclKind::Extension(e) => e.name.map_or(Span { start: cx.tree.nodes[node].start, end: cx.tree.nodes[node].start }, |n| n.span),
                     _ => return None,
                 };
                 Some((d.unit, name, cx.tree.span(node)))
@@ -211,8 +211,8 @@ impl Project {
 
     /// The resolved element of a `SimpleIdentifier` of the tree.
     fn call_identifier_element(&self, cx: &Context<'_>, n: usize) -> Option<CallElem> {
-        let x = match cx.tree.nos[n].marca {
-            Marca::Expr(x) => x,
+        let x = match cx.tree.nodes[n].mark {
+            Mark::Expr(x) => x,
             _ => return None,
         };
         if let Some(&f) = cx.constructors_by_target.get(&x) {
@@ -243,8 +243,8 @@ impl Project {
             "SimpleIdentifier" => self.call_identifier_element(cx, n),
             "MethodInvocation" => self.call_identifier_element(cx, cx.method_name(n)?),
             "PrefixedIdentifier" => self.call_identifier_element(cx, *cx.children(n).get(1)?),
-            "FunctionDeclaration" | "MethodDeclaration" => match cx.tree.nos[n].marca {
-                Marca::Funcao(fid) => {
+            "FunctionDeclaration" | "MethodDeclaration" => match cx.tree.nodes[n].mark {
+                Mark::Function(fid) => {
                     if cx.parent(n).is_some_and(|p| cx.kind(p) == "FunctionDeclarationStatement") {
                         return Some(CallElem::Local(cx.unit, fid.0));
                     }
@@ -257,20 +257,20 @@ impl Project {
                 let (mi, _) = cx.ast.members.iter().enumerate().find(|(_, m)| matches!(m.kind, ast::MemberKind::Constructor(_)) && m.span.start >= s.start && m.span.end <= s.end)?;
                 self.node_constructor(cx.unit, ast::MemberId(mi as u32)).map(CallElem::Function)
             }
-            "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration" => match cx.tree.nos[n].marca {
-                Marca::Decl(d) => cx.declaration_class(cx.unit, d).map(CallElem::Class),
+            "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration" => match cx.tree.nodes[n].mark {
+                Mark::Decl(d) => cx.declaration_class(cx.unit, d).map(CallElem::Class),
                 _ => None,
             },
-            "ExtensionDeclaration" => match cx.tree.nos[n].marca {
-                Marca::Decl(d) => {
+            "ExtensionDeclaration" => match cx.tree.nodes[n].mark {
+                Mark::Decl(d) => {
                     let p = self.program();
                     (0..p.extensions.len()).map(|i| ExtensionId(i as u32)).find(|&x| p.extension(x).decl.unit == cx.unit && p.extension(x).decl.decl == d).map(CallElem::Extension)
                 }
                 _ => None,
             },
             "InstanceCreationExpression" | "BinaryExpression" | "PrefixExpression" | "PostfixExpression" | "IndexExpression" | "AssignmentExpression" | "FunctionExpressionInvocation" => {
-                let x = match cx.tree.nos[n].marca {
-                    Marca::Operador(x) => x,
+                let x = match cx.tree.nodes[n].mark {
+                    Mark::Operator(x) => x,
                     _ => cx.node_expr(n)?,
                 };
                 self.from_resolution(cx.bodies.get_resolved(x)?)
@@ -281,7 +281,7 @@ impl Project {
 
     /// `_findTargetNode(offset)`.
     fn at_target(&self, cx: &Context<'_>, offset: usize) -> Option<usize> {
-        let mut n = cx.tree.localizar(offset, offset)?;
+        let mut n = cx.tree.locate(offset, offset)?;
         if cx.kind(n) == "SimpleIdentifier"
             && let Some(p) = cx.parent(n)
             && !matches!(cx.kind(p), "VariableDeclaration" | "AssignmentExpression")
@@ -293,7 +293,7 @@ impl Project {
                 if let Some(p) = cx.parent(n)
                     && cx.kind(p) == "ConstructorName"
                     && let Some(&name) = cx.children(p).get(1)
-                    && offset < cx.tree.nos[name].inicio
+                    && offset < cx.tree.nodes[name].start
                 {
                     return None;
                 }
@@ -368,10 +368,10 @@ impl Project {
     fn container_at_offset(&self, u: UnitId, offset: usize, exclude: Option<u32>) -> CallElem {
         let p = self.program();
         let cx = Context::new(self, u);
-        let Some(n) = cx.tree.localizar_exclusivo(offset) else { return CallElem::File(u) };
-        for k in cx.tree.cadeia(n) {
-            match (cx.kind(k), cx.tree.nos[k].marca) {
-                ("FunctionDeclaration" | "MethodDeclaration", Marca::Funcao(fid)) if Some(fid.0) != exclude => {
+        let Some(n) = cx.tree.locate_exclusive(offset) else { return CallElem::File(u) };
+        for k in cx.tree.chain(n) {
+            match (cx.kind(k), cx.tree.nodes[k].mark) {
+                ("FunctionDeclaration" | "MethodDeclaration", Mark::Function(fid)) if Some(fid.0) != exclude => {
                     if cx.parent(k).is_some_and(|x| cx.kind(x) == "FunctionDeclarationStatement") {
                         return CallElem::Local(u, fid.0);
                     }
@@ -384,12 +384,12 @@ impl Project {
                         return CallElem::Function(f);
                     }
                 }
-                ("ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration", Marca::Decl(d)) => {
+                ("ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration", Mark::Decl(d)) => {
                     if let Some(c) = cx.declaration_class(u, d) {
                         return CallElem::Class(c);
                     }
                 }
-                ("ExtensionDeclaration", Marca::Decl(d)) => {
+                ("ExtensionDeclaration", Mark::Decl(d)) => {
                     if let Some(x) = (0..p.extensions.len()).map(|i| ExtensionId(i as u32)).find(|&x| p.extension(x).decl.unit == u && p.extension(x).decl.decl == d) {
                         return CallElem::Extension(x);
                     }
@@ -434,7 +434,7 @@ impl Project {
             // comes with the dot in the index); that of the node for an empty range.
             let cx = Context::new(self, u);
             let mut s = Span { start: from, end: until };
-            if let Some(n) = cx.tree.localizar(from, from) {
+            if let Some(n) = cx.tree.locate(from, from) {
                 if cx.kind(n) == "SimpleIdentifier"
                     && let Some(parent) = cx.parent(n)
                     && cx.kind(parent) == "MethodInvocation"
@@ -499,7 +499,7 @@ impl Project {
                         }
                         _ => false,
                     };
-                    if function && !matches!(cx.tree.nos[k].marca, Marca::ContextoDeDeclaracao) {
+                    if function && !matches!(cx.tree.nodes[k].mark, Mark::DeclarationContext) {
                         collected.push(k);
                     }
                 }

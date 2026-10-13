@@ -7,7 +7,7 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::comments::Comments;
@@ -179,9 +179,9 @@ fn first_token(source: &[u8], comments: &[Span], mut pos: usize) -> usize {
     }
 }
 
-pub fn check(u: Unidade<'_>) -> Vec<Diagnostic> {
-    let source = u.fonte.as_bytes();
-    let comments = Comments::scan(u.fonte);
+pub fn check(u: Unit<'_>) -> Vec<Diagnostic> {
+    let source = u.source.as_bytes();
+    let comments = Comments::scan(u.source);
     let all = comments.all();
     let mut out = Vec::new();
     // `_verifyMisplaced`: after the first significant token.
@@ -195,7 +195,7 @@ pub fn check(u: Unidade<'_>) -> Vec<Diagnostic> {
         for c in all.iter().filter(|c| c.start > p) {
             let lexeme = &source[c.start..c.end];
             if let Some(end) = match_override(lexeme)
-                && let Some(at_sign) = u.fonte[c.start..c.end].find("@dart")
+                && let Some(at_sign) = u.source[c.start..c.end].find("@dart")
             {
                 out.push(Diagnostic::with_code(
                     w::INVALID_LANGUAGE_VERSION_OVERRIDE_LOCATION,

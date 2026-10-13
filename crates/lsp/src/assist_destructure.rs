@@ -10,7 +10,7 @@
 //! | `Destructure variable assignment` | `refactor.destructureLocalVariableAssignment` |
 
 use crate::actions::CodeAction;
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::refactorings::Context;
 use crate::refactorings_exec::names_to_text;
 use crate::Edit;
@@ -23,7 +23,7 @@ impl Context<'_> {
     /// `DefaultFormalParameter`).
     fn parameter_name(&self, p: usize) -> Option<Span> {
         let p = if self.kind(p) == "DefaultFormalParameter" { *self.children(p).first()? } else { p };
-        let after = self.children(p).iter().rev().find(|&&k| self.kind(k) == "FormalParameterList").map_or(self.tree.nos[p].fim, |&l| self.tree.nos[l].inicio);
+        let after = self.children(p).iter().rev().find(|&&k| self.kind(k) == "FormalParameterList").map_or(self.tree.nodes[p].end, |&l| self.tree.nodes[l].start);
         self.previous_token(after)
     }
 
@@ -38,7 +38,7 @@ impl Context<'_> {
                 names.insert(self.source[s.start..s.end].to_string());
             }
         };
-        let variable_name = |v: usize| self.next_token(self.tree.nos[v].inicio);
+        let variable_name = |v: usize| self.next_token(self.tree.nodes[v].start);
         let mut in_local_function = false;
         let mut child = n;
         let mut current = Some(n);
@@ -69,7 +69,7 @@ impl Context<'_> {
                             }
                             "FunctionDeclarationStatement" if !in_local_function => {
                                 if let Some(&f) = self.children(c).first()
-                                    && let Marca::Funcao(fid) = self.tree.nos[f].marca
+                                    && let Mark::Function(fid) = self.tree.nodes[f].mark
                                 {
                                     add(self.ast.function(fid).name.map(|x| x.span), &mut names);
                                 }
@@ -90,7 +90,7 @@ impl Context<'_> {
                 "FieldDeclaration" | "TopLevelVariableDeclaration" | "FunctionTypeAlias" | "GenericTypeAlias" | "ClassTypeAlias" => break,
                 "ForEachPartsWithDeclaration" => {
                     if let Some(&d) = self.children(k).iter().find(|&&f| self.kind(f) == "DeclaredIdentifier") {
-                        add(self.previous_token(self.tree.nos[d].fim), &mut names);
+                        add(self.previous_token(self.tree.nodes[d].end), &mut names);
                     }
                 }
                 "ForPartsWithDeclarations" => {
@@ -127,7 +127,7 @@ impl Context<'_> {
         let mut stack = vec![body];
         while let Some(k) = stack.pop() {
             if self.kind(k) == "SimpleIdentifier"
-                && let Marca::Expr(x) = self.tree.nos[k].marca
+                && let Mark::Expr(x) = self.tree.nodes[k].mark
                 && matches!(self.bodies.get_resolved(x), Some(Resolved::Local(_)))
                 && self.bodies.local_declaration(x) == Some(name)
             {
@@ -148,11 +148,11 @@ impl Context<'_> {
 
     /// `DestructureLocalVariableAssignment`.
     pub(crate) fn destructure_local(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         if self.kind(node) != "VariableDeclaration" {
             return None;
         }
-        let name = self.next_token(self.tree.nos[node].inicio)?;
+        let name = self.next_token(self.tree.nodes[node].start)?;
         // `declaredElement2`: only a local.
         let ty = *self.bodies.local_types.get(&name.start)?;
         let table = &self.p.query.table;
@@ -165,7 +165,7 @@ impl Context<'_> {
         };
         match table.get(ty) {
             Type::Record { positional, named, .. } => {
-                let mut excluded = self.names_in_scope(node, self.tree.nos[node].inicio);
+                let mut excluded = self.names_in_scope(node, self.tree.nodes[node].start);
                 let mut variables: Vec<String> = Vec::new();
                 for i in 1..=positional.len() {
                     let mut name_v = format!("${i}");
@@ -215,7 +215,7 @@ impl Context<'_> {
                 if reads.iter().any(Option::is_none) {
                     return None;
                 }
-                let in_scope = self.names_in_scope(node, self.tree.nos[node].inicio);
+                let in_scope = self.names_in_scope(node, self.tree.nodes[node].start);
                 // The properties, in the order of their first read.
                 let mut properties: Vec<(String, Vec<usize>)> = Vec::new();
                 for (p, access) in reads.into_iter().flatten() {
@@ -226,14 +226,14 @@ impl Context<'_> {
                 }
                 let mut fields: Vec<(String, String, Vec<usize>)> = Vec::new();
                 for (p, accesses) in properties {
-                    let mut excluded = self.local_conflicts(self.tree.nos[node].inicio);
+                    let mut excluded = self.local_conflicts(self.tree.nodes[node].start);
                     excluded.extend(in_scope.iter().cloned());
                     for &a in &accesses {
                         // `inSetterContext`.
                         if self.node_expr(a).is_some_and(|x| self.writes.contains(&x)) {
                             return None;
                         }
-                        excluded.extend(self.local_conflicts(self.tree.nos[a].inicio));
+                        excluded.extend(self.local_conflicts(self.tree.nodes[a].start));
                     }
                     let variable = names_to_text(&p, &excluded).into_iter().next()?;
                     fields.push((variable, p, accesses));

@@ -96,7 +96,7 @@ fn check_with_analyze(file: &std::path::Path, publication: &Value) -> String {
     lsp.sort();
     let semantic = lsp
         .iter()
-        .filter(|(c, _, _)| dartforge_analysis::publicacao::verificados().contains(&c.as_str()))
+        .filter(|(c, _, _)| dartforge_analysis::publication::verified().contains(&c.as_str()))
         .count();
     let cli_only: Vec<_> = cli.iter().filter(|x| !lsp.contains(x)).take(5).collect();
     let only_lsp: Vec<_> = lsp.iter().filter(|x| !cli.contains(x)).take(5).collect();

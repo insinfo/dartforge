@@ -208,10 +208,10 @@ impl Project {
         let u = p.unit(unit);
         let source = u.source.as_str();
         let cx = Context::new(self, unit);
-        let n = cx.tree.localizar(offset, offset)?;
+        let n = cx.tree.locate(offset, offset)?;
         let node_kind = cx.kind(n);
-        let node = &cx.tree.nos[n];
-        let node_range = Span { start: node.inicio, end: node.fim };
+        let node = &cx.tree.nodes[n];
+        let node_range = Span { start: node.start, end: node.end };
         match node_kind {
             // Outside the `getElementToRename` table.
             "SuperFormalParameter" | "FunctionTypedFormalParameter" => return None,
@@ -227,7 +227,7 @@ impl Project {
                 let lib = u.library;
                 let index = p.library(lib).imports.iter().position(|i| {
                     i.unit == unit
-                        && p.unit(i.unit).unit.directives.get(i.directive).is_some_and(|d| node.inicio <= d.span.start && d.span.end <= node.fim)
+                        && p.unit(i.unit).unit.directives.get(i.directive).is_some_and(|d| node.start <= d.span.start && d.span.end <= node.end)
                 })?;
                 let imp = &p.library(lib).imports[index];
                 let (range, old) = match &p.unit(imp.unit).unit.directives[imp.directive].kind {
@@ -258,7 +258,7 @@ impl Project {
                 });
             }
             "LibraryDirective" => {
-                let name = source[node.inicio..node.fim].trim_start_matches("library").trim().trim_end_matches(';').trim().to_string();
+                let name = source[node.start..node.end].trim_start_matches("library").trim().trim_end_matches(';').trim().to_string();
                 return Some(Request {
                     class: Class::Library(u.library),
                     range: node_range,
@@ -273,7 +273,7 @@ impl Project {
                 // `new`/`const`: the class, on the type name.
                 let cn = cx.children(n).iter().copied().find(|&k| cx.kind(k) == "ConstructorName")?;
                 let ty = *cx.children(cn).first()?;
-                let start = cx.children(ty).iter().copied().find(|&k| cx.kind(k) == "ImportPrefixReference").map_or(cx.tree.nos[ty].inicio, |k| cx.tree.nos[k].fim);
+                let start = cx.children(ty).iter().copied().find(|&k| cx.kind(k) == "ImportPrefixReference").map_or(cx.tree.nodes[ty].start, |k| cx.tree.nodes[k].end);
                 let d = self.identify(unit, start).ok()??;
                 let Target::Top(Element::Class(c)) = d.target else { return None };
                 return self.target_request(Target::Top(Element::Class(c)), None, d.name, unit);
@@ -281,19 +281,19 @@ impl Project {
             "ConstructorDeclaration" => {
                 let f = (0..p.functions.len()).map(|i| FunctionElementId(i as u32)).find(|&f| {
                     matches!(p.function(f).kind, FunctionKind::Constructor)
-                        && self.function_name(f).is_some_and(|(uu, s)| uu == unit && node.inicio <= s.start && s.end <= node.fim)
+                        && self.function_name(f).is_some_and(|(uu, s)| uu == unit && node.start <= s.start && s.end <= node.end)
                 })?;
                 let mut request = self.target_request(Target::Constructor(f), Some(Concrete::Function(f)), node_range, unit)?;
                 request.range = node_range;
                 return Some(request);
             }
             "FieldFormalParameter" => {
-                let q = parameter_in_range(&u.ast, node.inicio, node.fim)?;
+                let q = parameter_in_range(&u.ast, node.start, node.end)?;
                 let name = q.name?;
                 let field = (0..p.classes.len()).map(|i| ClassId(i as u32)).find(|&c| {
                     p.class(c).decl.is_some_and(|d| d.unit == unit && {
                         let s = u.ast.decl(d.decl).span;
-                        s.start <= node.inicio && node.fim <= s.end
+                        s.start <= node.start && node.end <= s.end
                     })
                 });
                 let field = field.and_then(|c| p.class(c).fields.iter().copied().find(|v| p.variable(*v).name == name.sym));
@@ -317,7 +317,7 @@ impl Project {
             let command_label = cx.kind(parent) == "Label"
                 && cx.parent(parent).is_some_and(|g| matches!(cx.kind(g), "LabeledStatement" | "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"));
             let declaration = if command_label {
-                Some(node.inicio)
+                Some(node.start)
             } else if matches!(cx.kind(parent), "BreakStatement" | "ContinueStatement") {
                 let name = cx.node_text(n);
                 let mut found = None;
@@ -327,7 +327,7 @@ impl Project {
                             && let Some(&i) = cx.children(l).first()
                             && cx.node_text(i) == name
                         {
-                            found = Some(cx.tree.nos[i].inicio);
+                            found = Some(cx.tree.nodes[i].start);
                             break 'outside;
                         }
                     }
@@ -1169,12 +1169,12 @@ impl Project {
                 let end = word(&un.source, *declaration).map_or(*declaration, |s| s.end);
                 by(*unit, Span { start: *declaration, end: end }, new, &mut edits);
                 let name_ = &un.source[*declaration..end];
-                for (k, node) in cx.tree.nos.iter().enumerate() {
-                    if node.especie == "SimpleIdentifier"
+                for (k, node) in cx.tree.nodes.iter().enumerate() {
+                    if node.kind == "SimpleIdentifier"
                         && cx.parent(k).is_some_and(|x| matches!(cx.kind(x), "BreakStatement" | "ContinueStatement"))
                         && cx.node_text(k) == name_
                     {
-                        by(*unit, Span { start: node.inicio, end: node.fim }, new, &mut edits);
+                        by(*unit, Span { start: node.start, end: node.end }, new, &mut edits);
                     }
                 }
             }

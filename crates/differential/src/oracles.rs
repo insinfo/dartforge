@@ -641,8 +641,8 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 
 // ---------------------------------------------------------------- production
 
-/// The **production profile**: `dartforge-jsprod file -o dir/saida.js` and
-/// then `node dir/saida.js`. A single file, with `dart_sdk.js` pruned by the
+/// The **production profile**: `dartforge-jsprod file -o dir/exit_detector.js` and
+/// then `node dir/exit_detector.js`. A single file, with `dart_sdk.js` pruned by the
 /// closed world (`docs/JS-PRODUCAO.md`).
 ///
 /// No cache, for the same reason as the development profile: what is being

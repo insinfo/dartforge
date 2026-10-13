@@ -16,11 +16,11 @@
 //! (`replaced_lint`).
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g::opcoes as c;
-use super::nomes_g::NOMES_DE_CODIGO;
-use super::yaml::{self, No, Valor};
-use super::{CodigoNaoDart, Report};
-use crate::lints::{self, EstadoDaRegra};
+use super::codes_g::options as c;
+use super::names_g::CODE_NAMES;
+use super::yaml::{self, Node, Value};
+use super::{NonDartCode, Report};
+use crate::lints::{self, RuleState};
 use dartforge_diagnostics::Span;
 use std::path::{Path, PathBuf};
 
@@ -38,20 +38,20 @@ pub struct OptionsContext<'a> {
 
 /// `quotedAndCommaSeparatedWithAnd`.
 fn quoted_list(items: &[&str]) -> String {
-    let citados: Vec<String> = items.iter().map(|i| format!("'{i}'")).collect();
-    match citados.len() {
+    let quoted: Vec<String> = items.iter().map(|i| format!("'{i}'")).collect();
+    match quoted.len() {
         0 => String::new(),
-        1 => citados[0].clone(),
-        2 => format!("{} and {}", citados[0], citados[1]),
-        n => format!("{}, and {}", citados[..n - 1].join(", "), citados[n - 1]),
+        1 => quoted[0].clone(),
+        2 => format!("{} and {}", quoted[0], quoted[1]),
+        n => format!("{}, and {}", quoted[..n - 1].join(", "), quoted[n - 1]),
     }
 }
 
 /// The value of a scalar as text (`value.toString()`); `None` for null, list
 /// and map.
-fn text_of(node: &No) -> Option<&str> {
-    match &node.valor {
-        Valor::Texto(t) | Valor::Outro(t) => Some(t),
+fn text_of(node: &Node) -> Option<&str> {
+    match &node.value {
+        Value::Text(t) | Value::Other(t) => Some(t),
         _ => None,
     }
 }
@@ -62,14 +62,14 @@ const STRONG_MODE_KEYS: [&str; 3] = ["declaration-casts", "implicit-casts", "imp
 const LANGUAGE_KEYS: [&str; 3] = ["strict-casts", "strict-inference", "strict-raw-types"];
 const OPTIONAL_CHECKS: [&str; 2] = ["chrome-os-manifest-checks", "propagate-linter-exceptions"];
 const TRUE_OR_FALSE: [&str; 2] = ["true", "false"];
-const SEVERIDADES: [&str; 3] = ["error", "info", "warning"];
+const SEVERITIES: [&str; 3] = ["error", "info", "warning"];
 const ERROR_VALUES: [&str; 7] = ["ignore", "false", "include", "true", "error", "info", "warning"];
 
 /// The name (in upper case) is that of a diagnostic code, of a lint rule, or of
 /// the removed code that is still accepted.
 fn is_known_code(upper: &str) -> bool {
-    NOMES_DE_CODIGO.binary_search(&upper).is_ok()
-        || lints::tabela_g::REGRAS.iter().any(|r| r.nome.eq_ignore_ascii_case(upper))
+    CODE_NAMES.binary_search(&upper).is_ok()
+        || lints::table_g::RULES.iter().any(|r| r.name.eq_ignore_ascii_case(upper))
         || upper == "MISSING_RETURN"
 }
 
@@ -80,60 +80,60 @@ struct Validator<'a> {
 }
 
 impl Validator<'_> {
-    fn report(&mut self, code: &'static CodigoNaoDart, node: &No, args: &[&str]) {
+    fn report(&mut self, code: &'static NonDartCode, node: &Node, args: &[&str]) {
         self.out.push(Report::new(code, node.span, args));
     }
 
     /// `ErrorBuilder.reportError`: the unsupported option, with the proposal.
-    fn unsupported(&mut self, scope: &str, node: &No, supported: &[&str]) {
+    fn unsupported(&mut self, scope: &str, node: &Node, supported: &[&str]) {
         let Some(value) = text_of(node) else { return };
-        let proposta = quoted_list(supported);
+        let proposed = quoted_list(supported);
         match supported.len() {
             0 => self.report(&c::UNSUPPORTED_OPTION_WITHOUT_VALUES, node, &[scope, value]),
-            1 => self.report(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUE, node, &[scope, value, proposta.as_str()]),
-            _ => self.report(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUES, node, &[scope, value, proposta.as_str()]),
+            1 => self.report(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUE, node, &[scope, value, proposed.as_str()]),
+            _ => self.report(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUES, node, &[scope, value, proposed.as_str()]),
         }
     }
 
     /// `TopLevelOptionValidator`: the keys of a top-level section.
-    fn top_level_keys(&mut self, options: &No, section: &str, supported: &[&str]) {
-        let Some(pairs) = options.campo(section).and_then(No::mapa) else { return };
+    fn top_level_keys(&mut self, options: &Node, section: &str, supported: &[&str]) {
+        let Some(pairs) = options.field(section).and_then(Node::map) else { return };
         for (k, _) in pairs {
-            if k.escalar() && !text_of(k).is_some_and(|t| supported.contains(&t)) {
+            if k.is_scalar() && !text_of(k).is_some_and(|t| supported.contains(&t)) {
                 self.unsupported(section, k, supported);
             }
         }
     }
 
     /// A value that must be `true` or `false`.
-    fn boolean(&mut self, key: &str, v: &No) {
-        if !v.escalar() {
+    fn boolean(&mut self, key: &str, v: &Node) {
+        if !v.is_scalar() {
             return;
         }
         let ok = text_of(v).is_some_and(|t| TRUE_OR_FALSE.contains(&t.to_lowercase().as_str()));
         if !ok && let Some(value) = text_of(v) {
-            let proposta = quoted_list(&TRUE_OR_FALSE);
-            self.report(&c::UNSUPPORTED_VALUE, v, &[key, value, proposta.as_str()]);
+            let proposed = quoted_list(&TRUE_OR_FALSE);
+            self.report(&c::UNSUPPORTED_VALUE, v, &[key, value, proposed.as_str()]);
         }
     }
 
     /// `StrongModeOptionValueValidator`.
-    fn strong_mode(&mut self, analyzer: &No) {
-        let Some(node) = analyzer.campo("strong-mode") else { return };
-        let Some(pairs) = node.mapa() else {
+    fn strong_mode(&mut self, analyzer: &Node) {
+        let Some(node) = analyzer.field("strong-mode") else { return };
+        let Some(pairs) = node.map() else {
             self.report(&c::INVALID_SECTION_FORMAT, node, &["strong-mode"]);
             return;
         };
         for (k, v) in pairs {
-            if !k.escalar() {
+            if !k.is_scalar() {
                 continue;
             }
             match text_of(k) {
                 Some(key) if STRONG_MODE_KEYS.contains(&key) => {
                     if key == "declaration-casts" {
                         if let Some(value) = text_of(v) {
-                            let proposta = quoted_list(&TRUE_OR_FALSE);
-                            self.report(&c::UNSUPPORTED_VALUE, v, &["strong-mode", value, proposta.as_str()]);
+                            let proposed = quoted_list(&TRUE_OR_FALSE);
+                            self.report(&c::UNSUPPORTED_VALUE, v, &["strong-mode", value, proposed.as_str()]);
                         }
                     } else {
                         self.boolean(key, v);
@@ -146,24 +146,24 @@ impl Validator<'_> {
 
     /// `ErrorFilterOptionValidator`. The argument of the invalid format is
     /// `enable-experiment`, as in the original.
-    fn error_filters(&mut self, analyzer: &No) {
-        let Some(node) = analyzer.campo("errors") else { return };
-        let Some(pairs) = node.mapa() else {
+    fn error_filters(&mut self, analyzer: &Node) {
+        let Some(node) = analyzer.field("errors") else { return };
+        let Some(pairs) = node.map() else {
             self.report(&c::INVALID_SECTION_FORMAT, node, &["enable-experiment"]);
             return;
         };
         for (k, v) in pairs {
-            if k.escalar()
+            if k.is_scalar()
                 && let Some(name) = text_of(k)
                 && !is_known_code(&name.to_uppercase())
             {
                 self.report(&c::UNRECOGNIZED_ERROR_CODE, k, &[name]);
             }
-            if v.escalar() {
+            if v.is_scalar() {
                 let value = text_of(v).unwrap_or("null");
                 if !ERROR_VALUES.contains(&value.to_lowercase().as_str()) {
-                    let proposta = quoted_list(&ERROR_VALUES);
-                    self.report(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUES, v, &["errors", value, proposta.as_str()]);
+                    let proposed = quoted_list(&ERROR_VALUES);
+                    self.report(&c::UNSUPPORTED_OPTION_WITH_LEGAL_VALUES, v, &["errors", value, proposed.as_str()]);
                 }
             } else {
                 self.report(&c::INVALID_SECTION_FORMAT, v, &["enable-experiment"]);
@@ -172,26 +172,26 @@ impl Validator<'_> {
     }
 
     /// `EnabledExperimentsValidator`: only the section's format.
-    fn experiments(&mut self, analyzer: &No) {
-        if let Some(node) = analyzer.campo("enable-experiment")
-            && node.lista().is_none()
+    fn experiments(&mut self, analyzer: &Node) {
+        if let Some(node) = analyzer.field("enable-experiment")
+            && node.list().is_none()
         {
             self.report(&c::INVALID_SECTION_FORMAT, node, &["enable-experiment"]);
         }
     }
 
     /// `LanguageOptionValidator`.
-    fn language(&mut self, analyzer: &No) {
-        let Some(node) = analyzer.campo("language") else { return };
-        let Some(pairs) = node.mapa() else {
+    fn language(&mut self, analyzer: &Node) {
+        let Some(node) = analyzer.field("language") else { return };
+        let Some(pairs) = node.map() else {
             // A non-null scalar or a list.
-            if !node.nulo() {
+            if !node.is_null() {
                 self.report(&c::INVALID_SECTION_FORMAT, node, &["language"]);
             }
             return;
         };
         for (k, v) in pairs {
-            if !k.escalar() {
+            if !k.is_scalar() {
                 continue;
             }
             match text_of(k) {
@@ -202,16 +202,16 @@ impl Validator<'_> {
     }
 
     /// `OptionalChecksValueValidator`.
-    fn optional_checks(&mut self, analyzer: &No) {
-        let Some(node) = analyzer.campo("optional-checks") else { return };
+    fn optional_checks(&mut self, analyzer: &Node) {
+        let Some(node) = analyzer.field("optional-checks") else { return };
         let scope = "chrome-os-manifest-checks";
-        if node.escalar() {
+        if node.is_scalar() {
             if text_of(node).map(str::to_lowercase).as_deref() != Some(scope) {
                 self.unsupported(scope, node, &OPTIONAL_CHECKS);
             }
-        } else if let Some(pairs) = node.mapa() {
+        } else if let Some(pairs) = node.map() {
             for (k, v) in pairs {
-                if !k.escalar() {
+                if !k.is_scalar() {
                     continue;
                 }
                 if text_of(k) == Some(scope) {
@@ -226,16 +226,16 @@ impl Validator<'_> {
     }
 
     /// `CannotIgnoreOptionValidator`.
-    fn cannot_ignore(&mut self, analyzer: &No) {
-        let Some(node) = analyzer.campo("cannot-ignore") else { return };
-        let Some(items) = node.lista() else {
+    fn cannot_ignore(&mut self, analyzer: &Node) {
+        let Some(node) = analyzer.field("cannot-ignore") else { return };
+        let Some(items) = node.list() else {
             self.report(&c::INVALID_SECTION_FORMAT, node, &["cannot-ignore"]);
             return;
         };
         for item in items {
-            match item.texto() {
+            match item.text() {
                 Some(name) => {
-                    if !SEVERIDADES.contains(&name) && !is_known_code(&name.to_uppercase()) {
+                    if !SEVERITIES.contains(&name) && !is_known_code(&name.to_uppercase()) {
                         self.report(&c::UNRECOGNIZED_ERROR_CODE, item, &[name]);
                     }
                 }
@@ -245,17 +245,17 @@ impl Validator<'_> {
     }
 
     /// `CodeStyleOptionsValidator`.
-    fn code_style(&mut self, options: &No, source: &str) {
-        let Some(node) = options.campo("code-style") else { return };
-        let Some(pairs) = node.mapa() else {
-            if !node.nulo() {
+    fn code_style(&mut self, options: &Node, source: &str) {
+        let Some(node) = options.field("code-style") else { return };
+        let Some(pairs) = node.map() else {
+            if !node.is_null() {
                 self.report(&c::INVALID_SECTION_FORMAT, node, &["code-style"]);
             }
             return;
         };
         for (k, v) in pairs {
             if text_of(k) == Some("format") {
-                if !v.escalar() {
+                if !v.is_scalar() {
                     self.report(&c::INVALID_SECTION_FORMAT, v, &["format"]);
                 } else {
                     self.boolean("format", v);
@@ -268,10 +268,10 @@ impl Validator<'_> {
     }
 
     /// `FormatterOptionsValidator`.
-    fn formatter(&mut self, options: &No, source: &str) {
-        let Some(node) = options.campo("formatter") else { return };
-        let Some(pairs) = node.mapa() else {
-            if !node.nulo() {
+    fn formatter(&mut self, options: &Node, source: &str) {
+        let Some(node) = options.field("formatter") else { return };
+        let Some(pairs) = node.map() else {
+            if !node.is_null() {
                 self.report(&c::INVALID_SECTION_FORMAT, node, &["formatter"]);
             }
             return;
@@ -279,7 +279,7 @@ impl Validator<'_> {
         for (k, v) in pairs {
             let key = source.get(k.span.start..k.span.end).unwrap_or("");
             if text_of(k) == Some("page_width") {
-                let positive = matches!(&v.valor, Valor::Outro(t) if t.parse::<i64>().is_ok_and(|n| n > 0));
+                let positive = matches!(&v.value, Value::Other(t) if t.parse::<i64>().is_ok_and(|n| n > 0));
                 if !positive {
                     self.report(&c::INVALID_OPTION, v, &[key, "\"page_width\" must be a positive integer."]);
                 }
@@ -290,12 +290,12 @@ impl Validator<'_> {
     }
 
     /// `LinterRuleOptionsValidator._validateRules`.
-    fn lint_rules(&mut self, options: &No) {
-        let Some(regras) = options.campo("linter").filter(|l| l.mapa().is_some()).and_then(|l| l.campo("rules")) else { return };
+    fn lint_rules(&mut self, options: &Node) {
+        let Some(rules) = options.field("linter").filter(|l| l.map().is_some()).and_then(|l| l.field("rules")) else { return };
         let mut seen: Vec<&str> = Vec::new();
-        let entries: Vec<(&No, bool)> = match &regras.valor {
-            Valor::Lista(items) => items.iter().map(|n| (n, true)).collect(),
-            Valor::Mapa(pairs) => pairs.iter().map(|(k, v)| (k, matches!(&v.valor, Valor::Outro(t) if t.eq_ignore_ascii_case("true")))).collect(),
+        let entries: Vec<(&Node, bool)> = match &rules.value {
+            Value::List(items) => items.iter().map(|n| (n, true)).collect(),
+            Value::Map(pairs) => pairs.iter().map(|(k, v)| (k, matches!(&v.value, Value::Other(t) if t.eq_ignore_ascii_case("true")))).collect(),
             _ => Vec::new(),
         };
         for (node, enabled) in entries {
@@ -305,25 +305,25 @@ impl Validator<'_> {
                 continue;
             };
             if enabled {
-                if let Some(other) = rule.incompativeis.iter().copied().find(|i| seen.contains(i)) {
+                if let Some(other) = rule.incompatible.iter().copied().find(|i| seen.contains(i)) {
                     self.report(&c::INCOMPATIBLE_LINT, node, &[name, other]);
-                } else if seen.contains(&rule.nome) {
+                } else if seen.contains(&rule.name) {
                     self.report(&c::DUPLICATE_RULE, node, &[name]);
                 } else {
-                    seen.push(rule.nome);
+                    seen.push(rule.name);
                 }
             }
             if self.is_root_file {
                 // `currentSdkAllows`: without `since`, yes; without a constraint, no.
-                let in_sdk = match rule.desde {
+                let in_sdk = match rule.since {
                     None => true,
                     Some(v) => self.sdk_allows.is_some_and(|f| f(v)),
                 };
-                match rule.estado {
-                    EstadoDaRegra::Depreciada if in_sdk => self.report(&c::DEPRECATED_LINT, node, &[name]),
-                    EstadoDaRegra::Removida if in_sdk => {
-                        let desde = rule.desde.map_or_else(|| "null".to_string(), |(a, b, k)| format!("{a}.{b}.{k}"));
-                        self.report(&c::REMOVED_LINT, node, &[name, desde.as_str()]);
+                match rule.state {
+                    RuleState::Deprecated if in_sdk => self.report(&c::DEPRECATED_LINT, node, &[name]),
+                    RuleState::Removed if in_sdk => {
+                        let since = rule.since.map_or_else(|| "null".to_string(), |(a, b, k)| format!("{a}.{b}.{k}"));
+                        self.report(&c::REMOVED_LINT, node, &[name, since.as_str()]);
                     }
                     _ => {}
                 }
@@ -332,9 +332,9 @@ impl Validator<'_> {
     }
 
     /// `OptionsFileValidator.validate`, in validator order.
-    fn file_options(&mut self, options: &No, source: &str) {
+    fn file_options(&mut self, options: &Node, source: &str) {
         self.top_level_keys(options, "analyzer", &ANALYZER_TOP_LEVEL);
-        if let Some(analyzer) = options.campo("analyzer").filter(|a| a.mapa().is_some()) {
+        if let Some(analyzer) = options.field("analyzer").filter(|a| a.map().is_some()) {
             self.strong_mode(analyzer);
             self.error_filters(analyzer);
             self.experiments(analyzer);
@@ -349,12 +349,12 @@ impl Validator<'_> {
     }
 
     /// `PluginsOptionValidator`: more than one legacy plugin.
-    fn plugins(&mut self, options: &No, first_included: Option<&str>) {
-        let Some(plugins) = options.campo("analyzer").filter(|a| a.mapa().is_some()).and_then(|a| a.campo("plugins")) else { return };
-        let nodes: Vec<&No> = match &plugins.valor {
-            Valor::Lista(items) => items.iter().collect(),
-            Valor::Mapa(pairs) => pairs.iter().map(|(k, _)| k).collect(),
-            Valor::Nulo => return,
+    fn plugins(&mut self, options: &Node, first_included: Option<&str>) {
+        let Some(plugins) = options.field("analyzer").filter(|a| a.map().is_some()).and_then(|a| a.field("plugins")) else { return };
+        let nodes: Vec<&Node> = match &plugins.value {
+            Value::List(items) => items.iter().collect(),
+            Value::Map(pairs) => pairs.iter().map(|(k, _)| k).collect(),
+            Value::Null => return,
             // A scalar: it only conflicts with the plugin of an included file.
             _ => {
                 if let Some(p) = first_included
@@ -377,7 +377,7 @@ impl Validator<'_> {
                 let mut first: Option<&str> = None;
                 for node in nodes {
                     match first {
-                        None => first = node.texto(),
+                        None => first = node.text(),
                         Some(p) if text_of(node) != Some(p) => self.report(&c::MULTIPLE_PLUGINS, node, &[p]),
                         Some(_) => {}
                     }
@@ -389,22 +389,22 @@ impl Validator<'_> {
 }
 
 /// `_firstPluginName`.
-fn first_plugin(options: &No) -> Option<String> {
-    let plugins = options.campo("analyzer").filter(|a| a.mapa().is_some())?.campo("plugins")?;
-    match &plugins.valor {
-        Valor::Texto(t) => Some(t.clone()),
-        Valor::Lista(items) => items.first().and_then(No::texto).map(str::to_string),
-        Valor::Mapa(pairs) => pairs.first().and_then(|(k, _)| k.texto()).map(str::to_string),
+fn first_plugin(options: &Node) -> Option<String> {
+    let plugins = options.field("analyzer").filter(|a| a.map().is_some())?.field("plugins")?;
+    match &plugins.value {
+        Value::Text(t) => Some(t.clone()),
+        Value::List(items) => items.first().and_then(Node::text).map(str::to_string),
+        Value::Map(pairs) => pairs.first().and_then(|(k, _)| k.text()).map(str::to_string),
         _ => None,
     }
 }
 
 /// `getOptionsFromString`: the text's map; a document that is not a map (or
 /// is empty) is an empty map.
-fn map_of(text: &str) -> Result<No, yaml::YamlError> {
-    let empty = No { span: Span { start: 0, end: 0 }, valor: Valor::Mapa(Vec::new()) };
-    Ok(match yaml::ler(text)? {
-        Some(node) if node.mapa().is_some() => node,
+fn map_of(text: &str) -> Result<Node, yaml::YamlError> {
+    let empty = Node { span: Span { start: 0, end: 0 }, value: Value::Map(Vec::new()) };
+    Ok(match yaml::parse(text)? {
+        Some(node) if node.map().is_some() => node,
         _ => empty,
     })
 }
@@ -426,9 +426,9 @@ impl OptionsAnalysis<'_> {
             (false, Some(where_)) => {
                 for r in reports {
                     let name = file.to_string_lossy();
-                    let (de, until) = (r.span.start.to_string(), (r.span.end.saturating_sub(1)).to_string());
+                    let (from, until) = (r.span.start.to_string(), (r.span.end.saturating_sub(1)).to_string());
                     let message = r.message();
-                    self.errors.push(Report::new(&c::INCLUDED_FILE_WARNING, where_, &[name.as_ref(), de.as_str(), until.as_str(), message.as_str()]));
+                    self.errors.push(Report::new(&c::INCLUDED_FILE_WARNING, where_, &[name.as_ref(), from.as_str(), until.as_str(), message.as_str()]));
                 }
             }
             _ => self.errors.extend(reports),
@@ -436,12 +436,12 @@ impl OptionsAnalysis<'_> {
     }
 
     /// `validate`: the options of `file` and, through `include:`, the included ones.
-    fn validate(&mut self, file: &Path, options: &No, source: &str) {
+    fn validate(&mut self, file: &Path, options: &Node, source: &str) {
         let is_root_file = self.initial_include.is_none();
         let mut v = Validator { out: Vec::new(), sdk_allows: self.ctx.sdk_allows, is_root_file };
         v.file_options(options, source);
         self.append(v.out, file, is_root_file);
-        let Some(include) = options.campo("include") else {
+        let Some(include) = options.field("include") else {
             let mut v = Validator { out: Vec::new(), sdk_allows: None, is_root_file };
             v.plugins(options, None);
             self.append(v.out, file, is_root_file);
@@ -462,22 +462,22 @@ impl OptionsAnalysis<'_> {
             return;
         };
         if let Some((_, previous)) = self.chain.iter().find(|(p, _)| *p == included) {
-            let (path, de, length) =
+            let (path, from, length) =
                 (included.to_string_lossy().into_owned(), previous.start.to_string(), (previous.end - previous.start).to_string());
             self.errors.push(Report::new(
                 &c::INCLUDED_FILE_WARNING,
                 where_,
-                &[path.as_str(), de.as_str(), length.as_str(), "The file includes itself recursively."],
+                &[path.as_str(), from.as_str(), length.as_str(), "The file includes itself recursively."],
             ));
             return;
         }
         self.chain.push((included.clone(), include.span));
         let text = std::fs::read_to_string(&included).unwrap_or_default();
         match map_of(&text) {
-            Ok(incluidas) => {
-                self.validate(&included, &incluidas, &text);
+            Ok(included_map) => {
+                self.validate(&included, &included_map, &text);
                 if self.first_plugin.is_none() {
-                    self.first_plugin = first_plugin(&incluidas);
+                    self.first_plugin = first_plugin(&included_map);
                 }
                 let mut v = Validator { out: Vec::new(), sdk_allows: None, is_root_file };
                 v.plugins(options, self.first_plugin.as_deref());
@@ -514,7 +514,7 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         let without_includes = |_: &Path, _: &str| None;
         let ctx = OptionsContext { file: Path::new("analysis_options.yaml"), context_root: ".", resolver: &without_includes, sdk_allows: None };
-        analyze(source, &ctx).into_iter().map(|r| (r.code.nome, source[r.span.start..r.span.end].to_string())).collect()
+        analyze(source, &ctx).into_iter().map(|r| (r.code.name, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

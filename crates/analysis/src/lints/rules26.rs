@@ -18,11 +18,11 @@
 //! Written without compiling or running (2026-10-05).
 
 use super::walk::Node;
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
 use super::rules16::{is_method_invocation, is_nullable, declared_variable_type, unit_parents, NodeParents};
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{Element, FunctionKind, FunctionRef, VariableRef};
 use dartforge_frontend::ast::{self, Ast, BinaryOp, CollectionElement, DeclKind, ExprId, ExprKind, ForInit, FunctionBody, Initializer, MemberKind, PatternKind, StmtKind, UnaryOp};
@@ -392,12 +392,12 @@ fn has_space(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> bool {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let table = s.table;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 

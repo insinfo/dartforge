@@ -7,7 +7,7 @@
 //! | `Convert to using super parameters` | `refactor.convert.toSuperParameters` |
 
 use crate::actions::CodeAction;
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::refactorings::Context;
 use crate::refactorings_exec::Change;
 use dartforge_diagnostics::Span;
@@ -108,7 +108,7 @@ impl Context<'_> {
         if prog.library(prog.unit(self.unit).library).features.version() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
             return None;
         }
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let constructor = self.selection_constructor(node)?;
         // `_superInvocation`: the last `super(…)` among the initializers.
         let initializers: Vec<usize> = self
@@ -118,7 +118,7 @@ impl Context<'_> {
             .filter(|&k| matches!(self.kind(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
             .collect();
         let invocation = *initializers.iter().rev().find(|&&k| self.kind(k) == "SuperConstructorInvocation")?;
-        let node_end = self.tree.nos[constructor].fim;
+        let node_end = self.tree.nodes[constructor].end;
         let mi = self.ast.members.iter().position(|m| matches!(m.kind, MemberKind::Constructor(_)) && m.span.end == node_end)?;
         let MemberKind::Constructor(k) = &self.ast.member(ast::MemberId(mi as u32)).kind else { return None };
         let f = self.p.node_constructor(self.unit, ast::MemberId(mi as u32))?;
@@ -145,7 +145,7 @@ impl Context<'_> {
             if self.kind(e) != "SimpleIdentifier" {
                 return None;
             }
-            let Marca::Expr(x) = self.tree.nos[e].marca else { return None };
+            let Mark::Expr(x) = self.tree.nodes[e].mark else { return None };
             let decl = match self.bodies.get_resolved(x)? {
                 Resolved::Local(_) => self.bodies.local_declaration(x)?,
                 Resolved::Parameter { name, .. } => k.parameters.iter().find(|p| p.name.is_some_and(|n| n.sym == *name))?.name?.span.start,
@@ -159,7 +159,7 @@ impl Context<'_> {
             let mut stack = vec![body];
             while let Some(n) = stack.pop() {
                 if self.kind(n) == "SimpleIdentifier"
-                    && let Marca::Expr(x) = self.tree.nos[n].marca
+                    && let Mark::Expr(x) = self.tree.nodes[n].mark
                 {
                     match self.bodies.get_resolved(x) {
                         Some(Resolved::Parameter { name, .. }) => {
@@ -208,7 +208,7 @@ impl Context<'_> {
                 _ => None,
             };
             let final_ = if p.final_ && self.kind(internal) == "SimpleFormalParameter" {
-                self.tokens.iter().find(|t| t.span.start >= self.tree.nos[internal].inicio && t.span.end <= name_.start && &self.source[t.span.start..t.span.end] == "final").map(|t| t.span)
+                self.tokens.iter().find(|t| t.span.start >= self.tree.nodes[internal].start && t.span.end <= name_.start && &self.source[t.span.start..t.span.end] == "final").map(|t| t.span)
             } else {
                 None
             };
@@ -323,13 +323,13 @@ impl Context<'_> {
         if to_remove.len() == arguments.len() {
             if !super_name {
                 let range = if initializers.len() == 1 {
-                    Span { start: self.tree.nos[list].fim, end: self.tree.nos[invocation].fim }
+                    Span { start: self.tree.nodes[list].end, end: self.tree.nodes[invocation].end }
                 } else {
                     let i = initializers.iter().position(|&x| x == invocation)?;
                     if i == 0 {
-                        Span { start: self.tree.nos[invocation].inicio, end: self.tree.nos[initializers[1]].inicio }
+                        Span { start: self.tree.nodes[invocation].start, end: self.tree.nodes[initializers[1]].start }
                     } else {
-                        Span { start: self.tree.nos[initializers[i - 1]].fim, end: self.tree.nos[invocation].fim }
+                        Span { start: self.tree.nodes[initializers[i - 1]].end, end: self.tree.nodes[invocation].end }
                     }
                 };
                 m.add(uri, range, String::new());
@@ -348,9 +348,9 @@ impl Context<'_> {
             }
             for (from, until) in groups {
                 let range = if from == 0 {
-                    Span { start: self.tree.nos[arguments[from]].inicio, end: self.tree.nos[arguments[until + 1]].inicio }
+                    Span { start: self.tree.nodes[arguments[from]].start, end: self.tree.nodes[arguments[until + 1]].start }
                 } else {
-                    Span { start: self.tree.nos[arguments[from - 1]].fim, end: self.tree.nos[arguments[until]].fim }
+                    Span { start: self.tree.nodes[arguments[from - 1]].end, end: self.tree.nodes[arguments[until]].end }
                 };
                 m.add(uri, range, String::new());
             }

@@ -24,11 +24,11 @@
 //!   directive's documentation, with the URIs' `stringValue`.
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::strings::{literals, string_value};
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
     self, Ast, BinaryOp, CollectionElement, CreationKeyword, DeclKind, DirectiveKind, ExprId, ExprKind, ForInit, MemberId, MemberKind,
@@ -112,7 +112,7 @@ fn first_token(source: &str, start: usize) -> Span {
 /// with the range of the synthetic `ImportDirective` (from the `import `
 /// imagined before the URI to the end of the last token) and the URI's
 /// `stringValue`.
-fn doc_imports(source: &str, u: Unidade<'_>) -> Vec<(Span, Option<String>)> {
+fn doc_imports(source: &str, u: Unit<'_>) -> Vec<(Span, Option<String>)> {
     let mut v = Vec::new();
     let Some(library) = u.unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::Library { .. })) else { return v };
     let comments = dartforge_frontend::comments::Comments::scan(source);
@@ -184,11 +184,11 @@ fn compare_directives(x: &str, y: &str) -> std::cmp::Ordering {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let source = u.fonte;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.source;
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     // The (0-based) line number of a place.
@@ -599,7 +599,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             directives.push((span, Kind::DocImport, uri));
         }
         let mut reported_spans: HashSet<(usize, usize)> = HashSet::new();
-        let mut report_once = |span: Span, code: &'static CodigoLint, args: &[&str]| {
+        let mut report_once = |span: Span, code: &'static LintCode, args: &[&str]| {
             if reported_spans.insert((span.start, span.end)) {
                 report(code, span, args);
             }
@@ -678,7 +678,7 @@ mod tests {
     fn only(rule: &str, source: &str) -> Vec<String> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         let mut reports = run(u, &names, &|r| r == rule, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
         reports.into_iter().map(|r| source[r.span.start..r.span.end].to_string()).collect()

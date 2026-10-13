@@ -8,7 +8,7 @@
 
 use crate::actions::CodeAction;
 use crate::Edit;
-use dartforge_analysis::naodart::yaml::{self, No, Valor};
+use dartforge_analysis::non_dart::yaml::{self, Node, Value};
 use dartforge_diagnostics::{Diagnostic, Span};
 use std::path::{Path, PathBuf};
 use url::Url;
@@ -203,25 +203,25 @@ fn last_index(t: &str, c: u8, start: usize) -> Option<usize> {
     (0..=end).rev().find(|&i| b[i] == c)
 }
 
-fn in_flow(t: &str, node: &No) -> bool {
+fn in_flow(t: &str, node: &Node) -> bool {
     t[node.span.start.min(t.len())..].starts_with(['{', '['])
 }
 
 /// `getContentSensitiveEnd`.
-fn sensitive_end(t: &str, node: &No) -> usize {
-    match &node.valor {
-        Valor::Lista(l) if !in_flow(t, node) => l.last().map_or(node.span.end, |x| sensitive_end(t, x)),
-        Valor::Mapa(m) if !in_flow(t, node) => m.last().map_or(node.span.end, |(_, v)| sensitive_end(t, v)),
+fn sensitive_end(t: &str, node: &Node) -> usize {
+    match &node.value {
+        Value::List(l) if !in_flow(t, node) => l.last().map_or(node.span.end, |x| sensitive_end(t, x)),
+        Value::Map(m) if !in_flow(t, node) => m.last().map_or(node.span.end, |(_, v)| sensitive_end(t, v)),
         _ => node.span.end,
     }
 }
 
 /// `getMapIndentation` (`None`: the empty block map, `UnsupportedError`).
-fn map_indent(t: &str, map: &No) -> Option<usize> {
+fn map_indent(t: &str, map: &Node) -> Option<usize> {
     if in_flow(t, map) {
         return Some(0);
     }
-    let (last, _) = map.mapa()?.last()?;
+    let (last, _) = map.map()?.last()?;
     let o = last.span.start;
     let nl = last_index(t, b'\n', o);
     let q = last_index(t, b'?', o);
@@ -235,11 +235,11 @@ fn map_indent(t: &str, map: &No) -> Option<usize> {
 }
 
 /// `getListIndentation`.
-fn list_indent(t: &str, list: &No) -> Option<usize> {
+fn list_indent(t: &str, list: &Node) -> Option<usize> {
     if in_flow(t, list) {
         return Some(0);
     }
-    let last = list.lista()?.last()?;
+    let last = list.list()?.last()?;
     let hyphen = last_index(t, b'-', last.span.start.checked_sub(1)?)?;
     if hyphen == 0 {
         return Some(0);
@@ -253,17 +253,17 @@ fn list_indent(t: &str, list: &No) -> Option<usize> {
 
 /// `getIndentation(editor)`: the indentation of the last non-null block
 /// collection at the second level; 2 when there is none.
-fn editor_indent(t: &str, root: &No) -> usize {
+fn editor_indent(t: &str, root: &Node) -> usize {
     let mut indent = 2;
-    let children: Vec<&No> = match &root.valor {
-        Valor::Mapa(m) if !in_flow(t, root) => m.iter().map(|(_, v)| v).collect(),
-        Valor::Lista(l) if !in_flow(t, root) => l.iter().collect(),
+    let children: Vec<&Node> = match &root.value {
+        Value::Map(m) if !in_flow(t, root) => m.iter().map(|(_, v)| v).collect(),
+        Value::List(l) if !in_flow(t, root) => l.iter().collect(),
         _ => Vec::new(),
     };
     for f in children {
-        let r = match &f.valor {
-            Valor::Lista(_) => list_indent(t, f).unwrap_or(0),
-            Valor::Mapa(_) => map_indent(t, f).unwrap_or(0),
+        let r = match &f.value {
+            Value::List(_) => list_indent(t, f).unwrap_or(0),
+            Value::Map(_) => map_indent(t, f).unwrap_or(0),
             _ => 0,
         };
         if r != 0 {
@@ -274,16 +274,16 @@ fn editor_indent(t: &str, root: &No) -> usize {
 }
 
 /// The `toString` of a scalar key.
-fn key_text(k: &No) -> String {
-    match &k.valor {
-        Valor::Texto(s) | Valor::Outro(s) => s.clone(),
-        Valor::Nulo => "null".to_string(),
+fn key_text(k: &Node) -> String {
+    match &k.value {
+        Value::Text(s) | Value::Other(s) => s.clone(),
+        Value::Null => "null".to_string(),
         _ => String::new(),
     }
 }
 
 /// `getMapInsertionIndex`.
-fn insertion_index(map: &[(No, No)], key: &str) -> usize {
+fn insertion_index(map: &[(Node, Node)], key: &str) -> usize {
     let keys: Vec<String> = map.iter().map(|(k, _)| key_text(k)).collect();
     for i in 1..keys.len() {
         if keys[i] < keys[i - 1] {
@@ -326,8 +326,8 @@ fn non_empty_collection(v: &New) -> bool {
 }
 
 /// `updateInMap(editor, map, key, value)`: the edit (offset, text).
-fn update_in_map(t: &str, root: &No, map: &No, key: &str, value: &New) -> Option<(usize, String)> {
-    let pairs = map.mapa()?;
+fn update_in_map(t: &str, root: &Node, map: &Node, key: &str, value: &New) -> Option<(usize, String)> {
+    let pairs = map.map()?;
     let existing = pairs.iter().rev().find(|(k, _)| key_text(k) == key);
     let flow = in_flow(t, map);
     let eol = line_end(t);
@@ -393,21 +393,21 @@ fn update_in_map(t: &str, root: &No, map: &No, key: &str, value: &New) -> Option
 /// The edit of `IgnoreDiagnosticInAnalysisOptionsFile` (the offset and the
 /// `replacement`, emitted as an insertion); `None` for invalid YAML.
 pub(crate) fn ignore_in_yaml(content: &str, code: &str) -> Option<(usize, String)> {
-    let root = yaml::ler(content).ok()?;
+    let root = yaml::parse(content).ok()?;
     let errors = || New::Map(vec![(code.to_string(), New::Scalar("ignore".to_string()))]);
-    let Some(r) = root.as_ref().filter(|r| r.mapa().is_some()) else {
+    let Some(r) = root.as_ref().filter(|r| r.map().is_some()) else {
         // `path = []`: the whole document (the insertion at its start).
         let eol = line_end(content);
         let start = root.as_ref().map_or(content.len(), |r| r.span.start);
         let value = New::Map(vec![("analyzer".to_string(), New::Map(vec![("errors".to_string(), errors())]))]);
         return Some((start, in_block(&value, 0, eol)));
     };
-    let analyzer = r.campo("analyzer").filter(|a| a.mapa().is_some() && a.par("errors").is_some());
+    let analyzer = r.field("analyzer").filter(|a| a.map().is_some() && a.par("errors").is_some());
     match analyzer {
         None => update_in_map(content, r, r, "analyzer", &New::Map(vec![("errors".to_string(), errors())])),
         Some(a) => {
-            let e = a.campo("errors")?;
-            e.mapa()?;
+            let e = a.field("errors")?;
+            e.map()?;
             update_in_map(content, r, e, code, &New::Scalar("ignore".to_string()))
         }
     }

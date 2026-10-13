@@ -34,10 +34,10 @@
 //! Written without compiling or running (2026-10-05).
 
 use super::walk::{walk, Node};
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId};
 use dartforge_frontend::ast::{self, Annotation, Ast, BinaryOp, DeclId, DeclKind, ExprId, ExprKind, MemberKind, PatternId, PatternKind, StmtKind, TypeKind, UnaryOp};
@@ -76,14 +76,14 @@ fn is_deprecated(s: &super::Semantics<'_>, interner: &Interner, u: dartforge_ele
 /// The token that starts at `pos` (an identifier or one character).
 fn token_at(source: &str, pos: usize) -> Span {
     let b = source.as_bytes();
-    let mut fim = pos;
-    while fim < b.len() && (b[fim].is_ascii_alphanumeric() || b[fim] == b'_' || b[fim] == b'$') {
-        fim += 1;
+    let mut end = pos;
+    while end < b.len() && (b[end].is_ascii_alphanumeric() || b[end] == b'_' || b[end] == b'$') {
+        end += 1;
     }
-    if fim == pos {
-        fim = (pos + source[pos..].chars().next().map_or(1, char::len_utf8)).min(b.len());
+    if end == pos {
+        end = (pos + source[pos..].chars().next().map_or(1, char::len_utf8)).min(b.len());
     }
-    Span { start: pos, end: fim }
+    Span { start: pos, end }
 }
 
 /// The constructor's name as written (`ConstructorName`): the type and the
@@ -100,16 +100,16 @@ fn constructor_name_span(a: &Ast, e: ExprId) -> Span {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     // `package_api_docs`: the 3.6.2 emitter returns without reporting.
     let _ = enabled("package_api_docs");
     let Some(s) = sem else { return out };
     let a = u.ast;
-    let source = u.fonte;
+    let source = u.source;
     let program = s.program;
     let table = s.table;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let lib = program.unit(s.unit).library;

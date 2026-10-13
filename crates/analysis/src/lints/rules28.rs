@@ -16,11 +16,11 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
 use super::rules14::{after_annotations, doc_for, skip_augment};
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::ClassId;
 use dartforge_frontend::ast::{self, Annotation, DeclId, DeclKind, FunctionKind, MemberId, MemberKind};
@@ -29,14 +29,14 @@ use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashMap;
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !enabled("public_member_api_docs") {
         return out;
     }
     let a = u.ast;
-    let source = u.fonte;
+    let source = u.source;
     let program = s.program;
     // `package.canHavePublicApi` (only a pub package) and `isInLibDir` (by the
     // unit that defines the library).
@@ -341,6 +341,6 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     out
 }
 
-fn report(out: &mut Vec<LintReport>, code: &'static CodigoLint, span: Span) {
+fn report(out: &mut Vec<LintReport>, code: &'static LintCode, span: Span) {
     out.push(LintReport { code, span, args: Vec::new() });
 }

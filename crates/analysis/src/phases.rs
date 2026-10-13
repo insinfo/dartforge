@@ -11,7 +11,7 @@
 //!
 //! Written without compiling or running (2026-10-04).
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{LibraryId, Program, UnitId};
@@ -157,7 +157,7 @@ pub fn repeated_directives(program: &Program, lib: LibraryId, interner: &Interne
 /// constructor, whose name accepts built-ins). `augment` is only built-in
 /// with `augmentations` enabled: without it the scanner
 /// reads it as an ordinary identifier (`abstract_scanner.dart`).
-pub fn built_in_as_type(u: Unidade<'_>, interner: &Interner, augmentations: bool) -> Vec<Diagnostic> {
+pub fn built_in_as_type(u: Unit<'_>, interner: &Interner, augmentations: bool) -> Vec<Diagnostic> {
     const BUILT_INS: [&str; 22] = [
         "abstract", "as", "augment", "covariant", "deferred", "export", "extension", "external", "factory", "get", "implements",
         "import", "interface", "late", "library", "mixin", "operator", "part", "required", "set", "static", "typedef",
@@ -203,13 +203,13 @@ pub fn built_in_as_type(u: Unidade<'_>, interner: &Interner, augmentations: bool
 /// `before_3_0`: the library's language version is before 3.0; the `:`
 /// separator is then only `DEPRECATED_COLON_FOR_DEFAULT_VALUE` (a hint), and
 /// not the error (`best_practices_verifier.dart:288-306` of analyzer 3.6.2).
-pub fn colon_for_default_value(u: Unidade<'_>, before_3_0: bool) -> Vec<Diagnostic> {
+pub fn colon_for_default_value(u: Unit<'_>, before_3_0: bool) -> Vec<Diagnostic> {
     let code = if before_3_0 {
         dartforge_diagnostics::codes::hint::DEPRECATED_COLON_FOR_DEFAULT_VALUE
     } else {
         dartforge_diagnostics::codes::compile_time_error::OBSOLETE_COLON_FOR_DEFAULT_VALUE
     };
-    fn visit(u: Unidade<'_>, list: &[ast::Parameter], code: dartforge_diagnostics::Code, out: &mut Vec<Diagnostic>) {
+    fn visit(u: Unit<'_>, list: &[ast::Parameter], code: dartforge_diagnostics::Code, out: &mut Vec<Diagnostic>) {
         for p in list {
             if let Some(inner) = &p.function_parameters {
                 visit(u, inner, code, out);
@@ -218,7 +218,7 @@ pub fn colon_for_default_value(u: Unidade<'_>, before_3_0: bool) -> Vec<Diagnost
             // The separator is the last `:` or `=` before the value, after the
             // start of the parameter.
             let until = u.ast.expr(default).span.start;
-            let Some(before) = u.fonte.get(p.span.start..until) else { continue };
+            let Some(before) = u.source.get(p.span.start..until) else { continue };
             let trimmed = before.trim_end();
             if trimmed.ends_with(':') {
                 let pos = p.span.start + trimmed.len() - 1;
@@ -248,7 +248,7 @@ fn is_direction_char(c: char) -> bool {
 /// The string-literal text ranges of a unit: the literal fragments of each
 /// string (the interpolated expressions are left out) and the directives'
 /// URIs.
-fn literal_fragments(u: Unidade<'_>) -> Vec<Span> {
+fn literal_fragments(u: Unit<'_>) -> Vec<Span> {
     let mut literals: Vec<Span> = Vec::new();
     let mut interpolated: Vec<Span> = Vec::new();
     for e in u.ast.exprs.iter() {
@@ -280,15 +280,15 @@ fn literal_fragments(u: Unidade<'_>) -> Vec<Span> {
 /// length 1, with the code in upper-case hexadecimal; the code depends on
 /// whether the character is in the text of a string literal or anywhere else
 /// (comment, code).
-pub fn bidi_text(u: Unidade<'_>) -> Vec<Diagnostic> {
+pub fn bidi_text(u: Unit<'_>) -> Vec<Diagnostic> {
     let mut out = Vec::new();
-    if !u.fonte.chars().any(is_direction_char) {
+    if !u.source.chars().any(is_direction_char) {
         return out;
     }
     // The inverted ranges (`start > end`) mark the interpolated expressions;
     // see `literal_fragments`.
     let fragments = literal_fragments(u);
-    for (offset, c) in u.fonte.char_indices() {
+    for (offset, c) in u.source.char_indices() {
         if !is_direction_char(c) {
             continue;
         }
@@ -319,7 +319,7 @@ mod tests {
     fn bidi(source: &str) -> Vec<&'static str> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         bidi_text(u).into_iter().map(|d| d.code.map_or("", |c| c.info().name)).collect()
     }
 
@@ -336,7 +336,7 @@ mod tests {
 ";
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        assert!(built_in_as_type(Unidade { ast: &p.ast, unit: &p.unit, fonte: source }, &names, false).is_empty());
+        assert!(built_in_as_type(Unit { ast: &p.ast, unit: &p.unit, source }, &names, false).is_empty());
     }
 
     #[test]
@@ -345,7 +345,7 @@ mod tests {
 ";
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         let found = colon_for_default_value(u, false);
         assert_eq!(found.len(), 1);
         assert_eq!(&source[found[0].span.start..found[0].span.end], ":");

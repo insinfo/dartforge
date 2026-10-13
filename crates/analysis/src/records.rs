@@ -13,7 +13,7 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{ExprKind, TypeKind};
@@ -106,7 +106,7 @@ fn report(fields: &[Field], n_positional: usize, wildcard: bool, out: &mut Vec<D
     }
 }
 
-pub fn check(u: &Unidade<'_>, names: &dartforge_intern::Interner, features: dartforge_frontend::features::LibraryFeatures) -> Vec<Diagnostic> {
+pub fn check(u: &Unit<'_>, names: &dartforge_intern::Interner, features: dartforge_frontend::features::LibraryFeatures) -> Vec<Diagnostic> {
     let a = u.ast;
     let wildcard = features.has(Feature::WildcardVariables);
     let mut out = Vec::new();
@@ -114,7 +114,7 @@ pub fn check(u: &Unidade<'_>, names: &dartforge_intern::Interner, features: dart
         let TypeKind::Record { positional, named } = &t.kind else { continue };
         let mut fields = Vec::new();
         for (i, &p) in positional.iter().enumerate() {
-            if let Some((name, span)) = name_after(u.fonte, a.ty(p).span.end) {
+            if let Some((name, span)) = name_after(u.source, a.ty(p).span.end) {
                 fields.push(Field { name, span, positional: Some(i) });
             }
         }

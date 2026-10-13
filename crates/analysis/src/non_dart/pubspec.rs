@@ -8,8 +8,8 @@
 //! `validatePubspec`. The existence of files is checked on disk.
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g::pubspec as c;
-use super::yaml::{self, No, Valor};
+use super::codes_g::pubspec as c;
+use super::yaml::{self, Node, Value};
 use super::Report;
 use dartforge_diagnostics::Span;
 use std::path::{Path, PathBuf};
@@ -42,28 +42,28 @@ fn normalize(p: &Path) -> PathBuf {
 }
 
 struct Ctx<'a> {
-    pasta: &'a Path,
+    folder: &'a Path,
     out: Vec<Report>,
 }
 
 impl Ctx<'_> {
-    fn report(&mut self, code: &'static super::CodigoNaoDart, node: &No, args: &[&str]) {
+    fn report(&mut self, code: &'static super::NonDartCode, node: &Node, args: &[&str]) {
         self.out.push(Report::new(code, node.span, args));
     }
 
     /// `validatePathEntries`.
-    fn path_entries(&mut self, dependency: &No, check: bool) {
-        if dependency.mapa().is_none() {
+    fn path_entries(&mut self, dependency: &Node, check: bool) {
+        if dependency.map().is_none() {
             return;
         }
         if let Some((key, value)) = dependency.par("path")
-            && let Some(p) = value.texto()
+            && let Some(p) = value.text()
         {
             if p.contains('\\') {
                 self.report(&c::PATH_NOT_POSIX, value, &[p]);
                 return;
             }
-            let folder = normalize(&path_in(self.pasta, p));
+            let folder = normalize(&path_in(self.folder, p));
             if !folder.is_dir() {
                 self.report(&c::PATH_DOES_NOT_EXIST, value, &[p]);
             } else if !folder.join("pubspec.yaml").is_file() {
@@ -74,7 +74,7 @@ impl Ctx<'_> {
             }
         }
         if let Some((key, value)) = dependency.par("git")
-            && !value.nulo()
+            && !value.is_null()
             && check
         {
             self.report(&c::INVALID_DEPENDENCY, key, &["git"]);
@@ -83,11 +83,11 @@ impl Ctx<'_> {
 
     /// `getDeclaredDependencies`: absent or null, nothing; a map, its pairs;
     /// anything else, the warning.
-    fn declared_dependencies<'n>(&mut self, root: &'n No, field: &str) -> &'n [(No, No)] {
-        match root.campo(field) {
+    fn declared_dependencies<'n>(&mut self, root: &'n Node, field: &str) -> &'n [(Node, Node)] {
+        match root.field(field) {
             None => &[],
-            Some(v) if v.nulo() => &[],
-            Some(v) => match v.mapa() {
+            Some(v) if v.is_null() => &[],
+            Some(v) => match v.map() {
                 Some(m) => m,
                 None => {
                     self.report(&c::DEPENDENCIES_FIELD_NOT_MAP, v, &[field]);
@@ -98,16 +98,16 @@ impl Ctx<'_> {
     }
 
     /// `dependencyValidator`.
-    fn validate_dependencies(&mut self, root: &No) {
-        let normais = self.declared_dependencies(root, "dependencies");
+    fn validate_dependencies(&mut self, root: &Node) {
+        let regular = self.declared_dependencies(root, "dependencies");
         let dev = self.declared_dependencies(root, "dev_dependencies");
-        let publicavel = root.campo("version").is_some_and(|v| !v.nulo()) && root.campo("publish_to").and_then(No::texto) != Some("none");
-        for (_, value) in normais {
-            self.path_entries(value, publicavel);
+        let publishable = root.field("version").is_some_and(|v| !v.is_null()) && root.field("publish_to").and_then(Node::text) != Some("none");
+        for (_, value) in regular {
+            self.path_entries(value, publishable);
         }
         for (key, value) in dev {
-            if let Some(name) = key.texto()
-                && normais.iter().any(|(k, _)| k.texto() == Some(name))
+            if let Some(name) = key.text()
+                && regular.iter().any(|(k, _)| k.text() == Some(name))
             {
                 self.report(&c::UNNECESSARY_DEV_DEPENDENCY, key, &[name]);
             }
@@ -116,9 +116,9 @@ impl Ctx<'_> {
     }
 
     /// `fieldValidator`: the top-level keys no longer in use.
-    fn validate_fields(&mut self, root: &No) {
-        for (key, _) in root.mapa().unwrap_or(&[]) {
-            if let Some(name) = key.texto()
+    fn validate_fields(&mut self, root: &Node) {
+        for (key, _) in root.map().unwrap_or(&[]) {
+            if let Some(name) = key.text()
                 && ["author", "authors", "transformers", "web"].contains(&name)
             {
                 self.report(&c::DEPRECATED_FIELD, key, &[name]);
@@ -138,45 +138,45 @@ impl Ctx<'_> {
     }
 
     /// `_validateAssetPath`.
-    fn asset_path(&mut self, value: &str, node: &No) {
+    fn asset_path(&mut self, value: &str, node: &Node) {
         if value.starts_with("packages/") {
             return;
         }
-        if !self.asset_exists(&path_in(self.pasta, value)) {
+        if !self.asset_exists(&path_in(self.folder, value)) {
             let code = if value.ends_with('/') { &c::ASSET_DIRECTORY_DOES_NOT_EXIST } else { &c::ASSET_DOES_NOT_EXIST };
             self.report(code, node, &[value]);
         }
     }
 
     /// `flutterValidator`.
-    fn flutter(&mut self, root: &No) {
-        let Some(flutter) = root.campo("flutter") else { return };
-        if flutter.mapa().is_none() {
+    fn flutter(&mut self, root: &Node) {
+        let Some(flutter) = root.field("flutter") else { return };
+        if flutter.map().is_none() {
             // An empty `flutter:` is accepted.
-            if !flutter.nulo() {
+            if !flutter.is_null() {
                 self.report(&c::FLUTTER_FIELD_NOT_MAP, flutter, &[]);
             }
             return;
         }
-        let Some(assets) = flutter.campo("assets") else { return };
-        let Some(items) = assets.lista() else {
+        let Some(assets) = flutter.field("assets") else { return };
+        let Some(items) = assets.list() else {
             self.report(&c::ASSET_FIELD_NOT_LIST, assets, &[]);
             return;
         };
         for item in items {
-            if item.escalar() {
+            if item.is_scalar() {
                 // A scalar that is not a string interrupts the validator.
-                let Some(entry) = item.texto() else {
+                let Some(entry) = item.text() else {
                     self.report(&c::ASSET_NOT_STRING_OR_MAP, item, &[]);
                     return;
                 };
                 self.asset_path(entry, item);
-            } else if item.mapa().is_some() {
-                match item.campo("path") {
+            } else if item.map().is_some() {
+                match item.field("path") {
                     None => self.report(&c::ASSET_MISSING_PATH, item, &[]),
-                    Some(p) if !p.escalar() => self.report(&c::ASSET_PATH_NOT_STRING, p, &[]),
+                    Some(p) if !p.is_scalar() => self.report(&c::ASSET_PATH_NOT_STRING, p, &[]),
                     Some(p) => {
-                        let Some(entry) = p.texto() else {
+                        let Some(entry) = p.text() else {
                             self.report(&c::ASSET_NOT_STRING, p, &[]);
                             return;
                         };
@@ -190,21 +190,21 @@ impl Ctx<'_> {
     }
 
     /// `nameValidator`, for a document that is a map.
-    fn validate_name(&mut self, root: &No) {
-        match root.campo("name") {
+    fn validate_name(&mut self, root: &Node) {
+        match root.field("name") {
             None => self.out.push(Report::new(&c::MISSING_NAME, Span { start: 0, end: 0 }, &[])),
-            Some(n) if n.texto().is_none() => self.report(&c::NAME_NOT_STRING, n, &[]),
+            Some(n) if n.text().is_none() => self.report(&c::NAME_NOT_STRING, n, &[]),
             Some(_) => {}
         }
     }
 
     /// `screenshotsValidator`: the file of each `path:` exists.
-    fn validate_screenshots(&mut self, root: &No) {
-        let Some(items) = root.campo("screenshots").and_then(No::lista) else { return };
+    fn validate_screenshots(&mut self, root: &Node) {
+        let Some(items) = root.field("screenshots").and_then(Node::list) else { return };
         for item in items {
-            if let Some(p) = item.campo("path")
-                && let Some(text) = p.texto()
-                && !path_in(self.pasta, text).is_file()
+            if let Some(p) = item.field("path")
+                && let Some(text) = p.text()
+                && !path_in(self.folder, text).is_file()
             {
                 self.report(&c::PATH_DOES_NOT_EXIST, p, &[text]);
             }
@@ -212,51 +212,51 @@ impl Ctx<'_> {
     }
 
     /// `platformsValidator`.
-    fn validate_platforms(&mut self, root: &No, source: &str) {
-        let Some(plataformas) = root.campo("platforms") else { return };
-        let Some(pairs) = plataformas.mapa() else {
-            self.report(&c::INVALID_PLATFORMS_FIELD, plataformas, &[]);
+    fn validate_platforms(&mut self, root: &Node, source: &str) {
+        let Some(platforms) = root.field("platforms") else { return };
+        let Some(pairs) = platforms.map() else {
+            self.report(&c::INVALID_PLATFORMS_FIELD, platforms, &[]);
             return;
         };
         for (key, _) in pairs {
-            let known = key.texto().is_some_and(|t| ["android", "ios", "linux", "macos", "web", "windows"].contains(&t));
+            let known = key.text().is_some_and(|t| ["android", "ios", "linux", "macos", "web", "windows"].contains(&t));
             if !known {
                 // The string, the number, or the node as written.
-                let shown = match &key.valor {
-                    Valor::Texto(t) | Valor::Outro(t) => t.clone(),
+                let shown = match &key.value {
+                    Value::Text(t) | Value::Other(t) => t.clone(),
                     _ => source.get(key.span.start..key.span.end).unwrap_or("").to_string(),
                 };
                 self.report(&c::UNKNOWN_PLATFORM, key, &[shown.as_str()]);
             }
         }
         for (_, value) in pairs {
-            if !value.nulo() {
+            if !value.is_null() {
                 self.report(&c::PLATFORM_VALUE_DISALLOWED, value, &[]);
             }
         }
     }
 
     /// `workspaceValidator`.
-    fn workspace(&mut self, root: &No) {
-        let Some(field) = root.campo("workspace") else { return };
-        let Some(items) = field.lista() else {
+    fn workspace(&mut self, root: &Node) {
+        let Some(field) = root.field("workspace") else { return };
+        let Some(items) = field.list() else {
             self.report(&c::WORKSPACE_FIELD_NOT_LIST, field, &[]);
             return;
         };
         for item in items {
-            if !item.escalar() {
+            if !item.is_scalar() {
                 self.report(&c::WORKSPACE_VALUE_NOT_STRING, item, &[]);
                 continue;
             }
-            let Some(entry) = item.texto() else {
+            let Some(entry) = item.text() else {
                 self.report(&c::WORKSPACE_VALUE_NOT_STRING, item, &[]);
                 return;
             };
             // `_validateDirectoryPath`: a subfolder of the root, and existing.
-            let folder = normalize(&path_in(self.pasta, entry));
-            let package_root = normalize(self.pasta);
+            let folder = normalize(&path_in(self.folder, entry));
+            let package_root = normalize(self.folder);
             if folder == package_root || !folder.starts_with(&package_root) {
-                let text = self.pasta.to_string_lossy().into_owned();
+                let text = self.folder.to_string_lossy().into_owned();
                 self.report(&c::WORKSPACE_VALUE_NOT_SUBDIRECTORY, item, &[text.as_str()]);
             } else if !folder.is_dir() {
                 self.report(&c::PATH_DOES_NOT_EXIST, item, &[entry]);
@@ -269,9 +269,9 @@ impl Ctx<'_> {
 /// that lives in folder `folder`. A YAML syntax error is not reported here
 /// (the server treats the document as an empty map): only the name is missing.
 pub fn validate(source: &str, folder: &Path) -> Vec<Report> {
-    let mut ctx = Ctx { pasta: folder, out: Vec::new() };
-    let root = match yaml::ler(source) {
-        Ok(Some(node)) if node.mapa().is_some() => node,
+    let mut ctx = Ctx { folder, out: Vec::new() };
+    let root = match yaml::parse(source) {
+        Ok(Some(node)) if node.map().is_some() => node,
         // A document that is not a map: only `missing_name`, at 0/0.
         _ => return vec![Report::new(&c::MISSING_NAME, Span { start: 0, end: 0 }, &[])],
     };
@@ -293,7 +293,7 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         // A folder that does not exist: every relative path is missing.
         let folder = Path::new("folder-that-does-not-exist-for-the-test");
-        validate(source, folder).into_iter().map(|r| (r.code.nome, source[r.span.start..r.span.end].to_string())).collect()
+        validate(source, folder).into_iter().map(|r| (r.code.name, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

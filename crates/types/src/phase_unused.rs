@@ -2,7 +2,7 @@
 //! `GatherUsedLocalElementsVisitor` and `UnusedLocalElementsVerifier`
 //! (`analyzer/lib/src/error/unused_local_elements_verifier.dart`), through
 //! the resolved element of each reference (the local part, local variables
-//! and functions, and the parameter part live in `analysis::locais` and
+//! and functions, and the parameter part live in `analysis::locals` and
 //! `parameters`).
 //!
 //! Collection (over all units of the library, without the comment

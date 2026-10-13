@@ -14,10 +14,10 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{Element, FunctionRef};
 use dartforge_frontend::ast::{self, CollectionElement, ExprId, ExprKind, ForInTarget, ForInit, MemberKind, ParameterKind, PatternKind, StmtKind, TypeKind};
@@ -35,15 +35,15 @@ fn token_before(t: &[Token], pos: usize) -> Option<Span> {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !enabled("always_specify_types") {
         return out;
     }
-    let Ok(tokens) = dartforge_frontend::lexer::lex(u.fonte) else { return out };
+    let Ok(tokens) = dartforge_frontend::lexer::lex(u.source) else { return out };
     let a = u.ast;
-    let source = u.fonte;
+    let source = u.source;
     let program = s.program;
     let table = s.table;
     let body = s.body;
@@ -52,7 +52,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     let type_arg = |t: TypeId| ex.ty(t, true);
     let text = |t: TypeId| ex.ty(t, false);
     let is_dynamic = |t: TypeId| matches!(table.get(t), Type::Dynamic);
-    let mut findings: Vec<(Span, &'static CodigoLint, Vec<String>)> = Vec::new();
+    let mut findings: Vec<(Span, &'static LintCode, Vec<String>)> = Vec::new();
     let word = |sp: Span| &source[sp.start..sp.end];
 
     // `visitDeclaredIdentifier`: the variable of `for (var x in …)`.
@@ -397,7 +397,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             }
         }
         let single = types.len() == 1;
-        let (code, args): (&'static CodigoLint, Vec<String>) = if types.is_empty() {
+        let (code, args): (&'static LintCode, Vec<String>) = if types.is_empty() {
             (&c::ALWAYS_SPECIFY_TYPES_ADD_TYPE, Vec::new())
         } else if p == "var" {
             if single {

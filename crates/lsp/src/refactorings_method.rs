@@ -8,7 +8,7 @@
 //! analyzer-shaped tree.
 //! Written without compiling or running (2026-10-05).
 
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::refactorings::{Context, Elem, RefactoringRequest, RefactoringResult, MethodSelection};
 use crate::refactorings_exec::{State, Change, Severity, Text, ONE_INDENT, finish, options_name, validate_name};
 use dartforge_diagnostics::Span;
@@ -148,8 +148,8 @@ pub(crate) fn enclosing_member(cx: &Context<'_>, n: usize) -> Option<usize> {
 
 impl<'c, 'p> Extract<'c, 'p> {
     fn node(&self, n: usize) -> (usize, usize) {
-        let node = &self.cx.tree.nos[n];
-        (node.inicio, node.fim)
+        let node = &self.cx.tree.nodes[n];
+        (node.start, node.end)
     }
 
     fn covers(&self, n: usize) -> bool {
@@ -172,8 +172,8 @@ impl<'c, 'p> Extract<'c, 'p> {
     fn local_declaration(&self, n: usize, e: Elem) -> Option<usize> {
         match e {
             Elem::LocalFunction(fid) => self.cx.ast.function(fid).name.map(|x| x.span.start),
-            Elem::LocalVariable | Elem::Parameter => match self.cx.tree.nos[n].marca {
-                Marca::Expr(x) => self.cx.bodies.local_declaration(x),
+            Elem::LocalVariable | Elem::Parameter => match self.cx.tree.nodes[n].mark {
+                Mark::Expr(x) => self.cx.bodies.local_declaration(x),
                 _ => None,
             },
             _ => None,
@@ -182,8 +182,8 @@ impl<'c, 'p> Extract<'c, 'p> {
 
     /// The identifier is in a write context (`inSetterContext`).
     fn in_write(&self, n: usize) -> bool {
-        match self.cx.tree.nos[n].marca {
-            Marca::Expr(x) => self.cx.writes.contains(&x),
+        match self.cx.tree.nodes[n].mark {
+            Mark::Expr(x) => self.cx.writes.contains(&x),
             _ => false,
         }
     }
@@ -208,7 +208,7 @@ impl<'c, 'p> Extract<'c, 'p> {
             Some(m) => self
                 .pre_order(m)
                 .into_iter()
-                .filter(|&k| self.cx.kind(k) == "VariableDeclaration" && self.cx.tree.nos[k].marca == Marca::VariavelLocal)
+                .filter(|&k| self.cx.kind(k) == "VariableDeclaration" && self.cx.tree.nodes[k].mark == Mark::LocalVariable)
                 .map(|k| name_at_start(self.cx.node_text(k)))
                 .collect(),
             None => HashSet::new(),
@@ -235,8 +235,8 @@ impl<'c, 'p> Extract<'c, 'p> {
         for &n in &order {
             match self.cx.kind(n) {
                 "SimpleIdentifier" if self.covers(n) => self.visit_identifier(n, &mut assigned),
-                "VariableDeclaration" if self.covers(n) && self.cx.tree.nos[n].marca == Marca::VariavelLocal => {
-                    let d = self.cx.tree.nos[n].inicio;
+                "VariableDeclaration" if self.covers(n) && self.cx.tree.nodes[n].mark == Mark::LocalVariable => {
+                    let d = self.cx.tree.nodes[n].start;
                     let name = name_at_start(self.cx.node_text(n));
                     if self.used_after(d) && !assigned.iter().any(|(x, _)| *x == d) {
                         assigned.push((d, name.clone()));
@@ -312,8 +312,8 @@ impl<'c, 'p> Extract<'c, 'p> {
                     let ty = if self.in_write(n) {
                         cx.bodies.local_type(d)
                     } else {
-                        match cx.tree.nos[n].marca {
-                            Marca::Expr(x) => cx.bodies.get_type(x),
+                        match cx.tree.nodes[n].mark {
+                            Mark::Expr(x) => cx.bodies.get_type(x),
                             _ => None,
                         }
                     };
@@ -572,7 +572,7 @@ impl<'c, 'p> Extract<'c, 'p> {
                         add(&mut p, ki, kf, cx.node_text(k).to_string(), self.element_type(e, d));
                     }
                 }
-                "VariableDeclaration" if cx.tree.nos[k].marca == Marca::VariavelLocal => {
+                "VariableDeclaration" if cx.tree.nodes[k].mark == Mark::LocalVariable => {
                     let name = name_at_start(cx.node_text(k));
                     add(&mut p, ki, ki + name.len(), name, cx.bodies.local_type(ki));
                 }
@@ -987,7 +987,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         match cx.kind(parent) {
             "CompilationUnit" => self.validate_create_function(),
             "ClassDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration" => {
-                let Marca::Decl(d) = cx.tree.nos[parent].marca else { return State::default() };
+                let Mark::Decl(d) = cx.tree.nodes[parent].mark else { return State::default() };
                 match cx.declaration_class(cx.unit, d) {
                     Some(c) => self.validate_create_method(c, cx.kind(parent)),
                     None => State::default(),
@@ -1372,7 +1372,7 @@ impl<'c, 'p> Extract<'c, 'p> {
                 declaration = Some(d);
             }
             if let Some(d) = declaration {
-                let end = cx.tree.nos[member].fim;
+                let end = cx.tree.nodes[member].end;
                 m.add(uri, Span { start: end, end: end }, format!("{eol}{eol}{prefix}{d}"));
             }
         }
@@ -1654,7 +1654,7 @@ fn quoted_with_and(names: &[String]) -> String {
 
 // -- ExitDetector -----------------------------------------------------------------
 
-/// The `ExitDetector` ([`dartforge_analysis::saida::Saida`]) with
+/// The `ExitDetector` ([`dartforge_analysis::exit_detector::ExitDetector`]) with
 /// `_elementExits` through the context's elements.
 pub(crate) struct Output<'c, 'p> {
     cx: &'c Context<'p>,
@@ -1669,7 +1669,7 @@ impl<'c, 'p> Output<'c, 'p> {
     pub(crate) fn exits(&mut self, n: usize) -> Result<bool, String> {
         let cx = self.cx;
         let element = |m: usize| element_exits(cx, m);
-        dartforge_analysis::saida::Saida::novo(&cx.tree, &cx.source, &element).sai(n)
+        dartforge_analysis::exit_detector::ExitDetector::new(&cx.tree, &cx.source, &element).exits(n)
     }
 }
 

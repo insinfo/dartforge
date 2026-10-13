@@ -18,10 +18,10 @@
 //! - `hash_and_equals`: the members of the whole class, with the augmentations.
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
     self, AssignOp, Ast, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody, FunctionId, FunctionKind, Initializer,
@@ -98,11 +98,11 @@ fn single_expression(a: &Ast, body: &FunctionBody, is_return: bool) -> Option<Ex
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let source = u.fonte;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.source;
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let with_type = |has: bool| if has { &c::UNNECESSARY_FINAL_WITH_TYPE } else { &c::UNNECESSARY_FINAL_WITHOUT_TYPE };
@@ -406,7 +406,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     {
         use dartforge_types::resolved::{MemberRef, Resolved};
         let old_version = !super::version_at_least(s, 3, 0);
-        let parents = dartforge_frontend::parents::Parents::new(a, u.unit, u.fonte, old_version);
+        let parents = dartforge_frontend::parents::Parents::new(a, u.unit, u.source, old_version);
         // The getters (without a parameter list) and each one's element.
         let mut getters: Vec<(Span, dartforge_elements::model::FunctionElementId, SymbolId)> = Vec::new();
         for (i, f) in a.functions.iter().enumerate() {
@@ -509,11 +509,11 @@ mod tests {
     fn with_code(rule: &str, source: &str) -> Vec<(&'static str, String)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         let mut reports = run(u, &names, &|r| r == rule, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
         reports.dedup_by_key(|r| (r.span.start, r.span.end));
-        reports.into_iter().map(|r| (r.code.unico, source[r.span.start..r.span.end].to_string())).collect()
+        reports.into_iter().map(|r| (r.code.unique, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     fn only(rule: &str, source: &str) -> Vec<String> {

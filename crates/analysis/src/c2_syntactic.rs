@@ -23,7 +23,7 @@
 //!
 //! Written without compiling or running (2026-10-04).
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::{compile_time_error as c, parser as pe, warning as w};
 use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::ast::{
@@ -81,10 +81,10 @@ struct Visitor<'a> {
 }
 
 /// The syntactic diagnostics of a unit.
-pub fn check(u: Unidade<'_>, names: &Interner) -> Vec<Diagnostic> {
+pub fn check(u: Unit<'_>, names: &Interner) -> Vec<Diagnostic> {
     let mut v = Visitor {
         a: u.ast,
-        source: u.fonte,
+        source: u.source,
         names,
         out: Vec::new(),
         labels: Vec::new(),
@@ -263,13 +263,13 @@ impl<'a> Visitor<'a> {
     /// A function body: labels and `catch`es from outside are not valid inside.
     fn in_function(&mut self, modifier: AsyncModifier, f: impl FnOnce(&mut Self)) {
         let boundary = std::mem::replace(&mut self.boundary, self.labels.len());
-        let nivel = std::mem::replace(&mut self.catch_depth, 0);
+        let level = std::mem::replace(&mut self.catch_depth, 0);
         let before = std::mem::replace(&mut self.modifier, modifier);
         let loop_state = std::mem::replace(&mut self.loop_state, LoopState::Outside);
         f(self);
         self.loop_state = loop_state;
         self.modifier = before;
-        self.catch_depth = nivel;
+        self.catch_depth = level;
         // Each labeled statement already closed its own; what is left goes here.
         self.labels.truncate(self.boundary);
         self.boundary = boundary;
@@ -353,8 +353,8 @@ impl<'a> Visitor<'a> {
 
     /// Removes the labels from `from` on from scope, reporting the unused ones.
     fn close_labels(&mut self, from: usize) {
-        let fechados: Vec<Label> = self.labels.drain(from..).collect();
-        for r in fechados {
+        let closed: Vec<Label> = self.labels.drain(from..).collect();
+        for r in closed {
             if !r.used {
                 let text = self.names.resolve(r.name).to_string();
                 // On the whole `Label` node: the name and the colon.
@@ -562,11 +562,11 @@ impl<'a> Visitor<'a> {
         let a = self.a;
         match &a.pattern(p).kind {
             PatternKind::Variable { final_, var_, ty, name } => {
-                let declara = match ctx {
+                let declares = match ctx {
                     PatternContext::Declaration | PatternContext::Assignment => true,
                     PatternContext::Refutable => *final_ || *var_ || ty.is_some(),
                 };
-                if !declara {
+                if !declares {
                     return;
                 }
                 if let Some(&(_, first)) = seen.iter().find(|(s, _)| *s == name.sym) {
@@ -574,12 +574,12 @@ impl<'a> Visitor<'a> {
                     // `DiagnosticFactory`: the assignment points at the first
                     // assigned pattern; the declaration, at the first
                     // definition (`duplicateDefinitionForNodes`).
-                    let (code, contexto) = if ctx == PatternContext::Assignment {
+                    let (code, context) = if ctx == PatternContext::Assignment {
                         (c::DUPLICATE_PATTERN_ASSIGNMENT_VARIABLE, "The first assigned variable pattern.")
                     } else {
                         (c::DUPLICATE_VARIABLE_PATTERN, "The first definition of this name.")
                     };
-                    self.out.push(Diagnostic::with_code(code, name.span, [text.as_str()]).with_context(first, contexto));
+                    self.out.push(Diagnostic::with_code(code, name.span, [text.as_str()]).with_context(first, context));
                 } else {
                     seen.push((name.sym, name.span));
                 }
@@ -678,7 +678,7 @@ impl<'a> Visitor<'a> {
                 Some(n) => (Some(n.sym), n.span),
                 None => {
                     // `:var x` (the field starts at `:`): the name is the variable's.
-                    let implicito = self.source.as_bytes().get(f.span.start) == Some(&b':');
+                    let implicit = self.source.as_bytes().get(f.span.start) == Some(&b':');
                     let mut q = f.pattern;
                     let name = loop {
                         match &a.pattern(q).kind {
@@ -689,7 +689,7 @@ impl<'a> Visitor<'a> {
                         }
                     };
                     // The target of the implicit name is the `:` (`name ?? colon`).
-                    (if implicito { name } else { None }, Span { start: f.span.start, end: f.span.start + 1 })
+                    (if implicit { name } else { None }, Span { start: f.span.start, end: f.span.start + 1 })
                 }
             };
             let Some(name) = name else { continue };
@@ -931,7 +931,7 @@ mod tests {
     fn codes(source: &str) -> Vec<(&'static str, usize, usize)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         check(u, &names).into_iter().map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end)).collect()
     }
 

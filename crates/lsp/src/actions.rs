@@ -725,12 +725,12 @@ pub(crate) fn fix_published(
                 // deletes ` as T` and the surrounding parentheses while the precedence of
                 // the parenthesis's parent does not exceed that of `as`.
                 let cx = cx();
-                let Some(n) = cx.tree.localizar2(d.span.start, d.span.end.saturating_sub(1)) else { continue };
+                let Some(n) = cx.tree.locate2(d.span.start, d.span.end.saturating_sub(1)) else { continue };
                 if cx.kind(n) != "AsExpression" {
                     continue;
                 }
                 let Some(&expression) = cx.children(n).first() else { continue };
-                let mut edits = vec![(Span { start: cx.tree.nos[expression].fim, end: cx.tree.nos[n].fim }, String::new())];
+                let mut edits = vec![(Span { start: cx.tree.nodes[expression].end, end: cx.tree.nodes[n].end }, String::new())];
                 let mut current = n;
                 while let Some(p) = cx.parent(current)
                     && cx.kind(p) == "ParenthesizedExpression"
@@ -759,7 +759,7 @@ pub(crate) fn fix_published(
             Some("invalid_null_aware_operator") => {
                 // `ReplaceWithNotNullAware` over the `coveringNode`.
                 let cx = cx();
-                let Some(n) = cx.tree.localizar2(d.span.start, d.span.end.saturating_sub(1)) else { continue };
+                let Some(n) = cx.tree.locate2(d.span.start, d.span.end.saturating_sub(1)) else { continue };
                 if let Some((s, new, title)) = cx.swap_null_aware_operator(n) {
                     output.push(fix(uri, format!("Replace with '{title}'"), "quickfix.replace.withNotNullAware", vec![(s, new)], d));
                 }
@@ -821,7 +821,7 @@ pub(crate) fn fix_published(
                 // `AddNeNull` (static type without `?` → nothing) and `AddAwait.nonBool`
                 // (`Future<bool>` → `await `), in this order.
                 let cx = cx();
-                let Some(n) = cx.tree.localizar(d.span.start, d.span.end) else { continue };
+                let Some(n) = cx.tree.locate(d.span.start, d.span.end) else { continue };
                 if !cx.is_expression(n) {
                     continue;
                 }

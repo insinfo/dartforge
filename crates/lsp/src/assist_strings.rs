@@ -29,7 +29,7 @@ impl Context<'_> {
     /// `_ConvertQuotes.compute`: `from_double_quotes` converts from double to single
     /// quotes (`ConvertToSingleQuotes`); otherwise from single to double.
     fn convert_quotes(&self, uri: &str, start: usize, end: usize, from_double_quotes: bool) -> Option<Change> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let mut m = Change::default();
         // The producer's `token` (`_tokenAt(node, selectionOffset)`).
         let token: Option<Span>;
@@ -134,7 +134,7 @@ impl Context<'_> {
     /// single-line literal gets triple quotes, with a line break after the
     /// opening ones (`writeln`).
     pub(crate) fn convert_to_multiline(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let mut node = self.tree.localizar(start, end)?;
+        let mut node = self.tree.locate(start, end)?;
         if matches!(self.kind(node), "InterpolationString" | "InterpolationExpression") {
             node = self.parent(node)?;
         }

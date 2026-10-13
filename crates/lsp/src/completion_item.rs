@@ -419,21 +419,21 @@ pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContex
     }
     let mut names = dartforge_intern::Interner::new();
     let analyzed = dartforge_frontend::parser::parse(text, &mut names);
-    let tree = crate::arvore_analyzer::construir(text, &analyzed.ast, &analyzed.unit, false);
+    let tree = crate::analyzer_tree::build(text, &analyzed.ast, &analyzed.unit, false);
     let tokens: Vec<dartforge_frontend::token::Token> = dartforge_frontend::lexer::lex(text).unwrap_or_default().into_iter().filter(|t| t.kind != Kind::Eof).collect();
     let word = |t: &dartforge_frontend::token::Token| matches!(t.kind, Kind::Ident | Kind::Keyword(_));
     let candidate = |t: &dartforge_frontend::token::Token| offset < t.span.end || (offset == t.span.end && (word(t) || t.span.start == t.span.end));
     let (mut cont, mut entity) = (0usize, Entity::None);
     'external: loop {
-        let node = &tree.nos[cont];
+        let node = &tree.nodes[cont];
         // The entities: the children and the tokens outside them, in order.
-        let mut ents: Vec<(usize, Entity)> = node.filhos.iter().map(|&f| (tree.nos[f].inicio, Entity::No(f))).collect();
-        let (start, end) = if cont == 0 { (0, text.len()) } else { (node.inicio, node.fim) };
+        let mut ents: Vec<(usize, Entity)> = node.children.iter().map(|&f| (tree.nodes[f].start, Entity::No(f))).collect();
+        let (start, end) = if cont == 0 { (0, text.len()) } else { (node.start, node.end) };
         for (k, t) in tokens.iter().enumerate() {
             if t.span.start < start || t.span.end > end {
                 continue;
             }
-            if node.filhos.iter().any(|&f| tree.nos[f].inicio <= t.span.start && t.span.end <= tree.nos[f].fim) {
+            if node.children.iter().any(|&f| tree.nodes[f].start <= t.span.start && t.span.end <= tree.nodes[f].end) {
                 continue;
             }
             ents.push((t.span.start, Entity::Token(k)));
@@ -448,15 +448,15 @@ pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContex
                     }
                 }
                 Entity::No(f) => {
-                    let nf = &tree.nos[f];
-                    let last = tokens.iter().rev().find(|t| t.span.end <= nf.fim && t.span.start >= nf.inicio);
+                    let nf = &tree.nodes[f];
+                    let last = tokens.iter().rev().find(|t| t.span.end <= nf.end && t.span.start >= nf.start);
                     if !last.is_some_and(candidate) {
                         continue;
                     }
-                    let first = tokens.iter().find(|t| t.span.start >= nf.inicio);
+                    let first = tokens.iter().find(|t| t.span.start >= nf.start);
                     let is_candidate = match first {
                         Some(b) if word(b) => candidate(b),
-                        _ => offset <= nf.inicio,
+                        _ => offset <= nf.start,
                     };
                     if is_candidate {
                         entity = Entity::No(f);
@@ -472,8 +472,8 @@ pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContex
     }
     match entity {
         Entity::Token(k) if matches!(tokens[k].kind, Kind::Str(_) | Kind::StrBegin(..) | Kind::StrMid(..) | Kind::StrEnd(_)) => return Some(SnippetContext::Other),
-        Entity::No(f) if tree.nos[f].especie == "NamedExpression" => {
-            let name = tree.nos[f].filhos.first().map(|&l| (tree.nos[l].inicio, tree.nos[l].fim));
+        Entity::No(f) if tree.nodes[f].kind == "NamedExpression" => {
+            let name = tree.nodes[f].children.first().map(|&l| (tree.nodes[l].start, tree.nodes[l].end));
             if name.is_some_and(|(a, b)| a <= offset && offset <= b) {
                 return Some(SnippetContext::Other);
             }
@@ -485,9 +485,9 @@ pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContex
         if k == 0 {
             break;
         }
-        let e = tree.nos[k].especie;
+        let e = tree.nodes[k].kind;
         match e {
-            "ReturnStatement" if offset > tree.nos[k].inicio + "return".len() => return Some(SnippetContext::Expression),
+            "ReturnStatement" if offset > tree.nodes[k].start + "return".len() => return Some(SnippetContext::Expression),
             "Comment" | "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings" => return Some(SnippetContext::Other),
             "VariableDeclaration" => return Some(SnippetContext::Expression),
             "VariableDeclarationList" => return Some(SnippetContext::Other),
@@ -501,7 +501,7 @@ pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContex
             "ClassDeclaration" | "ExtensionDeclaration" | "MixinDeclaration" | "EnumDeclaration" => return Some(SnippetContext::Class),
             _ => {}
         }
-        current = tree.nos[k].pai;
+        current = tree.nodes[k].parent;
     }
     Some(SnippetContext::Top)
 }

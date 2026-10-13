@@ -12,7 +12,7 @@
 //! | `Create a local variable that shadows the field` | `refactor.shadowField` | `ShadowField` |
 
 use crate::actions::CodeAction;
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::refactorings::Context;
 use crate::Edit;
 use dartforge_diagnostics::Span;
@@ -35,7 +35,7 @@ impl Context<'_> {
 
     /// `ConvertIntoFinalField` (convert_into_final_field.dart).
     pub(crate) fn convert_to_final_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         // The enclosing getter: goes through identifiers and types.
         let mut getter = None;
         for n in self.with_parents(node) {
@@ -50,7 +50,7 @@ impl Context<'_> {
             break;
         }
         let getter = getter?;
-        let Marca::Funcao(fid) = self.tree.nos[getter].marca else { return None };
+        let Mark::Function(fid) = self.tree.nodes[getter].mark else { return None };
         let f = self.ast.function(fid);
         if f.kind != ast::FunctionKind::Getter {
             return None;
@@ -111,13 +111,13 @@ impl Context<'_> {
                 .map(|t| t.span.start)
                 .next_back()?,
         };
-        let range = Span { start: start_swap, end: self.tree.nos[getter].fim };
+        let range = Span { start: start_swap, end: self.tree.nodes[getter].end };
         Some(self.member_action(uri, "Convert to final field", "refactor.convert.getterToFinalField", range, code))
     }
 
     /// `ConvertIntoGetter` (convert_into_getter.dart).
     pub(crate) fn convert_to_getter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let mut declaration = None;
         for n in self.with_parents(node) {
             let e = self.kind(n);
@@ -139,14 +139,14 @@ impl Context<'_> {
         let field = variables[0];
         // The list's `keyword` (`final`, `const` or `var`).
         let ty = self.children(list).iter().copied().find(|&f| TYPES.contains(&self.kind(f)));
-        let limit = ty.map_or(self.tree.nos[field].inicio, |t| self.tree.nos[t].inicio);
+        let limit = ty.map_or(self.tree.nodes[field].start, |t| self.tree.nodes[t].start);
         let word = self
             .tokens
             .iter()
-            .find(|t| t.span.start >= self.tree.nos[list].inicio && t.span.end <= limit && matches!(&self.source[t.span.start..t.span.end], "final" | "const" | "var"))?
+            .find(|t| t.span.start >= self.tree.nodes[list].start && t.span.end <= limit && matches!(&self.source[t.span.start..t.span.end], "final" | "const" | "var"))?
             .span;
         let initializer = *self.children(field).first()?;
-        let name = self.next_token(self.tree.nos[field].inicio)?;
+        let name = self.next_token(self.tree.nodes[field].start)?;
         let mut code = String::new();
         if let Some(t) = ty {
             code.push_str(self.node_text(t));
@@ -157,7 +157,7 @@ impl Context<'_> {
         code.push_str(" => ");
         code.push_str(self.node_text(initializer));
         code.push(';');
-        let range = Span { start: word.start, end: self.tree.nos[declaration].fim };
+        let range = Span { start: word.start, end: self.tree.nodes[declaration].end };
         Some(self.member_action(uri, "Convert to getter", "refactor.convert.finalFieldToGetter", range, code))
     }
 
@@ -165,7 +165,7 @@ impl Context<'_> {
     /// directly in a constructor's parameter list becomes an ordinary parameter
     /// with the initializer `x = x`.
     pub(crate) fn convert_to_normal_parameter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let parameter = self.tree.localizar(start, end)?;
+        let parameter = self.tree.locate(start, end)?;
         if self.kind(parameter) != "FieldFormalParameter" {
             return None;
         }
@@ -178,11 +178,11 @@ impl Context<'_> {
             return None;
         }
         // The name: the parameter's last token (`this.x`).
-        let name_span = self.previous_token(self.tree.nos[parameter].fim)?;
+        let name_span = self.previous_token(self.tree.nodes[parameter].end)?;
         let name = self.source[name_span.start..name_span.end].to_string();
         // The element's type: that of the constructor parameter, by position.
         let index = self.children(list).iter().position(|&k| k == parameter)?;
-        let node_end = self.tree.nos[constructor].fim;
+        let node_end = self.tree.nodes[constructor].end;
         let mi = self.ast.members.iter().position(|m| matches!(m.kind, ast::MemberKind::Constructor(_)) && m.span.end == node_end)?;
         let element = self.p.node_constructor(self.unit, ast::MemberId(mi as u32))?;
         let ty = self.p.query.outline.functions.get(element.0 as usize)?.parameters.get(index)?.ty;
@@ -190,7 +190,7 @@ impl Context<'_> {
         let replacement = if matches!(self.p.query.table.get(ty), dartforge_types::Type::Dynamic) {
             name.clone()
         } else {
-            let mut writer = crate::write_type::Writer::new(self, self.tree.nos[parameter].inicio);
+            let mut writer = crate::write_type::Writer::new(self, self.tree.nodes[parameter].start);
             let written = writer.write(ty, false).unwrap_or_default();
             import = writer.import;
             format!("{written} {name}")
@@ -202,8 +202,8 @@ impl Context<'_> {
             .filter(|&k| matches!(self.kind(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
             .collect();
         let (at, text) = match initializers.last() {
-            None => (self.tree.nos[list].fim, format!(" : {name} = {name}")),
-            Some(&u) => (self.tree.nos[u].fim, format!(", {name} = {name}")),
+            None => (self.tree.nodes[list].end, format!(" : {name} = {name}")),
+            Some(&u) => (self.tree.nodes[u].end, format!(", {name} = {name}")),
         };
         let mut m = crate::refactorings_exec::Change::default();
         m.add(uri, self.tree.span(parameter), replacement);
@@ -258,9 +258,9 @@ impl Context<'_> {
 
     /// `ConvertClassToMixin` (convert_class_to_mixin.dart).
     pub(crate) fn convert_class_to_mixin(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let declaration = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
-        let Marca::Decl(d) = self.tree.nos[declaration].marca else { return None };
+        let Mark::Decl(d) = self.tree.nodes[declaration].mark else { return None };
         let ast::DeclKind::Class(k) = &self.ast.decl(d).kind else { return None };
         // `class` (the keyword) and the name.
         let class_word = self
@@ -392,7 +392,7 @@ impl Context<'_> {
     /// non-final instance field, alone in its declaration, of a class or mixin,
     /// the field becomes private and gets a getter and a setter with its name.
     pub(crate) fn encapsulate_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let declaration = self.with_parents(node).find(|&k| self.kind(k) == "FieldDeclaration")?;
         let list = self.children(declaration).iter().copied().find(|&k| self.kind(k) == "VariableDeclarationList")?;
         // The keywords before the list (`static`, `covariant`…) and those of the list.
@@ -400,15 +400,15 @@ impl Context<'_> {
             self.tokens.iter().filter(|t| t.span.start >= from && t.span.end <= until).map(|t| &self.source[t.span.start..t.span.end]).collect()
         };
         let annotations: Vec<usize> = self.children(declaration).iter().copied().filter(|&k| self.kind(k) == "Annotation").collect();
-        let after_metadata = annotations.last().map_or(self.tree.nos[declaration].inicio, |&a| self.tree.nos[a].fim);
-        let before = words(after_metadata, self.tree.nos[list].inicio);
+        let after_metadata = annotations.last().map_or(self.tree.nodes[declaration].start, |&a| self.tree.nodes[a].end);
+        let before = words(after_metadata, self.tree.nodes[list].start);
         if before.contains(&"static") {
             return None;
         }
         let ty = self.children(list).iter().copied().find(|&k| TYPES.contains(&self.kind(k)));
         let variables: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) == "VariableDeclaration").collect();
-        let up_to_name = variables.first().map_or(self.tree.nos[list].fim, |&v| self.tree.nos[v].inicio);
-        let from_list = words(self.tree.nos[list].inicio, up_to_name);
+        let up_to_name = variables.first().map_or(self.tree.nodes[list].end, |&v| self.tree.nodes[v].start);
+        let from_list = words(self.tree.nodes[list].start, up_to_name);
         let word = from_list.iter().find(|w| matches!(**w, "var" | "final" | "const")).copied();
         if word.is_none() && ty.is_none() {
             return None;
@@ -416,7 +416,7 @@ impl Context<'_> {
         if word == Some("final") || variables.len() != 1 {
             return None;
         }
-        let name_tk = self.next_token(self.tree.nos[variables[0]].inicio)?;
+        let name_tk = self.next_token(self.tree.nodes[variables[0]].start)?;
         let name = &self.source[name_tk.start..name_tk.end];
         if name.starts_with('_') {
             return None;
@@ -429,14 +429,14 @@ impl Context<'_> {
         if !matches!(self.kind(class_body), "ClassDeclaration" | "MixinDeclaration") {
             return None;
         }
-        let Marca::Decl(d) = self.tree.nos[class_body].marca else { return None };
+        let Mark::Decl(d) = self.tree.nodes[class_body].mark else { return None };
         let class = self.declaration_class(self.unit, d)?;
         let tx = crate::refactorings_exec::Text::new(self.source);
         let eol = tx.eol();
         let mut m = crate::refactorings_exec::Change::default();
         // Without annotations on the field.
         if let (Some(&first), Some(&last)) = (annotations.first(), annotations.last()) {
-            m.add(uri, tx.line_range(self.tree.nos[first].inicio, self.tree.nos[last].fim), String::new());
+            m.add(uri, tx.line_range(self.tree.nodes[first].start, self.tree.nodes[last].end), String::new());
         }
         m.add(uri, name_tk, format!("_{name}"));
         let type_code = ty.map_or(String::new(), |t| self.node_text(t).to_string());
@@ -456,7 +456,7 @@ impl Context<'_> {
                 let (internal, named) = if self.kind(parameter) == "DefaultFormalParameter" {
                     let Some(&i) = self.children(parameter).first() else { continue };
                     // `isNamed`: between `{ }`.
-                    let before_parameter = &self.source[self.tree.nos[parameters].inicio..self.tree.nos[parameter].inicio];
+                    let before_parameter = &self.source[self.tree.nodes[parameters].start..self.tree.nodes[parameter].start];
                     (i, before_parameter.contains('{'))
                 } else {
                     (parameter, false)
@@ -464,22 +464,22 @@ impl Context<'_> {
                 if self.kind(internal) != "FieldFormalParameter" {
                     continue;
                 }
-                let Some(identifier) = self.previous_token(self.tree.nos[internal].fim) else { continue };
+                let Some(identifier) = self.previous_token(self.tree.nodes[internal].end) else { continue };
                 if &self.source[identifier.start..identifier.end] != name {
                     continue;
                 }
                 if named {
                     // `this.` goes away (with the field's type in its place) and the field is
                     // initialized in the list.
-                    let this_ = self.tokens.iter().find(|t| t.span.start >= self.tree.nos[internal].inicio && &self.source[t.span.start..t.span.end] == "this")?.span;
+                    let this_ = self.tokens.iter().find(|t| t.span.start >= self.tree.nodes[internal].start && &self.source[t.span.start..t.span.end] == "this")?.span;
                     let dot = self.next_token(this_.end)?;
                     let text = if type_code.is_empty() { String::new() } else { format!("{type_code} ") };
                     m.add(uri, Span { start: this_.start, end: dot.end }, text);
                     if initializers.is_empty() {
-                        let parameter_end = self.tree.nos[parameters].fim;
+                        let parameter_end = self.tree.nodes[parameters].end;
                         m.add(uri, Span { start: parameter_end, end: parameter_end }, format!(" : _{name} = {name}"));
                     } else {
-                        let separator = self.previous_token(self.tree.nos[initializers[0]].inicio)?;
+                        let separator = self.previous_token(self.tree.nodes[initializers[0]].start)?;
                         m.add(uri, Span { start: separator.end, end: separator.end }, format!(" _{name} = {name},"));
                     }
                     break;
@@ -516,7 +516,7 @@ impl Context<'_> {
         s.push_str(&format!("  {code}get {name} => _{name};"));
         s.push_str(&header(self.overridden_member(class, name, true)));
         s.push_str(&format!("  set {name}({code}value) {{{eol}    _{name} = value;{eol}  }}"));
-        let declaration_end = self.tree.nos[declaration].fim;
+        let declaration_end = self.tree.nodes[declaration].end;
         m.add(uri, Span { start: declaration_end, end: declaration_end }, s);
         if m.conflict.is_some() {
             return None;
@@ -536,7 +536,7 @@ impl Context<'_> {
     fn parameter_to_field(&self, node: usize) -> Option<(usize, Span, usize)> {
         let parent = self.parent(node)?;
         if self.kind(node) == "SimpleFormalParameter" {
-            let name = self.previous_token(self.tree.nos[node].fim)?;
+            let name = self.previous_token(self.tree.nodes[node].end)?;
             if self.kind(parent) != "FormalParameterList" {
                 return None;
             }
@@ -552,7 +552,7 @@ impl Context<'_> {
             let text = self.node_text(node);
             for &f in self.children(list) {
                 if self.kind(f) == "SimpleFormalParameter"
-                    && let Some(name) = self.previous_token(self.tree.nos[f].fim)
+                    && let Some(name) = self.previous_token(self.tree.nodes[f].end)
                     && &self.source[name.start..name.end] == text
                 {
                     return Some((f, name, constructor));
@@ -566,7 +566,7 @@ impl Context<'_> {
     /// cited only once in the initializers, in a `field = p`, becomes
     /// `this.field` and the initializer goes away.
     pub(crate) fn convert_to_field_parameter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let (parameter, name_, constructor) = self.parameter_to_field(node)?;
         let parameter_name = &self.source[name_.start..name_.end];
         let initializers: Vec<usize> = self
@@ -581,7 +581,7 @@ impl Context<'_> {
         let mut stack = initializers.clone();
         while let Some(k) = stack.pop() {
             if self.kind(k) == "SimpleIdentifier"
-                && let Marca::Expr(x) = self.tree.nos[k].marca
+                && let Mark::Expr(x) = self.tree.nodes[k].mark
                 && match self.bodies.get_resolved(x) {
                     Some(dartforge_types::Resolved::Parameter { name, .. }) => self.p.name(*name) == parameter_name,
                     // In the initializers the parameter is a local declared at its name.
@@ -605,11 +605,11 @@ impl Context<'_> {
         let index = initializers.iter().position(|&i| i == initializer)?;
         let list = self.children(constructor).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
         if initializers.len() == 1 {
-            edits.push((Span { start: self.tree.nos[list].fim, end: self.tree.nos[initializer].fim }, String::new()));
+            edits.push((Span { start: self.tree.nodes[list].end, end: self.tree.nodes[initializer].end }, String::new()));
         } else if index == 0 {
-            edits.push((Span { start: self.tree.nos[initializer].inicio, end: self.tree.nos[initializers[1]].inicio }, String::new()));
+            edits.push((Span { start: self.tree.nodes[initializer].start, end: self.tree.nodes[initializers[1]].start }, String::new()));
         } else {
-            edits.push((Span { start: self.tree.nos[initializers[index - 1]].fim, end: self.tree.nos[initializer].fim }, String::new()));
+            edits.push((Span { start: self.tree.nodes[initializers[index - 1]].end, end: self.tree.nodes[initializer].end }, String::new()));
         }
         Some(CodeAction {
             title: "Convert to field formal parameter".into(),
@@ -625,11 +625,11 @@ impl Context<'_> {
     /// does not write to it gets a local with the same name before the `if`.
     pub(crate) fn shadow_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         use dartforge_types::{MemberRef, Resolved};
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         if self.kind(node) != "SimpleIdentifier" {
             return None;
         }
-        let Marca::Expr(x) = self.tree.nos[node].marca else { return None };
+        let Mark::Expr(x) = self.tree.nodes[node].mark else { return None };
         let prog = self.p.program();
         // The getter of a class (the field's accessor or the declared one).
         let (variable, getter, class) = match self.bodies.get_resolved(x)? {
@@ -697,7 +697,7 @@ impl Context<'_> {
             return None;
         }
         let tx = crate::refactorings_exec::Text::new(self.source);
-        let offset = self.tree.nos[command].inicio;
+        let offset = self.tree.nodes[command].start;
         let prefix = tx.line_prefix(offset);
         let eol = tx.eol();
         Some(CodeAction {

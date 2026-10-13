@@ -26,9 +26,9 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, FunctionRef, Program, TypedefId, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast::{self, Annotation, Ast, DeclId, DeclKind, ExprId, ExprKind, Initializer, MemberId, MemberKind, PatternKind, TypeKind, UnaryOp};
@@ -268,7 +268,7 @@ impl Cx<'_> {
         }
     }
 
-    /// `getOverridden2(container, Name(lib, nome)) != null`.
+    /// `getOverridden2(container, Name(lib, name)) != null`.
     fn overrides_member(&self, class_id: ClassId, name: SymbolId, setter: bool) -> bool {
         let key = if setter { self.interner.lookup(&format!("{}_=", self.interner.resolve(name))) } else { Some(name) };
         let Some(key) = key else { return false };
@@ -803,7 +803,7 @@ fn shorthand_name(a: &Ast, mut p: ast::PatternId) -> Option<SymbolId> {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !enabled("unreachable_from_main") {

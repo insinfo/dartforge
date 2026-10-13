@@ -17,7 +17,7 @@
 pub mod formatting;
 pub mod server;
 mod actions;
-pub(crate) use dartforge_analysis::arvore_analyzer;
+pub(crate) use dartforge_analysis::analyzer_tree;
 mod signature;
 mod assist_conditionals;
 mod assist_destructure;
@@ -752,34 +752,34 @@ impl Analyzer for SyntacticAnalyzer {
     /// After the syntax, the `crates/analysis` checkers that do not depend on
     /// types (duplicate names, unused locals) over the file itself; of these,
     /// only what the publication rule lets through comes out
-    /// (`dartforge_analysis::publicacao`): codes verified against the oracle,
+    /// (`dartforge_analysis::publication`): codes verified against the oracle,
     /// and not suppressed by `// ignore:` (the `dartforge analyze` filter).
     fn diagnose(&mut self, uri: &str, text: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, text);
         let mut names = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
         let mut output = parsed.diagnostics;
-        let unit = dartforge_analysis::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: text };
+        let unit = dartforge_analysis::Unit { ast: &parsed.ast, unit: &parsed.unit, source: text };
         // The unused locals by the skipped-spans rule (T5), as in `dartforge
         // analyze`: no gate on syntax errors.
-        let skipped = dartforge_analysis::Pulados { fonte: text, trechos: &parsed.skipped };
+        let skipped = dartforge_analysis::Skipped { source: text, spans: &parsed.skipped };
         let wildcard = features.has(dartforge_frontend::features::Feature::WildcardVariables);
         let reference = parsed.reference;
         let join = reference == dartforge_diagnostics::AnalyzerReference::V3_6;
-        let semantic = dartforge_analysis::duplicatas::duplicatas(&[unit], &names, wildcard, join)
+        let semantic = dartforge_analysis::duplicates::duplicates(&[unit], &names, wildcard, join)
             .into_iter()
             .map(|(_, d)| d)
-            .chain(dartforge_analysis::enums::sem_constantes(&[unit]).into_iter().map(|(_, d)| d))
-            .chain(dartforge_analysis::inicializacao::finais_nao_inicializados(&[unit], &names).into_iter().map(|(_, d)| d))
-            .chain(dartforge_analysis::locais::nao_usados_com_pulados(unit, &names, wildcard, skipped))
-            .chain(dartforge_analysis::externos::inicializadores(unit))
-            .chain(dartforge_analysis::operadores::aridade(unit, &names));
+            .chain(dartforge_analysis::enums::without_constants(&[unit]).into_iter().map(|(_, d)| d))
+            .chain(dartforge_analysis::initialization::uninitialized_finals(&[unit], &names).into_iter().map(|(_, d)| d))
+            .chain(dartforge_analysis::locals::unused_with_skipped(unit, &names, wildcard, skipped))
+            .chain(dartforge_analysis::externals::initializers(unit))
+            .chain(dartforge_analysis::operators::arity(unit, &names));
         // `// ignore:` as in `dartforge analyze` (the same filter).
         let ignored = dartforge_parity::filtros::Ignorados::de_texto(text);
         let lines = dartforge_parity::json::Linhas::new(text);
         output.extend(
             semantic
-                .filter(|d| dartforge_analysis::publicacao::publicado(d, false))
+                .filter(|d| dartforge_analysis::publication::is_published(d, false))
                 .filter(|d| !ignored.ignora(d, lines.ponto(d.span.start).line)),
         );
         // Last, the name and text of the reference analyzer (T2): the filters above

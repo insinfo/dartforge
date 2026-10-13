@@ -3,7 +3,7 @@
 //! and `_checkForAbstractOrExternalFieldConstructorInitializer`. The error is
 //! on the variable/field name.
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{DeclKind, Initializer, MemberId, MemberKind};
@@ -15,7 +15,7 @@ fn report(code: dartforge_diagnostics::Code, span: Span) -> Diagnostic {
 }
 
 /// This unit's diagnostics that do not need type inference.
-pub fn inicializadores(unit: Unidade<'_>) -> Vec<Diagnostic> {
+pub fn initializers(unit: Unit<'_>) -> Vec<Diagnostic> {
     let ast = unit.ast;
     let mut out = Vec::new();
     for &id in &unit.unit.declarations {
@@ -148,7 +148,7 @@ mod tests {
         ] {
             let mut names = Interner::new();
             let parsed = parse(source, &mut names);
-            let found = inicializadores(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source });
+            let found = initializers(Unit { ast: &parsed.ast, unit: &parsed.unit, source });
             assert!(found.iter().any(|d|
                 d.code == Some(code) && d.span.start == start && d.span.end == start + 1
                     && d.message == message && d.correction().as_deref() == Some(correction)
@@ -161,10 +161,10 @@ mod tests {
         let source = "external int topo; class A { external static int x; A() : x = 1; }";
         let mut names = Interner::new();
         let parsed = parse(source, &mut names);
-        let found = inicializadores(Unidade {
+        let found = initializers(Unit {
             ast: &parsed.ast,
             unit: &parsed.unit,
-            fonte: source,
+            source,
         });
         assert!(found.is_empty(), "{found:?}");
     }
@@ -199,7 +199,7 @@ mod tests {
         ] {
             let mut names = Interner::new();
             let parsed = parse(source, &mut names);
-            let found = inicializadores(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source });
+            let found = initializers(Unit { ast: &parsed.ast, unit: &parsed.unit, source });
             let start = source.rfind(fragment).unwrap();
             assert!(found.iter().any(|d|
                 d.code == Some(code) && d.span.start == start && d.span.end == start + 1
@@ -214,10 +214,10 @@ mod tests {
         let source = "abstract class A { abstract int x; A(); }";
         let mut names = Interner::new();
         let parsed = parse(source, &mut names);
-        let found = inicializadores(Unidade {
+        let found = initializers(Unit {
             ast: &parsed.ast,
             unit: &parsed.unit,
-            fonte: source,
+            source,
         });
         assert!(found.is_empty(), "{found:?}");
     }

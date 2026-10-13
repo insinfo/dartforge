@@ -112,7 +112,7 @@ fn only_published_codes_and_ignore_respected() {
         typed["params"]["diagnostics"][1]["range"]["start"]["line"],
         4
     );
-    let published = dartforge_analysis::publicacao::verificados();
+    let published = dartforge_analysis::publication::verified();
     for c in codes(&typed) {
         assert!(published.contains(&c.as_str()), "{c} is not published");
     }

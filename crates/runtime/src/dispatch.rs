@@ -9,7 +9,7 @@
 // promotes, `String + String` concatenates and `String * int` repeats. The result
 // is always a reference (boxed scalar).
 
-/// Operator codes (the same number in lowering, `operadores.rs`).
+/// Operator codes (the same number in lowering, `operators.rs`).
 const OP_ADD: i64 = 0;
 const OP_SUB: i64 = 1;
 const OP_MUL: i64 = 2;

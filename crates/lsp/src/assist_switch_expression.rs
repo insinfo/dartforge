@@ -81,10 +81,10 @@ impl Context<'_> {
     /// The `:` of a `switch` member.
     fn member_colon(&self, member: usize) -> Option<Span> {
         let after = match self.kind(member) {
-            "SwitchDefault" => self.next_token(self.tree.nos[member].inicio)?.end,
+            "SwitchDefault" => self.next_token(self.tree.nodes[member].start)?.end,
             _ => {
                 let saved = self.children(member).iter().copied().find(|&f| self.kind(f) == "GuardedPattern")?;
-                self.tree.nos[saved].fim
+                self.tree.nodes[saved].end
             }
         };
         self.next_token(after).filter(|t| &self.source[t.start..t.end] == ":")
@@ -92,23 +92,23 @@ impl Context<'_> {
 
     /// The node's last token (`endToken`).
     fn last_token(&self, n: usize) -> Option<Span> {
-        self.previous_token(self.tree.nos[n].fim)
+        self.previous_token(self.tree.nodes[n].end)
     }
 
     /// `statement.beginToken.precedingComments != null`.
     fn has_comment_before(&self, n: usize) -> bool {
-        !self.comments_before(Span { start: self.tree.nos[n].inicio, end: self.tree.nos[n].inicio }).is_empty()
+        !self.comments_before(Span { start: self.tree.nodes[n].start, end: self.tree.nodes[n].start }).is_empty()
     }
 
     /// `_getBreakRange`: from the end of the first comment before the `break`
     /// (or of the previous token) to the end of the `break`.
     fn break_range(&self, b: usize) -> Option<Span> {
-        let s = self.tree.nos[b].inicio;
+        let s = self.tree.nodes[b].start;
         let before = match self.comments_before(Span { start: s, end: s }).first() {
             Some(c) => c.end,
             None => self.previous_token(s)?.end,
         };
-        Some(Span { start: before, end: self.tree.nos[b].fim })
+        Some(Span { start: before, end: self.tree.nodes[b].end })
     }
 
     /// The pattern (the text) of the joined cases.
@@ -197,10 +197,10 @@ impl Context<'_> {
                     if self.kind(left) != "SimpleIdentifier" {
                         return None;
                     }
-                    let operator = self.next_token(self.tree.nos[left].fim)?;
+                    let operator = self.next_token(self.tree.nodes[left].end)?;
                     let operator = self.source[operator.start..operator.end].to_string();
-                    let declaration = match self.tree.nos[left].marca {
-                        crate::arvore_analyzer::Marca::Expr(x) => self.bodies.local_declaration(x),
+                    let declaration = match self.tree.nodes[left].mark {
+                        crate::analyzer_tree::Mark::Expr(x) => self.bodies.local_declaration(x),
                         _ => None,
                     };
                     match &write {
@@ -246,7 +246,7 @@ impl Context<'_> {
 
     /// `ConvertToSwitchExpression`.
     pub(crate) fn switch_to_expression(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let switch = self.tree.localizar(start, end)?;
+        let switch = self.tree.locate(start, end)?;
         if self.kind(switch) != "SwitchStatement" {
             return None;
         }
@@ -288,7 +288,7 @@ impl Context<'_> {
         let (ty, groups) = self.switch_type(switch)?;
         let tx = Text::new(self.source);
         let eol = tx.eol();
-        let (start_s, end_s) = (self.tree.nos[switch].inicio, self.tree.nos[switch].fim);
+        let (start_s, end_s) = (self.tree.nodes[switch].start, self.tree.nodes[switch].end);
         let mut edits: Vec<(Span, String)> = Vec::new();
         let empty = |p: usize| Span { start: p, end: p };
         let how_many = groups.len();
@@ -300,13 +300,13 @@ impl Context<'_> {
                     let (colon, comma) = match g {
                         Group::Pattern { member, .. } => {
                             let dp = self.member_colon(*member)?;
-                            edits.push((Span { start: self.tree.nos[*member].inicio, end: dp.end }, "_ =>".to_string()));
+                            edits.push((Span { start: self.tree.nodes[*member].start, end: dp.end }, "_ =>".to_string()));
                             (dp, false)
                         }
                         Group::Cases { cases, .. } => {
                             let dp = self.member_colon(*cases.last()?)?;
                             let text = self.pattern_text(cases)?;
-                            edits.push((Span { start: self.tree.nos[cases[0]].inicio, end: dp.end }, format!("{text} =>")));
+                            edits.push((Span { start: self.tree.nodes[cases[0]].start, end: dp.end }, format!("{text} =>")));
                             (dp, i < how_many - 1 || next_throw.is_some())
                         }
                     };
@@ -316,15 +316,15 @@ impl Context<'_> {
                         "ReturnStatement" => {
                             let e = *self.children(command).first()?;
                             if !comment {
-                                edits.push((Span { start: colon.end, end: self.tree.nos[e].inicio }, " ".to_string()));
+                                edits.push((Span { start: colon.end, end: self.tree.nodes[e].start }, " ".to_string()));
                             } else {
-                                edits.push((Span { start: self.tree.nos[command].inicio, end: self.tree.nos[e].inicio }, String::new()));
+                                edits.push((Span { start: self.tree.nodes[command].start, end: self.tree.nodes[e].start }, String::new()));
                             }
                         }
                         "ExpressionStatement" => {
                             let e = *self.children(command).first()?;
                             if self.kind(e) == "ThrowExpression" && !comment {
-                                edits.push((Span { start: colon.end, end: self.tree.nos[e].inicio }, " ".to_string()));
+                                edits.push((Span { start: colon.end, end: self.tree.nodes[e].start }, " ".to_string()));
                             }
                         }
                         _ => {}
@@ -336,7 +336,7 @@ impl Context<'_> {
                     let text = format!("{}_ => {},", tx.line_prefix(closes.start), self.node_text(throw));
                     let indented: Vec<String> = text.split(eol).map(|l| format!("{ONE_INDENT}{l}")).collect();
                     edits.push((empty(tx.content_start(closes.start)), format!("{}{eol}", indented.join(eol))));
-                    edits.push((tx.line_range(self.tree.nos[command].inicio, self.tree.nos[command].fim), String::new()));
+                    edits.push((tx.line_range(self.tree.nodes[command].start, self.tree.nodes[command].end), String::new()));
                 }
             }
             SwitchType::Assignment(name, operator) => {
@@ -345,13 +345,13 @@ impl Context<'_> {
                     let (colon, comma) = match g {
                         Group::Pattern { member, .. } => {
                             let dp = self.member_colon(*member)?;
-                            edits.push((Span { start: self.tree.nos[*member].inicio, end: dp.end }, "_ =>".to_string()));
+                            edits.push((Span { start: self.tree.nodes[*member].start, end: dp.end }, "_ =>".to_string()));
                             (dp, false)
                         }
                         Group::Cases { cases, .. } => {
                             let dp = self.member_colon(*cases.last()?)?;
                             let text = self.pattern_text(cases)?;
-                            edits.push((Span { start: self.tree.nos[cases[0]].inicio, end: dp.end }, format!("{text} =>")));
+                            edits.push((Span { start: self.tree.nodes[cases[0]].start, end: dp.end }, format!("{text} =>")));
                             (dp, i < how_many - 1)
                         }
                     };
@@ -361,14 +361,14 @@ impl Context<'_> {
                             if self.kind(e) == "AssignmentExpression" {
                                 let left = *self.children(e).first()?;
                                 let right = *self.children(e).last()?;
-                                let op = self.next_token(self.tree.nos[left].fim)?;
+                                let op = self.next_token(self.tree.nodes[left].end)?;
                                 if !self.has_comment_before(command) {
                                     edits.push((Span { start: colon.end, end: op.end }, String::new()));
                                 } else {
-                                    edits.push((Span { start: self.tree.nos[e].inicio, end: self.tree.nos[right].inicio }, String::new()));
+                                    edits.push((Span { start: self.tree.nodes[e].start, end: self.tree.nodes[right].start }, String::new()));
                                 }
                             } else if self.kind(e) == "ThrowExpression" {
-                                edits.push((Span { start: colon.end, end: self.tree.nos[command].inicio - 1 }, String::new()));
+                                edits.push((Span { start: colon.end, end: self.tree.nodes[command].start - 1 }, String::new()));
                             }
                         }
                         if self.kind(command) == "BreakStatement" {
@@ -386,13 +386,13 @@ impl Context<'_> {
                     let (colon, comma) = match g {
                         Group::Pattern { member, .. } => {
                             let dp = self.member_colon(*member)?;
-                            edits.push((Span { start: self.tree.nos[*member].inicio, end: dp.end }, "_ =>".to_string()));
+                            edits.push((Span { start: self.tree.nodes[*member].start, end: dp.end }, "_ =>".to_string()));
                             (dp, false)
                         }
                         Group::Cases { cases, .. } => {
                             let dp = self.member_colon(*cases.last()?)?;
                             let text = self.pattern_text(cases)?;
-                            edits.push((Span { start: self.tree.nos[cases[0]].inicio, end: dp.end }, format!("{text} => ")));
+                            edits.push((Span { start: self.tree.nodes[cases[0]].start, end: dp.end }, format!("{text} => ")));
                             (dp, i < how_many - 1)
                         }
                     };
@@ -402,14 +402,14 @@ impl Context<'_> {
                             let e = *self.children(command).first()?;
                             if self.kind(e) == "MethodInvocation" {
                                 let list = self.children(e).iter().copied().find(|&f| self.kind(f) == "ArgumentList")?;
-                                let opens = self.tree.nos[list].inicio + 1;
-                                let closes = self.tree.nos[list].fim;
-                                let from = if !comment { colon.end } else { self.tree.nos[e].inicio };
+                                let opens = self.tree.nodes[list].start + 1;
+                                let closes = self.tree.nodes[list].end;
+                                let from = if !comment { colon.end } else { self.tree.nodes[e].start };
                                 edits.push((Span { start: from, end: opens }, String::new()));
                                 edits.push((Span { start: closes - 1, end: closes }, String::new()));
                             }
                             if !comment && self.kind(e) == "ThrowExpression" {
-                                edits.push((Span { start: colon.end, end: self.tree.nos[command].inicio - 1 }, String::new()));
+                                edits.push((Span { start: colon.end, end: self.tree.nodes[command].start - 1 }, String::new()));
                             }
                         }
                         if self.kind(command) == "BreakStatement" {

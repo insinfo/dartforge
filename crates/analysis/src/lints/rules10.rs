@@ -18,10 +18,10 @@
 //! - `prefer_spread_collections`: the target list outside a constant context.
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
     self, Ast, CollectionElement, DeclKind, ExprKind, ForInTarget, FunctionKind, Initializer, ListPatternElement, MemberId, MemberKind,
@@ -50,10 +50,10 @@ fn collection_for_ins<'x>(a: &Ast, el: &'x CollectionElement, out: &mut Vec<(&'x
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
@@ -62,7 +62,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     let (inline_adds, spread) = (enabled("prefer_inlined_adds"), enabled("prefer_spread_collections"));
     if inline_adds || spread {
         // `target.inConstantContext` (only for `prefer_spread_collections`).
-        let parents = dartforge_frontend::parents::Parents::new(a, u.unit, u.fonte, sem.is_some_and(|s| !super::version_at_least(s, 3, 0)));
+        let parents = dartforge_frontend::parents::Parents::new(a, u.unit, u.source, sem.is_some_and(|s| !super::version_at_least(s, 3, 0)));
         for e in a.exprs.iter() {
             let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };
             if !matches!(a.expr(*target).kind, ExprKind::List { .. }) {
@@ -312,10 +312,10 @@ mod tests {
     fn with_code(rule: &str, source: &str) -> Vec<(&'static str, String)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         let mut reports = run(u, &names, &|r| r == rule, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
-        reports.into_iter().map(|r| (r.code.unico, source[r.span.start..r.span.end].to_string())).collect()
+        reports.into_iter().map(|r| (r.code.unique, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

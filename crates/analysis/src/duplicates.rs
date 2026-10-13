@@ -12,7 +12,7 @@
 //! with the same name form a pair and do not collide. The error goes on the
 //! name of the **second** declaration.
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::ast::{
@@ -53,7 +53,7 @@ struct Reporter<'a> {
     interner: &'a Interner,
     unit: usize,
     out: Vec<(usize, Diagnostic)>,
-    /// Ver [`duplicatas`].
+    /// Ver [`duplicates`].
     merge: bool,
     /// The `source.fullName` of each unit, for the context that points at
     /// another file (empty: without that context).
@@ -131,11 +131,11 @@ impl Reporter<'_> {
         mut setters: Option<&mut Scope>,
         name: &str,
         span: Span,
-        mutavel: bool,
+        mutable: bool,
     ) {
         let g = Elem { kind: ElemKind::Getter, from_field: true, ..OTHER };
         self.check(getters, setters.as_deref_mut(), name, span, g);
-        if mutavel {
+        if mutable {
             let s = Elem { kind: ElemKind::Setter, from_field: true, ..OTHER };
             self.check(getters, setters, name, span, s);
         }
@@ -161,8 +161,8 @@ fn function_elem_kind(k: FunctionKind) -> ElemKind {
 /// `false` for a library whose reference is 3.13.4
 /// (`dartforge_elements::Program::library_reference`, or
 /// `dartforge_frontend::parser::Parsed::referencia` for a single file).
-pub fn duplicatas(
-    units: &[Unidade<'_>],
+pub fn duplicates(
+    units: &[Unit<'_>],
     interner: &Interner,
     wildcard: bool,
     merge_same_location: bool,
@@ -170,10 +170,10 @@ pub fn duplicatas(
     duplicates_with_paths(units, &[], interner, wildcard, merge_same_location)
 }
 
-/// [`duplicatas`] with each unit's path: the first definition in an earlier
+/// [`duplicates`] with each unit's path: the first definition in an earlier
 /// unit of the library becomes context in its file.
 pub fn duplicates_with_paths(
-    units: &[Unidade<'_>],
+    units: &[Unit<'_>],
     paths: &[String],
     interner: &Interner,
     wildcard: bool,
@@ -201,7 +201,7 @@ pub fn duplicates_with_paths(
 }
 
 /// Names declared at the top level of the library (`libraryDeclarations`).
-fn top_level_names(units: &[Unidade<'_>], interner: &Interner) -> HashSet<String> {
+fn top_level_names(units: &[Unit<'_>], interner: &Interner) -> HashSet<String> {
     let mut s = HashSet::new();
     for u in units {
         for &d in &u.unit.declarations {
@@ -245,7 +245,7 @@ fn top_level_names(units: &[Unidade<'_>], interner: &Interner) -> HashSet<String
 
 /// `addWithoutChecking`: what the earlier units already declared. `j` is the
 /// unit's index, for the context of the first definition.
-fn without_checking(rel: &Reporter<'_>, j: usize, u: &Unidade<'_>, getters: &mut Scope) {
+fn without_checking(rel: &Reporter<'_>, j: usize, u: &Unit<'_>, getters: &mut Scope) {
     let in_ = |n: ast::Name| Elem { at: n.span, unit: j, ..OTHER };
     let mut variables = Vec::new();
     for &d in &u.unit.declarations {
@@ -302,7 +302,7 @@ fn without_checking(rel: &Reporter<'_>, j: usize, u: &Unidade<'_>, getters: &mut
 }
 
 /// `checkUnit`: top-level declarations and import prefixes.
-fn top_level_unit(rel: &mut Reporter<'_>, units: &[Unidade<'_>], i: usize, names: &HashSet<String>) {
+fn top_level_unit(rel: &mut Reporter<'_>, units: &[Unit<'_>], i: usize, names: &HashSet<String>) {
     let u = units[i];
     // PREFIX_COLLIDES_WITH_TOP_LEVEL_MEMBER, once per prefix.
     let mut prefixes = HashSet::new();
@@ -630,7 +630,7 @@ enum DeclKindTag {
 /// The members of the unit's declarations, with the names accumulated per
 /// element (see [`ElementKey`]); returns each declaration's context and each
 /// element's final names.
-fn unit_members(rel: &mut Reporter<'_>, u: &Unidade<'_>) -> (Vec<DeclContext>, HashMap<ElementKey, Scopes>) {
+fn unit_members(rel: &mut Reporter<'_>, u: &Unit<'_>) -> (Vec<DeclContext>, HashMap<ElementKey, Scopes>) {
     let mut v = Vec::new();
     let mut elements: HashMap<ElementKey, Scopes> = HashMap::new();
     for &d in &u.unit.declarations {
@@ -786,7 +786,7 @@ fn members(rel: &mut Reporter<'_>, ast: &Ast, ctx: &mut DeclContext) {
 /// `_checkClassStatic` / `_checkExtensionStatic`: a static member with the
 /// name of an instance member declared there. (The `_checkEnumStatic`, through
 /// the enum's interface, is `types::override_checks::enum_statics`.)
-fn unit_statics(rel: &mut Reporter<'_>, u: &Unidade<'_>, contexts: &[DeclContext], elements: &HashMap<ElementKey, Scopes>) {
+fn unit_statics(rel: &mut Reporter<'_>, u: &Unit<'_>, contexts: &[DeclContext], elements: &HashMap<ElementKey, Scopes>) {
     let empty = Scopes::default();
     for ctx in contexts {
         if ctx.kind == DeclKindTag::Enum {
@@ -832,8 +832,8 @@ mod tests {
     fn run(source: &str) -> Vec<(String, usize, usize)> {
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut interner);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
-        let mut v: Vec<_> = duplicatas(&[u], &interner, false, true)
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
+        let mut v: Vec<_> = duplicates(&[u], &interner, false, true)
             .into_iter()
             .map(|(_, d)| (d.code.unwrap().info().name.to_string(), d.span.start, d.span.end))
             .collect();
@@ -845,14 +845,14 @@ mod tests {
     fn top_level_members_and_locals() {
         let f = "int a = 1;\nvoid a() {}\nint get g => 1;\nset g(int v) {}\nclass C {\n  int x = 0;\n  void x() {}\n  C();\n  C();\n  static int y = 0;\n  int get y => 1;\n}\nvoid m(int p, int p) {\n  var q = 1;\n  var q = 2;\n  try {} catch (e, e) {}\n}\n";
         let r = run(f);
-        let codigos: Vec<&str> = r.iter().map(|x| x.0.as_str()).collect();
+        let codes: Vec<&str> = r.iter().map(|x| x.0.as_str()).collect();
         assert_eq!(
-            codigos.iter().filter(|c| **c == "duplicate_definition").count(),
+            codes.iter().filter(|c| **c == "duplicate_definition").count(),
             5,
             "{r:?}"
         );
-        assert!(codigos.contains(&"duplicate_constructor"), "{r:?}");
-        assert!(codigos.contains(&"conflicting_static_and_instance"), "{r:?}");
+        assert!(codes.contains(&"duplicate_constructor"), "{r:?}");
+        assert!(codes.contains(&"conflicting_static_and_instance"), "{r:?}");
         // the error falls on the second declaration: `void a()` (offset 16)
         assert!(r.contains(&("duplicate_definition".to_string(), 16, 17)), "{r:?}");
     }

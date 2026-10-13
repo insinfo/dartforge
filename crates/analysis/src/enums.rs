@@ -1,7 +1,7 @@
 //! `enum_without_constants` as in the `ErrorVerifier` of analyzer 3.6.2: the
 //! main declaration uses the values of the whole augmented enum.
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_frontend::ast::DeclKind;
@@ -14,7 +14,7 @@ use std::collections::HashSet;
 /// the `augment enum`s with the same name. A second declaration without
 /// `augment` (the `augment` read as an identifier without the experiment) is
 /// another element, with only its own.
-pub fn sem_constantes(units: &[Unidade<'_>]) -> Vec<(usize, Diagnostic)> {
+pub fn without_constants(units: &[Unit<'_>]) -> Vec<(usize, Diagnostic)> {
     let mut augmented_with_constants = HashSet::<SymbolId>::new();
     for unit in units {
         for &id in &unit.unit.declarations {
@@ -60,10 +60,10 @@ mod tests {
         let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/enum_without_constants/EnumWithoutConstants__noConstants.dart"));
         let mut names = Interner::new();
         let parsed = parse(source, &mut names);
-        let found = sem_constantes(&[Unidade {
+        let found = without_constants(&[Unit {
             ast: &parsed.ast,
             unit: &parsed.unit,
-            fonte: source,
+            source,
         }]);
         assert_eq!(found.len(), 1, "{found:?}");
         let d = &found[0].1;
@@ -85,20 +85,20 @@ mod tests {
         let units: Vec<_> = sources
             .iter()
             .zip(&parsed)
-            .map(|(source, parsed)| Unidade {
+            .map(|(source, parsed)| Unit {
                 ast: &parsed.ast,
                 unit: &parsed.unit,
-                fonte: source,
+                source,
             })
             .collect();
-        assert!(sem_constantes(&units).is_empty());
+        assert!(without_constants(&units).is_empty());
 
         let source = "enum E {} augment enum E {}";
         let parsed = parse_with(source, &mut names, features);
-        let found = sem_constantes(&[Unidade {
+        let found = without_constants(&[Unit {
             ast: &parsed.ast,
             unit: &parsed.unit,
-            fonte: source,
+            source,
         }]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].1.span.start, 5);

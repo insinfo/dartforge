@@ -101,11 +101,11 @@ fn visit(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, allows_para
         }
         TypeKind::Void => true,
         TypeKind::Function { return_type, type_params, parameters } => {
-            let mut escopo2 = scope.to_vec();
-            escopo2.extend(type_params.iter().map(|p| p.name.sym));
+            let mut scope2 = scope.to_vec();
+            scope2.extend(type_params.iter().map(|p| p.name.sym));
             let mut types = Vec::new();
             collect_from_function(*return_type, type_params, parameters, &mut types);
-            types.into_iter().all(|x| visit(program, u, a, x, allows_params, &escopo2, deps))
+            types.into_iter().all(|x| visit(program, u, a, x, allows_params, &scope2, deps))
         }
         TypeKind::Record { positional, named } => {
             positional.iter().chain(named.iter().map(|(_, x)| x)).all(|&x| visit(program, u, a, x, allows_params, scope, deps))
@@ -301,20 +301,20 @@ fn lists(a: &ast::Ast) -> Vec<TypeParamList<'_>> {
     }
     // Top-level functions and methods (local functions and literals do not go
     // through linking).
-    let mut ligadas: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut bound: std::collections::HashSet<u32> = std::collections::HashSet::new();
     for d in &a.decls {
         if let DeclKind::Function(fid) = &d.kind {
-            ligadas.insert(fid.0);
+            bound.insert(fid.0);
         }
     }
     for m in &a.members {
         if let ast::MemberKind::Method(fid) = &m.kind {
-            ligadas.insert(fid.0);
+            bound.insert(fid.0);
         }
     }
     for (i, f) in a.functions.iter().enumerate() {
         if !f.type_params.is_empty() {
-            v.push(TypeParamList { params: &f.type_params, scope: f.span, linked: ligadas.contains(&(i as u32)) });
+            v.push(TypeParamList { params: &f.type_params, scope: f.span, linked: bound.contains(&(i as u32)) });
         }
         if let Some(ps) = &f.parameters {
             param_lists(ps, &mut v);

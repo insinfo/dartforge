@@ -3,14 +3,14 @@
 //! the codes, the English messages and the positions are its own — and is
 //! checked by the scoreboard of `crates/parity`.
 //!
-//! * [`locais`]: unused local variables and functions (`UnusedLocalElementsVerifier`).
-//! * [`duplicatas`]: `DuplicateDefinitionVerifier` and
+//! * [`locals`]: unused local variables and functions (`UnusedLocalElementsVerifier`).
+//! * [`duplicates`]: `DuplicateDefinitionVerifier` and
 //!   `MemberDuplicateDefinitionVerifier` (`src/error/duplicate_definition_verifier.dart`).
-//! * [`externos`]: initializers of `external` fields and variables
+//! * [`externals`]: initializers of `external` fields and variables
 //!   (`ErrorVerifier`).
 //! * [`private_decls`]: private declarations never referenced
 //!   (`UnusedLocalElementsVerifier`, the library part).
-//! * [`operadores`]: arity, optional parameters and the return of `[]=` in
+//! * [`operators`]: arity, optional parameters and the return of `[]=` in
 //!   `operator` methods (`ErrorVerifier`).
 //! * [`enums`]: an enum without constants after augmentations (`ErrorVerifier`).
 //! * [`clauses`]: inheritance clauses (`subtype_of_disallowed_type`, mixin
@@ -26,30 +26,30 @@
 //!   (`ErrorVerifier`).
 
 pub mod a_context;
-pub mod arvore_analyzer;
-pub mod saida;
+pub mod analyzer_tree;
+pub mod exit_detector;
 pub mod a_doc;
 pub mod c2_syntactic;
 pub mod clauses;
 pub mod simple_bounds;
 pub mod records;
 pub mod constructors;
-pub mod duplicatas;
+pub mod duplicates;
 pub mod enums;
-pub mod externos;
+pub mod externals;
 pub mod phases;
-pub mod importacoes;
-pub mod inicializacao;
+pub mod imports;
+pub mod initialization;
 pub mod lints;
-pub mod locais;
+pub mod locals;
 pub mod members;
 pub mod meta;
 pub mod modifiers;
-pub mod naodart;
+pub mod non_dart;
 pub mod natives;
-pub mod operadores;
+pub mod operators;
 pub mod private_decls;
-pub mod publicacao;
+pub mod publication;
 pub mod todos;
 pub mod language_version;
 
@@ -58,11 +58,11 @@ use dartforge_frontend::ast::{Ast, CompilationUnit};
 /// A unit (file) of a library, in the library's order: the one that declares
 /// it first, then the parts.
 #[derive(Clone, Copy)]
-pub struct Unidade<'a> {
+pub struct Unit<'a> {
     pub ast: &'a Ast,
     pub unit: &'a CompilationUnit,
     /// The unit's text (local annotations are not kept in the tree).
-    pub fonte: &'a str,
+    pub source: &'a str,
 }
 
 /// The fragments of a unit that the parser's error recovery discarded
@@ -71,37 +71,37 @@ pub struct Unidade<'a> {
 /// skipped fragment may have there a use or a declaration that fasta kept and
 /// our tree does not have.
 #[derive(Clone, Copy)]
-pub struct Pulados<'a> {
-    pub fonte: &'a str,
-    pub trechos: &'a [dartforge_diagnostics::Span],
+pub struct Skipped<'a> {
+    pub source: &'a str,
+    pub spans: &'a [dartforge_diagnostics::Span],
 }
 
-impl Pulados<'_> {
+impl Skipped<'_> {
     pub fn is_empty(&self) -> bool {
-        self.trechos.is_empty()
+        self.spans.is_empty()
     }
 
     /// Does range `s` touch any skipped fragment?
     pub fn intersects(&self, s: dartforge_diagnostics::Span) -> bool {
-        self.trechos.iter().any(|t| t.start < s.end && s.start < t.end)
+        self.spans.iter().any(|t| t.start < s.end && s.start < t.end)
     }
 
     /// Does identifier `name` appear, as a whole word, in any skipped
     /// fragment?
     pub fn mentions(&self, name: &str) -> bool {
-        self.trechos.iter().any(|t| mentioned_in_fragment(self.fonte, *t, name))
+        self.spans.iter().any(|t| mentioned_in_fragment(self.source, *t, name))
     }
 
-    /// Like [`Pulados::mentions`], only in the fragments that touch `within`
+    /// Like [`Skipped::mentions`], only in the fragments that touch `within`
     /// (a local's executable declaration). Only a mention starting inside
     /// `within` counts (the declared name itself, in a skipped fragment that
     /// contains it, is not a use: `var enum;`).
     pub fn mentions_within(&self, name: &str, within: dartforge_diagnostics::Span) -> bool {
-        self.trechos.iter().filter(|t| t.start < within.end && within.start < t.end).any(|t| {
+        self.spans.iter().filter(|t| t.start < within.end && within.start < t.end).any(|t| {
             let start = t.start.max(within.start);
             let end = t.end.min(within.end);
             // The whole fragment decides the word boundary; the position, the cut.
-            mentions(self.fonte, *t, name).any(|p| p >= start && p < end)
+            mentions(self.source, *t, name).any(|p| p >= start && p < end)
         })
     }
 }

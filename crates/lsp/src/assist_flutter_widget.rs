@@ -8,7 +8,7 @@
 //! | `Convert to StatelessWidget` | `refactor.flutter.convert.toStatelessWidget` |
 
 use crate::actions::CodeAction;
-use crate::arvore_analyzer::{Ligacao, Marca};
+use crate::analyzer_tree::{Binding, Mark};
 use crate::assist_flutter::URI_FRAMEWORK;
 use crate::refactorings::Context;
 use crate::refactorings_exec::{Change, Text};
@@ -29,10 +29,10 @@ enum Executable {
 impl Context<'_> {
     /// The `{` of a class declaration's body (the pair of the final `}`).
     fn opens_body(&self, class_node: usize) -> Option<Span> {
-        let end = self.tree.nos[class_node].fim;
+        let end = self.tree.nodes[class_node].end;
         let i_end = self.tokens.iter().position(|t| t.span.end == end)?;
         let mut level = 0i32;
-        for k in (self.tokens.iter().position(|t| t.span.start >= self.tree.nos[class_node].inicio)?..=i_end).rev() {
+        for k in (self.tokens.iter().position(|t| t.span.start >= self.tree.nodes[class_node].start)?..=i_end).rev() {
             match &self.source[self.tokens[k].span.start..self.tokens[k].span.end] {
                 "}" => level += 1,
                 "{" => {
@@ -56,7 +56,7 @@ impl Context<'_> {
     fn member_nodes(&self, class_node: usize, members: &[ast::MemberId]) -> Option<Vec<usize>> {
         members
             .iter()
-            .map(|&m| self.children(class_node).iter().copied().find(|&f| self.tree.nos[f].ligacao == Ligacao::Membro(m)))
+            .map(|&m| self.children(class_node).iter().copied().find(|&f| self.tree.nodes[f].binding == Binding::Member(m)))
             .collect()
     }
 
@@ -64,7 +64,7 @@ impl Context<'_> {
     /// member or the implicit accessor of the field. `None` for a write (the
     /// `staticElement` of an assignment target is null).
     fn identifier_executable(&self, n: usize) -> Option<(Executable, Option<ClassId>, bool)> {
-        let Marca::Expr(x) = self.tree.nos[n].marca else { return None };
+        let Mark::Expr(x) = self.tree.nodes[n].mark else { return None };
         if self.writes.contains(&x) {
             return None;
         }
@@ -110,12 +110,12 @@ impl Context<'_> {
                 }
             }
             // The writes in the body (`inSetterContext`).
-            let (a, b) = (self.tree.nos[nodes[i]].inicio, self.tree.nos[nodes[i]].fim);
-            for node in self.tree.nos.iter() {
-                if node.especie == "SimpleIdentifier"
-                    && node.inicio >= a
-                    && node.fim <= b
-                    && let Marca::Expr(x) = node.marca
+            let (a, b) = (self.tree.nodes[nodes[i]].start, self.tree.nodes[nodes[i]].end);
+            for node in self.tree.nodes.iter() {
+                if node.kind == "SimpleIdentifier"
+                    && node.start >= a
+                    && node.end <= b
+                    && let Mark::Expr(x) = node.mark
                     && self.writes.contains(&x)
                 {
                     match self.bodies.get_resolved(x) {
@@ -139,9 +139,9 @@ impl Context<'_> {
 
     /// `FlutterConvertToStatefulWidget`.
     pub(crate) fn flutter_to_stateful(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let class_node = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
-        let Marca::Decl(d) = self.tree.nos[class_node].marca else { return None };
+        let Mark::Decl(d) = self.tree.nodes[class_node].mark else { return None };
         let DeclKind::Class(k) = &self.ast.decl(d).kind else { return None };
         let extends = k.extends?;
         let word = self.class_word(k.name.span)?;
@@ -224,7 +224,7 @@ impl Context<'_> {
         for (i, &n) in nodes.iter().enumerate() {
             if to_move.contains(&i) {
                 if start_swap == 0 {
-                    let start_ = self.comments_before(Span { start: self.tree.nos[n].inicio, end: self.tree.nos[n].inicio }).first().map_or(self.tree.nos[n].inicio, |c| c.start);
+                    let start_ = self.comments_before(Span { start: self.tree.nodes[n].start, end: self.tree.nodes[n].start }).first().map_or(self.tree.nodes[n].start, |c| c.start);
                     start_swap = tx.content_start(start_);
                 }
                 if i == build {
@@ -232,7 +232,7 @@ impl Context<'_> {
                 }
                 last_removed_field = matches!(self.ast.member(k.members[i]).kind, MemberKind::Field(_));
             } else {
-                let lines = tx.line_range(self.tree.nos[n].inicio, self.tree.nos[n].fim);
+                let lines = tx.line_range(self.tree.nodes[n].start, self.tree.nodes[n].end);
                 last_kept_end = lines.end;
                 if start_swap != 0 {
                     let text = if has_build {
@@ -252,7 +252,7 @@ impl Context<'_> {
             if last_kept_end != 0 {
                 start_swap = last_kept_end;
             }
-            let closes = self.tree.nos[class_node].fim - 1;
+            let closes = self.tree.nodes[class_node].end - 1;
             let text = if has_build { create_state(last_kept_end != 0, false) } else { String::new() };
             m.add(uri, Span { start: start_swap, end: closes }, text);
         }
@@ -274,7 +274,7 @@ impl Context<'_> {
                 s.push_str(eol);
             }
             let n = nodes[i];
-            if let Some(c) = self.comments_before(Span { start: self.tree.nos[n].inicio, end: self.tree.nos[n].inicio }).first() {
+            if let Some(c) = self.comments_before(Span { start: self.tree.nodes[n].start, end: self.tree.nodes[n].start }).first() {
                 let from = tx.content_start(c.start);
                 s.push_str(&self.source[from..c.end]);
                 s.push_str(eol);
@@ -283,7 +283,7 @@ impl Context<'_> {
             first = false;
         }
         s.push('}');
-        let class_end = self.tree.nos[class_node].fim;
+        let class_end = self.tree.nodes[class_node].end;
         m.add(uri, Span { start: class_end, end: class_end }, s);
         crate::refactorings_move::builder_imports(self, &mut m, &writer.import);
         if m.conflict.is_some() {
@@ -303,23 +303,23 @@ impl Context<'_> {
     /// stays.
     fn rewrite_to_state(&self, n: usize, class: ClassId, moved: &HashSet<Executable>, class_name_: &str) -> String {
         let tx = Text::new(self.source);
-        let lines = tx.line_range(self.tree.nos[n].inicio, self.tree.nos[n].fim);
+        let lines = tx.line_range(self.tree.nodes[n].start, self.tree.nodes[n].end);
         let mut edits: Vec<(usize, usize, String)> = Vec::new();
-        let (a, b) = (self.tree.nos[n].inicio, self.tree.nos[n].fim);
-        for (k, node) in self.tree.nos.iter().enumerate() {
-            if node.especie != "SimpleIdentifier" || node.inicio < a || node.fim > b {
+        let (a, b) = (self.tree.nodes[n].start, self.tree.nodes[n].end);
+        for (k, node) in self.tree.nodes.iter().enumerate() {
+            if node.kind != "SimpleIdentifier" || node.start < a || node.end > b {
                 continue;
             }
             let Some((e, owner, is_static)) = self.identifier_executable(k) else { continue };
             if owner != Some(class) || moved.contains(&e) {
                 continue;
             }
-            let o = node.inicio - lines.start;
+            let o = node.start - lines.start;
             let qualifier = if is_static { class_name_ } else { "widget" };
-            let interpolated = self.parent(k).is_some_and(|p| self.kind(p) == "InterpolationExpression") && node.inicio > 0 && self.source.as_bytes()[node.inicio - 1] == b'$';
+            let interpolated = self.parent(k).is_some_and(|p| self.kind(p) == "InterpolationExpression") && node.start > 0 && self.source.as_bytes()[node.start - 1] == b'$';
             if interpolated {
                 edits.push((o, 0, format!("{{{qualifier}.")));
-                edits.push((o + (node.fim - node.inicio), 0, "}".to_string()));
+                edits.push((o + (node.end - node.start), 0, "}".to_string()));
             } else {
                 edits.push((o, 0, format!("{qualifier}.")));
             }
@@ -332,7 +332,7 @@ impl Context<'_> {
     /// `_isDefaultOverride`: an empty body, or just `super.m(…)` with the same name.
     fn override_pattern(&self, method: usize) -> bool {
         let Some(&body) = self.children(method).last() else { return false };
-        let Marca::Funcao(fid) = self.tree.nos[method].marca else { return false };
+        let Mark::Function(fid) = self.tree.nodes[method].mark else { return false };
         let Some(name) = self.ast.function(fid).name else { return false };
         let expression = match self.kind(body) {
             "BlockFunctionBody" => {
@@ -369,9 +369,9 @@ impl Context<'_> {
 
     /// `FlutterConvertToStatelessWidget`.
     pub(crate) fn flutter_to_stateless(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let class_node = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
-        let Marca::Decl(d) = self.tree.nos[class_node].marca else { return None };
+        let Mark::Decl(d) = self.tree.nodes[class_node].mark else { return None };
         let DeclKind::Class(k) = &self.ast.decl(d).kind else { return None };
         let extends = k.extends?;
         let word = self.class_word(k.name.span)?;
@@ -414,7 +414,7 @@ impl Context<'_> {
         if !self.p.name(ks.name.sym).starts_with('_') || !self.same_type_parameters(k, ks) {
             return None;
         }
-        let state_node = (0..self.tree.nos.len()).find(|&n| self.tree.nos[n].marca == Marca::Decl(decl_state) && self.kind(n) == "ClassDeclaration")?;
+        let state_node = (0..self.tree.nodes.len()).find(|&n| self.tree.nodes[n].mark == Mark::Decl(decl_state) && self.kind(n) == "ClassDeclaration")?;
         let state_nodes = self.member_nodes(state_node, &ks.members)?;
         // `_StatelessVerifier` and `_FieldFinder`.
         let mut assigned: HashSet<VariableId> = HashSet::new();
@@ -476,13 +476,13 @@ impl Context<'_> {
         let mut m = Change::default();
         m.add(uri, p.unit(self.unit).ast.ty(extends).span, writer.reference_of(Element::Class(stateless_class), "StatelessWidget"));
         m.add(uri, self.exclusion_range(state_node, None)?, "");
-        let next = self.next_token(self.tree.nos[create_state].fim)?;
+        let next = self.next_token(self.tree.nodes[create_state].end)?;
         let after = self.comments_before(next).first().map_or(next.start, |c| c.start);
-        let range = Span { start: tx.content_start(self.tree.nos[create_state].inicio), end: tx.content_start(after) };
+        let range = Span { start: tx.content_start(self.tree.nodes[create_state].start), end: tx.content_start(after) };
         let new_line = &self.source[next.start..next.end] != "}";
         let mut s = String::new();
         for (i, &n) in to_move.iter().enumerate() {
-            if let Some(c) = self.comments_before(Span { start: self.tree.nos[n].inicio, end: self.tree.nos[n].inicio }).first() {
+            if let Some(c) = self.comments_before(Span { start: self.tree.nodes[n].start, end: self.tree.nodes[n].start }).first() {
                 let from = tx.content_start(c.start);
                 s.push_str(&self.source[from..c.end]);
                 s.push_str(eol);
@@ -521,11 +521,11 @@ impl Context<'_> {
     /// The field writes (`inSetterContext`) in the node.
     fn field_writes(&self, n: usize) -> Vec<VariableId> {
         let p = self.p.program();
-        let (a, b) = (self.tree.nos[n].inicio, self.tree.nos[n].fim);
+        let (a, b) = (self.tree.nodes[n].start, self.tree.nodes[n].end);
         let mut v = Vec::new();
-        for node in self.tree.nos.iter() {
-            if node.especie == "SimpleIdentifier" && node.inicio >= a && node.fim <= b
-                && let Marca::Expr(x) = node.marca
+        for node in self.tree.nodes.iter() {
+            if node.kind == "SimpleIdentifier" && node.start >= a && node.end <= b
+                && let Mark::Expr(x) = node.mark
                 && self.writes.contains(&x)
             {
                 match self.bodies.get_resolved(x) {
@@ -542,9 +542,9 @@ impl Context<'_> {
     /// default override.
     fn can_be_stateless(&self, method: usize) -> bool {
         let p = self.p.program();
-        let (a, b) = (self.tree.nos[method].inicio, self.tree.nos[method].fim);
-        for (n, node) in self.tree.nos.iter().enumerate() {
-            if node.especie != "MethodInvocation" || node.inicio < a || node.fim > b {
+        let (a, b) = (self.tree.nodes[method].start, self.tree.nodes[method].end);
+        for (n, node) in self.tree.nodes.iter().enumerate() {
+            if node.kind != "MethodInvocation" || node.start < a || node.end > b {
                 continue;
             }
             let Some(name) = self.method_name(n) else { continue };
@@ -563,8 +563,8 @@ impl Context<'_> {
     /// `_StateUsageVisitor`: the `State` class created outside the widget's
     /// `createState`, or a `createState()` call.
     fn used_state(&self, widget: ClassId, state: ClassId) -> bool {
-        for (n, node) in self.tree.nos.iter().enumerate() {
-            match node.especie {
+        for (n, node) in self.tree.nodes.iter().enumerate() {
+            match node.kind {
                 "InstanceCreationExpression" => {
                     let Some(t) = self.flutter_node_type(n) else { continue };
                     if self.flutter_type_class(t) != Some(state) {
@@ -572,12 +572,12 @@ impl Context<'_> {
                     }
                     let method = self.with_parents(n).find(|&k| self.kind(k) == "MethodDeclaration");
                     let class = method.and_then(|m| self.with_parents(m).find(|&k| self.kind(k) == "ClassDeclaration"));
-                    let create_state_node = method.and_then(|m| match self.tree.nos[m].marca {
-                        Marca::Funcao(f) => self.ast.function(f).name.map(|x| self.p.name(x.sym) == "createState"),
+                    let create_state_node = method.and_then(|m| match self.tree.nodes[m].mark {
+                        Mark::Function(f) => self.ast.function(f).name.map(|x| self.p.name(x.sym) == "createState"),
                         _ => None,
                     }) == Some(true);
-                    let widget_class = class.and_then(|c| match self.tree.nos[c].marca {
-                        Marca::Decl(d) => self.declaration_class(self.unit, d),
+                    let widget_class = class.and_then(|c| match self.tree.nodes[c].mark {
+                        Mark::Decl(d) => self.declaration_class(self.unit, d),
                         _ => None,
                     }) == Some(widget);
                     if !create_state_node || !widget_class {
@@ -602,12 +602,12 @@ impl Context<'_> {
     /// `widget.` (or the `W.`) before the references to widget members.
     fn rewrite_to_widget(&self, n: usize, widget: ClassId) -> String {
         let tx = Text::new(self.source);
-        let lines = tx.line_range(self.tree.nos[n].inicio, self.tree.nos[n].fim);
+        let lines = tx.line_range(self.tree.nodes[n].start, self.tree.nodes[n].end);
         let base = lines.start;
         let mut edits: Vec<(usize, usize, String)> = Vec::new();
-        let (a, b) = (self.tree.nos[n].inicio, self.tree.nos[n].fim);
-        for (k, node) in self.tree.nos.iter().enumerate() {
-            if node.especie != "SimpleIdentifier" || node.inicio < a || node.fim > b {
+        let (a, b) = (self.tree.nodes[n].start, self.tree.nodes[n].end);
+        for (k, node) in self.tree.nodes.iter().enumerate() {
+            if node.kind != "SimpleIdentifier" || node.start < a || node.end > b {
                 continue;
             }
             let Some((_, owner, _)) = self.identifier_executable(k) else { continue };
@@ -622,17 +622,17 @@ impl Context<'_> {
                     let mut closes = None;
                     if !self.node_text(k).contains('$')
                         && let Some(g) = grandparent
-                        && self.source[self.tree.nos[g].inicio..].starts_with("${")
+                        && self.source[self.tree.nodes[g].start..].starts_with("${")
                     {
-                        let opens = self.tree.nos[g].inicio + 2;
+                        let opens = self.tree.nodes[g].start + 2;
                         edits.push((opens - 1 - base, 1, String::new()));
-                        let end_g = self.tree.nos[g].fim;
+                        let end_g = self.tree.nodes[g].end;
                         if self.source[..end_g].ends_with('}') {
                             closes = Some((end_g - 1 - base, 1, String::new()));
                         }
                     }
-                    let start = self.tree.nos[prefix].inicio;
-                    let dot = self.next_token(self.tree.nos[prefix].fim).map_or(self.tree.nos[prefix].fim, |t| t.end);
+                    let start = self.tree.nodes[prefix].start;
+                    let dot = self.next_token(self.tree.nodes[prefix].end).map_or(self.tree.nodes[prefix].end, |t| t.end);
                     edits.push((start - base, dot - start, String::new()));
                     if let Some(f) = closes {
                         edits.push(f);
@@ -640,8 +640,8 @@ impl Context<'_> {
                 }
                 "MethodInvocation" | "PropertyAccess" if self.children(parent).len() > 1 && self.children(parent).first() != Some(&k) => {
                     let target = *self.children(parent).first().unwrap();
-                    let start = self.tree.nos[target].inicio;
-                    let operator = self.previous_token(node.inicio).map_or(node.inicio, |t| t.end);
+                    let start = self.tree.nodes[target].start;
+                    let operator = self.previous_token(node.start).map_or(node.start, |t| t.end);
                     edits.push((start - base, operator - start, String::new()));
                 }
                 _ => {}

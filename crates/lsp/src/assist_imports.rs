@@ -21,7 +21,7 @@ impl Context<'_> {
     /// selection node, without combinators, gets a `show` with the names the
     /// unit uses from it (the `_ReferenceFinder`, in text order), before the `;`.
     pub(crate) fn import_add_show(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let directive = self.with_parents(node).find(|&k| self.kind(k) == "ImportDirective")?;
         let span = self.tree.span(directive);
         let prog = self.p.program();
@@ -33,7 +33,7 @@ impl Context<'_> {
         }
         let imp = prog.library(unit.library).imports.iter().find(|i| i.unit == self.unit && i.directive == index)?;
         let mut names: Vec<String> = match imp.prefix {
-            None => dartforge_analysis::importacoes::nomes_usados_do_import(prog, self.unit, index, &self.p.query.names)?
+            None => dartforge_analysis::imports::import_used_names(prog, self.unit, index, &self.p.query.names)?
                 .into_iter()
                 .map(|s| self.p.name(s).to_string())
                 .collect(),
@@ -139,7 +139,7 @@ impl Context<'_> {
     /// The import directive of the selection node (the URI literal walks up to
     /// it) and its index in the unit.
     fn selection_import(&self, start: usize, end: usize) -> Option<(usize, usize)> {
-        let mut node = self.tree.localizar(start, end)?;
+        let mut node = self.tree.locate(start, end)?;
         if matches!(self.kind(node), "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings") {
             node = self.parent(node)?;
         }
@@ -216,7 +216,7 @@ impl Context<'_> {
     /// `ConvertPartOfToUri` (convert_part_of_to_uri.dart): `part of name;`
     /// starts citing the library by the relative path of its file.
     pub(crate) fn convert_part_of_to_uri(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         let directive = self.with_parents(node).find(|&k| self.kind(k) == "PartOfDirective")?;
         let name = self.children(directive).iter().copied().find(|&k| self.kind(k) == "LibraryIdentifier" || self.kind(k) == "SimpleIdentifier")?;
         let prog = self.p.program();

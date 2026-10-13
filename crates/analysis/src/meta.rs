@@ -229,8 +229,8 @@ impl<'a> Ctx<'a> {
                 MemberKind::Field(l) => !l.static_,
                 MemberKind::Method(f) => {
                     let func = self.a.function(*f);
-                    let abstrato = matches!(func.body, FunctionBody::Empty) && !func.external;
-                    !(matches!(owner.kind, DeclKind::Extension(_) | DeclKind::ExtensionType(_)) || func.static_ || abstrato)
+                    let is_abstract = matches!(func.body, FunctionBody::Empty) && !func.external;
+                    !(matches!(owner.kind, DeclKind::Extension(_) | DeclKind::ExtensionType(_)) || func.static_ || is_abstract)
                 }
                 MemberKind::Constructor(_) => false,
             },
@@ -430,7 +430,7 @@ impl<'a> Ctx<'a> {
             [n] => (simple(*n)?, None),
             [p, n] => match program.lookup_prefixed_in_unit(u, p.sym, n.sym).and_then(|b| b.getter) {
                 Some(e) => (e, None),
-                // `Classe.construtor`.
+                // `Class.constructor`.
                 None => (simple(*p)?, Some(*n)),
             },
             [p, n, k] => (program.lookup_prefixed_in_unit(u, p.sym, n.sym).and_then(|b| b.getter)?, Some(*k)),
@@ -499,7 +499,7 @@ impl<'a> Ctx<'a> {
         let has = |k: &str| kinds.contains(&k);
         // `overridableMember`: an instance field or method of a class,
         // extension type or mixin.
-        let sobrescrevivel = match target {
+        let overridable = match target {
             Target::Member { member, owner } if matches!(owner.kind, DeclKind::Class(_) | DeclKind::ExtensionType(_) | DeclKind::Mixin(_)) => {
                 match &member.kind {
                     MemberKind::Field(l) => !l.static_,
@@ -509,7 +509,7 @@ impl<'a> Ctx<'a> {
             }
             _ => false,
         };
-        let valid = (has("overridableMember") && sobrescrevivel)
+        let valid = (has("overridableMember") && overridable)
             || match target {
                 Target::TopLevel(d) => match &d.kind {
                     DeclKind::Class(_) => has("classType") || has("type"),
@@ -663,7 +663,7 @@ fn is_immutable(program: &Program, interner: &Interner, c: ClassId, seen: &mut V
     }
     seen.push(c);
     let e = program.class(c);
-    let anotada = e.decl.is_some_and(|d| {
+    let annotated_decl = e.decl.is_some_and(|d| {
         program
             .unit(d.unit)
             .ast
@@ -672,7 +672,7 @@ fn is_immutable(program: &Program, interner: &Interner, c: ClassId, seen: &mut V
             .iter()
             .any(|m| dartforge_types::annotations::is_getter_of(program, interner, d.unit, m, "meta", "immutable"))
     });
-    anotada
+    annotated_decl
         || e.mixin_classes.iter().any(|m| is_immutable(program, interner, *m, seen))
         || e.interface_classes.iter().any(|m| is_immutable(program, interner, *m, seen))
         || e.supertype_class.is_some_and(|s| is_immutable(program, interner, s, seen))

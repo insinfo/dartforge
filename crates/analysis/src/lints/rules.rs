@@ -16,14 +16,14 @@
 //! variable of a declaration without a keyword, the `:name` shorthand left
 //! out and, in an augmentation, only the named parameters skipped);
 //! `prefer_generic_function_type_aliases` builds the suggestion with `toSource`
-//! (`dartforge_frontend::fonte`); `provide_deprecation_message` needs the
+//! (`dartforge_frontend::source`); `provide_deprecation_message` needs the
 //! annotation's element (`dartforge_types::annotations`, only with the unit's
 //! semantics) and looks at every annotation of the unit.
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
-use super::CodigoLint;
-use crate::Unidade;
+use super::codes_g as c;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
     self, DeclKind, DirectiveKind, ForInTarget, FunctionKind, MemberKind, PatternKind, StmtId, StmtKind, TypedefKind,
@@ -34,7 +34,7 @@ use std::collections::HashSet;
 /// A lint report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LintReport {
-    pub code: &'static CodigoLint,
+    pub code: &'static LintCode,
     pub span: Span,
     pub args: Vec<String>,
 }
@@ -42,7 +42,7 @@ pub struct LintReport {
 impl LintReport {
     /// The message with the arguments in place.
     pub fn message(&self) -> String {
-        let mut out = self.code.mensagem.to_string();
+        let mut out = self.code.message.to_string();
         for (i, a) in self.args.iter().enumerate() {
             out = out.replace(&format!("{{{i}}}"), a);
         }
@@ -51,8 +51,8 @@ impl LintReport {
 
     /// The correction message, with the arguments in place.
     pub fn correction(&self) -> Option<String> {
-        self.code.correcao.map(|molde| {
-            let mut out = molde.to_string();
+        self.code.correction.map(|template| {
+            let mut out = template.to_string();
             for (i, a) in self.args.iter().enumerate() {
                 out = out.replace(&format!("{{{i}}}"), a);
             }
@@ -120,11 +120,11 @@ pub fn pattern_declared_variables(a: &ast::Ast) -> Vec<ast::Name> {
         }
     }
     // The ranges of the refutable patterns.
-    let mut refutaveis: Vec<Span> = Vec::new();
+    let mut refutables: Vec<Span> = Vec::new();
     for s in a.stmts.iter() {
         match &s.kind {
-            StmtKind::Switch { cases, .. } => refutaveis.extend(cases.iter().filter_map(|c| c.pattern).map(|p| a.pattern(p).span)),
-            StmtKind::If { case_pattern: Some(p), .. } => refutaveis.push(a.pattern(*p).span),
+            StmtKind::Switch { cases, .. } => refutables.extend(cases.iter().filter_map(|c| c.pattern).map(|p| a.pattern(p).span)),
+            StmtKind::If { case_pattern: Some(p), .. } => refutables.push(a.pattern(*p).span),
             _ => {}
         }
     }
@@ -143,10 +143,10 @@ pub fn pattern_declared_variables(a: &ast::Ast) -> Vec<ast::Name> {
     }
     for e in a.exprs.iter() {
         match &e.kind {
-            ast::ExprKind::Switch { cases, .. } => refutaveis.extend(cases.iter().map(|c| a.pattern(c.pattern).span)),
+            ast::ExprKind::Switch { cases, .. } => refutables.extend(cases.iter().map(|c| a.pattern(c.pattern).span)),
             ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } => {
                 for el in elements.iter() {
-                    in_collection(a, el, &mut refutaveis);
+                    in_collection(a, el, &mut refutables);
                 }
             }
             _ => {}
@@ -159,8 +159,8 @@ pub fn pattern_declared_variables(a: &ast::Ast) -> Vec<ast::Name> {
             && !in_assignment.contains(&id)
             && !shorthands.contains(&id)
         {
-            let solto = !*final_ && !*var_ && ty.is_none();
-            if solto && refutaveis.iter().any(|r| r.start <= p.span.start && p.span.end <= r.end) {
+            let loose = !*final_ && !*var_ && ty.is_none();
+            if loose && refutables.iter().any(|r| r.start <= p.span.start && p.span.end <= r.end) {
                 continue;
             }
             v.push(*name);
@@ -180,9 +180,9 @@ pub fn is_camel_case(name: &str) -> bool {
         }
         rest = without_dollars.trim_start_matches('_');
     }
-    let mut letras = rest.chars();
-    letras.next().is_some_and(|p| p == '$' || p == '?' || p.is_ascii_uppercase())
-        && letras.all(|x| x == '$' || x == '?' || x.is_ascii_alphanumeric())
+    let mut letters = rest.chars();
+    letters.next().is_some_and(|p| p == '$' || p == '?' || p.is_ascii_uppercase())
+        && letters.all(|x| x == '$' || x == '?' || x.is_ascii_alphanumeric())
 }
 
 /// `isLowerCamelCase`: a lone capital letter, `_`, or
@@ -211,7 +211,7 @@ pub fn is_lower_camel_case(name: &str) -> bool {
 }
 
 struct Ctx<'a> {
-    u: Unidade<'a>,
+    u: Unit<'a>,
     interner: &'a Interner,
     enabled: &'a dyn Fn(&str) -> bool,
     out: Vec<LintReport>,
@@ -222,7 +222,7 @@ impl<'a> Ctx<'a> {
         self.interner.resolve(n.sym)
     }
 
-    fn report(&mut self, code: &'static CodigoLint, span: Span, args: &[&str]) {
+    fn report(&mut self, code: &'static LintCode, span: Span, args: &[&str]) {
         self.out.push(LintReport { code, span, args: args.iter().map(|a| a.to_string()).collect() });
     }
 
@@ -244,25 +244,25 @@ impl<'a> Ctx<'a> {
                 _ => (None, false),
             };
             let Some(name) = name else { continue };
-            let texto = self.text(name);
-            if is_camel_case(texto) {
+            let text = self.text(name);
+            if is_camel_case(text) {
                 continue;
             }
             if from_extension && extensions {
-                self.report(&c::CAMEL_CASE_EXTENSIONS, name.span, &[texto]);
+                self.report(&c::CAMEL_CASE_EXTENSIONS, name.span, &[text]);
             } else if !from_extension && types {
-                self.report(&c::CAMEL_CASE_TYPES, name.span, &[texto]);
+                self.report(&c::CAMEL_CASE_TYPES, name.span, &[text]);
             }
         }
     }
 
     fn identifier(&mut self, name: ast::Name, underscores_allowed: bool) {
-        let texto = self.text(name);
-        if underscores_allowed && !texto.is_empty() && texto.bytes().all(|b| b == b'_') {
+        let text = self.text(name);
+        if underscores_allowed && !text.is_empty() && text.bytes().all(|b| b == b'_') {
             return;
         }
-        if !is_lower_camel_case(texto) {
-            self.report(&c::NON_CONSTANT_IDENTIFIER_NAMES, name.span, &[texto]);
+        if !is_lower_camel_case(text) {
+            self.report(&c::NON_CONSTANT_IDENTIFIER_NAMES, name.span, &[text]);
         }
     }
 
@@ -286,15 +286,15 @@ impl<'a> Ctx<'a> {
     /// The name of a record type's positional field written after type `t`
     /// (the tree does not keep it): the identifier the parser consumed.
     fn positional_name(&self, t: ast::TypeId) -> Option<(Span, &'a str)> {
-        let source = self.u.fonte;
+        let source = self.u.source;
         let b = source.as_bytes();
         let i = dartforge_frontend::source::skip_whitespace(b, self.u.ast.ty(t).span.end);
-        let identificador = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
-        if !b.get(i).is_some_and(|&c| identificador(c) && !c.is_ascii_digit()) {
+        let identifier_char = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+        if !b.get(i).is_some_and(|&c| identifier_char(c) && !c.is_ascii_digit()) {
             return None;
         }
         let mut j = i;
-        while j < b.len() && identificador(b[j]) {
+        while j < b.len() && identifier_char(b[j]) {
             j += 1;
         }
         Some((Span { start: i, end: j }, &source[i..j]))
@@ -305,15 +305,15 @@ impl<'a> Ctx<'a> {
         let a = self.u.ast;
         // The functions of `augment` declarations (their parameter list skips
         // the named ones; their name is not looked at).
-        let mut aumentadas: HashSet<ast::FunctionId> = HashSet::new();
+        let mut augmented_fns: HashSet<ast::FunctionId> = HashSet::new();
         for d in a.decls.iter().filter(|d| d.augment) {
             if let DeclKind::Function(f) = &d.kind {
-                aumentadas.insert(*f);
+                augmented_fns.insert(*f);
             }
         }
         for m in a.members.iter().filter(|m| m.augment) {
             if let MemberKind::Method(f) = &m.kind {
-                aumentadas.insert(*f);
+                augmented_fns.insert(*f);
             }
         }
         // `visitVariableDeclaration`/`visitVariableDeclarationStatement`: the
@@ -416,12 +416,12 @@ impl<'a> Ctx<'a> {
         // `visitFunctionDeclaration` and `visitMethodDeclaration` (not an
         // operator, outside augmentations), and the parameter lists.
         for (k, f) in a.functions.iter().enumerate() {
-            let aumentada = aumentadas.contains(&ast::FunctionId(k as u32));
-            if let (Some(n), false, false) = (f.name, f.kind == FunctionKind::Operator, aumentada) {
+            let augmented = augmented_fns.contains(&ast::FunctionId(k as u32));
+            if let (Some(n), false, false) = (f.name, f.kind == FunctionKind::Operator, augmented) {
                 self.identifier(n, false);
             }
             if let Some(ps) = &f.parameters {
-                self.params(ps, aumentada);
+                self.params(ps, augmented);
             }
         }
         // The lists of old-style typedefs and of `Function(…)` types;
@@ -438,10 +438,10 @@ impl<'a> Ctx<'a> {
                 ast::TypeKind::Function { parameters, .. } => self.params(parameters, false),
                 ast::TypeKind::Record { positional, named } => {
                     for &p in positional.iter() {
-                        if let Some((span, texto)) = self.positional_name(p)
-                            && !is_lower_camel_case(texto)
+                        if let Some((span, text)) = self.positional_name(p)
+                            && !is_lower_camel_case(text)
                         {
-                            self.report(&c::NON_CONSTANT_IDENTIFIER_NAMES, span, &[texto]);
+                            self.report(&c::NON_CONSTANT_IDENTIFIER_NAMES, span, &[text]);
                         }
                     }
                     for (n, _) in named.iter() {
@@ -465,7 +465,7 @@ impl<'a> Ctx<'a> {
     /// `curly_braces_in_flow_control_structures`.
     fn stmts(&mut self) {
         let a = self.u.ast;
-        let source = self.u.fonte;
+        let source = self.u.source;
         let (empty, empty_else, keys) =
             ((self.enabled)("empty_catches"), (self.enabled)("avoid_empty_else"), (self.enabled)("curly_braces_in_flow_control_structures"));
         let is_block = |s: StmtId| matches!(a.stmt(s).kind, StmtKind::Block(_));
@@ -490,8 +490,8 @@ impl<'a> Ctx<'a> {
                         let body = a.stmt(k.body);
                         let without_stmts = matches!(&body.kind, StmtKind::Block(l) if l.is_empty());
                         // No comment before the `}`: only blanks between the braces.
-                        let miolo = source.get(body.span.start + 1..body.span.end.saturating_sub(1)).unwrap_or("x");
-                        if !only_underscores && without_stmts && miolo.trim().is_empty() {
+                        let inner = source.get(body.span.start + 1..body.span.end.saturating_sub(1)).unwrap_or("x");
+                        if !only_underscores && without_stmts && inner.trim().is_empty() {
                             self.report(&c::EMPTY_CATCHES, body.span, &[]);
                         }
                     }
@@ -544,17 +544,17 @@ impl<'a> Ctx<'a> {
 
     /// `use_string_in_part_of_directives` and `avoid_relative_lib_imports`.
     fn directives(&mut self) {
-        let (part_of, relativo) = ((self.enabled)("use_string_in_part_of_directives"), (self.enabled)("avoid_relative_lib_imports"));
+        let (part_of, relative) = ((self.enabled)("use_string_in_part_of_directives"), (self.enabled)("avoid_relative_lib_imports"));
         for d in self.u.unit.directives.iter() {
             match &d.kind {
                 DirectiveKind::PartOf { uri: None, name } if part_of && !name.is_empty() => {
                     self.report(&c::USE_STRING_IN_PART_OF_DIRECTIVES, d.span, &[]);
                 }
-                DirectiveKind::Import { uri, .. } if relativo => {
+                DirectiveKind::Import { uri, .. } if relative => {
                     // No scheme and `/lib/` in the path.
-                    let Some(texto) = dartforge_elements::load::string_lit_value(uri) else { continue };
-                    let without_scheme = !texto.split(['/', '?', '#']).next().is_some_and(|p| p.contains(':'));
-                    let path = texto.split(['?', '#']).next().unwrap_or("");
+                    let Some(text) = dartforge_elements::load::string_lit_value(uri) else { continue };
+                    let without_scheme = !text.split(['/', '?', '#']).next().is_some_and(|p| p.contains(':'));
+                    let path = text.split(['?', '#']).next().unwrap_or("");
                     if without_scheme && path.contains("/lib/") {
                         self.report(&c::AVOID_RELATIVE_LIB_IMPORTS, uri.span, &[]);
                     }
@@ -569,7 +569,7 @@ impl<'a> Ctx<'a> {
     /// return type, the type parameters and the parameters.
     fn old_typedefs(&mut self) {
         let a = self.u.ast;
-        let source = self.u.fonte;
+        let source = self.u.source;
         let interner = self.interner;
         for &d in self.u.unit.declarations.iter() {
             let decl = a.decl(d);
@@ -585,8 +585,8 @@ impl<'a> Ctx<'a> {
             };
             let types = dartforge_frontend::source::from_type_parameters(a, source, interner, &x.type_params);
             let list = dartforge_frontend::source::from_parameters(a, source, interner, parameters);
-            let sugestao = format!("{ret}Function{types}{list}");
-            self.report(&c::PREFER_GENERIC_FUNCTION_TYPE_ALIASES, x.name.span, &[sugestao.as_str()]);
+            let suggestion = format!("{ret}Function{types}{list}");
+            self.report(&c::PREFER_GENERIC_FUNCTION_TYPE_ALIASES, x.name.span, &[suggestion.as_str()]);
         }
     }
 
@@ -608,7 +608,7 @@ impl<'a> Ctx<'a> {
 }
 
 /// Runs the enabled rules (`enabled(name)`) over a unit.
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut ctx = Ctx { u, interner, enabled, out: Vec::new() };
     if enabled("camel_case_types") || enabled("camel_case_extensions") {
         ctx.type_names();
@@ -640,8 +640,8 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
-        run(u, &names, &|_| true, None).into_iter().map(|r| (r.code.nome, source[r.span.start..r.span.end].to_string())).collect()
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
+        run(u, &names, &|_| true, None).into_iter().map(|r| (r.code.name, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]
@@ -653,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn nomes() {
+    fn names() {
         assert_eq!(findings("class foo {}\n"), vec![("camel_case_types", "foo".to_string())]);
         assert_eq!(findings("extension minha on int {}\n"), vec![("camel_case_extensions", "minha".to_string())]);
         assert_eq!(findings("void Faz(int um_dois) {}\n"), vec![
@@ -688,7 +688,7 @@ mod tests {
             let source = "typedef int F(int x);\n";
             let mut names = Interner::new();
             let p = dartforge_frontend::parser::parse(source, &mut names);
-            run(Unidade { ast: &p.ast, unit: &p.unit, fonte: source }, &names, &|_| true, None)
+            run(Unit { ast: &p.ast, unit: &p.unit, source }, &names, &|_| true, None)
         };
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0].args, vec!["int Function(int x)".to_string()]);

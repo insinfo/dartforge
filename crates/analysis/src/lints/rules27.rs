@@ -18,11 +18,11 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
 use super::rules16::is_method_invocation;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, ExtensionId, FunctionElementId, FunctionKind, LibraryId, VariableId};
 use dartforge_frontend::ast::{self, Ast, AssignOp, CollectionElement, ExprId, ExprKind, FunctionBody, Initializer, MemberKind, StmtKind};
@@ -256,11 +256,11 @@ impl Tokens {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let _ = interner;
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let mut report = |code: &'static CodigoLint, span: Span| {
+    let mut report = |code: &'static LintCode, span: Span| {
         out.push(LintReport { code, span, args: Vec::new() });
     };
 
@@ -302,10 +302,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
 
     // `require_trailing_commas`.
     if enabled("require_trailing_commas")
-        && let Ok(t) = dartforge_frontend::lexer::lex(u.fonte)
+        && let Ok(t) = dartforge_frontend::lexer::lex(u.source)
     {
         let tk = Tokens { t };
-        let lines = LineIndex::new(u.fonte);
+        let lines = LineIndex::new(u.source);
         let same_line = |start: usize, end: usize| lines.line(start) == lines.line(end);
         let mut findings: HashSet<(usize, usize)> = HashSet::new();
         // `_checkTrailingComma`: `open` is the offset of the opening token,
@@ -485,7 +485,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     (Span { start: tk.t[i].span.start, end: a.expr(*value).span.end }, None)
                 }
                 CollectionElement::If { .. } | CollectionElement::For { .. } | CollectionElement::ForIn { .. } => match element_end(a, last) {
-                    Some(end) => (Span { start: element_start(a, &tk, u.fonte, last), end }, None),
+                    Some(end) => (Span { start: element_start(a, &tk, u.source, last), end }, None),
                     None => continue,
                 },
             };

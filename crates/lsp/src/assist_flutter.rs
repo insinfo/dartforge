@@ -215,7 +215,7 @@ impl Context<'_> {
 
     /// The Flutter assists at the cursor.
     pub(crate) fn flutter_assists(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
-        let Some(node) = self.tree.localizar(start, end) else { return Vec::new() };
+        let Some(node) = self.tree.locate(start, end) else { return Vec::new() };
         let mut v = Vec::new();
         v.extend(self.flutter_to_children(uri, node));
         v.extend(self.flutter_move(uri, node, false));
@@ -248,11 +248,11 @@ impl Context<'_> {
     pub(crate) fn add_diagnostic_reference(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let p = self.p.program();
         let query = &self.p.query;
-        let node = self.tree.localizar(start, end)?;
+        let node = self.tree.locate(start, end)?;
         // The name and the type (`_getReturnType`: the declared getter or the field).
         let (name, ty, written_type): (String, TypeId, Option<usize>) = match self.kind(node) {
             "MethodDeclaration" => {
-                let crate::arvore_analyzer::Marca::Funcao(fid) = self.tree.nos[node].marca else { return None };
+                let crate::analyzer_tree::Mark::Function(fid) = self.tree.nodes[node].mark else { return None };
                 let func = self.ast.function(fid);
                 let n = func.name?;
                 if func.kind != dartforge_frontend::ast::FunctionKind::Getter {
@@ -268,7 +268,7 @@ impl Context<'_> {
                 self.parent(list).filter(|&d| self.kind(d) == "FieldDeclaration")?;
                 let name = crate::refactorings_exec::name_at_start_pub(self.node_text(node)).to_string();
                 let class_node = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
-                let crate::arvore_analyzer::Marca::Decl(d) = self.tree.nos[class_node].marca else { return None };
+                let crate::analyzer_tree::Mark::Decl(d) = self.tree.nodes[class_node].mark else { return None };
                 let class = self.declaration_class(self.unit, d)?;
                 let v = p.class(class).fields.iter().copied().find(|&v| self.p.name(p.variable(v).name) == name)?;
                 let ty = query.variable_type(v)?;
@@ -278,7 +278,7 @@ impl Context<'_> {
             _ => return None,
         };
         let class_node = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
-        let crate::arvore_analyzer::Marca::Decl(d) = self.tree.nos[class_node].marca else { return None };
+        let crate::analyzer_tree::Mark::Decl(d) = self.tree.nodes[class_node].mark else { return None };
         let class = self.declaration_class(self.unit, d)?;
         let diagnosable = |c: ClassId| self.p.name(p.class(c).name) == "Diagnosticable" && p.class(c).decl.is_some_and(|x| p.unit(x.unit).uri == "package:flutter/src/foundation/diagnostics.dart");
         if !(diagnosable(class) || self.p.supertypes(class).into_iter().any(diagnosable)) {
@@ -321,7 +321,7 @@ impl Context<'_> {
         };
         let tx = Text::new(self.source);
         let eol = tx.eol();
-        let mut writer = crate::write_type::Writer::new(self, self.tree.nos[node].inicio);
+        let mut writer = crate::write_type::Writer::new(self, self.tree.nodes[node].start);
         let mut reference = |prefix: &str, constructor: &str| -> Option<String> {
             let mut s = format!("{prefix}{constructor}.add({id}");
             match &arguments {
@@ -347,7 +347,7 @@ impl Context<'_> {
         let fill: Vec<usize> = members
             .iter()
             .copied()
-            .filter(|&k| self.kind(k) == "MethodDeclaration" && matches!(self.tree.nos[k].marca, crate::arvore_analyzer::Marca::Funcao(f) if self.ast.function(f).name.is_some_and(|n| self.p.name(n.sym) == "debugFillProperties")))
+            .filter(|&k| self.kind(k) == "MethodDeclaration" && matches!(self.tree.nodes[k].mark, crate::analyzer_tree::Mark::Function(f) if self.ast.function(f).name.is_some_and(|n| self.p.name(n.sym) == "debugFillProperties")))
             .collect();
         match fill[..] {
             [] => {
@@ -367,11 +367,11 @@ impl Context<'_> {
                 let commands = self.children(block).to_vec();
                 let (offset, prefix) = match commands.last() {
                     None => {
-                        let o = self.tree.nos[block].inicio;
+                        let o = self.tree.nodes[block].start;
                         (o, format!("{}{ONE_INDENT}", tx.line_prefix(o)))
                     }
                     Some(&c) => {
-                        let o = self.previous_token(self.tree.nos[c].fim)?.start;
+                        let o = self.previous_token(self.tree.nodes[c].end)?.start;
                         (o, tx.line_prefix(o).to_string())
                     }
                 };
@@ -386,7 +386,7 @@ impl Context<'_> {
                     if type_name_ != "DiagnosticPropertiesBuilder" {
                         return None;
                     }
-                    let n = self.previous_token(self.tree.nos[q].fim)?;
+                    let n = self.previous_token(self.tree.nodes[q].end)?;
                     Some(self.source[n.start..n.end].to_string())
                 })?;
                 let text = reference(&prefix, &constructor)?;
@@ -424,8 +424,8 @@ impl Context<'_> {
         let tx = Text::new(self.source);
         let eol = tx.eol();
         let mut m = Change::default();
-        let named_start = self.tree.nos[named].inicio;
-        let (start_arg, end_arg) = (self.tree.nos[arg].inicio, self.tree.nos[arg].fim);
+        let named_start = self.tree.nodes[named].start;
+        let (start_arg, end_arg) = (self.tree.nodes[arg].start, self.tree.nodes[arg].end);
         let empty = |o: usize| Span { start: o, end: o };
         m.add(uri, empty(named_start + "child".len()), "ren");
         let source_arg = self.node_text(arg);
@@ -500,14 +500,14 @@ impl Context<'_> {
             // The builder's first parameter not used in the body.
             let list = self.children(e).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
             let parameter = *self.children(list).first()?;
-            let name = self.previous_token(self.tree.nos[parameter].fim)?;
+            let name = self.previous_token(self.tree.nodes[parameter].end)?;
             let body = *self.children(e).last()?;
             // `_UsageFinder`: an identifier of the body that reads the parameter.
-            let used = self.tree.nos.iter().any(|node| {
-                node.especie == "SimpleIdentifier"
-                    && node.inicio >= self.tree.nos[body].inicio
-                    && node.fim <= self.tree.nos[body].fim
-                    && matches!(node.marca, crate::arvore_analyzer::Marca::Expr(x) if self.bodies.local_declaration(x) == Some(name.start))
+            let used = self.tree.nodes.iter().any(|node| {
+                node.kind == "SimpleIdentifier"
+                    && node.start >= self.tree.nodes[body].start
+                    && node.end <= self.tree.nodes[body].end
+                    && matches!(node.mark, crate::analyzer_tree::Mark::Expr(x) if self.bodies.local_declaration(x) == Some(name.start))
             });
             if used {
                 return None;
@@ -549,9 +549,9 @@ impl Context<'_> {
         }
         let tx = Text::new(self.source);
         let (first, last) = (*children.first()?, *children.last()?);
-        let text = &self.source[self.tree.nos[first].inicio..self.tree.nos[last].fim];
-        let old = tx.line_prefix(self.tree.nos[first].inicio);
-        let new = tx.line_prefix(self.tree.nos[creation].inicio);
+        let text = &self.source[self.tree.nodes[first].start..self.tree.nodes[last].end];
+        let old = tx.line_prefix(self.tree.nodes[first].start);
+        let new = tx.line_prefix(self.tree.nodes[creation].start);
         let mut m = Change::default();
         m.add(uri, self.tree.span(creation), tx.swap_indent(text, old, new, false, false));
         Some(m)
@@ -559,8 +559,8 @@ impl Context<'_> {
 
     fn flutter_remove_one(&self, uri: &str, creation: usize, expression: usize) -> Change {
         let tx = Text::new(self.source);
-        let old = tx.line_prefix(self.tree.nos[expression].inicio);
-        let new = tx.line_prefix(self.tree.nos[creation].inicio);
+        let old = tx.line_prefix(self.tree.nodes[expression].start);
+        let new = tx.line_prefix(self.tree.nodes[creation].start);
         let mut m = Change::default();
         m.add(uri, self.tree.span(creation), tx.swap_indent(self.node_text(expression), old, new, false, false));
         m
@@ -630,9 +630,9 @@ impl Context<'_> {
         let eol = tx.eol();
         let child_args = self.flutter_argument_list(child)?;
         let parent_args = self.flutter_argument_list(parent)?;
-        let text_child = &self.source[self.tree.nos[child].inicio..self.tree.nos[child_args].inicio];
-        let text_parent = &self.source[self.tree.nos[parent].inicio..self.tree.nos[parent_args].inicio];
-        let parent_indent = tx.line_prefix(self.tree.nos[parent].inicio).to_string();
+        let text_child = &self.source[self.tree.nodes[child].start..self.tree.nodes[child_args].start];
+        let text_parent = &self.source[self.tree.nodes[parent].start..self.tree.nodes[parent_args].start];
+        let parent_indent = tx.line_prefix(self.tree.nodes[parent].start).to_string();
         let child_indent = format!("{parent_indent}  ");
         let mut s = String::new();
         s.push_str(text_child);
@@ -700,9 +700,9 @@ impl Context<'_> {
         let class = self.flutter_class(URI_WIDGETS, name)?;
         let tx = Text::new(self.source);
         let eol = tx.eol();
-        let mut writer = crate::write_type::Writer::new(self, self.tree.nos[widget].inicio);
+        let mut writer = crate::write_type::Writer::new(self, self.tree.nodes[widget].start);
         let reference = writer.reference_of(Element::Class(class), name);
-        let indent = tx.line_prefix(self.tree.nos[widget].inicio).to_string();
+        let indent = tx.line_prefix(self.tree.nodes[widget].start).to_string();
         let indent1 = format!("{indent}{ONE_INDENT}");
         let indent2 = format!("{indent}{ONE_INDENT}{ONE_INDENT}");
         let commas = crate::refactorings_exec::enabled_rule(self.p, self.unit, "require_trailing_commas");
@@ -753,7 +753,7 @@ impl Context<'_> {
         if new_line == source.len() - 1 {
             return None;
         }
-        let indent = tx.line_prefix(self.tree.nos[n].inicio + eol.len() + new_line).to_string();
+        let indent = tx.line_prefix(self.tree.nodes[n].start + eol.len() + new_line).to_string();
         let indent_arg = format!("{indent}{ONE_INDENT}");
         let list_indent = format!("{indent}{ONE_INDENT}{ONE_INDENT}");
         let list = tx.swap_indent(source, &indent, &list_indent, false, false);
@@ -785,22 +785,22 @@ impl Context<'_> {
         if last == child {
             return None;
         }
-        let after = |k: usize| self.next_token(self.tree.nos[k].fim);
+        let after = |k: usize| self.next_token(self.tree.nodes[k].end);
         let trailing_comma = after(last).is_some_and(|t| &self.source[t.start..t.end] == ",");
-        let child_start = self.previous_token(self.tree.nos[child].inicio)?.end;
+        let child_start = self.previous_token(self.tree.nodes[child].start)?.end;
         let mut child_end = after(child)?.end;
         let mut exclusion = Span { start: child_start, end: child_end };
         if arguments.first() == Some(&child) {
-            exclusion = Span { start: self.tree.nos[child].inicio, end: self.tree.nos[*arguments.get(1)?].inicio };
+            exclusion = Span { start: self.tree.nodes[child].start, end: self.tree.nodes[*arguments.get(1)?].start };
         }
         if !trailing_comma {
-            child_end = self.tree.nos[child].fim;
+            child_end = self.tree.nodes[child].end;
         }
         let mut text = self.source[child_start..child_end].to_string();
-        let mut insertion = self.tree.nos[last].fim;
+        let mut insertion = self.tree.nodes[last].end;
         if trailing_comma {
             insertion = after(last)?.end;
-        } else if child_start == self.tree.nos[child].inicio {
+        } else if child_start == self.tree.nodes[child].start {
             text = format!(", {text}");
         } else {
             text = format!(",{text}");
@@ -853,7 +853,7 @@ impl Context<'_> {
             }
         } else if let Some(mut coverage) = analysis.coverage {
             if self.kind(coverage) == "ArgumentList"
-                && self.tree.nos[coverage].inicio == start
+                && self.tree.nodes[coverage].start == start
                 && let Some(p) = self.parent(coverage)
             {
                 coverage = p;
@@ -878,7 +878,7 @@ impl Context<'_> {
             Some(x) => Some(self.flutter_class(URI_WIDGETS, x)?),
             None => None,
         };
-        let mut writer = crate::write_type::Writer::new(self, self.tree.nos[widget].inicio);
+        let mut writer = crate::write_type::Writer::new(self, self.tree.nodes[widget].start);
         // Without a class, the `WIDGET` and `CHILD` groups; with it, the selection
         // right after the `(` (`flutter_wrap.dart:302-345`).
         let mut marks = crate::snippets::Write::default();
@@ -900,7 +900,7 @@ impl Context<'_> {
             Vec::new()
         };
         if source.contains(eol) || !lines.is_empty() {
-            let indent = tx.line_prefix(self.tree.nos[widget].inicio).to_string();
+            let indent = tx.line_prefix(self.tree.nodes[widget].start).to_string();
             let new_indent = format!("{indent}{ONE_INDENT}");
             for l in &lines {
                 s.push_str(eol);
@@ -934,7 +934,7 @@ impl Context<'_> {
     fn wrap_several(&self, uri: &str, first: usize, last: usize, name: &str) -> Option<CodeAction> {
         let tx = Text::new(self.source);
         let eol = tx.eol();
-        let range = Span { start: self.tree.nos[first].inicio, end: self.tree.nos[last].fim };
+        let range = Span { start: self.tree.nodes[first].start, end: self.tree.nodes[last].end };
         let source = &self.source[range.start..range.end];
         let class = self.flutter_class(URI_WIDGETS, name)?;
         self.flutter_class(URI_WIDGETS, "Widget")?;

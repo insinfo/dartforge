@@ -19,10 +19,10 @@
 //! contains the `throw` (it needs the unit's semantics).
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::{is_lower_camel_case, LintReport};
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{BinaryOp, DeclKind, DirectiveKind, ExprId, ExprKind, FunctionBody, FunctionKind, MemberKind, StmtKind, UnaryOp};
 use dartforge_intern::Interner;
@@ -54,11 +54,11 @@ fn word_at(source: &str, from: usize, until: usize, word: &str) -> Option<Span> 
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let source = u.fonte;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.source;
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     // No comment: only whitespace between the braces of an empty block.
@@ -312,10 +312,10 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let u = Unit { ast: &p.ast, unit: &p.unit, source };
         let mut reports = run(u, &names, &|_| true, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
-        reports.into_iter().map(|r| (r.code.nome, source[r.span.start..r.span.end].to_string())).collect()
+        reports.into_iter().map(|r| (r.code.name, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

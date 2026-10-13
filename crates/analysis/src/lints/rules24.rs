@@ -14,10 +14,10 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::ClassId;
 use dartforge_frontend::ast::{
@@ -50,13 +50,13 @@ fn untyped_patterns(s: &super::Semantics<'_>, a: &Ast, p: PatternId, out: &mut V
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let program = s.program;
     let table = s.table;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
@@ -87,7 +87,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         };
         let metadata_of = |k: usize| a.local_metadata.iter().find(|(x, _)| x.0 as usize == k).map_or(&[][..], |(_, m)| &m[..]);
         let list_start = |stmt_start: usize, meta: &[dartforge_frontend::ast::Annotation]| match meta.last() {
-            Some(m) => dartforge_frontend::source::skip_whitespace(u.fonte.as_bytes(), m.span.end),
+            Some(m) => dartforge_frontend::source::skip_whitespace(u.source.as_bytes(), m.span.end),
             None => stmt_start,
         };
         for (k, st) in a.stmts.iter().enumerate() {
@@ -95,7 +95,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 StmtKind::Variables(l) => list(l, list_start(st.span.start, metadata_of(k)), &mut findings),
                 StmtKind::For { init: Some(ForInit::Variables(l)), .. } => {
                     // The list starts after the `(`.
-                    let start_pos = u.fonte[st.span.start..].find('(').map_or(st.span.start, |i| dartforge_frontend::source::skip_whitespace(u.fonte.as_bytes(), st.span.start + i + 1));
+                    let start_pos = u.source[st.span.start..].find('(').map_or(st.span.start, |i| dartforge_frontend::source::skip_whitespace(u.source.as_bytes(), st.span.start + i + 1));
                     list(l, start_pos, &mut findings);
                 }
                 StmtKind::ForIn { target: ForInTarget::Declared { ty, name, .. }, iterable, .. } => {
@@ -103,7 +103,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     if typed || is_obvious(*iterable) {
                         continue;
                     }
-                    let start_pos = u.fonte[st.span.start..].find('(').map_or(name.span.start, |i| dartforge_frontend::source::skip_whitespace(u.fonte.as_bytes(), st.span.start + i + 1));
+                    let start_pos = u.source[st.span.start..].find('(').map_or(name.span.start, |i| dartforge_frontend::source::skip_whitespace(u.source.as_bytes(), st.span.start + i + 1));
                     findings.push(Span { start: start_pos, end: name.span.end });
                 }
                 StmtKind::PatternVariables { pattern, value, .. } => {

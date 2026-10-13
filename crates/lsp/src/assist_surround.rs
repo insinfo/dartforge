@@ -16,7 +16,7 @@
 //! | `Surround with 'while'` | `refactor.surround.while` |
 
 use crate::actions::CodeAction;
-use crate::arvore_analyzer::Marca;
+use crate::analyzer_tree::Mark;
 use crate::refactorings::Context;
 use crate::refactorings_exec::{Text, ONE_INDENT};
 use crate::Edit;
@@ -26,7 +26,7 @@ impl Context<'_> {
     /// Flutter's `State` (`package:flutter/src/widgets/framework.dart`).
     fn class_and_state(&self, n: usize) -> bool {
         let Some(declaration) = self.with_parents(n).find(|&k| self.kind(k) == "ClassDeclaration") else { return false };
-        let Marca::Decl(d) = self.tree.nos[declaration].marca else { return false };
+        let Mark::Decl(d) = self.tree.nodes[declaration].mark else { return false };
         let Some(class) = self.declaration_class(self.unit, d) else { return false };
         let prog = self.p.program();
         let mut current = prog.class(class).supertype_class;
@@ -48,7 +48,7 @@ impl Context<'_> {
     pub(crate) fn wrap_commands(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
         let mut output = Vec::new();
         // The covered node cannot be the unit (top-level declarations).
-        let Some(node) = self.tree.localizar(start, end) else { return output };
+        let Some(node) = self.tree.locate(start, end) else { return output };
         if self.kind(node) == "CompilationUnit" {
             return output;
         }
@@ -63,7 +63,7 @@ impl Context<'_> {
         let (first, last) = (selected[0], *selected.last().unwrap_or(&selected[0]));
         let tx = Text::new(self.source);
         let eol = tx.eol();
-        let range = tx.line_range(self.tree.nos[first].inicio, self.tree.nos[last].fim);
+        let range = tx.line_range(self.tree.nodes[first].start, self.tree.nodes[last].end);
         let old = self.node_prefix(first);
         let new = format!("{old}{ONE_INDENT}");
         let indented = tx.swap_indent(&self.source[range.start..range.end], &old, &new, true, true);

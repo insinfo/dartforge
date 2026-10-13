@@ -132,7 +132,7 @@ fn main() -> ExitCode {
         dartforge_parity::silence_panics();
         return child_batch(&raw[1..]);
     }
-    // `saida [DIR] [--gravar]`: the project parity harness (III.1).
+    // `exit_detector [DIR] [--gravar]`: the project parity harness (III.1).
     if raw.first().is_some_and(|c| c == "saida") {
         let write = raw.iter().any(|x| x == "--gravar");
         let dir = raw.iter().skip(1).find(|x| !x.starts_with("--")).map(PathBuf::from).unwrap_or_else(|| corpus::corpus_root().join("saida-analyze"));
@@ -295,7 +295,7 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
     // Publication rule: a verified code that emits anything wrong in the
     // corpus (false positive, position or message) is an error. A false
     // negative is not.
-    let verified = dartforge_parity::verificados();
+    let verified = dartforge_parity::verified();
     let mut broken = Vec::new();
     for c in &verified {
         if let Some(k) = total.by_code.get(*c) {
@@ -697,7 +697,7 @@ fn cmd_projects(a: &Args) -> ExitCode {
         let published = r
             .records
             .iter()
-            .filter(|x| x.tipo == "SYNTACTIC_ERROR" || dartforge_parity::verificados().contains(&x.code.as_str()))
+            .filter(|x| x.tipo == "SYNTACTIC_ERROR" || dartforge_parity::verified().contains(&x.code.as_str()))
             .count();
         let _ = writeln!(
             s,

@@ -28,10 +28,10 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
-use super::CodigoLint;
-use crate::Unidade;
+use super::LintCode;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, ClassKind, VariableId, VariableRef};
 use dartforge_frontend::ast::{
@@ -82,7 +82,7 @@ fn library_name(s: &super::Semantics<'_>, interner: &Interner, l: dartforge_elem
     s.program.library(l).name.as_ref().map(|n| n.iter().map(|x| interner.resolve(*x)).collect::<Vec<_>>().join("."))
 }
 
-/// `implementsInterface(nome, biblioteca)`.
+/// `implementsInterface(name, biblioteca)`.
 fn implements_class(s: &super::Semantics<'_>, interner: &Interner, t: dartforge_types::table::TypeId, name: &str, library: &str) -> bool {
     let (Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. }) = s.table.get(t) else { return false };
     let e = |k: ClassId| {
@@ -321,11 +321,11 @@ fn within(a: Span, b: Span) -> bool {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let source = u.fonte;
-    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.source;
+    let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
@@ -366,8 +366,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             let lines = super::rules14::doc_lines(source, &doc);
             for b in super::rules14::code_blocks(&lines) {
                 if b.fenced && !b.has_info {
-                    let (pos, tam) = b.lines[0];
-                    report(&c::MISSING_CODE_BLOCK_LANGUAGE_IN_DOC_COMMENT, Span { start: pos, end: pos + tam }, &[]);
+                    let (pos, len) = b.lines[0];
+                    report(&c::MISSING_CODE_BLOCK_LANGUAGE_IN_DOC_COMMENT, Span { start: pos, end: pos + len }, &[]);
                 }
             }
         }
@@ -652,9 +652,9 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         let file = program.library(program.unit(s.unit).library).units.first().and_then(|x| program.unit(*x).path.clone());
         let pubspec = file.as_ref().and_then(|p| p.ancestors().skip(1).map(|d| d.join("pubspec.yaml")).find(|f| f.is_file()));
         let has_flutter = pubspec.and_then(|p| std::fs::read_to_string(p).ok()).is_some_and(|t| {
-            let Ok(Some(root)) = crate::naodart::yaml::ler(&t) else { return false };
-            let depends = root.campo("dependencies").and_then(|d| d.campo("flutter")).is_some_and(|f| !f.nulo());
-            let web = root.campo("flutter").and_then(|f| f.campo("plugin")).and_then(|p| p.campo("platforms")).and_then(|p| p.campo("web")).is_some_and(|w| !w.nulo());
+            let Ok(Some(root)) = crate::non_dart::yaml::parse(&t) else { return false };
+            let depends = root.field("dependencies").and_then(|d| d.field("flutter")).is_some_and(|f| !f.is_null());
+            let web = root.field("flutter").and_then(|f| f.field("plugin")).and_then(|p| p.field("platforms")).and_then(|p| p.field("web")).is_some_and(|w| !w.is_null());
             depends && !web
         });
         if has_flutter {

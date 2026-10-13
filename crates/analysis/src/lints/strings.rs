@@ -283,7 +283,7 @@ pub fn decode(text: &str) -> String {
                     i += 4;
                 }
             }
-            outro => s.push(outro),
+            other => s.push(other),
         }
     }
     s

@@ -19,10 +19,10 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g as c;
+use super::codes_g as c;
 use super::rules::LintReport;
 use super::rules16::{declared_variable_type, is_non_nullable};
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{Element, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast::{AssignOp, Ast, DeclId, DeclKind, ExprId, ExprKind, MemberId, MemberKind, UnaryOp};
@@ -56,7 +56,7 @@ fn excluded_regions(a: &Ast) -> Vec<Span> {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !enabled("use_late_for_private_fields_and_variables") {

@@ -10,7 +10,7 @@
 //! `uses-permission` elements, with tag and attribute names in lower case.
 //! Written without compiling or running (2026-10-05).
 
-use super::codigos_g::manifesto as c;
+use super::codes_g::manifest as c;
 use super::Report;
 use dartforge_diagnostics::Span;
 
@@ -311,7 +311,7 @@ impl Reader<'_> {
 }
 
 /// `_reportErrorForNode`: on attribute `key`, or on the whole element.
-fn report(out: &mut Vec<Report>, element: &Element, key: Option<&str>, code: &'static super::CodigoNaoDart, args: &[&str]) {
+fn report(out: &mut Vec<Report>, element: &Element, key: Option<&str>, code: &'static super::NonDartCode, args: &[&str]) {
     let span = key.and_then(|k| element.attribute(k)).map_or(element.span, |a| a.span);
     out.push(Report::new(code, span, args));
 }
@@ -322,7 +322,7 @@ pub fn validate(source: &str) -> Vec<Report> {
     let mut out = Vec::new();
     let mut reader = Reader { b: source.as_bytes(), source, pos: 0 };
     // Up to the `manifest` element.
-    let manifesto = loop {
+    let manifest = loop {
         match reader.tag() {
             Tag::End | Tag::Error => return out,
             Tag::Element(Some(e)) if e.name == "manifest" => break e,
@@ -331,19 +331,19 @@ pub fn validate(source: &str) -> Vec<Report> {
     };
     let name = "android:name";
     let required = "android:required";
-    let features: Vec<&Element> = manifesto.children.iter().filter(|e| e.name == "uses-feature").collect();
-    let permissoes: Vec<&Element> = manifesto.children.iter().filter(|e| e.name == "uses-permission").collect();
+    let features: Vec<&Element> = manifest.children.iter().filter(|e| e.name == "uses-feature").collect();
+    let permissions: Vec<&Element> = manifest.children.iter().filter(|e| e.name == "uses-permission").collect();
     // `_validateTouchScreenFeature`.
-    let tela = "android.hardware.touchscreen";
-    match features.iter().find(|e| e.value(name) == Some(tela)) {
+    let screen = "android.hardware.touchscreen";
+    match features.iter().find(|e| e.value(name) == Some(screen)) {
         Some(feature) => {
             if feature.attribute(required).is_none() {
-                report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_HARDWARE, &[tela]);
+                report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_HARDWARE, &[screen]);
             } else if feature.value(required) == Some("true") {
-                report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_FEATURE, &[tela]);
+                report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_FEATURE, &[screen]);
             }
         }
-        None => report(&mut out, &manifesto, None, &c::NO_TOUCHSCREEN_FEATURE, &[]),
+        None => report(&mut out, &manifest, None, &c::NO_TOUCHSCREEN_FEATURE, &[]),
     }
     // `_validateFeatures`.
     for feature in &features {
@@ -356,7 +356,7 @@ pub fn validate(source: &str) -> Vec<Report> {
     }
     // `_validatePermissions`.
     let has = |feature: &str| features.iter().any(|e| e.value(name) == Some(feature));
-    for permission in &permissoes {
+    for permission in &permissions {
         if permission.value(name) == Some("android.permission.CAMERA") {
             if !has("android.hardware.camera") || !has("android.hardware.camera.autofocus") {
                 report(&mut out, permission, Some(name), &c::CAMERA_PERMISSIONS_INCOMPATIBLE, &[]);
@@ -366,15 +366,15 @@ pub fn validate(source: &str) -> Vec<Report> {
         }
     }
     // `_validateActivity`, on the activities of the first `application`.
-    if let Some(aplicacao) = manifesto.children.iter().find(|e| e.name == "application") {
-        for activity in aplicacao.children.iter().filter(|e| e.name == "activity") {
+    if let Some(application) = manifest.children.iter().find(|e| e.name == "application") {
+        for activity in application.children.iter().filter(|e| e.name == "activity") {
             let orientation = "android:screenorientation";
             if activity.value(orientation).is_some_and(|v| UNSUPPORTED_ORIENTATIONS.contains(&v)) {
                 report(&mut out, activity, Some(orientation), &c::SETTING_ORIENTATION_ON_ACTIVITY, &[]);
             }
-            let redimensionavel = "android:resizeableactivity";
-            if activity.value(redimensionavel) == Some("false") {
-                report(&mut out, activity, Some(redimensionavel), &c::NON_RESIZABLE_ACTIVITY, &[]);
+            let resizable = "android:resizeableactivity";
+            if activity.value(resizable) == Some("false") {
+                report(&mut out, activity, Some(resizable), &c::NON_RESIZABLE_ACTIVITY, &[]);
             }
         }
     }
@@ -386,7 +386,7 @@ mod tests {
     use super::*;
 
     fn findings(source: &str) -> Vec<(&'static str, String)> {
-        validate(source).into_iter().map(|r| (r.code.nome, source[r.span.start..r.span.end].to_string())).collect()
+        validate(source).into_iter().map(|r| (r.code.name, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

@@ -487,7 +487,7 @@ impl Graph for G<'_, '_> {
 // -- The tree walk ---------------------------------------------------------------
 
 /// A pre-order walk over the tree of a unit, in two roles: with
-/// `references`, it is `ReferenceFinder` (what it finds goes to `saida`);
+/// `references`, it is `ReferenceFinder` (what it finds goes to `exit_detector`);
 /// without, it is `ConstantFinder` (`targets`) together with
 /// `ConstantExpressionsDependenciesFinder` (`loose`).
 struct Walk<'p, 'a> {

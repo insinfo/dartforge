@@ -54,8 +54,8 @@ impl Context<'_> {
                     return Some((self.node_text(e).to_string(), "_?".into()));
                 }
                 if matches!(op, "<" | ">" | "<=" | ">=") && LITERALS.contains(&self.kind(d)) {
-                    let start_op = self.next_token(self.tree.nos[e].fim)?.start;
-                    return Some((self.node_text(e).to_string(), self.source[start_op..self.tree.nos[d].fim].to_string()));
+                    let start_op = self.next_token(self.tree.nodes[e].end)?.start;
+                    return Some((self.node_text(e).to_string(), self.source[start_op..self.tree.nodes[d].end].to_string()));
                 }
                 None
             }
@@ -119,7 +119,7 @@ impl Context<'_> {
         if !self.with_patterns() {
             return None;
         }
-        let if_node = self.tree.localizar(start, end)?;
+        let if_node = self.tree.locate(start, end)?;
         if self.kind(if_node) != "IfStatement" {
             return None;
         }
@@ -127,7 +127,7 @@ impl Context<'_> {
         let expression = cases.first()?.expression.clone()?;
         let tx = Text::new(self.source);
         let eol = tx.eol();
-        let indent = tx.line_prefix(self.tree.nos[if_node].inicio).to_string();
+        let indent = tx.line_prefix(self.tree.nodes[if_node].start).to_string();
         let case_indent = format!("{indent}{ONE_INDENT}");
         let mut s = format!("switch ({expression}) {{{eol}");
         for (i, c) in cases.iter().enumerate() {
@@ -139,7 +139,7 @@ impl Context<'_> {
             let commands = self.commands_of(c.command);
             let (&first, &last) = (commands.first()?, commands.last()?);
             let _ = i;
-            let range = tx.line_range(self.tree.nos[first].inicio, self.tree.nos[last].fim);
+            let range = tx.line_range(self.tree.nodes[first].start, self.tree.nodes[last].end);
             s.push_str(&tx.swap_indent(&self.source[range.start..range.end], &indent, &case_indent, true, true));
         }
         s.push_str(&format!("{indent}}}"));
@@ -163,14 +163,14 @@ impl Context<'_> {
             if wildcard {
                 m.add(uri, self.tree.span(saved), "default");
             } else {
-                let i = self.tree.nos[saved].inicio;
+                let i = self.tree.nodes[saved].start;
                 m.add(uri, Span { start: i, end: i }, "case ");
             }
-            m.add(uri, Span { start: self.tree.nos[saved].fim, end: self.tree.nos[expression].inicio }, format!(":{eol}{indent}    {before}"));
-            match self.next_token(self.tree.nos[expression].fim) {
+            m.add(uri, Span { start: self.tree.nodes[saved].end, end: self.tree.nodes[expression].start }, format!(":{eol}{indent}    {before}"));
+            match self.next_token(self.tree.nodes[expression].end) {
                 Some(v) if &self.source[v.start..v.end] == "," => m.add(uri, v, ";"),
                 _ => {
-                    let e = self.tree.nos[expression].fim;
+                    let e = self.tree.nodes[expression].end;
                     m.add(uri, Span { start: e, end: e }, ";");
                 }
             }
@@ -181,7 +181,7 @@ impl Context<'_> {
     /// `ConvertSwitchExpressionToSwitchStatement`: the `switch` expression of a
     /// declaration, an assignment or a `return` becomes a statement.
     pub(crate) fn switch_expression_to_statement(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
-        let switch = self.tree.localizar(start, end)?;
+        let switch = self.tree.locate(start, end)?;
         if self.kind(switch) != "SwitchExpression" {
             return None;
         }
@@ -200,11 +200,11 @@ impl Context<'_> {
                 {
                     return None;
                 }
-                let indent = tx.line_prefix(self.tree.nos[command].inicio).to_string();
-                let name = self.next_token(self.tree.nos[parent].inicio)?;
+                let indent = tx.line_prefix(self.tree.nodes[command].start).to_string();
+                let name = self.next_token(self.tree.nodes[parent].start)?;
                 let has_type = self.children(list).iter().any(|&k| matches!(self.kind(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
                 if !has_type {
-                    let mut k = self.next_token(self.tree.nos[list].inicio)?;
+                    let mut k = self.next_token(self.tree.nodes[list].start)?;
                     if &self.source[k.start..k.end] == "late" {
                         k = self.next_token(k.end)?;
                     }
@@ -221,8 +221,8 @@ impl Context<'_> {
                         }
                     }
                 }
-                m.add(uri, Span { start: name.end, end: self.tree.nos[switch].inicio }, format!(";{eol}{indent}"));
-                let dot = self.previous_token(self.tree.nos[command].fim)?;
+                m.add(uri, Span { start: name.end, end: self.tree.nodes[switch].start }, format!(";{eol}{indent}"));
+                let dot = self.previous_token(self.tree.nodes[command].end)?;
                 self.rewrite_cases(uri, &mut m, switch, &indent, &format!("{} = ", &self.source[name.start..name.end]), dot);
             }
             "AssignmentExpression" => {
@@ -235,15 +235,15 @@ impl Context<'_> {
                 if self.kind(variable) != "SimpleIdentifier" || self.kind(command) != "ExpressionStatement" {
                     return None;
                 }
-                let dot = self.previous_token(self.tree.nos[command].fim).filter(|s| &self.source[s.start..s.end] == ";")?;
-                let indent = tx.line_prefix(self.tree.nos[command].inicio).to_string();
-                m.add(uri, Span { start: self.tree.nos[variable].inicio, end: self.tree.nos[switch].inicio }, String::new());
+                let dot = self.previous_token(self.tree.nodes[command].end).filter(|s| &self.source[s.start..s.end] == ";")?;
+                let indent = tx.line_prefix(self.tree.nodes[command].start).to_string();
+                m.add(uri, Span { start: self.tree.nodes[variable].start, end: self.tree.nodes[switch].start }, String::new());
                 self.rewrite_cases(uri, &mut m, switch, &indent, &format!("{} = ", self.node_text(variable)), dot);
             }
             "ReturnStatement" => {
-                let indent = tx.line_prefix(self.tree.nos[parent].inicio).to_string();
-                m.add(uri, Span { start: self.tree.nos[parent].inicio, end: self.tree.nos[switch].inicio }, String::new());
-                let dot = self.previous_token(self.tree.nos[parent].fim)?;
+                let indent = tx.line_prefix(self.tree.nodes[parent].start).to_string();
+                m.add(uri, Span { start: self.tree.nodes[parent].start, end: self.tree.nodes[switch].start }, String::new());
+                let dot = self.previous_token(self.tree.nodes[parent].end)?;
                 self.rewrite_cases(uri, &mut m, switch, &indent, "return ", dot);
             }
             _ => return None,

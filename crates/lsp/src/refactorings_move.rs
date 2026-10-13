@@ -758,12 +758,12 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
     // The group's range.
     let nodes: Vec<usize> = members
         .iter()
-        .filter_map(|(d, _)| cx.tree.nos.iter().position(|k| k.marca == crate::arvore_analyzer::Marca::Decl(*d) || top_function(cx, k.marca, *d)))
+        .filter_map(|(d, _)| cx.tree.nodes.iter().position(|k| k.mark == crate::analyzer_tree::Mark::Decl(*d) || top_function(cx, k.mark, *d)))
         .collect();
     let range = |with_previous_line: bool| -> (usize, usize) {
         let first = nodes.first().copied().unwrap_or(0);
         let last = nodes.last().copied().unwrap_or(0);
-        let mut start = cx.tree.nos[first].inicio;
+        let mut start = cx.tree.nodes[first].start;
         if with_previous_line {
             let initial_line = lines.number(start);
             // `beginToken.previous`: null when the member starts at a comment.
@@ -778,7 +778,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
                 }
             }
         }
-        let mut end = cx.tree.nos[last].fim;
+        let mut end = cx.tree.nodes[last].end;
         let final_line = lines.number(end);
         match cx.tokens.iter().find(|t| t.span.start >= end && t.kind != Kind::Eof) {
             None => end = cx.source.len(),
@@ -889,9 +889,9 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
 }
 
 /// The mark of a top-level `FunctionDeclaration` is the function's.
-fn top_function(cx: &Context<'_>, mark: crate::arvore_analyzer::Marca, d: ast::DeclId) -> bool {
+fn top_function(cx: &Context<'_>, mark: crate::analyzer_tree::Mark, d: ast::DeclId) -> bool {
     match (mark, &cx.ast.decl(d).kind) {
-        (crate::arvore_analyzer::Marca::Funcao(f), DeclKind::Function(g)) => f == *g,
+        (crate::analyzer_tree::Mark::Function(f), DeclKind::Function(g)) => f == *g,
         _ => false,
     }
 }

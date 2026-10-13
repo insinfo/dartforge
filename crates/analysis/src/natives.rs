@@ -10,7 +10,7 @@
 //! the text, between the end of the header (or of the parameters) and the `{`
 //! (or the `;`).
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::parser as p;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{DeclKind, FunctionBody};
@@ -86,9 +86,9 @@ fn clause(b: &[u8], i: usize) -> Option<Span> {
 }
 
 /// The unit's `native` diagnostics (outside the SDK).
-pub fn outside_sdk(unit: Unidade<'_>) -> Vec<Diagnostic> {
+pub fn outside_sdk(unit: Unit<'_>) -> Vec<Diagnostic> {
     let ast = unit.ast;
-    let b = unit.fonte.as_bytes();
+    let b = unit.source.as_bytes();
     let mut out = Vec::new();
     for &id in &unit.unit.declarations {
         let DeclKind::Class(c) = &ast.decl(id).kind else { continue };
@@ -112,7 +112,7 @@ pub fn outside_sdk(unit: Unidade<'_>) -> Vec<Diagnostic> {
     for f in &ast.functions {
         let FunctionBody::Native(name) = &f.body else { continue };
         let limit = name.as_ref().map_or(f.span.end, |s| s.span.start).min(b.len());
-        let Some(start) = unit.fonte[f.span.start.min(limit)..limit].rfind("native").map(|k| k + f.span.start.min(limit)) else {
+        let Some(start) = unit.source[f.span.start.min(limit)..limit].rfind("native").map(|k| k + f.span.start.min(limit)) else {
             continue;
         };
         out.push(Diagnostic::with_code(
@@ -134,7 +134,7 @@ mod tests {
         let mut names = Interner::new();
         let out = parse(source, &mut names);
         assert!(out.diagnostics.is_empty(), "{source}: {:?}", out.diagnostics);
-        let u = Unidade { ast: &out.ast, unit: &out.unit, fonte: source };
+        let u = Unit { ast: &out.ast, unit: &out.unit, source };
         outside_sdk(u).into_iter().map(|d| (d.code.unwrap().info().name, d.span.start, d.span.end)).collect()
     }
 

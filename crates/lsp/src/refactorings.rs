@@ -19,7 +19,7 @@
 //! the `dart.experimentalRefactors` setting (§13.11.10): none is listed.
 //! Written without compiling or running (2026-10-05).
 
-use crate::arvore_analyzer::{self, Arvore, Marca};
+use crate::analyzer_tree::{self, AnalyzerTree, Mark};
 use crate::project::Project;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionKind, FunctionRef, UnitId};
@@ -108,7 +108,7 @@ const DIRECTIVES: &[&str] = &[
 
 const FOR_PARTS: &[&str] = &["ForPartsWithDeclarations", "ForPartsWithExpression", "ForPartsWithPattern"];
 
-use dartforge_analysis::arvore_analyzer::{COMANDOS, EXPRESSOES};
+use dartforge_analysis::analyzer_tree::{STATEMENTS, EXPRESSIONS};
 
 /// The subclasses of `FunctionBody`.
 const BODIES: &[&str] = &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyFunctionBody", "NativeFunctionBody"];
@@ -132,12 +132,12 @@ const UNIT_MEMBERS: &[&str] = &[
 
 /// The kind is a subclass of `Statement`.
 pub(crate) fn is_command_kind(e: &str) -> bool {
-    COMANDOS.contains(&e)
+    STATEMENTS.contains(&e)
 }
 
 /// The kind is a subclass of `Expression`.
 pub(crate) fn is_expression_kind(e: &str) -> bool {
-    EXPRESSOES.contains(&e)
+    EXPRESSIONS.contains(&e)
 }
 
 /// `Character.isWhitespace` of `countLeadingWhitespaces`.
@@ -188,7 +188,7 @@ pub(crate) struct Context<'p> {
     pub(crate) source: &'p str,
     pub(crate) ast: &'p Ast,
     pub(crate) bodies: &'p UnitBodyTypes,
-    pub(crate) tree: Arvore,
+    pub(crate) tree: AnalyzerTree,
     pub(crate) comments: Vec<Span>,
     pub(crate) tokens: Vec<Token>,
     /// Assignment targets and `++`/`--` operands (their `writeOrReadElement` is
@@ -252,7 +252,7 @@ impl<'p> Context<'p> {
             }
         }
         let before_3 = prog.library(library).features.version().major < 3;
-        let tree = arvore_analyzer::construir_resolvida(source, ast, &u.unit, before_3, &constructors, &prefixes);
+        let tree = analyzer_tree::build_resolved(source, ast, &u.unit, before_3, &constructors, &prefixes);
         Context {
             p,
             unit,
@@ -271,23 +271,23 @@ impl<'p> Context<'p> {
     // -- The tree ---------------------------------------------------------------
 
     pub(crate) fn kind(&self, n: usize) -> &'static str {
-        self.tree.nos[n].especie
+        self.tree.nodes[n].kind
     }
 
     pub(crate) fn parent(&self, n: usize) -> Option<usize> {
-        self.tree.nos[n].pai
+        self.tree.nodes[n].parent
     }
 
     pub(crate) fn children(&self, n: usize) -> &[usize] {
-        &self.tree.nos[n].filhos
+        &self.tree.nodes[n].children
     }
 
     pub(crate) fn is_expression(&self, n: usize) -> bool {
-        EXPRESSOES.contains(&self.kind(n))
+        EXPRESSIONS.contains(&self.kind(n))
     }
 
     pub(crate) fn is_command(&self, n: usize) -> bool {
-        COMANDOS.contains(&self.kind(n))
+        STATEMENTS.contains(&self.kind(n))
     }
 
     /// `n` and its ancestors (`withParents`).
@@ -303,7 +303,7 @@ impl<'p> Context<'p> {
     // -- The elements -------------------------------------------------------------
 
     /// The element of the identifier of `x` (the expression of the
-    /// [`Marca::Expr`]): `is_static` gives the `staticElement` (null on a write
+    /// [`Mark::Expr`]): `is_static` gives the `staticElement` (null on a write
     /// to a property or a top-level variable); otherwise the
     /// `writeOrReadElement` (the setter on a write).
     pub(crate) fn element(&self, x: ExprId, is_static: bool) -> Elem {
@@ -402,8 +402,8 @@ impl<'p> Context<'p> {
 
     /// The element of a `SimpleIdentifier` of the tree.
     pub(crate) fn identifier_element(&self, n: usize, is_static: bool) -> Elem {
-        match self.tree.nos[n].marca {
-            Marca::Expr(x) => self.element(x, is_static),
+        match self.tree.nodes[n].mark {
+            Mark::Expr(x) => self.element(x, is_static),
             _ => self.combinator_element(n).unwrap_or(Elem::None),
         }
     }
@@ -416,7 +416,7 @@ impl<'p> Context<'p> {
         self.parent(c)?;
         let prog = self.p.program();
         let u = prog.unit(self.unit);
-        let (start, end) = (self.tree.nos[n].inicio, self.tree.nos[n].fim);
+        let (start, end) = (self.tree.nodes[n].start, self.tree.nodes[n].end);
         // The directive that contains the name.
         let d = u.unit.directives.iter().position(|x| x.span.start <= start && end <= x.span.end)?;
         let lib = prog.library(u.library);
@@ -439,7 +439,7 @@ impl<'p> Context<'p> {
 
     /// The `declaredElement` of a `FunctionDeclaration`/`MethodDeclaration`.
     pub(crate) fn declared_element(&self, n: usize) -> Elem {
-        let Marca::Funcao(fid) = self.tree.nos[n].marca else { return Elem::None };
+        let Mark::Function(fid) = self.tree.nodes[n].mark else { return Elem::None };
         if self.kind(n) == "FunctionDeclaration" && self.parent(n).is_some_and(|p| self.kind(p) == "FunctionDeclarationStatement") {
             return Elem::LocalFunction(fid);
         }
@@ -469,8 +469,8 @@ impl<'p> Context<'p> {
                 Some(&i) => self.identifier_element(i, true),
                 None => Elem::None,
             },
-            "PrefixExpression" => match self.tree.nos[n].marca {
-                Marca::Operador(x) => match self.bodies.get_resolved(x) {
+            "PrefixExpression" => match self.tree.nodes[n].mark {
+                Mark::Operator(x) => match self.bodies.get_resolved(x) {
                     Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => Elem::Function(*f),
                     _ => Elem::None,
                 },
@@ -621,12 +621,12 @@ impl<'p> Context<'p> {
         if st.fatal.is_some() {
             return;
         }
-        let node = &self.tree.nos[n];
-        let kind = node.especie;
+        let node = &self.tree.nodes[n];
+        let kind = node.kind;
         if DIRECTIVES.contains(&kind) {
             // `visitDirective`: the selection cannot touch the directive (with a
             // length), and does not descend.
-            if !(st.end <= node.inicio) && !(st.start >= node.fim) {
+            if !(st.end <= node.start) && !(st.start >= node.end) {
                 self.invalidate(st, "Cannot extract a directive.");
                 return;
             }
@@ -636,7 +636,7 @@ impl<'p> Context<'p> {
             return;
         } else if FOR_PARTS.contains(&kind) {
             // `visitForParts`: only the children, without `visitNode`.
-            for &f in &node.filhos {
+            for &f in &node.children {
                 self.visit(f, st);
             }
             return;
@@ -652,8 +652,8 @@ impl<'p> Context<'p> {
 
     /// `SelectionAnalyzer.visitNode`.
     pub(crate) fn visit_node(&self, n: usize, st: &mut Analysis) {
-        let node = &self.tree.nos[n];
-        let (ri, rf) = (node.inicio, node.fim);
+        let node = &self.tree.nodes[n];
+        let (ri, rf) = (node.start, node.end);
         let (si, sf) = (st.start, st.end);
         if si <= ri && rf <= sf {
             // The selection covers the whole node.
@@ -661,7 +661,7 @@ impl<'p> Context<'p> {
                 st.selected.push(n);
             } else {
                 let first_parent = self.parent(st.selected[0]);
-                if first_parent == node.pai {
+                if first_parent == node.parent {
                     st.selected.push(n);
                 }
                 // `_checkParent`.
@@ -685,7 +685,7 @@ impl<'p> Context<'p> {
         } else {
             return;
         }
-        for &f in &node.filhos {
+        for &f in &node.children {
             self.visit(f, st);
             if st.fatal.is_some() {
                 return;
@@ -712,8 +712,8 @@ impl<'p> Context<'p> {
                         return Some("Selection ends inside a comment.");
                     }
                 }
-                let a = self.tree.nos[st.selected[0]].inicio;
-                let b = self.tree.nos[*st.selected.last().unwrap()].fim;
+                let a = self.tree.nodes[st.selected[0]].start;
+                let b = self.tree.nodes[*st.selected.last().unwrap()].end;
                 if self.has_tokens(st.start, a) {
                     return Some("The beginning of the selection contains characters that do not belong to a statement.");
                 }
@@ -773,7 +773,7 @@ impl<'p> Context<'p> {
     /// `visitSimpleIdentifier` of `_ExtractMethodAnalyzer`, with the node as the
     /// first selected one: the first of the messages that applies.
     pub(crate) fn identifier_not_extractable(&self, n: usize) -> Option<&'static str> {
-        if self.tree.nos[n].marca == Marca::ContextoDeDeclaracao {
+        if self.tree.nodes[n].mark == Mark::DeclarationContext {
             return Some("Cannot extract the name part of a declaration.");
         }
         let e = self.identifier_element(n, false);
@@ -802,12 +802,12 @@ impl<'p> Context<'p> {
         if !FOR_PARTS.contains(&self.kind(parts)) {
             return None;
         }
-        let p = self.tree.partes_de_for.get(&parts)?;
+        let p = self.tree.for_parts.get(&parts)?;
         let sel = &st.selected;
         let contains = |x: Option<usize>| x.is_some_and(|x| sel.contains(&x));
-        let start = contains(p.inicio);
-        let condition = contains(p.condicao);
-        let updates = p.atualizacoes.iter().any(|u| sel.contains(u));
+        let start = contains(p.initialization);
+        let condition = contains(p.condition);
+        let updates = p.updaters.iter().any(|u| sel.contains(u));
         let body = contains(children.get(1).copied());
         if start && condition {
             return Some("Operation not applicable to a 'for' statement's initializer and condition.");
@@ -818,10 +818,10 @@ impl<'p> Context<'p> {
         if updates && body {
             return Some("Operation not applicable to a 'for' statement's updaters and body.");
         }
-        if self.kind(parts) == "ForPartsWithDeclarations" && p.inicio.is_some() && sel.first().copied() == p.inicio {
+        if self.kind(parts) == "ForPartsWithDeclarations" && p.initialization.is_some() && sel.first().copied() == p.initialization {
             return Some("Cannot extract initialization part of a 'for' statement.");
         }
-        sel.last().is_some_and(|l| p.atualizacoes.contains(l)).then_some("Cannot extract increment part of a 'for' statement.")
+        sel.last().is_some_and(|l| p.updaters.contains(l)).then_some("Cannot extract increment part of a 'for' statement.")
     }
 
     // -- The rules ----------------------------------------------------------------
@@ -837,8 +837,8 @@ impl<'p> Context<'p> {
         if l == 0
             && let Some(f) = self.implicit_closure(o)
         {
-            let node = &self.tree.nos[f];
-            return Ok(MethodSelection { range: (node.inicio, node.fim), expression: None, closure: Some(f), commands: Vec::new() });
+            let node = &self.tree.nodes[f];
+            return Ok(MethodSelection { range: (node.start, node.end), expression: None, closure: Some(f), commands: Vec::new() });
         }
         let st = self.analyze(o, o + l);
         if let Some(m) = st.fatal {
@@ -854,7 +854,7 @@ impl<'p> Context<'p> {
                 }
                 if self.is_expression(k) && self.extractable(k) {
                     selected.push(k);
-                    range = (self.tree.nos[k].inicio, self.tree.nos[k].fim);
+                    range = (self.tree.nodes[k].start, self.tree.nodes[k].end);
                     break;
                 }
                 current = self.parent(k);
@@ -884,27 +884,27 @@ impl<'p> Context<'p> {
     /// `_isExtractable(range.node(n))`: the analysis of the exact range without
     /// any problem.
     pub(crate) fn extractable(&self, n: usize) -> bool {
-        let node = &self.tree.nos[n];
-        self.analyze(node.inicio, node.fim).fatal.is_none()
+        let node = &self.tree.nodes[n];
+        self.analyze(node.start, node.end).fatal.is_none()
     }
 
     /// `_selectionIncludesNonWhitespaceOutsideNode`.
     pub(crate) fn includes_something_outside(&self, (si, sf): (usize, usize), n: usize) -> bool {
-        let node = &self.tree.nos[n];
-        if !(si <= node.inicio && node.fim <= sf) {
+        let node = &self.tree.nodes[n];
+        if !(si <= node.start && node.end <= sf) {
             return false;
         }
-        !self.only_blank_or_comment(si, node.inicio) || !self.only_blank_or_comment(node.fim, sf)
+        !self.only_blank_or_comment(si, node.start) || !self.only_blank_or_comment(node.end, sf)
     }
 
     /// `_findFunctionExpression`: the closure whose parentheses contain the
     /// cursor, or that of the named argument whose label has the cursor.
     pub(crate) fn implicit_closure(&self, o: usize) -> Option<usize> {
-        let n = self.tree.localizar_exclusivo(o)?;
+        let n = self.tree.locate_exclusive(o)?;
         if let Some(f) = self.with_parents(n).find(|&k| self.kind(k) == "FunctionExpression")
             && let Some(&ps) = self.children(f).iter().find(|&&c| self.kind(c) == "FormalParameterList")
-            && self.tree.nos[ps].inicio <= o
-            && o <= self.tree.nos[ps].fim
+            && self.tree.nodes[ps].start <= o
+            && o <= self.tree.nodes[ps].end
             && !self.parent(f).is_some_and(|p| self.kind(p) == "FunctionDeclaration")
         {
             return Some(f);
@@ -936,12 +936,12 @@ impl<'p> Context<'p> {
         let finals = bytes.iter().rev().take_while(|&&b| is_blank(b)).count();
         let start = o + initial;
         let end = (o + l).saturating_sub(finals).max(o);
-        let coverage = self.tree.localizar(start, end).unwrap_or(0);
+        let coverage = self.tree.locate(start, end).unwrap_or(0);
         let Some(body) = self.with_parents(coverage).find(|&k| BODIES.contains(&self.kind(k))) else {
             return Err("An expression inside a function must be selected to activate this refactoring.");
         };
-        let node = &self.tree.nos[coverage];
-        if STRINGS.contains(&node.especie) && end > start && start > node.inicio && end < node.fim {
+        let node = &self.tree.nodes[coverage];
+        if STRINGS.contains(&node.kind) && end > start && start > node.start && end < node.end {
             return Ok(LocalSelection { range: (start, end), expression: None, string_part: Some(selection_text), body });
         }
         let mut single: Option<usize> = None;
@@ -981,7 +981,7 @@ impl<'p> Context<'p> {
             }
             if without_covered {
                 if kind == "SimpleIdentifier" {
-                    if self.tree.nos[k].marca == Marca::ContextoDeDeclaracao {
+                    if self.tree.nodes[k].mark == Mark::DeclarationContext {
                         return Err("Cannot extract the name part of a declaration.");
                     }
                     let e = self.identifier_element(k, true);
@@ -1003,8 +1003,8 @@ impl<'p> Context<'p> {
         }
         match single {
             Some(k) => {
-                let node = &self.tree.nos[k];
-                Ok(LocalSelection { range: (node.inicio, node.fim), expression: Some(k), string_part: None, body })
+                let node = &self.tree.nodes[k];
+                Ok(LocalSelection { range: (node.start, node.end), expression: Some(k), string_part: None, body })
             }
             None => Err("Expression must be selected to activate this refactoring."),
         }
@@ -1017,10 +1017,10 @@ impl<'p> Context<'p> {
 
     /// `InlineLocalRefactoringImpl.isAvailable()`.
     pub(crate) fn local_inline(&self, o: usize) -> bool {
-        let Some(n) = self.tree.localizar(o, o) else { return false };
+        let Some(n) = self.tree.locate(o, o) else { return false };
         match self.kind(n) {
             "SimpleIdentifier" => self.identifier_element(n, true) == Elem::LocalVariable,
-            "VariableDeclaration" => self.tree.nos[n].marca == Marca::VariavelLocal,
+            "VariableDeclaration" => self.tree.nodes[n].mark == Mark::LocalVariable,
             _ => false,
         }
     }
@@ -1028,7 +1028,7 @@ impl<'p> Context<'p> {
     /// The element of `InlineMethodRefactoringImpl._checkOffset`, and whether it
     /// came from the declaration.
     pub(crate) fn inline_method_element(&self, o: usize) -> Option<(Elem, usize, bool)> {
-        let n = self.tree.localizar(o, o)?;
+        let n = self.tree.locate(o, o)?;
         let (e, declaration) = match self.kind(n) {
             "FunctionDeclaration" | "MethodDeclaration" => (self.declared_element(n), true),
             "SimpleIdentifier" => (self.identifier_element(n, false), false),
@@ -1045,7 +1045,7 @@ impl<'p> Context<'p> {
 
     /// The element of `getElementOfNode(NodeLocator(offset))`.
     pub(crate) fn element_at_cursor(&self, o: usize) -> Elem {
-        match self.tree.localizar(o, o) {
+        match self.tree.locate(o, o) {
             Some(n) => self.node_element(n),
             None => Elem::None,
         }
@@ -1106,16 +1106,16 @@ impl<'p> Context<'p> {
             return None;
         }
         let contains = |k: usize| {
-            let node = &self.tree.nos[k];
+            let node = &self.tree.nodes[k];
             if l == 0 {
-                if o == node.inicio && self.identifier_ends_in(o) {
+                if o == node.start && self.identifier_ends_in(o) {
                     return false;
                 }
-                if o == node.fim && self.identifier_starts_in(o) {
+                if o == node.end && self.identifier_starts_in(o) {
                     return false;
                 }
             }
-            node.inicio <= o && node.fim >= end
+            node.start <= o && node.end >= end
         };
         let mut current = 0usize;
         while let Some(f) = self.children(current).iter().copied().find(|&f| contains(f)) {
@@ -1126,9 +1126,9 @@ impl<'p> Context<'p> {
 
     /// The top-level declaration (`DeclId`) of the unit member node.
     pub(crate) fn node_declaration(&self, n: usize) -> Option<ast::DeclId> {
-        match self.tree.nos[n].marca {
-            Marca::Decl(d) => Some(d),
-            Marca::Funcao(fid) => {
+        match self.tree.nodes[n].mark {
+            Mark::Decl(d) => Some(d),
+            Mark::Function(fid) => {
                 let unit = &self.p.program().unit(self.unit).unit;
                 unit.declarations.iter().copied().find(|&d| matches!(self.ast.decl(d).kind, DeclKind::Function(f) if f == fid))
             }
@@ -1229,10 +1229,10 @@ impl<'p> Context<'p> {
                         .filter(|&f| DIRECTIVES.contains(&self.kind(f)) == directives && self.kind(f) != "ScriptTag")
                         .collect();
                     let mut first = list.len();
-                    while first > 0 && self.tree.nos[list[first - 1]].fim > o {
+                    while first > 0 && self.tree.nodes[list[first - 1]].end > o {
                         first -= 1;
                     }
-                    list[first..].iter().copied().take_while(|&k| self.tree.nos[k].inicio < end).collect()
+                    list[first..].iter().copied().take_while(|&k| self.tree.nodes[k].start < end).collect()
                 };
                 let mut nodes = in_range(true);
                 if nodes.is_empty() {

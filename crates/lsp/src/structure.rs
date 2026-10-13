@@ -642,7 +642,7 @@ impl Collector<'_> {
 /// (`DartSelectionRangeComputer`).
 pub(crate) fn selections(text: &str, features: LibraryFeatures, offset: usize) -> Vec<Span> {
     // The analyzer-shaped tree and the `NodeLocator` (§7.2 to §7.6).
-    crate::arvore_analyzer::selecoes(text, features, offset)
+    crate::analyzer_tree::selections(text, features, offset)
 }
 
 #[cfg(test)]

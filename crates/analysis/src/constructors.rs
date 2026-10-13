@@ -21,7 +21,7 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use crate::Unidade;
+use crate::Unit;
 use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{self, DeclKind, FunctionKind, Initializer, MemberKind};
@@ -71,7 +71,7 @@ impl Owner<'_> {
     }
 }
 
-fn owner<'a>(u: &Unidade<'a>, d: &'a ast::Decl, names: &Interner) -> Option<Owner<'a>> {
+fn owner<'a>(u: &Unit<'a>, d: &'a ast::Decl, names: &Interner) -> Option<Owner<'a>> {
     let a = u.ast;
     let mut fields = Vec::new();
     let mut synthetics = Vec::new();
@@ -152,7 +152,7 @@ fn param_span(source: &str, p: &ast::Parameter) -> Span {
     Span { start, end: end.min(p.span.end).max(start) }
 }
 
-pub fn check(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
+pub fn check(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
     let mut out = Vec::new();
     for (iu, u) in units.iter().enumerate() {
         let a = u.ast;
@@ -189,11 +189,11 @@ pub fn check(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)
                 let m = a.member(mid);
                 let MemberKind::Constructor(k) = &m.kind else { continue };
                 let is_primary = primary == Some(mid) || (in_extension_type && k.primary_body_part);
-                // `_checkForValidField`: todo construtor.
+                // `_checkForValidField`: every constructor.
                 for p in k.parameters.iter().filter(|p| p.this_ && !p.super_) {
                     let name = p.name.map(|n| names.resolve(n.sym).to_string()).unwrap_or_default();
                     let target = p.name.map_or(Found::Missing, |n| owner.find(n.sym));
-                    let sp = param_span(u.fonte, p);
+                    let sp = param_span(u.source, p);
                     match target {
                         Found::Missing | Found::Synthetic => {
                             out.push((iu, Diagnostic::with_code(c::INITIALIZING_FORMAL_FOR_NON_EXISTENT_FIELD, sp, [name.as_str()])));
@@ -202,7 +202,7 @@ pub fn check(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)
                             // The primary constructor (3.13.4,
                             // `_checkForValidField`): on the `this`.
                             let sp = match p.name {
-                                Some(n) if is_primary => u.fonte[sp.start..n.span.start]
+                                Some(n) if is_primary => u.source[sp.start..n.span.start]
                                     .rfind("this")
                                     .map_or(sp, |i| Span { start: sp.start + i, end: sp.start + i + 4 }),
                                 _ => sp,

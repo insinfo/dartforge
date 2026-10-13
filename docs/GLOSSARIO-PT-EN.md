@@ -227,3 +227,10 @@ outras já em inglês ficam.
 | `infer_bodies_das_bibliotecas(_com_unidades)`, `resolve_outline_com_unidades`, `inferir_corpos`, `corpos_da_unidade`, `corpo_no_offset` | `infer_library_bodies(_with_units)`, `resolve_outline_with_units`, `infer_bodies`, `unit_bodies`, `body_at_offset` |
 | `e_<x>` (predicados “é x”) | `is_<x>` |
 | exemplos `despejo_tipos`, `comparar_tipos`, `gravar_corpus`, `avisos`, `memoria_types`; testes `corpus_inferencia`, `inferencia_grupos` | `dump_types`, `compare_types`, `record_corpus`, `warnings`, `memory_types`; `corpus_inference`, `inference_groups` |
+| `analysis::arvore_analyzer::{Arvore, No, Marca, Ligacao, PartesDeFor}` (`nos`, `inicio`, `fim`, `pai`, `filhos`, `especie`) | `analysis::analyzer_tree::{AnalyzerTree, Node, Mark, Binding, ForParts}` (`nodes`, `start`, `end`, `parent`, `children`, `kind`) |
+| `arvore_analyzer::{construir, construir_resolvida, localizar, e_comando, e_expressao}` | `analyzer_tree::{build, build_resolved, locate, is_statement, is_expression}` |
+| `analysis::{publicacao, duplicatas, externos, importacoes, locais, saida, inicializacao, operadores, naodart}` | `analysis::{publication, duplicates, externals, imports, locals, exit_detector, initialization, operators, non_dart}` |
+| `analysis::Unidade { fonte }`, `Pulados { trechos }` | `analysis::Unit { source }`, `Skipped { spans }` |
+| `publicacao::{VERIFICADOS, verificados, publicado}` | `publication::{VERIFIED, verified, is_published}` (o arquivo `verificados.txt` fica) |
+| `lints::{CodigoLint, InfoRegra, EstadoDaRegra, Conjunto, REGRAS, TODOS}`, `codigos_g`, `tabela_g` | `lints::{LintCode, RuleInfo, RuleState, RuleSet, RULES, ALL}`, `codes_g`, `table_g` |
+| `naodart::{CodigoNaoDart, NOMES_DE_CODIGO}`, `yaml::{No, Valor, ler}` | `non_dart::{NonDartCode, CODE_NAMES}`, `yaml::{Node, Value, parse}` |
