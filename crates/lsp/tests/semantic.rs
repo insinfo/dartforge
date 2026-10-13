@@ -97,12 +97,15 @@ fn imported_uses_types_and_current_text_without_retaining_versions() {
         "textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":"import 'lib.dart';\nvar x = missing;\n"}]
     }}));
     server.pump();
-    assert_eq!(request(&mut server, 4, "textDocument/hover", &uri, 10), Value::Null);
+    // An undefined name: only its `InvalidType`, like `dart language-server`
+    // 3.6.2.
+    assert_eq!(request(&mut server, 4, "textDocument/hover", &uri, 10)["contents"], "Type: InvalidType");
     server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
         "textDocument":{"uri":uri,"version":1},"contentChanges":[{"text":text}]
     }}));
     assert!(server.pump().is_empty());
-    assert_eq!(request(&mut server, 5, "textDocument/hover", &uri, 10), Value::Null);
+    // The older version is ignored: the text is still version 2's.
+    assert_eq!(request(&mut server, 5, "textDocument/hover", &uri, 10)["contents"], "Type: InvalidType");
     server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
         "textDocument":{"uri":uri,"version":3},"contentChanges":[{"text":"import 'lib.dart';\nvoid f(int answer) => answer;\n"}]
     }}));

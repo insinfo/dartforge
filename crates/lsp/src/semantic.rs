@@ -181,6 +181,12 @@ impl SemanticAnalyzer {
         {
             return Some(h);
         }
+        if let Some(project) = self.library(documents, uri)
+            && let Some(unit) = project.uri_unit(uri)
+            && let Some(h) = project.invalid_hover(unit, offset)
+        {
+            return Some(h);
+        }
         self.syntactic.hover_in_workspace(uri, text, offset, documents)
     }
 

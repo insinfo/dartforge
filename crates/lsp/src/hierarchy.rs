@@ -479,7 +479,8 @@ impl Project {
             // an interface type).
             (Target::Constructor(_), _) => return None,
             (_, Some(Concrete::Function(f)))
-                if !matches!(self.program().function(f).kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) =>
+                if !matches!(self.program().function(f).kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor)
+                    && !(self.program().function(f).kind == FunctionKind::Setter && d.expr.is_some_and(|e| self.write_target(unit, e))) =>
             {
                 // Method or function: the type is a function.
                 return None;
@@ -513,7 +514,7 @@ impl Project {
     }
 
     /// `e` is written: the target of an assignment or of `++`/`--`.
-    fn write_target(&self, unit: UnitId, e: dartforge_frontend::ast::ExprId) -> bool {
+    pub(crate) fn write_target(&self, unit: UnitId, e: dartforge_frontend::ast::ExprId) -> bool {
         use dartforge_frontend::ast::{ExprKind, UnaryOp};
         self.program().unit(unit).ast.exprs.iter().any(|x| match &x.kind {
             ExprKind::Assign { target, .. } => *target == e,

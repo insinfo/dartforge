@@ -17,6 +17,29 @@ use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind};
 use dartforge_types::{Type, TypeId};
 
 impl Project {
+    /// The hover of a name that resolves to nothing but whose expression has
+    /// the `InvalidType` (an undefined function, getter or method): the
+    /// analyzer shows only `Type: InvalidType` (`_typeDisplayString` with a
+    /// null element).
+    pub(crate) fn invalid_hover(&self, unit: UnitId, offset: usize) -> Option<Hover> {
+        let u = self.program().unit(unit);
+        let name = crate::project::word(&u.source, offset)?;
+        let bodies = &self.query.bodies.units[unit.0 as usize];
+        let (i, _) = u.ast.exprs.iter().enumerate().find(|(_, e)| match &e.kind {
+            ast::ExprKind::Identifier(n) | ast::ExprKind::Property { name: n, .. } => n.span == name,
+            _ => false,
+        })?;
+        let id = ast::ExprId(i as u32);
+        if bodies.get_resolved(id).is_some() {
+            return None;
+        }
+        let t = bodies.get_type(id)?;
+        if !self.query.table.is_invalid(t) {
+            return None;
+        }
+        Some(Hover { range: name, description: String::new(), ty: Some("InvalidType".to_string()), documentation: None, library: None })
+    }
+
     /// The hover of what `d` denotes in unit `unit`.
     pub(crate) fn hover(&self, unit: UnitId, d: &Denoted) -> Option<Hover> {
         // `_targetNode`: the type name of `A.n(…)` (the `NamedType` of a creation's
@@ -80,11 +103,17 @@ impl Project {
             }
             (_, Some(Concrete::Function(f))) => {
                 let fe = self.program().function(f);
-                // At the declaration (no expression), the analyzer shows no type.
+                // At the declaration (no expression), the analyzer shows no type; a
+                // setter written to shows the `writeType` (its parameter's type).
                 let ty = (matches!(fe.kind, FunctionKind::Getter) && d.expr.is_some())
                     .then(|| {
                         self.reference_type(unit, d.expr)
                             .unwrap_or(self.query.outline.functions[f.0 as usize].return_type)
+                    })
+                    .or_else(|| {
+                        (fe.kind == FunctionKind::Setter && d.expr.is_some_and(|e| self.write_target(unit, e)))
+                            .then(|| self.query.outline.functions[f.0 as usize].parameters.first().map(|q| q.ty))
+                            .flatten()
                     })
                     .map(|t| self.query.format(t));
                 (
@@ -582,7 +611,9 @@ impl Project {
         let name_span = word(&unit.source, declaration)?;
         let name = &unit.source[name_span.start..name_span.end];
         let bodies = &self.query.bodies.units[u.0 as usize];
-        let declared = bodies.local_type(declaration)?;
+        // A parameter of a library whose bodies were not inferred (the label of
+        // a named argument of an SDK constructor): the outline's type.
+        let declared = bodies.local_type(declaration).or_else(|| self.outline_parameter_type(u, declaration))?;
         // Local function: the written signature.
         if let Some(fid) = unit
             .ast
@@ -613,6 +644,19 @@ impl Project {
             };
         }
         Some((text, Some(self.query.format(current))))
+    }
+
+    /// The type of the parameter declared at `declaration` in the outline of
+    /// its executable (function, method or constructor).
+    fn outline_parameter_type(&self, u: UnitId, declaration: usize) -> Option<TypeId> {
+        let ast_u = &self.program().unit(u).ast;
+        let (q, owner) = crate::project::parameter_in(ast_u, declaration)?;
+        let f = match owner {
+            crate::project::OwnerParameter::Function(fid) => self.node_function(u, fid)?,
+            crate::project::OwnerParameter::Constructor(mid) => self.node_constructor(u, mid)?,
+        };
+        let symbol = q.name?.sym;
+        self.query.outline.functions.get(f.0 as usize)?.parameters.iter().find(|x| x.name == Some(symbol)).map(|x| x.ty)
     }
 
     /// Signature of a local function from the inferred type and the tree.

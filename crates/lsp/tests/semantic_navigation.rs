@@ -583,3 +583,24 @@ fn definition_like_the_navigation_computer() {
     let r = request(&mut p, "textDocument/definition", "lib/a.dart", a, "e in", 0, json!({}));
     assert!(r.is_null() || r.as_array().is_some_and(|l| l.is_empty()), "{r}");
 }
+
+#[test]
+fn hover_of_writes_labels_and_unresolved_names() {
+    let mut p = Project::new("nav-hover-escritas");
+    p.write("lib/m.dart", "class M {\n  /// Makes one.\n  M({int Function(int)? size});\n}\n");
+    let a = "import 'm.dart';\nclass S {\n  int get v => 0;\n  set v(int x) {}\n}\nvoid f(S s) {\n  s.v = 1;\n  M(size: null);\n  print(undefinedThing(1));\n}\n";
+    p.open("lib/a.dart", a);
+    // A setter written to shows the `writeType`.
+    let h = hover(&mut p, "lib/a.dart", a, "v = 1", 0);
+    assert!(h.contains("set v(int x)") && h.contains("Type: int"), "{h}");
+    // And its type definition is the written type's class.
+    let r = request(&mut p, "textDocument/typeDefinition", "lib/a.dart", a, "v = 1", 0, json!({}));
+    let r = if r.is_array() { r[0].clone() } else { r };
+    assert!(r["uri"].as_str().is_some_and(|u| u.ends_with("core/core.dart")), "{r}");
+    // The label of a named argument of a library whose bodies were not
+    // inferred: the parameter, with the outline's type.
+    let h = hover(&mut p, "lib/a.dart", a, "size:", 0);
+    assert!(h.contains("{int Function(int)? size}") && h.contains("Type: int Function(int)?"), "{h}");
+    // An undefined name: only the `InvalidType`.
+    assert_eq!(hover(&mut p, "lib/a.dart", a, "undefinedThing", 0), "Type: InvalidType");
+}

@@ -1398,7 +1398,7 @@ impl<A: Analyzer> Server<A> {
                     let content = if self.hover_markdown {
                         // Like Dart's `toHover`: description, type, library and, after `---`, the
                         // documentation.
-                        let mut value = format!("```dart\n{}\n```\n", hover.description);
+                        let mut value = if hover.description.is_empty() { String::new() } else { format!("```dart\n{}\n```\n", hover.description) };
                         if let Some(t) = &hover.ty {
                             value.push_str(&format!("Type: `{t}`\n\n"));
                         }
@@ -1412,7 +1412,10 @@ impl<A: Analyzer> Server<A> {
                     } else {
                         let mut value = hover.description.clone();
                         if let Some(t) = &hover.ty {
-                            value.push_str(&format!("\nType: {t}"));
+                            if !value.is_empty() {
+                                value.push('\n');
+                            }
+                            value.push_str(&format!("Type: {t}"));
                         }
                         if let Some(d) = &hover.documentation {
                             value.push_str(&format!("\n\n{d}"));
