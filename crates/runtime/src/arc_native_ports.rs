@@ -1,5 +1,5 @@
-// Fronteira entre callbacks Dart Owned e consumidores nativos emprestados.
-// O registro é explícito: endereços e palavras não declaram ownership.
+// The boundary between Owned Dart callbacks and borrowing native consumers.
+// Registration is explicit: addresses and words do not declare ownership.
 
 #[derive(Clone, Copy)]
 struct ArcReturnRecord {
@@ -20,17 +20,17 @@ struct ArcNativePorts {
     tipadas: HashMap<(usize, i64), i64>,
 }
 
-// A ABI base 5 omite o contexto Ref inicial; codifica argumentos e retorno.
-// Ref transfere owner; i64/f64/bool são escalares sem token gerenciado.
+// The base-5 ABI omits the initial Ref context; it encodes arguments and return.
+// A Ref transfers an owner; i64/f64/bool are scalars without a managed token.
 fn check_arc_typed_abi(mut abi: i64) -> Result<(), &'static str> {
-    if abi <= 1 || !matches!(abi % 5, 1..=4) { return Err("retorno tipado inválido"); }
+    if abi <= 1 || !matches!(abi % 5, 1..=4) { return Err("invalid typed return"); }
     let mut n = 0;
     while abi > 1 {
-        if !matches!(abi % 5, 1..=4) { return Err("representação tipada inválida"); }
+        if !matches!(abi % 5, 1..=4) { return Err("invalid typed representation"); }
         abi /= 5; n += 1;
-        if n > 13 { return Err("aridade tipada fora do limite"); }
+        if n > 13 { return Err("typed arity out of bounds"); }
     }
-    if abi != 1 { return Err("prefixo da ABI tipada inválido"); }
+    if abi != 1 { return Err("invalid typed ABI prefix"); }
     Ok(())
 }
 
@@ -38,18 +38,18 @@ fn arc_typed_target(
     heap: &Heap, ports: &ArcNativePorts, closure: i64, abi: i64,
 ) -> Result<i64, &'static str> {
     check_arc_typed_abi(abi)?;
-    let object = heap.object(closure).ok_or("receiver tipado não é objeto vivo")?;
+    let object = heap.object(closure).ok_or("typed receiver is not a live object")?;
     if object.class_id != i64::from(crate::layout::cid::CLOSURE) || object.len() != 4 {
-        return Err("receiver tipado não é closure de quatro campos");
+        return Err("typed receiver is not a four-field closure");
     }
-    let (code, code_ref) = object.get(2).ok_or("corpo tipado ausente")?;
-    let (declared, ref_abi) = object.get(3).ok_or("ABI tipada ausente")?;
+    let (code, code_ref) = object.get(2).ok_or("missing typed body")?;
+    let (declared, ref_abi) = object.get(3).ok_or("missing typed ABI")?;
     if code_ref || ref_abi || code == 0 || declared != abi {
-        return Err("corpo/ABI tipada incompatível com o mapa físico");
+        return Err("typed body/ABI incompatible with the physical map");
     }
-    let code_usize = usize::try_from(code as u64).map_err(|_| "endereço tipado inválido")?;
+    let code_usize = usize::try_from(code as u64).map_err(|_| "invalid typed address")?;
     if !ports.tipadas.contains_key(&(code_usize, abi)) {
-        return Err("corpo tipado sem registro ARC desta ABI");
+        return Err("typed body without an ARC registration of this ABI");
     }
     Ok(code)
 }
@@ -57,13 +57,13 @@ fn arc_typed_target(
 impl ArcNativePorts {
     fn register_typed(&mut self, code: usize, abi: i64) -> Result<i64, &'static str> {
         check_arc_typed_abi(abi)?;
-        if code == 0 { return Err("corpo tipado nulo"); }
+        if code == 0 { return Err("null typed body"); }
         Ok(*self.tipadas.entry((code, abi)).or_insert_with(new_arc_port_id))
     }
 
     fn remove_typed(&mut self, code: usize, abi: i64, version: i64) -> Result<(), &'static str> {
         if self.tipadas.get(&(code, abi)) != Some(&version) {
-            return Err("registro tipado ausente ou versão obsoleta");
+            return Err("missing typed registration or stale version");
         }
         self.tipadas.remove(&(code, abi));
         Ok(())
@@ -79,13 +79,13 @@ impl ArcNativePorts {
         uniform: bool,
     ) -> Result<i64, &'static str> {
         if code == 0 || !matches!(arity, 0..=5 | 7) || (uniform && arity != 3) {
-            return Err("ABI de callback não coberta");
+            return Err("callback ABI not covered");
         }
-        // O ligador pode fundir código de funções com assinaturas distintas.
-        // A declaração pertence à ABI lógica (endereço, aridade), não só ao PC.
+        // The linker may merge the code of functions with different signatures.
+        // The declaration belongs to the logical ABI (address, arity), not just the PC.
         if let Some(r) = self.entries.get(&(code, arity)) {
             if r.uniform != uniform {
-                return Err("contrato uniforme conflita com callback de palavras");
+                return Err("uniform contract conflicts with a word callback");
             }
             return Ok(r.version);
         }
@@ -106,9 +106,9 @@ impl ArcNativePorts {
             .entries
             .iter()
             .find_map(|(k, r)| (k.0 == code && r.version == version).then_some(*k))
-            .ok_or("callback não registrado ou versão obsoleta")?;
+            .ok_or("callback not registered or stale version")?;
         if self.entries[&key].calls != 0 {
-            return Err("callback ativo");
+            return Err("active callback");
         }
         self.entries.remove(&key);
         Ok(())
@@ -122,9 +122,9 @@ struct ArcPortScopes {
 
 impl ArcPortScopes {
     fn do_close(&mut self, id: i64) -> Result<Vec<i64>, &'static str> {
-        let e = self.scopes.last().ok_or("escopo nativo ausente")?;
+        let e = self.scopes.last().ok_or("missing native scope")?;
         if e.id != id || e.calls != 0 {
-            return Err("escopo fora do topo ou callback ativo");
+            return Err("scope not at the top or active callback");
         }
         Ok(self.scopes.pop().unwrap().owners)
     }
@@ -138,12 +138,12 @@ fn new_arc_port_id() -> i64 {
             std::sync::atomic::Ordering::Relaxed,
             |n| n.checked_add(1),
         )
-        .expect("IDs de portas ARC esgotados")
+        .expect("ARC port IDs exhausted")
         + 1
 }
 
-// Código pertence à imagem, compartilhada pelos isolados. A contagem global
-// impede retirar uma versão que está em execução em qualquer thread.
+// Code belongs to the image, shared by the isolates. The global count prevents
+// removing a version that is running on any thread.
 fn arc_port_records() -> &'static std::sync::Mutex<ArcNativePorts> {
     static RECORDS: std::sync::OnceLock<std::sync::Mutex<ArcNativePorts>> =
         std::sync::OnceLock::new();
@@ -154,30 +154,30 @@ static HAS_ARC_RETURN_PORTS: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 thread_local! {
-    // Os valores gerenciados pertencem ao heap da thread que recebeu o retorno.
+    // The managed values belong to the heap of the thread that received the return.
     static ARC_NATIVE_PORTS: RefCell<ArcPortScopes> = RefCell::new(ArcPortScopes::default());
 }
 
-/// Declara retorno Ref Owned de um callback de palavras e devolve sua versão.
+/// Declares an Owned Ref return of a word callback and returns its version.
 ///
-/// Registro repetido com a mesma ABI é idempotente. Não chama código, coleta
-/// ou executa Dart. Não seleciona o modo de memória nem prova o corpo Dart.
+/// A repeated registration with the same ABI is idempotent. Does not call code,
+/// collect or run Dart. Neither selects the memory mode nor proves the Dart body.
 ///
 /// # Safety
-/// `code` deve ter a ABI da porta indicada por `arity`, com parâmetros
-/// de uma palavra e resultado Ref Owned na saída normal, null na saída pending.
-/// Parâmetros Ref são emprestados; o callback não consome tokens do runtime.
-/// O callback deve restaurar os escopos nativos antes de retornar.
-/// O produtor deve verificar o corpo e manter a imagem válida até retirar
-/// o registro e todas as referências/chamadas ao código. Não admite ABI f64.
+/// `code` must have the ABI of the port given by `arity`, with one-word parameters
+/// and an Owned Ref result on the normal exit, null on the pending exit. Ref
+/// parameters are borrowed; the callback does not consume runtime tokens. The
+/// callback must restore the native scopes before returning. The producer must
+/// verify the body and keep the image valid until it removes the registration and
+/// all references/calls to the code. Does not admit an f64 ABI.
 ///
 /// # Panics
-/// Código nulo ou aridade não coberta; aborta no C.
+/// Null code or an arity not covered; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn null_val() -> i64 { 0 }
-/// // SAFETY: null é Ref without token físico; função estática de arity zero.
+/// // SAFETY: null is a Ref without a physical token; static zero-arity function.
 /// let v = unsafe { dartforge_arc_registrar_retorno_owned_v1(null_val as usize as i64, 0) };
 /// dartforge_arc_retirar_retorno_owned_v1(null_val as usize as i64, v);
 /// ```
@@ -186,130 +186,134 @@ pub unsafe extern "C" fn dartforge_arc_registrar_retorno_owned_v1(
     code: i64,
     arity: i64,
 ) -> i64 {
-    let code = usize::try_from(code as u64).expect("endereço de callback inválido");
-    let arity = usize::try_from(arity).expect("aridade negativa");
+    let code = usize::try_from(code as u64).expect("invalid callback address");
+    let arity = usize::try_from(arity).expect("negative arity");
     let mut p = arc_port_records()
         .lock()
-        .expect("registro de portas ARC envenenado");
+        .expect("ARC port registry poisoned");
     let version = p
         .register(code, arity)
-        .expect("contrato de callback ARC violado");
+        .expect("ARC callback contract violated");
     HAS_ARC_RETURN_PORTS.store(true, std::sync::atomic::Ordering::Release);
     version
 }
 
-/// Declara uma entrada uniforme Owned com vetores somente de leitura.
+/// Declares an Owned uniform entry with read-only vectors.
 ///
-/// O contrato é distinto do callback genérico de três palavras. O registro
-/// não verifica o corpo nem seleciona o modo de memória.
+/// The contract is distinct from the generic three-word callback. The registration
+/// neither verifies the body nor selects the memory mode.
 ///
 /// # Safety
-/// O código tem ABI `(Ref, ptr args, ptr desc) -> Ref Owned`, null em pending.
-/// Receptor e elementos Ref são emprestados. Não altera, publica ou retém
-/// endereços dos vetores; pode copiar seus elementos respeitando ownership.
-/// Toda chamada transitiva que recebe esses endereços respeita o mesmo contrato.
-/// O produtor verifica o corpo emitido e restaura escopos em todas as saídas.
-/// A imagem vive até retirar o registro e todos os consumidores do código.
+/// The code has the ABI `(Ref, ptr args, ptr desc) -> Ref Owned`, null when pending.
+/// The receiver and the Ref elements are borrowed. It neither changes, publishes nor
+/// retains the vectors' addresses; it may copy their elements respecting
+/// ownership. Every transitive call that receives those addresses respects the same
+/// contract. The producer verifies the emitted body and restores the scopes on every
+/// exit. The image lives until the registration and all the code's consumers are
+/// removed.
 ///
 /// # Panics
-/// Código nulo ou contrato anterior incompatível; aborta no C.
+/// Null code or an incompatible previous contract; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn smi(_: i64, _: *const i64, _: *const i64) -> i64 { 3 }
-/// // SAFETY: body estático que não published os vetores, retorna Smi without token.
+/// // SAFETY: a static body that does not publish the vectors, returns a Smi without a token.
 /// let v = unsafe { dartforge_arc_registrar_uniforme_owned_v1(smi as *const () as usize as i64) };
 /// dartforge_arc_retirar_retorno_owned_v1(smi as *const () as usize as i64, v);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arc_registrar_uniforme_owned_v1(code: i64) -> i64 {
-    let code = usize::try_from(code as u64).expect("endereço uniforme inválido");
-    let mut p = arc_port_records().lock().expect("registro de portas ARC envenenado");
-    let version = p.register_contract(code, 3, true).expect("contrato uniforme ARC violado");
+    let code = usize::try_from(code as u64).expect("invalid uniform address");
+    let mut p = arc_port_records().lock().expect("ARC port registry poisoned");
+    let version = p.register_contract(code, 3, true).expect("ARC uniform contract violated");
     HAS_ARC_RETURN_PORTS.store(true, std::sync::atomic::Ordering::Release);
     version
 }
 
-/// Registra uma entrada tipada de closure com retorno Owned ou escalar.
+/// Registers a typed closure entry with an Owned or scalar return.
 ///
-/// A ABI base 5 codifica argumentos (Ref=1, i64=2, f64=3, bool=4) e retorno,
-/// depois do prefixo 1; o contexto Ref inicial é implícito. Não chama código.
+/// The base-5 ABI encodes the arguments (Ref=1, i64=2, f64=3, bool=4) and the
+/// return, after the prefix 1; the initial Ref context is implicit. Does not call
+/// code.
 ///
 /// # Safety
-/// O corpo foi verificado nessa ABI: Ref emprestadas, retorno Ref Owned ou
-/// escalar Trivial; resultado canônico em pending e escopos restaurados.
-/// Um i64 escalar não contém word Dart gerenciada. O registro não prova o corpo.
-/// Mantenha código/imagem válidos até retirar a versão e terminar todos os
-/// consumidores do endereço. Não estabelece pins de recarga JIT.
+/// The body was verified in this ABI: borrowed Refs, an Owned Ref or Trivial scalar
+/// return; a canonical result when pending and restored scopes. A scalar i64 does
+/// not contain a managed Dart word. The registration does not prove the body. Keep
+/// the code/image valid until the version is removed and every consumer of the
+/// address has finished. Does not establish JIT reload pins.
 ///
 /// # Panics
-/// Código nulo, ABI inválida ou mais de 12 argumentos.
+/// Null code, an invalid ABI or more than 12 arguments.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn body(_: i64) -> i64 { 0 }
 /// let pc = body as *const () as usize as i64;
-/// // SAFETY: função estática, contexto borrowed e ret null Owned.
+/// // SAFETY: static function, borrowed context and a null Owned return.
 /// let v = unsafe { dartforge_arc_registrar_tipada_v1(pc, 6) };
-/// // SAFETY: nenhum consumidor/chamada do endereço está ativo.
+/// // SAFETY: no consumer/call of the address is active.
 /// unsafe { dartforge_arc_retirar_tipada_v1(pc, 6, v); }
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arc_registrar_tipada_v1(code: i64, abi: i64) -> i64 {
-    arc_port_records().lock().expect("registro de portas ARC envenenado")
-        .register_typed(usize::try_from(code as u64).expect("endereço tipado inválido"), abi)
-        .expect("registro tipado ARC inválido")
+    arc_port_records().lock().expect("ARC port registry poisoned")
+        .register_typed(usize::try_from(code as u64).expect("invalid typed address"), abi)
+        .expect("invalid ARC typed registration")
 }
 
-/// Retira exatamente uma versão e ABI de entrada tipada.
+/// Removes exactly one version and ABI of a typed entry.
 ///
 /// # Safety
-/// Não pode haver chamada ativa nem consumidor de endereço obtido por
-/// `dartforge_arc_alvo_tipada_v1`. O código deve continuar válido até aqui.
+/// There must be no active call nor consumer of an address obtained through
+/// `dartforge_arc_alvo_tipada_v1`. The code must stay valid until here.
 ///
 /// # Panics
-/// Registro ausente ou versão obsoleta; aborta na fronteira C.
+/// Missing registration or stale version; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn body(_: i64) -> i64 { 0 }
 /// let pc = body as *const () as usize as i64;
-/// // SAFETY: ABI estática e nenhum consumidor ativo.
+/// // SAFETY: static ABI and no active consumer.
 /// let v = unsafe { dartforge_arc_registrar_tipada_v1(pc, 6) };
 /// unsafe { dartforge_arc_retirar_tipada_v1(pc, 6, v); }
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arc_retirar_tipada_v1(code: i64, abi: i64, version: i64) {
-    arc_port_records().lock().expect("registro de portas ARC envenenado")
-        .remove_typed(usize::try_from(code as u64).expect("endereço tipado inválido"), abi, version)
-        .expect("retirada tipada ARC inválida");
+    arc_port_records().lock().expect("ARC port registry poisoned")
+        .remove_typed(usize::try_from(code as u64).expect("invalid typed address"), abi, version)
+        .expect("invalid ARC typed removal");
 }
 
-/// Confere classe, mapa, ABI e registro ARC antes de devolver código nativo.
+/// Checks the class, the map, the ABI and the ARC registration before returning
+/// native code.
 ///
-/// Não retém, aloca, coleta ou executa Dart. O resultado é endereço nativo,
-/// não Ref. Sua validade depende do contrato de registro e vida da imagem.
+/// Neither retains, allocates, collects nor runs Dart. The result is a native
+/// address, not a Ref. Its validity depends on the registration contract and on the
+/// image's lifetime.
 ///
 /// # Panics
-/// Receiver, campos, ABI ou registro inválidos; aborta na fronteira C.
+/// Invalid receiver, fields, ABI or registration; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn body(_: i64) -> i64 { 0 }
 /// let pc = body as *const () as usize as i64;
-/// // SAFETY: ABI estática de contexto Ref e result Ref null Owned.
+/// // SAFETY: static ABI with a Ref context and a null Owned Ref result.
 /// let v = unsafe { dartforge_arc_registrar_tipada_v1(pc, 6) };
 /// let c = dartforge_arc_closure_owned_v1(0, 0, pc, 6);
 /// assert_eq!(dartforge_arc_alvo_tipada_v1(c, 6), pc);
 /// dartforge_arc_release(c);
-/// // SAFETY: nenhum consumidor do endereço permanece.
+/// // SAFETY: no consumer of the address remains.
 /// unsafe { dartforge_arc_retirar_tipada_v1(pc, 6, v); }
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_alvo_tipada_v1(closure: i64, abi: i64) -> i64 {
     HEAP.with(|heap| arc_typed_target(&heap.borrow(),
-        &arc_port_records().lock().expect("registro de portas ARC envenenado"), closure, abi)
-        .expect("alvo tipado ARC inválido"))
+        &arc_port_records().lock().expect("ARC port registry poisoned"), closure, abi)
+        .expect("invalid ARC typed target"))
 }
 
 struct ArcUniformScope(i64);
@@ -320,8 +324,8 @@ impl Drop for ArcUniformScope {
     }
 }
 
-/// `f` dentro de um escopo nativo, sem mudar o resultado: os tokens que
-/// portas Dart devolvem durante `f` morrem no fechamento, mesmo com pânico.
+/// `f` inside a native scope, without changing the result: the tokens that Dart
+/// ports return during `f` die at the closing, even on a panic.
 pub(crate) fn in_native_scope<T>(f: impl FnOnce() -> T) -> T {
     let scope = ArcUniformScope(dartforge_arc_escopo_nativo_abrir_v1());
     let r = f();
@@ -329,8 +333,8 @@ pub(crate) fn in_native_scope<T>(f: impl FnOnce() -> T) -> T {
     r
 }
 
-/// `f` num escopo nativo só quando alguma imagem registrou portas ARC
-/// (um evento do laço, a vida de um isolado): sem elas, nada muda.
+/// `f` in a native scope only when some image registered ARC ports (an event of the
+/// loop, the life of an isolate): without them, nothing changes.
 pub(crate) fn in_native_scope_if_arc<T>(f: impl FnOnce() -> T) -> T {
     if HAS_ARC_RETURN_PORTS.load(std::sync::atomic::Ordering::Acquire) {
         in_native_scope(f)
@@ -339,10 +343,10 @@ pub(crate) fn in_native_scope_if_arc<T>(f: impl FnOnce() -> T) -> T {
     }
 }
 
-/// Roda `f` (que pode executar Dart e devolve um objeto vivo ao voltar) num
-/// escopo nativo e entrega o resultado com um owner do código. Os tokens dos
-/// retornos Owned das portas Dart ficam no escopo e são soltos ao fechá-lo,
-/// depois da cópia. Com exceção pendente, null e nenhum owner.
+/// Runs `f` (which may run Dart and returns a live object when it comes back) in a
+/// native scope and hands over the result with a code owner. The tokens of the Dart
+/// ports' Owned returns stay in the scope and are released when it closes, after
+/// the copy. With a pending exception, null and no owner.
 pub(crate) fn owner_in_native_scope(f: impl FnOnce() -> i64) -> i64 {
     let scope = ArcUniformScope(dartforge_arc_escopo_nativo_abrir_v1());
     let r = f();
@@ -364,26 +368,26 @@ fn arc_invoke_uniform(
 ) -> Result<i64, &'static str> {
     let scope = ArcUniformScope(dartforge_arc_escopo_nativo_abrir_v1());
     let result = if code == dartforge_nsm_seletor as *const () as usize {
-        // Este corpo nativo lê/copia os vetores, sem os encaminhar ao SDK.
-        // O helper Dart usa dart_r7: seu Owned fica emprestado neste escopo.
+        // This native body reads/copies the vectors, without forwarding them to the SDK.
+        // The Dart helper uses dart_r7: its Owned stays borrowed in this scope.
         let r = dartforge_nsm_seletor(recv, args as *const i64, desc as *const i64);
         if dartforge_exception_pending() != 0 {
-            assert_eq!(r, 0, "noSuchMethod pendente deve devolver null");
+            assert_eq!(r, 0, "a pending noSuchMethod must return null");
             0
         } else {
-            // A convenção antiga devolve Borrowed, inclusive se o helper era
-            // Owned capturado pela fronteira. Copia antes de liberar o escopo.
+            // The old convention returns Borrowed, even if the helper was Owned
+            // captured by the boundary. Copies before releasing the scope.
             dartforge_arc_retain(r);
             r
         }
     } else {
         let guard = arc_prepare_contract_port(code, 3, true)?
-            .ok_or("entrada uniforme não registrada")?;
+            .ok_or("uniform entry not registered")?;
         let r = dart_r3_invoke(code, recv, args, desc);
         arc_check_port_scope(&guard);
         arc_validate_owned_return(r);
-        // O retorno direto já é Owned: não o transfere ao escopo nem retém.
-        // A guarda precisa terminar antes do fechamento do escopo que prende.
+        // The direct return is already Owned: it neither transfers it to the scope
+        // nor retains it. The guard must end before the closing of the scope it pins.
         drop(guard);
         r
     };
@@ -391,29 +395,29 @@ fn arc_invoke_uniform(
     Ok(result)
 }
 
-/// Invoca entrada uniforme certificada e devolve exatamente um retorno Owned.
+/// Invokes a certified uniform entry and returns exactly one Owned return.
 ///
-/// Aceita o fallback nativo noSuchMethod, adaptando seu retorno emprestado.
-/// Fecha o escopo de callbacks também em pending, sem limpar a exceção.
-/// Código desconhecido e callback genérico não são inferidos como uniformes.
+/// Accepts the native noSuchMethod fallback, adapting its borrowed return. Closes
+/// the callback scope also when pending, without clearing the exception. Unknown
+/// code and a generic callback are not inferred as uniform.
 ///
 /// # Safety
-/// `code` e sua imagem permanecem vivos durante a chamada. `args` e `desc`
-/// são endereços válidos da ABI uniforme: dois contadores não negativos,
-/// hashes nomeados e vetor com todos os argumentos mais a tupla RTI.
-/// Receptor e elementos Ref permanecem vivos por todo o alcance da chamada.
+/// `code` and its image stay alive during the call. `args` and `desc` are valid
+/// addresses of the uniform ABI: two non-negative counters, named hashes and a
+/// vector with all the arguments plus the RTI tuple. The receiver and the Ref
+/// elements stay alive for the whole reach of the call.
 ///
 /// # Panics
-/// Entrada não certificada ou violação de ownership/escopos; aborta no C.
+/// An uncertified entry or an ownership/scope violation; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn null_val(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
 /// let pc = null_val as *const () as usize as i64;
-/// // SAFETY: body não published vetores nem cria tokens, devolve Ref null.
+/// // SAFETY: the body neither publishes vectors nor creates tokens, returns a null Ref.
 /// let v = unsafe { dartforge_arc_registrar_uniforme_owned_v1(pc) };
 /// let args = [0_i64]; let desc = [0_i64, 0];
-/// // SAFETY: vetores váread_list e body registrado estático.
+/// // SAFETY: valid vectors and a static registered body.
 /// assert_eq!(unsafe { dartforge_arc_invocar_uniforme_v1(pc, 0,
 ///     args.as_ptr() as i64, desc.as_ptr() as i64) }, 0);
 /// dartforge_arc_retirar_retorno_owned_v1(pc, v);
@@ -425,17 +429,17 @@ pub unsafe extern "C" fn dartforge_arc_invocar_uniforme_v1(
     args: i64,
     desc: i64,
 ) -> i64 {
-    let code = usize::try_from(code as u64).expect("endereço uniforme inválido");
-    arc_invoke_uniform(code, recv, args, desc).expect("fronteira uniforme ARC inválida")
+    let code = usize::try_from(code as u64).expect("invalid uniform address");
+    arc_invoke_uniform(code, recv, args, desc).expect("invalid ARC uniform boundary")
 }
 
 fn arc_invoke_uniform_closure(closure: i64, args: i64, desc: i64) -> Result<i64, &'static str> {
-    // A busca de entrada também pode executar o helper Dart de erro. Prende
-    // seus retornos intermediários até publicar a exceção, inclusive se falhar.
+    // The entry lookup may also run the Dart error helper. It pins its intermediate
+    // returns until the exception is published, even if it fails.
     let scope = ArcUniformScope(dartforge_arc_escopo_nativo_abrir_v1());
     let code = dartforge_closure_entry(closure);
     let result = if code == 0 {
-        assert_ne!(dartforge_exception_pending(), 0, "closure inválida sem exceção");
+        assert_ne!(dartforge_exception_pending(), 0, "invalid closure without an exception");
         0
     } else {
         arc_invoke_uniform(code as u64 as usize, closure, args, desc)?
@@ -444,29 +448,30 @@ fn arc_invoke_uniform_closure(closure: i64, args: i64, desc: i64) -> Result<i64,
     Ok(result)
 }
 
-/// Invoca uma closure ou objeto chamável com retorno uniforme Owned.
+/// Invokes a closure or callable object with an Owned uniform return.
 ///
-/// A busca inválida preserva a exceção e devolve null, sem invocar código.
-/// Entradas válidas precisam do registro uniforme; callback genérico não basta.
-/// Fecha os escopos de busca e chamada, preservando o único owner do resultado.
+/// An invalid lookup preserves the exception and returns null, without invoking
+/// code. Valid entries need the uniform registration; a generic callback is not
+/// enough. Closes the lookup and call scopes, preserving the result's single owner.
 ///
 /// # Safety
-/// Closure/receptor e elementos Ref ficam vivos por toda a chamada. `args` e
-/// `desc` apontam para vetores válidos da ABI uniforme, somente de leitura.
-/// A imagem de código permanece viva enquanto houver consumidores da closure.
+/// The closure/receiver and the Ref elements stay alive for the whole call. `args`
+/// and `desc` point to valid read-only vectors of the uniform ABI. The code image
+/// stays alive while the closure has consumers.
 ///
 /// # Panics
-/// Destino sem contrato uniforme ou violação de ownership/escopos; aborta no C.
+/// A destination without a uniform contract or an ownership/scope violation; aborts
+/// at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn null_val(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
 /// let pc = null_val as *const () as usize as i64;
-/// // SAFETY: body estático readonly com ret Ref null.
+/// // SAFETY: a static read-only body with a null Ref return.
 /// let v = unsafe { dartforge_arc_registrar_uniforme_owned_v1(pc) };
 /// let c = dartforge_arc_closure_owned_v1(pc, 0, 0, 0);
 /// let args = [0_i64]; let desc = [0_i64, 0];
-/// // SAFETY: closure e vetores live_set; código registrado e estático.
+/// // SAFETY: live closure and vectors; registered static code.
 /// assert_eq!(unsafe { dartforge_arc_invocar_closure_uniforme_v1(c,
 ///     args.as_ptr() as i64, desc.as_ptr() as i64) }, 0);
 /// dartforge_arc_release(c);
@@ -474,44 +479,45 @@ fn arc_invoke_uniform_closure(closure: i64, args: i64, desc: i64) -> Result<i64,
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arc_invocar_closure_uniforme_v1(closure: i64, args: i64, desc: i64) -> i64 {
-    arc_invoke_uniform_closure(closure, args, desc).expect("fronteira closure uniforme ARC inválida")
+    arc_invoke_uniform_closure(closure, args, desc).expect("invalid ARC uniform closure boundary")
 }
 
-/// Retira exatamente a versão registrada, sem invalidar uma versão posterior.
+/// Removes exactly the registered version, without invalidating a later version.
 ///
-/// Deve ocorrer após retirar os consumidores do endereço. Recusa callbacks
-/// em curso; os owners já devolvidos continuam nos escopos nativos.
-/// Não coleta, executa Dart ou altera exceção pendente.
+/// Must happen after removing the address's consumers. Rejects callbacks in
+/// progress; the owners already returned stay in the native scopes. Neither
+/// collects, runs Dart nor changes the pending exception.
 ///
 /// # Panics
-/// Registro ausente, versão obsoleta ou callback ativo; aborta no C.
+/// Missing registration, stale version or an active callback; aborts at the C
+/// boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn null_val(_: i64) -> i64 { 0 }
-/// // SAFETY: ABI estática de words com ret Ref null.
+/// // SAFETY: a static word ABI with a null Ref return.
 /// let v = unsafe { dartforge_arc_registrar_retorno_owned_v1(null_val as usize as i64, 1) };
 /// dartforge_arc_retirar_retorno_owned_v1(null_val as usize as i64, v);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_retirar_retorno_owned_v1(code: i64, version: i64) {
-    let code = usize::try_from(code as u64).expect("endereço de callback inválido");
+    let code = usize::try_from(code as u64).expect("invalid callback address");
     let mut p = arc_port_records()
         .lock()
-        .expect("registro de portas ARC envenenado");
+        .expect("ARC port registry poisoned");
     p.deregister(code, version)
-        .expect("retirada de callback ARC inválida");
+        .expect("invalid ARC callback removal");
     HAS_ARC_RETURN_PORTS.store(!p.entries.is_empty(), std::sync::atomic::Ordering::Release);
 }
 
-/// Abre um escopo nativo que recebe os tokens retornados por callbacks Owned.
+/// Opens a native scope that receives the tokens returned by Owned callbacks.
 ///
-/// Cada retorno é transferido sem retain adicional e fica emprestado ao
-/// consumidor nativo até fechar este escopo. Para escapar, copie antes.
-/// Escopos reentrantes são independentes. Não coleta nem executa Dart.
+/// Each return is transferred without an additional retain and stays borrowed by
+/// the native consumer until this scope closes. To escape, copy first. Reentrant
+/// scopes are independent. Neither collects nor runs Dart.
 ///
 /// # Panics
-/// IDs esgotados; falha interna aborta no limite C.
+/// IDs exhausted; an internal failure aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -532,14 +538,15 @@ pub extern "C" fn dartforge_arc_escopo_nativo_abrir_v1() -> i64 {
     })
 }
 
-/// Fecha o escopo do topo e libera exatamente os tokens que ele recebeu.
+/// Closes the top scope and releases exactly the tokens it received.
 ///
-/// Invalida os empréstimos dos retornos. Não coleta, executa Dart ou limpa
-/// exceção pendente. O emissor deverá fechar em todas as saídas, com cleanup
-/// de exceções; esta API não instala esse cleanup automaticamente.
+/// Invalidates the borrows of the returns. Neither collects, runs Dart nor clears
+/// the pending exception. The emitter will have to close it on every exit, with
+/// exception cleanup; this API does not install that cleanup automatically.
 ///
 /// # Panics
-/// Escopo ausente, fora do topo ou com callback em curso; aborta no C.
+/// A missing scope, one not at the top or with a callback in progress; aborts at the
+/// C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -551,7 +558,7 @@ pub extern "C" fn dartforge_arc_escopo_nativo_fechar_v1(id: i64) {
     let owners = ARC_NATIVE_PORTS.with(|p| {
         p.borrow_mut()
             .do_close(id)
-            .expect("fechamento de escopo nativo ARC inválido")
+            .expect("invalid ARC native scope closing")
     });
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
@@ -580,38 +587,38 @@ fn arc_prepare_contract_port(
     arity: usize,
     uniform: bool,
 ) -> Result<Option<ArcPortGuard>, &'static str> {
-    // A convenção antiga não adquire lock nem cria escopo quando nenhuma
-    // imagem declarou callbacks Owned. Isto não seleciona ARC implicitamente.
+    // The old convention neither takes a lock nor creates a scope when no image
+    // declared Owned callbacks. This does not select ARC implicitly.
     if !HAS_ARC_RETURN_PORTS.load(std::sync::atomic::Ordering::Acquire) {
         return Ok(None);
     }
     let mut p = arc_port_records()
         .lock()
-        .expect("registro de portas ARC envenenado");
+        .expect("ARC port registry poisoned");
     let Some(r) = p.entries.get(&(code, arity)).copied() else {
         return if p.entries.keys().any(|k| k.0 == code) {
-            Err("assinatura do callback ARC não registrada")
+            Err("ARC callback signature not registered")
         } else {
             Ok(None)
         };
     };
     if uniform && !r.uniform {
-        return Err("entrada sem contrato uniforme");
+        return Err("entry without a uniform contract");
     }
     let active_list = r
         .calls
         .checked_add(1)
-        .ok_or("callbacks ativos esgotados")?;
+        .ok_or("active callbacks exhausted")?;
     let scope = ARC_NATIVE_PORTS.with(|s| {
         let mut s = s.borrow_mut();
         let e = s
             .scopes
             .last_mut()
-            .ok_or("callback Owned exige escopo nativo")?;
+            .ok_or("an Owned callback requires a native scope")?;
         e.calls = e
             .calls
             .checked_add(1)
-            .ok_or("callbacks ativos esgotados")?;
+            .ok_or("active callbacks exhausted")?;
         Ok::<_, &'static str>(e.id)
     })?;
     p.entries.get_mut(&(code, arity)).unwrap().calls = active_list;
@@ -627,19 +634,19 @@ impl Drop for ArcPortGuard {
     fn drop(&mut self) {
         let mut p = arc_port_records()
             .lock()
-            .expect("registro de portas ARC envenenado");
+            .expect("ARC port registry poisoned");
         let r = p
             .entries
             .get_mut(&(self.code, self.arity))
-            .expect("callback ativo retirado");
-        assert_eq!(r.version, self.version, "callback ativo substituído");
+            .expect("active callback removed");
+        assert_eq!(r.version, self.version, "active callback replaced");
         r.calls -= 1;
         ARC_NATIVE_PORTS.with(|s| {
             s.borrow_mut()
                 .scopes
                 .iter_mut()
                 .find(|e| e.id == self.scope)
-                .expect("escopo do callback fechado")
+                .expect("callback scope closed")
                 .calls -= 1
         });
     }
@@ -649,14 +656,14 @@ fn arc_validate_owned_return(result: i64) -> bool {
     if dartforge_exception_pending() != 0 {
         assert_eq!(
             result, 0,
-            "callback Owned deve devolver null na saída pending"
+            "an Owned callback must return null on the pending exit"
         );
         return false;
     }
     if smi::e_handle(result) {
         assert!(
             HEAP.with(|h| h.borrow().has_code_owner(result)),
-            "callback Owned devolveu referência sem token"
+            "Owned callback returned a reference without a token"
         );
     }
     true
@@ -670,8 +677,8 @@ fn arc_finish_port(guard: Option<ArcPortGuard>, result: i64) -> i64 {
         }
         ARC_NATIVE_PORTS.with(|p| {
             let mut p = p.borrow_mut();
-            let e = p.scopes.last_mut().expect("escopo do callback ausente");
-            assert_eq!(e.id, g.scope, "escopo reentrante não foi fechado");
+            let e = p.scopes.last_mut().expect("missing callback scope");
+            assert_eq!(e.id, g.scope, "reentrant scope was not closed");
             e.owners.push(result);
         });
     }
@@ -683,14 +690,14 @@ fn arc_check_port_scope(guard: &ArcPortGuard) {
         assert_eq!(
             p.borrow().scopes.last().map(|e| e.id),
             Some(guard.scope),
-            "escopo reentrante não foi fechado"
+            "reentrant scope was not closed"
         )
     });
 }
 
 fn arc_discard_port(guard: ArcPortGuard, result: i64) {
     arc_check_port_scope(&guard);
-    // A guarda continua prendendo a versão e o escopo durante a liberação.
+    // The guard keeps pinning the version and the scope during the release.
     if arc_validate_owned_return(result) {
         HEAP.with(|h| h.borrow_mut().release_code_owner(result));
     }
@@ -793,8 +800,8 @@ mod testes_portas_arc {
         for arc in [false, true] {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
-            // Usa o descritor da camada do runtime: no Windows ele identifica
-            // um Manipulador, não o SOCKET bruto que std::net devolve.
+            // Uses the runtime layer's descriptor: on Windows it identifies a
+            // Handle, not the raw SOCKET that std::net returns.
             let e = OsAddress::from_ip(&[127, 0, 0, 1]).unwrap();
             let fd = create_datagram(&e, false, false, 1).unwrap();
             let dest = std::net::SocketAddr::from(([127, 0, 0, 1], local_port(fd) as u16));
@@ -870,7 +877,7 @@ mod testes_portas_arc {
     }
 
     fn register(f: usize, n: i64) -> i64 {
-        // SAFETY: somente as fixtures de palavras/Ref Owned acima são usadas.
+        // SAFETY: only the word/Owned Ref fixtures above are used.
         unsafe { dartforge_arc_registrar_retorno_owned_v1(f as i64, n) }
     }
 
@@ -903,7 +910,7 @@ mod testes_portas_arc {
             for h in [x, y] {
                 assert_eq!(dartforge_arc_observar_heap_v1(h), 3);
             }
-            // O escopo é proprietário, mas seu resultado é um empréstimo nativo.
+            // The scope is an owner, but its result is a native borrow.
             dartforge_arc_retain(y);
             dartforge_arc_escopo_nativo_fechar_v1(e);
             dartforge_arc_collect();
@@ -915,7 +922,7 @@ mod testes_portas_arc {
             for (f, v) in entries {
                 dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
             }
-            // Sem registro explícito, uma palavra não ganha owner nem escopo.
+            // Without an explicit registration, a word gains neither an owner nor a scope.
             assert_eq!(dart_r0(scalar as *const () as usize), i64::MAX - 1);
         })
         .join()
@@ -943,8 +950,8 @@ mod testes_portas_arc {
             let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(0));
             let e = dartforge_arc_escopo_nativo_abrir_v1();
             let x = dart_r0(f);
-            // Os owners da fronteira não empilham quadros no heap: o runtime
-            // pode fechar o quadro observacional que abriu antes do callback.
+            // The boundary's owners do not push frames onto the heap: the runtime
+            // may close the observational frame it opened before the callback.
             HEAP.with(|h| h.borrow_mut().pop_frame(frame));
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observar_heap_v1(x), 3);
@@ -1045,7 +1052,7 @@ mod testes_portas_arc {
     }
 
     fn register_uniform(f: usize) -> i64 {
-        // SAFETY: fixtures não leem/publicam vetores; retornam Owned ou pending.
+        // SAFETY: the fixtures neither read nor publish vectors; they return Owned or pending.
         unsafe { dartforge_arc_registrar_uniforme_owned_v1(f as i64) }
     }
 
@@ -1125,7 +1132,7 @@ mod testes_portas_arc {
             let f = nsm_owned as *const () as usize;
             let v = register(f, 7);
             let name = b"_dartforgeNoSuchMethod";
-            // SAFETY: helper estático de sete palavras com retorno Owned.
+            // SAFETY: a static seven-word helper with an Owned return.
             unsafe { dartforge_registrar_ajudante(name.as_ptr(), name.len() as i64, f); }
             let recv = new();
             let args = [0_i64]; let desc = [0_i64, 0];
@@ -1151,13 +1158,13 @@ mod testes_portas_arc {
             let f = nsm_owned as *const () as usize;
             let v = register(f, 7);
             let name = b"_dartforgeNoSuchMethod";
-            // SAFETY: nome estático e fixture de palavras com assinatura do helper.
+            // SAFETY: a static name and a word fixture with the helper's signature.
             unsafe {
                 dartforge_registrar_ajudante(name.as_ptr(), name.len() as i64, f);
             }
             let e = dartforge_arc_escopo_nativo_abrir_v1();
             let recv = dartforge_arc_box_int_owned_v1(i64::MAX - 1);
-            let name = HEAP.with(|h| h.borrow_mut().allocate_str("ausente"));
+            let name = HEAP.with(|h| h.borrow_mut().allocate_str("missing"));
             let x = invocar_no_such_method(recv, 0, name, &[], 0, &[], 0).unwrap();
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observar_heap_v1(x), 3);
@@ -1186,8 +1193,8 @@ mod testes_portas_arc {
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observar_heap_v1(x), 3);
             let g = arc_prepare_port(f, 0).unwrap();
-            // A versão também fica presa enquanto uma chamada de outra thread
-            // está em curso; o registro não depende do heap do publicador.
+            // The version also stays pinned while a call from another thread is in
+            // progress; the registration does not depend on the publisher's heap.
             assert!(
                 arc_port_records()
                     .lock()
