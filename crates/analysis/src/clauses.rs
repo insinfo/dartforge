@@ -325,8 +325,12 @@ impl Reader<'_> {
         if depth > 8 {
             return ClauseResolution::Ignore;
         }
-        let TypeKind::Named { name, .. } = &ast_.ty(t).kind else {
-            return ClauseResolution::Ignore;
+        let name = match &ast_.ty(t).kind {
+            TypeKind::Named { name, .. } => name,
+            // `void` written in the clause (the parser read it as a type name
+            // after `EXPECTED_TYPE_NAME`, or `with void`): `VoidType`.
+            TypeKind::Void => return ClauseResolution::NonClass,
+            _ => return ClauseResolution::Ignore,
         };
         if let [n] = &name[..]
             && params.contains(&n.sym)
@@ -1645,12 +1649,21 @@ pub fn check(
                         ClassKind::Enum | ClassKind::ExtensionType => true,
                     },
                 };
-                if error
-                    && let TypeKind::Named { name, .. } = &ast_.ty(t).kind
-                    && let (Some(p), Some(n)) = (name.first(), name.last())
-                {
-                    let span = dartforge_diagnostics::Span { start: p.span.start, end: n.span.end };
-                    out.push((decl.unit, Diagnostic::with_code(code, span, [] as [&str; 0])));
+                if error {
+                    let span = match &ast_.ty(t).kind {
+                        TypeKind::Named { name, .. } => match (name.first(), name.last()) {
+                            (Some(p), Some(n)) => Some(dartforge_diagnostics::Span { start: p.span.start, end: n.span.end }),
+                            _ => None,
+                        },
+                        TypeKind::Void => {
+                            let s = ast_.ty(t).span.start;
+                            Some(dartforge_diagnostics::Span { start: s, end: s + 4 })
+                        }
+                        _ => None,
+                    };
+                    if let Some(span) = span {
+                        out.push((decl.unit, Diagnostic::with_code(code, span, [] as [&str; 0])));
+                    }
                 }
             }
         }

@@ -1093,9 +1093,27 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.error_at(codes::parser::CONST_WITHOUT_PRIMARY_CONSTRUCTOR, c, &[]);
             }
             self.advance();
-            let extends = Some(self.parse_type()?);
+            let extends = self.parse_type_not_void()?;
+            // `AstBuilder.endNamedMixinApplication`: a superclass that is not a
+            // named type is `EXPECTED_NAMED_TYPE_EXTENDS` (and becomes a
+            // synthetic name: nothing else is reported on it).
+            let extends = if matches!(self.ast.ty(extends).kind, TypeKind::Named { .. } | TypeKind::Void) {
+                extends
+            } else {
+                let span = self.ast.ty(extends).span;
+                self.error_at(codes::parser::EXPECTED_NAMED_TYPE_EXTENDS, span, &[]);
+                let s = Span { start: span.start, end: span.start };
+                let name = self.name_from("", s);
+                self.ast.push_type(TypeAnnotation {
+                    span: s,
+                    nullable: false,
+                    kind: TypeKind::Named { name: vec![name].into_boxed_slice(), args: Box::default() },
+                })
+            };
+            let extends = Some(extends);
             self.expect_kw(Keyword::With)?;
-            let with = self.parse_type_list()?;
+            let types = self.parse_type_list()?;
+            let with = self.named_clause_types(types, codes::parser::EXPECTED_NAMED_TYPE_WITH);
             let implements = self.parse_implements_opt()?;
             self.ensure_semicolon()?;
             return Ok(ClassDecl {
@@ -1112,12 +1130,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let primary_ = self.parse_primary_header_opt(class_token.span, primary_const)?;
         let extends = if self.eat_kw(Keyword::Extends) {
-            Some(self.parse_type()?)
+            let t = self.parse_type_not_void()?;
+            self.named_clause_types(vec![t], codes::parser::EXPECTED_NAMED_TYPE_EXTENDS).pop()
         } else {
             None
         };
         let with = if self.eat_kw(Keyword::With) {
-            self.parse_type_list()?
+            let types = self.parse_type_list()?;
+            self.named_clause_types(types, codes::parser::EXPECTED_NAMED_TYPE_WITH)
         } else {
             Vec::new()
         };
@@ -1539,7 +1559,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Optional `implements A, B`.
     fn parse_implements_opt(&mut self) -> PResult<Vec<TypeId>> {
         if self.eat_ident("implements") {
-            self.parse_type_list()
+            let types = self.parse_type_list_not_void()?;
+            Ok(self.named_clause_types(types, codes::parser::EXPECTED_NAMED_TYPE_IMPLEMENTS))
         } else {
             Ok(Vec::new())
         }
@@ -1550,6 +1571,31 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut out = vec![self.parse_type()?];
         while self.eat_op(Op::Comma) {
             out.push(self.parse_type()?);
+        }
+        Ok(out)
+    }
+
+    /// `AstBuilder._popNamedTypeList`: the clause keeps only the named types
+    /// (`void` is one); a function or record type is `code` on the whole type
+    /// and is dropped.
+    fn named_clause_types(&mut self, types: Vec<TypeId>, code: dartforge_diagnostics::Code) -> Vec<TypeId> {
+        let mut out = Vec::with_capacity(types.len());
+        for t in types {
+            if matches!(self.ast.ty(t).kind, TypeKind::Named { .. } | TypeKind::Void) {
+                out.push(t);
+            } else {
+                let span = self.ast.ty(t).span;
+                self.error_at(code, span, &[]);
+            }
+        }
+        out
+    }
+
+    /// `A, B, C` read with `ensureTypeNotVoid` (`implements`, mixin `on`).
+    fn parse_type_list_not_void(&mut self) -> PResult<Vec<TypeId>> {
+        let mut out = vec![self.parse_type_not_void()?];
+        while self.eat_op(Op::Comma) {
+            out.push(self.parse_type_not_void()?);
         }
         Ok(out)
     }
@@ -1608,7 +1654,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.advance();
         }
         let on = if self.eat_ident("on") {
-            self.parse_type_list()?
+            let types = self.parse_type_list_not_void()?;
+            self.named_clause_types(types, codes::parser::EXPECTED_NAMED_TYPE_ON)
         } else {
             Vec::new()
         };
@@ -1635,7 +1682,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         let type_params = self.parse_type_parameters_opt_variance()?;
         let primary_ = self.parse_primary_header_opt(enum_token.span, primary_const)?;
         let with = if self.eat_kw(Keyword::With) {
-            self.parse_type_list()?
+            let types = self.parse_type_list()?;
+            self.named_clause_types(types, codes::parser::EXPECTED_NAMED_TYPE_WITH)
         } else {
             Vec::new()
         };

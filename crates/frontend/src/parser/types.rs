@@ -92,6 +92,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.parse_type_with(TrailingQuestion::Always)
     }
 
+    /// A type where fasta calls `ensureTypeNotVoid` (`extends`, `implements`,
+    /// `on`, the superclass of a named mixin application): a lone `void` is
+    /// `EXPECTED_TYPE_NAME` (`messageInvalidVoid`) at it, and is then read as the
+    /// type name it stands for (the `ResolutionVisitor` reports the clause).
+    pub(crate) fn parse_type_not_void(&mut self) -> PResult<TypeId> {
+        if self.at_kw(Keyword::Void) && !self.at_ident_at(1, "Function") {
+            self.error(codes::parser::EXPECTED_TYPE_NAME, &[]);
+        }
+        self.parse_type()
+    }
+
     /// Type after `is`/`as` in an expression: like [`Parser::parse_type`], but a
     /// trailing `?` is only consumed when the next token is one of those that
     /// may follow a nullable type in that place (`)`, `,`, `;`, `:`, `?`, `??`,
@@ -796,13 +807,47 @@ impl<'s, 'i> Parser<'s, 'i> {
         // identifiers when nothing declarable follows them (`{required}` is a
         // parameter named `required`).
         let mut f = ModifierTokens::default();
+        let first_modifier = self.pos;
         self.modifier_context(&mut f, false);
         for p in [f.final_, f.var_].into_iter().flatten() {
             let span = self.tokens[p].span;
             self.check_parameter_modifier(span, in_function_type);
         }
-        self.report_parameter_modifiers(&f, kind == ParameterKind::Named, owner);
-        let required = f.required.is_some();
+        // `parseFormalParameter` (`parser_impl.dart:1934-1999`) reads `required`
+        // (named only, which makes the parameter `requiredNamed`), `covariant`
+        // (where the member kind accepts it) and `var`/`final` (outside function
+        // types) in this order; another modifier after them goes to the
+        // `ModifierContext`, which then sees a non-optional named parameter and
+        // reports that first `required` as extraneous.
+        let mut fast = first_modifier;
+        let fast_required = kind == ParameterKind::Named && f.required == Some(fast);
+        if fast_required {
+            fast += 1;
+        }
+        // The primary header without the feature: the 3.6.2 oracle reads its
+        // `required covariant` without recovery.
+        let takes_covariant = match owner {
+            ParameterOwner::TopLevelOrStatic | ParameterOwner::Extension | ParameterOwner::ExtensionType => false,
+            ParameterOwner::PrimaryConstructor => !self.features.has(Feature::PrimaryConstructors),
+            _ => true,
+        };
+        if takes_covariant && f.covariant == Some(fast) {
+            fast += 1;
+        }
+        if !in_function_type && (f.var_ == Some(fast) || f.final_ == Some(fast)) {
+            fast += 1;
+        }
+        let recovery = fast < self.pos && self.is_fasta_modifier(fast);
+        self.report_parameter_modifiers(&f, kind == ParameterKind::Named && !(fast_required && recovery), owner);
+        // A named parameter is required only through the `required` that starts
+        // its modifiers (`parameterKind` becomes `requiredNamed` there); one the
+        // recovery reads later leaves it optional (`{covariant required int i}`
+        // is `MISSING_DEFAULT_VALUE_FOR_PARAMETER` too).
+        let required = match kind {
+            ParameterKind::Named => fast_required,
+            ParameterKind::Optional => false,
+            ParameterKind::Required => f.required.is_some(),
+        };
         let covariant = f.covariant.is_some();
         let final_ = f.final_.is_some();
         let var_ = f.var_.is_some();
@@ -835,7 +880,16 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             self.advance();
             self.advance();
-            Some(self.expect_identifier()?)
+            if !self.at_identifier() && matches!(self.kind(), Kind::Op(Op::Comma | Op::RParen | Op::RBracket | Op::RBrace | Op::Assign)) {
+                // `this.` without a name (`{this.}`): `MISSING_IDENTIFIER` at the
+                // next token and a synthetic name; the parameter stays (the
+                // verifier reports the field that does not exist, with `''`).
+                self.error(codes::parser::MISSING_IDENTIFIER, &[]);
+                let s = self.span().start;
+                Some(self.name_from("", Span { start: s, end: s }))
+            } else {
+                Some(self.expect_identifier()?)
+            }
         } else if self.at_identifier() {
             Some(self.identifier())
         } else if in_function_type && ty.is_some() && kind == ParameterKind::Named {
@@ -867,6 +921,24 @@ impl<'s, 'i> Parser<'s, 'i> {
             function_parameters = Some(self.parse_formal_parameters()?);
             // `int f(int x)?` — old-form nullability.
             function_nullable = self.eat_op(Op::Question);
+        }
+
+        // `parseFormalParameter` (`parser_impl.dart:2079-2105`): an old-form
+        // function parameter with `var`/`final`/`const` is
+        // `FUNCTION_TYPED_PARAMETER_VAR`, and `var` followed by a type is
+        // `VAR_AND_TYPE` (`messageTypeAfterVar`), both at the word. The primary
+        // header has its own rules (below).
+        if owner != ParameterOwner::PrimaryConstructor {
+            if function_parameters.is_some()
+                && let Some(tk) = f.var_final_or_const()
+            {
+                self.error_at_token(tk, codes::parser::FUNCTION_TYPED_PARAMETER_VAR);
+            }
+            if ty.is_some()
+                && let Some(v) = f.var_
+            {
+                self.error_at_token(v, codes::parser::VAR_AND_TYPE);
+            }
         }
 
         // `parseFormalParameterRest` (`parser_impl.dart:2228-2300` in the main
