@@ -404,12 +404,20 @@ fn name_table(js: &str, rti: &HashMap<String, String>) -> String {
         names[n] = name.as_str();
     }
     let list = names.join(" ");
+    let front = front_coded(&names);
+    // The decoder slices UTF-16 units: only for ASCII names (Dart identifiers
+    // are). In a small table the gain does not pay the decoder and gzip
+    // loses a little: only from 1 KB saved on.
+    let table = if front.len() + FRONT_DECODER.len() + 1024 < list.len() && names.iter().all(|n| n.is_ascii()) {
+        FRONT_DECODER.replace("#", &dartforge_emit_js::js::string_literal(&front))
+    } else {
+        format!("{}.split(\" \")", dartforge_emit_js::js::string_literal(&list))
+    };
     let first = std::str::from_utf8(dartforge_emit_js::ID_FIRST).unwrap_or_default();
     let others = std::str::from_utf8(dartforge_emit_js::ID_NEXT).unwrap_or_default();
     let mut out = String::with_capacity(js.len() + list.len() + 400);
     out.push_str(&format!(
-        "var t$N = {}.split(\" \");\nvar t$I = function(id) {{ let a = \"{first}\", b = \"{others}\", n = a.indexOf(id[1]), p = {}; for (let i = 2; i < id.length; i++) {{ n += (b.indexOf(id[i]) + 1) * p; p *= {}; }} return n; }};\n",
-        dartforge_emit_js::js::string_literal(&list),
+        "var t$N = {table};\nvar t$I = function(id) {{ let a = \"{first}\", b = \"{others}\", n = a.indexOf(id[1]), p = {}; for (let i = 2; i < id.length; i++) {{ n += (b.indexOf(id[i]) + 1) * p; p *= {}; }} return n; }};\n",
         first.len(),
         others.len(),
     ));
@@ -417,6 +425,36 @@ fn name_table(js: &str, rti: &HashMap<String, String>) -> String {
     out.push_str(&UNMANGLE.replace("return null;", "return name[0] === \"|\" && t$N[t$I(name)] || null;"));
     out.push_str(&js[p + UNMANGLE.len()..]);
     out
+}
+
+/// The digits of the shared prefix length in [`front_coded`].
+const FRONT_DIGITS: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+/// Decodes the [`front_coded`] table (`#` is the *string*) into the array of
+/// names, once, at load.
+const FRONT_DECODER: &str = "(function (s) { let a = \"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\", r = s.split(\" \"), p = \"\"; for (let i = 0; i < r.length; i++) if (r[i]) p = r[i] = p.slice(0, a.indexOf(r[i][0])) + r[i].slice(1); return r; })(#)";
+
+/// The names table with front coding: each non-empty name is written as one
+/// digit of [`FRONT_DIGITS`] (how many leading characters it shares with the
+/// previous non-empty name) and the rest. Ids follow program order, so the
+/// views of one ngdart component (`_ViewLiAccordionComponent0`,
+/// `…Component1`) sit side by side: in limitless_ui the table goes from 50 to
+/// 28 KB.
+fn front_coded(names: &[&str]) -> String {
+    let digits = FRONT_DIGITS.as_bytes();
+    let mut out: Vec<String> = Vec::with_capacity(names.len());
+    let mut prev: &str = "";
+    for &n in names {
+        if n.is_empty() {
+            out.push(String::new());
+            continue;
+        }
+        let k = prev.bytes().zip(n.bytes()).take_while(|(a, b)| a == b).count().min(digits.len() - 1);
+        let k = (0..=k).rev().find(|&i| n.is_char_boundary(i)).unwrap_or(0);
+        out.push(format!("{}{}", digits[k] as char, &n[k..]));
+        prev = n;
+    }
+    out.join(" ")
 }
 
 /// Removes the `var x = dart.privateName(lib, "_n");` lines whose variable
@@ -533,5 +571,33 @@ pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::propertie
         world: None,
         index: None,
         prune_time: Duration::ZERO,
+    }
+}
+
+#[cfg(test)]
+mod front_coding_tests {
+    use super::*;
+
+    /// The JS decoder of `FRONT_DECODER`, in Rust.
+    fn decode(s: &str) -> Vec<String> {
+        let mut prev = String::new();
+        s.split(' ')
+            .map(|x| {
+                if x.is_empty() {
+                    return String::new();
+                }
+                let k = FRONT_DIGITS.find(&x[..1]).unwrap();
+                prev = format!("{}{}", &prev[..k], &x[1..]);
+                prev.clone()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn front_coding_round_trips() {
+        let names = ["int", "", "_ViewLiAccordionComponent0", "_ViewLiAccordionComponent1", "", "ViewLiAccordionComponentHost0", "int"];
+        let enc = front_coded(&names);
+        assert_eq!(decode(&enc), names.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert!(enc.contains(" p1 "), "{enc}");
     }
 }
