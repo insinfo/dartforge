@@ -240,7 +240,7 @@ pub fn uninitialized_finals_with(units: &[Unidade<'_>], names: &Interner, non_nu
                         // initializes (`this.it` or `it = …`); the `this` part of
                         // the primary is the primary itself.
                         if let DeclKind::ExtensionType(x) = &unit.ast.decl(id).kind {
-                            if k.parte_primaria || k.initializers.iter().any(|y| matches!(y, Initializer::Redirect { .. })) {
+                            if k.primary_body_part || k.initializers.iter().any(|y| matches!(y, Initializer::Redirect { .. })) {
                                 continue;
                             }
                             let rep = x.representation_name.sym;

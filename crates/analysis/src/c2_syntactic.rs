@@ -208,7 +208,7 @@ impl<'a> Visitor<'a> {
                     // In the primary constructor, `final`/`var` with
                     // `this.`/`super.` is the parser's error
                     // (`INITIALIZING_DECLARING_PARAMETER`), not this warning.
-                    let primary = self.primary == Some(mid) || k.parte_primaria;
+                    let primary = self.primary == Some(mid) || k.primary_body_part;
                     if !primary {
                         self.params(&k.parameters);
                     } else {
@@ -245,7 +245,7 @@ impl<'a> Visitor<'a> {
             // `final this.x` / `final super.x`: the parameter is already final.
             // In the primary constructor `final` makes it declaring, and the
             // error is `INITIALIZING_DECLARING_PARAMETER` (without this warning).
-            if p.final_ && (p.this_ || p.super_) && !p.declarante {
+            if p.final_ && (p.this_ || p.super_) && !p.declaring {
                 let end = p.name.map_or(p.span.end, |n| n.span.start);
                 if let Some(i) = self.source.get(p.span.start..end).and_then(|t| first_word(t, "final")) {
                     self.report(w::UNNECESSARY_FINAL, Span { start: p.span.start + i, end: p.span.start + i + 5 }, &[]);

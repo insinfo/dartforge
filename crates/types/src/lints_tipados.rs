@@ -42,11 +42,11 @@ fn integer_value(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
 
 /// The parents of the expressions of unit `u` (`dartforge_frontend::pais`),
 /// with the old `case` in libraries from before 3.0.
-pub(crate) fn unit_parents(program: &Program, u: UnitId) -> dartforge_frontend::pais::Pais {
+pub(crate) fn unit_parents(program: &Program, u: UnitId) -> dartforge_frontend::parents::Parents {
     let unit = program.unit(u);
-    let version = program.library(unit.library).features.versao();
+    let version = program.library(unit.library).features.version();
     let before_3 = version < dartforge_frontend::features::LanguageVersion::new(3, 0);
-    dartforge_frontend::pais::Pais::novo(&unit.ast, &unit.unit, &unit.source, before_3)
+    dartforge_frontend::parents::Parents::new(&unit.ast, &unit.unit, &unit.source, before_3)
 }
 
 /// The findings of the typed rules in unit `u`.
@@ -69,7 +69,7 @@ pub fn achados(program: &Program, table: &TypeTable, core: &CoreTypes, outline: 
     }
     // `inConstantContext`.
     let pais = unit_parents(program, u);
-    let in_constant = |e: ExprId| pais.em_contexto_constante(a, e) || of_const.iter().any(|k| k.start <= a.expr(e).span.start && a.expr(e).span.end <= k.end);
+    let in_constant = |e: ExprId| pais.in_constant_context(a, e) || of_const.iter().any(|k| k.start <= a.expr(e).span.start && a.expr(e).span.end <= k.end);
 
     // `_isLengthAccess`: `x.length` with `x` an `Iterable`, a `Map` or a
     // `String` (through parentheses and `as`).

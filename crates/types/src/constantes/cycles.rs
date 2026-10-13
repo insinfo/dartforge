@@ -514,7 +514,7 @@ impl<'p, 'a> Walk<'p, 'a> {
     fn novo(m: &'p Motor<'a>, st: &'p mut State, u: UnitId, references: bool) -> Self {
         let program = m.program;
         let lib = program.unit(u).library;
-        let patterns_enabled = program.library(lib).features.versao() >= LanguageVersion::new(3, 0);
+        let patterns_enabled = program.library(lib).features.version() >= LanguageVersion::new(3, 0);
         Walk {
             m,
             est: st,

@@ -10,7 +10,7 @@
 //! the `const` of a constant pattern, the separator (`=` or `:`) of a
 //! parameter's default value, the bounds of adjacent strings and of
 //! interpolations. The metadata of local declarations comes from
-//! `Ast::metadados_locais`.
+//! `Ast::local_metadata`.
 //! Written without compiling or running (2026-10-05).
 
 use crate::ast::{
@@ -21,7 +21,7 @@ use crate::ast::{
 use dartforge_intern::Interner;
 
 /// Skips whitespace and comments (block comments nest) from `i`.
-pub fn pular_brancos(b: &[u8], mut i: usize) -> usize {
+pub fn skip_whitespace(b: &[u8], mut i: usize) -> usize {
     loop {
         while i < b.len() && b[i].is_ascii_whitespace() {
             i += 1;
@@ -57,8 +57,8 @@ fn identifier_part(c: u8) -> bool {
 }
 
 /// The source, from `i`, starts with the whole word `p`.
-pub fn palavra_em(fonte: &str, i: usize, p: &str) -> bool {
-    let b = fonte.as_bytes();
+pub fn word_at(source: &str, i: usize, p: &str) -> bool {
+    let b = source.as_bytes();
     b.get(i..).is_some_and(|r| r.starts_with(p.as_bytes())) && !b.get(i + p.len()).is_some_and(|&c| identifier_part(c))
 }
 
@@ -66,12 +66,12 @@ pub fn palavra_em(fonte: &str, i: usize, p: &str) -> bool {
 /// with a list (without the default value of the enclosing
 /// `DefaultFormalParameter`): the `)` that closes the list starting after
 /// the name (and the type parameters), and the `?` that follows it.
-pub fn fim_do_parametro_funcao(fonte: &str, after_name: usize) -> usize {
-    let b = fonte.as_bytes();
+pub fn function_parameter_end(source: &str, after_name: usize) -> usize {
+    let b = source.as_bytes();
     let mut i = after_name;
     let mut level = 0usize;
     while i < b.len() {
-        let j = pular_brancos(b, i);
+        let j = skip_whitespace(b, i);
         if j != i {
             i = j;
             continue;
@@ -81,7 +81,7 @@ pub fn fim_do_parametro_funcao(fonte: &str, after_name: usize) -> usize {
             b')' | b']' | b'}' | b'>' => {
                 level = level.saturating_sub(1);
                 if level == 0 && b[i] == b')' {
-                    let k = pular_brancos(b, i + 1);
+                    let k = skip_whitespace(b, i + 1);
                     return if b.get(k) == Some(&b'?') { k + 1 } else { i + 1 };
                 }
             }
@@ -103,51 +103,51 @@ pub fn fim_do_parametro_funcao(fonte: &str, after_name: usize) -> usize {
 }
 
 /// The text of type `t`.
-pub fn de_tipo(a: &Ast, fonte: &str, interner: &Interner, t: TypeId) -> String {
-    let mut f = Impressor::novo(a, fonte, interner);
+pub fn from_type(a: &Ast, source: &str, interner: &Interner, t: TypeId) -> String {
+    let mut f = Printer::new(a, source, interner);
     f.kind(t);
     f.output
 }
 
 /// The text of expression `e`.
-pub fn de_expr(a: &Ast, fonte: &str, interner: &Interner, e: ExprId) -> String {
-    let mut f = Impressor::novo(a, fonte, interner);
+pub fn from_expr(a: &Ast, source: &str, interner: &Interner, e: ExprId) -> String {
+    let mut f = Printer::new(a, source, interner);
     f.expr(e);
     f.output
 }
 
 /// The text of statement `s`.
-pub fn from_stmt(a: &Ast, fonte: &str, interner: &Interner, s: StmtId) -> String {
-    let mut f = Impressor::novo(a, fonte, interner);
+pub fn from_stmt(a: &Ast, source: &str, interner: &Interner, s: StmtId) -> String {
+    let mut f = Printer::new(a, source, interner);
     f.stmt(s);
     f.output
 }
 
 /// The text of pattern `p`.
-pub fn de_padrao(a: &Ast, fonte: &str, interner: &Interner, p: PatternId) -> String {
-    let mut f = Impressor::novo(a, fonte, interner);
+pub fn from_pattern(a: &Ast, source: &str, interner: &Interner, p: PatternId) -> String {
+    let mut f = Printer::new(a, source, interner);
     f.pattern(p);
     f.output
 }
 
 /// The text of annotation `m`.
-pub fn from_annotation(a: &Ast, fonte: &str, interner: &Interner, m: &Annotation) -> String {
-    let mut f = Impressor::novo(a, fonte, interner);
+pub fn from_annotation(a: &Ast, source: &str, interner: &Interner, m: &Annotation) -> String {
+    let mut f = Printer::new(a, source, interner);
     f.annotation(m);
     f.output
 }
 
 /// The text of the type parameter list `ps` (the `TypeParameterList`; empty
 /// when there are none).
-pub fn de_parametros_de_tipo(a: &Ast, fonte: &str, interner: &Interner, ps: &[TypeParameter]) -> String {
-    let mut f = Impressor::novo(a, fonte, interner);
+pub fn from_type_parameters(a: &Ast, source: &str, interner: &Interner, ps: &[TypeParameter]) -> String {
+    let mut f = Printer::new(a, source, interner);
     f.type_parameters_(ps);
     f.output
 }
 
 /// The text of the parameter list `ps` (the `FormalParameterList`).
-pub fn de_parametros(a: &Ast, fonte: &str, interner: &Interner, ps: &[Parameter]) -> String {
-    let mut f = Impressor::novo(a, fonte, interner);
+pub fn from_parameters(a: &Ast, source: &str, interner: &Interner, ps: &[Parameter]) -> String {
+    let mut f = Printer::new(a, source, interner);
     f.parameters_(ps);
     f.output
 }
@@ -175,13 +175,13 @@ fn binary_lexeme(op: BinaryOp) -> &'static str {
         BinaryOp::And => "&&",
         BinaryOp::Or => "||",
         BinaryOp::IfNull => "??",
-        BinaryOp::NaoBinario => "~",
+        BinaryOp::NotBinary => "~",
     }
 }
 
-struct Impressor<'a> {
+struct Printer<'a> {
     a: &'a Ast,
-    fonte: &'a str,
+    source: &'a str,
     interner: &'a Interner,
     output: String,
     /// The operator of the cascade section being printed (`..` or `?..`): the
@@ -189,22 +189,22 @@ struct Impressor<'a> {
     cascade: &'static str,
 }
 
-impl<'a> Impressor<'a> {
-    fn novo(a: &'a Ast, fonte: &'a str, interner: &'a Interner) -> Self {
-        Impressor { a, fonte, interner, output: String::new(), cascade: ".." }
+impl<'a> Printer<'a> {
+    fn new(a: &'a Ast, source: &'a str, interner: &'a Interner) -> Self {
+        Printer { a, source, interner, output: String::new(), cascade: ".." }
     }
 
     fn w(&mut self, s: &str) {
         self.output.push_str(s);
     }
 
-    fn nome(&mut self, n: crate::ast::Name) {
+    fn name(&mut self, n: crate::ast::Name) {
         let s = self.interner.resolve(n.sym);
         self.output.push_str(s);
     }
 
     fn excerpt(&mut self, s: crate::Span) {
-        let t = self.fonte.get(s.start..s.end).unwrap_or("");
+        let t = self.source.get(s.start..s.end).unwrap_or("");
         self.output.push_str(t);
     }
 
@@ -216,10 +216,10 @@ impl<'a> Impressor<'a> {
         }
     }
 
-    /// The metadata of a local declaration (`Ast::metadados_locais`).
+    /// The metadata of a local declaration (`Ast::local_metadata`).
     fn metadata_local(&mut self, s: StmtId) {
         let a = self.a;
-        if let Some((_, ms)) = a.metadados_locais.iter().find(|(x, _)| *x == s) {
+        if let Some((_, ms)) = a.local_metadata.iter().find(|(x, _)| *x == s) {
             self.metadata(ms);
         }
     }
@@ -256,7 +256,7 @@ impl<'a> Impressor<'a> {
                 self.excerpt(s);
                 self.w(" ");
             }
-            self.nome(p.name);
+            self.name(p.name);
             if let Some(b) = p.bound {
                 self.w(" extends ");
                 self.kind(b);
@@ -274,7 +274,7 @@ impl<'a> Impressor<'a> {
                     if k > 0 {
                         self.w(".");
                     }
-                    self.nome(*n);
+                    self.name(*n);
                 }
                 self.type_arguments_(args);
             }
@@ -296,16 +296,16 @@ impl<'a> Impressor<'a> {
                     self.kind(p);
                     // The positional field's name: the identifier the parser consumed right
                     // after the type.
-                    let b = self.fonte.as_bytes();
-                    let i = pular_brancos(b, a.ty(p).span.end);
+                    let b = self.source.as_bytes();
+                    let i = skip_whitespace(b, a.ty(p).span.end);
                     if b.get(i).is_some_and(|&c| identifier_part(c) && !c.is_ascii_digit()) {
                         let mut j = i;
                         while j < b.len() && identifier_part(b[j]) {
                             j += 1;
                         }
                         self.w(" ");
-                        let nome = &self.fonte[i..j];
-                        self.output.push_str(nome);
+                        let name = &self.source[i..j];
+                        self.output.push_str(name);
                     }
                 }
                 if !named.is_empty() {
@@ -319,7 +319,7 @@ impl<'a> Impressor<'a> {
                         }
                         self.kind(*t);
                         self.w(" ");
-                        self.nome(*n);
+                        self.name(*n);
                     }
                     self.w("}");
                 }
@@ -386,7 +386,7 @@ impl<'a> Impressor<'a> {
             }
             self.w(if p.this_ { "this." } else { "super." });
             if let Some(n) = p.name {
-                self.nome(n);
+                self.name(n);
             }
             self.type_parameters_(&p.function_type_params);
             if let Some(fs) = &p.function_parameters {
@@ -398,7 +398,7 @@ impl<'a> Impressor<'a> {
                 self.w(" ");
             }
             if let Some(n) = p.name {
-                self.nome(n);
+                self.name(n);
             }
             self.type_parameters_(&p.function_type_params);
             self.parameters_(fs);
@@ -413,13 +413,13 @@ impl<'a> Impressor<'a> {
                 self.w(" ");
             }
             if let Some(n) = p.name {
-                self.nome(n);
+                self.name(n);
             }
         }
         // `visitDefaultFormalParameter`: the separator as written.
         if let Some(v) = p.default_value {
             let start_offset = self.a.expr(v).span.start;
-            let b = self.fonte.as_bytes();
+            let b = self.source.as_bytes();
             // The separator is the last `=` or `:` before the value.
             let mut i = start_offset;
             let mut sep = b'=';
@@ -459,7 +459,7 @@ impl<'a> Impressor<'a> {
             if k > 0 {
                 self.w(".");
             }
-            self.nome(*n);
+            self.name(*n);
         }
         if before >= m.name.len() {
             self.type_arguments_(&m.type_args);
@@ -482,7 +482,7 @@ impl<'a> Impressor<'a> {
             }
             if let Some(n) = x.name {
                 // `visitNamedExpression`: the `name:` label and ` value`.
-                self.nome(n);
+                self.name(n);
                 self.w(": ");
             }
             self.expr(x.value);
@@ -502,16 +502,16 @@ impl<'a> Impressor<'a> {
             ExprKind::Bool(v) => self.w(if *v { "true" } else { "false" }),
             ExprKind::Null => self.w("null"),
             ExprKind::String(s) => self.string(s),
-            ExprKind::Symbol(partes) => {
+            ExprKind::Symbol(parts) => {
                 self.w("#");
-                for (k, n) in partes.iter().enumerate() {
+                for (k, n) in parts.iter().enumerate() {
                     if k > 0 {
                         self.w(".");
                     }
-                    self.nome(*n);
+                    self.name(*n);
                 }
             }
-            ExprKind::Identifier(n) => self.nome(*n),
+            ExprKind::Identifier(n) => self.name(*n),
             ExprKind::This => self.w("this"),
             ExprKind::Super => self.w("super"),
             ExprKind::Parenthesized(i) => {
@@ -549,7 +549,7 @@ impl<'a> Impressor<'a> {
                         self.w(", ");
                     }
                     if let Some(n) = n {
-                        self.nome(n);
+                        self.name(n);
                         self.w(": ");
                     }
                     self.expr(v);
@@ -565,7 +565,7 @@ impl<'a> Impressor<'a> {
                 self.kind(*ty);
                 if let Some(c) = constructor {
                     self.w(".");
-                    self.nome(*c);
+                    self.name(*c);
                 }
                 self.arguments_(arguments, false);
             }
@@ -577,7 +577,7 @@ impl<'a> Impressor<'a> {
                     self.expr(*target);
                     self.w(if *null_aware { "?." } else { "." });
                 }
-                self.nome(*name);
+                self.name(*name);
             }
             ExprKind::Index { target, index, null_aware } => {
                 if matches!(a.expr(*target).kind, ExprKind::CascadeTarget) {
@@ -705,7 +705,7 @@ impl<'a> Impressor<'a> {
                     self.w("const ");
                 }
                 self.w(".");
-                self.nome(*name);
+                self.name(*name);
             }
         }
     }
@@ -717,7 +717,7 @@ impl<'a> Impressor<'a> {
     /// (`visitInterpolationExpression`).
     fn string(&mut self, s: &StringLit) {
         let a = self.a;
-        let b = self.fonte.as_bytes();
+        let b = self.source.as_bytes();
         let end_offset = s.span.end.min(b.len());
         let mut interpolations = s.parts.iter().filter_map(|p| match p {
             crate::ast::StringPart::Interpolation(e) => Some(*e),
@@ -726,7 +726,7 @@ impl<'a> Impressor<'a> {
         let mut i = s.span.start;
         let mut first = true;
         while i < end_offset {
-            let j = pular_brancos(b, i);
+            let j = skip_whitespace(b, i);
             if j >= end_offset {
                 break;
             }
@@ -746,12 +746,12 @@ impl<'a> Impressor<'a> {
             i += n;
             loop {
                 if i >= end_offset {
-                    self.output.push_str(&self.fonte[start_..end_offset]);
+                    self.output.push_str(&self.source[start_..end_offset]);
                     return;
                 }
                 if b[i] == q && (!triple || b[i..].starts_with(&[q, q, q])) {
                     i += n;
-                    self.output.push_str(&self.fonte[start_..i]);
+                    self.output.push_str(&self.source[start_..i]);
                     break;
                 }
                 if !raw && b[i] == b'\\' {
@@ -760,12 +760,12 @@ impl<'a> Impressor<'a> {
                 }
                 if !raw && b[i] == b'$' && i + 1 < end_offset {
                     if b[i + 1] == b'{' {
-                        self.output.push_str(&self.fonte[start_..i]);
+                        self.output.push_str(&self.source[start_..i]);
                         self.w("${");
                         if let Some(e) = interpolations.next() {
                             self.expr(e);
                             // Up to the closing `}`, after the expression.
-                            let k = pular_brancos(b, a.expr(e).span.end);
+                            let k = skip_whitespace(b, a.expr(e).span.end);
                             i = if b.get(k) == Some(&b'}') { k + 1 } else { k };
                         } else {
                             i += 2;
@@ -775,7 +775,7 @@ impl<'a> Impressor<'a> {
                         continue;
                     }
                     if identifier_part(b[i + 1]) && !b[i + 1].is_ascii_digit() && b[i + 1] != b'$' {
-                        self.output.push_str(&self.fonte[start_..i]);
+                        self.output.push_str(&self.source[start_..i]);
                         self.w("$");
                         if let Some(e) = interpolations.next() {
                             self.expr(e);
@@ -909,7 +909,7 @@ impl<'a> Impressor<'a> {
                     self.kind(*t);
                     self.w(" ");
                 }
-                self.nome(*name);
+                self.name(*name);
             }
             ForInTarget::Pattern { final_, pattern } => {
                 self.w(if *final_ { "final " } else { "var " });
@@ -942,7 +942,7 @@ impl<'a> Impressor<'a> {
             if k > 0 {
                 self.w(", ");
             }
-            self.nome(v.name);
+            self.name(v.name);
             if let Some(i) = v.initializer {
                 self.w(" = ");
                 self.expr(i);
@@ -1036,7 +1036,7 @@ impl<'a> Impressor<'a> {
                     self.w(" ");
                 }
                 if let Some(n) = g.name {
-                    self.nome(n);
+                    self.name(n);
                 }
                 self.function(*f, true);
             }
@@ -1102,7 +1102,7 @@ impl<'a> Impressor<'a> {
                         self.w(" ");
                     }
                     for l in c.labels.iter() {
-                        self.nome(*l);
+                        self.name(*l);
                         self.w(": ");
                     }
                     match c.pattern {
@@ -1130,7 +1130,7 @@ impl<'a> Impressor<'a> {
                 self.w(if matches!(st.kind, StmtKind::Break(_)) { "break" } else { "continue" });
                 if let Some(n) = l {
                     self.w(" ");
-                    self.nome(*n);
+                    self.name(*n);
                 }
                 self.w(";");
             }
@@ -1161,7 +1161,7 @@ impl<'a> Impressor<'a> {
             }
             StmtKind::Labeled { labels, body } => {
                 for l in labels.iter() {
-                    self.nome(*l);
+                    self.name(*l);
                     self.w(": ");
                 }
                 self.stmt(*body);
@@ -1190,11 +1190,11 @@ impl<'a> Impressor<'a> {
             }
             self.w("catch (");
             if let Some(e) = c.exception {
-                self.nome(e);
+                self.name(e);
             }
             if let Some(s) = c.stack_trace {
                 self.w(", ");
-                self.nome(s);
+                self.name(s);
             }
             self.w(") ");
         } else {
@@ -1213,9 +1213,9 @@ impl<'a> Impressor<'a> {
         match &pt.kind {
             PatternKind::Wildcard { ty } => {
                 // `visitWildcardPattern`: the `var`/`final` as written.
-                if palavra_em(self.fonte, pt.span.start, "var") {
+                if word_at(self.source, pt.span.start, "var") {
                     self.w("var ");
-                } else if palavra_em(self.fonte, pt.span.start, "final") {
+                } else if word_at(self.source, pt.span.start, "final") {
                     self.w("final ");
                 }
                 if let Some(t) = ty {
@@ -1234,13 +1234,13 @@ impl<'a> Impressor<'a> {
                     self.kind(*t);
                     self.w(" ");
                 }
-                self.nome(*name);
+                self.name(*name);
             }
             PatternKind::Constant(e) => {
                 // `visitConstantPattern`: the pattern's `const`, when the expression does
                 // not print it itself.
                 let before = self.output.len();
-                let written = palavra_em(self.fonte, pt.span.start, "const");
+                let written = word_at(self.source, pt.span.start, "const");
                 self.expr(*e);
                 if written && !self.output[before..].starts_with("const ") {
                     self.output.insert_str(before, "const ");
@@ -1346,7 +1346,7 @@ impl<'a> Impressor<'a> {
                 let sp = a.pattern(f.pattern).span;
                 let inferred = n.span.start >= sp.start && n.span.end <= sp.end;
                 if !inferred {
-                    self.nome(n);
+                    self.name(n);
                 }
                 self.w(": ");
             }
@@ -1362,12 +1362,12 @@ mod tests {
     #[test]
     fn whitespace_and_comments() {
         let b = b"  /* a /* b */ c */ // x\n  y";
-        assert_eq!(pular_brancos(b, 0), b.len() - 1);
+        assert_eq!(skip_whitespace(b, 0), b.len() - 1);
     }
 
     #[test]
     fn whole_word() {
-        assert!(palavra_em("var x", 0, "var"));
-        assert!(!palavra_em("variable", 0, "var"));
+        assert!(word_at("var x", 0, "var"));
+        assert!(!word_at("variable", 0, "var"));
     }
 }

@@ -1292,8 +1292,8 @@ fn super_parameter(program: &Program, interner: &Interner, f: FunctionElementId,
     let FunctionRef::Constructor { unit: su, member: sm } = program.function(fs).node else { return None };
     let MemberKind::Constructor(sk) = &program.unit(su).ast.member(sm).kind else { return None };
     if p.kind == ast::ParameterKind::Named {
-        let the_name = p.nome_externo()?.sym;
-        let j = sk.parameters.iter().position(|q| q.kind == ast::ParameterKind::Named && q.nome_externo().is_some_and(|n| n.sym == the_name))?;
+        let the_name = p.external_name()?.sym;
+        let j = sk.parameters.iter().position(|q| q.kind == ast::ParameterKind::Named && q.external_name().is_some_and(|n| n.sym == the_name))?;
         return Some((fs, j));
     }
     let the_index = k.parameters[..i].iter().filter(|q| q.super_).count();
@@ -1459,7 +1459,7 @@ pub fn valores_padrao_com(
                 }
                 let wildcard = p.kind == ast::ParameterKind::Optional
                     && p.name.is_some_and(|n| interner.resolve(n.sym) == "_")
-                    && program.library(lib).features.tem(dartforge_frontend::Feature::WildcardVariables);
+                    && program.library(lib).features.has(dartforge_frontend::Feature::WildcardVariables);
                 if wildcard {
                     continue;
                 }

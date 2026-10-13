@@ -543,7 +543,7 @@ fn unnecessary_overrides(
     let a = &unit_id.ast;
     let source = unit_id.source.as_str();
     let lib = unit_id.library;
-    let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+    let comments = dartforge_frontend::comments::Comments::scan(source);
     let elems = function_elements(program, u);
     let protected = |u2: UnitId, m: &ast::Annotation| crate::anotacoes::e_getter_de(program, interner, u2, m, "meta", "protected");
     // The annotations of a member (the method's, or the implicit accessor's field's).
@@ -592,7 +592,7 @@ fn unnecessary_overrides(
             }
             // The documentation comment.
             let after = match m.metadata.last() {
-                Some(x) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), x.span.end),
+                Some(x) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), x.span.end),
                 None => m.span.start,
             };
             if comments.dart_doc(source, after).is_some() || m.metadata.iter().rev().any(|x| comments.dart_doc(source, x.span.start).is_some()) {
@@ -753,7 +753,7 @@ fn member_parameters(
                     },
                     covariant: p.covariant,
                     ty,
-                    pattern: p.default_value.map(|d| dartforge_frontend::fonte::de_expr(a, source, interner, d)),
+                    pattern: p.default_value.map(|d| dartforge_frontend::source::from_expr(a, source, interner, d)),
                 });
             }
         }
@@ -789,13 +789,13 @@ fn passes_to_super(
     a: &ast::Ast,
     source: &str,
     interner: &Interner,
-    comments: &dartforge_frontend::comentarios::Comentarios,
+    comments: &dartforge_frontend::comments::Comments,
     body: &UnitBodyTypes,
     f: &ast::Function,
     kind: Kind,
     the_name: &str,
 ) -> bool {
-    let commented = |pos: usize| !comments.antes_de(source, pos).is_empty();
+    let commented = |pos: usize| !comments.before(source, pos).is_empty();
     // `visitSuperExpression`.
     let super_without_comment = |e: ExprId| {
         let e = without_parentheses(a, e);
@@ -934,7 +934,7 @@ fn duplicate_cases(
     out: &mut Vec<Finding>,
 ) {
     let unit_id = program.unit(u);
-    let version = program.library(unit_id.library).features.versao();
+    let version = program.library(unit_id.library).features.version();
     if version >= dartforge_frontend::features::LanguageVersion::new(3, 0) {
         return;
     }
@@ -965,7 +965,7 @@ fn duplicate_cases(
             match seen.iter().position(|(w, _)| engine.iguais(&v, w)) {
                 Some(i) => {
                     let previous = seen[i].1;
-                    let args = vec![dartforge_frontend::fonte::de_expr(a, source, interner, *e), dartforge_frontend::fonte::de_expr(a, source, interner, previous)];
+                    let args = vec![dartforge_frontend::source::from_expr(a, source, interner, *e), dartforge_frontend::source::from_expr(a, source, interner, previous)];
                     out.push((a.expr(*e).span, "no_duplicate_case_values", args));
                 }
                 None => seen.push((v, *e)),

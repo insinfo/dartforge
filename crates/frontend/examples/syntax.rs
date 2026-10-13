@@ -41,23 +41,23 @@ fn main() {
     let mut count: std::collections::BTreeMap<String, usize> = Default::default();
     let mut names = dartforge_intern::Interner::new();
     for file in &files {
-        let Ok(fonte) = std::fs::read_to_string(file) else {
+        let Ok(source) = std::fs::read_to_string(file) else {
             continue;
         };
         total += 1;
-        let output = dartforge_frontend::parser::parse(&fonte, &mut names);
+        let output = dartforge_frontend::parser::parse(&source, &mut names);
         if output.diagnostics.is_empty() {
             accepted += 1;
             continue;
         }
         for d in output.diagnostics {
-            let start_offset = d.span.start.min(fonte.len());
-            let line = fonte[..start_offset].matches('\n').count() + 1;
-            let line_start = fonte[..start_offset].rfind('\n').map_or(0, |i| i + 1);
-            let line_end = fonte[start_offset..]
+            let start_offset = d.span.start.min(source.len());
+            let line = source[..start_offset].matches('\n').count() + 1;
+            let line_start = source[..start_offset].rfind('\n').map_or(0, |i| i + 1);
+            let line_end = source[start_offset..]
                 .find('\n')
-                .map_or(fonte.len(), |i| start_offset + i);
-            let texto = fonte[line_start..line_end].trim();
+                .map_or(source.len(), |i| start_offset + i);
+            let text = source[line_start..line_end].trim();
             let key = d
                 .message
                 .split(", encontrou")
@@ -71,7 +71,7 @@ fn main() {
                     d.message,
                     file.display(),
                     line,
-                    texto.chars().take(160).collect::<String>()
+                    text.chars().take(160).collect::<String>()
                 );
             }
         }

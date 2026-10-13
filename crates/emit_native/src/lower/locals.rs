@@ -195,7 +195,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // With wildcards (Dart 3.7), `_` may repeat: it binds no name.
         let library = self.ctx.program.unit(self.unit_id).library;
         let wildcard = self.ctx.symbol_name(sym) == "_"
-            && self.ctx.program.library(library).features.tem(dartforge_frontend::Feature::WildcardVariables);
+            && self.ctx.program.library(library).features.has(dartforge_frontend::Feature::WildcardVariables);
         let repeated = !wildcard
             && self.scopes.last().and_then(|e| e.get(&sym)).is_some_and(|l| l.offset.is_some_and(|o| o != offset));
         if repeated {

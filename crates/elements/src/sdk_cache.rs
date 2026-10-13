@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Format version; changing it invalidates every cache.
-const FORMAT: u32 = 4; // 4: `Ast::metadados_locais`; 3: patch parts with the `Patch` role (main had already gone to 2)
+const FORMAT: u32 = 4; // 4: `Ast::local_metadata`; 3: patch parts with the `Patch` role (main had already gone to 2)
 
 /// An already analyzed SDK unit.
 #[derive(Serialize, Deserialize)]
@@ -348,7 +348,7 @@ fn parse(sdk: &SdkLayout, path: &Path, uri: &str, role: UnitRole, interner: &mut
         return Ok(None);
     };
     // `dart:*` is always analyzed at the floor (docs/VERSOES-LINGUAGEM.md, D1).
-    let parsed = dartforge_frontend::parser::parse_com(&source, interner, dartforge_frontend::LibraryFeatures::piso());
+    let parsed = dartforge_frontend::parser::parse_with(&source, interner, dartforge_frontend::LibraryFeatures::floor());
     if let Some(d) = parsed.diagnostics.first() {
         return Err(format!("{}:{}: {}", path.display(), d.span.start, d.message));
     }

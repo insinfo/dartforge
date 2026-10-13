@@ -438,7 +438,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         ) {
             return None;
         }
-        let root = self.ast().raiz_de_atalho(e)?;
+        let root = self.ast().shorthand_root(e)?;
         let previous = self.shorthand_contexts.get(&root).cloned();
         if matches!(previous, Some(Some(_))) || (previous.is_some() && expected.is_none()) {
             return None;
@@ -451,7 +451,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// is one) while `f` emits; `==` and patterns provide the context this way
     /// (spec 3.10, "Special case for `==`").
     pub fn with_shorthand_context<R>(&mut self, e: ExprId, ctx: &Ty, f: impl FnOnce(&mut Self) -> R) -> R {
-        let root = if self.shorthands { self.ast().raiz_de_atalho(e) } else { None };
+        let root = if self.shorthands { self.ast().shorthand_root(e) } else { None };
         let Some(root) = root else { return f(self) };
         let previous = self.shorthand_contexts.insert(root, Some(ctx.clone()));
         let r = f(self);
@@ -3751,7 +3751,7 @@ pub fn binop_name(op: BinaryOp) -> &'static str {
         BinaryOp::Or => "||",
         BinaryOp::IfNull => "??",
         // `a ~ b`: a compile-time error (`NOT_BINARY_OPERATOR`); it never reaches emission.
-        BinaryOp::NaoBinario => "~",
+        BinaryOp::NotBinary => "~",
     }
 }
 

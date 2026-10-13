@@ -360,7 +360,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 lists.extend(x.constants.iter().filter_map(|k| k.arguments.as_ref()));
             }
         }
-        for m in dartforge_frontend::pais::todas_as_anotacoes(a, u.unit) {
+        for m in dartforge_frontend::parents::all_annotations(a, u.unit) {
             if let Some(args) = &m.arguments {
                 lists.push(args);
             }

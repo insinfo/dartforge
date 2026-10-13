@@ -224,7 +224,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     }
 
     // `invalid_case_patterns`: only before 3.0 (without `patterns`).
-    if enabled("invalid_case_patterns") && program.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(3, 0) {
+    if enabled("invalid_case_patterns") && program.library(lib).features.version() < dartforge_frontend::features::LanguageVersion::new(3, 0) {
         for st in a.stmts.iter() {
             let StmtKind::Switch { cases, .. } = &st.kind else { continue };
             for case in cases.iter() {

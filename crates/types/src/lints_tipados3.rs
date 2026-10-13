@@ -509,7 +509,7 @@ fn unrelated_equality(
         }
         let (Some(te), Some(td)) = (typ(body, core, table, *left), typ(body, core, table, *right)) else { continue };
         // The operator token: the first one after the left operand.
-        let i = dartforge_frontend::fonte::pular_brancos(unit.source.as_bytes(), a.expr(*left).span.end);
+        let i = dartforge_frontend::source::skip_whitespace(unit.source.as_bytes(), a.expr(*left).span.end);
         cases.push((Span { start: i, end: i + 2 }, "unrelated_type_equality_checks_in_expression", te, td));
     }
     for (k, p) in a.patterns.iter().enumerate() {

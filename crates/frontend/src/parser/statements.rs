@@ -35,7 +35,7 @@
 //!
 //! Contract limitations (see the report): metadata before a local
 //! declaration (`@pragma(...) final x = 1;`) goes to the side table
-//! `Ast::metadados_locais` because [`StmtKind::Variables`] and
+//! `Ast::local_metadata` because [`StmtKind::Variables`] and
 //! [`StmtKind::Function`] have no field for it; and
 //! `for (var (a, b) = e; ...; ...)` (a pattern declaration as the classic
 //! initializer) does not fit in [`ForInit`] and produces an error.
@@ -214,8 +214,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // the text is that of the last token read (the statement's synthetic `;`);
                     // in the others, that of the skipped token.
                     if self.pos == statement_start && !self.at_eof() {
-                        let texto = if body_node { ";".to_string() } else { self.text().to_string() };
-                        self.erro(codes::parser::UNEXPECTED_TOKEN, &[&texto]);
+                        let text = if body_node { ";".to_string() } else { self.text().to_string() };
+                        self.error(codes::parser::UNEXPECTED_TOKEN, &[&text]);
                         self.advance();
                     }
                 }
@@ -485,7 +485,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `@annotation` before a local declaration. The metadata goes to the side
-    /// table [`Ast::metadados_locais`](crate::ast::Ast::metadados_locais), by
+    /// table [`Ast::local_metadata`](crate::ast::Ast::local_metadata), by
     /// statement, because the statement nodes have no field for it.
     fn parse_annotated_declaration(&mut self, start: Span) -> PResult<StmtId> {
         let metadata = self.parse_metadata()?;
@@ -500,10 +500,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if self.declaration_type_at(self.pos, false) {
             self.parse_typed_declaration(start)?
         } else {
-            return Err(self.erro(codes::parser::MISSING_STATEMENT, &[]));
+            return Err(self.error(codes::parser::MISSING_STATEMENT, &[]));
         };
         if !metadata.is_empty() {
-            self.ast.metadados_locais.push((s, metadata.into_boxed_slice()));
+            self.ast.local_metadata.push((s, metadata.into_boxed_slice()));
         }
         Ok(s)
     }
@@ -535,7 +535,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             None
         };
         if !late && !final_ && !var_ && !const_ && ty.is_none() {
-            return Err(self.erro(codes::parser::MISSING_CONST_FINAL_VAR_OR_TYPE, &[]));
+            return Err(self.error(codes::parser::MISSING_CONST_FINAL_VAR_OR_TYPE, &[]));
         }
         let list = VariableList {
             external: false,
@@ -630,17 +630,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         let crate::ast::TypeKind::Named { name, .. } = &self.ast.ty(list.ty?).kind else {
             return None;
         };
-        let [prefix, nome] = **name else {
+        let [prefix, name] = **name else {
             return None;
         };
         let index = |p: &Self, span: Span| (0..p.pos).rev().find(|&i| p.tokens[i].span == span);
-        let i_type = index(self, nome.span)?;
+        let i_type = index(self, name.span)?;
         let i_var = index(self, variable.name.span)?;
         let (member, reinjected) = if self.text_of(i_type) == "await" {
             let s = self.tokens[i_type].span.start;
             (self.name_from("", Span { start: s, end: s }), vec![i_type, i_var])
         } else if self.is_plain_identifier(i_var) || self.text_of(i_var) == "await" {
-            (nome, vec![i_var])
+            (name, vec![i_var])
         } else {
             return None;
         };
@@ -668,9 +668,9 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `checkAsyncAwaitYieldAsIdentifier` (`identifier_context_impl.dart:1387`):
     /// outside a plain synchronous body, `await`/`yield` as a declared name is
     /// `ASYNC_KEYWORD_USED_AS_IDENTIFIER`.
-    pub(crate) fn check_await_yield_as_name(&mut self, nome: Span) {
-        if (self.in_async || self.in_generator) && matches!(&self.source[nome.start..nome.end], "await" | "yield") {
-            self.error_at(codes::parser::ASYNC_KEYWORD_USED_AS_IDENTIFIER, nome, &[]);
+    pub(crate) fn check_await_yield_as_name(&mut self, name: Span) {
+        if (self.in_async || self.in_generator) && matches!(&self.source[name.start..name.end], "await" | "yield") {
+            self.error_at(codes::parser::ASYNC_KEYWORD_USED_AS_IDENTIFIER, name, &[]);
         }
     }
 
@@ -714,7 +714,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `if (e) s`, `if (e) s else s`, `if (e case p when g) s`.
     fn parse_if(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
-        let abre = self.pos;
+        let opener = self.pos;
         self.expect_op(Op::LParen)?;
         let condition = self.parse_expression()?;
         let mut case_pattern = None;
@@ -725,7 +725,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 guard = Some(self.parse_expression()?);
             }
         }
-        self.ensure_close_paren(abre)?;
+        self.ensure_close_paren(opener)?;
         let then = self.parse_statement()?;
         let else_ = if self.eat_kw(Keyword::Else) {
             Some(self.parse_statement()?)
@@ -798,10 +798,10 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     fn parse_while(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
-        let abre = self.pos;
+        let opener = self.pos;
         self.expect_op(Op::LParen)?;
         let condition = self.parse_expression()?;
-        self.ensure_close_paren(abre)?;
+        self.ensure_close_paren(opener)?;
         let body = self.parse_statement()?;
         Ok(self.push_stmt(start, StmtKind::While { condition, body }))
     }
@@ -810,10 +810,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.advance();
         let body = self.parse_statement()?;
         self.expect_kw(Keyword::While)?;
-        let abre = self.pos;
+        let opener = self.pos;
         self.expect_op(Op::LParen)?;
         let condition = self.parse_expression()?;
-        self.ensure_close_paren(abre)?;
+        self.ensure_close_paren(opener)?;
         self.expect_semicolon()?;
         Ok(self.push_stmt(start, StmtKind::DoWhile { body, condition }))
     }
@@ -825,10 +825,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// closes the `switch` and returns the cases already read.
     fn parse_switch(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
-        let abre = self.pos;
+        let opener = self.pos;
         self.expect_op(Op::LParen)?;
         let value = self.parse_expression()?;
-        self.ensure_close_paren(abre)?;
+        self.ensure_close_paren(opener)?;
         // `ensureBlock(…, switchStatement)`: without `{`, the error at the `)` and
         // a synthetic empty body; what comes next is the next statement.
         if !self.at_op(Op::LBrace) {
@@ -877,9 +877,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `SWITCH_HAS_CASE_AFTER_DEFAULT_CASE` at the `case`; another `default`,
             // `SWITCH_HAS_MULTIPLE_DEFAULT_CASES`.
             if saw_default && self.at_kw(Keyword::Case) {
-                self.erro(codes::parser::SWITCH_HAS_CASE_AFTER_DEFAULT_CASE, &[]);
+                self.error(codes::parser::SWITCH_HAS_CASE_AFTER_DEFAULT_CASE, &[]);
             } else if saw_default && self.at_kw(Keyword::Default) {
-                self.erro(codes::parser::SWITCH_HAS_MULTIPLE_DEFAULT_CASES, &[]);
+                self.error(codes::parser::SWITCH_HAS_MULTIPLE_DEFAULT_CASES, &[]);
             }
             saw_default |= self.at_kw(Keyword::Default);
             if self.at_kw(Keyword::Default) {
@@ -888,7 +888,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let (pattern, guard) = if self.eat_kw(Keyword::Case) {
                 // Before 3.0 (`allowPatterns` false), `case` takes an expression
                 // (`parseSwitchCase`: `parseExpression`).
-                let pattern = if self.features.versao() < crate::features::LanguageVersion::new(3, 0) {
+                let pattern = if self.features.version() < crate::features::LanguageVersion::new(3, 0) {
                     let start_offset = self.span();
                     let e = self.parse_expression()?;
                     self.push_pattern(start_offset, crate::ast::PatternKind::Constant(e))
@@ -906,7 +906,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.ensure_colon();
                 (None, None)
             } else {
-                return Err(self.erro(codes::parser::EXPECTED_CASE_OR_DEFAULT, &[]));
+                return Err(self.error(codes::parser::EXPECTED_CASE_OR_DEFAULT, &[]));
             };
             // End of a `case` group after a `default`: the next member (after the
             // labels) is neither `case` nor `default`.
@@ -998,7 +998,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             None
         };
         if catches.is_empty() && finally_.is_none() {
-            return Err(self.erro(codes::parser::MISSING_CATCH_OR_FINALLY, &[]));
+            return Err(self.error(codes::parser::MISSING_CATCH_OR_FINALLY, &[]));
         }
         Ok(self.push_stmt(
             start,
@@ -1045,7 +1045,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `assert(c);`, `assert(c, msg);`, `assert(c, msg,);`
     fn parse_assert(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
-        let abre = self.pos;
+        let opener = self.pos;
         self.expect_op(Op::LParen)?;
         let condition = self.parse_expression()?;
         let mut message = None;
@@ -1056,12 +1056,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `parseAssert` (`parser_impl.dart`): leftovers before the matching `)` are
         // `UNEXPECTED_TOKEN` at their first token, and the rest is skipped.
         if !self.at_op(Op::RParen)
-            && let Some(closes) = self.matching_close(abre)
+            && let Some(closes) = self.matching_close(opener)
             && closes > self.pos
             && self.kind_of(closes) == Kind::Op(Op::RParen)
         {
-            let texto = self.text().to_string();
-            self.erro(codes::parser::UNEXPECTED_TOKEN, &[&texto]);
+            let text = self.text().to_string();
+            self.error(codes::parser::UNEXPECTED_TOKEN, &[&text]);
             self.pos = closes;
         }
         self.expect_op(Op::RParen)?;
@@ -1278,8 +1278,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.depth = depth;
         self.diagnostics.truncate(diagnostics);
         self.ast.exprs.truncate(exprs);
-        self.ast.invocacoes_de_assert.retain(|e| (e.0 as usize) < exprs);
-        self.ast.criacoes_implicitas.retain(|e| (e.0 as usize) < exprs);
+        self.ast.assert_invocations.retain(|e| (e.0 as usize) < exprs);
+        self.ast.implicit_creations.retain(|e| (e.0 as usize) < exprs);
         self.ast.stmts.truncate(stmts);
         self.ast.types.truncate(types);
         self.ast.patterns.truncate(patterns);
@@ -1298,7 +1298,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// (`rewriteAndRecover`) and a synthetic `:` follows in its place.
     fn ensure_colon(&mut self) {
         if !self.eat_op(Op::Colon) {
-            self.erro(codes::parser::EXPECTED_TOKEN, &[":"]);
+            self.error(codes::parser::EXPECTED_TOKEN, &[":"]);
         }
     }
 

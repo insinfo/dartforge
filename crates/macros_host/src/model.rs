@@ -296,7 +296,7 @@ impl<'p> View<'p> {
 
     pub fn library_json(&self, t: &mut Table, lib: LibraryId) -> Value {
         let l = self.program.library(lib);
-        let v = l.features.versao();
+        let v = l.features.version();
         json!({"k": "biblioteca", "id": t.library(&l.uri), "uri": l.uri, "versao": [v.major, v.minor]})
     }
 

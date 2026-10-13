@@ -65,7 +65,7 @@ pub(crate) fn enabled(inf: &BodyInferrer<'_>) -> bool {
 }
 
 fn language_patterns(inf: &BodyInferrer<'_>, cx: &Body) -> bool {
-    inf.program.library(cx.lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0)
+    inf.program.library(cx.lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0)
 }
 
 /// A synthetic local for the promotion key of a matched value.

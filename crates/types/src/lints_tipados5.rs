@@ -231,7 +231,7 @@ fn exhaustive_cases(
         }
         // From the `switch` to the `)` after the expression.
         let b = source.as_bytes();
-        let after = dartforge_frontend::fonte::pular_brancos(b, a.expr(the_value).span.end);
+        let after = dartforge_frontend::source::skip_whitespace(b, a.expr(the_value).span.end);
         let end = if b.get(after) == Some(&b')') { after + 1 } else { a.expr(the_value).span.end };
         for (_, fields) in constantes {
             let preferred = fields.iter().copied().find(|v| !deprecated(*v)).unwrap_or(fields[0]);
@@ -269,7 +269,7 @@ fn named_constants_and_declarations(
             continue;
         }
         let written_const = matches!(&e.kind, ExprKind::InstanceCreation { keyword: Some(ast::CreationKeyword::Const), .. });
-        if !written_const && !pais.em_contexto_constante(a, id) {
+        if !written_const && !pais.in_constant_context(a, id) {
             continue;
         }
         let Some(t) = body.get_type(id) else { continue };
@@ -314,13 +314,13 @@ fn named_constants_and_declarations(
     };
     let skip_word = |pos: usize, p: &str| -> usize {
         if source[pos..].starts_with(p) && !source.as_bytes().get(pos + p.len()).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') {
-            dartforge_frontend::fonte::pular_brancos(source.as_bytes(), pos + p.len())
+            dartforge_frontend::source::skip_whitespace(source.as_bytes(), pos + p.len())
         } else {
             pos
         }
     };
     let after_annotations = |metadata: &[ast::Annotation], start: usize| match metadata.last() {
-        Some(m) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), m.span.end),
+        Some(m) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end),
         None => start,
     };
     for d in a.decls.iter() {
@@ -339,7 +339,7 @@ fn named_constants_and_declarations(
     }
     for (k, st) in a.stmts.iter().enumerate() {
         if let StmtKind::Variables(l) = &st.kind {
-            let meta = a.metadados_locais.iter().find(|(x, _)| x.0 as usize == k).map_or(&[][..], |(_, m)| &m[..]);
+            let meta = a.local_metadata.iter().find(|(x, _)| x.0 as usize == k).map_or(&[][..], |(_, m)| &m[..]);
             let begin = after_annotations(meta, st.span.start);
             list(begin, l, &mut lists);
         }
@@ -392,7 +392,7 @@ fn super_parameters(
 ) {
     let unit_id = program.unit(u);
     // `Feature.super_parameters` (2.17).
-    if program.library(unit_id.library).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
+    if program.library(unit_id.library).features.version() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
         return;
     }
     let a = &unit_id.ast;

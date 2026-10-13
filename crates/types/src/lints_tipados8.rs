@@ -400,7 +400,7 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
     let unit = program.unit(u);
     let a = &unit.ast;
     let library = program.library(unit.library);
-    let tearoffs = library.features.versao() >= dartforge_frontend::features::LanguageVersion::new(2, 15);
+    let tearoffs = library.features.version() >= dartforge_frontend::features::LanguageVersion::new(2, 15);
     let without_parentheses = |mut e: ExprId| {
         while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
             e = *x;

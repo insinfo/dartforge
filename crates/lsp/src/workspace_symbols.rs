@@ -23,7 +23,7 @@
 
 use crate::fuzzy_matcher::{Matcher, Style};
 use dartforge_frontend::ast::{self, Annotation, Ast, DeclKind, DirectiveKind, FunctionKind, MemberKind, TypeKind};
-use dartforge_frontend::comentarios::Comentarios;
+use dartforge_frontend::comments::Comments;
 use dartforge_intern::Interner;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -345,7 +345,7 @@ struct Read<'a> {
     ast: &'a Ast,
     names: &'a Interner,
     lines: crate::utf16::LineTable,
-    comments: Comentarios,
+    comments: Comments,
 }
 
 impl Read<'_> {
@@ -675,7 +675,7 @@ fn index(path: &Path, read_: &Reader<'_>, uri_of: &dyn Fn(&Path) -> String) -> (
             ast: &analyzed.ast,
             names: &names,
             lines: crate::utf16::LineTable::build(&source),
-            comments: Comentarios::de(&source),
+            comments: Comments::scan(&source),
         };
         let mut collector = Collector { l: &read, output: Vec::new(), union: &mut union, types: &mut types };
         collector.unit(&analyzed.unit);

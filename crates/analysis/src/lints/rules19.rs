@@ -313,7 +313,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     continue;
                 }
                 let first = match m.metadata.last() {
-                    Some(x) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), x.span.end),
+                    Some(x) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), x.span.end),
                     None => m.span.start,
                 };
                 // The redirecting factory.

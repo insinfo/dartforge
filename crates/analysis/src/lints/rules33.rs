@@ -971,7 +971,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             _ => {}
         }
     }
-    let before_3_0 = lib.features.versao().major < 3;
+    let before_3_0 = lib.features.version().major < 3;
     let tree = crate::arvore_analyzer::construir_resolvida(u.fonte, a, u.unit, before_3_0, &constructors, &prefixes);
     let cx = Cx { tree: &tree, source: u.fonte, s, interner };
     let mut findings: Vec<(Span, &'static CodigoLint)> = Vec::new();

@@ -46,7 +46,7 @@ use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ClassId, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, ExprId, ExprKind, FunctionBody, Initializer, MemberKind, Parameter, TypeKind, TypedefKind};
-use dartforge_frontend::fonte::fim_do_parametro_funcao;
+use dartforge_frontend::source::function_parameter_end;
 use dartforge_intern::{Interner, SymbolId};
 
 fn inside(a: Span, b: Span) -> bool {
@@ -254,7 +254,7 @@ pub fn falhas_de_inferencia(
             && let Some(n) = q.name
         {
             if q.ty.is_none() {
-                let end = if q.default_value.is_some() { fim_do_parametro_funcao(source, n.span.end) } else { q.span.end };
+                let end = if q.default_value.is_some() { function_parameter_end(source, n.span.end) } else { q.span.end };
                 out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, Span { start: q.span.start, end: end }, [name(n.sym)]));
             }
             params_list(fs, None, &mut out);
@@ -279,7 +279,7 @@ pub fn falhas_de_inferencia(
         if let TypeKind::Function { return_type: None, .. } = &t.kind
             && !dos_typedefs.contains(&id)
         {
-            let text = dartforge_frontend::fonte::de_tipo(a, source, interner, id);
+            let text = dartforge_frontend::source::from_type(a, source, interner, id);
             out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, t.span, [text]));
         }
     }

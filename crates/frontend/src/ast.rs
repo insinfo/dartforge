@@ -54,20 +54,20 @@ pub struct Ast {
     /// `VariableDeclarationStatement.variables.metadata` and
     /// `FunctionDeclaration.metadata`).
     #[serde(default)]
-    pub metadados_locais: Vec<(StmtId, Box<[Annotation]>)>,
+    pub local_metadata: Vec<(StmtId, Box<[Annotation]>)>,
     /// The `assert(…)` calls read as an expression
     /// (`parseAssert(Assert.Expression)`): `AstBuilder.endAssert` builds them as
     /// a `FunctionExpressionInvocation` of a `SimpleIdentifier` `assert`, not as
     /// a `MethodInvocation`.
     #[serde(default)]
-    pub invocacoes_de_assert: Vec<ExprId>,
+    pub assert_invocations: Vec<ExprId>,
     /// The `C<T>.name(…)` and `p.C<T>.name(…)` calls that fasta's
     /// `parseUnaryExpression` reads as an implicit creation
     /// (`parseImplicitCreationExpression`, `parser_impl.dart:6426-6447`): in the
     /// analyzer they are an `InstanceCreationExpression`, which the
     /// `AstRewriter` only undoes when the name is not a type.
     #[serde(default)]
-    pub criacoes_implicitas: Vec<ExprId>,
+    pub implicit_creations: Vec<ExprId>,
 }
 
 impl Ast {
@@ -124,7 +124,7 @@ impl Ast {
     /// that `e` is — `e` itself, or the innermost target of `.x`, `(args)`,
     /// `[i]`, `<T>` and `!`. The context type of the whole chain is its
     /// *shorthand context* (spec, "Type inference").
-    pub fn raiz_de_atalho(&self, e: ExprId) -> Option<ExprId> {
+    pub fn shorthand_root(&self, e: ExprId) -> Option<ExprId> {
         let mut cur = e;
         loop {
             match &self.expr(cur).kind {
@@ -393,8 +393,8 @@ pub enum Variance {
 
 impl Variance {
     /// The modifier by its text.
-    pub fn from_text_(texto: &str) -> Option<Variance> {
-        match texto {
+    pub fn from_text_(text: &str) -> Option<Variance> {
+        match text {
             "in" => Some(Variance::In),
             "out" => Some(Variance::Out),
             "inout" => Some(Variance::Inout),
@@ -403,7 +403,7 @@ impl Variance {
     }
 
     /// The modifier's text.
-    pub fn texto(self) -> &'static str {
+    pub fn text(self) -> &'static str {
         match self {
             Variance::In => "in",
             Variance::Out => "out",
@@ -484,7 +484,7 @@ pub struct Constructor {
     /// `this : inits { body }` (Dart 3.13): the body part of a primary
     /// constructor, before elaboration. After it, only what is an error remains
     /// (without a primary header, or repeated).
-    pub parte_primaria: bool,
+    pub primary_body_part: bool,
 }
 
 /// Target of `factory C() = Other.name;`
@@ -619,14 +619,14 @@ pub struct Parameter {
     /// Declaring parameter (`var`/`final` of a primary constructor, 3.13) that
     /// the parser rewrote as `this.x`: syntactically a `SimpleFormalParameter`,
     /// not a `FieldFormalParameter`.
-    pub declarante: bool,
+    pub declaring: bool,
 }
 
 impl Parameter {
     /// The name under which the parameter is passed and appears in the
     /// signature: the public one of a private named parameter (Dart 3.12),
     /// otherwise the name itself.
-    pub fn nome_externo(&self) -> Option<Name> {
+    pub fn external_name(&self) -> Option<Name> {
         self.public_name.or(self.name)
     }
 }
@@ -660,7 +660,7 @@ pub enum TypeKind {
         type_params: Box<[TypeParameter]>,
         parameters: Box<[Parameter]>,
     },
-    /// `(int, {String nome})`
+    /// `(int, {String name})`
     Record {
         positional: Box<[TypeId]>,
         named: Box<[(Name, TypeId)]>,
@@ -896,7 +896,7 @@ pub enum BinaryOp {
     /// `a ~ b`: the `~` (a prefix operator) between two operands, which fasta
     /// reads as a binary expression at prefix level (without a syntax error)
     /// and the analyzer reports as `NOT_BINARY_OPERATOR`.
-    NaoBinario,
+    NotBinary,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -931,7 +931,7 @@ pub enum ExprKind {
     Bool(bool),
     Null,
     String(StringLit),
-    /// `#nome`, `#a.b.c`, `#+`, `#void`.
+    /// `#name`, `#a.b.c`, `#+`, `#void`.
     Symbol(Box<[Name]>),
     Identifier(Name),
     This,
@@ -952,7 +952,7 @@ pub enum ExprKind {
         type_args: Box<[TypeId]>,
         elements: Box<[CollectionElement]>,
     },
-    /// `(a, b, nome: c)`
+    /// `(a, b, name: c)`
     Record {
         const_: bool,
         positional: Box<[ExprId]>,
@@ -1170,7 +1170,7 @@ pub enum PatternKind {
         entries: Box<[MapPatternEntry]>,
         rest: bool,
     },
-    /// `(a, nome: p, :x)`
+    /// `(a, name: p, :x)`
     Record {
         fields: Box<[PatternField]>,
     },

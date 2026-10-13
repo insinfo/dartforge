@@ -525,7 +525,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                             position += 1;
                         }
                         WrittenParameter {
-                            name: x.nome_externo().map(|n| u.source[n.span.start..n.span.end].to_string()),
+                            name: x.external_name().map(|n| u.source[n.span.start..n.span.end].to_string()),
                             named,
                             optional: x.kind == ast::ParameterKind::Optional,
                             required_named: named && x.required,

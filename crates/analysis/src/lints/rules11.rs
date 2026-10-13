@@ -294,7 +294,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             let ExprKind::Call { target, .. } = &a.expr(e).kind else { return None };
             let ExprKind::Unary { op: UnaryOp::NullAssert, operand } = &a.expr(*target).kind else { return None };
             // `toSource()` of both.
-            let text = |x: ExprId| dartforge_frontend::fonte::de_expr(a, source, interner, x);
+            let text = |x: ExprId| dartforge_frontend::source::from_expr(a, source, interner, x);
             (text(*operand) == text(left)).then_some(a.expr(e).span)
         };
         let mut findings = Vec::new();

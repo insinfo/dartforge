@@ -243,7 +243,7 @@ fn load_lenient_(
             dono_do_grupo: Default::default(),
             escopos_de_unidade: HashMap::new(),
             is_sdk: true,
-            features: LibraryFeatures::piso(),
+            features: LibraryFeatures::floor(),
         });
         uri_to_library.insert(core_uri, core_id);
         program.core = Some(core_id);
@@ -288,7 +288,7 @@ fn load_lenient_(
                 dono_do_grupo: Default::default(),
                 escopos_de_unidade: HashMap::new(),
                 is_sdk,
-                features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },
+                features: if is_sdk { LibraryFeatures::floor() } else { LibraryFeatures::current() },
             });
             uri_to_library.insert(entry_uri.clone(), lib_id);
             queue.push_back(lib_id);
@@ -366,7 +366,7 @@ fn load_lenient_(
                         unit: u.unit,
                         library: lib_id,
                         role: u.role,
-                        features: LibraryFeatures::piso(),
+                        features: LibraryFeatures::floor(),
                         pulados: Vec::new(),
                         referencia: dartforge_diagnostics::AnalyzerReference::V3_6,
                     });
@@ -892,7 +892,7 @@ fn unit_features(
     diagnostics: &mut Vec<Diagnostic>,
 ) -> LibraryFeatures {
     match version {
-        Version::Sdk => LibraryFeatures::piso(),
+        Version::Sdk => LibraryFeatures::floor(),
         Version::Library { config, current_version, experimentos } => {
             let (default_version, marker) = own_version(source, uri, path, config, current_version, diagnostics);
             LibraryFeatures::for_library(marker.map(|m| m.0), default_version, current_version, experimentos)
@@ -900,14 +900,14 @@ fn unit_features(
         Version::Part { of_library, config, current_version } => {
             let (default_version, marker) = own_version(source, uri, path, config, current_version, diagnostics);
             let own = marker.map_or(default_version, |m| m.0);
-            if own != of_library.versao() {
+            if own != of_library.version() {
                 let span = marker.map_or(Span { start: 0, end: 0 }, |m| m.1);
                 diagnostics.push(Diagnostic::new(
                     format!(
                         "{}:{}: the part is at language version {own}, but its library is at {}: a part must have the version of its library",
                         path.display(),
                         span.start,
-                        of_library.versao()
+                        of_library.version()
                     ),
                     span,
                 ));
@@ -954,7 +954,7 @@ fn own_version(
         }
         None => current_version,
     };
-    let marker = dartforge_frontend::features::marcador_versao(source).and_then(|(v, span)| {
+    let marker = dartforge_frontend::features::version_marker(source).and_then(|(v, span)| {
         if v > current_version {
             // WarningCode.INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER.
             let (greater, lesser) = (current_version.major.to_string(), current_version.minor.to_string());
@@ -964,9 +964,9 @@ fn own_version(
                 [greater.as_str(), lesser.as_str()],
             ));
             None
-        } else if v < LanguageVersion::MINIMA {
+        } else if v < LanguageVersion::MINIMUM {
             // CompileTimeErrorCode.ILLEGAL_LANGUAGE_VERSION_OVERRIDE.
-            let minima = format!(">={}.0", LanguageVersion::MINIMA);
+            let minima = format!(">={}.0", LanguageVersion::MINIMUM);
             error_code(Diagnostic::with_code(codes::compile_time_error::ILLEGAL_LANGUAGE_VERSION_OVERRIDE, span, [minima.as_str()]));
             None
         } else {
@@ -1062,8 +1062,8 @@ fn load_unit(
         library: lib_id,
         role,
         features,
-        pulados: parsed.pulados,
-        referencia: parsed.referencia,
+        pulados: parsed.skipped,
+        referencia: parsed.reference,
     });
 
     Some(unit_id)
@@ -1095,7 +1095,7 @@ fn get_or_create_library(
             dono_do_grupo: Default::default(),
             escopos_de_unidade: HashMap::new(),
             is_sdk,
-            features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },
+            features: if is_sdk { LibraryFeatures::floor() } else { LibraryFeatures::current() },
         });
         uri_to_library.insert(canonical_uri.to_string(), lib_id);
         queue.push_back(lib_id);

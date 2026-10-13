@@ -107,17 +107,17 @@ pub struct Parsed {
     /// not close, and what `ensureCloseParen` jumped over. A name mentioned in
     /// one of these ranges may have a use or declaration the tree does not have
     /// (docs/ANALYZER-ESPECIFICACAO.md §G, T5, structure (b)).
-    pub pulados: Vec<Span>,
+    pub skipped: Vec<Span>,
     /// Which analyzer is the reference for this unit's code names and texts:
     /// 3.13.4 if the library is above 3.6 or if the unit uses the syntax of a
     /// disabled feature that 3.6.2 does not know
-    /// ([`Feature::DESCONHECIDOS_NO_3_6`]); otherwise 3.6.2
+    /// ([`Feature::UNKNOWN_IN_3_6`]); otherwise 3.6.2
     /// (docs/ANALYZER-ESPECIFICACAO.md, T2).
-    pub referencia: AnalyzerReference,
+    pub reference: AnalyzerReference,
 }
 
 /// Parses a whole compilation unit at the current language version
-/// ([`LibraryFeatures::atual`]); see [`parse_com`].
+/// ([`LibraryFeatures::current`]); see [`parse_with`].
 ///
 /// Scanner errors do not stop reading (the lexer goes on like fasta's); all
 /// of them end up in [`Parsed::diagnostics`], and the returned unit holds
@@ -131,7 +131,7 @@ pub struct Parsed {
 /// assert_eq!(output.unit.declarations.len(), 1);
 /// ```
 pub fn parse(source: &str, interner: &mut Interner) -> Parsed {
-    parse_com(source, interner, LibraryFeatures::atual())
+    parse_with(source, interner, LibraryFeatures::current())
 }
 
 /// Like [`parse`], with the features of the library the unit belongs to
@@ -139,7 +139,7 @@ pub fn parse(source: &str, interner: &mut Interner) -> Parsed {
 /// superset; a disabled feature becomes a diagnostic, and where the grammar
 /// **diverges** between versions (`factory() {}`, `var`/`final` on a
 /// parameter) the version decides.
-pub fn parse_com(source: &str, interner: &mut Interner, features: LibraryFeatures) -> Parsed {
+pub fn parse_with(source: &str, interner: &mut Interner, features: LibraryFeatures) -> Parsed {
     parse_lexed_with(source, lexer::lex(source), interner, features)
 }
 
@@ -170,7 +170,7 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
             }
             // `translateErrorToken` (`errors.dart:36`): at the character before the
             // `endOffset`, which is the line break or the end of the file.
-            Kind::Str(f) | Kind::StrEnd(f) if f.aberta => {
+            Kind::Str(f) | Kind::StrEnd(f) if f.unterminated => {
                 let mut last = t.span.end.saturating_sub(1);
                 while last > 0 && !source.is_char_boundary(last) {
                     last -= 1;
@@ -206,19 +206,19 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
     // character, `errors.dart:39-44`).
     let mut previous_end = 0usize;
     for t in tokens {
-        lacuna(source, previous_end, t.span.start, &mut output);
+        gap(source, previous_end, t.span.start, &mut output);
         previous_end = previous_end.max(t.span.end);
     }
     output
 }
 
-/// The scanner errors in the gap `[de, until)` between two tokens.
-fn lacuna(source: &str, de: usize, until: usize, output: &mut Vec<Diagnostic>) {
-    if de >= until {
+/// The scanner errors in the gap `[from, until)` between two tokens.
+fn gap(source: &str, from: usize, until: usize, output: &mut Vec<Diagnostic>) {
+    if from >= until {
         return;
     }
     let bytes = source.as_bytes();
-    let mut i = de;
+    let mut i = from;
     while i < until {
         if bytes[i..].starts_with(b"//") {
             while i < until && bytes[i] != b'\n' {
@@ -271,10 +271,10 @@ pub fn parse_lexed(
     tokens: Result<Vec<Token>, Diagnostic>,
     interner: &mut Interner,
 ) -> Parsed {
-    parse_lexed_with(source, tokens, interner, LibraryFeatures::atual())
+    parse_lexed_with(source, tokens, interner, LibraryFeatures::current())
 }
 
-/// [`parse_lexed`] with the library's features; see [`parse_com`].
+/// [`parse_lexed`] with the library's features; see [`parse_with`].
 pub fn parse_lexed_with(
     source: &str,
     tokens: Result<Vec<Token>, Diagnostic>,
@@ -289,8 +289,8 @@ pub fn parse_lexed_with(
                 ast: Ast::default(),
                 diagnostics: vec![diagnostic],
                 // Lexical error: nothing was read, the whole source was left out.
-                pulados: vec![Span { start: 0, end: source.len() }],
-                referencia: if features.versao() > LanguageVersion::PISO { AnalyzerReference::V3_13 } else { AnalyzerReference::V3_6 },
+                skipped: vec![Span { start: 0, end: source.len() }],
+                reference: if features.version() > LanguageVersion::FLOOR { AnalyzerReference::V3_13 } else { AnalyzerReference::V3_6 },
             };
         }
     };
@@ -298,7 +298,7 @@ pub fn parse_lexed_with(
     // The missing closers (and the error of each), like fasta's scanner.
     let (tokens, group_of, mut closers) = crate::grouping::group_tokens(source, tokens);
     for f in &mut closers {
-        f.erro += from_scanner.len();
+        f.error += from_scanner.len();
     }
     from_scanner.extend(group_of);
     // The read, in 3.13.4 mode or not. The tree of some constructs diverges
@@ -306,7 +306,7 @@ pub fn parse_lexed_with(
     // `factory` field in 3.6.2), and the reference is only known at the end of
     // the unit (the new syntax may come later): a unit that diverged and ended
     // up with the 3.13 reference is read again in 3.13 mode.
-    let ler = |interner: &mut Interner, mode_313: bool| {
+    let read = |interner: &mut Interner, mode_313: bool| {
         let mut parser = Parser::new(source, tokens.clone(), interner);
         parser.synthetic_closers = closers.clone();
         parser.features = features;
@@ -314,44 +314,44 @@ pub fn parse_lexed_with(
         parser.diagnostics.extend(from_scanner.iter().cloned());
         let unit = parser.parse_compilation_unit();
         let redo = !mode_313 && parser.diverged_313 && parser.new_syntax;
-        (unit, parser.ast, parser.diagnostics, parser.pulados, parser.new_syntax, parser.only_3_6, parser.only_3_13, redo)
+        (unit, parser.ast, parser.diagnostics, parser.skipped, parser.new_syntax, parser.only_3_6, parser.only_3_13, redo)
     };
-    let mut reading = ler(interner, features.versao() > LanguageVersion::PISO);
+    let mut reading = read(interner, features.version() > LanguageVersion::FLOOR);
     if reading.7 {
-        reading = ler(interner, true);
+        reading = read(interner, true);
     }
-    let (unit, mut ast, diags, pulados, new_syntax, only_3_6, only_3_13, _) = reading;
+    let (unit, mut ast, diags, skipped, new_syntax, only_3_6, only_3_13, _) = reading;
     // The returned tree lives long (an editor keeps it per open file) and the
     // arenas grew in powers of two: in `new_sali` the slack was 29 MiB out of
     // 132 MiB. One reallocation per arena here is cheaper than keeping the
     // slack for the unit's whole life.
     ast.shrink_to_fit();
-    let referencia =
-        if features.versao() > LanguageVersion::PISO || new_syntax { AnalyzerReference::V3_13 } else { AnalyzerReference::V3_6 };
+    let reference =
+        if features.version() > LanguageVersion::FLOOR || new_syntax { AnalyzerReference::V3_13 } else { AnalyzerReference::V3_6 };
     // The diagnostics only the other reference reports come out now, when this
     // unit's reference is known.
     let mut diagnostics = diags;
-    let fora = if referencia == AnalyzerReference::V3_13 { &only_3_6 } else { &only_3_13 };
-    if !fora.is_empty() {
-        diagnostics.retain(|d| !d.code.is_some_and(|c| fora.contains(&(c, d.span))));
+    let outside = if reference == AnalyzerReference::V3_13 { &only_3_6 } else { &only_3_13 };
+    if !outside.is_empty() {
+        diagnostics.retain(|d| !d.code.is_some_and(|c| outside.contains(&(c, d.span))));
     }
     Parsed {
         unit,
         ast,
         diagnostics,
-        pulados,
-        referencia,
+        skipped,
+        reference,
     }
 }
 
 /// A rewrite of the token stream, for speculative attempts to undo.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Splice {
-    /// `n` tokens inserted at `em`.
-    Insertion { em: usize, n: usize },
-    /// The synthetic closer `closer` moved from `de` (where it was `token`, at
-    /// `em`) to `to`; its error had `error_span`.
-    Move { de: usize, to: usize, token: Token, closer: usize, em: usize, error_span: Option<Span> },
+    /// `n` tokens inserted at `at`.
+    Insertion { at: usize, n: usize },
+    /// The synthetic closer `closer` moved from `from` (where it was `token`, at
+    /// `at`) to `to`; its error had `error_span`.
+    Move { from: usize, to: usize, token: Token, closer: usize, at: usize, error_span: Option<Span> },
 }
 
 /// Cursor over a unit's tokens plus the arenas under construction.
@@ -362,8 +362,8 @@ pub struct Parser<'s, 'i> {
     pub(crate) ast: Ast,
     pub(crate) interner: &'i mut Interner,
     pub(crate) diagnostics: Vec<Diagnostic>,
-    /// Ver [`Parsed::pulados`].
-    pub(crate) pulados: Vec<Span>,
+    /// Ver [`Parsed::skipped`].
+    pub(crate) skipped: Vec<Span>,
     /// Nesting depth of expressions/statements, to reject pathological input
     /// before blowing the stack.
     pub(crate) depth: u32,
@@ -397,7 +397,7 @@ pub struct Parser<'s, 'i> {
     /// them when backtracking ([`Parser::undo_splices`]).
     pub(crate) splices: Vec<Splice>,
     /// The scanner's synthetic closers ([`crate::grouping::group_tokens`]); the
-    /// `erro` of each is the index in `diagnostics`.
+    /// `error` of each is the index in `diagnostics`.
     pub(crate) synthetic_closers: Vec<crate::grouping::SyntheticCloser>,
     /// Inside a `spelled_out_operator` attempt (fasta's `_currentlyRecovering`):
     /// no other attempt is made inside it.
@@ -425,7 +425,7 @@ pub struct Parser<'s, 'i> {
     /// of `declaration_name`), where the missing-body error goes.
     pub(crate) synthetic_name: Option<dartforge_diagnostics::Span>,
     /// The unit uses the syntax of a disabled feature that the 3.6.2 analyzer
-    /// does not know: its reference is 3.13.4 ([`Parsed::referencia`]).
+    /// does not know: its reference is 3.13.4 ([`Parsed::reference`]).
     pub(crate) new_syntax: bool,
     /// Reads the constructs where the 3.6.2 and 3.13.4 trees diverge the 3.13.4
     /// way (`factory new()`): a unit with a version above the floor, or the
@@ -489,14 +489,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             ast: Ast::default(),
             interner,
             diagnostics: Vec::new(),
-            pulados: Vec::new(),
+            skipped: Vec::new(),
             depth: 0,
             in_async: false,
             in_generator: false,
             in_type_args: 0,
             scratch_args: Vec::new(),
             scratch_parts: Vec::new(),
-            features: LibraryFeatures::atual(),
+            features: LibraryFeatures::current(),
             in_primary_constructor: false,
             in_representation: false,
             primary_bodies: std::collections::HashMap::new(),
@@ -698,18 +698,18 @@ impl<'s, 'i> Parser<'s, 'i> {
         let copies: Vec<Token> = indices.iter().map(|&i| Token { glued: false, ..self.tokens[i] }).collect();
         let n = copies.len();
         self.tokens.splice(self.pos..self.pos, copies);
-        self.splices.push(Splice::Insertion { em: self.pos, n });
+        self.splices.push(Splice::Insertion { at: self.pos, n });
     }
 
     /// `rewriter.moveSynthetic` (`token_stream_rewriter.dart:80`): if the closer
-    /// of the opener at `abre` is synthetic, it (and its scanner error) moves to
+    /// of the opener at `opener` is synthetic, it (and its scanner error) moves to
     /// the cursor, at the current token's position, and is the next to be read.
-    pub(crate) fn move_synthetic_closer(&mut self, abre: usize) -> bool {
-        let Some(start_offset) = self.tokens.get(abre).map(|t| t.span.start) else { return false };
-        let Some(k) = self.synthetic_closers.iter().position(|f| f.abre == start_offset) else { return false };
+    pub(crate) fn move_synthetic_closer(&mut self, opener: usize) -> bool {
+        let Some(start_offset) = self.tokens.get(opener).map(|t| t.span.start) else { return false };
+        let Some(k) = self.synthetic_closers.iter().position(|f| f.opener == start_offset) else { return false };
         let f = self.synthetic_closers[k];
         let Some(j) = (self.pos..self.tokens.len())
-            .find(|&j| self.tokens[j].span.start == f.em && self.tokens[j].span.end == f.em && self.tokens[j].kind != Kind::Eof)
+            .find(|&j| self.tokens[j].span.start == f.at && self.tokens[j].span.end == f.at && self.tokens[j].kind != Kind::Eof)
         else {
             return false;
         };
@@ -717,14 +717,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             return true;
         }
         let token = self.tokens.remove(j);
-        let novo = self.tokens[self.pos].span.start;
-        self.tokens.insert(self.pos, Token { span: Span { start: novo, end: novo }, ..token });
-        let error_span = self.diagnostics.get(f.erro).map(|d| d.span);
-        if let Some(d) = self.diagnostics.get_mut(f.erro) {
-            d.span = Span { start: novo, end: novo + 1 };
+        let new_pos = self.tokens[self.pos].span.start;
+        self.tokens.insert(self.pos, Token { span: Span { start: new_pos, end: new_pos }, ..token });
+        let error_span = self.diagnostics.get(f.error).map(|d| d.span);
+        if let Some(d) = self.diagnostics.get_mut(f.error) {
+            d.span = Span { start: new_pos, end: new_pos + 1 };
         }
-        self.synthetic_closers[k].em = novo;
-        self.splices.push(Splice::Move { de: j, to: self.pos, token, closer: k, em: f.em, error_span });
+        self.synthetic_closers[k].at = new_pos;
+        self.splices.push(Splice::Move { from: j, to: self.pos, token, closer: k, at: f.at, error_span });
         true
     }
 
@@ -732,15 +732,15 @@ impl<'s, 'i> Parser<'s, 'i> {
     pub(crate) fn undo_splices(&mut self, mark: usize) {
         while self.splices.len() > mark {
             match self.splices.pop().expect("splice") {
-                Splice::Insertion { em, n } => {
-                    self.tokens.drain(em..em + n);
+                Splice::Insertion { at, n } => {
+                    self.tokens.drain(at..at + n);
                 }
-                Splice::Move { de, to, token, closer, em, error_span } => {
+                Splice::Move { from, to, token, closer, at, error_span } => {
                     self.tokens.remove(to);
-                    self.tokens.insert(de, token);
-                    self.synthetic_closers[closer].em = em;
-                    let erro = self.synthetic_closers[closer].erro;
-                    if let (Some(d), Some(s)) = (self.diagnostics.get_mut(erro), error_span) {
+                    self.tokens.insert(from, token);
+                    self.synthetic_closers[closer].at = at;
+                    let error = self.synthetic_closers[closer].error;
+                    if let (Some(d), Some(s)) = (self.diagnostics.get_mut(error), error_span) {
                         d.span = s;
                     }
                 }
@@ -781,7 +781,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `code` at the current token — where fasta reports what is missing or
     /// extra.
-    pub(crate) fn erro(&mut self, code: Code, args: &[&str]) -> ParseError {
+    pub(crate) fn error(&mut self, code: Code, args: &[&str]) -> ParseError {
         // `findNonZeroLengthToken`: an error at a synthetic closer goes to the
         // first real token after it.
         let i = (self.pos..self.tokens.len())
@@ -795,16 +795,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// **previous** token (fasta's `ensureSemicolon`); a closer `)`/`]`/`}`
     /// missing at end of file is a scanner error, at the end, with length 1
     /// (`translateErrorToken`); the rest, at the current token.
-    pub(crate) fn expected_error(&mut self, texto: &str) -> ParseError {
-        if texto == ";" && self.pos > 0 {
+    pub(crate) fn expected_error(&mut self, text: &str) -> ParseError {
+        if text == ";" && self.pos > 0 {
             // `findPreviousNonZeroLengthToken`: synthetic tokens do not count.
             let previous = (0..self.pos).rev().find(|&i| self.tokens[i].span.start < self.tokens[i].span.end).unwrap_or(self.pos - 1);
             let span = self.tokens[previous].span;
             return self.error_at(codes::parser::EXPECTED_TOKEN, span, &[";"]);
         }
-        if matches!(texto, ")" | "]" | "}") && self.kind() == Kind::Eof {
+        if matches!(text, ")" | "]" | "}") && self.kind() == Kind::Eof {
             let s = self.span().start;
-            return self.error_at(codes::scanner::EXPECTED_TOKEN, Span { start: s, end: s + 1 }, &[texto]);
+            return self.error_at(codes::scanner::EXPECTED_TOKEN, Span { start: s, end: s + 1 }, &[text]);
         }
         // A `>` that fasta's scanner reads together with the next one (`>=`, `>>`,
         // `>>=`…) is a single token there: the error covers the whole composition.
@@ -814,9 +814,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         {
             let s = self.span().start;
             let end_offset = self.peek_at(c.len() - 1).span.end;
-            return self.error_at(codes::parser::EXPECTED_TOKEN, Span { start: s, end: end_offset }, &[texto]);
+            return self.error_at(codes::parser::EXPECTED_TOKEN, Span { start: s, end: end_offset }, &[text]);
         }
-        self.erro(codes::parser::EXPECTED_TOKEN, &[texto])
+        self.error(codes::parser::EXPECTED_TOKEN, &[text])
     }
 
     /// Like [`Parser::error_at`], without repeating an identical diagnostic
@@ -849,49 +849,49 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Records as skipped the tokens from `de` up to the cursor (what a recovery
+    /// Records as skipped the tokens from `from` up to the cursor (what a recovery
     /// just discarded), merging with the previous range when they are contiguous
     /// or overlap.
-    pub(crate) fn record_skipped(&mut self, de: usize) {
-        if self.pos <= de || de >= self.tokens.len() {
+    pub(crate) fn record_skipped(&mut self, from: usize) {
+        if self.pos <= from || from >= self.tokens.len() {
             return;
         }
-        let start_offset = self.tokens[de].span.start;
+        let start_offset = self.tokens[from].span.start;
         let end_offset = self.tokens[self.pos - 1].span.end;
         if end_offset <= start_offset {
             return;
         }
-        if let Some(last) = self.pulados.last_mut() {
+        if let Some(last) = self.skipped.last_mut() {
             if start_offset <= last.end && last.start <= end_offset {
                 last.start = last.start.min(start_offset);
                 last.end = last.end.max(end_offset);
                 return;
             }
         }
-        self.pulados.push(Span { start: start_offset, end: end_offset });
+        self.skipped.push(Span { start: start_offset, end: end_offset });
     }
 
     /// fasta's `ensureCloseParen`: the `)` that closes the `(` at absolute
-    /// position `abre`. If the current token is not it, `EXPECTED_TOKEN` (`)`)
+    /// position `opener`. If the current token is not it, `EXPECTED_TOKEN` (`)`)
     /// at the current token and the cursor jumps past the matching `)` — what
     /// is in between is not read, as in fasta. Without a matching `)` (end of
     /// file), the usual error.
-    pub(crate) fn ensure_close_paren(&mut self, abre: usize) -> PResult<()> {
+    pub(crate) fn ensure_close_paren(&mut self, opener: usize) -> PResult<()> {
         if self.eat_op(Op::RParen) {
             return Ok(());
         }
         // `ensureCloseParen`: the misplaced synthetic `)` comes here (the error is
         // the scanner's).
-        if self.move_synthetic_closer(abre) {
+        if self.move_synthetic_closer(opener) {
             self.advance();
             return Ok(());
         }
-        match self.matching_close(abre) {
+        match self.matching_close(opener) {
             Some(closes) if closes >= self.pos && self.kind_of(closes) == Kind::Op(Op::RParen) && !self.at_eof() => {
                 self.expected_error(")");
-                let de = self.pos;
+                let from = self.pos;
                 self.pos = closes;
-                self.record_skipped(de);
+                self.record_skipped(from);
                 self.pos = closes + 1;
                 Ok(())
             }
@@ -905,21 +905,21 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// identifier).
     pub(crate) fn statement_error(&mut self) -> ParseError {
         if let Kind::Keyword(_) = self.kind() {
-            let texto = self.text().to_string();
+            let text = self.text().to_string();
             let span = self.span();
-            self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, span, &[&texto]);
+            self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, span, &[&text]);
         }
-        self.erro(codes::parser::MISSING_STATEMENT, &[])
+        self.error(codes::parser::MISSING_STATEMENT, &[])
     }
 
     /// An identifier was missing: `MISSING_IDENTIFIER` at the current token, or
     /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` if it is a reserved word.
     pub(crate) fn identifier_error(&mut self) -> ParseError {
         if let Kind::Keyword(_) = self.kind() {
-            let texto = self.text().to_string();
-            return self.erro(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
+            let text = self.text().to_string();
+            return self.error(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&text]);
         }
-        self.erro(codes::parser::MISSING_IDENTIFIER, &[])
+        self.error(codes::parser::MISSING_IDENTIFIER, &[])
     }
     /// Records that `span` uses feature `f`: a diagnostic if the library's
     /// version does not enable it. Parsing goes on (the superset is accepted).
@@ -928,8 +928,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// writes]`: the template uses the second, and the code's 3.13 variant
     /// swaps it for the third (`Diagnostic::for_reference`).
     pub(crate) fn require(&mut self, f: Feature, span: Span) {
-        if !self.features.tem(f) {
-            if Feature::DESCONHECIDOS_NO_3_6.contains(&f) {
+        if !self.features.has(f) {
+            if Feature::UNKNOWN_IN_3_6.contains(&f) {
                 self.new_syntax = true;
             }
             // `EXPERIMENT_NOT_ENABLED` (with the version in which the feature turns
@@ -939,10 +939,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Some(v) => {
                     let new_ = format!("{v}.0");
                     let old = f.version_reported_in_3_6().map_or_else(|| new_.clone(), |a| format!("{a}.0"));
-                    self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &new_]);
+                    self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED, span, &[f.name(), &old, &new_]);
                 }
                 None => {
-                    self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT, span, &[f.nome()]);
+                    self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT, span, &[f.name()]);
                 }
             }
         }
@@ -954,17 +954,17 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `this`/`new` members and the declaring `final` (measured on the 3.13.4
     /// oracle).
     pub(crate) fn require_in_ast(&mut self, f: Feature, span: Span) {
-        if self.features.tem(f) {
+        if self.features.has(f) {
             return;
         }
         match f.enabled_in() {
             Some(v) => {
-                if Feature::DESCONHECIDOS_NO_3_6.contains(&f) {
+                if Feature::UNKNOWN_IN_3_6.contains(&f) {
                     self.new_syntax = true;
                 }
                 let new_ = v.to_string();
                 let old = f.version_reported_in_3_6().map_or_else(|| new_.clone(), |a| a.to_string());
-                self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &new_]);
+                self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED, span, &[f.name(), &old, &new_]);
             }
             None => self.require(f, span),
         }
@@ -973,7 +973,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Enters a nesting level; fails beyond [`MAX_DEPTH`].
     pub(crate) fn enter(&mut self) -> PResult<()> {
         if self.depth >= MAX_DEPTH {
-            return Err(self.erro(codes::parser::STACK_OVERFLOW, &[]));
+            return Err(self.error(codes::parser::STACK_OVERFLOW, &[]));
         }
         self.depth += 1;
         Ok(())

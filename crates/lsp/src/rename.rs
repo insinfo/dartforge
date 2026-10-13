@@ -1317,7 +1317,7 @@ impl Project {
                     let use_ = |pn: &ast::Name, v: &mut Vec<Edit>| {
                         v.push(Edit { uri: uri_x.clone(), span: until_next(pn.span), text: replacement.clone() });
                     };
-                    for annotation in dartforge_frontend::pais::todas_as_anotacoes(&ux.ast, &ux.unit) {
+                    for annotation in dartforge_frontend::parents::all_annotations(&ux.ast, &ux.unit) {
                         if let [pn, n, ..] = &annotation.name[..]
                             && pn.sym == pr.sym
                             && visible(n.sym)

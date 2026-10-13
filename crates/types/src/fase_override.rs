@@ -121,7 +121,7 @@ pub fn sem_sobrescrita(
             if primary == Some(mid)
                 && let MemberKind::Constructor(k) = &mem.kind
             {
-                for par in k.parameters.iter().filter(|x| x.declarante) {
+                for par in k.parameters.iter().filter(|x| x.declaring) {
                     let Some(name) = par.name else { continue };
                     if !with_override(program, interner, u, &par.metadata) {
                         continue;

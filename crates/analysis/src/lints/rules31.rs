@@ -248,7 +248,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     j += 1;
                     optional.get(j - 1).copied()
                 }
-                ParameterKind::Named => p.nome_externo().and_then(|n| named.iter().find(|(m, _, _)| *m == n.sym).map(|(_, t, _)| *t)),
+                ParameterKind::Named => p.external_name().and_then(|n| named.iter().find(|(m, _, _)| *m == n.sym).map(|(_, t, _)| *t)),
             };
             v.push(t.unwrap_or(s.core.dynamic_));
         }

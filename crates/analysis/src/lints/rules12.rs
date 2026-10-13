@@ -142,7 +142,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 // The parameter's node without the default value.
                 let end = match p.default_value {
                     None => p.span.end,
-                    Some(_) if p.function_parameters.is_some() => dartforge_frontend::fonte::fim_do_parametro_funcao(source, n.span.end),
+                    Some(_) if p.function_parameters.is_some() => dartforge_frontend::source::function_parameter_end(source, n.span.end),
                     Some(_) => n.span.end,
                 };
                 findings.push((Span { start: p.span.start, end }, interner.resolve(n.sym).to_string()));
@@ -156,7 +156,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         }
         for m in a.members.iter() {
             if let MemberKind::Constructor(k) = &m.kind
-                && !k.parte_primaria
+                && !k.primary_body_part
             {
                 check(&k.parameters);
             }

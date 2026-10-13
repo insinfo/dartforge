@@ -347,7 +347,7 @@ pub struct StrFlags {
     /// synthetic closer and goes on, and the error
     /// (`UNTERMINATED_STRING_LITERAL`) comes from this token
     /// (`parser::recoverable_scanner_errors`). Only the last piece has it.
-    pub aberta: bool,
+    pub unterminated: bool,
 }
 
 /// Token class. The text of identifiers and literals comes from

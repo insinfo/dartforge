@@ -32,7 +32,7 @@ use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::{ClassId, ClassKind, LibraryId, Program};
 use dartforge_frontend::ast::{self, AssignOp, BinaryOp, DeclKind, ExprKind, MemberKind, UnaryOp};
-use dartforge_frontend::pais::Pai;
+use dartforge_frontend::parents::Parent;
 use dartforge_intern::Interner;
 use std::collections::HashMap;
 
@@ -60,15 +60,15 @@ fn lexeme(op: BinaryOp) -> &'static str {
         BinaryOp::And => "&&",
         BinaryOp::Or => "||",
         BinaryOp::IfNull => "??",
-        BinaryOp::NaoBinario => "~",
+        BinaryOp::NotBinary => "~",
     }
 }
 
 /// `(leitura, escrita)` of an assignment/increment target: the context of
 /// `inGetterContext`/`inSetterContext`.
-fn context(a: &ast::Ast, pais: &dartforge_frontend::pais::Pais, e: ast::ExprId) -> (bool, bool) {
-    match pais.pai(e) {
-        Pai::Expr(p) => match &a.expr(p).kind {
+fn context(a: &ast::Ast, pais: &dartforge_frontend::parents::Parents, e: ast::ExprId) -> (bool, bool) {
+    match pais.parent(e) {
+        Parent::Expr(p) => match &a.expr(p).kind {
             ExprKind::Assign { op, target, .. } if *target == e => match op {
                 AssignOp::Assign => (false, true),
                 AssignOp::Compound(_) => (true, true),
@@ -116,7 +116,7 @@ fn names_invoked_through_super(program: &Program, m: ClassId) -> Vec<String> {
             },
             ExprKind::Property { target, name, .. } if e_super(*target) => {
                 // The target of a call is the `methodName`, already counted.
-                if let Pai::Expr(p) = pais.pai(id)
+                if let Parent::Expr(p) = pais.parent(id)
                     && matches!(&a.expr(p).kind, ExprKind::Call { target: t, .. } if *t == id)
                 {
                     Vec::new()

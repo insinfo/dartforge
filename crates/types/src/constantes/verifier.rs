@@ -148,7 +148,7 @@ pub fn creation_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId,
     if !program.function(*f).const_ {
         return false;
     }
-    let patterns_enabled = program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+    let patterns_enabled = program.library(lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
     let mut v = Verifier {
         m,
         lib,
@@ -168,7 +168,7 @@ pub fn creation_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId,
 
 /// A verifier without the library's tables (the lint queries).
 fn standalone_verifier<'v, 'm>(m: &'v mut Motor<'m>, lib: LibraryId, unit_id: UnitId) -> Verifier<'v, 'm> {
-    let patterns_enabled = m.program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+    let patterns_enabled = m.program.library(lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
     Verifier {
         m,
         lib,
@@ -273,7 +273,7 @@ pub fn the_verify(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)
             _ => {}
         }
     }
-    let patterns_enabled = program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+    let patterns_enabled = program.library(lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
     let mut v = Verifier {
         m,
         lib,
@@ -300,7 +300,7 @@ pub fn the_verify(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)
         }
         // `visitAnnotation`: the arguments of an annotation that creates with a
         // `const` constructor (`_validateConstantArguments`).
-        for m in dartforge_frontend::pais::todas_as_anotacoes(a, &program.unit(u).unit) {
+        for m in dartforge_frontend::parents::all_annotations(a, &program.unit(u).unit) {
             v.annotation(m);
         }
     }
@@ -601,7 +601,7 @@ impl Verifier<'_, '_> {
     /// The constructor is the primary one (3.13) of the class or the enum, or
     /// its body part.
     fn is_primary(&self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) -> bool {
-        k.parte_primaria
+        k.primary_body_part
             || a.decls.iter().any(|d| match &d.kind {
                 ast::DeclKind::Class(x) => x.primary_constructor == Some(mid),
                 ast::DeclKind::Enum(x) => x.primary_constructor == Some(mid),
@@ -621,7 +621,7 @@ impl Verifier<'_, '_> {
         // Only in `visitConstructorDeclaration`: a leftover `this` part (repeated
         // or without a primary header) is a `PrimaryConstructorBody`, not a
         // constructor declaration (3.13.4).
-        if data.kind == ClassKind::Enum && !k.const_ && !k.factory && !k.parte_primaria {
+        if data.kind == ClassKind::Enum && !k.const_ && !k.factory && !k.primary_body_part {
             self.report(c::NON_CONST_GENERATIVE_ENUM_CONSTRUCTOR, header, Vec::new());
         }
         if !k.const_ || k.factory {
@@ -1579,7 +1579,7 @@ impl Verifier<'_, '_> {
         let Some(t) = the_body.get_type(the_value) else { return };
         let program = self.m.program;
         let source = program.unit(u).source.as_str();
-        let version_3_3 = program.library(self.lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 3);
+        let version_3_3 = program.library(self.lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 3);
         let the_default_values = std::mem::take(&mut self.the_default_values);
         let key_values = std::mem::take(&mut self.key_values);
         let entry = Entry {

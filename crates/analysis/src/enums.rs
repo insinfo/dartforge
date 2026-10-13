@@ -52,7 +52,7 @@ pub fn sem_constantes(units: &[Unidade<'_>]) -> Vec<(usize, Diagnostic)> {
 mod tests {
     use super::*;
     use dartforge_frontend::features::{Feature, LanguageVersion, LibraryFeatures};
-    use dartforge_frontend::parser::{parse, parse_com};
+    use dartforge_frontend::parser::{parse, parse_with};
     use dartforge_intern::Interner;
 
     #[test]
@@ -77,10 +77,10 @@ mod tests {
     fn constant_in_augmentation_completes_base_enum() {
         let sources = ["enum E {}", "augment enum E { v }", "augment enum F {}"];
         let mut names = Interner::new();
-        let features = LibraryFeatures::new(LanguageVersion::PISO, &[Feature::Augmentations]);
+        let features = LibraryFeatures::new(LanguageVersion::FLOOR, &[Feature::Augmentations]);
         let parsed: Vec<_> = sources
             .iter()
-            .map(|source| parse_com(source, &mut names, features))
+            .map(|source| parse_with(source, &mut names, features))
             .collect();
         let units: Vec<_> = sources
             .iter()
@@ -94,7 +94,7 @@ mod tests {
         assert!(sem_constantes(&units).is_empty());
 
         let source = "enum E {} augment enum E {}";
-        let parsed = parse_com(source, &mut names, features);
+        let parsed = parse_with(source, &mut names, features);
         let found = sem_constantes(&[Unidade {
             ast: &parsed.ast,
             unit: &parsed.unit,

@@ -171,7 +171,7 @@ fn ignore_elements(lexeme: &str) -> (bool, bool) {
 
 /// The `?.` or `?` token after `target_end`.
 fn token_null_aware(source: &str, target_end: usize, len: usize) -> Span {
-    let i = dartforge_frontend::fonte::pular_brancos(source.as_bytes(), target_end);
+    let i = dartforge_frontend::source::skip_whitespace(source.as_bytes(), target_end);
     Span { start: i, end: (i + len).min(source.len()) }
 }
 
@@ -186,7 +186,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
 
     // `document_ignores`.
     if enabled("document_ignores") {
-        let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+        let comments = dartforge_frontend::comments::Comments::scan(source);
         let mut line_starts = vec![0usize];
         let bs = source.as_bytes();
         let mut i = 0;
@@ -203,7 +203,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             }
             i += 1;
         }
-        for sp in comments.todos() {
+        for sp in comments.all() {
             let lexeme = &source[sp.start..sp.end];
             // `//+[ ]*ignore:` or `//[ ]*ignore_for_file:` at the start.
             let after = lexeme.trim_start_matches('/');
@@ -278,7 +278,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 DeclKind::Class(x) => (&x.members, interner.resolve(x.name.sym).to_string()),
                 DeclKind::Enum(x) => (&x.members, interner.resolve(x.name.sym).to_string()),
                 DeclKind::Mixin(x) => (&x.members, interner.resolve(x.name.sym).to_string()),
-                DeclKind::Extension(x) => (&x.members, dartforge_frontend::fonte::de_tipo(a, source, interner, x.on)),
+                DeclKind::Extension(x) => (&x.members, dartforge_frontend::source::from_type(a, source, interner, x.on)),
                 DeclKind::ExtensionType(x) => (&x.members, {
                     let _ = x;
                     "unknown".to_string()

@@ -63,7 +63,7 @@ fn main() {
                     timings: false,
                     optimize: false,
                     // The corpus is `corpus/js`, written for 3.6.
-                    versao_linguagem: Some(dartforge_frontend::LanguageVersion::PISO),
+                    versao_linguagem: Some(dartforge_frontend::LanguageVersion::FLOOR),
                     experimentos: Vec::new(),
                     depuracao: false,
                     gerador: None,

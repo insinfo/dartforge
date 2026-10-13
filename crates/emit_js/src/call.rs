@@ -242,7 +242,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// in `types`.
     pub fn constrain_by_bounds(&self, params: &[TyParam], free: &[u32], subst: &mut HashMap<u32, Ty>) {
         let library = self.ctx.program.library(self.lib);
-        if !library.features.tem(dartforge_frontend::Feature::InferenceUsingBounds) {
+        if !library.features.has(dartforge_frontend::Feature::InferenceUsingBounds) {
             return;
         }
         for p in params {
@@ -999,7 +999,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             match p.kind {
                 ast::ParameterKind::Required => pos.push(t),
                 ast::ParameterKind::Optional => opt.push(t),
-                ast::ParameterKind::Named => named.push((self.name(p.nome_externo().unwrap_or(n).sym).to_string(), t, p.required)),
+                ast::ParameterKind::Named => named.push((self.name(p.external_name().unwrap_or(n).sym).to_string(), t, p.required)),
             }
         }
         named.sort_by(|a, b| a.0.cmp(&b.0));

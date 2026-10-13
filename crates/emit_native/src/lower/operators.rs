@@ -382,7 +382,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 unreachable!("short-circuit has its own lowering")
             }
             // `a ~ b` is a compile error (`not_binary_operator`).
-            BinaryOp::NaoBinario => unreachable!("non-binary operator"),
+            BinaryOp::NotBinary => unreachable!("non-binary operator"),
         }
     }
 }

@@ -504,8 +504,8 @@ pub fn elementos_nao_usados(
                 _ => None,
             })
             .collect();
-        let parent_of = |e: ExprId| match pais.pai(e) {
-            dartforge_frontend::pais::Pai::Expr(p) => Some(p),
+        let parent_of = |e: ExprId| match pais.parent(e) {
+            dartforge_frontend::parents::Parent::Expr(p) => Some(p),
             _ => None,
         };
 
@@ -847,7 +847,7 @@ pub fn elementos_nao_usados(
             use_it(&mut used, el, t.span);
         }
         // The annotation names.
-        for m in dartforge_frontend::pais::todas_as_anotacoes(a, &program.unit(u).unit) {
+        for m in dartforge_frontend::parents::all_annotations(a, &program.unit(u).unit) {
             if let Some(el) = crate::anotacoes::annotation_element(program, interner, u, m).and_then(|e| cx.of_element(e)) {
                 use_it(&mut used, el, m.span);
             }
@@ -960,7 +960,7 @@ pub fn elementos_nao_usados(
     // O relato.
     let mut engine: Option<Motor<'_>> = None;
     let needs_engine = units.iter().any(|&u| {
-        dartforge_frontend::pais::todas_as_anotacoes(&program.unit(u).ast, &program.unit(u).unit)
+        dartforge_frontend::parents::all_annotations(&program.unit(u).ast, &program.unit(u).unit)
             .iter()
             .any(|m| m.name.last().is_some_and(|n| interner.resolve(n.sym) == "pragma"))
     });
@@ -1170,7 +1170,7 @@ pub fn elementos_nao_usados(
                     }
                     MemberKind::Constructor(k) => {
                         let (Some(n), Some(e)) = (k.name, member_constructor(u, mid)) else { continue };
-                        if interner.resolve(n.sym) == "new" || k.parte_primaria {
+                        if interner.resolve(n.sym) == "new" || k.primary_body_part {
                             continue;
                         }
                         let Some(c) = program.function(e).class else { continue };

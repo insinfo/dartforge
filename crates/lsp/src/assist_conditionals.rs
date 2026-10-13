@@ -324,7 +324,7 @@ impl Context<'_> {
     /// The library has patterns (Dart 3.0).
     pub(crate) fn with_patterns(&self) -> bool {
         let prog = self.p.program();
-        prog.library(prog.unit(self.unit).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0)
+        prog.library(prog.unit(self.unit).library).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0)
     }
 
     /// Some identifier of `n` reads the local declared at `name`.

@@ -108,7 +108,7 @@ fn report(fields: &[Field], n_positional: usize, wildcard: bool, out: &mut Vec<D
 
 pub fn check(u: &Unidade<'_>, names: &dartforge_intern::Interner, features: dartforge_frontend::features::LibraryFeatures) -> Vec<Diagnostic> {
     let a = u.ast;
-    let wildcard = features.tem(Feature::WildcardVariables);
+    let wildcard = features.has(Feature::WildcardVariables);
     let mut out = Vec::new();
     for t in &a.types {
         let TypeKind::Record { positional, named } = &t.kind else { continue };

@@ -15,12 +15,12 @@
 //! [`dartforge_intern::SymbolId`], and no node borrows from the source.
 pub mod grouping;
 pub mod ast;
-pub mod comentarios;
-pub mod doc_referencias;
+pub mod comments;
+pub mod doc_references;
 pub mod features;
-pub mod fonte;
+pub mod source;
 pub mod lexer;
-pub mod pais;
+pub mod parents;
 pub mod parser;
 pub mod text;
 pub mod token;

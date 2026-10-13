@@ -316,7 +316,7 @@ impl Body {
             dead_code: None,
             dead_origin: None,
         };
-        if inf.program.library(lib).features.tem(dartforge_frontend::Feature::WildcardVariables) {
+        if inf.program.library(lib).features.has(dartforge_frontend::Feature::WildcardVariables) {
             cx.wildcard = inf.interner.lookup("_");
         }
         // The class/extension's type parameters are always in scope (even in

@@ -292,7 +292,7 @@ impl<'a> BodyInferrer<'a> {
                         if positional_one {
                             positional.iter().chain(optional.iter()).nth(position).copied().unwrap_or(self.core.dynamic_)
                         } else {
-                            let n = p.nome_externo().map(|n| n.sym);
+                            let n = p.external_name().map(|n| n.sym);
                             named.iter().find(|(s, _, _)| Some(*s) == n).map_or(self.core.dynamic_, |x| x.1)
                         }
                     }

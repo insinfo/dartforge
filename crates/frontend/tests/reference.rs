@@ -4,34 +4,34 @@
 //! oracles. Written without compiling or running (2026-10-05).
 
 use dartforge_frontend::features::{LibraryFeatures, AnalyzerReference};
-use dartforge_frontend::parser::parse_com;
+use dartforge_frontend::parser::parse_with;
 use dartforge_intern::Interner;
 
 /// The unit's reference in a 3.6 library and, already in its form, each
 /// diagnostic: code, excerpt, message and fix.
-fn ler(fonte: &str) -> (AnalyzerReference, Vec<(&'static str, String, String, String)>) {
+fn read(source: &str) -> (AnalyzerReference, Vec<(&'static str, String, String, String)>) {
     let mut names = Interner::new();
-    let read_ = parse_com(fonte, &mut names, LibraryFeatures::piso());
-    let referencia = read_.referencia;
+    let read_ = parse_with(source, &mut names, LibraryFeatures::floor());
+    let reference = read_.reference;
     let mut v: Vec<_> = read_
         .diagnostics
         .into_iter()
-        .filter_map(|d| d.for_reference(referencia))
+        .filter_map(|d| d.for_reference(reference))
         .map(|d| {
-            let correcao = d.correction().unwrap_or_default();
-            (d.code.map_or("", |c| c.info().name), fonte[d.span.start..d.span.end].to_string(), d.message, correcao)
+            let correction = d.correction().unwrap_or_default();
+            (d.code.map_or("", |c| c.info().name), source[d.span.start..d.span.end].to_string(), d.message, correction)
         })
         .collect();
     v.sort();
-    (referencia, v)
+    (reference, v)
 }
 
 /// c01: 3.6.2 knows `null-aware-elements` (without a release version), and
 /// writes `3.6.0` in the fix; the file stays with it.
 #[test]
 fn null_element_stays_with_3_6() {
-    let (referencia, v) = ler("void f(int? a) {\n  var x = [?a];\n  print(x);\n}\n");
-    assert_eq!(referencia, AnalyzerReference::V3_6);
+    let (reference, v) = read("void f(int? a) {\n  var x = [?a];\n  print(x);\n}\n");
+    assert_eq!(reference, AnalyzerReference::V3_6);
     assert_eq!(v.len(), 1, "{v:?}");
     assert_eq!(v[0].0, "experiment_not_enabled");
     assert_eq!(v[0].2, "This requires the 'null-aware-elements' language feature to be enabled.");
@@ -41,32 +41,32 @@ fn null_element_stays_with_3_6() {
 /// c08 and c18: syntax 3.6.2 does not know moves the file to 3.13.4.
 #[test]
 fn unknown_syntax_falls_to_3_13() {
-    let (referencia, v) = ler("enum E { a, b }\n\nvoid f() {\n  E e = .a;\n  print(e);\n}\n");
-    assert_eq!(referencia, AnalyzerReference::V3_13);
+    let (reference, v) = read("enum E { a, b }\n\nvoid f() {\n  E e = .a;\n  print(e);\n}\n");
+    assert_eq!(reference, AnalyzerReference::V3_13);
     assert_eq!(v.len(), 1, "{v:?}");
     assert!(v[0].3.contains("to 3.10.0 or higher"), "{}", v[0].3);
 
-    let (referencia, v) = ler("class A {\n  int _x;\n  A({required this._x});\n}\n");
-    assert_eq!(referencia, AnalyzerReference::V3_13);
+    let (reference, v) = read("class A {\n  int _x;\n  A({required this._x});\n}\n");
+    assert_eq!(reference, AnalyzerReference::V3_13);
     assert!(v.iter().any(|d| d.0 == "experiment_not_enabled" && d.1.ends_with("_x") && d.3.contains("3.12.0")), "{v:?}");
 }
 
 /// c02: the `final` of the representation field, in 3.6.2's text.
 #[test]
 fn representation_modifier_in_3_6() {
-    let (referencia, v) = ler("extension type E(final int i) {}\n");
-    assert_eq!(referencia, AnalyzerReference::V3_6);
+    let (reference, v) = read("extension type E(final int i) {}\n");
+    assert_eq!(reference, AnalyzerReference::V3_6);
     assert_eq!(v, [("representation_field_modifier", "final".to_string(), "Representation fields can't have modifiers.".to_string(), "Try removing the modifier.".to_string())]);
 
     // Without a type, 3.6.2 reports the missing type at the `final` itself
     // (c23, F).
-    let (referencia, v) = ler("extension type F(final i) {}\n");
-    assert_eq!(referencia, AnalyzerReference::V3_6);
+    let (reference, v) = read("extension type F(final i) {}\n");
+    assert_eq!(reference, AnalyzerReference::V3_6);
     let v: Vec<(&str, &str)> = v.iter().map(|d| (d.0, d.1.as_str())).collect();
     assert_eq!(v, [("expected_representation_type", "final"), ("representation_field_modifier", "final")]);
 
     // With two fields, 3.6.2 reports the modifier and the comma (c23, G).
-    let (_, v) = ler("extension type G(final int i, final int j) {}\n");
+    let (_, v) = read("extension type G(final int i, final int j) {}\n");
     let v: Vec<(&str, &str)> = v.iter().map(|d| (d.0, d.1.as_str())).collect();
     assert_eq!(v, [("multiple_representation_fields", ","), ("representation_field_modifier", "final")]);
 }
@@ -76,9 +76,9 @@ fn representation_modifier_in_3_6() {
 /// and the modifier of `G` is not reported.
 #[test]
 fn representation_with_var_in_3_13() {
-    let fonte = "extension type E(var int i) {}\n\nextension type F(final i) {}\n\nextension type G(final int i, final int j) {}\n";
-    let (referencia, v) = ler(fonte);
-    assert_eq!(referencia, AnalyzerReference::V3_13);
+    let source = "extension type E(var int i) {}\n\nextension type F(final i) {}\n\nextension type G(final int i, final int j) {}\n";
+    let (reference, v) = read(source);
+    assert_eq!(reference, AnalyzerReference::V3_13);
     let new_ = "Representation fields can't have the modifier 'var'.";
     let summary: Vec<(&str, &str, &str)> = v.iter().map(|d| (d.0, d.1.as_str(), d.2.as_str())).collect();
     assert_eq!(
@@ -99,19 +99,19 @@ fn representation_with_var_in_3_13() {
 #[test]
 fn new_library_is_from_3_13() {
     let mut names = Interner::new();
-    let read_ = parse_com("void main() {}\n", &mut names, LibraryFeatures::atual());
-    assert_eq!(read_.referencia, AnalyzerReference::V3_13);
-    let read_ = parse_com("void main() {}\n", &mut names, LibraryFeatures::piso());
-    assert_eq!(read_.referencia, AnalyzerReference::V3_6);
+    let read_ = parse_with("void main() {}\n", &mut names, LibraryFeatures::current());
+    assert_eq!(read_.reference, AnalyzerReference::V3_13);
+    let read_ = parse_with("void main() {}\n", &mut names, LibraryFeatures::floor());
+    assert_eq!(read_.reference, AnalyzerReference::V3_6);
 }
 
 /// `named_function_expression` (docs/ANALYZER-ESPECIFICACAO.md, family E):
 /// the examples from the live 3.6.2 oracle, with the position of the name.
 #[test]
 fn function_literal_with_name() {
-    let named_ones = |fonte: &str| -> Vec<(usize, usize)> {
+    let named_ones = |source: &str| -> Vec<(usize, usize)> {
         let mut names = Interner::new();
-        parse_com(fonte, &mut names, LibraryFeatures::piso())
+        parse_with(source, &mut names, LibraryFeatures::floor())
             .diagnostics
             .iter()
             .filter(|d| d.code.is_some_and(|c| c.info().name == "named_function_expression"))

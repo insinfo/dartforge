@@ -53,8 +53,8 @@ use dartforge_frontend::ast::{
     self, Annotation, Ast, DeclKind, DirectiveKind, ExprId, ExprKind, ForInit, MemberKind, Parameter, PatternKind, StmtId, StmtKind, TypeKind,
     TypedefKind, UnaryOp,
 };
-use dartforge_frontend::comentarios::Comentarios;
-use dartforge_frontend::fonte::pular_brancos;
+use dartforge_frontend::comments::Comments;
+use dartforge_frontend::source::skip_whitespace;
 use dartforge_intern::{Interner, SymbolId};
 
 /// `LineInfo.fromContent`: the line starts (after `\n`, `\r\n` and a lone
@@ -192,10 +192,10 @@ pub(super) fn code_blocks(lines: &[(usize, &str)]) -> Vec<CodeBlock> {
 }
 
 /// `_findComment(metadata, tokenAfterMetadata)`.
-pub(super) fn doc_for(source: &str, comments: &Comentarios, metadata: &[Annotation], after: usize) -> Option<Doc> {
+pub(super) fn doc_for(source: &str, comments: &Comments, metadata: &[Annotation], after: usize) -> Option<Doc> {
     let build = |anchor: usize| -> Option<Doc> {
         let start = comments.dart_doc(source, anchor)?;
-        let chain: Vec<Span> = comments.antes_de(source, anchor).into_iter().filter(|s| s.start >= start.start).collect();
+        let chain: Vec<Span> = comments.before(source, anchor).into_iter().filter(|s| s.start >= start.start).collect();
         let mut tokens = vec![start];
         if source[start.start..start.end].starts_with("///") {
             tokens.extend(chain.iter().skip(1).filter(|s| source[s.start..s.end].starts_with("///")).copied());
@@ -208,7 +208,7 @@ pub(super) fn doc_for(source: &str, comments: &Comentarios, metadata: &[Annotati
 /// The token after the annotations.
 pub(super) fn after_annotations(source: &str, metadata: &[Annotation], start: usize) -> usize {
     match metadata.last() {
-        Some(m) => pular_brancos(source.as_bytes(), m.span.end),
+        Some(m) => skip_whitespace(source.as_bytes(), m.span.end),
         None => start,
     }
 }
@@ -217,7 +217,7 @@ pub(super) fn after_annotations(source: &str, metadata: &[Annotation], start: us
 /// `extension type`, `typedef` and `mixin` starts from the keyword).
 pub(super) fn skip_augment(source: &str, pos: usize) -> usize {
     if source[pos..].starts_with("augment") && !source.as_bytes().get(pos + 7).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'$') {
-        return pular_brancos(source.as_bytes(), pos + 7);
+        return skip_whitespace(source.as_bytes(), pos + 7);
     }
     pos
 }
@@ -304,7 +304,7 @@ fn type_parameters(a: &Ast) -> Vec<&ast::TypeParameter> {
 
 /// The documentation comments of all the nodes the `AstBuilder` attaches
 /// them to, without repetition.
-pub(super) fn unit_docs(u: Unidade<'_>, comments: &Comentarios) -> Vec<Doc> {
+pub(super) fn unit_docs(u: Unidade<'_>, comments: &Comments) -> Vec<Doc> {
     let a = u.ast;
     let source = u.fonte;
     let mut docs: Vec<Doc> = Vec::new();
@@ -345,7 +345,7 @@ pub(super) fn unit_docs(u: Unidade<'_>, comments: &Comentarios) -> Vec<Doc> {
             }
         }
     }
-    let metadata_of = |s: StmtId| -> &[Annotation] { a.metadados_locais.iter().find(|(x, _)| *x == s).map_or(&[], |(_, m)| &m[..]) };
+    let metadata_of = |s: StmtId| -> &[Annotation] { a.local_metadata.iter().find(|(x, _)| *x == s).map_or(&[], |(_, m)| &m[..]) };
     for (k, s) in a.stmts.iter().enumerate() {
         let id = StmtId(k as u32);
         match &s.kind {
@@ -644,7 +644,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let needs_comments = enabled("dangling_library_doc_comments") || enabled("unintended_html_in_doc_comment");
-    let comments = if needs_comments { Some(Comentarios::de(source)) } else { None };
+    let comments = if needs_comments { Some(Comments::scan(source)) } else { None };
 
     // `dangling_library_doc_comments`.
     if enabled("dangling_library_doc_comments")
@@ -666,7 +666,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             let Some(&first_item) = u.unit.declarations.first() else {
                 // No declarations: the documentation comments before the end
                 // of the file.
-                for s in comments.antes_de(source, source.len()) {
+                for s in comments.before(source, source.len()) {
                     if is_doc(source, s) {
                         report(&c::DANGLING_LIBRARY_DOC_COMMENTS, s, &[]);
                     }

@@ -800,7 +800,7 @@ pub fn check(
     names: &Interner,
 ) -> Vec<(UnitId, Diagnostic)> {
     let library = program.library(lib);
-    let wildcard = library.features.tem(Feature::WildcardVariables);
+    let wildcard = library.features.has(Feature::WildcardVariables);
     let mut out = Vec::new();
     for &u in &library.units {
         let unit = program.unit(u);
@@ -1040,12 +1040,12 @@ pub fn check(
                         // The primary constructor (3.13): the initializer list
                         // of the `this : …` body goes through the same rules,
                         // on the `super`.
-                        if (k.parte_primaria || primary == Some(m)) && !k.initializers.is_empty() {
+                        if (k.primary_body_part || primary == Some(m)) && !k.initializers.is_empty() {
                             cx.super_in_primary = true;
                             cx.initializers(k, container, superclass.as_deref());
                             cx.super_in_primary = false;
                         }
-                        if k.parte_primaria
+                        if k.primary_body_part
                             || primary == Some(m)
                             || !preceded_by_boundary(cx.source, member.span.start)
                         {

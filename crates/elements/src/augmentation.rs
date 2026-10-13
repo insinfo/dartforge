@@ -365,7 +365,7 @@ fn link(
 /// hand-written augmentation; outside the experiment it follows the spec.
 fn augmentation_with_macros(units: &[Unit], unit: UnitId) -> bool {
     let u = &units[unit.0 as usize];
-    u.role == UnitRole::Augmentation && u.features.tem(Feature::Macros)
+    u.role == UnitRole::Augmentation && u.features.has(Feature::Macros)
 }
 
 /// Does the declaration have a body in Dart (not `external`, not `;`)?

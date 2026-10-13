@@ -29,10 +29,10 @@ pub(crate) enum WordStyle {
     Pseudo,
 }
 
-/// The style of the word `texto` according to the `token.dart` tables, or
+/// The style of the word `text` according to the `token.dart` tables, or
 /// `None` if it is not a fasta keyword.
-pub(crate) fn word_style(texto: &str) -> Option<WordStyle> {
-    Some(match texto {
+pub(crate) fn word_style(text: &str) -> Option<WordStyle> {
+    Some(match text {
         "assert" | "break" | "case" | "catch" | "class" | "const" | "continue" | "default"
         | "do" | "else" | "enum" | "extends" | "false" | "final" | "finally" | "for" | "if"
         | "in" | "is" | "new" | "null" | "rethrow" | "return" | "super" | "switch" | "this"
@@ -48,9 +48,9 @@ pub(crate) fn word_style(texto: &str) -> Option<WordStyle> {
 }
 
 /// `isModifier` from `token.dart`.
-pub(crate) fn is_modifier(texto: &str) -> bool {
+pub(crate) fn is_modifier(text: &str) -> bool {
     matches!(
-        texto,
+        text,
         "abstract"
             | "augment"
             | "const"
@@ -65,9 +65,9 @@ pub(crate) fn is_modifier(texto: &str) -> bool {
 }
 
 /// `isTopLevelKeyword` from `token.dart`.
-pub(crate) fn is_top_level_word(texto: &str) -> bool {
+pub(crate) fn is_top_level_word(text: &str) -> bool {
     matches!(
-        texto,
+        text,
         "class"
             | "enum"
             | "export"
@@ -81,8 +81,8 @@ pub(crate) fn is_top_level_word(texto: &str) -> bool {
 }
 
 /// `isVariance` from `type_info_impl.dart`: `in`, `inout` or `out`.
-pub(crate) fn is_variance(texto: &str) -> bool {
-    matches!(texto, "in" | "inout" | "out")
+pub(crate) fn is_variance(text: &str) -> bool {
+    matches!(text, "in" | "inout" | "out")
 }
 
 impl<'s, 'i> Parser<'s, 'i> {
@@ -242,9 +242,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 Kind::Op(Op::Gt) => {
                     let ge = t.glued && self.kind_of(i + 1) == Kind::Op(Op::Assign);
-                    if !ge && let Some(&(Op::Lt, abre)) = stack.last() {
+                    if !ge && let Some(&(Op::Lt, opener)) = stack.last() {
                         stack.pop();
-                        if abre == lt {
+                        if opener == lt {
                             return Some(i);
                         }
                     }

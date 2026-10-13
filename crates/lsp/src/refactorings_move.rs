@@ -409,7 +409,7 @@ impl Constructor {
                             // Comments on the same line after the previous one.
                             let lines = Lines::from(source);
                             let line = lines.number(offset);
-                            for c in dartforge_frontend::comentarios::Comentarios::de(source).todos() {
+                            for c in dartforge_frontend::comments::Comments::scan(source).all() {
                                 if c.start >= d.end && lines.number(c.start) == line && source[d.end..c.start].trim().is_empty() {
                                     offset = c.end;
                                 }
@@ -582,7 +582,7 @@ fn insert_before(m: &mut Change, uri: &str, offset: usize, text: String) {
 /// and the annotations.
 fn start_with_meta(source: &str, start_: usize, meta: &[ast::Annotation]) -> usize {
     let mut start = meta.iter().map(|a| a.span.start).min().unwrap_or(start_).min(start_);
-    if let Some(d) = dartforge_frontend::comentarios::Comentarios::de(source).dart_doc(source, start) {
+    if let Some(d) = dartforge_frontend::comments::Comments::scan(source).dart_doc(source, start) {
         start = start.min(d.start);
     }
     start
@@ -606,8 +606,8 @@ fn file_header(source: &str) -> Option<(usize, usize)> {
         first = tokens.get(1)?;
     }
     let search_start = if tokens[0].kind == Kind::ScriptTag { tokens[0].span.end } else { 0 };
-    let comments: Vec<Span> = dartforge_frontend::comentarios::Comentarios::de(source)
-        .todos()
+    let comments: Vec<Span> = dartforge_frontend::comments::Comments::scan(source)
+        .all()
         .iter()
         .copied()
         .filter(|c| c.start >= search_start && c.end <= first.span.start)

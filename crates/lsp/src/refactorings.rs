@@ -251,7 +251,7 @@ impl<'p> Context<'p> {
                 _ => {}
             }
         }
-        let before_3 = prog.library(library).features.versao().major < 3;
+        let before_3 = prog.library(library).features.version().major < 3;
         let tree = arvore_analyzer::construir_resolvida(source, ast, &u.unit, before_3, &constructors, &prefixes);
         Context {
             p,
@@ -260,7 +260,7 @@ impl<'p> Context<'p> {
             ast,
             bodies,
             tree,
-            comments: dartforge_frontend::comentarios::Comentarios::de(source).todos().to_vec(),
+            comments: dartforge_frontend::comments::Comments::scan(source).all().to_vec(),
             tokens: dartforge_frontend::lexer::lex(source).unwrap_or_default(),
             writes,
             constructors_by_target,

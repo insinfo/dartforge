@@ -1329,7 +1329,7 @@ impl<'a> OutlineResolver<'a> {
 
                         param_types.push(ParameterTypeData {
                             name: p_name,
-                            externo: p.nome_externo().map(|n| n.sym),
+                            externo: p.external_name().map(|n| n.sym),
                             ty: p_ty,
                             required: p.required,
                             kind: p.kind,
@@ -1339,7 +1339,7 @@ impl<'a> OutlineResolver<'a> {
                             ParameterKind::Required => positional.push(p_ty),
                             ParameterKind::Optional => optional.push(p_ty),
                             ParameterKind::Named => {
-                                if let Some(n) = p.nome_externo() {
+                                if let Some(n) = p.external_name() {
                                     named.push((n.sym, p_ty, p.required));
                                 }
                             }
@@ -1406,7 +1406,7 @@ impl<'a> OutlineResolver<'a> {
 
                     param_types.push(ParameterTypeData {
                         name: p_name,
-                        externo: p.nome_externo().map(|n| n.sym),
+                        externo: p.external_name().map(|n| n.sym),
                         ty: p_ty,
                         required: p.required,
                         kind: p.kind,
@@ -1416,7 +1416,7 @@ impl<'a> OutlineResolver<'a> {
                         ParameterKind::Required => positional.push(p_ty),
                         ParameterKind::Optional => optional.push(p_ty),
                         ParameterKind::Named => {
-                            if let Some(n) = p.nome_externo() {
+                            if let Some(n) = p.external_name() {
                                 named.push((n.sym, p_ty, p.required));
                             }
                         }
@@ -2285,7 +2285,7 @@ impl<'a> OutlineResolver<'a> {
         let MemberKind::Constructor(sctor) = &mem.kind else { return None };
         let pname = p.name?.sym;
         let sp = if p.kind == ParameterKind::Named {
-            sctor.parameters.iter().find(|q| q.kind == ParameterKind::Named && q.nome_externo().map(|n| n.sym) == Some(pname))?
+            sctor.parameters.iter().find(|q| q.kind == ParameterKind::Named && q.external_name().map(|n| n.sym) == Some(pname))?
         } else {
             // Positional: the index among the `super.` positionals matches the remaining
             // positionals of the super constructor after those passed in `super(...)`.

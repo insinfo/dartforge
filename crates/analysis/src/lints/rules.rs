@@ -288,7 +288,7 @@ impl<'a> Ctx<'a> {
     fn positional_name(&self, t: ast::TypeId) -> Option<(Span, &'a str)> {
         let source = self.u.fonte;
         let b = source.as_bytes();
-        let i = dartforge_frontend::fonte::pular_brancos(b, self.u.ast.ty(t).span.end);
+        let i = dartforge_frontend::source::skip_whitespace(b, self.u.ast.ty(t).span.end);
         let identificador = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
         if !b.get(i).is_some_and(|&c| identificador(c) && !c.is_ascii_digit()) {
             return None;
@@ -580,11 +580,11 @@ impl<'a> Ctx<'a> {
                 continue;
             }
             let ret = match return_type {
-                Some(t) => format!("{} ", dartforge_frontend::fonte::de_tipo(a, source, interner, *t)),
+                Some(t) => format!("{} ", dartforge_frontend::source::from_type(a, source, interner, *t)),
                 None => String::new(),
             };
-            let types = dartforge_frontend::fonte::de_parametros_de_tipo(a, source, interner, &x.type_params);
-            let list = dartforge_frontend::fonte::de_parametros(a, source, interner, parameters);
+            let types = dartforge_frontend::source::from_type_parameters(a, source, interner, &x.type_params);
+            let list = dartforge_frontend::source::from_parameters(a, source, interner, parameters);
             let sugestao = format!("{ret}Function{types}{list}");
             self.report(&c::PREFER_GENERIC_FUNCTION_TYPE_ALIASES, x.name.span, &[sugestao.as_str()]);
         }
@@ -596,7 +596,7 @@ impl<'a> Ctx<'a> {
     fn deprecated_without_message(&mut self, sem: Option<&super::Semantics<'_>>) {
         let Some(sem) = sem else { return };
         let interner = self.interner;
-        let findings: Vec<Span> = dartforge_frontend::pais::todas_as_anotacoes(self.u.ast, self.u.unit)
+        let findings: Vec<Span> = dartforge_frontend::parents::all_annotations(self.u.ast, self.u.unit)
             .into_iter()
             .filter(|m| m.arguments.is_none() && dartforge_types::anotacoes::e_deprecated_do_core(sem.program, interner, sem.unit, m))
             .map(|m| m.span)

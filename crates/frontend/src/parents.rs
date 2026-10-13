@@ -25,7 +25,7 @@ use crate::ast::{
 /// members, enum constants, the extension type representation, type
 /// parameters, parameters (including those of `Function` types and nested
 /// ones), local declarations and `for-in` variables.
-pub fn todas_as_anotacoes<'a>(a: &'a Ast, unit: &'a CompilationUnit) -> Vec<&'a Annotation> {
+pub fn all_annotations<'a>(a: &'a Ast, unit: &'a CompilationUnit) -> Vec<&'a Annotation> {
     let mut v: Vec<&'a Annotation> = Vec::new();
     fn parameters_<'a>(ps: &'a [Parameter], v: &mut Vec<&'a Annotation>) {
         for p in ps {
@@ -89,7 +89,7 @@ pub fn todas_as_anotacoes<'a>(a: &'a Ast, unit: &'a CompilationUnit) -> Vec<&'a 
             parameters_(parameters, &mut v);
         }
     }
-    for (_, ms) in a.metadados_locais.iter() {
+    for (_, ms) in a.local_metadata.iter() {
         v.extend(ms.iter());
     }
     for s in a.stmts.iter() {
@@ -127,53 +127,53 @@ pub fn todas_as_anotacoes<'a>(a: &'a Ast, unit: &'a CompilationUnit) -> Vec<&'a 
 
 /// The role of an expression's parent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Pai {
+pub enum Parent {
     /// A parent that `constantContext` does not go through (and one not seen).
-    Fronteira,
+    Boundary,
     /// An expression that contains it through a transparent role (operand,
     /// target, argument, collection element, collection `if` condition, record
     /// field, cascade section…).
     Expr(ExprId),
     /// Annotation argument.
-    Anotacao,
+    Annotation,
     /// Enum constant argument (`EnumConstantArguments`).
-    ConstanteDeEnum,
+    EnumConstant,
     /// Variable initializer of a list (`const` written or not).
-    Variavel { constant: bool },
+    Variable { constant: bool },
     /// Expression of a constant pattern (`const` written or not) or of the old
     /// `case` (constant).
-    PadraoConstante { constant: bool },
+    ConstantPattern { constant: bool },
 }
 
 /// The parents of a unit's expressions, by `ExprId`.
-pub struct Pais {
-    pais: Vec<Pai>,
+pub struct Parents {
+    parents: Vec<Parent>,
 }
 
-impl Pais {
+impl Parents {
     /// `before_3`: the library predates 3.0 (the `switch`'s `case e:` is the
     /// old `SwitchCase`, a constant context).
-    pub fn novo(a: &Ast, unit: &CompilationUnit, fonte: &str, before_3: bool) -> Pais {
-        let mut p = Constructor { a, fonte, pais: vec![Pai::Fronteira; a.exprs.len()] };
+    pub fn new(a: &Ast, unit: &CompilationUnit, source: &str, before_3: bool) -> Parents {
+        let mut p = Constructor { a, source, parents: vec![Parent::Boundary; a.exprs.len()] };
         p.everything(unit, before_3);
-        Pais { pais: p.pais }
+        Parents { parents: p.parents }
     }
 
-    pub fn pai(&self, e: ExprId) -> Pai {
-        self.pais.get(e.0 as usize).copied().unwrap_or(Pai::Fronteira)
+    pub fn parent(&self, e: ExprId) -> Parent {
+        self.parents.get(e.0 as usize).copied().unwrap_or(Parent::Boundary)
     }
 
     /// `Expression.inConstantContext`.
-    pub fn em_contexto_constante(&self, a: &Ast, e: ExprId) -> bool {
-        let mut atual = self.pai(e);
+    pub fn in_constant_context(&self, a: &Ast, e: ExprId) -> bool {
+        let mut current = self.parent(e);
         // The tree is finite; the limit only guards against a cycle caused by a
         // bug.
         for _ in 0..a.exprs.len() + 1 {
-            match atual {
-                Pai::Fronteira => return false,
-                Pai::Anotacao | Pai::ConstanteDeEnum => return true,
-                Pai::Variavel { constant } | Pai::PadraoConstante { constant } => return constant,
-                Pai::Expr(p) => {
+            match current {
+                Parent::Boundary => return false,
+                Parent::Annotation | Parent::EnumConstant => return true,
+                Parent::Variable { constant } | Parent::ConstantPattern { constant } => return constant,
+                Parent::Expr(p) => {
                     let constant = match &a.expr(p).kind {
                         ExprKind::InstanceCreation { keyword, .. } => *keyword == Some(CreationKeyword::Const),
                         ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } | ExprKind::Record { const_, .. } => *const_,
@@ -182,7 +182,7 @@ impl Pais {
                     if constant {
                         return true;
                     }
-                    atual = self.pai(p);
+                    current = self.parent(p);
                 }
             }
         }
@@ -192,27 +192,27 @@ impl Pais {
 
 struct Constructor<'a> {
     a: &'a Ast,
-    fonte: &'a str,
-    pais: Vec<Pai>,
+    source: &'a str,
+    parents: Vec<Parent>,
 }
 
 impl Constructor<'_> {
-    fn set_parent(&mut self, child: ExprId, pai: Pai) {
-        if let Some(x) = self.pais.get_mut(child.0 as usize) {
-            *x = pai;
+    fn set_parent(&mut self, child: ExprId, parent: Parent) {
+        if let Some(x) = self.parents.get_mut(child.0 as usize) {
+            *x = parent;
         }
     }
 
-    fn arguments_(&mut self, args: &Arguments, pai: Pai) {
+    fn arguments_(&mut self, args: &Arguments, parent: Parent) {
         for x in args.args.iter() {
-            self.set_parent(x.value, pai);
+            self.set_parent(x.value, parent);
         }
     }
 
     fn annotations(&mut self, ms: &[Annotation]) {
         for m in ms {
             if let Some(args) = &m.arguments {
-                self.arguments_(args, Pai::Anotacao);
+                self.arguments_(args, Parent::Annotation);
             }
         }
     }
@@ -236,7 +236,7 @@ impl Constructor<'_> {
     fn list(&mut self, l: &VariableList) {
         for v in l.variables.iter() {
             if let Some(i) = v.initializer {
-                self.set_parent(i, Pai::Variavel { constant: l.const_ });
+                self.set_parent(i, Parent::Variable { constant: l.const_ });
             }
         }
     }
@@ -249,20 +249,20 @@ impl Constructor<'_> {
     }
 
     fn element(&mut self, owner: ExprId, e: &CollectionElement) {
-        let pai = Pai::Expr(owner);
+        let parent = Parent::Expr(owner);
         match e {
-            CollectionElement::Expression(x) => self.set_parent(*x, pai),
+            CollectionElement::Expression(x) => self.set_parent(*x, parent),
             // `NullAwareElement` is not traversed.
             CollectionElement::NullAwareExpression(_) => {}
             CollectionElement::MapEntry { key, value, .. } => {
-                self.set_parent(*key, pai);
-                self.set_parent(*value, pai);
+                self.set_parent(*key, parent);
+                self.set_parent(*value, parent);
             }
-            CollectionElement::Spread { value, .. } => self.set_parent(*value, pai),
+            CollectionElement::Spread { value, .. } => self.set_parent(*value, parent),
             CollectionElement::If { condition, then, else_, .. } => {
                 // The condition is a child of the `IfElement`; the pattern and the guard
                 // are not.
-                self.set_parent(*condition, pai);
+                self.set_parent(*condition, parent);
                 self.element(owner, then);
                 if let Some(x) = else_ {
                     self.element(owner, x);
@@ -288,8 +288,8 @@ impl Constructor<'_> {
     fn constant_pattern(&mut self, p: PatternId, old_case: bool) {
         let pt = self.a.pattern(p);
         if let PatternKind::Constant(e) = &pt.kind {
-            let written = crate::fonte::palavra_em(self.fonte, pt.span.start, "const");
-            self.set_parent(*e, Pai::PadraoConstante { constant: written || old_case });
+            let written = crate::source::word_at(self.source, pt.span.start, "const");
+            self.set_parent(*e, Parent::ConstantPattern { constant: written || old_case });
         }
     }
 
@@ -301,53 +301,53 @@ impl Constructor<'_> {
         // The children of each expression.
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
-            let pai = Pai::Expr(id);
+            let parent = Parent::Expr(id);
             match &e.kind {
-                ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.set_parent(*x, pai),
+                ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.set_parent(*x, parent),
                 ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => self.elements_(id, elements),
                 ExprKind::Record { positional, named, .. } => {
                     for &x in positional.iter() {
-                        self.set_parent(x, pai);
+                        self.set_parent(x, parent);
                     }
                     for (_, x) in named.iter() {
-                        self.set_parent(*x, pai);
+                        self.set_parent(*x, parent);
                     }
                 }
-                ExprKind::InstanceCreation { arguments, .. } => self.arguments_(arguments, pai),
-                ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => self.set_parent(*target, pai),
+                ExprKind::InstanceCreation { arguments, .. } => self.arguments_(arguments, parent),
+                ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => self.set_parent(*target, parent),
                 ExprKind::Index { target, index, .. } => {
-                    self.set_parent(*target, pai);
-                    self.set_parent(*index, pai);
+                    self.set_parent(*target, parent);
+                    self.set_parent(*index, parent);
                 }
                 ExprKind::Call { target, arguments } => {
-                    self.set_parent(*target, pai);
-                    self.arguments_(arguments, pai);
+                    self.set_parent(*target, parent);
+                    self.arguments_(arguments, parent);
                 }
-                ExprKind::Unary { operand, .. } => self.set_parent(*operand, pai),
+                ExprKind::Unary { operand, .. } => self.set_parent(*operand, parent),
                 ExprKind::Binary { left, right, .. } => {
-                    self.set_parent(*left, pai);
-                    self.set_parent(*right, pai);
+                    self.set_parent(*left, parent);
+                    self.set_parent(*right, parent);
                 }
                 ExprKind::Conditional { condition, then, else_ } => {
-                    self.set_parent(*condition, pai);
-                    self.set_parent(*then, pai);
-                    self.set_parent(*else_, pai);
+                    self.set_parent(*condition, parent);
+                    self.set_parent(*then, parent);
+                    self.set_parent(*else_, parent);
                 }
-                ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.set_parent(*value, pai),
+                ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.set_parent(*value, parent),
                 ExprKind::Assign { target, value, .. } => {
-                    self.set_parent(*target, pai);
-                    self.set_parent(*value, pai);
+                    self.set_parent(*target, parent);
+                    self.set_parent(*value, parent);
                 }
-                ExprKind::PatternAssign { value, .. } => self.set_parent(*value, pai),
+                ExprKind::PatternAssign { value, .. } => self.set_parent(*value, parent),
                 ExprKind::Cascade { target, sections, .. } => {
-                    self.set_parent(*target, pai);
+                    self.set_parent(*target, parent);
                     for &s in sections.iter() {
-                        self.set_parent(s, pai);
+                        self.set_parent(s, parent);
                     }
                 }
                 // The `switch` value is a child of the expression; the guard and the body
                 // of each case are not.
-                ExprKind::Switch { value, .. } => self.set_parent(*value, pai),
+                ExprKind::Switch { value, .. } => self.set_parent(*value, parent),
                 // Interpolations (`InterpolationExpression`) and the body of a function
                 // expression: a boundary.
                 _ => {}
@@ -381,7 +381,7 @@ impl Constructor<'_> {
                     for c in x.constants.iter() {
                         self.annotations(&c.metadata);
                         if let Some(args) = &c.arguments {
-                            self.arguments_(args, Pai::ConstanteDeEnum);
+                            self.arguments_(args, Parent::EnumConstant);
                         }
                     }
                 }
@@ -420,7 +420,7 @@ impl Constructor<'_> {
                 self.parameters_(parameters);
             }
         }
-        for (_, ms) in a.metadados_locais.iter() {
+        for (_, ms) in a.local_metadata.iter() {
             self.annotations(ms);
         }
         for s in a.stmts.iter() {

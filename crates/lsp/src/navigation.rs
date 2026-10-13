@@ -33,7 +33,7 @@ pub(super) fn target(
     offset: usize,
 ) -> Option<Target> {
     let mut names = Interner::new();
-    let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+    let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
     if let Some(target) = directive_target(current_uri, &parsed.unit, offset) {
         return Some(Target::File(target));
     }
@@ -319,7 +319,7 @@ pub(super) fn references(
     offset: usize,
 ) -> Option<Vec<Span>> {
     let mut names = Interner::new();
-    let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+    let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
     let unit = &parsed.unit;
     let ast = &parsed.ast;
     // Only the file itself, without names coming from outside; patterns bind
@@ -634,7 +634,7 @@ struct File {
 /// [`references`].
 fn analyze(text: &str, features: LibraryFeatures) -> File {
     let mut names = Interner::new();
-    let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+    let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
     File { names, unit: parsed.unit, ast: parsed.ast }
 }
 
@@ -837,7 +837,7 @@ pub(super) fn definition_in(
     let text = documents.get(current_uri)?.to_string();
     let features = analyzer.features(current_uri, &text);
     let mut names = Interner::new();
-    let parsed = dartforge_frontend::parser::parse_com(&text, &mut names, features);
+    let parsed = dartforge_frontend::parser::parse_with(&text, &mut names, features);
     if let Some(target) = directive_target(current_uri, &parsed.unit, offset) {
         return Some((target, None));
     }

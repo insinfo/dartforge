@@ -361,7 +361,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
 
     // `missing_code_block_language_in_doc_comment`.
     if enabled("missing_code_block_language_in_doc_comment") {
-        let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+        let comments = dartforge_frontend::comments::Comments::scan(source);
         for doc in super::rules14::unit_docs(u, &comments) {
             let lines = super::rules14::doc_lines(source, &doc);
             for b in super::rules14::code_blocks(&lines) {

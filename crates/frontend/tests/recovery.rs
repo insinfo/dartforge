@@ -2,34 +2,34 @@
 //! (`_fe_analyzer_shared` 76.0.0 and the analyzer 6.11.0 `AstBuilder`): each
 //! case is an oracle sample (`corpus/diags`), with the exact code and
 //! excerpt the analyzer reports.
-use dartforge_frontend::parser::{Parsed, parse_com};
+use dartforge_frontend::parser::{Parsed, parse_with};
 use dartforge_frontend::{LanguageVersion, LibraryFeatures};
 use dartforge_intern::Interner;
 
-fn parse_in(versao: (u16, u16), fonte: &str) -> Parsed {
+fn parse_in(version: (u16, u16), source: &str) -> Parsed {
     let mut names = Interner::new();
-    let f = LibraryFeatures::new(LanguageVersion::new(versao.0, versao.1), &[]);
-    parse_com(fonte, &mut names, f)
+    let f = LibraryFeatures::new(LanguageVersion::new(version.0, version.1), &[]);
+    parse_with(source, &mut names, f)
 }
 
 /// `(code, excerpt text)` of each diagnostic, in position order (and code
 /// order, for the same excerpt).
-fn errors_in(versao: (u16, u16), fonte: &str) -> Vec<(String, String)> {
-    let p = parse_in(versao, fonte);
+fn errors_in(version: (u16, u16), source: &str) -> Vec<(String, String)> {
+    let p = parse_in(version, source);
     let mut ds: Vec<_> = p
         .diagnostics
         .iter()
         .map(|d| {
             let code = d.code.map(|c| c.info().name.to_string()).unwrap_or_default();
-            (d.span.start, d.span.end, code, fonte[d.span.start..d.span.end].to_string())
+            (d.span.start, d.span.end, code, source[d.span.start..d.span.end].to_string())
         })
         .collect();
     ds.sort();
     ds.into_iter().map(|(_, _, c, t)| (c, t)).collect()
 }
 
-fn errors(fonte: &str) -> Vec<(String, String)> {
-    errors_in((3, 6), fonte)
+fn errors(source: &str) -> Vec<(String, String)> {
+    errors_in((3, 6), source)
 }
 
 fn pair(c: &str, t: &str) -> (String, String) {

@@ -384,7 +384,7 @@ struct Request<'a, 'i> {
 fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: Request<'_, '_>, empty: Completion) -> Option<Completion> {
     let Request { sdk, indices, documents, text, start, end, offset, typed: _, speculative, max, not_imported, delta } = request;
     let features = query.program.unit(unit).features;
-    let before_3 = features.versao() < dartforge_frontend::LanguageVersion::new(3, 0);
+    let before_3 = features.version() < dartforge_frontend::LanguageVersion::new(3, 0);
     let swap = speculative.then_some((start, end, SENTINEL.len(), delta));
     // In a part, the `import` would go to the owning library (another file).
     let part = query.program.unit(unit).unit.directives.iter().any(|d| matches!(d.kind, ast::DirectiveKind::PartOf { .. }));
@@ -433,7 +433,7 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
         let only_types = r.flags.as_ref().is_some_and(|f| f.ty);
         let mut collector = Collector { items: Vec::new(), library, receiver: None };
         let mut names = Interner::new();
-        let real = dartforge_frontend::parser::parse_com(text, &mut names, features);
+        let real = dartforge_frontend::parser::parse_with(text, &mut names, features);
         if let Some((file, _, _)) = &filter {
             collector.not_imported_summary(text, &real.unit, only_types, sdk, file, known, documents, &r.summarized, &r.visible);
         }
@@ -585,7 +585,7 @@ fn prepare(text: &str, start: usize, end: usize, features: LibraryFeatures) -> O
     for closure in CLOSURES {
         let candidate = format!("{}{SENTINEL}{closure}{}", &text[..start], &text[end..]);
         let mut names = Interner::new();
-        let analyzed = dartforge_frontend::parser::parse_com(&candidate, &mut names, features);
+        let analyzed = dartforge_frontend::parser::parse_with(&candidate, &mut names, features);
         if find_sentinel(&analyzed.ast, start).is_none() {
             continue;
         }

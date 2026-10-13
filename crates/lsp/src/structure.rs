@@ -195,7 +195,7 @@ fn comments(source: &str, from: usize, until: usize) -> Vec<Comment> {
 /// The folding regions of `text`.
 pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> Vec<Fold> {
     let mut names = Interner::new();
-    let analyzed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+    let analyzed = dartforge_frontend::parser::parse_with(text, &mut names, features);
     let Some(tokens) = Tokens::new(text) else { return Vec::new() };
     let lines = LineTable::build(text);
     let mut c = Collector { ast: &analyzed.ast, t: &tokens, candidates: Vec::new() };
@@ -650,7 +650,7 @@ mod tests {
     use super::*;
 
     fn lines_of(text: &str) -> Vec<(u32, u32, Option<&'static str>)> {
-        folds(text, LibraryFeatures::new(dartforge_frontend::LanguageVersion::ATUAL, &[]), true)
+        folds(text, LibraryFeatures::new(dartforge_frontend::LanguageVersion::CURRENT, &[]), true)
             .into_iter()
             .map(|d| (d.line_begin, d.line_end, d.kind))
             .collect()

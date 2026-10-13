@@ -834,7 +834,7 @@ fn display_unnamed_constructor(l: &Reader<'_>, s: ClassId, f: dartforge_elements
             };
             s_.push_str(&ty);
             s_.push(' ');
-            if let Some(n) = p.nome_externo() {
+            if let Some(n) = p.external_name() {
                 s_.push_str(l.name(n.sym));
             }
             if let Some(d) = p.default_value {
@@ -1042,7 +1042,7 @@ fn mixin_class(
         let written = source
             .get(k.class_name.span.start..k.class_name.span.end)
             .unwrap_or("");
-        if k.factory || k.parte_primaria {
+        if k.factory || k.primary_body_part {
             continue;
         }
         // 3.13's `_checkForMixinClassErrorCodes` (main checkout,
@@ -1425,7 +1425,7 @@ fn component_3_13(l: &Reader<'_>, lib: LibraryId, target: ClassId) -> Option<Vec
 pub fn inheritance_verifier_proceeds(program: &Program, lib: LibraryId, names: &Interner) -> Vec<ClassId> {
     let l = Reader { program, names };
     let consumer = program.library(lib);
-    let version = consumer.features.versao();
+    let version = consumer.features.version();
     let enums_melhorados = (version.major, version.minor) >= (2, 17);
     let mut v = Vec::new();
     for (i, class) in program.classes.iter().enumerate() {
@@ -1560,7 +1560,7 @@ pub fn check(
         // `class-modifiers` (before 3.0), `dart:core`'s `Function` in the
         // `extends`, in the first `implements` that cites it and in each `with`
         // of a class or class alias.
-        if matches!(&ast_.decl(decl.decl).kind, DeclKind::Class(_)) && consumer.features.versao().major < 3 {
+        if matches!(&ast_.decl(decl.decl).kind, DeclKind::Class(_)) && consumer.features.version().major < 3 {
             let is_function = |t: ast::TypeId| {
                 matches!(l.target(u, ast_, t, 0), ClauseTarget::Class(f) if l.program.library(l.program.class(f).library).uri == "dart:core" && l.name(l.program.class(f).name) == "Function")
                     && !l.is_nullable(u, ast_, t, 0)
@@ -1659,7 +1659,7 @@ pub fn check(
         // is the `true` it returns (and that ends `verify()`).
         let mut direct_error = false;
         if !consumer.is_sdk {
-            let version = consumer.features.versao();
+            let version = consumer.features.version();
             let enums_melhorados = (version.major, version.minor) >= (2, 17);
             let may_have_enum = class.kind == ClassKind::Enum
                 || class.kind == ClassKind::Mixin
@@ -1865,13 +1865,13 @@ pub fn check(
                 continue;
             }
             let origem = program.library(target.library);
-            if origem.features.versao().major < 3 {
+            if origem.features.version().major < 3 {
                 continue;
             }
             // `_mayIgnoreClassModifiers`.
             if origem.is_sdk
                 && origem.uri != "dart:ffi"
-                && (consumer.is_sdk || consumer.features.versao().major < 3)
+                && (consumer.is_sdk || consumer.features.version().major < 3)
             {
                 continue;
             }

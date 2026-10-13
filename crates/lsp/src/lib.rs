@@ -705,7 +705,7 @@ impl SyntacticAnalyzer {
     /// in 3.13) and a 3.13 one would see an error on a primary constructor.
     pub(crate) fn features(&mut self, uri: &str, text: &str) -> dartforge_frontend::LibraryFeatures {
         use dartforge_frontend::{LanguageVersion, LibraryFeatures};
-        if let Some((v, _)) = dartforge_frontend::features::marcador_versao(text) {
+        if let Some((v, _)) = dartforge_frontend::features::version_marker(text) {
             return LibraryFeatures::new(v, &[]);
         }
         if let Some(v) = self.patterns.get(uri) {
@@ -728,7 +728,7 @@ impl SyntacticAnalyzer {
                 }
                 self.configs.get(&cfg)?.pacote_da_biblioteca(uri, Some(p))?.language_version
             })
-            .unwrap_or(LanguageVersion::ATUAL);
+            .unwrap_or(LanguageVersion::CURRENT);
         self.patterns.insert(uri.to_string(), pattern);
         LibraryFeatures::new(pattern, &[])
     }
@@ -738,9 +738,9 @@ impl SyntacticAnalyzer {
     pub(crate) fn syntax(&mut self, uri: &str, text: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, text);
         let mut names = dartforge_intern::Interner::new();
-        let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+        let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
         // Name and text of the analyzer that is the file's reference (T2).
-        let reference = parsed.referencia;
+        let reference = parsed.reference;
         parsed.diagnostics.into_iter().filter_map(|d| d.for_reference(reference)).collect()
     }
 }
@@ -757,14 +757,14 @@ impl Analyzer for SyntacticAnalyzer {
     fn diagnose(&mut self, uri: &str, text: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, text);
         let mut names = dartforge_intern::Interner::new();
-        let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+        let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
         let mut output = parsed.diagnostics;
         let unit = dartforge_analysis::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: text };
         // The unused locals by the skipped-spans rule (T5), as in `dartforge
         // analyze`: no gate on syntax errors.
-        let skipped = dartforge_analysis::Pulados { fonte: text, trechos: &parsed.pulados };
-        let wildcard = features.tem(dartforge_frontend::features::Feature::WildcardVariables);
-        let reference = parsed.referencia;
+        let skipped = dartforge_analysis::Pulados { fonte: text, trechos: &parsed.skipped };
+        let wildcard = features.has(dartforge_frontend::features::Feature::WildcardVariables);
+        let reference = parsed.reference;
         let join = reference == dartforge_diagnostics::AnalyzerReference::V3_6;
         let semantic = dartforge_analysis::duplicatas::duplicatas(&[unit], &names, wildcard, join)
             .into_iter()

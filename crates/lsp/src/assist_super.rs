@@ -105,7 +105,7 @@ impl Context<'_> {
     /// `ConvertToSuperParameters`.
     pub(crate) fn convert_to_super_parameters(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let prog = self.p.program();
-        if prog.library(prog.unit(self.unit).library).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
+        if prog.library(prog.unit(self.unit).library).features.version() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
             return None;
         }
         let node = self.tree.localizar(start, end)?;
@@ -238,7 +238,7 @@ impl Context<'_> {
                 let Some(&exp) = f.get(1) else { continue };
                 if let Some(i) = parameter_of(exp)
                     && k.parameters[i].kind == ParameterKind::Named
-                    && k.parameters[i].nome_externo().is_some_and(|n| self.p.name(n.sym) == label)
+                    && k.parameters[i].external_name().is_some_and(|n| self.p.name(n.sym) == label)
                     && !cited.contains(&i)
                     && let Some(sp) = super_parameters_.iter().find(|p| p.named && p.name == label)
                     && let Some(d) = data_of(i, ia, sp, &mut table)

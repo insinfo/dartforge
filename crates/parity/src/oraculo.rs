@@ -251,10 +251,10 @@ pub fn read(dir: &Path) -> Result<(Vec<Record>, Meta), String> {
 /// keeps analyzing). Each one's `enabledIn` is later than 3.6.2
 /// (`experimental_features.yaml`); 3.6.2 already flags the other disabled
 /// features (for example `null-aware-elements`) the same way. The list is the
-/// parser's (`Feature::DESCONHECIDOS_NO_3_6`), which uses it to decide each
+/// parser's (`Feature::UNKNOWN_IN_3_6`), which uses it to decide each
 /// unit's reference.
 pub fn features_unknown_to_3_6_2() -> impl Iterator<Item = &'static str> {
-    dartforge_frontend::features::Feature::DESCONHECIDOS_NO_3_6.into_iter().map(|f| f.nome())
+    dartforge_frontend::features::Feature::UNKNOWN_IN_3_6.into_iter().map(|f| f.name())
 }
 
 /// The tool's current version is 3.13 (VERSOES-LINGUAGEM.md, D2): in a 3.6
@@ -277,13 +277,13 @@ pub fn uses_new_syntax(regs_313: &[&Record]) -> bool {
 /// it live in the `*-3.13` groups, and a marker below it enables none of the
 /// features that decide the reference.
 pub fn marker_3_13(dir: &Path, sources: &[std::path::PathBuf]) -> std::collections::BTreeSet<String> {
-    let features = dartforge_frontend::features::LibraryFeatures::piso();
+    let features = dartforge_frontend::features::LibraryFeatures::floor();
     let mut marked = std::collections::BTreeSet::new();
     for f in sources {
         let Ok(text) = std::fs::read_to_string(f) else { continue };
         let mut names = dartforge_intern::Interner::new();
-        let parsed = dartforge_frontend::parser::parse_com(&text, &mut names, features);
-        if parsed.referencia == dartforge_diagnostics::AnalyzerReference::V3_13
+        let parsed = dartforge_frontend::parser::parse_with(&text, &mut names, features);
+        if parsed.reference == dartforge_diagnostics::AnalyzerReference::V3_13
             && let Some(r) = relativo(f, dir)
         {
             marked.insert(r);

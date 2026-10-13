@@ -939,7 +939,7 @@ pub fn check(program: &Program, lib: LibraryId, interner: &Interner, in_public_a
                 ctx.param_annotations(parameters);
             }
         }
-        for (sid, meta) in a.metadados_locais.iter() {
+        for (sid, meta) in a.local_metadata.iter() {
             let target = match &a.stmt(*sid).kind {
                 StmtKind::Function(f) => Target::LocalFunction(a.function(*f)),
                 _ => Target::Other,

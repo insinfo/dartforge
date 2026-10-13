@@ -10,7 +10,7 @@
 use crate::Unidade;
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Code, Diagnostic, Span};
-use dartforge_frontend::comentarios::Comentarios;
+use dartforge_frontend::comments::Comments;
 
 fn is_blank(c: u8) -> bool {
     c == 0x09 || c == 0x20
@@ -181,8 +181,8 @@ fn first_token(source: &[u8], comments: &[Span], mut pos: usize) -> usize {
 
 pub fn check(u: Unidade<'_>) -> Vec<Diagnostic> {
     let source = u.fonte.as_bytes();
-    let comments = Comentarios::de(u.fonte);
-    let all = comments.todos();
+    let comments = Comments::scan(u.fonte);
+    let all = comments.all();
     let mut out = Vec::new();
     // `_verifyMisplaced`: after the first significant token.
     let first_significant = u

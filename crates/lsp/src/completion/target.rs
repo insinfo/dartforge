@@ -105,7 +105,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             return None;
         }
         let from = self.tok_before(before).map_or(0, |i| self.span_tok(i).end);
-        for c in dartforge_frontend::comentarios::Comentarios::de(self.source).todos() {
+        for c in dartforge_frontend::comments::Comments::scan(self.source).all() {
             if c.start < from || c.end > before {
                 continue;
             }

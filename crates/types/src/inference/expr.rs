@@ -852,7 +852,7 @@ fn read_local(inf: &mut BodyInferrer<'_>, cx: &mut Body, id: LocalId, span: dart
 /// extension used as a value, outside a method or property access target.
 /// With the report the node becomes `dynamic`.
 fn extension_as_expression(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, sp: dartforge_diagnostics::Span) -> bool {
-    if let dartforge_frontend::pais::Pai::Expr(p) = inf.parent_of(cx.unit, e) {
+    if let dartforge_frontend::parents::Parent::Expr(p) = inf.parent_of(cx.unit, e) {
         match &ast(inf, cx).expr(p).kind {
             ExprKind::Property { target, .. } | ExprKind::Call { target, .. } if *target == e => return false,
             _ => {}
@@ -1139,7 +1139,7 @@ fn nullable_this_code(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> dartf
     use dartforge_diagnostics::codes::compile_time_error as c;
     let a = ast(inf, cx);
     let parent = match inf.parent_of(cx.unit, e) {
-        dartforge_frontend::pais::Pai::Expr(p) => p,
+        dartforge_frontend::parents::Parent::Expr(p) => p,
         _ => return c::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
     };
     // Cascade target: the first section counts (`..m()` is an invocation).
@@ -1162,7 +1162,7 @@ fn nullable_this_code(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> dartf
         ExprKind::Call { target, .. } if *target == e => c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
         // `the_name.m()`: the name is the `MethodInvocation`'s target.
         ExprKind::Property { target, .. } if *target == e => match inf.parent_of(cx.unit, parent) {
-            dartforge_frontend::pais::Pai::Expr(q) if matches!(&a.expr(q).kind, ExprKind::Call { target, .. } if *target == parent) => {
+            dartforge_frontend::parents::Parent::Expr(q) if matches!(&a.expr(q).kind, ExprKind::Call { target, .. } if *target == parent) => {
                 c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE
             }
             _ => c::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
@@ -1409,7 +1409,7 @@ fn instantiate_in_context_with(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId,
     // `COULD_NOT_INFER`.
     let mut gi = crate::constraints::GenericInferrer::new(&type_params);
     gi.with_origin(crate::constraints::Origin::Funcao { declarado: t, contexto: k });
-    gi.generic_metadata = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
+    gi.generic_metadata = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::GenericMetadata);
     let (interner, program) = (inf.interner, inf.program);
     let mut env = inf.env();
     gi.constrain_return(without, k, &mut env);
@@ -1742,7 +1742,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                         // `DISALLOWED_TYPE_INSTANTIATION_EXPRESSION`
                         // (`function_reference_resolver.dart:270-278`), with constructor
                         // tear-offs (2.15).
-                        let version = inf.program.library(cx.lib).features.versao();
+                        let version = inf.program.library(cx.lib).features.version();
                         if version >= dartforge_frontend::features::LanguageVersion::new(2, 15) {
                             let sp = inf.span_expr(cx.unit, *target);
                             inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::DISALLOWED_TYPE_INSTANTIATION_EXPRESSION, sp, &[]);
@@ -3584,7 +3584,7 @@ fn binary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: BinaryOp, le
         // `BinaryExpressionResolver.resolve` (`binary_expression_resolver.dart:69-77`):
         // an operator that is not binary, at the token; `_resolveUnsupportedOperator`
         // visits both sides without a context and the type is `InvalidType`.
-        BinaryOp::NaoBinario => {
+        BinaryOp::NotBinary => {
             let left_end = inf.span_expr(cx.unit, left).end;
             let token = operator_token(inf, cx, left_end);
             inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::NOT_BINARY_OPERATOR, token, &["~"]);
@@ -5394,7 +5394,7 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
             // is unreachable (`flow-analysis.md`, `equalityOp`:
             // `equivalentToNull(T1)` and `T2` non-nullable, or the reverse). Before
             // 3.9 both branches stay reachable (mixed mode).
-            let solido = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::SoundFlowAnalysis);
+            let solido = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::SoundFlowAnalysis);
             if solido {
                 let null = |inf: &BodyInferrer<'_>, t: TypeId| matches!(inf.table.get(t), Type::Null);
                 if (null(inf, tr) && inf.is_non_nullable(tl)) || (null(inf, tl) && inf.is_non_nullable(tr)) {

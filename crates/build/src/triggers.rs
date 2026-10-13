@@ -227,7 +227,7 @@ pub fn parse(source: &str) -> Option<Unit> {
     let tokens = dartforge_frontend::lexer::lex(source).ok()?;
     // A source with a scanner error (the unterminated string; the lexer goes
     // on, like fasta's) is left unanalyzed: the caller fires as a precaution.
-    if tokens.iter().any(|t| matches!(t.kind, Kind::Str(f) | Kind::StrEnd(f) if f.aberta)) {
+    if tokens.iter().any(|t| matches!(t.kind, Kind::Str(f) | Kind::StrEnd(f) if f.unterminated)) {
         return None;
     }
     let text = |i: usize| tokens[i].text(source);

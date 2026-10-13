@@ -563,7 +563,7 @@ impl Program {
     /// filter applies (T1.1 f).
     pub fn biblioteca_com_augmentations(&self, lib: LibraryId) -> bool {
         let f = self.library(lib).features;
-        f.tem(dartforge_frontend::Feature::Augmentations) || f.tem(dartforge_frontend::Feature::Macros)
+        f.has(dartforge_frontend::Feature::Augmentations) || f.has(dartforge_frontend::Feature::Macros)
     }
 
     /// The syntactic members of a class: those of the introductory declaration

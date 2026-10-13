@@ -39,7 +39,7 @@ pub(crate) fn record_chain(inf: &BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
     ) {
         return;
     }
-    if let Some(root) = a.raiz_de_atalho(e) {
+    if let Some(root) = a.shorthand_root(e) {
         cx.shorthand_context.entry(root.0).or_insert(ctx);
     }
 }
@@ -51,7 +51,7 @@ pub(crate) fn record_equality(
     right: ExprId,
     left: TypeId,
 ) {
-    if let Some(r) = inf.program.unit(cx.unit).ast.raiz_de_atalho(right) {
+    if let Some(r) = inf.program.unit(cx.unit).ast.shorthand_root(right) {
         cx.shorthand_context.insert(r.0, left);
     }
 }

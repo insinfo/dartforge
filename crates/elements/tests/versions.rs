@@ -33,7 +33,7 @@ fn version_of(p: &Program, excerpt: &str) -> LanguageVersion {
         .find(|l| l.uri.contains(excerpt))
         .unwrap_or_else(|| panic!("{excerpt}"))
         .features
-        .versao()
+        .version()
 }
 
 fn v(a: u16, b: u16) -> LanguageVersion {
@@ -48,12 +48,12 @@ fn no_marker_and_no_package_uses_current() {
     fs::write(&main, "void main() {}").unwrap();
     let (p, d) = load_lenient(&main, &sdk, None, &mut Interner::new());
     assert!(d.is_empty(), "{d:?}");
-    assert_eq!(version_of(&p, "main.dart"), LanguageVersion::ATUAL);
-    assert_eq!(version_of(&p, "dart:core"), LanguageVersion::PISO);
+    assert_eq!(version_of(&p, "main.dart"), LanguageVersion::CURRENT);
+    assert_eq!(version_of(&p, "dart:core"), LanguageVersion::FLOOR);
     assert!(
         p.library(p.entry.unwrap())
             .features
-            .tem(Feature::PrimaryConstructors)
+            .has(Feature::PrimaryConstructors)
     );
 
     sdk.versao_corrente = v(3, 6);
@@ -62,7 +62,7 @@ fn no_marker_and_no_package_uses_current() {
     assert!(
         !p.library(p.entry.unwrap())
             .features
-            .tem(Feature::WildcardVariables)
+            .has(Feature::WildcardVariables)
     );
 }
 
@@ -154,7 +154,7 @@ fn marker_out_of_range_is_error() {
         "{}",
         d[0].message
     );
-    assert_eq!(version_of(&p, "alto.dart"), LanguageVersion::ATUAL);
+    assert_eq!(version_of(&p, "alto.dart"), LanguageVersion::CURRENT);
     let low = tmp.path().join("baixo.dart");
     fs::write(&low, "// @dart=2.9\nvoid main() {}").unwrap();
     let (_, d) = load_lenient(&low, &sdk, None, &mut Interner::new());

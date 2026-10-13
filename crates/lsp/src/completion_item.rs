@@ -410,8 +410,8 @@ pub(crate) enum Entity {
 pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContext> {
     use dartforge_frontend::token::Kind;
     // Comment: `inComment`.
-    let comments = dartforge_frontend::comentarios::Comentarios::de(text);
-    for c in comments.todos() {
+    let comments = dartforge_frontend::comments::Comments::scan(text);
+    for c in comments.all() {
         let line = text[c.start..c.end].starts_with("//");
         if c.start < offset && (offset < c.end || (line && offset == c.end)) {
             return Some(SnippetContext::Other);

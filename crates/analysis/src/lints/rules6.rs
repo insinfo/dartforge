@@ -146,7 +146,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         .collect();
     let is_null = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Null);
     // The `toString` of an expression.
-    let source_of = |e: ExprId| -> String { dartforge_frontend::fonte::de_expr(a, source, interner, e) };
+    let source_of = |e: ExprId| -> String { dartforge_frontend::source::from_expr(a, source, interner, e) };
 
     // `prefer_asserts_with_message`: the statement and the initializer.
     if enabled("prefer_asserts_with_message") {
@@ -272,7 +272,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 // The node is the parameter without the default value.
                 let end = match (p.default_value, p.name) {
                     (None, _) => p.span.end,
-                    (Some(_), Some(n)) if p.function_parameters.is_some() => dartforge_frontend::fonte::fim_do_parametro_funcao(source, n.span.end),
+                    (Some(_), Some(n)) if p.function_parameters.is_some() => dartforge_frontend::source::function_parameter_end(source, n.span.end),
                     (Some(_), Some(n)) => n.span.end.max(ty.span.end),
                     (Some(_), None) => ty.span.end,
                 };
@@ -285,7 +285,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     if enabled("unnecessary_library_directive") && !u.unit.directives.iter().any(|d| matches!(d.kind, DirectiveKind::Part { .. })) {
         // `sortedCommentAndAnnotations`: the documentation (`_findComment`)
         // and the metadata.
-        let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+        let comments = dartforge_frontend::comments::Comments::scan(source);
         for d in u.unit.directives.iter() {
             if !matches!(d.kind, DirectiveKind::Library { .. }) || !d.metadata.is_empty() {
                 continue;

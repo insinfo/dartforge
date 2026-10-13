@@ -13,26 +13,26 @@ fn identifier_part(c: u8) -> bool {
 }
 
 /// The comments of a unit, in order.
-pub struct Comentarios {
+pub struct Comments {
     spans: Vec<Span>,
 }
 
-impl Comentarios {
-    pub fn de(fonte: &str) -> Comentarios {
+impl Comments {
+    pub fn scan(source: &str) -> Comments {
         let mut spans = Vec::new();
-        sweep(fonte.as_bytes(), 0, false, &mut spans);
-        Comentarios { spans }
+        sweep(source.as_bytes(), 0, false, &mut spans);
+        Comments { spans }
     }
 
-    pub fn todos(&self) -> &[Span] {
+    pub fn all(&self) -> &[Span] {
         &self.spans
     }
 
     /// `token.precedingComments`: the comments right before `pos`, with only
     /// whitespace between them and up to `pos`, in order.
-    pub fn antes_de(&self, fonte: &str, pos: usize) -> Vec<Span> {
-        let b = fonte.as_bytes();
-        let only_whitespace = |de: usize, until: usize| b.get(de..until).is_some_and(|t| t.iter().all(u8::is_ascii_whitespace));
+    pub fn before(&self, source: &str, pos: usize) -> Vec<Span> {
+        let b = source.as_bytes();
+        let only_whitespace = |from: usize, until: usize| b.get(from..until).is_some_and(|t| t.iter().all(u8::is_ascii_whitespace));
         let mut k = self.spans.partition_point(|s| s.end <= pos);
         let mut limit = pos;
         let mut v = Vec::new();
@@ -51,11 +51,11 @@ impl Comentarios {
 
     /// `findDartDoc(token)`: among the comments before `pos`, the last `/**`,
     /// or the first `///` of the last run of `///` that comes after it.
-    pub fn dart_doc(&self, fonte: &str, pos: usize) -> Option<Span> {
+    pub fn dart_doc(&self, source: &str, pos: usize) -> Option<Span> {
         let mut doc: Option<Span> = None;
         let mut multiline = false;
-        for s in self.antes_de(fonte, pos) {
-            let lexeme = &fonte[s.start..s.end];
+        for s in self.before(source, pos) {
+            let lexeme = &source[s.start..s.end];
             if lexeme.starts_with("///") {
                 if !multiline {
                     doc = Some(s);
@@ -168,21 +168,21 @@ fn string(b: &[u8], mut i: usize, raw: bool, output: &mut Vec<Span>) -> usize {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
     fn strings_have_no_comments() {
         let f = "var a = '// nao'; /* sim */ var b = \"${x /* sim2 */}\"; // fim\n";
-        let c = Comentarios::de(f);
-        let texts: Vec<&str> = c.todos().iter().map(|s| &f[s.start..s.end]).collect();
+        let c = Comments::scan(f);
+        let texts: Vec<&str> = c.all().iter().map(|s| &f[s.start..s.end]).collect();
         assert_eq!(texts, vec!["/* sim */", "/* sim2 */", "// fim"]);
     }
 
     #[test]
     fn dart_doc_like_the_parser() {
         let f = "/** a */\n// b\n/// c\n/// d\nclass A {}\n";
-        let c = Comentarios::de(f);
+        let c = Comments::scan(f);
         let pos = f.find("class").unwrap();
         let d = c.dart_doc(f, pos).unwrap();
         assert_eq!(&f[d.start..d.end], "/// c");

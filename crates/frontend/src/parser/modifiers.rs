@@ -117,31 +117,31 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `reportExtraneousModifier`: `EXTRANEOUS_MODIFIER` with the token's text.
     pub(crate) fn stray_modifier(&mut self, pos: Option<usize>) {
         if let Some(pos) = pos {
-            let texto = self.text_of(pos).to_string();
+            let text = self.text_of(pos).to_string();
             let span = self.span_of(pos);
-            self.error_at(codes::parser::EXTRANEOUS_MODIFIER, span, &[&texto]);
+            self.error_at(codes::parser::EXTRANEOUS_MODIFIER, span, &[&text]);
         }
     }
 
     fn duplicate_modifier(&mut self, pos: usize) {
-        let texto = self.text_of(pos).to_string();
+        let text = self.text_of(pos).to_string();
         let span = self.span_of(pos);
-        self.error_at(codes::parser::DUPLICATED_MODIFIER, span, &[&texto]);
+        self.error_at(codes::parser::DUPLICATED_MODIFIER, span, &[&text]);
     }
 
     /// `reportModifierOutOfOrder`: `pos` should come before `before`.
     fn out_of_order_modifier(&mut self, pos: usize, before: &str) {
-        let texto = self.text_of(pos).to_string();
+        let text = self.text_of(pos).to_string();
         let span = self.span_of(pos);
-        self.error_at(codes::parser::MODIFIER_OUT_OF_ORDER, span, &[&texto, before]);
+        self.error_at(codes::parser::MODIFIER_OUT_OF_ORDER, span, &[&text, before]);
     }
 
     /// `reportConflictingModifiers`.
     fn conflicting_modifiers(&mut self, pos: usize, previous: usize) {
-        let texto = self.text_of(pos).to_string();
+        let text = self.text_of(pos).to_string();
         let before = self.text_of(previous).to_string();
         let span = self.span_of(pos);
-        self.error_at(codes::parser::CONFLICTING_MODIFIERS, span, &[&texto, &before]);
+        self.error_at(codes::parser::CONFLICTING_MODIFIERS, span, &[&text, &before]);
     }
 
     /// `ModifierContext._parseModifiers`: consumes every modifier from the
@@ -450,7 +450,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // every `covariant`; with it, those not accompanying `var`.
             ParameterOwner::PrimaryConstructor => {
                 if let Some(c) = f.covariant
-                    && (!self.features.tem(crate::Feature::PrimaryConstructors) || f.var_.is_none())
+                    && (!self.features.has(crate::Feature::PrimaryConstructors) || f.var_.is_none())
                 {
                     let span = self.span_of(c);
                     self.error_at(codes::parser::EXTRANEOUS_MODIFIER_IN_PRIMARY_CONSTRUCTOR, span, &["covariant"]);

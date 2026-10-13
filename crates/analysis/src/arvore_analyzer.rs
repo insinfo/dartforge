@@ -20,7 +20,7 @@ use dartforge_frontend::ast::{
     ExprKind, ForInTarget, ForInit, FunctionBody, Initializer, ListPatternElement, MemberKind, Parameter, ParameterKind, PatternId,
     PatternKind, StmtId, StmtKind, StringLit, TypeId, TypeKind, TypeParameter, UnaryOp,
 };
-use dartforge_frontend::comentarios::Comentarios;
+use dartforge_frontend::comments::Comments;
 use dartforge_frontend::token::{Kind, Op, Token};
 use std::collections::HashMap;
 
@@ -341,7 +341,7 @@ struct Builder<'a> {
     a: &'a Ast,
     source: &'a str,
     t: Tokens,
-    comments: Comentarios,
+    comments: Comments,
     nos: Vec<No>,
     /// The language version is before 3.0 (`case e:` is a `SwitchCase`).
     before_3_0: bool,
@@ -387,10 +387,10 @@ fn build_with<'a>(
         a,
         source,
         t: Tokens::new(source),
-        comments: Comentarios::de(source),
+        comments: Comments::scan(source),
         nos: Vec::new(),
         before_3_0,
-        local_metadata: a.metadados_locais.iter().map(|(s, m)| (s.0, &m[..])).collect(),
+        local_metadata: a.local_metadata.iter().map(|(s, m)| (s.0, &m[..])).collect(),
         constructor_calls,
         prefix_idents,
         partes_de_for: HashMap::new(),
@@ -492,7 +492,7 @@ impl<'a> Builder<'a> {
     /// tokens from it on.
     fn doc(&mut self, pos: usize) -> Option<(usize, usize, Vec<Span>)> {
         let start = self.comments.dart_doc(self.source, pos)?;
-        let cadeia: Vec<Span> = self.comments.antes_de(self.source, pos).into_iter().filter(|s| s.start >= start.start).collect();
+        let cadeia: Vec<Span> = self.comments.before(self.source, pos).into_iter().filter(|s| s.start >= start.start).collect();
         let text = &self.source[start.start..start.end];
         let mut end = start.end;
         if text.starts_with("///") {
@@ -508,11 +508,11 @@ impl<'a> Builder<'a> {
     /// The `Comment` node with the `CommentReference`s (the `DocCommentBuilder`).
     fn comment_node(&mut self, start: usize, end: usize, cadeia: &[Span]) -> Option<usize> {
         let mut refs = Vec::new();
-        for r in dartforge_frontend::doc_referencias::referencias(self.source, cadeia) {
-            let names: Vec<Span> = r.partes.iter().map(|(s, _)| *s).collect();
+        for r in dartforge_frontend::doc_references::references(self.source, cadeia) {
+            let names: Vec<Span> = r.parts.iter().map(|(s, _)| *s).collect();
             let (Some(first), Some(last)) = (names.first().copied(), names.last().copied()) else { continue };
             // The `CommentReference` goes from the `new` (when present) to the end of the name.
-            let a = if r.novo {
+            let a = if r.has_new {
                 self.source[..first.start].trim_end().strip_suffix("new").map_or(first.start, str::len)
             } else {
                 first.start
@@ -1861,7 +1861,7 @@ impl<'a> Builder<'a> {
         let mut children = Vec::new();
         let kind = match &a.expr(callee).kind {
             // `assert(…)` as an expression (`AstBuilder.endAssert`).
-            ExprKind::Identifier(_) if a.invocacoes_de_assert.contains(&e) => {
+            ExprKind::Identifier(_) if a.assert_invocations.contains(&e) => {
                 children.extend(self.expr(callee));
                 "FunctionExpressionInvocation"
             }
@@ -2280,9 +2280,9 @@ impl<'a> Builder<'a> {
 /// without the unit, without repeating the previous range
 /// (`DartSelectionRangeComputer`).
 pub fn selecoes(text: &str, features: dartforge_frontend::LibraryFeatures, offset: usize) -> Vec<Span> {
-    let before_3_0 = features.versao().major < 3;
+    let before_3_0 = features.version().major < 3;
     let mut names = dartforge_intern::Interner::new();
-    let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+    let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
     let arvore = construir(text, &parsed.ast, &parsed.unit, before_3_0);
     let Some(node) = arvore.localizar(offset, offset) else { return Vec::new() };
     let mut v: Vec<Span> = Vec::new();
@@ -2301,7 +2301,7 @@ mod tests {
 
     fn chain(text: &str, cursor: &str) -> Vec<String> {
         let offset = text.find(cursor).expect("cursor") + cursor.len() / 2;
-        let features = dartforge_frontend::LibraryFeatures::new(dartforge_frontend::LanguageVersion::ATUAL, &[]);
+        let features = dartforge_frontend::LibraryFeatures::new(dartforge_frontend::LanguageVersion::CURRENT, &[]);
         selecoes(text, features, offset).into_iter().map(|s| text[s.start..s.end].to_string()).collect()
     }
 

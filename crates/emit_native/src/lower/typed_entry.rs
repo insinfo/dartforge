@@ -115,7 +115,7 @@ fn declared_covariant(ctx: &Context, fid: usize) -> Vec<(usize, Option<SymbolId>
             let af = ctx.program.unit(unit).ast.function(function);
             for (i, p) in af.parameters.as_deref().unwrap_or(&[]).iter().enumerate() {
                 if p.covariant {
-                    let name = (p.kind == ParameterKind::Named).then(|| p.nome_externo().map(|n| n.sym)).flatten();
+                    let name = (p.kind == ParameterKind::Named).then(|| p.external_name().map(|n| n.sym)).flatten();
                     exit.push((i, name));
                 }
             }

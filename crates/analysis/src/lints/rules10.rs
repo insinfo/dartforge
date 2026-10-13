@@ -62,7 +62,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     let (inline_adds, spread) = (enabled("prefer_inlined_adds"), enabled("prefer_spread_collections"));
     if inline_adds || spread {
         // `target.inConstantContext` (only for `prefer_spread_collections`).
-        let parents = dartforge_frontend::pais::Pais::novo(a, u.unit, u.fonte, sem.is_some_and(|s| !super::version_at_least(s, 3, 0)));
+        let parents = dartforge_frontend::parents::Parents::new(a, u.unit, u.fonte, sem.is_some_and(|s| !super::version_at_least(s, 3, 0)));
         for e in a.exprs.iter() {
             let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };
             if !matches!(a.expr(*target).kind, ExprKind::List { .. }) {
@@ -79,7 +79,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             match interner.resolve(name.sym) {
                 "add" if inline_adds => report(&c::PREFER_INLINED_ADDS_SINGLE, name.span, &[]),
                 "addAll" if is_list && inline_adds => report(&c::PREFER_INLINED_ADDS_MULTIPLE, name.span, &[]),
-                "addAll" if !is_list && spread && !parents.em_contexto_constante(a, *target) => report(&c::PREFER_SPREAD_COLLECTIONS, name.span, &[]),
+                "addAll" if !is_list && spread && !parents.in_constant_context(a, *target) => report(&c::PREFER_SPREAD_COLLECTIONS, name.span, &[]),
                 _ => {}
             }
         }

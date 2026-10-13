@@ -47,7 +47,7 @@ struct Lexer<'s> {
 ///
 /// # Errors
 /// It does not fail today: like fasta's scanner, the lexer goes on after
-/// each error (an unterminated string comes out with [`StrFlags::aberta`],
+/// each error (an unterminated string comes out with [`StrFlags::unterminated`],
 /// an unexpected character joins an identifier or is skipped, an open block
 /// comment runs to the end), and the errors come out in the parser
 /// (`parser::recoverable_scanner_errors`).
@@ -286,7 +286,7 @@ impl<'s> Lexer<'s> {
         let quote = self.bytes[self.pos];
         let triple = self.at(1) == quote && self.at(2) == quote;
         self.pos += if triple { 3 } else { 1 };
-        let flags = StrFlags { raw, triple, quote, aberta: false };
+        let flags = StrFlags { raw, triple, quote, unterminated: false };
         self.string_body(start, flags, true)
     }
 
@@ -308,10 +308,10 @@ impl<'s> Lexer<'s> {
         // `unterminatedString` (`abstract_scanner.dart:2055-2067`): at end of
         // file, or at the line break (LF or CR) of a simple string, the piece ends
         // there with the synthetic closer and reading continues at the line break.
-        let mut aberta = false;
+        let mut unterminated = false;
         loop {
             let Some(&b) = self.bytes.get(self.pos) else {
-                aberta = true;
+                unterminated = true;
                 break;
             };
             if b == flags.quote {
@@ -327,7 +327,7 @@ impl<'s> Lexer<'s> {
                 break;
             }
             if (b == b'\n' || b == b'\r') && !flags.triple {
-                aberta = true;
+                unterminated = true;
                 break;
             }
             if b == b'\\' && !flags.raw {
@@ -415,7 +415,7 @@ impl<'s> Lexer<'s> {
             }
             self.pos += 1;
         }
-        let flags = StrFlags { aberta, ..flags };
+        let flags = StrFlags { unterminated, ..flags };
         self.tokens.push(Token {
             kind: if first {
                 Kind::Str(flags)
@@ -759,7 +759,7 @@ d''' "e" "##)
                 raw: false,
                 triple: false,
                 quote: b'\'',
-                aberta: false
+                unterminated: false
             })
         ));
         assert!(matches!(
@@ -788,7 +788,7 @@ d''' "e" "##)
                     raw: false,
                     triple: false,
                     quote: b'\'',
-                    aberta: false
+                    unterminated: false
                 },
                 Interp::Ident
             )
@@ -825,13 +825,13 @@ d''' "e" "##)
     fn lexical_errors_do_not_stop() {
         // An unterminated string ends at the line break or at end of file.
         let t = lex("'abc").unwrap();
-        assert!(matches!(t[0].kind, Kind::Str(StrFlags { aberta: true, .. })));
+        assert!(matches!(t[0].kind, Kind::Str(StrFlags { unterminated: true, .. })));
         assert_eq!(t[0].span, Span { start: 0, end: 4 });
         let t = lex("'a\r\nb'").unwrap();
-        assert!(matches!(t[0].kind, Kind::Str(StrFlags { aberta: true, .. })));
+        assert!(matches!(t[0].kind, Kind::Str(StrFlags { unterminated: true, .. })));
         assert_eq!(t[0].span, Span { start: 0, end: 2 });
         assert_eq!(t[1].kind, Kind::Ident);
-        assert!(matches!(t[2].kind, Kind::Str(StrFlags { aberta: true, .. })));
+        assert!(matches!(t[2].kind, Kind::Str(StrFlags { unterminated: true, .. })));
         // An open block comment runs to the end.
         assert_eq!(lex("a /* abc").unwrap().len(), 2);
         // The unexpected character joins the identifier; the control one vanishes.

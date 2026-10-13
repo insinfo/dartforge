@@ -146,7 +146,7 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         let vars: Vec<TypeId> = params.iter().map(|&x| inf.table.intern(Type::TypeParameter { param: x, nullable: false })).collect();
         let ret = final_type(inf, shape, &vars);
         let mut gi = GenericInferrer::new(&params);
-        gi.generic_metadata = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
+        gi.generic_metadata = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::GenericMetadata);
         if !inf.the_is_unknown(ctx) {
             gi.with_origin(crate::constraints::Origin::Return { declarado: ret, contexto: ctx });
             let mut env = inf.env();
@@ -205,7 +205,7 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
                     _ => vec![p[0]],
                 };
                 gi = GenericInferrer::new(&ps);
-                gi.generic_metadata = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
+                gi.generic_metadata = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::GenericMetadata);
                 let d = inf.core.dynamic_;
                 for a in &infos {
                     let mut g: Inferrer<'_> = Some((&mut gi, &ps[..]));

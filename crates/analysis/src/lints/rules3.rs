@@ -14,7 +14,7 @@
 //! `slash_for_doc_comments` finds each declaration's documentation comment
 //! like the parser's `_findComment` (`findDartDoc` after the metadata, and
 //! otherwise before each annotation, from the last to the first), with the
-//! comments scanned from the source (`dartforge_frontend::comentarios`), on
+//! comments scanned from the source (`dartforge_frontend::comments`), on
 //! the declarations the original visits (not the extension type), and the
 //! first comment before a local function.
 //! Written without compiling or running (2026-10-05).
@@ -148,11 +148,11 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     }
     // `slash_for_doc_comments`: `/** … */` as documentation.
     if enabled("slash_for_doc_comments") {
-        let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+        let comments = dartforge_frontend::comments::Comments::scan(source);
         // `_findComment(metadata, tokenAfterMetadata)`.
         let doc = |metadata: &[dartforge_frontend::ast::Annotation], start: usize| {
             let after = match metadata.last() {
-                Some(m) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), m.span.end),
+                Some(m) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end),
                 None => start,
             };
             comments.dart_doc(source, after).or_else(|| metadata.iter().rev().find_map(|m| comments.dart_doc(source, m.span.start)))
@@ -181,7 +181,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 continue;
             }
             let metadata = a
-                .metadados_locais
+                .local_metadata
                 .iter()
                 .find(|(x, _)| x.0 as usize == i)
                 .map(|(_, m)| &m[..])
@@ -189,7 +189,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             docs.extend(doc(metadata, s.span.start));
             // `visitFunctionDeclarationStatement`: the first comment before
             // the statement.
-            if let Some(first) = comments.antes_de(source, s.span.start).first()
+            if let Some(first) = comments.before(source, s.span.start).first()
                 && source[first.start..first.end].starts_with("/**")
             {
                 locals.push(*first);

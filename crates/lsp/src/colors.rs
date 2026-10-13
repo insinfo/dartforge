@@ -20,7 +20,7 @@ use crate::project::Project;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, LibraryId, UnitId};
 use dartforge_frontend::ast::{self, ExprId, ExprKind};
-use dartforge_frontend::pais::{Pai, Pais};
+use dartforge_frontend::parents::{Parent, Parents};
 use dartforge_types::constantes::avaliador::{Constante, Ctx, Motor};
 use dartforge_types::constantes::valor::{Campo, Estado, Valor};
 use dartforge_types::{Resolved, Type};
@@ -122,10 +122,10 @@ impl Project {
     /// The colors of `u` (`ColorComputer.compute`), in text order.
     pub(crate) fn colors(&mut self, u: UnitId) -> Vec<(Span, Color)> {
         let lib = self.program().unit(u).library;
-        let before_3 = self.program().library(lib).features.versao().major < 3;
+        let before_3 = self.program().library(lib).features.version().major < 3;
         let parents = {
             let un = self.program().unit(u);
-            Pais::novo(&un.ast, &un.unit, &un.source, before_3)
+            Parents::new(&un.ast, &un.unit, &un.source, before_3)
         };
         let n = self.program().unit(u).ast.exprs.len();
         // The attempt for each node (without the ancestors), and whether it stops
@@ -143,7 +143,7 @@ impl Project {
                 let bodies = &self.query.bodies.units[u.0 as usize];
                 (x.span, superficial_shape(a, e, matches!(bodies.get_resolved(e), Some(Resolved::Constructor(_)))))
             };
-            let in_const = parents.em_contexto_constante(&self.program().unit(u).ast, e);
+            let in_const = parents.in_constant_context(&self.program().unit(u).ast, e);
             let color = match kind {
                 Superficial::Index { target, index } => {
                     let source = &self.program().unit(u).source;
@@ -175,14 +175,14 @@ impl Project {
         // visited.
         let closed: HashSet<ExprId> = found.iter().filter(|x| x.3).map(|x| x.0).collect();
         let under_closed = |e: ExprId| {
-            let mut current = parents.pai(e);
+            let mut current = parents.parent(e);
             for _ in 0..n + 1 {
                 match current {
-                    Pai::Expr(p) => {
+                    Parent::Expr(p) => {
                         if closed.contains(&p) {
                             return true;
                         }
-                        current = parents.pai(p);
+                        current = parents.parent(p);
                     }
                     _ => return false,
                 }
@@ -319,20 +319,20 @@ impl Project {
         let p = self.program();
         let un = p.unit(u);
         let lib = un.library;
-        let parents = Pais::novo(&un.ast, &un.unit, &un.source, p.library(lib).features.versao().major < 3);
+        let parents = Parents::new(&un.ast, &un.unit, &un.source, p.library(lib).features.version().major < 3);
         let Some((i, x)) = un.ast.exprs.iter().enumerate().filter(|(_, x)| x.span.start <= offset && offset <= x.span.end).min_by_key(|(_, x)| x.span.end - x.span.start) else {
             return false;
         };
         let e = ExprId(i as u32);
-        if parents.em_contexto_constante(&un.ast, e) {
+        if parents.in_constant_context(&un.ast, e) {
             return false;
         }
         match &x.kind {
             ExprKind::InstanceCreation { keyword, .. } => *keyword == Some(ast::CreationKeyword::Const),
             ExprKind::Identifier(_) | ExprKind::Property { .. } => {
                 let bodies = &self.query.bodies.units[u.0 as usize];
-                let r = match parents.pai(e) {
-                    Pai::Expr(parent) if matches!(un.ast.expr(parent).kind, ExprKind::Property { target, .. } if target == e) => bodies.get_resolved(parent),
+                let r = match parents.parent(e) {
+                    Parent::Expr(parent) if matches!(un.ast.expr(parent).kind, ExprKind::Property { target, .. } if target == e) => bodies.get_resolved(parent),
                     _ => bodies.get_resolved(e),
                 };
                 let var = match r {

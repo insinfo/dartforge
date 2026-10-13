@@ -199,7 +199,7 @@ pub(crate) fn edits(roots: &[PathBuf], documents: &DocumentStore, map: &[(PathBu
     for file in &files {
         let Some(text) = text_of(file) else { continue };
         let mut names = dartforge_intern::Interner::new();
-        let p = dartforge_frontend::parser::parse_com(&text, &mut names, dartforge_frontend::LibraryFeatures::default());
+        let p = dartforge_frontend::parser::parse_with(&text, &mut names, dartforge_frontend::LibraryFeatures::default());
         let moved_ = moved.contains(&key(file));
         let folder_changes = moved_
             && new_of(file).is_some_and(|n| n.parent().map(key) != file.parent().map(key));

@@ -420,10 +420,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         matches!(a.expr(e).kind, ExprKind::Call { .. } | ExprKind::InstanceCreation { .. } | ExprKind::This)
     });
     let lib = program.unit(s.unit).library;
-    let doc = dartforge_frontend::comentarios::Comentarios::de(source);
+    let doc = dartforge_frontend::comments::Comments::scan(source);
     let has_doc = |metadata: &[dartforge_frontend::ast::Annotation], start: usize| {
         let after = match metadata.last() {
-            Some(m) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), m.span.end),
+            Some(m) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end),
             None => start,
         };
         doc.dart_doc(source, after).is_some() || metadata.iter().rev().any(|m| doc.dart_doc(source, m.span.start).is_some())

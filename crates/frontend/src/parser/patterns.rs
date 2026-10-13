@@ -76,10 +76,10 @@ enum ConstContext {
 impl<'s, 'i> Parser<'s, 'i> {
     /// An outermost pattern in context `ctx`.
     pub(crate) fn parse_pattern_in(&mut self, ctx: PatternContext) -> PResult<PatternId> {
-        let salvo = self.default_context;
+        let saved = self.default_context;
         self.default_context = ctx;
         let r = self.parse_pattern();
-        self.default_context = salvo;
+        self.default_context = saved;
         r
     }
 
@@ -90,16 +90,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// an assignment, `PATTERN_ASSIGNMENT_DECLARES_VARIABLE` at the name; the
     /// name `when`/`as`, `ILLEGAL_PATTERN_VARIABLE_NAME` (or
     /// `ILLEGAL_PATTERN_ASSIGNMENT_VARIABLE_NAME`, bare in an assignment).
-    fn check_variable_pattern(&mut self, word: Option<Span>, var_: bool, typed: bool, nome: Name) {
+    fn check_variable_pattern(&mut self, word: Option<Span>, var_: bool, typed: bool, name: Name) {
         let stray = word.is_none() && !typed;
         // Bare in a refutable context it is a constant pattern
         // (`parsePrimaryPattern`): `when`/`as` there is
         // `ILLEGAL_PATTERN_IDENTIFIER_NAME`.
         if stray && self.default_context == PatternContext::Matching {
-            let texto = &self.source[nome.span.start..nome.span.end];
-            if matches!(texto, "when" | "as") {
-                let texto = texto.to_string();
-                self.error_at(codes::parser::ILLEGAL_PATTERN_IDENTIFIER_NAME, nome.span, &[&texto]);
+            let text = &self.source[name.span.start..name.span.end];
+            if matches!(text, "when" | "as") {
+                let text = text.to_string();
+                self.error_at(codes::parser::ILLEGAL_PATTERN_IDENTIFIER_NAME, name.span, &[&text]);
             }
             return;
         }
@@ -116,21 +116,21 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             PatternContext::Assignment => {
                 if !stray {
-                    let texto = self.source[nome.span.start..nome.span.end].to_string();
-                    let texto = if texto.is_empty() { "(unnamed)".to_string() } else { texto };
-                    self.error_at(codes::parser::PATTERN_ASSIGNMENT_DECLARES_VARIABLE, nome.span, &[&texto]);
+                    let text = self.source[name.span.start..name.span.end].to_string();
+                    let text = if text.is_empty() { "(unnamed)".to_string() } else { text };
+                    self.error_at(codes::parser::PATTERN_ASSIGNMENT_DECLARES_VARIABLE, name.span, &[&text]);
                 }
             }
         }
-        let texto = &self.source[nome.span.start..nome.span.end];
-        if matches!(texto, "when" | "as") {
-            let texto = texto.to_string();
+        let text = &self.source[name.span.start..name.span.end];
+        if matches!(text, "when" | "as") {
+            let text = text.to_string();
             let code = if self.default_context == PatternContext::Assignment && stray {
                 codes::parser::ILLEGAL_PATTERN_ASSIGNMENT_VARIABLE_NAME
             } else {
                 codes::parser::ILLEGAL_PATTERN_VARIABLE_NAME
             };
-            self.error_at(code, nome.span, &[&texto]);
+            self.error_at(code, name.span, &[&text]);
         }
     }
 
@@ -401,7 +401,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         expr: ExprId,
         ctx: ConstContext,
     ) -> PResult<ExprId> {
-        let Some((_, texto, span)) = self.pattern_binary_operator() else {
+        let Some((_, text, span)) = self.pattern_binary_operator() else {
             return Ok(expr);
         };
         if ctx == ConstContext::Explicit {
@@ -411,7 +411,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.error_at(
                 codes::parser::INVALID_CONSTANT_PATTERN_BINARY,
                 span,
-                &[texto],
+                &[text],
             );
         }
         self.parse_binary_rest(start_offset, expr, super::expressions::LEVEL_EQUALITY)
@@ -427,10 +427,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Op(Op::LBracket | Op::LBrace | Op::Lt) => self.parse_unary(true),
             Kind::Op(Op::LParen) => {
                 if self.kind_of(after + 1) == Kind::Op(Op::RParen) {
-                    let abre = self.tokens[after].span;
+                    let opener = self.tokens[after].span;
                     self.error_at(
                         codes::parser::INVALID_CONSTANT_PATTERN_EMPTY_RECORD_LITERAL,
-                        abre,
+                        opener,
                         &[],
                     );
                 }
@@ -526,7 +526,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         match self.kind() {
             Kind::Op(op @ (Op::Bang | Op::Tilde)) => {
                 if ctx != ConstContext::NoneFound {
-                    self.erro(
+                    self.error(
                         codes::parser::INVALID_CONSTANT_PATTERN_UNARY,
                         &[op.text()],
                     );
@@ -543,7 +543,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Op(Op::Minus) => {
                 let mut inner = ctx;
                 if ctx == ConstContext::Explicit {
-                    self.erro(codes::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
+                    self.error(codes::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
                     inner = ConstContext::NoneFound;
                 }
                 self.advance();
@@ -573,15 +573,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                 );
                 match (ctx, kind) {
                     (ConstContext::Explicit, Kind::Int | Kind::Double) => {
-                        self.erro(codes::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
+                        self.error(codes::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
                     }
                     (ConstContext::Explicit, _) if literal => {
-                        self.erro(codes::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
+                        self.error(codes::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
                     }
                     (ConstContext::NumericOnly, Kind::Ident) => {
                         // `parsePrimary` of each identifier of the chain (`-p.x`: both), at the
                         // level outside the groups.
-                        self.erro(codes::parser::INVALID_CONSTANT_PATTERN_NEGATION, &[]);
+                        self.error(codes::parser::INVALID_CONSTANT_PATTERN_NEGATION, &[]);
                         let p0 = self.pos;
                         let expr = self.parse_unary(true)?;
                         let mut prof = 0usize;
@@ -771,7 +771,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let name = self.expect_identifier()?;
             return Ok(self.finish_variable(start, false, false, Some(ty), name));
         }
-        let abre = self.pos;
+        let opener = self.pos;
         self.expect_op(Op::LParen)?;
         if self.eat_op(Op::RParen) {
             return Ok(self.push_pattern(
@@ -785,7 +785,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // field, the loop stops and `ensureCloseParen` skips to the matching `)`.
         let first = self.parse_pattern_field()?;
         if first.name.is_none() && !self.at_op(Op::Comma) {
-            self.ensure_close_paren(abre)?;
+            self.ensure_close_paren(opener)?;
             return Ok(self.push_pattern(start, PatternKind::Parenthesized(first.pattern)));
         }
         let mut fields = vec![first];
@@ -795,7 +795,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             fields.push(self.parse_pattern_field()?);
         }
-        self.ensure_close_paren(abre)?;
+        self.ensure_close_paren(opener)?;
         Ok(self.push_pattern(
             start,
             PatternKind::Record {
@@ -1018,9 +1018,9 @@ mod tests {
     use dartforge_intern::Interner;
 
     /// `(code, range text)` of a unit's diagnostics.
-    fn unit_errors(fonte: &str) -> Vec<(String, String)> {
+    fn unit_errors(source: &str) -> Vec<(String, String)> {
         let mut names = Interner::new();
-        let out = crate::parser::parse(fonte, &mut names);
+        let out = crate::parser::parse(source, &mut names);
         out.diagnostics
             .iter()
             .map(|d| {
@@ -1028,7 +1028,7 @@ mod tests {
                     d.code
                         .map(|c| c.info().name.to_string())
                         .unwrap_or_default(),
-                    fonte[d.span.start..d.span.end].to_string(),
+                    source[d.span.start..d.span.end].to_string(),
                 )
             })
             .collect()

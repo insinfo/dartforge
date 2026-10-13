@@ -113,7 +113,7 @@ pub fn substituir_unidade(
     initializers_as_body: bool,
 ) -> Result<Anterior, Recusa> {
     let features = program.unit(u).features;
-    let new_ = dartforge_frontend::parser::parse_com(text, names_, features);
+    let new_ = dartforge_frontend::parser::parse_with(text, names_, features);
     let (map, alterados) = {
         let old_ = program.unit(u);
         verify_shape(&old_.ast, &old_.unit, &new_.ast, &new_.unit)?;
@@ -169,8 +169,8 @@ pub fn substituir_unidade(
         source: std::mem::replace(&mut un.source, text.to_string()),
         ast: std::mem::replace(&mut un.ast, new_.ast),
         unit: std::mem::replace(&mut un.unit, new_.unit),
-        pulados: std::mem::replace(&mut un.pulados, new_.pulados),
-        referencia: std::mem::replace(&mut un.referencia, new_.referencia),
+        pulados: std::mem::replace(&mut un.pulados, new_.skipped),
+        referencia: std::mem::replace(&mut un.referencia, new_.reference),
         map,
         alterados,
     })

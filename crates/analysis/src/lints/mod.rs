@@ -445,7 +445,7 @@ pub fn function_return(sem: &Semantics<'_>, f: dartforge_frontend::ast::Function
 /// The unit's library has language version `major.minor` or later.
 pub fn version_at_least(sem: &Semantics<'_>, major: u16, minor: u16) -> bool {
     let p = sem.program;
-    p.library(p.unit(sem.unit).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(major, minor)
+    p.library(p.unit(sem.unit).library).features.version() >= dartforge_frontend::features::LanguageVersion::new(major, minor)
 }
 
 /// `LinterContext.isInTestDirectory`: the unit defining the unit's library is

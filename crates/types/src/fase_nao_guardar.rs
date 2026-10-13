@@ -30,7 +30,7 @@
 //! library metadata is that of the `library` directive or, without it, that
 //! of the first directive (`ElementBuilder._buildLibraryMetadata`). That of
 //! a local variable and of a local function comes from
-//! `Ast::metadados_locais`; that of a parameter, from the node.
+//! `Ast::local_metadata`; that of a parameter, from the node.
 //! Written without compiling or running (2026-10-05).
 
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
@@ -71,9 +71,9 @@ struct LocalDeclaration<'a> {
     function: bool,
 }
 
-/// The metadata of a statement (`Ast::metadados_locais`).
+/// The metadata of a statement (`Ast::local_metadata`).
 fn statement_metadata(a: &ast::Ast, s: StmtId) -> &[ast::Annotation] {
-    a.metadados_locais.iter().find(|(x, _)| *x == s).map(|(_, m)| &**m).unwrap_or(&[])
+    a.local_metadata.iter().find(|(x, _)| *x == s).map(|(_, m)| &**m).unwrap_or(&[])
 }
 
 /// The parameter of `ps` declared at offset `decl`.

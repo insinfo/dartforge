@@ -49,7 +49,7 @@ pub(crate) fn comments(source: &str) -> Vec<Comment> {
         } else {
             first_end
         };
-        let references = dartforge_frontend::doc_referencias::referencias(source, &tokens).into_iter().map(|r| r.partes).collect();
+        let references = dartforge_frontend::doc_references::references(source, &tokens).into_iter().map(|r| r.parts).collect();
         output.push(Comment { span: Span { start: start, end: end }, references });
     }
     output

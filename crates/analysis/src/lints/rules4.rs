@@ -39,7 +39,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     // The `toString` of an expression.
-    let source_of = |e: ExprId| -> String { dartforge_frontend::fonte::de_expr(a, source, interner, e) };
+    let source_of = |e: ExprId| -> String { dartforge_frontend::source::from_expr(a, source, interner, e) };
     // All the unit's parameter lists, with the nested ones.
     fn collect_lists<'x>(list: &'x [ast::Parameter], out: &mut Vec<&'x [ast::Parameter]>) {
         out.push(list);

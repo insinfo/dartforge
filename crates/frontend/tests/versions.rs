@@ -2,14 +2,14 @@
 //! disabled feature is a diagnostic; where the grammar diverges, the version
 //! decides.
 use dartforge_frontend::ast::{DeclKind, MemberKind};
-use dartforge_frontend::parser::{Parsed, parse_com};
+use dartforge_frontend::parser::{Parsed, parse_with};
 use dartforge_frontend::{LanguageVersion, LibraryFeatures};
 use dartforge_intern::Interner;
 
-fn na(versao: (u16, u16), fonte: &str) -> (Parsed, Interner) {
+fn parse_at(version: (u16, u16), source: &str) -> (Parsed, Interner) {
     let mut names = Interner::new();
-    let f = LibraryFeatures::new(LanguageVersion::new(versao.0, versao.1), &[]);
-    let p = parse_com(fonte, &mut names, f);
+    let f = LibraryFeatures::new(LanguageVersion::new(version.0, version.1), &[]);
+    let p = parse_with(source, &mut names, f);
     (p, names)
 }
 
@@ -19,8 +19,8 @@ fn messages(p: &Parsed) -> Vec<String> {
 
 #[test]
 fn private_named_only_with_this_and_in_312() {
-    let fonte = "class P { final int _x; P({required this._x}); }";
-    let (p, names) = na((3, 12), fonte);
+    let source = "class P { final int _x; P({required this._x}); }";
+    let (p, names) = parse_at((3, 12), source);
     assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
     let DeclKind::Class(c) = &p.ast.decl(p.unit.declarations[0]).kind else {
         panic!()
@@ -30,9 +30,9 @@ fn private_named_only_with_this_and_in_312() {
     };
     let pair = &k.parameters[0];
     assert_eq!(names.resolve(pair.name.unwrap().sym), "_x");
-    assert_eq!(names.resolve(pair.nome_externo().unwrap().sym), "x");
+    assert_eq!(names.resolve(pair.external_name().unwrap().sym), "x");
 
-    let (p, _) = na((3, 11), fonte);
+    let (p, _) = parse_at((3, 11), source);
     assert_eq!(p.diagnostics.len(), 1);
     assert!(
         p.diagnostics[0]
@@ -40,7 +40,7 @@ fn private_named_only_with_this_and_in_312() {
             .contains("This requires the 'private-named-parameters' language feature to be enabled.")
     );
 
-    for (fonte, excerpt) in [
+    for (source, excerpt) in [
         (
             "void f({int _x = 0}) {}",
             "Named parameters can't start with an underscore.",
@@ -62,10 +62,10 @@ fn private_named_only_with_this_and_in_312() {
             "is already defined",
         ),
     ] {
-        let (p, _) = na((3, 13), fonte);
+        let (p, _) = parse_at((3, 13), source);
         assert!(
             messages(&p).iter().any(|m| m.contains(excerpt)),
-            "{fonte}: {:?}",
+            "{source}: {:?}",
             messages(&p)
         );
     }
@@ -73,10 +73,10 @@ fn private_named_only_with_this_and_in_312() {
 
 #[test]
 fn final_and_var_in_plain_parameter_only_up_to_312() {
-    let fonte = "void f(final int x, var y) {} var g = (final z) => z;";
-    let (p, _) = na((3, 12), fonte);
+    let source = "void f(final int x, var y) {} var g = (final z) => z;";
+    let (p, _) = parse_at((3, 12), source);
     assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
-    let (p, _) = na((3, 13), fonte);
+    let (p, _) = parse_at((3, 13), source);
     assert_eq!(p.diagnostics.len(), 3, "{:?}", messages(&p));
     assert!(
         p.diagnostics[0]
@@ -84,15 +84,15 @@ fn final_and_var_in_plain_parameter_only_up_to_312() {
             .contains("Can't have modifier 'final' here.")
     );
     // A function type has no declaring parameter, nor that error.
-    let (p, _) = na((3, 13), "typedef F = void Function(int x);");
+    let (p, _) = parse_at((3, 13), "typedef F = void Function(int x);");
     assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
 }
 
 #[test]
 fn dot_shorthand_in_310() {
     use dartforge_frontend::ast::{ExprKind, StmtKind};
-    let fonte = "void main() { Cor c = .vermelho; var p = const .new(1); int i = .parse('4').abs(); switch (c) { case .azul: break; } }";
-    let (p, names) = na((3, 10), fonte);
+    let source = "void main() { Cor c = .vermelho; var p = const .new(1); int i = .parse('4').abs(); switch (c) { case .azul: break; } }";
+    let (p, names) = parse_at((3, 10), source);
     assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
     let shorthands: Vec<(String, bool)> = p
         .ast
@@ -121,20 +121,20 @@ fn dot_shorthand_in_310() {
         }
         _ => None,
     });
-    let root = p.ast.raiz_de_atalho(init.unwrap()).unwrap();
+    let root = p.ast.shorthand_root(init.unwrap()).unwrap();
     assert!(matches!(
         p.ast.expr(root).kind,
         ExprKind::DotShorthand { .. }
     ));
 
-    let (p, _) = na((3, 9), "void main() { Cor c = .vermelho; }");
+    let (p, _) = parse_at((3, 9), "void main() { Cor c = .vermelho; }");
     assert_eq!(p.diagnostics.len(), 1);
     assert!(
         p.diagnostics[0]
             .message
             .contains("This requires the 'dot-shorthands' language feature to be enabled.")
     );
-    let (p, _) = na((3, 10), "var x = const .zero;");
+    let (p, _) = parse_at((3, 10), "var x = const .zero;");
     assert!(
         messages(&p).iter().any(|m| m.contains("Expected to find '('.")),
         "{:?}",
@@ -191,13 +191,13 @@ fn members_(p: &Parsed, names: &Interner, i: usize) -> Vec<String> {
 
 #[test]
 fn primary_constructor_is_elaborated_in_tree() {
-    let fonte = "class P(var int x, final int y, String cru, [covariant var z = 1]) {\n\
+    let source = "class P(var int x, final int y, String cru, [covariant var z = 1]) {\n\
                  final up = cru;\n\
                  this : assert(x > 0) { print(cru); }\n\
                  }\n\
                  class const K.c(final int v);\n\
                  class Vazia;";
-    let (p, names) = na((3, 13), fonte);
+    let (p, names) = parse_at((3, 13), source);
     assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
     assert_eq!(
         members_(&p, &names, 0),
@@ -219,7 +219,7 @@ fn primary_constructor_is_elaborated_in_tree() {
     );
     assert!(members_(&p, &names, 2).is_empty());
 
-    let (p, _) = na((3, 12), "class P(var int x);");
+    let (p, _) = parse_at((3, 12), "class P(var int x);");
     assert!(
         messages(&p)
             .iter()
@@ -231,8 +231,8 @@ fn primary_constructor_is_elaborated_in_tree() {
 
 #[test]
 fn new_and_factory_without_class_name() {
-    let fonte = "class Q { int a; new(this.a); new zero() : a = 0; factory um() => Q(1); factory Q.dois() => Q(2); factory() => Q(3); }";
-    let (p, names) = na((3, 13), fonte);
+    let source = "class Q { int a; new(this.a); new zero() : a = 0; factory um() => Q(1); factory Q.dois() => Q(2); factory() => Q(3); }";
+    let (p, names) = parse_at((3, 13), source);
     assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
     assert_eq!(
         members_(&p, &names, 0),
@@ -246,17 +246,17 @@ fn new_and_factory_without_class_name() {
         ]
     );
     // Before 3.13, `factory()` is a method.
-    let (p, names) = na((3, 12), "class F { int factory() => 1; }");
+    let (p, names) = parse_at((3, 12), "class F { int factory() => 1; }");
     assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
     assert_eq!(members_(&p, &names, 0), vec!["method factory"]);
     // `factory C(` with the class name continues the unnamed constructor.
-    let (p, names) = na((3, 13), "class C { factory C() => C._(); C._(); }");
+    let (p, names) = parse_at((3, 13), "class C { factory C() => C._(); C._(); }");
     assert_eq!(members_(&p, &names, 0)[0], "ctor factory () inits=0");
 }
 
 #[test]
 fn primary_constructor_errors() {
-    for (fonte, excerpt) in [
+    for (source, excerpt) in [
         // Official analyzer 3.13.4 messages (recorded oracle).
         (
             "class C { this {} }",
@@ -281,10 +281,10 @@ fn primary_constructor_errors() {
             "Representation fields can't have modifiers.",
         ),
     ] {
-        let (p, _) = na((3, 13), fonte);
+        let (p, _) = parse_at((3, 13), source);
         assert!(
             messages(&p).iter().any(|m| m.contains(excerpt)),
-            "{fonte}: {:?}",
+            "{source}: {:?}",
             messages(&p)
         );
     }
@@ -292,8 +292,8 @@ fn primary_constructor_errors() {
 
 #[test]
 fn null_aware_only_in_38() {
-    let (p, _) = na((3, 7), "var l = [?a, 'k': ?b];");
+    let (p, _) = parse_at((3, 7), "var l = [?a, 'k': ?b];");
     assert_eq!(p.diagnostics.len(), 2, "{:?}", messages(&p));
-    let (p, _) = na((3, 8), "var l = {?a: 1, 'k': ?b, ?c: ?d};");
+    let (p, _) = parse_at((3, 8), "var l = {?a: 1, 'k': ?b, ?c: ?d};");
     assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
 }

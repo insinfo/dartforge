@@ -409,7 +409,7 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
         let mut positional_one = 0;
         for x in args.args.iter() {
             let p = match x.name {
-                Some(n) => ps.iter().find(|p| p.kind == ParameterKind::Named && p.nome_externo().is_some_and(|m| m.sym == n.sym)),
+                Some(n) => ps.iter().find(|p| p.kind == ParameterKind::Named && p.external_name().is_some_and(|m| m.sym == n.sym)),
                 None => {
                     let p = ps.get(positional_one);
                     positional_one += 1;
@@ -819,7 +819,7 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
         for x in args.args.iter() {
             match x.name {
                 Some(n) => {
-                    if let Some(i) = (0..ps.len()).find(|&i| ps[i].kind == ParameterKind::Named && ps[i].nome_externo().is_some_and(|m| m.sym == n.sym)) {
+                    if let Some(i) = (0..ps.len()).find(|&i| ps[i].kind == ParameterKind::Named && ps[i].external_name().is_some_and(|m| m.sym == n.sym)) {
                         filled[i] = true;
                     }
                 }

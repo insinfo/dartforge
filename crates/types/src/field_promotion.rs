@@ -53,7 +53,7 @@ pub enum WhyNotPromoted {
 
 /// Whether the feature applies in a library (language version 3.2 or later).
 pub fn enabled(program: &Program, lib: LibraryId) -> bool {
-    program.library(lib).features.versao() >= dartforge_frontend::LanguageVersion::new(3, 2)
+    program.library(lib).features.version() >= dartforge_frontend::LanguageVersion::new(3, 2)
 }
 
 /// The classes, enums and mixins of a unit in the analyzer's order: the

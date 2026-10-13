@@ -223,7 +223,7 @@ pub(super) fn run(
     not_imported: Option<&mut dyn FnMut() -> Vec<(PathBuf, String)>>,
 ) -> ResultIsp {
     let mut names = Interner::new();
-    let analyzed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+    let analyzed = dartforge_frontend::parser::parse_with(text, &mut names, features);
     let tree = crate::arvore_analyzer::construir(text, &analyzed.ast, &analyzed.unit, before_3);
     let toks = dartforge_frontend::lexer::lex(text).unwrap_or_default();
     let mut exprs = HashMap::new();
@@ -348,7 +348,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             Feature::Patterns | Feature::ClassModifiers | Feature::SealedClass => (3, 0),
             Feature::InlineClass => (3, 3),
         };
-        let current = self.features.versao();
+        let current = self.features.version();
         (current.major, current.minor) >= v
     }
 

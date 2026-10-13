@@ -190,3 +190,16 @@ outras já em inglês ficam.
 | `e_erro_de_compilacao` | `is_compile_error` |
 | `formatar` (molde do analyzer) | `format_list` |
 | exemplo `gerar_codigos` | exemplo `generate_codes` |
+| `frontend::comentarios::Comentarios` (`de`, `todos`, `antes_de`) | `comments::Comments` (`scan`, `all`, `before`) |
+| `frontend::doc_referencias` (`referencias`, `DocReference { novo, partes }`) | `doc_references` (`references`, `DocReference { has_new, parts }`) |
+| `frontend::pais::{Pais, Pai}` (`novo`, `pai`, `em_contexto_constante`, `todas_as_anotacoes`) | `parents::{Parents, Parent}` (`new`, `parent`, `in_constant_context`, `all_annotations`) |
+| `Pai::{Fronteira, Anotacao, ConstanteDeEnum, Variavel, PadraoConstante}` | `Parent::{Boundary, Annotation, EnumConstant, Variable, ConstantPattern}` |
+| `frontend::fonte` (`de_tipo`, `de_expr`, `de_padrao`, `pular_brancos`, `palavra_em`) | `source` (`from_type`, `from_expr`, `from_pattern`, `skip_whitespace`, `word_at`) |
+| `LanguageVersion::{MINIMA, PISO, ATUAL}` | `LanguageVersion::{MINIMUM, FLOOR, CURRENT}` |
+| `LibraryFeatures::{atual, piso, tem, versao}` | `LibraryFeatures::{current, floor, has, version}` |
+| `Feature::{TODOS, DESCONHECIDOS_NO_3_6, nome, do_nome}` | `Feature::{ALL, UNKNOWN_IN_3_6, name, from_name}` |
+| `features::marcador_versao`, `parser::parse_com` | `features::version_marker`, `parser::parse_with` |
+| `Parsed { referencia, pulados }` | `Parsed { reference, skipped }` |
+| `Ast::{metadados_locais, invocacoes_de_assert, criacoes_implicitas, raiz_de_atalho}` | `Ast::{local_metadata, assert_invocations, implicit_creations, shorthand_root}` |
+| `Parameter::{declarante, nome_externo}`, `parte_primaria` | `Parameter::{declaring, external_name}`, `primary_body_part` |
+| `ExprKind::NaoBinario`, `StrFlags::aberta` | `ExprKind::NotBinary`, `StrFlags::unterminated` |

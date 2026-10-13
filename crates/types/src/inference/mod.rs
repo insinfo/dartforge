@@ -327,7 +327,7 @@ pub struct BodyInferrer<'a> {
     pub(crate) inheritance: crate::heranca::Heranca,
     /// The parents of the expressions of each unit, on demand (the rules that
     /// depend on a node's syntactic place).
-    pais: HashMap<UnitId, Rc<dartforge_frontend::pais::Pais>>,
+    pais: HashMap<UnitId, Rc<dartforge_frontend::parents::Parents>>,
     /// `_inferring` of top-level inference: the variables whose initializer is
     /// being inferred, in order.
     variable_stack: Vec<VariableId>,
@@ -888,10 +888,10 @@ impl<'a> BodyInferrer<'a> {
     // ---------------------------------------------------------------
 
     /// The syntactic parent of expression `e` of unit `u`.
-    pub(crate) fn parent_of(&mut self, u: UnitId, e: ast::ExprId) -> dartforge_frontend::pais::Pai {
+    pub(crate) fn parent_of(&mut self, u: UnitId, e: ast::ExprId) -> dartforge_frontend::parents::Parent {
         let program = self.program;
         let pais = self.pais.entry(u).or_insert_with(|| Rc::new(crate::lints_tipados::unit_parents(program, u))).clone();
-        pais.pai(e)
+        pais.parent(e)
     }
 
     pub(crate) fn warning(&mut self, msg: String, span: Span) {

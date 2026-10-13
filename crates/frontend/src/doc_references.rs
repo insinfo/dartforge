@@ -15,8 +15,8 @@ use crate::Span;
 /// prefixes and the name) and the `new` written before them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocReference {
-    pub novo: bool,
-    pub partes: Vec<(Span, String)>,
+    pub has_new: bool,
+    pub parts: Vec<(Span, String)>,
 }
 
 /// The user-definable operators (`TokenType.isUserDefinableOperator`).
@@ -46,16 +46,16 @@ fn read_whitespace(content: &[u8], mut i: usize) -> usize {
 /// The lines (`_CharacterSequence`): the source offset of each content and
 /// the content. `tokens` is the comment chain starting at the `findDartDoc`
 /// token.
-fn lines_<'a>(fonte: &'a str, tokens: &[Span]) -> Vec<(usize, &'a str)> {
+fn lines_<'a>(source: &'a str, tokens: &[Span]) -> Vec<(usize, &'a str)> {
     let mut v = Vec::new();
     let Some(first) = tokens.first() else { return v };
     let lexeme_of = |s: &Span| {
         // The `//` token ends before the CR or the LF.
-        let t = &fonte[s.start..s.end];
+        let t = &source[s.start..s.end];
         let end_offset = t.find(['\r', '\n']).unwrap_or(t.len());
         (s.start, &t[..end_offset])
     };
-    if fonte[first.start..].starts_with("///") {
+    if source[first.start..].starts_with("///") {
         for s in tokens {
             let (start_offset, lexeme) = lexeme_of(s);
             if lexeme.starts_with("///") {
@@ -65,7 +65,7 @@ fn lines_<'a>(fonte: &'a str, tokens: &[Span]) -> Vec<(usize, &'a str)> {
         return v;
     }
     // `_CharacterSequenceFromMultiLineComment`.
-    let lexeme = &fonte[first.start..first.end];
+    let lexeme = &source[first.start..first.end];
     let b = lexeme.as_bytes();
     let base = first.start;
     let first_break = lexeme.find('\n').unwrap_or(lexeme.len());
@@ -110,8 +110,8 @@ fn fence(content: &[u8], minimum: usize) -> Option<usize> {
 
 /// The references of the comment whose tokens (the chain starting at the
 /// `findDartDoc` one) are `tokens`.
-pub fn referencias(fonte: &str, tokens: &[Span]) -> Vec<DocReference> {
-    let ls = lines_(fonte, tokens);
+pub fn references(source: &str, tokens: &[Span]) -> Vec<DocReference> {
+    let ls = lines_(source, tokens);
     let mut output = Vec::new();
     let mut blank_line_before = true;
     let mut k = 0;
@@ -176,8 +176,8 @@ fn known_directive(b: &[u8], i: usize) -> bool {
     while j < b.len() && !whitespace(b[j]) && b[j] != b'}' {
         j += 1;
     }
-    let nome = std::str::from_utf8(&b[start_offset..j]).unwrap_or("");
-    DIRECTIVES.contains(&nome)
+    let name = std::str::from_utf8(&b[start_offset..j]).unwrap_or("");
+    DIRECTIVES.contains(&name)
 }
 
 /// `_parseDocImport`: `@docImport ` followed by an import (the URI in
@@ -300,8 +300,8 @@ enum Tk {
 
 /// The Dart scanner over the text of a reference: `None` when it reports an
 /// error (invalid character, unterminated string).
-fn scan(texto: &str, shift: usize) -> Option<Vec<Tk>> {
-    let b = texto.as_bytes();
+fn scan(text: &str, shift: usize) -> Option<Vec<Tk>> {
+    let b = text.as_bytes();
     let mut v = Vec::new();
     let mut i = 0;
     // The operators, longest first (the scanner consumes the longest one).
@@ -347,7 +347,7 @@ fn scan(texto: &str, shift: usize) -> Option<Vec<Tk>> {
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$') {
                 i += 1;
             }
-            v.push(Tk::Word(Span { start: shift + start_, end: shift + i }, texto[start_..i].to_string()));
+            v.push(Tk::Word(Span { start: shift + start_, end: shift + i }, text[start_..i].to_string()));
             continue;
         }
         if c.is_ascii_digit() || (c == b'.' && b.get(i + 1).is_some_and(|d| d.is_ascii_digit())) {
@@ -358,7 +358,7 @@ fn scan(texto: &str, shift: usize) -> Option<Vec<Tk>> {
             continue;
         }
         if c == b'\'' || c == b'"' {
-            let closes = texto[i + 1..].find(c as char)?;
+            let closes = text[i + 1..].find(c as char)?;
             i = i + 1 + closes + 1;
             v.push(Tk::Other);
             continue;
@@ -381,28 +381,28 @@ fn identifier(t: Option<&Tk>) -> bool {
 }
 
 /// `_parseOneCommentReference`.
-fn one_reference(texto: &str, shift: usize) -> Option<DocReference> {
-    let tks = scan(texto, shift)?;
+fn one_reference(text: &str, shift: usize) -> Option<DocReference> {
+    let tks = scan(text, shift)?;
     let t = |i: usize| tks.get(i);
     let mut i = 0;
-    let mut novo = false;
+    let mut has_new = false;
     if matches!(t(i), Some(Tk::Word(_, p)) if p == "new") {
-        novo = true;
+        has_new = true;
         i += 1;
     }
-    let mut partes: Vec<(Span, String)> = Vec::new();
+    let mut parts: Vec<(Span, String)> = Vec::new();
     if identifier(t(i)) && matches!(t(i + 1), Some(Tk::Dot)) {
         let mut second = i;
         let mut dot = i + 1;
         if identifier(t(dot + 1)) && matches!(t(dot + 2), Some(Tk::Dot)) {
             if let Some(Tk::Word(s, p)) = t(second) {
-                partes.push((*s, p.clone()));
+                parts.push((*s, p.clone()));
             }
             second = dot + 1;
             dot += 2;
         }
         if let Some(Tk::Word(s, p)) = t(second) {
-            partes.push((*s, p.clone()));
+            parts.push((*s, p.clone()));
         }
         i = dot + 1;
         // `new` after the `.` becomes an identifier (the unnamed constructor).
@@ -410,9 +410,9 @@ fn one_reference(texto: &str, shift: usize) -> Option<DocReference> {
     // Nothing after it: the recovery's synthetic identifier (empty, it does not
     // resolve); the prefixes before it are references.
     if t(i).is_none() {
-        let end_offset = partes.last()?.0.end;
-        partes.push((Span { start: end_offset + 1, end: end_offset + 1 }, String::new()));
-        return Some(DocReference { novo, partes });
+        let end_offset = parts.last()?.0.end;
+        parts.push((Span { start: end_offset + 1, end: end_offset + 1 }, String::new()));
+        return Some(DocReference { has_new, parts });
     }
     let mut operator_word = None;
     if matches!(t(i), Some(Tk::Word(_, p)) if p == "operator") {
@@ -423,8 +423,8 @@ fn one_reference(texto: &str, shift: usize) -> Option<DocReference> {
         && OPERATORS.contains(&op.as_str())
     {
         if t(i + 1).is_none() {
-            partes.push((*s, op.clone()));
-            return Some(DocReference { novo, partes });
+            parts.push((*s, op.clone()));
+            return Some(DocReference { has_new, parts });
         }
         return None;
     }
@@ -432,26 +432,26 @@ fn one_reference(texto: &str, shift: usize) -> Option<DocReference> {
     if t(j + 1).is_some() {
         return None;
     }
-    let after_dot = !partes.is_empty();
+    let after_dot = !parts.is_empty();
     match t(j) {
         Some(Tk::Word(s, p)) if identifier(t(j)) || (after_dot && p == "new") => {
-            partes.push((*s, p.clone()));
-            Some(DocReference { novo, partes })
+            parts.push((*s, p.clone()));
+            Some(DocReference { has_new, parts })
         }
         _ => None,
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn refs(fonte: &str) -> Vec<String> {
-        let c = crate::comentarios::Comentarios::de(fonte);
-        let pos = fonte.find("class").unwrap();
-        let start_offset = c.dart_doc(fonte, pos).unwrap();
-        let tokens: Vec<Span> = c.antes_de(fonte, pos).into_iter().filter(|s| s.start >= start_offset.start).collect();
-        referencias(fonte, &tokens).into_iter().map(|r| r.partes.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join(".")).collect()
+    fn refs(source: &str) -> Vec<String> {
+        let c = crate::comments::Comments::scan(source);
+        let pos = source.find("class").unwrap();
+        let start_offset = c.dart_doc(source, pos).unwrap();
+        let tokens: Vec<Span> = c.before(source, pos).into_iter().filter(|s| s.start >= start_offset.start).collect();
+        references(source, &tokens).into_iter().map(|r| r.parts.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join(".")).collect()
     }
 
     #[test]

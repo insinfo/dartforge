@@ -156,7 +156,7 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
             }
             // A repeated `this` part (or the extension type's) sees the primary's
             // parameters.
-            let of_primary = if ctor.parte_primaria { the_primary_parameters(inf, f) } else { Vec::new() };
+            let of_primary = if ctor.primary_body_part { the_primary_parameters(inf, f) } else { Vec::new() };
             for &(n, t, final_, _) in &of_primary {
                 super::expr::declare_local(inf, &mut cx, Local { name: n.sym, ty: t, final_, late: false, const_: false, offset: n.span.start, local_function: false }, true);
             }
@@ -263,8 +263,8 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
             // The primary constructor's `this => e` body is another error
             // (`PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY`), without the check.
             // (The unelaborated `this` part, in the extension type, keeps the
-            // `parte_primaria` mark; in the class and the enum it is the elaborated k2.)
-            let primary = ctor.parte_primaria
+            // `primary_body_part` mark; in the class and the enum it is the elaborated k2.)
+            let primary = ctor.primary_body_part
                 || fe.class.and_then(|c| inf.program.class(c).decl).is_some_and(|d| match &inf.program.unit(d.unit).ast.decl(d.decl).kind {
                     ast::DeclKind::Class(k) => k.primary_constructor == Some(member),
                     ast::DeclKind::Enum(k) => k.primary_constructor == Some(member),
@@ -996,7 +996,7 @@ fn constructor_parameters<'a>(inf: &BodyInferrer<'a>, k: Construtor) -> Option<(
 fn constructor_required(inf: &BodyInferrer<'_>, k: Construtor) -> (usize, Vec<dartforge_intern::SymbolId>) {
     let Some((_, ctor, _)) = constructor_parameters(inf, k) else { return (0, Vec::new()) };
     let positional_args = ctor.parameters.iter().filter(|p| p.kind == ast::ParameterKind::Required).count();
-    let named_args = ctor.parameters.iter().filter(|p| p.kind == ast::ParameterKind::Named && p.required).filter_map(|p| p.nome_externo().map(|n| n.sym)).collect();
+    let named_args = ctor.parameters.iter().filter(|p| p.kind == ast::ParameterKind::Named && p.required).filter_map(|p| p.external_name().map(|n| n.sym)).collect();
     (positional_args, named_args)
 }
 
@@ -1044,7 +1044,7 @@ fn display_constructor(inf: &mut BodyInferrer<'_>, tgt: ClassId, k: Construtor, 
             }
             text.push_str(&inf.table.format(t, inf.interner, inf.program));
             text.push(' ');
-            if let Some(n) = p.nome_externo() {
+            if let Some(n) = p.external_name() {
                 text.push_str(inf.interner.resolve(n.sym));
             }
             if let Some(d) = p.default_value {
@@ -1294,7 +1294,7 @@ fn super_parameters(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
                     }
                     match p.kind {
                         ast::ParameterKind::Named => {
-                            if let Some(n) = p.nome_externo() {
+                            if let Some(n) = p.external_name() {
                                 the_named.push((n.sym, t));
                             }
                         }
@@ -1325,7 +1325,7 @@ fn super_parameters(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
             continue;
         };
         let tgt = if p.kind == ast::ParameterKind::Named {
-            let external = p.nome_externo().map_or(n.sym, |x| x.sym);
+            let external = p.external_name().map_or(n.sym, |x| x.sym);
             named_args.iter().find(|(m, _)| *m == external).map(|(_, t)| *t)
         } else {
             positional_args.get(element_index).copied()
@@ -1432,7 +1432,7 @@ fn implicit_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructo
     let (positional_args, mut named_args) = constructor_required(inf, k);
     let range = dartforge_diagnostics::Span { start: typ.start, end: ctor.name.map_or(typ.end, |n| n.span.end) };
     let displayed = inf.table.format(st, inf.interner, inf.program);
-    let super_parameters_of = inf.program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(2, 17);
+    let super_parameters_of = inf.program.library(lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(2, 17);
     if !super_parameters_of {
         if positional_args != 0 || !named_args.is_empty() {
             inf.warning_with_code(ce::NO_DEFAULT_SUPER_CONSTRUCTOR_EXPLICIT, range, &[&displayed]);
@@ -1440,7 +1440,7 @@ fn implicit_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructo
         return;
     }
     let super_positional_args = ctor.parameters.iter().filter(|p| p.super_ && p.kind != ast::ParameterKind::Named).count();
-    let super_named_args: Vec<dartforge_intern::SymbolId> = ctor.parameters.iter().filter(|p| p.super_ && p.kind == ast::ParameterKind::Named).filter_map(|p| p.nome_externo().map(|n| n.sym)).collect();
+    let super_named_args: Vec<dartforge_intern::SymbolId> = ctor.parameters.iter().filter(|p| p.super_ && p.kind == ast::ParameterKind::Named).filter_map(|p| p.external_name().map(|n| n.sym)).collect();
     named_args.retain(|n| !super_named_args.contains(n));
     if positional_args > super_positional_args || !named_args.is_empty() {
         inf.warning_with_code(ce::IMPLICIT_SUPER_INITIALIZER_MISSING_ARGUMENTS, range, &[&displayed]);
@@ -1632,7 +1632,7 @@ fn body_completes_normally(inf: &mut BodyInferrer<'_>, imposed: Option<TypeId>, 
 /// of `x.catchError(...)` with `x` a `Future<T>`: the `{` reports
 /// `BODY_MIGHT_COMPLETE_NORMALLY_CATCH_ERROR` with the base of `FutureOr<T>`.
 fn catch_error_without_return(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, where_: dartforge_diagnostics::Span) {
-    let dartforge_frontend::pais::Pai::Expr(call) = inf.parent_of(cx.unit, e) else { return };
+    let dartforge_frontend::parents::Parent::Expr(call) = inf.parent_of(cx.unit, e) else { return };
     let a = &inf.program.unit(cx.unit).ast;
     let ast::ExprKind::Call { target, arguments } = &a.expr(call).kind else { return };
     if !arguments.args.iter().any(|x| x.value == e && x.name.is_none()) {

@@ -565,7 +565,7 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
             _ => {}
         }
     }
-    for m in dartforge_frontend::pais::todas_as_anotacoes(a, &unit_data.unit) {
+    for m in dartforge_frontend::parents::all_annotations(a, &unit_data.unit) {
         roots.extend(m.type_args.iter().copied());
     }
     for d in a.decls.iter() {
@@ -636,7 +636,7 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
         }
     }
     // `visitAnnotation`: the annotation's element and its identifiers.
-    for m in dartforge_frontend::pais::todas_as_anotacoes(a, &unit_data.unit) {
+    for m in dartforge_frontend::parents::all_annotations(a, &unit_data.unit) {
         let pos = m.span.start;
         let mut actions: Vec<Ref> = Vec::new();
         let element = |b: Option<dartforge_elements::model::Binding>| b.and_then(|b| b.getter);

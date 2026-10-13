@@ -30,20 +30,20 @@ fn package_version(file: &Path) -> Option<dartforge_frontend::LanguageVersion> {
         .skip(1)
         .map(|d| d.join("pubspec.yaml"))
         .find(|p| p.is_file())?;
-    let texto = std::fs::read_to_string(pubspec).ok()?;
-    let line = texto.lines().find(|l| l.trim_start().starts_with("sdk:"))?;
+    let text = std::fs::read_to_string(pubspec).ok()?;
+    let line = text.lines().find(|l| l.trim_start().starts_with("sdk:"))?;
     let value = line
         .trim_start()
         .trim_start_matches("sdk:")
         .trim()
         .trim_matches(['\'', '"']);
-    let inferior = value
+    let lower = value
         .trim_start_matches('^')
         .trim_start_matches(">=")
         .trim();
-    let mut partes = inferior.split(['.', ' ']);
-    let greater: u16 = partes.next()?.parse().ok()?;
-    let less: u16 = partes.next()?.parse().ok()?;
+    let mut parts = lower.split(['.', ' ']);
+    let greater: u16 = parts.next()?.parse().ok()?;
+    let less: u16 = parts.next()?.parse().ok()?;
     Some(dartforge_frontend::LanguageVersion::new(greater, less))
 }
 
@@ -60,24 +60,24 @@ fn measure(root: &Path, by_package: bool) -> (usize, usize, Vec<String>) {
     let mut accepted = 0;
     let mut failures = Vec::new();
     for file in &files {
-        let Ok(fonte) = std::fs::read_to_string(file) else {
+        let Ok(source) = std::fs::read_to_string(file) else {
             continue;
         };
         total += 1;
         // The version of each file (docs/VERSOES-LINGUAGEM.md §2): the marker;
         // otherwise the package's, which `pub` takes from the lower bound of
         // `environment: sdk:` in the pubspec; otherwise the 3.6 floor (the SDK).
-        let versao = dartforge_frontend::features::marcador_versao(&fonte)
+        let version = dartforge_frontend::features::version_marker(&source)
             .map(|m| m.0)
             .or_else(|| if by_package { package_version(file) } else { None })
-            .unwrap_or(dartforge_frontend::LanguageVersion::PISO);
-        let features = dartforge_frontend::LibraryFeatures::new(versao, &[]);
-        let output = dartforge_frontend::parser::parse_com(&fonte, &mut names, features);
+            .unwrap_or(dartforge_frontend::LanguageVersion::FLOOR);
+        let features = dartforge_frontend::LibraryFeatures::new(version, &[]);
+        let output = dartforge_frontend::parser::parse_with(&source, &mut names, features);
         if output.diagnostics.is_empty() {
             accepted += 1;
         } else {
             let d = &output.diagnostics[0];
-            let line = fonte[..d.span.start.min(fonte.len())].matches('\n').count() + 1;
+            let line = source[..d.span.start.min(source.len())].matches('\n').count() + 1;
             failures.push(format!("{}:{}: {}", file.display(), line, d.message));
         }
     }
@@ -124,11 +124,11 @@ fn whole_sdk_lib_lexes() {
     collect(Path::new(&sdk), &mut files);
     let mut failures = Vec::new();
     for file in &files {
-        let Ok(fonte) = std::fs::read_to_string(file) else {
+        let Ok(source) = std::fs::read_to_string(file) else {
             continue;
         };
-        if let Err(d) = dartforge_frontend::lexer::lex(&fonte) {
-            let line = fonte[..d.span.start.min(fonte.len())].matches('\n').count() + 1;
+        if let Err(d) = dartforge_frontend::lexer::lex(&source) {
+            let line = source[..d.span.start.min(source.len())].matches('\n').count() + 1;
             failures.push(format!("{}:{}: {}", file.display(), line, d.message));
         }
     }

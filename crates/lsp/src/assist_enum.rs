@@ -59,7 +59,7 @@ impl Context<'_> {
         let prog = self.p.program();
         let query = &self.p.query;
         let lib = prog.unit(self.unit).library;
-        if prog.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
+        if prog.library(lib).features.version() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
             return None;
         }
         // With parts, the creations and subclasses in them cannot be seen.

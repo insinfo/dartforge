@@ -85,9 +85,9 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 }
             }
         };
-        let metadata_of = |k: usize| a.metadados_locais.iter().find(|(x, _)| x.0 as usize == k).map_or(&[][..], |(_, m)| &m[..]);
+        let metadata_of = |k: usize| a.local_metadata.iter().find(|(x, _)| x.0 as usize == k).map_or(&[][..], |(_, m)| &m[..]);
         let list_start = |stmt_start: usize, meta: &[dartforge_frontend::ast::Annotation]| match meta.last() {
-            Some(m) => dartforge_frontend::fonte::pular_brancos(u.fonte.as_bytes(), m.span.end),
+            Some(m) => dartforge_frontend::source::skip_whitespace(u.fonte.as_bytes(), m.span.end),
             None => stmt_start,
         };
         for (k, st) in a.stmts.iter().enumerate() {
@@ -95,7 +95,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 StmtKind::Variables(l) => list(l, list_start(st.span.start, metadata_of(k)), &mut findings),
                 StmtKind::For { init: Some(ForInit::Variables(l)), .. } => {
                     // The list starts after the `(`.
-                    let start_pos = u.fonte[st.span.start..].find('(').map_or(st.span.start, |i| dartforge_frontend::fonte::pular_brancos(u.fonte.as_bytes(), st.span.start + i + 1));
+                    let start_pos = u.fonte[st.span.start..].find('(').map_or(st.span.start, |i| dartforge_frontend::source::skip_whitespace(u.fonte.as_bytes(), st.span.start + i + 1));
                     list(l, start_pos, &mut findings);
                 }
                 StmtKind::ForIn { target: ForInTarget::Declared { ty, name, .. }, iterable, .. } => {
@@ -103,7 +103,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     if typed || is_obvious(*iterable) {
                         continue;
                     }
-                    let start_pos = u.fonte[st.span.start..].find('(').map_or(name.span.start, |i| dartforge_frontend::fonte::pular_brancos(u.fonte.as_bytes(), st.span.start + i + 1));
+                    let start_pos = u.fonte[st.span.start..].find('(').map_or(name.span.start, |i| dartforge_frontend::source::skip_whitespace(u.fonte.as_bytes(), st.span.start + i + 1));
                     findings.push(Span { start: start_pos, end: name.span.end });
                 }
                 StmtKind::PatternVariables { pattern, value, .. } => {
@@ -227,7 +227,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     }
 
     // `use_enums` (with `enhanced-enums`, 2.17).
-    if enabled("use_enums") && program.library(program.unit(s.unit).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(2, 17) {
+    if enabled("use_enums") && program.library(program.unit(s.unit).library).features.version() >= dartforge_frontend::features::LanguageVersion::new(2, 17) {
         for (k, d) in a.decls.iter().enumerate() {
             let DeclKind::Class(x) = &d.kind else { continue };
             if d.augment || x.modifiers.abstract_ || x.mixin_application {

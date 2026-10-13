@@ -181,11 +181,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 .program
                 .library(lib)
                 .features
-                .tem(dartforge_frontend::Feature::WildcardVariables)
+                .has(dartforge_frontend::Feature::WildcardVariables)
                 .then(|| ctx.sym("_"))
                 .flatten(),
             wildcard_params: HashMap::new(),
-            shorthands: ctx.program.library(lib).features.tem(dartforge_frontend::Feature::DotShorthands),
+            shorthands: ctx.program.library(lib).features.has(dartforge_frontend::Feature::DotShorthands),
             shorthand_contexts: HashMap::new(),
             speculating: 0,
             shared_params: HashMap::new(),
@@ -676,7 +676,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 ast::ParameterKind::Required => pos.push(t),
                 ast::ParameterKind::Optional => opt.push(t),
                 ast::ParameterKind::Named => {
-                    named.push((p.nome_externo().map(|n| self.name(n.sym).to_string()).unwrap_or_default(), t, p.required))
+                    named.push((p.external_name().map(|n| self.name(n.sym).to_string()).unwrap_or_default(), t, p.required))
                 }
             }
         }
@@ -976,7 +976,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let Some(name) = p.name else { continue };
             // External name (the key in `opts`): the public one of a 3.12 private
             // named parameter; the local one stays `name`.
-            let external = p.nome_externo().unwrap_or(name);
+            let external = p.external_name().unwrap_or(name);
             let mut ty = if p.ty.is_none() && p.function_parameters.is_none() {
                 match p.kind {
                     ast::ParameterKind::Required => pos_expected.get(pi).cloned().unwrap_or(Ty::Dynamic),

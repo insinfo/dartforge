@@ -52,7 +52,7 @@ pub fn podem_ser_const(
         let id = ExprId(k as u32);
         match &e.kind {
             ExprKind::InstanceCreation { keyword, .. } => {
-                if *keyword == Some(ast::CreationKeyword::Const) || pais.em_contexto_constante(a, id) {
+                if *keyword == Some(ast::CreationKeyword::Const) || pais.in_constant_context(a, id) {
                     continue;
                 }
                 if let Some(Resolved::Constructor(f)) = body.get_resolved(id)
@@ -62,7 +62,7 @@ pub fn podem_ser_const(
                 }
             }
             ExprKind::Call { .. } => {
-                if pais.em_contexto_constante(a, id) {
+                if pais.in_constant_context(a, id) {
                     continue;
                 }
                 if let Some(Resolved::Constructor(f)) = body.get_resolved(id)
@@ -72,7 +72,7 @@ pub fn podem_ser_const(
                 }
             }
             ExprKind::List { const_: false, .. } | ExprKind::SetOrMap { const_: false, .. } => {
-                if !pais.em_contexto_constante(a, id) {
+                if !pais.in_constant_context(a, id) {
                     literals.push(id);
                 }
             }

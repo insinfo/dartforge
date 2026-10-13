@@ -205,30 +205,30 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// 3.6, `EXPERIMENT_NOT_ENABLED` on the whole literal (`digit-separators`
     /// arrived in 3.6).
     fn check_separators(&mut self, span: Span) {
-        let texto = &self.source.as_bytes()[span.start..span.end];
-        if !texto.contains(&b'_') {
+        let text = &self.source.as_bytes()[span.start..span.end];
+        if !text.contains(&b'_') {
             return;
         }
-        let hex = texto.len() > 1 && matches!(texto[1], b'x' | b'X');
+        let hex = text.len() > 1 && matches!(text[1], b'x' | b'X');
         let digit = |b: u8| if hex { b.is_ascii_hexdigit() } else { b.is_ascii_digit() };
         let start_offset = if hex { 2 } else { 0 };
-        let mut fora = false;
-        for (i, &b) in texto.iter().enumerate().skip(start_offset) {
+        let mut outside = false;
+        for (i, &b) in text.iter().enumerate().skip(start_offset) {
             if b != b'_' {
                 continue;
             }
-            let before = texto[start_offset..i].iter().rev().find(|&&c| c != b'_');
-            let after = texto[i + 1..].iter().find(|&&c| c != b'_');
+            let before = text[start_offset..i].iter().rev().find(|&&c| c != b'_');
+            let after = text[i + 1..].iter().find(|&&c| c != b'_');
             if !before.is_some_and(|&c| digit(c)) || !after.is_some_and(|&c| digit(c)) {
-                fora = true;
+                outside = true;
                 break;
             }
         }
-        if fora {
+        if outside {
             let one = Span { start: span.start, end: span.start + 1 };
             self.error_at(codes::scanner::UNEXPECTED_SEPARATOR_IN_NUMBER, one, &[]);
         }
-        if self.features.versao() < crate::features::LanguageVersion::new(3, 6) {
+        if self.features.version() < crate::features::LanguageVersion::new(3, 6) {
             self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED, span, &["digit-separators", "3.6.0", "3.6.0"]);
         }
     }
@@ -247,14 +247,14 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `parseParenthesizedExpressionOrRecordLiteral`, `parseLiteralListSuffix`,
     /// `parseLiteralSetOrMapSuffix`, `parseAssert`).
     pub(crate) fn with_functions<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        let salvo = std::mem::replace(&mut self.without_named_function, false);
+        let saved = std::mem::replace(&mut self.without_named_function, false);
         let r = f(self);
-        self.without_named_function = salvo;
+        self.without_named_function = saved;
         r
     }
 
     fn parse_arguments_inner(&mut self) -> PResult<Arguments> {
-        let abre = self.pos;
+        let opener = self.pos;
         let start = self.expect_op(Op::LParen)?.span;
         // The arguments go to the shared scratch space from `base` (nested calls
         // push on top) and come out in a single exact-size allocation. A local
@@ -276,13 +276,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // `parseArgumentsRest`: what looks like the start of another expression is
                     // an argument after a missing comma; the rest closes in `ensureCloseParen`.
                     if !self.at_op(Op::RParen) && self.looks_like_expression_start(self.pos) {
-                        self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
+                        self.error(codes::parser::EXPECTED_TOKEN, &[","]);
                         continue;
                     }
                     break;
                 }
             }
-            self.ensure_close_paren(abre).map(|()| self.tokens[self.pos - 1])
+            self.ensure_close_paren(opener).map(|()| self.tokens[self.pos - 1])
         })();
         let args: Box<[Argument]> = self.scratch_args[base..].into();
         self.scratch_args.truncate(base);
@@ -324,7 +324,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 any = true;
             }
             if !any {
-                return Err(self.erro(codes::parser::EXPECTED_STRING_LITERAL, &[]));
+                return Err(self.error(codes::parser::EXPECTED_STRING_LITERAL, &[]));
             }
             Ok(())
         })();
@@ -357,7 +357,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         // fasta's `allowPatterns`: before 3.0 (patterns), `(a) = 0` is an
         // assignment to a parenthesized expression.
-        if self.features.versao() >= crate::features::LanguageVersion::new(3, 0)
+        if self.features.version() >= crate::features::LanguageVersion::new(3, 0)
             && self.pattern_assignment_ahead()
             && self.looks_like_pattern_assignment(self.pos)
         {
@@ -606,9 +606,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         loop {
             let Some(here) = self.binary_here() else {
                 match self.spelled_out_operator(min_level) {
-                    Some((level, op, texto)) => {
+                    Some((level, op, text)) => {
                         let word = self.text().to_string();
-                        self.erro(codes::parser::BINARY_OPERATOR_WRITTEN_OUT, &[&word, texto]);
+                        self.error(codes::parser::BINARY_OPERATOR_WRITTEN_OUT, &[&word, text]);
                         self.advance();
                         let right = self.parse_binary(level + 1)?;
                         left = self.push(start, ExprKind::Binary { op, left, right });
@@ -693,11 +693,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         let here = self.span();
         self.error_at(codes::parser::EXPECTED_TYPE_NAME, here, &[]);
         let s = Span { start: here.start, end: here.start };
-        let nome = self.name_from("", s);
+        let name = self.name_from("", s);
         Ok(self.ast.push_type(crate::ast::TypeAnnotation {
             span: s,
             nullable: false,
-            kind: crate::ast::TypeKind::Named { name: vec![nome].into_boxed_slice(), args: Box::default() },
+            kind: crate::ast::TypeKind::Named { name: vec![name].into_boxed_slice(), args: Box::default() },
         }))
     }
 
@@ -705,8 +705,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// another one is `UNEXPECTED_TOKEN` at it, and its type is skipped.
     fn skip_chained_is_as(&mut self) -> PResult<()> {
         while self.at_kw(Keyword::Is) || self.at_ident("as") {
-            let texto = self.text().to_string();
-            self.erro(codes::parser::UNEXPECTED_TOKEN, &[&texto]);
+            let text = self.text().to_string();
+            self.error(codes::parser::UNEXPECTED_TOKEN, &[&text]);
             self.advance();
             self.eat_op(Op::Bang);
             self.type_after_is_or_as()?;
@@ -732,7 +732,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             "shr" => &[(LEVEL_SHIFT, BinaryOp::Shr, ">>")],
             _ => return None,
         };
-        for &(level, op, texto) in swaps {
+        for &(level, op, text) in swaps {
             if level < min_level {
                 continue;
             }
@@ -754,7 +754,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.recovering_operator = false;
             self.restore(cp);
             if accepts {
-                return Some((level, op, texto));
+                return Some((level, op, text));
             }
         }
         None
@@ -765,11 +765,11 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `as` is left out (it is the cast pattern).
     pub(crate) fn pattern_binary_operator(&self) -> Option<(u8, &'static str, Span)> {
         let start_offset = self.span();
-        let (level, texto, len) = match self.binary_here()? {
+        let (level, text, len) = match self.binary_here()? {
             BinaryHere::As => return None,
             BinaryHere::Is => (LEVEL_RELATIONAL, "is", 1),
             BinaryHere::Op { level, op, len } => {
-                let texto = match op {
+                let text = match op {
                     BinaryOp::Eq => "==",
                     BinaryOp::NotEq => "!=",
                     BinaryOp::Lt => "<",
@@ -790,14 +790,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                     BinaryOp::TruncDiv => "~/",
                     _ => return None,
                 };
-                (level, texto, len)
+                (level, text, len)
             }
         };
         if level < LEVEL_EQUALITY {
             return None;
         }
         let end_offset = self.peek_at(len - 1).span.end;
-        Some((level, texto, Span { start: start_offset.start, end: end_offset }))
+        Some((level, text, Span { start: start_offset.start, end: end_offset }))
     }
 
     /// Binary operator at the cursor, if any, with its level and size in tokens.
@@ -834,7 +834,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `parsePrecedenceExpression` (`parser_impl.dart:6077-6113`): a
             // `PREFIX_PRECEDENCE` token after the operand falls into the binary
             // expression branch.
-            Kind::Op(Op::Tilde) => (LEVEL_PREFIX, BinaryOp::NaoBinario, 1),
+            Kind::Op(Op::Tilde) => (LEVEL_PREFIX, BinaryOp::NotBinary, 1),
             _ => return None,
         };
         Some(BinaryHere::Op { level, op, len })
@@ -969,7 +969,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 matches!(&self.ast.exprs[i].kind, ExprKind::Call { arguments, .. } if arguments.span.start == start_offset)
             });
             if let Some(i) = call {
-                self.ast.criacoes_implicitas.push(ExprId(i as u32));
+                self.ast.implicit_creations.push(ExprId(i as u32));
             }
         }
         let op = match self.kind() {
@@ -1001,11 +1001,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.kind_of(after) != Kind::Op(Op::Dot) {
             return None;
         }
-        let nome = after + 1;
-        if !matches!(self.kind_of(nome), Kind::Ident | Kind::Keyword(Keyword::New)) {
+        let name = after + 1;
+        if !matches!(self.kind_of(name), Kind::Ident | Kind::Keyword(Keyword::New)) {
             return None;
         }
-        (self.kind_of(nome + 1) == Kind::Op(Op::LParen)).then_some(nome + 1)
+        (self.kind_of(name + 1) == Kind::Op(Op::LParen)).then_some(name + 1)
     }
 
     /// Selector chain over `expr`: `.x`, `?.x`, `[i]`, `?[i]`, `(args)`,
@@ -1149,10 +1149,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             ) || matches!(self.kind(), Kind::Keyword(Keyword::Const | Keyword::Switch)))
         {
             let token = self.peek();
-            let texto = self.text().to_string();
+            let text = self.text().to_string();
             self.parse_primary()?;
             self.error_at(codes::parser::MISSING_IDENTIFIER, token.span, &[]);
-            return Ok(self.name_from(&texto, token.span));
+            return Ok(self.name_from(&text, token.span));
         }
         if self.at_identifier() {
             return Ok(self.identifier());
@@ -1169,10 +1169,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.kind(),
             Kind::Keyword(Keyword::This | Keyword::Super | Keyword::Null | Keyword::True | Keyword::False)
         ) {
-            let texto = self.text().to_string();
+            let text = self.text().to_string();
             let token = self.advance();
             self.error_at(codes::parser::MISSING_IDENTIFIER, token.span, &[]);
-            return Ok(self.name_from(&texto, token.span));
+            return Ok(self.name_from(&text, token.span));
         }
         // Another token (`b.` before `}`, `)`, `;`, `=>`…): the
         // `IdentifierContext.expressionContinuation.ensureIdentifier`.
@@ -1241,8 +1241,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.undo_splices(checkpoint.splices);
         self.pos = checkpoint.pos;
         self.ast.exprs.truncate(checkpoint.exprs);
-        self.ast.invocacoes_de_assert.retain(|e| (e.0 as usize) < checkpoint.exprs);
-        self.ast.criacoes_implicitas.retain(|e| (e.0 as usize) < checkpoint.exprs);
+        self.ast.assert_invocations.retain(|e| (e.0 as usize) < checkpoint.exprs);
+        self.ast.implicit_creations.retain(|e| (e.0 as usize) < checkpoint.exprs);
         self.ast.stmts.truncate(checkpoint.stmts);
         self.ast.types.truncate(checkpoint.types);
         self.ast.patterns.truncate(checkpoint.patterns);
@@ -1264,16 +1264,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         let start = self.span();
         match self.kind() {
             Kind::Ident => {
-                if let Some(nome) = self.named_function_ahead() {
-                    return self.parse_named_function(nome);
+                if let Some(name) = self.named_function_ahead() {
+                    return self.parse_named_function(name);
                 }
                 let name = self.identifier();
                 Ok(self.push(start, ExprKind::Identifier(name)))
             }
             // `void name(…) {…}` in expression position.
             Kind::Keyword(Keyword::Void) if self.named_function_ahead().is_some() => {
-                let nome = self.named_function_ahead().expect("checked by the guard");
-                self.parse_named_function(nome)
+                let name = self.named_function_ahead().expect("checked by the guard");
+                self.parse_named_function(name)
             }
             Kind::Int => {
                 self.check_separators(start);
@@ -1337,7 +1337,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.parse_parenthesized_or_record(start, false, false)
             }
             Kind::Keyword(Keyword::New) => {
-                let novo = self.advance().span;
+                let new_span = self.advance().span;
                 // `parseNewExpression` (`parser_impl.dart:7270`): a literal with `new`
                 // before it. `new List<T>[…]`, `new Map<K, V>{…}`, `new Set<T>{…}` are
                 // `LITERAL_WITH_CLASS_AND_NEW` from `new` to the name; `new [..]`,
@@ -1356,9 +1356,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                         _ => false,
                     };
                     if literal {
-                        let nome = self.advance().span;
+                        let name = self.advance().span;
                         let lowercase = class.to_lowercase();
-                        let span = Span { start: novo.start, end: nome.end };
+                        let span = Span { start: new_span.start, end: name.end };
                         self.error_at(codes::parser::LITERAL_WITH_CLASS_AND_NEW, span, &[&lowercase, class]);
                         return self.parse_primary();
                     }
@@ -1371,7 +1371,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                         _ => false,
                     };
                     if literal {
-                        self.error_at(codes::parser::LITERAL_WITH_NEW, novo, &[]);
+                        self.error_at(codes::parser::LITERAL_WITH_NEW, new_span, &[]);
                         return self.parse_primary();
                     }
                 }
@@ -1400,11 +1400,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             // the `AstBuilder` builds the invocation of `assert`.
             Kind::Keyword(Keyword::Assert) if self.at_op_at(1, Op::LParen) => {
                 let token = self.advance();
-                let nome = self.name_from("assert", token.span);
-                let target_expr = self.ast.push_expr(Expr { span: token.span, kind: ExprKind::Identifier(nome) });
+                let name = self.name_from("assert", token.span);
+                let target_expr = self.ast.push_expr(Expr { span: token.span, kind: ExprKind::Identifier(name) });
                 let arguments = self.parse_arguments()?;
                 let call = self.push(start, ExprKind::Call { target: target_expr, arguments: Box::new(arguments) });
-                self.ast.invocacoes_de_assert.push(call);
+                self.ast.assert_invocations.push(call);
                 Ok(call)
             }
             // `parsePrimary`: `return` in place of an expression is `UNEXPECTED_TOKEN`
@@ -1439,10 +1439,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             && let Kind::Keyword(_) = self.kind()
             && (continuation || !matches!(self.text(), "as" | "is"))
         {
-            let texto = self.text().to_string();
+            let text = self.text().to_string();
             let token = self.advance();
-            self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&texto]);
-            return self.name_from(&texto, token.span);
+            self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&text]);
+            return self.name_from(&text, token.span);
         }
         // `!identifier.isOperator` and outside the list's punctuation: when in
         // doubt, the token is consumed (the synthetic identifier comes after it).
@@ -1454,7 +1454,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Kind::Op(op) => matches!(op, Op::At | Op::Hash | Op::Arrow | Op::Ellipsis | Op::EllipsisQuestion),
                 _ => true,
             };
-        self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
+        self.error(codes::parser::MISSING_IDENTIFIER, &[]);
         if consume {
             self.advance();
         }
@@ -1555,7 +1555,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     fn parse_collection_elements_inner(&mut self, close: Op) -> PResult<Vec<CollectionElement>> {
-        let abre = self.pos.saturating_sub(1);
+        let opener = self.pos.saturating_sub(1);
         let mut elements = Vec::new();
         while !self.at_op(close) {
             let element = self.parse_collection_element()?;
@@ -1570,14 +1570,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // the error at the token).
                 if self.looks_like_literal_entry(self.pos) {
                     if ifs > 0 {
-                        self.erro(codes::parser::EXPECTED_ELSE_OR_COMMA, &[]);
+                        self.error(codes::parser::EXPECTED_ELSE_OR_COMMA, &[]);
                     } else {
-                        self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
+                        self.error(codes::parser::EXPECTED_TOKEN, &[","]);
                     }
                     continue;
                 }
                 // The list brings the synthetic `]` here (`moveSynthetic`).
-                if close == Op::RBracket && self.move_synthetic_closer(abre) {
+                if close == Op::RBracket && self.move_synthetic_closer(opener) {
                     self.advance();
                     return Ok(elements);
                 }
@@ -1589,7 +1589,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // token, and the literal ends at the closer (`{0: throw "y"; }`).
         if !self.at_op(close)
             && !self.at_eof()
-            && let Some(closes) = self.matching_close(abre)
+            && let Some(closes) = self.matching_close(opener)
             && closes > self.pos
             && self.kind_of(closes) == Kind::Op(close)
         {
@@ -1688,7 +1688,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // the feature disabled, the `AstBuilder` reports once (at the key's `?`, or
         // at the value's) and drops the `?`: the element is a plain one
         // (`handleNullAwareElement`, `handleLiteralMapEntry`).
-        let enabled_flag = self.features.tem(Feature::NullAwareElements);
+        let enabled_flag = self.features.has(Feature::NullAwareElements);
         let q_key = if self.at_op(Op::Question) { Some(self.advance().span) } else { None };
         let key = self.parse_expression()?;
         // In a list, only the null-aware entry reads `:`.
@@ -1716,15 +1716,15 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `(e)`, `(a, b)`, `(a,)`, `(name: e)`, `()`; `const_` forces a record.
-    /// `de_padrao`: the `(` after a constant pattern's `const`, which fasta
+    /// `from_pattern`: the `(` after a constant pattern's `const`, which fasta
     /// reads without `constKeywordForRecord` (`parsePrimaryPattern`): `(e)` is a
     /// parenthesized expression; a record comes out constant, like the context.
-    pub(crate) fn parse_parenthesized_or_record(&mut self, start: Span, const_: bool, de_padrao: bool) -> PResult<ExprId> {
-        self.with_functions(|p| p.parse_parenthesized_or_record_inner(start, const_, de_padrao))
+    pub(crate) fn parse_parenthesized_or_record(&mut self, start: Span, const_: bool, from_pattern: bool) -> PResult<ExprId> {
+        self.with_functions(|p| p.parse_parenthesized_or_record_inner(start, const_, from_pattern))
     }
 
-    fn parse_parenthesized_or_record_inner(&mut self, start: Span, const_: bool, de_padrao: bool) -> PResult<ExprId> {
-        let abre = self.pos;
+    fn parse_parenthesized_or_record_inner(&mut self, start: Span, const_: bool, from_pattern: bool) -> PResult<ExprId> {
+        let opener = self.pos;
         self.expect_op(Op::LParen)?;
         let mut positional = Vec::new();
         let mut named = Vec::new();
@@ -1755,7 +1755,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 break;
             }
         }
-        self.ensure_close_paren(abre)?;
+        self.ensure_close_paren(opener)?;
         // `const (e)`: one positional without a comma, at the `)`.
         if const_ && positional.len() == 1 && named.is_empty() && !saw_comma {
             let closes = self.tokens[self.pos - 1].span;
@@ -1765,7 +1765,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(self.push(
                 start,
                 ExprKind::Record {
-                    const_: const_ || de_padrao,
+                    const_: const_ || from_pattern,
                     positional: positional.into_boxed_slice(),
                     named: named.into_boxed_slice(),
                 },
@@ -1808,18 +1808,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             return None;
         }
         // The rest, from the name.
-        let rest = |nome: usize| -> bool {
-            if self.kind_of(nome) != Kind::Ident {
+        let rest = |name: usize| -> bool {
+            if self.kind_of(name) != Kind::Ident {
                 return false;
             }
-            let mut abre = nome + 1;
-            if self.kind_of(abre) == Kind::Op(Op::Lt) {
-                match self.angle_close(abre) {
-                    Some(closes) => abre = closes + 1,
+            let mut opener = name + 1;
+            if self.kind_of(opener) == Kind::Op(Op::Lt) {
+                match self.angle_close(opener) {
+                    Some(closes) => opener = closes + 1,
                     None => return false,
                 }
             }
-            self.kind_of(abre) == Kind::Op(Op::LParen) && self.function_expression_ahead(abre)
+            self.kind_of(opener) == Kind::Op(Op::LParen) && self.function_expression_ahead(opener)
         };
         // Without a type: `g() {}`.
         if self.kind() == Kind::Ident && rest(self.pos) {
@@ -1841,8 +1841,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// (`parseNamedFunctionRest` with `isFunctionExpression`,
     /// `parser_impl.dart:5286-5289`), and the function expression without it,
     /// as the `AstBuilder` builds it. The written return type is skipped.
-    fn parse_named_function(&mut self, nome: usize) -> PResult<ExprId> {
-        while self.pos < nome {
+    fn parse_named_function(&mut self, name: usize) -> PResult<ExprId> {
+        while self.pos < name {
             self.advance();
         }
         let span = self.span();
@@ -1936,7 +1936,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.expect_op(Op::LParen)?;
         let value = self.parse_expression()?;
         self.expect_op(Op::RParen)?;
-        let abre = self.pos;
+        let opener = self.pos;
         // `ensureBlock(…, switchExpression)`: without `{`, the error at the `)` and
         // a synthetic empty body.
         if !self.at_op(Op::LBrace) {
@@ -1958,26 +1958,26 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.ast.push_pattern(crate::ast::Pattern { span: t, kind: crate::ast::PatternKind::Wildcard { ty: None } })
             } else {
                 if self.at_kw(Keyword::Case) {
-                    self.erro(codes::parser::UNEXPECTED_TOKEN, &["case"]);
+                    self.error(codes::parser::UNEXPECTED_TOKEN, &["case"]);
                     self.advance();
                 }
                 // The pattern and guard of a `switch` expression case do not read a named
                 // function literal (the `=>` is the case's).
-                let salvo = std::mem::replace(&mut self.without_named_function, true);
+                let saved = std::mem::replace(&mut self.without_named_function, true);
                 let case_pattern = self.parse_pattern();
-                self.without_named_function = salvo;
+                self.without_named_function = saved;
                 case_pattern?
             };
             let guard = if self.eat_ident("when") {
-                let salvo = std::mem::replace(&mut self.without_named_function, true);
+                let saved = std::mem::replace(&mut self.without_named_function, true);
                 let guard_expr = self.parse_expression();
-                self.without_named_function = salvo;
+                self.without_named_function = saved;
                 Some(guard_expr?)
             } else {
                 None
             };
             if self.at_op(Op::Colon) {
-                self.erro(codes::parser::EXPECTED_TOKEN, &["=>"]);
+                self.error(codes::parser::EXPECTED_TOKEN, &["=>"]);
                 self.advance();
             } else {
                 self.expect_op(Op::Arrow)?;
@@ -1991,7 +1991,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             });
             let mut comma = self.eat_op(Op::Comma);
             if !comma && self.at_op(Op::Semicolon) {
-                self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
+                self.error(codes::parser::EXPECTED_TOKEN, &[","]);
                 self.advance();
                 comma = true;
             }
@@ -2002,10 +2002,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             // missing comma is reported at it); otherwise skips to the next `,`/`;`
             // before the matching `}`, or ends at the `}`.
             if self.looks_like_pattern_start(self.pos) {
-                self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
+                self.error(codes::parser::EXPECTED_TOKEN, &[","]);
                 continue;
             }
-            let Some(closes) = self.matching_close(abre) else { break };
+            let Some(closes) = self.matching_close(opener) else { break };
             let mut i = self.pos;
             let mut found_it = None;
             while i < closes {
@@ -2023,11 +2023,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             match found_it {
                 Some(v) => {
-                    self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
+                    self.error(codes::parser::EXPECTED_TOKEN, &[","]);
                     self.pos = v + 1;
                 }
                 None => {
-                    self.erro(codes::parser::EXPECTED_TOKEN, &["}"]);
+                    self.error(codes::parser::EXPECTED_TOKEN, &["}"]);
                     self.pos = closes;
                     break;
                 }
@@ -2043,7 +2043,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         ))
     }
 
-    /// `#nome`, `#a.b.c`, `#void`, `#+`, `#[]=`, `#>>>`…
+    /// `#name`, `#a.b.c`, `#void`, `#+`, `#[]=`, `#>>>`…
     fn parse_symbol_literal(&mut self) -> PResult<ExprId> {
         let start = self.expect_op(Op::Hash)?.span;
         let mut names = Vec::new();
@@ -2130,9 +2130,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // `this`, the `ensureIdentifier` of the `expression` context
                     // (`identifier_context_impl.dart:346-354`) reports the reserved word after
                     // the `$` (`"$class"`) and uses it as the identifier.
-                    let texto = self.text().to_string();
-                    if texto != "this" && matches!(super::fasta::word_style(&texto), Some(super::fasta::WordStyle::Reserved)) {
-                        self.erro(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
+                    let text = self.text().to_string();
+                    if text != "this" && matches!(super::fasta::word_style(&text), Some(super::fasta::WordStyle::Reserved)) {
+                        self.error(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&text]);
                     }
                     let name = self.identifier();
                     Some(self.push(start, ExprKind::Identifier(name)))
@@ -2183,8 +2183,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             head += 1;
         }
         let tail = match token.kind {
-            // Without the closer (`StrFlags::aberta`): the content runs to the end.
-            Kind::Str(f) | Kind::StrEnd(f) if f.aberta => 0,
+            // Without the closer (`StrFlags::unterminated`): the content runs to the end.
+            Kind::Str(f) | Kind::StrEnd(f) if f.unterminated => 0,
             Kind::Str(_) | Kind::StrEnd(_) => quote_len,
             Kind::StrBegin(_, Interp::Brace) | Kind::StrMid(_, Interp::Brace) => 2,
             _ => 1,

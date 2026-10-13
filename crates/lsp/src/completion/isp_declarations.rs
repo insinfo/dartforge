@@ -188,7 +188,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The language version of a library enables the feature.
     pub(super) fn library_feature(&self, l: LibraryId, r: Feature) -> bool {
-        let v = self.query.program.library(l).features.versao();
+        let v = self.query.program.library(l).features.version();
         let min = match r {
             Feature::ExtensionMethods => (2, 6),
             Feature::EnhancedEnums | Feature::SuperParameters => (2, 17),
@@ -200,7 +200,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `isWildcardVariable`: `_` with the wildcards feature.
     pub(super) fn wildcard(&self, name: &str) -> bool {
-        name == "_" && self.features.tem(dartforge_frontend::Feature::WildcardVariables)
+        name == "_" && self.features.has(dartforge_frontend::Feature::WildcardVariables)
     }
 
     // -- The items ------------------------------------------------------------------
@@ -257,7 +257,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             .map(|ps| {
                 ps.iter()
                     .filter_map(|p| {
-                        let n = self.real_name(p.nome_externo()?).to_string();
+                        let n = self.real_name(p.external_name()?).to_string();
                         match p.kind {
                             ast::ParameterKind::Required => Some(n),
                             ast::ParameterKind::Named if p.required => Some(format!("{n}: ")),

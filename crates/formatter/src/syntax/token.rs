@@ -144,7 +144,7 @@ impl Tokens {
                 Kind::Int => list.push(new(TokenKind::Integer, start_, end)),
                 Kind::Double => list.push(new(TokenKind::Double, start_, end)),
                 Kind::Str(f) => {
-                    if f.aberta {
+                    if f.unterminated {
                         return Err(string_error(start_, end));
                     }
                     list.push(new(TokenKind::Text, start_, end));
@@ -170,7 +170,7 @@ impl Tokens {
                     list.push(new(kind_, end - delim, end));
                 }
                 Kind::StrEnd(f) => {
-                    if f.aberta {
+                    if f.unterminated {
                         return Err(string_error(start_, end));
                     }
                     let mut i = start_;

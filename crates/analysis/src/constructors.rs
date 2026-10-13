@@ -188,7 +188,7 @@ pub fn check(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)
             for &mid in owner.members {
                 let m = a.member(mid);
                 let MemberKind::Constructor(k) = &m.kind else { continue };
-                let is_primary = primary == Some(mid) || (in_extension_type && k.parte_primaria);
+                let is_primary = primary == Some(mid) || (in_extension_type && k.primary_body_part);
                 // `_checkForValidField`: todo construtor.
                 for p in k.parameters.iter().filter(|p| p.this_ && !p.super_) {
                     let name = p.name.map(|n| names.resolve(n.sym).to_string()).unwrap_or_default();

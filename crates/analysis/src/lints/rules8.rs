@@ -115,9 +115,9 @@ fn first_token(source: &str, start: usize) -> Span {
 fn doc_imports(source: &str, u: Unidade<'_>) -> Vec<(Span, Option<String>)> {
     let mut v = Vec::new();
     let Some(library) = u.unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::Library { .. })) else { return v };
-    let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+    let comments = dartforge_frontend::comments::Comments::scan(source);
     let after = match library.metadata.last() {
-        Some(m) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), m.span.end),
+        Some(m) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end),
         None => library.span.start,
     };
     let doc = comments
@@ -128,7 +128,7 @@ fn doc_imports(source: &str, u: Unidade<'_>) -> Vec<(Span, Option<String>)> {
     // the `/** … */`; (content position, content).
     let mut lines: Vec<(usize, &str)> = Vec::new();
     if source[doc.start..doc.end].starts_with("///") {
-        for c in comments.antes_de(source, after).into_iter().filter(|c| c.start >= doc.start) {
+        for c in comments.before(source, after).into_iter().filter(|c| c.start >= doc.start) {
             let text = &source[c.start..c.end];
             let Some(content) = text.strip_prefix("///") else { break };
             lines.push((c.start + 3, content));
@@ -495,7 +495,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             .collect();
         for (i, m) in a.members.iter().enumerate() {
             let MemberKind::Constructor(k) = &m.kind else { continue };
-            if m.augment || k.redirect.is_some() || k.external || k.parte_primaria || primaries.contains(&MemberId(i as u32)) {
+            if m.augment || k.redirect.is_some() || k.external || k.primary_body_part || primaries.contains(&MemberId(i as u32)) {
                 continue;
             }
             // The visited regions: the body and each initializer.
@@ -653,17 +653,17 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     // is directly the expression of a constant pattern is excluded.
     if enabled("unnecessary_const") {
         let old_version = sem.is_some_and(|s| !super::version_at_least(s, 3, 0));
-        let parents = dartforge_frontend::pais::Pais::novo(a, u.unit, source, old_version);
+        let parents = dartforge_frontend::parents::Parents::new(a, u.unit, source, old_version);
         for (k, n) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
             let candidate = match &n.kind {
                 ExprKind::InstanceCreation { keyword: Some(CreationKeyword::Const), .. } | ExprKind::Record { const_: true, .. } => true,
                 ExprKind::List { const_: true, .. } | ExprKind::SetOrMap { const_: true, .. } => {
-                    !matches!(parents.pai(id), dartforge_frontend::pais::Pai::PadraoConstante { .. })
+                    !matches!(parents.parent(id), dartforge_frontend::parents::Parent::ConstantPattern { .. })
                 }
                 _ => false,
             };
-            if candidate && source.get(n.span.start..).is_some_and(|t| t.starts_with("const")) && parents.em_contexto_constante(a, id) {
+            if candidate && source.get(n.span.start..).is_some_and(|t| t.starts_with("const")) && parents.in_constant_context(a, id) {
                 report(&c::UNNECESSARY_CONST, Span { start: n.span.start, end: n.span.start + 5 }, &[]);
             }
         }

@@ -203,7 +203,7 @@ impl Collector<'_> {
                         continue;
                     }
                     let acessivel = !is_private(&name) && !private_type && !(enum_ && !k.factory);
-                    if constructors > 1 && !acessivel && !anot && !k.parte_primaria {
+                    if constructors > 1 && !acessivel && !anot && !k.primary_body_part {
                         self.candidate(u, n, format!("{type_name}.{name}"), Rule::Element, None);
                     }
                 }

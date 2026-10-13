@@ -59,7 +59,7 @@ pub struct Arquivo {
 #[derive(Debug, Clone)]
 pub struct SemanticLint {
     /// The code's unique name (`LinterLintCode`), which is also the key in
-    /// `dartforge_analysis::lints::codigos_g::TODOS`.
+    /// `dartforge_analysis::lints::codigos_g::ALL`.
     pub unico: &'static str,
     pub span: dartforge_diagnostics::Span,
     pub args: Vec<String>,
@@ -635,7 +635,7 @@ impl Motor {
                 .iter()
                 .map(|u| dartforge_analysis::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, fonte: &program.unit(*u).source })
                 .collect();
-            let wildcard = library.features.tem(dartforge_frontend::features::Feature::WildcardVariables);
+            let wildcard = library.features.has(dartforge_frontend::features::Feature::WildcardVariables);
             // 6.11 merges declarations with the same name; 3.13.4 (the
             // reference of a library with syntax later than 3.6) does not.
             // The library's reference is the highest among its units (T2): the
@@ -666,13 +666,13 @@ impl Motor {
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::records::check(u, &interner, library.features).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::inicializacao::uninitialized_constants(u, &interner).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::PARSER,
-                    dartforge_analysis::phases::colon_for_default_value(*u, library.features.versao().major < 3).into_iter().map(|d| (i, d)),
+                    dartforge_analysis::phases::colon_for_default_value(*u, library.features.version().major < 3).into_iter().map(|d| (i, d)),
                 ));
                 found.extend(with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::phases::built_in_as_type(
                     *u,
                     &interner,
-                    library.features.tem(dartforge_frontend::features::Feature::Augmentations)
-                        || library.features.tem(dartforge_frontend::features::Feature::Macros),
+                    library.features.has(dartforge_frontend::features::Feature::Augmentations)
+                        || library.features.has(dartforge_frontend::features::Feature::Macros),
                 )
                 .into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::PARSER, dartforge_analysis::natives::outside_sdk(*u).into_iter().map(|d| (i, d))));

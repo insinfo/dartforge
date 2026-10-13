@@ -422,7 +422,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 // list (`node.members[caseIndex].keyword`,
                 // `shared_type_analyzer.dart:232-239`): with cases sharing the body
                 // earlier, the report lands on an earlier member.
-                let version = inf.program.library(cx.lib).features.versao();
+                let version = inf.program.library(cx.lib).features.version();
                 if cx.flow.reachable && j + 1 < n && version < dartforge_frontend::features::LanguageVersion::new(3, 0) {
                     let keyword = case_keyword(inf, cx, &cases[group]);
                     inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::SWITCH_CASE_COMPLETES_NORMALLY, keyword, &[]);
@@ -851,7 +851,7 @@ fn stack_trace(inf: &mut BodyInferrer<'_>) -> TypeId {
 /// all appear in `case`s without a guard (a constant, parenthesized or not),
 /// with `null` covered by the non-nullable type or by a `case null`.
 fn exhaustive_switch(inf: &mut BodyInferrer<'_>, cx: &Body, t: TypeId, the_cases: &[ast::SwitchCase]) -> bool {
-    if inf.program.library(cx.lib).features.versao().major >= 3 {
+    if inf.program.library(cx.lib).features.version().major >= 3 {
         return always_exhaustive(inf, t, 0);
     }
     let Type::Interface { class, nullable, .. } = inf.table.get(t).clone() else { return false };
@@ -1076,7 +1076,7 @@ pub(crate) fn variable_declaration(inf: &mut BodyInferrer<'_>, cx: &mut Body, vl
         // (`respectImplicitlyTypedVarInitializers`, `constructor-tearoffs`), a
         // variable without a written type ignores the initializer's information
         // (the behaviour of dart-lang/language#1785).
-        let library_version = inf.program.library(cx.lib).features.versao();
+        let library_version = inf.program.library(cx.lib).features.version();
         let respects_initializer = declared.is_some() || (library_version.major, library_version.minor) >= (2, 15);
         if respects_initializer
             && let (Some((yes, not_)), Some(version)) = (saved_condition, cx.flow.version(id))
@@ -1225,7 +1225,7 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
     None
 }
 
-/// The annotations of a local declaration (`Ast::metadados_locais`), through
+/// The annotations of a local declaration (`Ast::local_metadata`), through
 /// `AnnotationResolver` in the local scope: a name that resolves to a local
 /// (`_localVariable`, 3.6.2 `annotation_resolver.dart:170-184`) is
 /// `INVALID_ANNOTATION` if it is not `const` or if there are arguments; a
@@ -1233,7 +1233,7 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
 /// through the library's scope, like declaration annotations.
 fn validate_local_annotations(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: StmtId) {
     let a = &inf.program.unit(cx.unit).ast;
-    let Some((_, ms)) = a.metadados_locais.iter().find(|(x, _)| *x == s) else { return };
+    let Some((_, ms)) = a.local_metadata.iter().find(|(x, _)| *x == s) else { return };
     for m in ms.iter() {
         validate_local_annotation(inf, cx, m);
     }

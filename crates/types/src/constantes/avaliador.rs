@@ -568,7 +568,7 @@ impl<'a> Motor<'a> {
                 // `assert(…)` as an expression is a `FunctionExpressionInvocation`
                 // (the generic `visitNode`), not a `MethodInvocation`.
                 let is_method = matches!(a.expr(tgt).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
-                    && !a.invocacoes_de_assert.contains(&e);
+                    && !a.assert_invocations.contains(&e);
                 if !is_method {
                     return self.generic(u, e, false);
                 }
@@ -1255,7 +1255,7 @@ impl<'a> Motor<'a> {
         if l.estado.is_null() || r.estado.is_null() {
             return Ok(Some(l.estado.is_null() && r.estado.is_null()));
         }
-        let patterns = self.program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+        let patterns = self.program.library(lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
         let can = if patterns {
             matches!(l.estado, Estado::Double(_)) || self.primitive_equality(l, lib)
         } else {
@@ -1408,7 +1408,7 @@ impl<'a> Motor<'a> {
             }
             Estado::Generico { .. } => {
                 let Type::Interface { class, .. } = self.table.get(v.tipo).clone() else { return false };
-                let patterns = self.program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+                let patterns = self.program.library(lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
                 let eq = self.interner.lookup("==");
                 let hash = self.interner.lookup("hashCode");
                 let of_object = |m: &Motor<'_>, s: Option<SymbolId>| match s.and_then(|s| m.concrete_member(class, s)) {
@@ -1542,19 +1542,19 @@ impl<'a> Motor<'a> {
         let a = self.ast(u);
         let pais = crate::lints_tipados::unit_parents(self.program, u);
         let lib = self.program.unit(u).library;
-        let before_3 = self.program.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(3, 0);
+        let before_3 = self.program.library(lib).features.version() < dartforge_frontend::features::LanguageVersion::new(3, 0);
         let contains = |of: Span, sp: Span| of.start <= sp.start && sp.end <= of.end;
         let mut current = no;
         for _ in 0..a.exprs.len() + 1 {
             let sp = a.expr(current).span;
-            let next_ = match pais.pai(current) {
-                dartforge_frontend::pais::Pai::Expr(p) => Some(p),
-                dartforge_frontend::pais::Pai::Anotacao => return Some(c::INVALID_ANNOTATION_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY),
-                dartforge_frontend::pais::Pai::Variavel { .. } => return Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY),
+            let next_ = match pais.parent(current) {
+                dartforge_frontend::parents::Parent::Expr(p) => Some(p),
+                dartforge_frontend::parents::Parent::Annotation => return Some(c::INVALID_ANNOTATION_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY),
+                dartforge_frontend::parents::Parent::Variable { .. } => return Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY),
                 // `EnumConstantArguments` → `EnumConstantDeclaration` →
                 // `EnumDeclaration`: none decides.
-                dartforge_frontend::pais::Pai::ConstanteDeEnum => return None,
-                dartforge_frontend::pais::Pai::PadraoConstante { .. } => {
+                dartforge_frontend::parents::Parent::EnumConstant => return None,
+                dartforge_frontend::parents::Parent::ConstantPattern { .. } => {
                     // In the `case` of a `switch` statement, the case's code.
                     let in_case = a.stmts.iter().any(|s| match &s.kind {
                         ast::StmtKind::Switch { cases, .. } => {
@@ -1571,7 +1571,7 @@ impl<'a> Motor<'a> {
                     }
                     None
                 }
-                dartforge_frontend::pais::Pai::Fronteira => {
+                dartforge_frontend::parents::Parent::Boundary => {
                     let pattern = |ps: &[ast::Parameter]| ps.iter().any(|p| p.default_value == Some(current));
                     fn nested(ps: &[ast::Parameter], current: ExprId) -> bool {
                         ps.iter().any(|p| {
@@ -2209,7 +2209,7 @@ impl<'a> Motor<'a> {
             // does not evaluate it.
             let primary_disabled = |f: FunctionElementId| {
                 matches!(self.program.function(f).node, FunctionRef::Constructor { member, .. } if en.primary_constructor == Some(member))
-                    && !self.program.library(lib).features.tem(dartforge_frontend::Feature::PrimaryConstructors)
+                    && !self.program.library(lib).features.has(dartforge_frontend::Feature::PrimaryConstructors)
             };
             if let Some(&f) = the_key.and_then(|c| self.program.class(k).constructors.get(&c))
                 && !primary_disabled(f)
@@ -2705,7 +2705,7 @@ impl<'a> Motor<'a> {
         let mut i_pos = 0usize;
         for (i, p) in ctor.parameters.iter().enumerate() {
             let Some(the_name) = p.name else { continue };
-            let external = p.nome_externo().map(|n| n.sym).unwrap_or(the_name.sym);
+            let external = p.external_name().map(|n| n.sym).unwrap_or(the_name.sym);
             let type_p = type_params_list.get(i).map(|d| d.ty).unwrap_or(self.core.dynamic_);
             let type_p = subst(self, type_p);
             let (mut the_value, tgt) = if p.kind == ast::ParameterKind::Named {

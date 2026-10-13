@@ -153,7 +153,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `VoidType.parseType` (`type_info_impl.dart:446`): type arguments after
             // `void` are `VOID_WITH_TYPE_ARGUMENTS` at the `<` and are read.
             if self.at_op(Op::Lt) && self.skip_type_arguments(self.pos).is_some() {
-                self.erro(codes::parser::VOID_WITH_TYPE_ARGUMENTS, &[]);
+                self.error(codes::parser::VOID_WITH_TYPE_ARGUMENTS, &[]);
                 self.parse_type_arguments_opt()?;
             }
             return Ok(self.ast.push_type(TypeAnnotation {
@@ -182,7 +182,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 },
             }));
         }
-        Err(self.erro(codes::parser::EXPECTED_TYPE_NAME, &[]))
+        Err(self.error(codes::parser::EXPECTED_TYPE_NAME, &[]))
     }
 
     /// `Function<T>(params)` with the return type already read (or none).
@@ -391,13 +391,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `NoType.ensureTypeOrVoid`: what does not start a type is
             // `EXPECTED_TYPE_NAME` at it and an empty synthetic type.
             if !matches!(self.kind(), Kind::Ident | Kind::Keyword(Keyword::Void) | Kind::Op(Op::LParen)) {
-                self.erro(codes::parser::EXPECTED_TYPE_NAME, &[]);
+                self.error(codes::parser::EXPECTED_TYPE_NAME, &[]);
                 let s = self.span().start;
-                let nome = self.name_from("", Span { start: s, end: s });
+                let name = self.name_from("", Span { start: s, end: s });
                 args.push(self.ast.push_type(TypeAnnotation {
                     span: Span { start: s, end: s },
                     nullable: false,
-                    kind: TypeKind::Named { name: vec![nome].into_boxed_slice(), args: Box::default() },
+                    kind: TypeKind::Named { name: vec![name].into_boxed_slice(), args: Box::default() },
                 }));
             } else {
                 args.push(self.parse_type()?);
@@ -442,7 +442,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// comma between two names (`parseMissingComma`) and an unexpected end
     /// (`parseUnexpectedEnd`).
     fn parse_type_parameters_inner(&mut self, variance_: bool) -> PResult<Vec<TypeParameter>> {
-        let abre = self.pos;
+        let opener = self.pos;
         self.expect_op(Op::Lt)?;
         let mut params = Vec::new();
         // The last consumed token is synthetic (an inserted name).
@@ -466,8 +466,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.advance();
                 }
                 self.advance();
-                let texto = self.token_text(first_);
-                variance = Variance::from_text_(texto).map(|v| (v, first_.span));
+                let text = self.token_text(first_);
+                variance = Variance::from_text_(text).map(|v| (v, first_.span));
                 self.error_at(
                     codes::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT,
                     first_.span,
@@ -499,12 +499,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                 break;
             }
             // `parseMissingComma`: `Expected to find ','.` at the next token.
-            self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
+            self.error(codes::parser::EXPECTED_TOKEN, &[","]);
         }
         if self.eat_op(Op::Gt) {
             return Ok(params);
         }
-        self.unexpected_end_of_type_parameters(abre, synthetic)?;
+        self.unexpected_end_of_type_parameters(opener, synthetic)?;
         Ok(params)
     }
 
@@ -549,18 +549,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             || self.looks_like_statement_start(pos)
             || name_follows
         {
-            self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
+            self.error(codes::parser::MISSING_IDENTIFIER, &[]);
             return (synthetic(self), true);
         }
         if let Kind::Keyword(_) = self.kind() {
-            let texto = self.text().to_string();
-            self.erro(
+            let text = self.text().to_string();
+            self.error(
                 codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD,
-                &[&texto],
+                &[&text],
             );
             return (self.identifier(), false);
         }
-        self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
+        self.error(codes::parser::MISSING_IDENTIFIER, &[]);
         self.advance();
         (synthetic(self), true)
     }
@@ -573,7 +573,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// synthetic `>`).
     fn unexpected_end_of_type_parameters(
         &mut self,
-        abre: usize,
+        opener: usize,
         synthetic: bool,
     ) -> PResult<()> {
         let last = self.tokens[self.pos.saturating_sub(1)].span;
@@ -634,7 +634,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.advance();
             return Ok(());
         }
-        if let Some(end_offset) = self.lt_group_end(abre)
+        if let Some(end_offset) = self.lt_group_end(opener)
             && end_offset >= self.pos
         {
             self.pos = end_offset + 1;
@@ -669,7 +669,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             std::mem::replace(&mut self.params_owner, ParameterOwner::Other)
         };
         self.params_owner = ParameterOwner::Other;
-        let abre = self.pos;
+        let opener = self.pos;
         self.expect_op(Op::LParen)?;
         let mut params = Vec::new();
         loop {
@@ -690,7 +690,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // synthetic parameter fasta inserts (untyped and with an empty name:
                 // `C Function({dynamic })`).
                 if self.at_op(close) {
-                    self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
+                    self.error(codes::parser::MISSING_IDENTIFIER, &[]);
                     params.push(self.synthetic_parameter(kind));
                 }
                 loop {
@@ -701,7 +701,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // `ensureIdentifier` reports `MISSING_IDENTIFIER` at the token and adds a
                     // synthetic parameter (omitted here).
                     if matches!(self.kind(), Kind::Op(Op::LBrace | Op::LBracket)) {
-                        self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
+                        self.error(codes::parser::MISSING_IDENTIFIER, &[]);
                         params.push(self.synthetic_parameter(kind));
                     } else {
                         params.push(self.parse_formal_parameter(kind, in_function_type, owner)?);
@@ -714,10 +714,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                             && let Some(closes) = self.matching_close(open_group)
                             && closes > self.pos
                         {
-                            self.erro(codes::parser::EXPECTED_TOKEN, &[close.text()]);
-                            let de = self.pos;
+                            self.error(codes::parser::EXPECTED_TOKEN, &[close.text()]);
+                            let from = self.pos;
                             self.pos = closes;
-                            self.record_skipped(de);
+                            self.record_skipped(from);
                         }
                         self.expect_op(close)?;
                         break;
@@ -734,13 +734,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // identifiers in a row are the missing comma (`EXPECTED_TOKEN` at the
                 // second); the rest is `ensureCloseParen`, up to the matching `)`.
                 if !self.at_op(Op::RParen) {
-                    if self.move_synthetic_closer(abre) {
+                    if self.move_synthetic_closer(opener) {
                         // The `)` is now the current token.
                     } else if self.is_plain_identifier(self.pos) && self.is_plain_identifier(self.pos + 1) {
-                        self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
+                        self.error(codes::parser::EXPECTED_TOKEN, &[","]);
                         continue;
                     } else {
-                        self.ensure_close_paren(abre)?;
+                        self.ensure_close_paren(opener)?;
                         self.check_public_names(&params);
                         return Ok(params);
                     }
@@ -776,7 +776,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             function_nullable: false,
             default_value: None,
             public_name: None,
-            declarante: false,
+            declaring: false,
         }
     }
 
@@ -842,7 +842,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // Named in an unnamed function type (`Function({int})`): the type read and
             // `MISSING_IDENTIFIER` at the next token (the name is required,
             // `parseFormalParameter`), with a synthetic name.
-            self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
+            self.error(codes::parser::MISSING_IDENTIFIER, &[]);
             let s = self.span().start;
             Some(self.name_from("", Span { start: s, end: s }))
         } else if in_function_type && ty.is_some() {
@@ -850,7 +850,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if matches!(self.kind(), Kind::Op(Op::Comma | Op::RParen | Op::RBracket | Op::RBrace)) {
             // Unnamed parameter before `,` or the closer (`f(,[])`):
             // `MISSING_IDENTIFIER` at it and a synthetic name; the list goes on.
-            self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
+            self.error(codes::parser::MISSING_IDENTIFIER, &[]);
             let s = self.span().start;
             Some(self.name_from("", Span { start: s, end: s }))
         } else {
@@ -874,7 +874,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `var`/`final`/`const` of a function-form parameter, and `var` followed by
         // a type, are the disabled feature (outside the primary one, they are
         // `FUNCTION_TYPED_PARAMETER_VAR` and `VAR_AND_TYPE`).
-        if owner == ParameterOwner::PrimaryConstructor && !self.in_representation && !self.features.tem(Feature::PrimaryConstructors) {
+        if owner == ParameterOwner::PrimaryConstructor && !self.in_representation && !self.features.has(Feature::PrimaryConstructors) {
             let word = if function_parameters.is_some() {
                 f.var_final_or_const()
             } else if ty.is_some() {
@@ -936,7 +936,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             function_nullable,
             default_value,
             public_name,
-            declarante: false,
+            declaring: false,
         })
     }
 
@@ -945,16 +945,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// primary constructor), from 3.12 on, and if there is a matching public
     /// name (`accepted/3.12/private-named-parameters`, "Static semantics").
     /// Returns the public name; errors are recorded and parsing goes on.
-    fn public_name_of_named(&mut self, n: Name, this_: bool, declarante: bool) -> Option<Name> {
-        let texto = &self.source[n.span.start..n.span.end];
-        let rest = texto.strip_prefix('_')?;
-        let initializes_field = this_ || (declarante && self.in_primary_constructor);
+    fn public_name_of_named(&mut self, n: Name, this_: bool, declaring: bool) -> Option<Name> {
+        let text = &self.source[n.span.start..n.span.end];
+        let rest = text.strip_prefix('_')?;
+        let initializes_field = this_ || (declaring && self.in_primary_constructor);
         // `_checkPrivateOptionalParameter` (`error_verifier.dart:8622-8661` in the
         // main checkout): with the feature disabled, only the syntactic `this._x`
         // (`FieldFormalParameter`) is the disabled feature; the declaring one
         // (`final`/`var`, syntactically simple) and the rest are
         // `PRIVATE_OPTIONAL_PARAMETER`.
-        if !initializes_field || (!this_ && !self.features.tem(Feature::PrivateNamedParameters)) {
+        if !initializes_field || (!this_ && !self.features.has(Feature::PrivateNamedParameters)) {
             self.diagnostics.push(Diagnostic::with_code(
                 codes::compile_time_error::PRIVATE_OPTIONAL_PARAMETER,
                 n.span,
@@ -966,7 +966,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // With the feature disabled, the parameter keeps the private name (the
         // 3.13.4 oracle does not rename: `this._foo` and `foo` do not collide, and
         // two `this._foo` collide as `_foo`).
-        if !self.features.tem(Feature::PrivateNamedParameters) {
+        if !self.features.has(Feature::PrivateNamedParameters) {
             return None;
         }
         let valid = rest
@@ -977,10 +977,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         if !valid {
             // Without the feature, the 3.13.4 analyzer only reports the disabled
             // feature, without checking the public name (recorded oracle, 3.6 library).
-            if self.features.tem(Feature::PrivateNamedParameters) {
+            if self.features.has(Feature::PrivateNamedParameters) {
                 self.diagnostics.push(Diagnostic::new(
                     format!(
-                        "The private named parameter '{texto}' has no corresponding public name."
+                        "The private named parameter '{text}' has no corresponding public name."
                     ),
                     n.span,
                 ));
@@ -999,15 +999,15 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn check_parameter_modifier(&mut self, span: Span, in_function_type: bool) {
         if in_function_type
             || self.in_primary_constructor
-            || !self.features.tem(Feature::PrimaryConstructors)
+            || !self.features.has(Feature::PrimaryConstructors)
         {
             return;
         }
-        let texto = &self.source[span.start..span.end];
+        let text = &self.source[span.start..span.end];
         self.diagnostics.push(Diagnostic::with_code(
             codes::parser::EXTRANEOUS_MODIFIER,
             span,
-            [texto],
+            [text],
         ));
     }
 
@@ -1041,11 +1041,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 .enumerate()
                 .any(|(j, q)| j != i && q.name.is_some_and(|qn| qn.sym == public.sym));
             if collides {
-                let texto = self.interner.resolve(public.sym).to_string();
+                let text = self.interner.resolve(public.sym).to_string();
                 self.diagnostics.push(Diagnostic::with_code(
                     codes::compile_time_error::DUPLICATE_DEFINITION,
                     public.span,
-                    [texto.as_str()],
+                    [text.as_str()],
                 ));
             }
         }
@@ -1398,7 +1398,7 @@ mod tests {
         let mut p = Parser::new(src, tokens, &mut names);
         // The parameter grammar tested here is 3.6's (`final` on any parameter);
         // 3.13's is in `tests/versions.rs`.
-        p.features = crate::features::LibraryFeatures::piso();
+        p.features = crate::features::LibraryFeatures::floor();
         f(&mut p)
     }
 
@@ -1832,7 +1832,7 @@ mod tests {
     fn diagnostics_36(src: &str) -> Vec<(String, usize, usize)> {
         let mut names = Interner::new();
         let out =
-            crate::parser::parse_com(src, &mut names, crate::features::LibraryFeatures::piso());
+            crate::parser::parse_with(src, &mut names, crate::features::LibraryFeatures::floor());
         out.diagnostics
             .iter()
             .map(|d| {
@@ -1886,10 +1886,10 @@ mod tests {
         );
         // The variance stays in the tree.
         let mut names = Interner::new();
-        let out = crate::parser::parse_com(
+        let out = crate::parser::parse_with(
             "mixin M<inout T> {}",
             &mut names,
-            crate::features::LibraryFeatures::piso(),
+            crate::features::LibraryFeatures::floor(),
         );
         let crate::ast::DeclKind::Mixin(m) =
             &out.ast.decls[out.unit.declarations[0].0 as usize].kind
@@ -2099,7 +2099,7 @@ mod tests {
 
     #[test]
     fn required_with_record_type() {
-        // `_fe_analyzer_shared` (`analyzeMapPattern`): `required ({…})? nome`.
+        // `_fe_analyzer_shared` (`analyzeMapPattern`): `required ({…})? name`.
         for src in [
             "void f({required ({int a, int b})? t, required List<int> e}) {}",
             "void g({required (int, int)? t}) {}",

@@ -68,7 +68,7 @@ impl Ctx<'_> {
 
     /// Does the library of `id` have class modifiers (language 3.0+)?
     fn has_modifiers(&self, lib: LibraryId) -> bool {
-        self.program.library(lib).features.versao().major >= 3
+        self.program.library(lib).features.version().major >= 3
     }
 
     /// `_mayIgnoreClassModifiers`: a modifier of a platform library, seen from

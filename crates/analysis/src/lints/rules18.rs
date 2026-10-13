@@ -154,10 +154,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     continue;
                 }
                 let pos = match m.metadata.last() {
-                    Some(x) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), x.span.end),
+                    Some(x) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), x.span.end),
                     None => {
                         // After the documentation comment.
-                        dartforge_frontend::fonte::pular_brancos(source.as_bytes(), m.span.start)
+                        dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.start)
                     }
                 };
                 report(&c::AVOID_EQUALS_AND_HASH_CODE_ON_MUTABLE_CLASSES, token_at(source, pos), &[text]);

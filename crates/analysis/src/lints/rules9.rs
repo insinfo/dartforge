@@ -406,7 +406,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     {
         use dartforge_types::resolved::{MemberRef, Resolved};
         let old_version = !super::version_at_least(s, 3, 0);
-        let parents = dartforge_frontend::pais::Pais::novo(a, u.unit, u.fonte, old_version);
+        let parents = dartforge_frontend::parents::Parents::new(a, u.unit, u.fonte, old_version);
         // The getters (without a parameter list) and each one's element.
         let mut getters: Vec<(Span, dartforge_elements::model::FunctionElementId, SymbolId)> = Vec::new();
         for (i, f) in a.functions.iter().enumerate() {
@@ -431,20 +431,20 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         // The node is inside a constant list, set or map literal (the visitor
         // does not descend into it).
         let in_const_literal = |e: ExprId, bound: Span| {
-            let mut current = parents.pai(e);
-            while let dartforge_frontend::pais::Pai::Expr(p) = current {
+            let mut current = parents.parent(e);
+            while let dartforge_frontend::parents::Parent::Expr(p) = current {
                 let n = a.expr(p);
                 if n.span.start < bound.start || n.span.end > bound.end {
                     break;
                 }
                 let is_const = match &n.kind {
-                    ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } => *const_ || parents.em_contexto_constante(a, p),
+                    ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } => *const_ || parents.in_constant_context(a, p),
                     _ => false,
                 };
                 if is_const {
                     return true;
                 }
-                current = parents.pai(p);
+                current = parents.parent(p);
             }
             false
         };
@@ -452,8 +452,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         for (k, ex) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
             let Some(&(body, element, getter_name)) = getters.iter().find(|(c, _, _)| c.start <= ex.span.start && ex.span.end <= c.end) else { continue };
-            let parent = match parents.pai(id) {
-                dartforge_frontend::pais::Pai::Expr(p) => Some(p),
+            let parent = match parents.parent(id) {
+                dartforge_frontend::parents::Parent::Expr(p) => Some(p),
                 _ => None,
             };
             match &ex.kind {
@@ -475,7 +475,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                             } => continue,
                             // Prefix of `x.y`/target of `x?.y` (not of `x.f()`).
                             ExprKind::Property { target, .. } if *target == id => {
-                                let call_target = matches!(parents.pai(p), dartforge_frontend::pais::Pai::Expr(c)
+                                let call_target = matches!(parents.parent(p), dartforge_frontend::parents::Parent::Expr(c)
                                     if matches!(&a.expr(c).kind, ExprKind::Call { target, .. } if *target == p));
                                 if !call_target {
                                     continue;

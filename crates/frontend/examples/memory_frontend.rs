@@ -45,21 +45,21 @@ fn main() {
     let base_allocations = dartforge_instrument::allocation_count();
     let mut names = dartforge_intern::Interner::new();
     let mut retained = Vec::with_capacity(files.len());
-    let mut bytes_fonte = 0usize;
+    let mut source_bytes = 0usize;
     let mut rejected = 0usize;
     let mut total_exprs = 0usize;
     for file in &files {
-        let Ok(fonte) = std::fs::read_to_string(file) else {
+        let Ok(source) = std::fs::read_to_string(file) else {
             continue;
         };
-        bytes_fonte += fonte.len();
-        let output = dartforge_frontend::parser::parse(&fonte, &mut names);
+        source_bytes += source.len();
+        let output = dartforge_frontend::parser::parse(&source, &mut names);
         if !output.diagnostics.is_empty() {
             rejected += 1;
         }
         total_exprs += output.ast.exprs.len();
         // Source and tree stay alive, as in an editor with the project open.
-        retained.push((fonte, output));
+        retained.push((source, output));
     }
     let elapsed_time = start_offset.elapsed();
     // Where the bytes are: each arena, count × node size (reserved capacity
@@ -87,7 +87,7 @@ fn main() {
                 cap[i] += c;
             }
         }
-        let tam = [
+        let sizes = [
             size_of::<Expr>(),
             size_of::<Stmt>(),
             size_of::<TypeAnnotation>(),
@@ -107,14 +107,14 @@ fn main() {
         ];
         let mut total = 0usize;
         for i in 0..7 {
-            let used = n[i] * tam[i];
-            let reserved = cap[i] * tam[i];
+            let used = n[i] * sizes[i];
+            let reserved = cap[i] * sizes[i];
             total += reserved;
             println!(
                 "  {:<10} {:>8} nodes × {:>3} B = {:>7.2} MiB used, {:>7.2} MiB reserved",
                 names[i],
                 n[i],
-                tam[i],
+                sizes[i],
                 used as f64 / 1048576.0,
                 reserved as f64 / 1048576.0
             );
@@ -128,7 +128,7 @@ fn main() {
         let mut hist: std::collections::BTreeMap<&'static str, (usize, usize)> = Default::default();
         for (_, output) in &retained {
             for e in &output.ast.exprs {
-                let (nome, fora) = match &e.kind {
+                let (name, outside) = match &e.kind {
                     ExprKind::Int(_) => ("Int", 0),
                     ExprKind::Double(_) => ("Double", 0),
                     ExprKind::Bool(_) => ("Bool", 0),
@@ -206,20 +206,20 @@ fn main() {
                     }
                     ExprKind::DotShorthand { .. } => ("DotShorthand", 0),
                 };
-                let input = hist.entry(nome).or_default();
+                let input = hist.entry(name).or_default();
                 input.0 += 1;
-                input.1 += fora;
+                input.1 += outside;
             }
         }
         let mut order: Vec<_> = hist.into_iter().collect();
         order.sort_by_key(|(_, (n, _))| std::cmp::Reverse(*n));
         println!("  expression variants (count, bytes outside the arena):");
-        for (nome, (n, fora)) in order.iter().take(14) {
+        for (name, (n, outside)) in order.iter().take(14) {
             println!(
                 "    {:<18} {:>8}  {:>7.2} MiB fora",
-                nome,
+                name,
                 n,
-                *fora as f64 / 1048576.0
+                *outside as f64 / 1048576.0
             );
         }
     }
@@ -232,11 +232,11 @@ fn main() {
         retained.len(),
         rejected
     );
-    println!("source: {:.2} MiB", mib(bytes_fonte));
+    println!("source: {:.2} MiB", mib(source_bytes));
     println!(
         "live with everything retained: {:.2} MiB ({:.2}x the source)",
         mib(live),
-        live as f64 / bytes_fonte as f64
+        live as f64 / source_bytes as f64
     );
     println!("pico: {:.2} MiB", mib(pico));
     println!(
@@ -247,7 +247,7 @@ fn main() {
     println!(
         "allocations: {allocations_}; time: {:.0} ms ({:.1} MiB/s)",
         elapsed_time.as_secs_f64() * 1e3,
-        mib(bytes_fonte) / elapsed_time.as_secs_f64()
+        mib(source_bytes) / elapsed_time.as_secs_f64()
     );
     drop(retained);
     println!(

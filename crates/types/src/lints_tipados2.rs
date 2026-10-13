@@ -324,7 +324,7 @@ pub fn achados(
                 // `use_is_even_rather_than_modulo`: `x % 2 == n`, integers,
                 // with `n` an unsigned literal.
                 if *op == BinaryOp::Eq
-                    && !pais.em_contexto_constante(a, id)
+                    && !pais.in_constant_context(a, id)
                     && let Some(the_value) = unsigned_literal(a, source, *right)
                     && let ExprKind::Binary { op: BinaryOp::Rem, right: divisor, .. } = &a.expr(*left).kind
                     && unsigned_literal(a, source, *divisor) == Some(2)
@@ -362,8 +362,8 @@ pub fn achados(
                     // between it and the `}`; after the `}`, only the quote.
                     let b = rest.as_bytes();
                     let d = after.as_bytes();
-                    let k = dartforge_frontend::fonte::pular_brancos(d, 0);
-                    dartforge_frontend::fonte::pular_brancos(b, 0) == b.len() && d.get(k) == Some(&b'}') && &after[k + 1..] == quotes
+                    let k = dartforge_frontend::source::skip_whitespace(d, 0);
+                    dartforge_frontend::source::skip_whitespace(b, 0) == b.len() && d.get(k) == Some(&b'}') && &after[k + 1..] == quotes
                 } else {
                     false
                 };

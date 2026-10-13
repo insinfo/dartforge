@@ -56,7 +56,7 @@ enum GroupEffect {
 
 /// One of our tokens seen as `bigSwitch` calls.
 #[derive(Debug, Clone, Copy)]
-struct Passo {
+struct Step {
     /// Whitespace and comment calls before the token.
     trivia: u32,
     /// Calls of the token itself (0 when it continues another one).
@@ -69,8 +69,8 @@ struct Passo {
 
 /// `bigSwitch` calls in the gap between two tokens: each whitespace
 /// character (followed by any further spaces) and each comment.
-fn trivia_calls(texto: &str) -> u32 {
-    let b = texto.as_bytes();
+fn trivia_calls(text: &str) -> u32 {
+    let b = text.as_bytes();
     let mut i = 0;
     let mut n = 0;
     while i < b.len() {
@@ -112,7 +112,7 @@ fn trivia_calls(texto: &str) -> u32 {
     n
 }
 
-fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
+fn steps(source: &str, tokens: &[Token]) -> Vec<Step> {
     let mut output = Vec::with_capacity(tokens.len());
     // The interpolation of the last piece of each open string.
     let mut excerpts: Vec<Interp> = Vec::new();
@@ -122,8 +122,8 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
         let t = tokens[i];
         let trivia = trivia_calls(source.get(previous_end..t.span.start).unwrap_or(""));
         previous_end = t.span.end;
-        let texto = &source[t.span.start..t.span.end];
-        let mut p = Passo { trivia, calls: 1, first: GroupEffect::Nothing, second: GroupEffect::Nothing };
+        let text = &source[t.span.start..t.span.end];
+        let mut p = Step { trivia, calls: 1, first: GroupEffect::Nothing, second: GroupEffect::Nothing };
         match t.kind {
             Kind::StrBegin(_, interp) => {
                 excerpts.push(interp);
@@ -137,16 +137,16 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
                     Kind::StrMid(_, interp) => Some(interp),
                     _ => None,
                 };
-                let abre = if new_ == Some(Interp::Brace) { GroupEffect::Opens(Group::Interpolation) } else { GroupEffect::Nothing };
+                let opener = if new_ == Some(Interp::Brace) { GroupEffect::Opens(Group::Interpolation) } else { GroupEffect::Nothing };
                 if previous == Some(Interp::Brace) {
                     // The `}` and the continuation of the string: two calls.
                     p.first = GroupEffect::Closes(Group::Interpolation);
                     p.calls = 2;
-                    p.second = abre;
+                    p.second = opener;
                 } else {
                     // After `$name`, the same `tokenizeString` call.
                     p.calls = 0;
-                    p.first = abre;
+                    p.first = opener;
                 }
                 if let Some(interp) = new_ {
                     excerpts.push(interp);
@@ -176,7 +176,7 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
                         let glued_equals = tokens[j].glued && tokens.get(j + 1).is_some_and(|n| n.kind == Kind::Op(Op::Assign));
                         let until = if glued_equals { j + 1 } else { j };
                         while j <= until {
-                            output.push(Passo { trivia: 0, calls: 0, first: GroupEffect::Nothing, second: GroupEffect::Nothing });
+                            output.push(Step { trivia: 0, calls: 0, first: GroupEffect::Nothing, second: GroupEffect::Nothing });
                             previous_end = tokens[j].span.end;
                             j += 1;
                         }
@@ -198,7 +198,7 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
                     p.first = if equals_.is_some() { GroupEffect::Nothing } else { GroupEffect::Greater(n as u8) };
                     output.push(p);
                     for k in i + 1..=last {
-                        output.push(Passo { trivia: 0, calls: 0, first: GroupEffect::Nothing, second: GroupEffect::Nothing });
+                        output.push(Step { trivia: 0, calls: 0, first: GroupEffect::Nothing, second: GroupEffect::Nothing });
                         previous_end = tokens[k].span.end;
                     }
                     i = last + 1;
@@ -212,13 +212,13 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
                         } else {
                             GroupEffect::Nothing
                         };
-                        output.push(Passo { trivia: 0, calls: u32::from(!rest.is_empty()), first: effect, second: GroupEffect::Nothing });
+                        output.push(Step { trivia: 0, calls: u32::from(!rest.is_empty()), first: effect, second: GroupEffect::Nothing });
                         previous_end = x.span.end;
                         i += 1;
                     }
                     continue;
                 }
-                _ if texto.starts_with('=') => p.first = GroupEffect::DiscardLt,
+                _ if text.starts_with('=') => p.first = GroupEffect::DiscardLt,
                 _ => {}
             },
             _ => {}
@@ -290,7 +290,7 @@ fn apply_greater(stack: &mut Vec<(Group, usize)>, n: u8) {
 
 /// The `recoveryOptionTokenizer` of an option, from step `since`: the
 /// recoveries counted in at most 101 `bigSwitch` calls.
-fn simular(steps: &[Passo], since: usize, stack: &mut Vec<(Group, usize)>, mut recoveries: usize) -> usize {
+fn simulate(steps: &[Step], since: usize, stack: &mut Vec<(Group, usize)>, mut recoveries: usize) -> usize {
     let mut iterations = 0u32;
     // The last step is the `Eof`, which the loop does not read.
     for p in steps.iter().take(steps.len().saturating_sub(1)).skip(since) {
@@ -353,11 +353,11 @@ fn simulated_effect(effect: GroupEffect, stack: &mut Vec<(Group, usize)>, recove
 #[derive(Debug, Clone, Copy)]
 pub struct SyntheticCloser {
     /// The start of the opener.
-    pub abre: usize,
+    pub opener: usize,
     /// Where the closer is (the `SyntheticToken`'s `charOffset`).
-    pub em: usize,
+    pub at: usize,
     /// The index of its error among the returned errors.
-    pub erro: usize,
+    pub error: usize,
 }
 
 /// The tokens with the synthetic closers inserted, the scanner errors and
@@ -370,12 +370,12 @@ pub fn group_tokens(source: &str, tokens: Vec<Token>) -> (Vec<Token>, Vec<Diagno
     let mut insertions: Vec<(usize, Token)> = Vec::new();
     let mut errors = Vec::new();
     let mut closers: Vec<SyntheticCloser> = Vec::new();
-    let synthetic = |op: Op, em: usize| Token { kind: Kind::Op(op), span: Span { start: em, end: em }, glued: false };
-    let unmatched = |g: Group, opener: usize, em: usize, before: usize, insertions: &mut Vec<(usize, Token)>, errors: &mut Vec<Diagnostic>, closers: &mut Vec<SyntheticCloser>| {
-        let (op, texto) = g.closer();
-        insertions.push((before, synthetic(op, em)));
-        closers.push(SyntheticCloser { abre: tokens[opener].span.start, em, erro: errors.len() });
-        errors.push(Diagnostic::with_code(codes::scanner::EXPECTED_TOKEN, Span { start: em, end: em + 1 }, [texto]));
+    let synthetic = |op: Op, at: usize| Token { kind: Kind::Op(op), span: Span { start: at, end: at }, glued: false };
+    let unmatched = |g: Group, opener: usize, at: usize, before: usize, insertions: &mut Vec<(usize, Token)>, errors: &mut Vec<Diagnostic>, closers: &mut Vec<SyntheticCloser>| {
+        let (op, text) = g.closer();
+        insertions.push((before, synthetic(op, at)));
+        closers.push(SyntheticCloser { opener: tokens[opener].span.start, at, error: errors.len() });
+        errors.push(Diagnostic::with_code(codes::scanner::EXPECTED_TOKEN, Span { start: at, end: at + 1 }, [text]));
     };
     for (i, (t, p)) in tokens.iter().zip(&steps).enumerate() {
         if t.kind == Kind::Eof {
@@ -412,12 +412,12 @@ pub fn group_tokens(source: &str, tokens: Vec<Token>) -> (Vec<Token>, Vec<Diagno
                             let option1 = {
                                 let mut s = stack.clone();
                                 s.pop();
-                                let r = simular(&steps, i + 1, &mut s, original.len() - h);
+                                let r = simulate(&steps, i + 1, &mut s, original.len() - h);
                                 r + s.len()
                             };
                             let option2 = {
                                 let mut s = original.clone();
-                                let r = simular(&steps, i + 1, &mut s, 0);
+                                let r = simulate(&steps, i + 1, &mut s, 0);
                                 r + s.len() + 1
                             };
                             let interpolation_closer = g == Group::Interpolation;

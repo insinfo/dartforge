@@ -439,7 +439,7 @@ pub fn check(program: &Program, lib: LibraryId, names: &Interner, bounds: &Simpl
     // `generic-metadata` (2.14): before it, a generic function type as a
     // written type argument is `GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT`
     // (`type_arguments_verifier.dart:300-310`), on the argument.
-    let without_generic_metadata = program.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 14);
+    let without_generic_metadata = program.library(lib).features.version() < dartforge_frontend::features::LanguageVersion::new(2, 14);
     for &u in &program.library(lib).units {
         let a = &program.unit(u).ast;
         if without_generic_metadata {

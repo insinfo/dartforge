@@ -41,7 +41,7 @@ impl TestHarness {
             dono_do_grupo: Default::default(),
             escopos_de_unidade: HashMap::new(),
             is_sdk: true,
-            features: dartforge_frontend::LibraryFeatures::piso(),
+            features: dartforge_frontend::LibraryFeatures::floor(),
         };
 
         // Register fundamental classes in the program
@@ -128,7 +128,7 @@ impl TestHarness {
             dono_do_grupo: Default::default(),
             escopos_de_unidade: HashMap::new(),
             is_sdk: true,
-            features: dartforge_frontend::LibraryFeatures::piso(),
+            features: dartforge_frontend::LibraryFeatures::floor(),
         };
 
         let fut_cid = ClassId(program.classes.len() as u32);

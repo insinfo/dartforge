@@ -859,9 +859,9 @@ impl Context<'_> {
         }
         let Some(x) = self.node_expr(n) else { return false };
         let u = self.p.program().unit(self.unit);
-        let before_3 = self.p.program().library(u.library).features.versao().major < 3;
-        let parents = dartforge_frontend::pais::Pais::novo(self.ast, &u.unit, self.source, before_3);
-        parents.em_contexto_constante(self.ast, x)
+        let before_3 = self.p.program().library(u.library).features.version().major < 3;
+        let parents = dartforge_frontend::parents::Parents::new(self.ast, &u.unit, self.source, before_3);
+        parents.in_constant_context(self.ast, x)
     }
 
     /// `_declarationKeywordAndType`.

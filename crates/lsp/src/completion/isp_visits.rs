@@ -1113,7 +1113,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let p = &self.query.program;
         let widget = matches!(p.function(f).kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) && p.function(f).class.is_some_and(|c| self.is_widget(c));
         let declared: Vec<(UnitId, &ast::Parameter)> = match self.parameters_ast(f) {
-            Some((u, ps)) => ps.iter().filter(|x| x.nome_externo().is_some()).map(|x| (u, x)).collect(),
+            Some((u, ps)) => ps.iter().filter(|x| x.external_name().is_some()).map(|x| (u, x)).collect(),
             None => Vec::new(),
         };
         for (i, x) in v.iter_mut().enumerate() {
@@ -1134,7 +1134,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let mut k = 0usize;
         for x in v.iter_mut() {
             if x.named {
-                if let Some(prm) = ps.iter().find(|q| q.kind == ast::ParameterKind::Named && q.nome_externo().is_some_and(|n| self.query.name(n.sym) == x.name)) {
+                if let Some(prm) = ps.iter().find(|q| q.kind == ast::ParameterKind::Named && q.external_name().is_some_and(|n| self.query.name(n.sym) == x.name)) {
                     x.type_names = self.written_type_names(u, prm);
                     x.annotated_required = prm.metadata.iter().any(|m| m.arguments.is_none() && m.name.last().is_some_and(|n| self.query.name(n.sym) == "required"));
                 }
@@ -1255,7 +1255,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             .flat_map(|d| d.metadata.iter())
             .chain(self.a.members.iter().flat_map(|m| m.metadata.iter()))
             .chain(self.cu.directives.iter().flat_map(|d| d.metadata.iter()))
-            .chain(self.a.metadados_locais.iter().flat_map(|(_, m)| m.iter()))
+            .chain(self.a.local_metadata.iter().flat_map(|(_, m)| m.iter()))
             .chain(self.a.functions.iter().flat_map(|f| f.parameters.iter().flatten()).flat_map(|p| p.metadata.iter()))
             .chain(self.a.members.iter().flat_map(|m| match &m.kind {
                 ast::MemberKind::Constructor(k) => k.parameters.iter().flat_map(|p| p.metadata.iter()).collect::<Vec<_>>(),

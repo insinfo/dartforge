@@ -34,7 +34,7 @@ pub struct SdkLayout {
     /// marker and outside a package, and the ceiling of the markers
     /// (`docs/VERSOES-LINGUAGEM.md`, D2). Default 3.13; the CLI changes it with
     /// `--version-linguagem`. The `dart:*` libraries always stay at the floor
-    /// ([`LanguageVersion::PISO`]), because they are those of SDK 3.6.2 (D1).
+    /// ([`LanguageVersion::FLOOR`]), because they are those of SDK 3.6.2 (D1).
     pub versao_corrente: LanguageVersion,
     /// `--enable-experiment=…`: they only apply to libraries without a marker
     /// whose default version is the current one.
@@ -66,11 +66,11 @@ impl Linguagem {
                 None => rest.next().ok_or("--versao-linguagem requires x.y")?.to_string(),
             };
             let v = LanguageVersion::parse(&value).ok_or_else(|| format!("--versao-linguagem: '{value}' is not x.y"))?;
-            if v > LanguageVersion::ATUAL || v < LanguageVersion::MINIMA {
+            if v > LanguageVersion::CURRENT || v < LanguageVersion::MINIMUM {
                 return Err(format!(
                     "--versao-linguagem {v}: outside the supported range ({} to {})",
-                    LanguageVersion::MINIMA,
-                    LanguageVersion::ATUAL
+                    LanguageVersion::MINIMUM,
+                    LanguageVersion::CURRENT
                 ));
             }
             self.versao_corrente = Some(v);
@@ -82,7 +82,7 @@ impl Linguagem {
                 None => rest.next().ok_or("--enable-experiment requires names")?.to_string(),
             };
             for name_ in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
-                let f = Feature::do_nome(name_).ok_or_else(|| format!("--enable-experiment: unknown experiment '{name_}'"))?;
+                let f = Feature::from_name(name_).ok_or_else(|| format!("--enable-experiment: unknown experiment '{name_}'"))?;
                 if !self.experimentos.contains(&f) {
                     self.experimentos.push(f);
                 }
@@ -127,7 +127,7 @@ impl SdkLayout {
         Ok(SdkLayout {
             root: lib_dir.to_path_buf(),
             libraries,
-            versao_corrente: LanguageVersion::ATUAL,
+            versao_corrente: LanguageVersion::CURRENT,
             experimentos: Vec::new(),
             substituicoes: HashMap::new(),
         })
@@ -198,7 +198,7 @@ impl SdkLayout {
         Ok(SdkLayout {
             root: lib_dir.to_path_buf(),
             libraries,
-            versao_corrente: LanguageVersion::ATUAL,
+            versao_corrente: LanguageVersion::CURRENT,
             experimentos: Vec::new(),
             substituicoes: HashMap::new(),
         })

@@ -11,7 +11,7 @@ use crate::utf16::LineTable;
 
 pub(super) fn for_document(text: &str, features: LibraryFeatures) -> Vec<Value> {
     let mut names = Interner::new();
-    let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+    let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
     let lines = LineTable::build(text);
     let mut output = Vec::new();
     // The `group`/`test` symbols: only in a unit that imports a `…test.dart`

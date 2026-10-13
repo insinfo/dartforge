@@ -279,7 +279,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
 
     // `comment_references`.
     if enabled("comment_references") {
-        let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+        let comments = dartforge_frontend::comments::Comments::scan(source);
         // The owners: directives, top-level declarations, members, constants.
         let mut owners: Vec<DocOwner<'_>> = Vec::new();
         for d in &u.unit.directives {
@@ -348,7 +348,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         let mut seen: HashSet<usize> = HashSet::new();
         for owner in &owners {
             let after = match owner.metadata.last() {
-                Some(m) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), m.span.end),
+                Some(m) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end),
                 None => owner.start,
             };
             let Some(doc_start) = comments.dart_doc(source, after).or_else(|| owner.metadata.iter().rev().find_map(|m| comments.dart_doc(source, m.span.start))) else {
@@ -359,7 +359,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             }
             // The `Comment`'s tokens.
             let parent = if comments.dart_doc(source, after) == Some(doc_start) { after } else { owner.metadata.iter().rev().find(|m| comments.dart_doc(source, m.span.start) == Some(doc_start)).map_or(after, |m| m.span.start) };
-            let chain: Vec<Span> = comments.antes_de(source, parent).into_iter().filter(|x| x.start >= doc_start.start).collect();
+            let chain: Vec<Span> = comments.before(source, parent).into_iter().filter(|x| x.start >= doc_start.start).collect();
             let mut tokens = vec![doc_start];
             if source[doc_start.start..doc_start.end].starts_with("///") {
                 tokens.extend(chain.iter().skip(1).filter(|x| source[x.start..x.end].starts_with("///")).copied());

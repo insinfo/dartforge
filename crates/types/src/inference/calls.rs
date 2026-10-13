@@ -586,8 +586,8 @@ pub(crate) fn invoke(
             }
         }
     }
-    let use_bounds = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::InferenceUsingBounds);
-    gi.generic_metadata = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
+    let use_bounds = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::InferenceUsingBounds);
+    gi.generic_metadata = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::GenericMetadata);
     let (interner, program) = (inf.interner, inf.program);
     let mut env = inf.env();
     if use_bounds {
@@ -924,7 +924,7 @@ fn resolved_function(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> Option<Fun
 /// whole override.
 fn override_without_access(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) {
     let valid = match inf.parent_of(cx.unit, e) {
-        dartforge_frontend::pais::Pai::Expr(p) => match &inf.program.unit(cx.unit).ast.expr(p).kind {
+        dartforge_frontend::parents::Parent::Expr(p) => match &inf.program.unit(cx.unit).ast.expr(p).kind {
             ExprKind::Binary { left, .. } => *left == e,
             ExprKind::Call { target, .. } | ExprKind::Index { target, .. } | ExprKind::Property { target, .. } | ExprKind::Cascade { target, .. } => *target == e,
             ExprKind::Unary { op, operand } => {
@@ -972,10 +972,10 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
     let span = a.expr(e).span;
     let explicit = type_arguments(inf, cx, args);
     // `C<T>.the_name(…)` is a creation only when fasta reads it as an implicit
-    // creation (`criacoes_implicitas`); with type arguments after the name
+    // creation (`implicit_creations`); with type arguments after the name
     // (`C<T>.the_name<U>()`) it is a method of the type literal, which
     // `AstRewriter` does not rewrite.
-    let the_implicit = a.criacoes_implicitas.contains(&e);
+    let the_implicit = a.implicit_creations.contains(&e);
     let over_instantiation = matches!(&a.expr(target).kind, ExprKind::Property { target: r, .. } if matches!(a.expr(*r).kind, ExprKind::TypeArguments { .. }));
     let ctor = if over_instantiation && !the_implicit { None } else { target_constructor(inf, cx, target) };
     if the_implicit && let ExprKind::Property { target: recv, .. } = &a.expr(target).kind {
@@ -1337,8 +1337,8 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 };
                 let mut gi = GenericInferrer::new(&new_);
                 gi.with_origin(crate::constraints::Origin::Argument { parametro: "extendedType".to_string(), declarado: on_novo, argumento: t, prefixo: None });
-                let use_bounds = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::InferenceUsingBounds);
-                gi.generic_metadata = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
+                let use_bounds = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::InferenceUsingBounds);
+                gi.generic_metadata = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::GenericMetadata);
                 let (interner, program) = (inf.interner, inf.program);
                 let mut env = inf.env();
                 gi.constrain_argument(t, on_novo, &mut env);
@@ -1372,7 +1372,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 // An override that is the target of `?.`/`?[`/`?..` (`isNullAware`):
                 // the checked argument type is the non-nullable one.
                 let null_aware = match inf.parent_of(cx.unit, e) {
-                    dartforge_frontend::pais::Pai::Expr(parent) => match &inf.program.unit(cx.unit).ast.expr(parent).kind {
+                    dartforge_frontend::parents::Parent::Expr(parent) => match &inf.program.unit(cx.unit).ast.expr(parent).kind {
                         ExprKind::Property { target: tgt, null_aware: true, .. }
                         | ExprKind::Index { target: tgt, null_aware: true, .. }
                         | ExprKind::Cascade { target: tgt, null_aware: true, .. } => *tgt == e,
@@ -1763,7 +1763,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             // `assert(…)` as an expression: a `FunctionExpressionInvocation` of the
             // identifier `assert`, read as a name (`UNDEFINED_IDENTIFIER`) and
             // invoked as a value.
-            let of_assert = a.invocacoes_de_assert.contains(&e);
+            let of_assert = a.assert_invocations.contains(&e);
             // `the_name(args)` without a getter in the lexical scope: the error is the
             // invocation's (`UNDEFINED_FUNCTION`/`UNDEFINED_METHOD`…), not the
             // undefined name's (see `expr::undefined_targetless_invocation`).

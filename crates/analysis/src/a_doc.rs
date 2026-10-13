@@ -289,7 +289,7 @@ fn doc_import(contents: &str, base: usize, index: usize) -> Option<DocImport> {
 pub fn library_doc_imports(u: Unidade<'_>) -> Vec<DocImport> {
     let Some(d) = u.unit.directives.iter().find(|d| matches!(d.kind, dartforge_frontend::ast::DirectiveKind::Library { .. })) else { return Vec::new() };
     let source = u.fonte;
-    let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+    let comments = dartforge_frontend::comments::Comments::scan(source);
     let before = d.metadata.first().map_or(d.span.start, |m| m.span.start.min(d.span.start));
     let Some(doc) = comments.dart_doc(source, before) else { return Vec::new() };
     let mut out = Vec::new();

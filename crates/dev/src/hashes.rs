@@ -76,7 +76,7 @@ pub fn library_hashes(program: &Program, lib: LibraryId) -> LibraryHashes {
     // shorthands, primary constructors) and can change without touching the
     // source, through the `package_config`'s `languageVersion`: it enters
     // both hashes.
-    let version = program.library(lib).features.versao();
+    let version = program.library(lib).features.version();
     for h in [&mut content, &mut api] {
         h.num(u64::from(version.major) << 16 | u64::from(version.minor));
         h.sep();

@@ -521,7 +521,7 @@ fn check_params(rel: &mut Reporter<'_>, ps: &[Parameter], wildcard: bool) {
                 // `getDiagnostic` (3.13, `duplicate_definition_verifier.dart:442-451`
                 // of the main checkout): only two syntactic `FieldFormalParameter`s;
                 // the declaring one is a `SimpleFormalParameter`.
-                let e = Elem { field_formal: p.this_ && !p.declarante, ..OTHER };
+                let e = Elem { field_formal: p.this_ && !p.declaring, ..OTHER };
                 rel.check(&mut scope, None, &name, n.span, e);
             }
         }
@@ -714,7 +714,7 @@ fn members(rel: &mut Reporter<'_>, ast: &Ast, ctx: &mut DeclContext) {
     for &m in &ctx.members {
         match &ast.member(m).kind {
             MemberKind::Constructor(k) => {
-                if k.parte_primaria || ctx.name.as_deref() != Some(rel.name(k.class_name).as_str()) {
+                if k.primary_body_part || ctx.name.as_deref() != Some(rel.name(k.class_name).as_str()) {
                     continue;
                 }
                 let mut name = k.name.map(|n| rel.name(n)).unwrap_or_default();

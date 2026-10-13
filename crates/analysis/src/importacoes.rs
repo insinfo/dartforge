@@ -504,7 +504,7 @@ fn unit_lookups(
         }
     }
     // The annotation names.
-    for m in dartforge_frontend::pais::todas_as_anotacoes(a, &unit.unit) {
+    for m in dartforge_frontend::parents::all_annotations(a, &unit.unit) {
         match &m.name[..] {
             [p, n, ..] if is_prefix(a, m.span.start, p.sym) => f(Lookup::Prefixed(p.sym, n.sym)),
             [n, ..] => {
@@ -523,7 +523,7 @@ fn unit_lookups(
     }
     // The references of documentation comments, in the scope of the
     // documented declaration.
-    let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+    let comments = dartforge_frontend::comments::Comments::scan(source);
     for (doc, pos, extras) in doc_comments(a, &unit.unit, source, &comments) {
         for parts in doc_references(&source[doc.start..doc.end]) {
             let simbolos: Vec<Option<SymbolId>> = parts.iter().map(|x| interner.lookup(x)).collect();
@@ -978,13 +978,13 @@ fn doc_comments(
     a: &dartforge_frontend::ast::Ast,
     unit: &dartforge_frontend::ast::CompilationUnit,
     source: &str,
-    comments: &dartforge_frontend::comentarios::Comentarios,
+    comments: &dartforge_frontend::comments::Comments,
 ) -> Vec<(dartforge_diagnostics::Span, usize, Vec<SymbolId>)> {
     use dartforge_frontend::ast::{Annotation, DeclKind, MemberKind, Parameter, TypedefKind};
     // `_findComment(metadata, tokenAfterMetadata)`.
     let doc = |metadata: &[Annotation], start: usize| {
         let after = match metadata.last() {
-            Some(m) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), m.span.end),
+            Some(m) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end),
             None => start,
         };
         comments.dart_doc(source, after).or_else(|| metadata.iter().rev().find_map(|m| comments.dart_doc(source, m.span.start)))
@@ -994,7 +994,7 @@ fn doc_comments(
     let whole = |d: dartforge_diagnostics::Span| {
         if source[d.start..d.end].starts_with("///") {
             let mut end = d.end;
-            for c in comments.todos().iter().filter(|c| c.start > d.start) {
+            for c in comments.all().iter().filter(|c| c.start > d.start) {
                 let between = &source[end..c.start];
                 if !between.trim().is_empty() || !source[c.start..c.end].starts_with("///") || between.matches('\n').count() > 1 {
                     break;

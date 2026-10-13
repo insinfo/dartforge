@@ -12,14 +12,14 @@
 
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast;
-use dartforge_frontend::comentarios::Comentarios;
+use dartforge_frontend::comments::Comments;
 use std::path::{Path, PathBuf};
 
 /// The links of `text` (the file `path`): the snippet and the target file.
 pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
     let mut names = dartforge_intern::Interner::new();
-    let p = dartforge_frontend::parser::parse_com(text, &mut names, dartforge_frontend::LibraryFeatures::default());
-    let comments = Comentarios::de(text);
+    let p = dartforge_frontend::parser::parse_with(text, &mut names, dartforge_frontend::LibraryFeatures::default());
+    let comments = Comments::scan(text);
     let mut docs: Vec<Span> = Vec::new();
     let mut doc_of = |start: usize| {
         if let Some(s) = documentation_comment(&comments, text, start)
@@ -103,13 +103,13 @@ pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
 /// The documentation `Comment` of the node that starts at `start`
 /// (`findDartDoc`): the last `/**`, or from the first to the last line of the
 /// last `///` sequence.
-fn documentation_comment(c: &Comentarios, text: &str, start: usize) -> Option<Span> {
+fn documentation_comment(c: &Comments, text: &str, start: usize) -> Option<Span> {
     let doc = c.dart_doc(text, start)?;
     if !text[doc.start..doc.end].starts_with("///") {
         return Some(doc);
     }
     let end = c
-        .antes_de(text, start)
+        .before(text, start)
         .into_iter()
         .filter(|s| s.start >= doc.start && text[s.start..s.end].starts_with("///"))
         .map(|s| s.end)

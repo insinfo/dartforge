@@ -48,7 +48,7 @@ use dartforge_elements::model::{
     VariableRef,
 };
 use dartforge_frontend::ast::{self, CollectionElement, DeclKind, DirectiveKind, ExprId, ExprKind, MemberKind, ParameterKind, StmtKind, TypeKind};
-use dartforge_frontend::pais::{Pai, Pais};
+use dartforge_frontend::parents::{Parent, Parents};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
@@ -195,7 +195,7 @@ struct V<'a> {
     t: Table<'a>,
     out: Vec<Diagnostic>,
     cascades: HashMap<ExprId, ExprId>,
-    pais: Pais,
+    pais: Parents,
     indices: Option<Indices>,
     /// The spans of the index expressions (`visitIndexExpression` does not visit
     /// the children).
@@ -353,8 +353,8 @@ impl<'a> V<'a> {
     }
 
     fn parent(&self, e: ExprId) -> Option<ExprId> {
-        match self.pais.pai(e) {
-            Pai::Expr(p) => Some(p),
+        match self.pais.parent(e) {
+            Parent::Expr(p) => Some(p),
             _ => None,
         }
     }
@@ -1307,7 +1307,7 @@ impl<'a> V<'a> {
         // The local functions (`FunctionDeclarationStatement`).
         for (si, s) in a.stmts.iter().enumerate() {
             let StmtKind::Function(fid) = &s.kind else { continue };
-            let Some((_, metadata)) = a.metadados_locais.iter().find(|(id, _)| id.0 as usize == si) else { continue };
+            let Some((_, metadata)) = a.local_metadata.iter().find(|(id, _)| id.0 as usize == si) else { continue };
             let f = a.function(*fid);
             let Some(n) = f.name else { continue };
             if self.inside_index(f.span) {
@@ -1570,7 +1570,7 @@ impl<'a> V<'a> {
         let type_span = self.a.ty(ty).span;
         let Some(declared) = self.written_type(ty) else { return };
         let (tree, source, interner) = (self.a, self.source, self.interner);
-        let type_source = move || dartforge_frontend::fonte::de_tipo(tree, source, interner, ty);
+        let type_source = move || dartforge_frontend::source::from_type(tree, source, interner, ty);
         if self.table_ref().get(declared).is_declared_nullable() {
             let text = type_source();
             self.report(cf::INVALID_FIELD_TYPE_IN_STRUCT, type_span, &[Arg::from(text)]);

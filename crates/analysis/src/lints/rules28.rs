@@ -24,7 +24,7 @@ use crate::Unidade;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::ClassId;
 use dartforge_frontend::ast::{self, Annotation, DeclId, DeclKind, FunctionKind, MemberId, MemberKind};
-use dartforge_frontend::comentarios::Comentarios;
+use dartforge_frontend::comments::Comments;
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashMap;
 
@@ -46,7 +46,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     if !file.starts_with(root.join("lib")) {
         return out;
     }
-    let comments = Comentarios::de(source);
+    let comments = Comments::scan(source);
     let is_private = |n: SymbolId| interner.resolve(n).starts_with('_');
     let is_internal = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
     let is_documented = |metadata: &[Annotation], pos: usize| doc_for(source, &comments, metadata, pos).is_some();

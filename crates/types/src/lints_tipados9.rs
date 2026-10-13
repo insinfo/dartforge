@@ -123,8 +123,8 @@ impl<'p> Cx<'_, 'p> {
         let g = *program.class(sup).constructors.get(&key)?;
         let (gu, gps) = parameters_of(program, g)?;
         let tgt = if q.p.kind == ParameterKind::Named {
-            let n = q.p.nome_externo()?.sym;
-            gps.iter().position(|x| x.kind == ParameterKind::Named && x.nome_externo().is_some_and(|m| m.sym == n))?
+            let n = q.p.external_name()?.sym;
+            gps.iter().position(|x| x.kind == ParameterKind::Named && x.external_name().is_some_and(|m| m.sym == n))?
         } else {
             let i = k.parameters.iter().filter(|x| x.super_ && x.kind != ParameterKind::Named).position(|x| std::ptr::eq(x, q.p))?;
             let positional: Vec<usize> = gps.iter().enumerate().filter(|(_, x)| x.kind != ParameterKind::Named).map(|(j, _)| j).collect();
@@ -137,7 +137,7 @@ impl<'p> Cx<'_, 'p> {
     /// (the whole `NamedExpression` on the redirecting factory path, which does
     /// not unwrap it).
     #[allow(clippy::too_many_arguments)]
-    fn check(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, value: ExprId, param: Option<Param<'p>>, report: Option<dartforge_diagnostics::Span>, out: &mut Vec<Finding>) {
+    fn check(&mut self, u: UnitId, pais: &dartforge_frontend::parents::Parents, value: ExprId, param: Option<Param<'p>>, report: Option<dartforge_diagnostics::Span>, out: &mut Vec<Finding>) {
         let Some(q) = param else { return };
         if q.p.kind != ParameterKind::Optional && q.p.kind != ParameterKind::Named {
             return;
@@ -151,7 +151,7 @@ impl<'p> Cx<'_, 'p> {
         }
         let a = &self.program.unit(u).ast;
         let cx = Ctx::simples(u, self.lib(u));
-        let in_const = pais.em_contexto_constante(a, value);
+        let in_const = pais.in_constant_context(a, value);
         let Constante::Valor(v) = self.engine.avaliar(&cx, value, in_const) else { return };
         if v.estado.unknown() {
             return;
@@ -162,12 +162,12 @@ impl<'p> Cx<'_, 'p> {
     }
 
     /// `check`: the `staticParameterElement` of each argument.
-    fn list(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, args: &ast::Arguments, tgt: Option<(Option<FunctionElementId>, UnitId, &'p [ast::Parameter])>, out: &mut Vec<Finding>) {
+    fn list(&mut self, u: UnitId, pais: &dartforge_frontend::parents::Parents, args: &ast::Arguments, tgt: Option<(Option<FunctionElementId>, UnitId, &'p [ast::Parameter])>, out: &mut Vec<Finding>) {
         for i in (0..args.args.len()).rev() {
             let x = args.args[i];
             let param = tgt.and_then(|(owner, pu, ps)| {
                 let index = match x.name {
-                    Some(n) => ps.iter().position(|p| p.kind == ParameterKind::Named && p.nome_externo().is_some_and(|m| m.sym == n.sym)),
+                    Some(n) => ps.iter().position(|p| p.kind == ParameterKind::Named && p.external_name().is_some_and(|m| m.sym == n.sym)),
                     None => {
                         let k = args.args[..i].iter().filter(|y| y.name.is_none()).count();
                         ps.iter().enumerate().filter(|(_, p)| p.kind != ParameterKind::Named).nth(k).map(|(j, _)| j)
@@ -183,7 +183,7 @@ impl<'p> Cx<'_, 'p> {
     }
 
     /// `visitInstanceCreationExpression`.
-    fn creation(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, args: &ast::Arguments, ctor: Option<FunctionElementId>, out: &mut Vec<Finding>) {
+    fn creation(&mut self, u: UnitId, pais: &dartforge_frontend::parents::Parents, args: &ast::Arguments, ctor: Option<FunctionElementId>, out: &mut Vec<Finding>) {
         let Some(k) = ctor else {
             self.list(u, pais, args, None, out);
             return;
@@ -246,8 +246,8 @@ pub fn achados(
     let unit_id = program.unit(u);
     let a = &unit_id.ast;
     let body = &bodies.units[u.0 as usize];
-    let before_3 = program.library(unit_id.library).features.versao().major < 3;
-    let pais = dartforge_frontend::pais::Pais::novo(a, &unit_id.unit, unit_id.source.as_str(), before_3);
+    let before_3 = program.library(unit_id.library).features.version().major < 3;
+    let pais = dartforge_frontend::parents::Parents::new(a, &unit_id.unit, unit_id.source.as_str(), before_3);
     let engine = Motor::novo(program, interner, table, core, outline, bodies, the_inferred);
     let mut cx = Cx { program, interner, core, outline, engine };
     // The local function declared at `d` (the name's offset).
