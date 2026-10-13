@@ -557,7 +557,7 @@ pub(crate) fn constructor_text(ctx: &Ctx, m: &ModState, c: ClassId, unit: dartfo
     let (mut e, mut ps, rep) = member_emitter(ctx, m, c, unit);
     let name = constructor_js_name(ctor.name.map(|n| ctx.name(n.sym)).unwrap_or(""));
     let sig = ctx.fn_ty(fid);
-    let (pjs, prologue, names) = e.declare_params_nomes(&ctor.parameters, Some(&sig));
+    let (pjs, prologue, names) = e.declare_params_with_names(&ctor.parameters, Some(&sig));
     if !pjs.is_empty() {
         ps.push(pjs);
     }

@@ -1,4 +1,4 @@
-//! Emissor de corpos: escopos, tipos locais, ambiente rti e statements.
+//! Body emitter: scopes, local types, rti environment and statements.
 
 use crate::ctx::{Ctx, Member, MemberKind};
 use crate::js::{self, Js, Writer, P_ASSIGN, P_COND, P_UNARY};
@@ -9,16 +9,16 @@ use dartforge_frontend::ast::{self, Ast, ExprId, FunctionBody, StmtId, StmtKind}
 use dartforge_intern::SymbolId;
 use std::collections::HashMap;
 
-/// Variável local em escopo.
+/// Local variable in scope.
 #[derive(Clone, Debug)]
 pub struct Local {
     pub js: String,
     pub ty: Ty,
-    /// `late x = init`: inicializador avaliado na primeira leitura.
+    /// `late x = init`: initializer evaluated on the first read.
     pub lazy_init: Option<String>,
-    /// `late x;` não anulável: leitura verifica inicialização.
+    /// Non-nullable `late x;`: a read checks initialization.
     pub late_check: bool,
-    /// `late final x;`: só uma atribuição.
+    /// `late final x;`: a single assignment only.
     pub late_final: bool,
 }
 
@@ -30,7 +30,7 @@ pub enum AsyncKind {
     SyncStar,
 }
 
-/// Estado salvo ao entrar num corpo de função aninhado.
+/// State saved on entering a nested function body.
 pub struct SavedFn {
     temps: Vec<String>,
     temp_counter: u32,
@@ -52,7 +52,7 @@ pub struct FnEmitter<'m, 'a> {
     pub class: Option<ClassId>,
     pub is_static: bool,
     pub scopes: Vec<HashMap<SymbolId, Local>>,
-    /// Parâmetros de tipo de função em escopo (mais interno primeiro): (id, nome JS).
+    /// Function type parameters in scope (innermost first): (id, JS name).
     pub fn_type_params: Vec<(u32, String)>,
     pub temps: Vec<String>,
     pub temp_counter: u32,
@@ -61,13 +61,13 @@ pub struct FnEmitter<'m, 'a> {
     pub returns: Vec<Ty>,
     pub w: Writer,
     pub label_counter: u32,
-    /// Pilha de alvos de cascata: (js, tipo).
+    /// Stack of cascade targets: (js, type).
     pub cascade: Vec<(String, Ty)>,
-    /// Rótulos JS de `switch` para `continue` interno etc.
+    /// JS labels of `switch` for an inner `continue` etc.
     pub switch_labels: Vec<Option<String>>,
-    /// Rótulos Dart → JS.
+    /// Dart → JS labels.
     pub labels: Vec<(String, String)>,
-    /// Em modo assinatura (`_ti` como ambiente de classe).
+    /// In signature mode (`_ti` as the class environment).
     pub sig_mode: bool,
     pub unique: u32,
     pub in_constructor: bool,
@@ -75,55 +75,55 @@ pub struct FnEmitter<'m, 'a> {
     pub is_closure_body: bool,
     pub rethrow_var: Vec<String>,
     pub pending_promotions: Vec<(SymbolId, Ty)>,
-    /// Promoções válidas quando a condição é falsa (`x is! T`).
+    /// Promotions valid when the condition is false (`x is! T`).
     pub negated_promotions: Vec<(SymbolId, Ty)>,
     pub pending_prefix: Vec<String>,
     pub extension_this: Option<Ty>,
     pub current_extension: Option<dartforge_elements::model::ExtensionId>,
-    /// Tipo de extensão (apagado, não de interop) dono do membro em emissão:
-    /// os estáticos dele são alcançados sem qualificação (`crate::tipo_extensao`).
+    /// Extension type (erased, not interop) that owns the member being emitted:
+    /// its statics are reachable without qualification (`crate::tipo_extensao`).
     pub tipo_extensao: Option<ClassId>,
-    /// Extensão aplicada explicitamente (`Ext(x).m`), consumida no próximo acesso.
+    /// Explicitly applied extension (`Ext(x).m`), consumed by the next access.
     pub forced_ext: Option<dartforge_elements::model::ExtensionId>,
-    /// Padrão de atribuição: variáveis já existem.
+    /// Assignment pattern: the variables already exist.
     pub pattern_assign: bool,
-    /// Dentro de uma expressão constante (instanciações implícitas viram `dart.const`).
+    /// Inside a constant expression (implicit instantiations become `dart.const`).
     pub in_const: bool,
-    /// Argumentos de uma chamada de interop JS: funções passam por
-    /// `dart.assertInterop` (salvo `allowInterop(...)` direto).
+    /// Arguments of a JS interop call: functions go through
+    /// `dart.assertInterop` (except a direct `allowInterop(...)`).
     pub interop_args: bool,
-    /// Rótulos de `case` alcançáveis por `continue`: (nome Dart, rótulo JS do laço, valor da variável de estado).
+    /// `case` labels reachable by `continue`: (Dart name, JS label of the loop, value of the state variable).
     pub case_labels: Vec<(String, String, String)>,
-    /// O símbolo `_` quando a biblioteca tem curingas (Dart 3.7): local,
-    /// parâmetro e parâmetro de tipo com esse nome não ligam nome.
-    pub curinga: Option<SymbolId>,
-    /// Nome JS dos parâmetros `this._`/`super._` curinga, pelo início do
-    /// nome na fonte: o construtor ainda os usa para inicializar o campo e
-    /// encaminhar ao super.
-    pub parametros_curinga: HashMap<usize, String>,
-    /// A biblioteca tem atalhos de ponto (Dart 3.10).
+    /// The `_` symbol when the library has wildcards (Dart 3.7): a local,
+    /// parameter or type parameter with that name does not bind a name.
+    pub wildcard: Option<SymbolId>,
+    /// JS name of the wildcard `this._`/`super._` parameters, keyed by the start
+    /// of the name in the source: the constructor still uses them to initialize
+    /// the field and to forward to the super constructor.
+    pub wildcard_params: HashMap<usize, String>,
+    /// The library has dot shorthands (Dart 3.10).
     pub atalhos: bool,
-    /// Contexto (*shorthand context*) de cada atalho de ponto na raiz de uma
-    /// cadeia de seletores em emissão: registrado pelo nó mais externo da
-    /// cadeia, e desfeito quando ele termina.
+    /// Context (*shorthand context*) of each dot shorthand at the root of a
+    /// selector chain being emitted: registered by the outermost node of the
+    /// chain, and undone when it finishes.
     pub contextos_atalho: HashMap<ExprId, Option<Ty>>,
-    /// Profundidade de emissão especulativa (`type_of`): erros de linguagem
-    /// só contam fora dela.
+    /// Depth of speculative emission (`type_of`): language errors count only
+    /// outside it.
     pub especulando: u32,
-    /// Parâmetros de tipo de funções genéricas locais em escopo, da
-    /// `TypeTable` (os que a inferência comum usa) para o `Ty::Param` de id
-    /// próprio que o emissor criou ([`Ctx::fresh_param`]): traduz os tipos
-    /// comuns que os mencionam ([`FnEmitter::ty_comum_em_escopo`]).
+    /// Type parameters of local generic functions in scope, from the `TypeTable`
+    /// (the ones the shared inference uses) to the `Ty::Param` with its own id
+    /// that the emitter created ([`Ctx::fresh_param`]): translates the shared
+    /// types that mention them ([`FnEmitter::ty_comum_em_escopo`]).
     pub params_comuns: HashMap<u32, Ty>,
-    /// Emitindo argumento de `JS()` no modo SDK (`crate::sdk_proprio`): literal
-    /// de tipo sai como rti crua e *tearoff* estático sai sem `dart.fn`.
+    /// Emitting an argument of `JS()` in SDK mode (`crate::sdk_proprio`): a type
+    /// literal comes out as a raw rti and a static *tear-off* without `dart.fn`.
     pub em_js_estrangeiro: bool,
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
-    /// `var (a, b) = e;` / `final [x, y] = e;`: o valor num temporário, as
-    /// variáveis do padrão declaradas e o teste do padrão (irrefutável em
-    /// Dart; o teste só sobra onde o tipo estático não basta).
+    /// `var (a, b) = e;` / `final [x, y] = e;`: the value in a temporary, the
+    /// pattern's variables declared and the pattern test (irrefutable in Dart;
+    /// the test only remains where the static type is not enough).
     pub(crate) fn emit_pattern_variables(&mut self, pattern: ast::PatternId, value: ExprId) {
         let (vjs, vty) = self.emit_expr(value, None);
         let t = self.temp();
@@ -177,14 +177,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             in_const: false,
             interop_args: false,
             case_labels: Vec::new(),
-            curinga: ctx
+            wildcard: ctx
                 .program
                 .library(lib)
                 .features
                 .tem(dartforge_frontend::Feature::WildcardVariables)
                 .then(|| ctx.sym("_"))
                 .flatten(),
-            parametros_curinga: HashMap::new(),
+            wildcard_params: HashMap::new(),
             atalhos: ctx.program.library(lib).features.tem(dartforge_frontend::Feature::DotShorthands),
             contextos_atalho: HashMap::new(),
             especulando: 0,
@@ -210,7 +210,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Escopos e temporários
+    // Scopes and temporaries
     // -----------------------------------------------------------------------
 
     pub fn push_scope(&mut self) {
@@ -219,13 +219,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn pop_scope(&mut self) {
         self.scopes.pop();
     }
-    /// Declara uma local e devolve o nome JS (com renomeação de sombreamento
-    /// entre escopos irmãos evitada: JS `let` tem escopo de bloco também).
+    /// Declares a local and returns the JS name (renaming to avoid shadowing
+    /// between sibling scopes: JS `let` is block scoped too).
     pub fn declare(&mut self, sym: SymbolId, ty: Ty) -> String {
-        if self.curinga == Some(sym) {
-            // Curinga (Dart 3.7): um nome JS novo, que ninguém lê, e nada no
-            // escopo — ler `_` continua achando o que estiver fora.
-            return self.nome_curinga();
+        if self.wildcard == Some(sym) {
+            // Wildcard (Dart 3.7): a new JS name that nobody reads, and nothing
+            // in scope — reading `_` still finds whatever is outside.
+            return self.wildcard_name();
         }
         let base = js::ident(self.name(sym));
         let in_use = |s: &Self, n: &str| s.scopes.iter().any(|sc| sc.values().any(|l| l.js == n));
@@ -235,41 +235,41 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             n += 1;
             js = format!("{base}${n}");
         }
-        self.scopes.last_mut().expect("escopo").insert(sym, Local { js: js.clone(), ty, lazy_init: None, late_check: false, late_final: false });
+        self.scopes.last_mut().expect("scope").insert(sym, Local { js: js.clone(), ty, lazy_init: None, late_check: false, late_final: false });
         js
     }
-    /// Nome JS de um curinga: `t$wN`. O prefixo `t$` é reservado aos
-    /// temporários (`js::ident` acrescenta `$` a nomes de usuário que começam
-    /// com ele) e os temporários são `t$` seguido de dígitos, então não há
-    /// colisão; o contador não volta atrás dentro do emissor.
-    pub fn nome_curinga(&mut self) -> String {
+    /// JS name of a wildcard: `t$wN`. The `t$` prefix is reserved for
+    /// temporaries (`js::ident` appends `$` to user names that start with it) and
+    /// temporaries are `t$` followed by digits, so there is no collision; the
+    /// counter never goes back within the emitter.
+    pub fn wildcard_name(&mut self) -> String {
         let n = format!("t$w{}", self.unique);
         self.unique += 1;
         n
     }
 
-    /// Nome JS de um parâmetro de tipo de função genérica: `<_>` numa
-    /// biblioteca com curingas não liga nome e dois deles não podem ter o
-    /// mesmo nome de parâmetro JS.
-    pub fn nome_js_parametro_de_tipo(&mut self, nome: &str) -> String {
-        if nome == "_" && self.curinga.is_some() {
-            self.nome_curinga()
+    /// JS name of a type parameter of a generic function: `<_>` in a library
+    /// with wildcards does not bind a name, and two of them cannot share the
+    /// same JS parameter name.
+    pub fn nome_js_parametro_de_tipo(&mut self, name: &str) -> String {
+        if name == "_" && self.wildcard.is_some() {
+            self.wildcard_name()
         } else {
-            js::ident(nome)
+            js::ident(name)
         }
     }
 
-    /// Nome JS do parâmetro `n` (`this.x`, `super.x`) já declarado: o do
-    /// escopo, ou o guardado para um curinga.
-    pub fn js_do_parametro(&self, n: ast::Name) -> String {
-        if let Some(j) = self.parametros_curinga.get(&n.span.start) {
+    /// JS name of the already declared parameter `n` (`this.x`, `super.x`): the
+    /// one in scope, or the one kept for a wildcard.
+    pub fn param_js_name(&self, n: ast::Name) -> String {
+        if let Some(j) = self.wildcard_params.get(&n.span.start) {
             return j.clone();
         }
         self.lookup_local(n.sym).map(|l| l.js.clone()).unwrap_or_else(|| js::ident(self.name(n.sym)))
     }
 
     pub fn declare_js(&mut self, sym: SymbolId, js: String, ty: Ty) {
-        self.scopes.last_mut().expect("escopo").insert(sym, Local { js, ty, lazy_init: None, late_check: false, late_final: false });
+        self.scopes.last_mut().expect("scope").insert(sym, Local { js, ty, lazy_init: None, late_check: false, late_final: false });
     }
     pub fn lookup_local(&self, sym: SymbolId) -> Option<&Local> {
         for s in self.scopes.iter().rev() {
@@ -293,12 +293,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.temps.push(n.clone());
         n
     }
-    /// Tipo do elemento de `t` visto como o que o gerador corrente produz:
-    /// `Iterable<E>` num `sync*`, `Stream<E>` num `async*` (o `E` de
-    /// `yield*` e do contexto de `yield`). `None` fora de gerador ou quando
-    /// `t` não é desse tipo (`dynamic`, `Object`).
-    pub fn elemento_do_gerador(&self, t: &Ty) -> Option<Ty> {
-        let alvo = match self.async_kind {
+    /// Element type of `t` seen as what the current generator produces:
+    /// `Iterable<E>` in a `sync*`, `Stream<E>` in an `async*` (the `E` of
+    /// `yield*` and of the `yield` context). `None` outside a generator or when
+    /// `t` is not of that type (`dynamic`, `Object`).
+    pub fn generator_element(&self, t: &Ty) -> Option<Ty> {
+        let target = match self.async_kind {
             AsyncKind::SyncStar => self.ctx.iterable_?,
             AsyncKind::AsyncStar => self.ctx.stream_?,
             _ => return None,
@@ -306,7 +306,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if t.is_dynamic() {
             return None;
         }
-        self.ctx.as_super(&t.non_null(), alvo).and_then(|s| s.args().first().cloned())
+        self.ctx.as_super(&t.non_null(), target).and_then(|s| s.args().first().cloned())
     }
 
     pub fn fresh_label(&mut self) -> String {
@@ -315,7 +315,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         n
     }
 
-    /// Entra num corpo de função aninhado; devolve o estado a restaurar.
+    /// Enters a nested function body; returns the state to restore.
     pub fn enter_fn(&mut self, async_kind: AsyncKind, ret_ty: Ty, is_static: bool) -> SavedFn {
         let saved = SavedFn {
             temps: std::mem::take(&mut self.temps),
@@ -334,7 +334,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.push_scope();
         saved
     }
-    /// Sai do corpo aninhado devolvendo (texto do corpo com temps declarados, tipos retornados).
+    /// Leaves the nested body returning (body text with declared temps, returned types).
     pub fn exit_fn(&mut self, saved: SavedFn) -> (String, Vec<Ty>) {
         self.pop_scope();
         let mut body = String::new();
@@ -355,7 +355,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         (body, returns)
     }
 
-    /// Indenta um bloco de texto já pronto dentro do escritor atual.
+    /// Indents a ready-made block of text inside the current writer.
     pub fn write_block_text(&mut self, text: &str) {
         for line in text.lines() {
             self.w.line(line);
@@ -363,10 +363,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Referências a bibliotecas e elementos
+    // References to libraries and elements
     // -----------------------------------------------------------------------
 
-    /// Variável JS do namespace de uma biblioteca, registrando a importação.
+    /// JS variable of a library's namespace, registering the import.
     pub fn lib_var(&self, lib: LibraryId) -> String {
         self.m.lib_var(self.ctx, lib)
     }
@@ -375,13 +375,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.m.dartx(name)
     }
 
-    /// Símbolo privado `dart.privateName(lib, name)`.
+    /// Private symbol `dart.privateName(lib, name)`.
     pub fn private_sym(&self, lib: LibraryId, name: &str) -> String {
         self.m.private_sym(self.ctx, lib, name)
     }
 
-    /// `_assertInterop` do DDC: função passada a JS sem `allowInterop` direto
-    /// vira `dart.assertInterop(f)` (falha em tempo de execução se não embrulhada).
+    /// DDC's `_assertInterop`: a function passed to JS without a direct
+    /// `allowInterop` becomes `dart.assertInterop(f)` (fails at run time if not wrapped).
     pub fn assert_interop(&self, js: Js, ty: &Ty) -> Js {
         let is_fn = matches!(ty, Ty::Fn { .. }) || ty.class().is_some_and(|c| Some(c) == self.ctx.function_);
         if is_fn && !js.code.starts_with("js_util.allowInterop(") {
@@ -390,7 +390,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         js
     }
 
-    /// `dart.jsInteropNullCheck(e)` quando o membro de interop é não anulável.
+    /// `dart.jsInteropNullCheck(e)` when the interop member is non-nullable.
     pub fn js_null_check(&self, js: Js, mk: &MemberKind) -> Js {
         if self.ctx.js_null_checkable(mk) {
             return Js::prim(format!("dart.jsInteropNullCheck({})", js.code));
@@ -398,7 +398,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         js
     }
 
-    /// Alvo JS de atribuição para um nome não-local (campo via `this`, topo).
+    /// JS assignment target for a non-local name (field via `this`, top level).
     pub fn emit_assign_to_name(&mut self, sym: SymbolId) -> (String, Ty) {
         let n = self.name(sym).to_string();
         match self.resolve_ident(sym) {
@@ -419,11 +419,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Nome de propriedade JS de um membro de instância (getter/método/campo).
-    /// Devolve `.nome`, `[$nome]`, `[_privado]` ou `['+']`.
+    /// JS property name of an instance member (getter/method/field).
+    /// Returns `.name`, `[$name]`, `[_private]` or `['+']`.
     pub fn member_access(&self, recv_ty: &Ty, name: &str, setter: bool) -> String {
-        // Modo SDK: membro com `@JSExportName('Symbol.iterator')` é acessado
-        // pelo nome exportado, como é declarado.
+        // SDK mode: a member with `@JSExportName('Symbol.iterator')` is accessed
+        // by the exported name, as it is declared.
         if self.ctx.sdk.is_some() {
             if let Some(m) = self.ctx.lookup_member(recv_ty, name, setter) {
                 if let MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) = m.kind {
@@ -434,7 +434,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         if name.starts_with('_') {
-            // Privado: escopo da biblioteca que o declara.
+            // Private: scope of the library that declares it.
             let lib = self
                 .ctx
                 .lookup_member(recv_ty, name, setter)
@@ -449,26 +449,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         js::prop_access(&js_name)
     }
 
-    /// Acesso a membro pelo nome JS de declaração (dentro da própria classe).
+    /// Member access by the JS declaration name (inside the class itself).
     pub fn decl_member_key(&self, class: ClassId, name: &str) -> String {
         if name.starts_with('_') {
             let lib = self.ctx.lib_of_class(class);
             return format!("[{}]", self.private_sym(lib, name));
         }
-        // Modo SDK: membro de classe nativa é declarado pelo símbolo `dartx`.
+        // SDK mode: a member of a native class is declared by the `dartx` symbol.
         if crate::sdk_proprio::classe_nativa(self.ctx, class) {
             return crate::sdk_proprio::chave_nativa(self.m, name);
         }
         js::prop_key(&js_member_name(name))
     }
 
-    /// Referência JS a uma classe.
+    /// JS reference to a class.
     pub fn class_ref(&self, c: ClassId) -> String {
         let lib = self.ctx.lib_of_class(c);
         format!("{}.{}", self.lib_var(lib), self.ctx.class_name(c))
     }
 
-    /// Referência a elemento de topo.
+    /// Reference to a top-level element.
     pub fn element_ref(&self, e: Element) -> Option<(String, Ty)> {
         match e {
             Element::Class(c) => Some((self.class_ref(c), self.ctx.t_type())),
@@ -485,7 +485,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     };
                     return Some((self.ctx.js_static_ref(None, lib, &mk, n), ty));
                 }
-                // Modo SDK: `@JSExportName('throw')` em `throw_`.
+                // SDK mode: `@JSExportName('throw')` on `throw_`.
                 if let Some(x) = crate::sdk_proprio::nome_de_topo(self.ctx, fid) {
                     return Some((format!("{}{}", self.lib_var(lib), js::prop_access(x)), ty));
                 }
@@ -509,10 +509,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Tipos: resolução de anotações e ambiente rti
+    // Types: resolution of annotations and the rti environment
     // -----------------------------------------------------------------------
 
-    /// Parâmetros de tipo em escopo por nome (classe + funções).
+    /// Type parameters in scope by name (class + functions).
     pub fn type_param_by_name(&self, name: &str) -> Option<Ty> {
         for (id, js) in &self.fn_type_params {
             let pname = self.ctx.param_names.borrow().get(id).cloned().unwrap_or_default();
@@ -531,7 +531,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         None
     }
 
-    /// Resolve uma anotação de tipo da AST para `Ty`.
+    /// Resolves a type annotation of the AST to `Ty`.
     pub fn resolve_type(&self, t: ast::TypeId) -> Ty {
         let node = self.ast().ty(t);
         let nullable = node.nullable;
@@ -582,25 +582,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let nparams = self.ctx.class_params[c.0 as usize].len();
                         let mut args = args;
                         while args.len() < nparams {
-                            // Tipo cru: instanciação para os limites. O limite
-                            // implícito (`class C<T>`) dá `dynamic`, não o
-                            // `Object?` que o outline registra; o escrito, ele
-                            // mesmo (`instanciar_para_limites` da inferência
-                            // comum).
+                            // Raw type: instantiation to bounds. The implicit
+                            // bound (`class C<T>`) gives `dynamic`, not the
+                            // `Object?` the outline records; a written one gives
+                            // itself (`instanciar_para_limites` of the shared
+                            // inference).
                             let p = &self.ctx.class_params[c.0 as usize][args.len()];
-                            let explicito = self.ctx.table.param(dartforge_types::table::TypeParamId(p.id)).explicito;
-                            // Limite que cita parâmetros da própria classe
-                            // (`class A<E extends A<E>>`): eles valem `dynamic`
-                            // no limite (`A` cru é `A<A<dynamic>>`), senão a
-                            // receita cita um parâmetro fora de escopo e a
-                            // rti recursa sem fim.
-                            let limite = if p.bound.mentions_params() {
-                                let mapa: HashMap<u32, Ty> = self.ctx.class_params[c.0 as usize].iter().map(|q| (q.id, Ty::Dynamic)).collect();
-                                p.bound.subst(&mapa)
+                            let explicit = self.ctx.table.param(dartforge_types::table::TypeParamId(p.id)).explicito;
+                            // A bound that references the class's own parameters
+                            // (`class A<E extends A<E>>`): they count as `dynamic`
+                            // in the bound (raw `A` is `A<A<dynamic>>`), otherwise
+                            // the recipe references an out-of-scope parameter and
+                            // the rti recurses forever.
+                            let bound = if p.bound.mentions_params() {
+                                let map: HashMap<u32, Ty> = self.ctx.class_params[c.0 as usize].iter().map(|q| (q.id, Ty::Dynamic)).collect();
+                                p.bound.subst(&map)
                             } else {
                                 (*p.bound).clone()
                             };
-                            args.push(if p.bound.is_dynamic() || !explicito { Ty::Dynamic } else { limite });
+                            args.push(if p.bound.is_dynamic() || !explicit { Ty::Dynamic } else { bound });
                         }
                         Ty::Iface { class: c, args, nullable }
                     }
@@ -617,7 +617,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
             ast::TypeKind::Function { return_type, type_params, parameters } => {
-                // Parâmetros de tipo do tipo de função: ids novos.
+                // Type parameters of the function type: new ids.
                 let mut tps = Vec::new();
                 let mut scoped = self.fn_type_params.clone();
                 let saved_len = scoped.len();
@@ -628,7 +628,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     me_params.push((p.id, p.name.clone()));
                     tps.push(p);
                 }
-                // Resolve bounds e assinatura com os parâmetros em escopo.
+                // Resolves bounds and signature with the parameters in scope.
                 let this_ptr: *const FnEmitter<'m, 'a> = self;
                 let _ = this_ptr;
                 let sub = self.with_fn_params(&me_params);
@@ -657,7 +657,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Cópia leve do emissor com parâmetros de tipo extra em escopo (só para resolver tipos).
+    /// Lightweight copy of the emitter with extra type parameters in scope (only for resolving types).
     fn with_fn_params(&self, extra: &[(u32, String)]) -> FnEmitter<'m, 'a> {
         let mut e = FnEmitter::new(self.ctx, self.m, self.unit, self.class, self.is_static);
         e.fn_type_params = extra.to_vec();
@@ -684,7 +684,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         (pos, opt, named)
     }
 
-    /// Tipo de um parâmetro formal (anotação, forma antiga de função, ou dynamic).
+    /// Type of a formal parameter (annotation, old function form, or dynamic).
     pub fn param_ty(&self, p: &ast::Parameter) -> Ty {
         if let Some(fp) = &p.function_parameters {
             let ret = p.ty.map(|t| self.resolve_type(t)).unwrap_or(Ty::Dynamic);
@@ -698,12 +698,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Receitas rti
+    // rti recipes
     // -----------------------------------------------------------------------
 
-    /// Receita de um tipo; `unbound` são parâmetros de tipos de função genéricos
-    /// aninhados (`0^`), `used_fn` acumula parâmetros de função usados,
-    /// `used_class` marca uso de parâmetros da classe.
+    /// Recipe of a type; `unbound` are the parameters of nested generic function
+    /// types (`0^`), `used_fn` accumulates the function parameters used,
+    /// `used_class` flags use of the class's parameters.
     fn recipe(&self, t: &Ty, unbound: &mut Vec<u32>, used_fn: &mut Vec<u32>, used_class: &mut bool) -> String {
         match t {
             Ty::Dynamic => "@".into(),
@@ -714,10 +714,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 None => "core|Null".into(),
             },
             Ty::Iface { class, args, nullable } => {
-                // Tipo de extensão de interop: a receita é a do tipo de
-                // representação (`JSArray<JSString>` →
+                // Interop extension type: the recipe is that of the
+                // representation type (`JSArray<JSString>` →
                 // `_interceptors|JSArray<core|Object?>`, `JSString` →
-                // `core|String`), como o DDC emite.
+                // `core|String`), as DDC emits.
                 if self.ctx.interop_ext_types.contains(class) {
                     if let Some(t) = self.ctx.erase_ext(*class, args) {
                         let t = if *nullable { t.with_nullable(true) } else { t };
@@ -725,7 +725,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                 }
                 let mut s = self.ctx.class_recipe(*class);
-                // Aridade declarada, sempre: `raw|Caixa<@>`, nunca `raw|Caixa`
+                // Declared arity, always: `raw|Caixa<@>`, never `raw|Caixa`
                 // (`Ctx::args_na_aridade`).
                 let args = self.ctx.args_na_aridade(*class, args);
                 if !args.is_empty() {
@@ -762,10 +762,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     if !used_fn.contains(id) {
                         used_fn.push(*id);
                     }
-                    // Índice preenchido depois: marcador.
+                    // Index filled in later: a marker.
                     return format!("\u{1}{id}\u{2}{q}");
                 }
-                // Parâmetro fora de escopo: usa o bound.
+                // Out-of-scope parameter: uses the bound.
                 let b = self.ctx.bound_of(*id);
                 if matches!(b, Ty::Param { .. }) {
                     return format!("@{}", "");
@@ -786,8 +786,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     parts.push(format!("[{}]", o.join(",")));
                 }
                 if !named.is_empty() {
-                    // O rti compara os nomeados em ordem de nome: a ordem é a
-                    // do nome que vai no JS (`Ctx::nomeado`).
+                    // The rti compares named parameters in name order: the order
+                    // is that of the name that goes into the JS (`Ctx::nomeado`).
                     let mut ns: Vec<(String, &Ty, bool)> = named.iter().map(|(n, t, r)| (self.ctx.nomeado(n), t, *r)).collect();
                     ns.sort_by(|a, b| a.0.cmp(&b.0));
                     let n: Vec<String> = ns
@@ -827,12 +827,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Expressão JS que avalia para o rti de `t` no ambiente atual.
+    /// JS expression that evaluates to the rti of `t` in the current environment.
     pub fn rti(&self, t: &Ty) -> String {
-        // Tipo fechado (sem `Ty::Param`): a receita não menciona o ambiente
-        // (`used_fn`/`used_class` só são marcados no ramo `Ty::Param`), então
-        // a expressão é a mesma em qualquer ponto do programa e fica na
-        // memória do `Ctx`. As classes usadas ainda são registradas no módulo.
+        // Closed type (no `Ty::Param`): the recipe does not mention the
+        // environment (`used_fn`/`used_class` are only set in the `Ty::Param`
+        // branch), so the expression is the same anywhere in the program and is
+        // memoized in the `Ctx`. The classes used are still registered in the module.
         if t.sem_parametros() {
             if let Some(s) = self.ctx.rti_memo.borrow().get(t) {
                 self.register_recipe_classes(t);
@@ -851,7 +851,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut used_class = false;
         let raw = self.recipe(t, &mut unbound, &mut used_fn, &mut used_class);
         self.register_recipe_classes(t);
-        // Ordena os parâmetros de função usados na ordem de escopo (mais interno primeiro).
+        // Orders the used function parameters in scope order (innermost first).
         let mut ordered: Vec<(u32, String)> = Vec::new();
         for (id, jsn) in &self.fn_type_params {
             if used_fn.contains(id) {
@@ -888,7 +888,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         format!("{env}[_eval]({})", js::string_literal(&recipe))
     }
 
-    /// Receita "crua" em modo classe (parâmetros por índice 1..n), para as regras.
+    /// "Raw" recipe in class mode (parameters by index 1..n), for the rules.
     pub fn register_recipe_classes(&self, t: &Ty) {
         match t {
             Ty::Iface { class, args, .. } => {
@@ -948,21 +948,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Corpo de função
+    // Function body
     // -----------------------------------------------------------------------
 
-    /// Declara os parâmetros de uma função no escopo atual e devolve a lista
-    /// de parâmetros JS (`a, b = 1, opts`) e o prólogo (nomeados).
+    /// Declares a function's parameters in the current scope and returns the
+    /// list of JS parameters (`a, b = 1, opts`) and the prologue (named ones).
     pub fn declare_params(&mut self, params: &[ast::Parameter], tys: Option<&Ty>) -> (String, String) {
-        let (js, prologo, _) = self.declare_params_nomes(params, tys);
-        (js, prologo)
+        let (js, prologue, _) = self.declare_params_with_names(params, tys);
+        (js, prologue)
     }
 
-    /// Como [`Self::declare_params`], devolvendo também, na ordem da
-    /// declaração, `(tipo do parâmetro, nome Dart, nome JS)` de cada um — o
-    /// encaminhador de `noSuchMethod` repassa cada parâmetro à `Invocation`.
-    pub fn declare_params_nomes(&mut self, params: &[ast::Parameter], tys: Option<&Ty>) -> (String, String, Vec<(ast::ParameterKind, String, String)>) {
-        let mut nomes: Vec<(ast::ParameterKind, String, String)> = Vec::new();
+    /// Like [`Self::declare_params`], also returning, in declaration order,
+    /// `(parameter kind, Dart name, JS name)` of each one — the `noSuchMethod`
+    /// forwarder passes each parameter on to the `Invocation`.
+    pub fn declare_params_with_names(&mut self, params: &[ast::Parameter], tys: Option<&Ty>) -> (String, String, Vec<(ast::ParameterKind, String, String)>) {
+        let mut names: Vec<(ast::ParameterKind, String, String)> = Vec::new();
         let mut js_params: Vec<String> = Vec::new();
         let mut prologue = String::new();
         let mut has_named = false;
@@ -974,16 +974,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut oi = 0;
         for p in params {
             let Some(name) = p.name else { continue };
-            // Nome externo (a chave em `opts`): o público de um nomeado
-            // privado da 3.12; o local continua `name`.
-            let externo = p.nome_externo().unwrap_or(name);
+            // External name (the key in `opts`): the public one of a 3.12 private
+            // named parameter; the local one stays `name`.
+            let external = p.nome_externo().unwrap_or(name);
             let mut ty = if p.ty.is_none() && p.function_parameters.is_none() {
                 match p.kind {
                     ast::ParameterKind::Required => pos_expected.get(pi).cloned().unwrap_or(Ty::Dynamic),
                     ast::ParameterKind::Optional => opt_expected.get(oi).cloned().unwrap_or(Ty::Dynamic),
                     ast::ParameterKind::Named => named_expected
                         .iter()
-                        .find(|(n, _, _)| n == self.name(externo.sym))
+                        .find(|(n, _, _)| n == self.name(external.sym))
                         .map(|(_, t, _)| t.clone())
                         .unwrap_or(Ty::Dynamic),
                 }
@@ -991,7 +991,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.param_ty(p)
             };
             if p.this_ {
-                // `this.x`: tipo do campo.
+                // `this.x`: the field's type.
                 if let Some(c) = self.class {
                     if let Some(m) = self.ctx.lookup_member(&self.ctx.this_ty(c), self.name(name.sym), false) {
                         if p.ty.is_none() {
@@ -1001,15 +1001,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
             let jsn = self.declare(name.sym, ty.clone());
-            if self.curinga == Some(name.sym) && (p.this_ || p.super_) {
-                // `this._`/`super._` curinga: não liga nome, mas o construtor
-                // ainda inicializa o campo/encaminha com o valor.
-                self.parametros_curinga.insert(name.span.start, jsn.clone());
+            if self.wildcard == Some(name.sym) && (p.this_ || p.super_) {
+                // Wildcard `this._`/`super._`: binds no name, but the constructor
+                // still initializes the field/forwards with the value.
+                self.wildcard_params.insert(name.span.start, jsn.clone());
             }
             match p.kind {
                 ast::ParameterKind::Required => {
                     pi += 1;
-                    nomes.push((p.kind, self.name(name.sym).to_string(), jsn.clone()));
+                    names.push((p.kind, self.name(name.sym).to_string(), jsn.clone()));
                     js_params.push(jsn);
                 }
                 ast::ParameterKind::Optional => {
@@ -1021,7 +1021,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         None => "null".to_string(),
                     };
                     self.in_const = saved_const;
-                    nomes.push((p.kind, self.name(name.sym).to_string(), jsn.clone()));
+                    names.push((p.kind, self.name(name.sym).to_string(), jsn.clone()));
                     js_params.push(format!("{jsn} = {def}"));
                 }
                 ast::ParameterKind::Named => {
@@ -1033,14 +1033,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         None => "null".to_string(),
                     };
                     self.in_const = saved_const;
-                    // A `Invocation` do `noSuchMethod` vê o nome externo.
-                    let key = self.name(externo.sym);
-                    nomes.push((p.kind, key.to_string(), jsn.clone()));
-                    let chave = self.ctx.nomeado(key);
+                    // The `noSuchMethod` `Invocation` sees the external name.
+                    let key = self.name(external.sym);
+                    names.push((p.kind, key.to_string(), jsn.clone()));
+                    let named_key = self.ctx.nomeado(key);
                     prologue.push_str(&format!(
                         "let {jsn} = opts && {} in opts ? opts{} : {def};\n",
-                        js::string_literal(&chave),
-                        js::prop_access(&chave)
+                        js::string_literal(&named_key),
+                        js::prop_access(&named_key)
                     ));
                 }
             }
@@ -1048,18 +1048,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if has_named {
             js_params.push("opts".to_string());
         }
-        (js_params.join(", "), prologue, nomes)
+        (js_params.join(", "), prologue, names)
     }
 
-    /// Emite um corpo de função (bloco ou expressão) no escritor atual.
+    /// Emits a function body (block or expression) into the current writer.
     pub fn emit_body(&mut self, body: &FunctionBody) {
         match body {
             FunctionBody::Block(s) => {
                 let stmt = self.ast().stmt(*s);
                 if let StmtKind::Block(stmts) = &stmt.kind {
-                    // O bloco do corpo é um escopo dentro do dos parâmetros
-                    // (um local pode sombrear um parâmetro, como na VM); no
-                    // JS continua o mesmo corpo de função.
+                    // The body block is a scope inside the parameters' scope (a
+                    // local may shadow a parameter, as in the VM); in JS it is
+                    // still the same function body.
                     self.push_scope();
                     self.hoist_locals(stmts);
                     for &st in stmts.iter() {
@@ -1072,17 +1072,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             FunctionBody::Expression(e) => {
                 let expected = self.ret_ty.clone();
-                // Atalho de ponto (3.10) num `=> e` de função `async`: o
-                // contexto do valor é `FutureOr<T>`, que denota o que `T`
-                // denota (o `return` já desembrulha o `Future`).
-                let futuro = match (&self.async_kind, &expected) {
+                // Dot shorthand (3.10) in an `=> e` of an `async` function: the
+                // value's context is `FutureOr<T>`, which denotes what `T`
+                // denotes (`return` already unwraps the `Future`).
+                let future = match (&self.async_kind, &expected) {
                     (AsyncKind::Async, Ty::Iface { args, .. }) if !args.is_empty() => {
                         Some(Ty::FutureOr { arg: Box::new(args[0].clone()), nullable: false })
                     }
                     (AsyncKind::Async, Ty::FutureOr { .. }) => Some(expected.clone()),
                     _ => None,
                 };
-                let (js, ty) = match futuro {
+                let (js, ty) = match future {
                     Some(ctx) => self.com_contexto_de_atalho(*e, &ctx, |s| s.emit_expr(*e, Some(&expected))),
                     None => self.emit_expr(*e, Some(&expected)),
                 };
@@ -1101,11 +1101,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Declara antecipadamente as funções locais do bloco (para recursão mútua).
+    /// Declares the block's local functions ahead of time (for mutual recursion).
     pub fn hoist_locals(&mut self, _stmts: &[StmtId]) {}
 
-    /// Constrói o texto completo de uma função: `head` é o cabeçalho
-    /// (`function(a) {`, `(a) => {`, `m(a) {`); aplica a transformação async/gerador.
+    /// Builds the full text of a function: `head` is the header
+    /// (`function(a) {`, `(a) => {`, `m(a) {`); applies the async/generator transformation.
     pub fn wrap_async_head(&self, kind: AsyncKind, head: &str, prologue: &str, body: &str, ret_ty: &Ty) -> String {
         let inner_ty = match ret_ty {
             Ty::Iface { args, .. } if !args.is_empty() => args[0].clone(),
@@ -1204,7 +1204,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             }
             StmtKind::Function(fid) => self.emit_local_function(*fid),
             StmtKind::Expression(e) => {
-                // Modo SDK: `JS('', 'throw #', x)` é instrução.
+                // SDK mode: `JS('', 'throw #', x)` is a statement.
                 if self.ctx.sdk.is_some() {
                     if let Some(t) = crate::sdk_proprio::instrucao_js(self, *e) {
                         crate::linha!(self.w, "{t};");
@@ -1248,11 +1248,11 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 let (cjs, _) = self.emit_cond(*condition);
                 let promos = std::mem::take(&mut self.pending_promotions);
                 let neg_promos = std::mem::take(&mut self.negated_promotions);
-                // Condição constante (típica de `const bool.fromEnvironment`):
-                // o ramo morto não é emitido, como no dartdevc.
+                // Constant condition (typical of `const bool.fromEnvironment`):
+                // the dead branch is not emitted, as in dartdevc.
                 if cjs == "false" || cjs == "true" {
-                    let vivo = if cjs == "true" { Some(*then) } else { *else_ };
-                    if let Some(st) = vivo {
+                    let live = if cjs == "true" { Some(*then) } else { *else_ };
+                    if let Some(st) = live {
                         self.push_scope();
                         self.emit_stmt(st);
                         self.pop_scope();
@@ -1281,7 +1281,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     self.pop_scope();
                     self.w.close("}");
                 } else if self.stmt_ends_with_jump(*then) {
-                    // `if (x is! T) return;` promove `x` no resto do bloco.
+                    // `if (x is! T) return;` promotes `x` in the rest of the block.
                     for (sym, t) in &neg_promos {
                         self.set_local_ty(*sym, t.clone());
                     }
@@ -1327,8 +1327,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         format!("let {}", parts.join(", "))
                     }
                     Some(ast::ForInit::Expression(e)) => self.emit_expr(*e, None).0.code,
-                    // A declaração por padrão sai antes do laço, no escopo
-                    // dele: o `for` fica sem inicialização.
+                    // The pattern declaration comes out before the loop, in its
+                    // scope: the `for` has no initializer.
                     Some(ast::ForInit::Pattern { pattern, value, .. }) => {
                         self.emit_pattern_variables(*pattern, *value);
                         String::new()
@@ -1395,20 +1395,20 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 None => self.w.line("return;"),
             },
             StmtKind::Yield { star, value } => {
-                // Contexto: o tipo do elemento (`yield e`) ou o próprio tipo
-                // de retorno (`yield* e`) do gerador, quando conhecido.
-                let elemento = self.elemento_do_gerador(&self.ret_ty.clone());
-                let contexto = match (star, &elemento) {
+                // Context: the element type (`yield e`) or the generator's own
+                // return type (`yield* e`), when known.
+                let element = self.generator_element(&self.ret_ty.clone());
+                let context = match (star, &element) {
                     (false, Some(e)) => Some(e.clone()),
                     (true, Some(_)) => Some(self.ret_ty.non_null()),
                     _ => None,
                 };
-                let (js, ty) = self.emit_expr(*value, contexto.as_ref());
-                // Num gerador, `return e;` é proibido: `returns` guarda os
-                // tipos de elemento produzidos, que dão o tipo de retorno
-                // inferido de uma função literal (`emit_function_expr`).
-                let produzido = if *star { self.elemento_do_gerador(&ty).unwrap_or(Ty::Dynamic) } else { ty };
-                self.returns.push(produzido);
+                let (js, ty) = self.emit_expr(*value, context.as_ref());
+                // In a generator, `return e;` is forbidden: `returns` keeps the
+                // produced element types, which give the inferred return type of
+                // a function literal (`emit_function_expr`).
+                let produced = if *star { self.generator_element(&ty).unwrap_or(Ty::Dynamic) } else { ty };
+                self.returns.push(produced);
                 match (self.async_kind, star) {
                     (AsyncKind::AsyncStar, false) => {
                         self.m.use_sdk("async");
@@ -1433,7 +1433,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     self.labels.push((self.name(l.sym).to_string(), jl.clone()));
                     js_labels.push(jl);
                 }
-                // Um único rótulo JS basta: os demais viram aliases para o mesmo.
+                // A single JS label is enough: the others become aliases for it.
                 let first = js_labels[0].clone();
                 for l in labels.iter().skip(1) {
                     let n = self.name(l.sym).to_string();
@@ -1478,7 +1478,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         self.labels.iter().rev().find(|(k, _)| k == name).map(|(_, v)| v.clone()).unwrap_or_else(|| name.to_string())
     }
 
-    /// Condição booleana (com `dart.test` quando o tipo não é `bool` estrito).
+    /// Boolean condition (with `dart.test` when the type is not a strict `bool`).
     pub fn emit_cond(&mut self, e: ExprId) -> (String, Ty) {
         let (js, ty) = self.emit_expr(e, Some(&self.ctx.t_bool()));
         if self.ctx.is_bool(&ty) {
@@ -1493,11 +1493,11 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
     fn emit_var_list(&mut self, list: &ast::VariableList) {
         let declared = list.ty.map(|t| self.resolve_type(t));
         for v in list.variables.iter() {
-            // Outra declaração do mesmo nome no mesmo escopo: o programa é
-            // inválido (sombrear a de um escopo de fora é permitido).
-            if self.curinga != Some(v.name.sym) && self.scopes.last().is_some_and(|s| s.contains_key(&v.name.sym)) {
-                let nome = self.name(v.name.sym).to_string();
-                self.erro_de_linguagem(v.name.span, format!("'{nome}' is already declared in this scope."));
+            // Another declaration with the same name in the same scope: the program
+            // is invalid (shadowing one from an outer scope is allowed).
+            if self.wildcard != Some(v.name.sym) && self.scopes.last().is_some_and(|s| s.contains_key(&v.name.sym)) {
+                let name = self.name(v.name.sym).to_string();
+                self.erro_de_linguagem(v.name.span, format!("'{name}' is already declared in this scope."));
             }
             match v.initializer {
                 Some(e) => {
@@ -1540,22 +1540,23 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
 
     fn emit_local_function(&mut self, fid: ast::FunctionId) {
         let f = self.ast().function(fid);
-        let name = f.name.expect("função local com nome");
+        let name = f.name.expect("local function with a name");
         let ty = self.local_fn_ty(f);
         let jsn = self.declare(name.sym, ty.clone());
-        // A assinatura é a de `local_fn_ty` (a do escopo, que as chamadas
-        // já leram); o tipo comum da função local não entra.
-        let (fn_js, inferido) = self.emit_function_expr(fid, Some(&ty), None);
+        // The signature is that of `local_fn_ty` (the one in scope, which the
+        // calls already read); the shared type of the local function is not used.
+        let (fn_js, inferred) = self.emit_function_expr(fid, Some(&ty), None);
         crate::linha!(self.w, "let {jsn} = {};", fn_js.code);
-        // Sem tipo de retorno escrito, o da função local é o inferido do
-        // corpo (o mesmo que o rti dela leva): as leituras seguintes o veem.
-        // Dentro do próprio corpo (recursão) ela ainda tem retorno `dynamic`.
-        if f.return_type.is_none() && matches!(inferido, Ty::Fn { .. }) {
-            self.set_local_ty(name.sym, inferido);
+        // Without a written return type, the local function's return type is
+        // the one inferred from the body (the same its rti carries): the
+        // following reads see it. Inside its own body (recursion) it still
+        // returns `dynamic`.
+        if f.return_type.is_none() && matches!(inferred, Ty::Fn { .. }) {
+            self.set_local_ty(name.sym, inferred);
         }
     }
 
-    /// Tipo declarado de uma função (local ou expressão) a partir da anotação.
+    /// Declared type of a function (local or expression) from its annotation.
     pub fn local_fn_ty(&mut self, f: &ast::Function) -> Ty {
         let mut tps = Vec::new();
         let mut scope_params = Vec::new();
@@ -1616,8 +1617,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             self.m.use_sdk("async");
             let it = self.temp();
             let elem_rti = self.rti(&elem_ty);
-            let receita = self.ctx.receita_de("dart:async", "StreamIterator", "async|StreamIterator");
-            crate::linha!(self.w, "{it} = async.StreamIterator.new({elem_rti}[_eval](\"{receita}<0>\"), {});", ijs.code);
+            let recipe = self.ctx.receita_de("dart:async", "StreamIterator", "async|StreamIterator");
+            crate::linha!(self.w, "{it} = async.StreamIterator.new({elem_rti}[_eval](\"{recipe}<0>\"), {});", ijs.code);
             self.w.open("try {");
             crate::abre!(self.w, "while ((yield {it}.moveNext())) {{");
             let _ = &decl_ty;
@@ -1661,7 +1662,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         self.pop_scope();
     }
 
-    /// Desestrutura `value_js` no padrão, declarando as variáveis (padrão irrefutável).
+    /// Destructures `value_js` with the pattern, declaring the variables (irrefutable pattern).
     pub fn emit_pattern_bind_stmt(&mut self, p: ast::PatternId, value_js: &str, vty: &Ty) {
         let mut binds = Vec::new();
         let cond = self.pattern_cond(p, value_js, vty, &mut binds, true);
@@ -1676,7 +1677,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
 
     fn emit_switch(&mut self, value: ExprId, cases: &[ast::SwitchCase]) {
         let (vjs, vty) = self.emit_expr(value, None);
-        // Switch clássico JS quando o valor é primitivo/enum e todos os casos são constantes.
+        // Classic JS switch when the value is primitive/enum and all cases are constants.
         let all_const = cases.iter().all(|c| match c.pattern {
             None => true,
             Some(p) => self.is_simple_const_pattern(p),
@@ -1690,7 +1691,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             let has_case_labels = cases.iter().any(|c| !c.labels.is_empty());
             self.switch_labels.push(None);
             if has_case_labels {
-                // `continue rótulo` para outro case: laço com variável de estado.
+                // `continue label` to another case: a loop with a state variable.
                 crate::linha!(self.w, "t$state = {};", vjs.code);
                 self.temps.push("t$state".into());
                 self.temps.dedup();
@@ -1758,7 +1759,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         self.emit_stmt(s);
                     }
                     self.pop_scope();
-                    // Dart 3: sem fallthrough implícito.
+                    // Dart 3: no implicit fallthrough.
                     if !self.ends_with_jump(&c.body) {
                         crate::linha!(self.w, "break {label};");
                     }
@@ -1769,7 +1770,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             self.switch_labels.pop();
             return;
         }
-        // Forma geral: bloco rotulado com testes de padrão.
+        // General form: a labeled block with pattern tests.
         let label = self.fresh_label();
         let t = self.temp();
         crate::linha!(self.w, "{t} = {};", vjs.code);
@@ -1777,7 +1778,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         crate::abre!(self.w, "{label}: {{");
         let mut i = 0;
         while i < cases.len() {
-            // Cases consecutivos sem corpo partilham o corpo seguinte.
+            // Consecutive cases without a body share the next body.
             let mut j = i;
             while j + 1 < cases.len() && cases[j].body.is_empty() {
                 j += 1;
@@ -1944,7 +1945,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         }
     }
 
-    /// Verdadeiro se o corpo contém `await`/`yield` (para decidir gerador).
+    /// True if the body contains `await`/`yield` (to decide on a generator).
     pub fn member_lookup_this(&self, name: &str, setter: bool) -> Option<Member> {
         let c = self.class?;
         self.ctx.lookup_member(&self.ctx.this_ty(c), name, setter)
@@ -1956,22 +1957,21 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
     }
 }
 
-/// Nome JS de membro: `[]` → `_get`, `[]=` → `_set`, `==` → `_equals`,
-/// `unary-` → `_negate`, e `constructor`/`prototype` → `_constructor`/
+/// JS member name: `[]` → `_get`, `[]=` → `_set`, `==` → `_equals`,
+/// `unary-` → `_negate`, and `constructor`/`prototype` → `_constructor`/
 /// `_prototype`.
 ///
-/// É a `memberNameForDartMember` do DDC (`compiler/js_names.dart:411`).
-/// Os dois últimos são obrigatórios e não cosméticos: `get constructor()`
-/// dentro de uma `class` é erro de sintaxe em JavaScript ("Class
-/// constructor may not be an accessor"), e `prototype` colidiria com o do
-/// próprio objeto. Um campo Dart chamado `constructor` existe em código
-/// real — `package:json_annotation` tem um.
+/// This is DDC's `memberNameForDartMember` (`compiler/js_names.dart:411`).
+/// The last two are mandatory, not cosmetic: `get constructor()` inside a
+/// `class` is a syntax error in JavaScript ("Class constructor may not be an
+/// accessor"), and `prototype` would collide with the object's own. A Dart field
+/// named `constructor` exists in real code — `package:json_annotation` has one.
 pub fn js_member_name(name: &str) -> String {
     js_member_name_ext(name, false)
 }
 
-/// Como [`js_member_name`], mas `external` mantém o nome cru: ali o membro
-/// JS é intencional (o DDC usa a mesma regra, com `isExternal`).
+/// Like [`js_member_name`], but `external` keeps the raw name: there the JS
+/// member is intentional (DDC uses the same rule, with `isExternal`).
 pub fn js_member_name_ext(name: &str, external: bool) -> String {
     match name {
         "[]" => "_get".into(),
@@ -1983,12 +1983,12 @@ pub fn js_member_name_ext(name: &str, external: bool) -> String {
     }
 }
 
-/// Nome de propriedade de elemento de topo (mesmo que o Dart).
+/// Property name of a top-level element (the same as in Dart).
 pub fn top_level_name(name: &str) -> String {
     name.to_string()
 }
 
-/// Nome de membro estático (`as`, `name`, `prototype` ganham `_`).
+/// Static member name (`as`, `name`, `prototype` get a `_`).
 pub fn static_member_name(name: &str) -> String {
     match name {
         "as" | "name" | "prototype" => format!("{name}_"),

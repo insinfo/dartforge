@@ -1331,7 +1331,7 @@ pub fn emitir_modulo_sdk(ctx: &Ctx) -> (String, BTreeSet<String>) {
     // (`addRtiResources`, `registerExtension`) que pode lê-las.
     for &l in &libs {
         if Some(l) != runtime {
-            crate::module::emit_library_rest_partes(ctx, &m, l, &mut corpo, true, true);
+            crate::module::emit_library_rest_parts(ctx, &m, l, &mut corpo, true, true);
         }
     }
 
@@ -1355,7 +1355,7 @@ pub fn emitir_modulo_sdk(ctx: &Ctx) -> (String, BTreeSet<String>) {
     }
 
     // 5. Regras rti das classes do SDK.
-    let regras = crate::module::emit_rules_com(ctx, &m, true);
+    let regras = crate::module::emit_rules_with(ctx, &m, true);
     corpo.push_raw(&regras);
 
     // Prelúdio do módulo: aliases `dartx`, nomes privados, os símbolos do rti
