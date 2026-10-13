@@ -245,7 +245,7 @@ pub(super) fn run(
         unit,
         swap,
         exprs,
-        collector: Collector { items: Vec::new(), library, receiver: None },
+        collector: Collector { items: Vec::new(), library, receiver: None, inherited: false },
         scores: Vec::new(),
         local: None,
         prefers_constants: false,

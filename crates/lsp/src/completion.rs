@@ -431,7 +431,7 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
     // names of the `exportNamespace` summary.
     if r.operations.iter().any(|o| matches!(o, isp::Operation::StaticMembers)) && !r.summarized.is_empty() {
         let only_types = r.flags.as_ref().is_some_and(|f| f.ty);
-        let mut collector = Collector { items: Vec::new(), library, receiver: None };
+        let mut collector = Collector { items: Vec::new(), library, receiver: None, inherited: false };
         let mut names = Interner::new();
         let real = dartforge_frontend::parser::parse_with(text, &mut names, features);
         if let Some((file, _, _)) = &filter {
@@ -653,6 +653,10 @@ struct Collector {
     /// Class of the receiver while instance members are collected (the
     /// inheritance distance of each member).
     receiver: Option<ClassId>,
+    /// The inherited members of the enclosing class are being collected:
+    /// `_addInheritedMembers` suggests every member of `getInheritedMap2`,
+    /// private ones of other libraries included.
+    inherited: bool,
 }
 
 impl Collector {
@@ -739,7 +743,7 @@ impl Collector {
     /// A private name from another library: invisible here.
     fn invisible(&self, query: &Query, name: &str, owning: LibraryId) -> bool {
         let _ = query;
-        name.starts_with('_') && owning != self.library
+        name.starts_with('_') && owning != self.library && !self.inherited
     }
 
     /// Item of a function (method, getter, accessor) with type `ty` already seen

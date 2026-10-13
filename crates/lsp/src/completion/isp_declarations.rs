@@ -54,6 +54,18 @@ fn without_equal(s: &str) -> String {
     s.trim_end_matches('=').to_string()
 }
 
+/// A setter: an explicit one or the implicit setter of a variable. The
+/// elements name both accessors with the bare name (the member maps key the
+/// setter as `name_=`), so the name alone does not tell them apart.
+pub(super) fn is_setter_function(p: &dartforge_elements::model::Program, f: FunctionElementId) -> bool {
+    let fe = p.function(f);
+    match fe.kind {
+        FunctionKind::Setter => true,
+        FunctionKind::ImplicitAccessor => fe.variable.is_some_and(|v| p.variable(v).setter == Some(f)),
+        _ => false,
+    }
+}
+
 impl<'a, 'c> Isp<'a, 'c> {
     // -- The state ------------------------------------------------------------------
 
@@ -1093,7 +1105,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let fl = self.fl();
-        let getter = matches!(fe.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) && !self.query.name(fe.name).ends_with('=');
+        let getter = matches!(fe.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) && !is_setter_function(&self.query.program, f);
         let without_setter = getter && self.matching_setter(f).is_none();
         let ret = if getter { ty.unwrap_or_else(|| self.return_of(f)) } else { self.query.core.void_ };
         if (fl.assignable && without_setter) || fl.constant || (fl.non_void && self.is_void(ret)) {
@@ -1122,7 +1134,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         if let Some(v) = fe.variable {
             return p.variable(v).setter;
         }
-        let name = format!("{}=", self.query.name(fe.name));
+        let name = format!("{}_=", self.query.name(fe.name));
         let s = self.query.names.lookup(&name)?;
         if let Some(c) = fe.class {
             let cl = p.class(c);
@@ -1264,7 +1276,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             let fe = p.function(best);
             let symbol = fe.name;
-            let is_setter = fe.kind == FunctionKind::Setter || (fe.kind == FunctionKind::ImplicitAccessor && self.query.name(symbol).ends_with('='));
+            let is_setter = is_setter_function(p, best);
             match fe.kind {
                 FunctionKind::Function => {
                     if methods {
@@ -1448,6 +1460,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 let Some(c) = self.node_class(d) else { return };
                 let this = self.type_this(c);
                 let lib = self.library();
+                self.collector.inherited = true;
                 for f in self.interface_members(c, false, true) {
                     let fe = self.query.program.function(f);
                     let symbol = fe.name;
@@ -1457,14 +1470,15 @@ impl<'a, 'c> Isp<'a, 'c> {
                             self.suggest_method(f, t, false, None, Some(c));
                         }
                         FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => {
-                            let is_setter = self.query.name(symbol).ends_with('=');
-                            let search = if is_setter { self.query.names.lookup(self.query.name(symbol).trim_end_matches('=')) } else { Some(symbol) };
+                            let is_setter = is_setter_function(&self.query.program, f);
+                            let search = Some(symbol);
                             let t = search.and_then(|s| self.query.resolver().lookup_member(this, s, is_setter, lib)).map(|(_, t)| t);
                             self.suggest_property(f, t, false, None, Some(c));
                         }
                         _ => {}
                     }
                 }
+                self.collector.inherited = false;
             }
             _ => {}
         }
@@ -2467,8 +2481,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 }
 
 
-/// The analyzer's `Name`: the name, and the library when it is private.
-type Key = (SymbolId, Option<dartforge_elements::model::LibraryId>);
+/// The analyzer's `Name`: the name, the library when it is private, and
+/// whether it is a setter's (`x=`).
+type Key = (SymbolId, Option<dartforge_elements::model::LibraryId>, bool);
 
 /// A Dart `Map<Name, ExecutableElement>`: the order is that of the first
 /// insertion, and replacing keeps the position.
@@ -2519,7 +2534,7 @@ fn key(q: &Query, f: FunctionElementId) -> Key {
     let p = &q.program;
     let fe = p.function(f);
     let private = q.name(fe.name).starts_with('_');
-    (fe.name, private.then_some(fe.library))
+    (fe.name, private.then_some(fe.library), is_setter_function(p, f))
 }
 
 /// `_getTypeMembers` (with `include_abstract`) or `_addImplemented`
@@ -2593,7 +2608,7 @@ fn interface_of(
             }
             // The precluded names: the declared ones, the setter of a declared method
             // and the method of a declared setter.
-            let name = |k: &Key| q.name(k.0).to_string();
+            let name = |k: &Key| if k.2 { format!("{}=", q.name(k.0)) } else { q.name(k.0).to_string() };
             let mut precluded: HashSet<String> = HashSet::new();
             for (k, f) in declared_map.entries() {
                 let n = name(&k);

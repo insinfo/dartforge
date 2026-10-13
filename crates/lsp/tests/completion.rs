@@ -593,3 +593,20 @@ fn not_imported_types_in_a_declaration_name() {
     let r = completion(&mut p, "lib/a.dart", "class C {\n  int Ran▮ge() => 0;\n}\n");
     assert_eq!(item(&r, "Random")["data"]["importUris"], json!(["dart:math"]), "{r}");
 }
+
+#[test]
+fn inherited_accessor_pairs_and_private_members() {
+    // An explicit getter/setter pair is two members of the inherited map (the
+    // setter does not hide the getter), and `_addInheritedMembers` suggests
+    // the private members of a superclass from another library too
+    // (`dart language-server` 3.6.2).
+    let mut p = Project::new("completar-herdados");
+    p.write("lib/base.dart", "class Base {\n  int get pos => _pos;\n  set pos(int v) {}\n  int _pos = 0;\n}\n");
+    let r = completion(&mut p, "lib/a.dart", "import 'base.dart';\nclass Sub extends Base {\n  int f() => 1 + po▮;\n}\n");
+    assert_eq!(item(&r, "pos")["detail"], "int", "{r}");
+    let r = completion(&mut p, "lib/b.dart", "import 'base.dart';\nclass Sub extends Base {\n  void f() {\n    _p▮ = 1;\n  }\n}\n");
+    item(&r, "_pos");
+    // Through a receiver, a private member of another library stays hidden.
+    let r = completion(&mut p, "lib/c.dart", "import 'base.dart';\nvoid f(Base b) {\n  b._p▮;\n}\n");
+    assert!(!labels(&r).iter().any(|l| l == "_pos"), "{r}");
+}
