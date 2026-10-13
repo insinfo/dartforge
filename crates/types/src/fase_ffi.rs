@@ -296,7 +296,7 @@ impl<'a> V<'a> {
         }
         match &mut self.t {
             Tabela::Motor(m) => &mut **m,
-            _ => unreachable!("motor criado acima"),
+            _ => unreachable!("engine created above"),
         }
     }
 
@@ -399,7 +399,7 @@ impl<'a> V<'a> {
             }
             self.indices = Some(ix);
         }
-        self.indices.as_ref().expect("índices montados")
+        self.indices.as_ref().expect("indices built")
     }
 
     fn declaracao(&mut self, no: No) -> Option<Declaracao> {

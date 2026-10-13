@@ -49,7 +49,7 @@ fn executar(a: Vec<String>) {
             std::fs::write(&entry, source).unwrap();
             (sdk, entry, None, libs)
         }
-        _ => panic!("uso: avisos projeto <entrada> <cfg> | avisos sdk <lib> <sobreposicao> <alvo> <libs...>"),
+        _ => panic!("usage: avisos projeto <entrada> <cfg> | avisos sdk <lib> <sobreposicao> <alvo> <libs...>"),
     };
     let mut interner = Interner::new();
     let (prog, _) = load_lenient(&entry, &sdk, packages.as_deref(), &mut interner);

@@ -58,7 +58,7 @@ fn load_full_sdk() -> Option<(Program, Interner, TypeTable, CoreTypes, OutlineTy
 #[ignore]
 fn outline_do_sdk_resolve() {
     let Some((_lib_dir, sdk)) = get_sdk() else {
-        eprintln!("SDK 3.6.2 não disponível, pulando teste.");
+        eprintln!("SDK 3.6.2 not available, skipping test.");
         return;
     };
 
@@ -92,36 +92,36 @@ fn outline_do_sdk_resolve() {
     let total_annotations = outline.functions.len() + outline.variables.len() + outline.classes.len();
 
     println!("============================================================");
-    println!(" Estatísticas de Resolução do SDK Dart 3.6.2 (dartforge-types)");
+    println!(" Dart SDK 3.6.2 Resolution Statistics (dartforge-types)");
     println!("============================================================");
-    println!("Bibliotecas carregadas:         {}", program.libraries.len());
-    println!("Unidades (arquivos .dart):      {}", program.units.len());
-    println!("Elementos totais no outline:    {}", total_elements);
+    println!("Loaded libraries:               {}", program.libraries.len());
+    println!("Units (.dart files):            {}", program.units.len());
+    println!("Total elements in the outline:  {}", total_elements);
     println!("  - Classes / Mixins / Enums:   {}", program.classes.len());
-    println!("  - Funções / Métodos / Ctors:  {}", program.functions.len());
-    println!("  - Variáveis / Campos:         {}", program.variables.len());
+    println!("  - Functions / Methods / Ctors: {}", program.functions.len());
+    println!("  - Variables / Fields:          {}", program.variables.len());
     println!("  - Typedefs:                   {}", program.typedefs.len());
     println!("  - Extensions:                 {}", program.extensions.len());
-    println!("Anotações resolvidas:           {}", total_annotations);
-    println!("TypeIds únicos (hash-consed):   {}", table.len());
+    println!("Resolved annotations:           {}", total_annotations);
+    println!("Unique TypeIds (hash-consed):   {}", table.len());
     println!(
-        "Payload bytes da TypeTable:     {} bytes ({:.2} KB / {:.2} MB)",
+        "TypeTable payload bytes:        {} bytes ({:.2} KB / {:.2} MB)",
         table.payload_bytes(),
         table.payload_bytes() as f64 / 1024.0,
         table.payload_bytes() as f64 / 1_048_576.0
     );
-    println!("Diagnósticos de types:          {}", types_diags.len());
+    println!("types diagnostics:              {}", types_diags.len());
     println!("============================================================");
 
-    assert!(program.libraries.len() >= 30, "deve carregar as bibliotecas do SDK");
-    assert!(table.len() > 100, "deve internar mais de 100 tipos únicos");
+    assert!(program.libraries.len() >= 30, "must load the SDK libraries");
+    assert!(table.len() > 100, "must intern more than 100 unique types");
 }
 
 #[test]
 #[ignore]
 fn sdk_hierarchy_instantiates() {
     let Some((program, mut interner, mut table, core, outline)) = load_full_sdk() else {
-        eprintln!("SDK não disponível, pulando.");
+        eprintln!("SDK not available, skipping.");
         return;
     };
 
@@ -131,11 +131,11 @@ fn sdk_hierarchy_instantiates() {
             .libraries
             .iter()
             .position(|l| l.uri == lib_uri)
-            .unwrap_or_else(|| panic!("biblioteca {lib_uri} deve existir"));
+            .unwrap_or_else(|| panic!("library {lib_uri} must exist"));
         let lib = &program.libraries[lib_idx];
         match lib.exported.get(&sym).and_then(|b| b.getter) {
             Some(Element::Class(cid)) => cid,
-            _ => panic!("classe {name} não encontrada em {lib_uri}"),
+            _ => panic!("class {name} not found in {lib_uri}"),
         }
     };
 
@@ -155,30 +155,30 @@ fn sdk_hierarchy_instantiates() {
     let super_iter = outline
         .hierarchy
         .supertype_of(list_int, iter_cls, &mut table, &core)
-        .expect("List<int> deve herdar Iterable");
+        .expect("List<int> must inherit Iterable");
 
     match table.get(super_iter) {
         Type::Interface { class, args, .. } => {
             assert_eq!(*class, iter_cls);
             assert_eq!(args.len(), 1);
-            assert_eq!(args[0], core.int, "List<int> deve ter supertipo Iterable<int>");
+            assert_eq!(args[0], core.int, "List<int> must have supertype Iterable<int>");
         }
-        other => panic!("esperava Interface Iterable<int>, obteve {:?}", other),
+        other => panic!("expected Interface Iterable<int>, got {:?}", other),
     }
 
     // 2. int has Comparable<num> in the SDK hierarchy
     let super_comp = outline
         .hierarchy
         .supertype_of(core.int, comp_cls, &mut table, &core)
-        .expect("int deve herdar Comparable");
+        .expect("int must inherit Comparable");
 
     match table.get(super_comp) {
         Type::Interface { class, args, .. } => {
             assert_eq!(*class, comp_cls);
             assert_eq!(args.len(), 1);
-            assert_eq!(args[0], core.num, "int deve implementar Comparable<num>");
+            assert_eq!(args[0], core.num, "int must implement Comparable<num>");
         }
-        other => panic!("esperava Interface Comparable<num>, obteve {:?}", other),
+        other => panic!("expected Interface Comparable<num>, got {:?}", other),
     }
 
     // 3. Map<String, int> has Object in its hierarchy
@@ -191,7 +191,7 @@ fn sdk_hierarchy_instantiates() {
     let super_obj = outline
         .hierarchy
         .supertype_of(map_str_int, core.object_class.unwrap(), &mut table, &core)
-        .expect("Map<String, int> deve herdar Object");
+        .expect("Map<String, int> must inherit Object");
     assert_eq!(super_obj, core.object);
 }
 
@@ -199,7 +199,7 @@ fn sdk_hierarchy_instantiates() {
 #[ignore]
 fn known_subtyping() {
     let Some((program, mut interner, mut table, core, outline)) = load_full_sdk() else {
-        eprintln!("SDK não disponível, pulando.");
+        eprintln!("SDK not available, skipping.");
         return;
     };
 
@@ -209,11 +209,11 @@ fn known_subtyping() {
             .libraries
             .iter()
             .position(|l| l.uri == lib_uri)
-            .unwrap_or_else(|| panic!("biblioteca {lib_uri} deve existir"));
+            .unwrap_or_else(|| panic!("library {lib_uri} must exist"));
         let lib = &program.libraries[lib_idx];
         match lib.exported.get(&sym).and_then(|b| b.getter) {
             Some(Element::Class(cid)) => cid,
-            _ => panic!("classe {name} não encontrada em {lib_uri}"),
+            _ => panic!("class {name} not found in {lib_uri}"),
         }
     };
 
@@ -294,6 +294,6 @@ fn known_subtyping() {
     // 5. num Function(int) <: int Function(num) is FALSE
     assert!(
         !is_subtype(fn_int_to_num, fn_num_to_int, &mut env),
-        "num Function(int) NÃO deve ser subtipo de int Function(num)"
+        "num Function(int) must NOT be a subtype of int Function(num)"
     );
 }

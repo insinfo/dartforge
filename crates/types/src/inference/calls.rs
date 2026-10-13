@@ -1489,7 +1489,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
                             return (inf.core.dynamic_, false);
                         }
                         let extension = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
-                        let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_METHOD.template, inf.interner.resolve(name.sym), extension);
+                        let msg = format!("{}: '{}' in '{}'", UNDEFINED_EXTENSION_METHOD.template, inf.interner.resolve(name.sym), extension);
                         inf.aviso(msg, name.span);
                         for arg in args.args.iter() {
                             infer_free(inf, cx, arg.value);
@@ -1733,7 +1733,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
                 Busca::Missing => {
                     if let Some((x, _)) = cx.overlays.get(&recv).cloned() {
                         let extension = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
-                        let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_METHOD.template, inf.interner.resolve(name.sym), extension);
+                        let msg = format!("{}: '{}' in '{}'", UNDEFINED_EXTENSION_METHOD.template, inf.interner.resolve(name.sym), extension);
                         inf.aviso(msg, name.span);
                         let d = inf.core.dynamic_;
                         registrar(inf, cx, target, d);

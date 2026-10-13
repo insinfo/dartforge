@@ -765,7 +765,7 @@ impl CoreTypes {
             .or_else(|| object_class.map(|c| program.classes[c.0 as usize].name))
             .or_else(|| program.classes.first().map(|c| c.name))
             .or_else(|| interner.lookup("dynamic"))
-            .unwrap_or_else(|| interner.textos().next().and_then(|t| interner.lookup(t)).expect("interner vazio"));
+            .unwrap_or_else(|| interner.textos().next().and_then(|t| interner.lookup(t)).expect("empty interner"));
         let unknown_param = table.alloc_type_param(
             name_unknown,
             TypeParamOwner::GenericFunctionType,

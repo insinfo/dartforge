@@ -535,11 +535,11 @@ fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Ad
             let dynamic = |x: &Admits, inf: &BodyInferrer<'_>| [x.elemento, x.chave, x.valor].iter().all(|t| t.is_some_and(|t| inf.e_dynamic(t)));
             let or_dynamic = |t: Option<TypeId>, d: TypeId| t.map(|_| d);
             if dynamic(&a, inf) {
-                let d = a.elemento.expect("dinâmico");
+                let d = a.elemento.expect("dynamic");
                 return Admits { elemento: or_dynamic(b.elemento, d), chave: or_dynamic(b.chave, d), valor: or_dynamic(b.valor, d) };
             }
             if dynamic(&b, inf) {
-                let d = b.elemento.expect("dinâmico");
+                let d = b.elemento.expect("dynamic");
                 return Admits { elemento: or_dynamic(a.elemento, d), chave: or_dynamic(a.chave, d), valor: or_dynamic(a.valor, d) };
             }
             let mut join = |x: Option<TypeId>, y: Option<TypeId>| match (x, y) {

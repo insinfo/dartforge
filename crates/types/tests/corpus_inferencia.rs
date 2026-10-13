@@ -37,13 +37,13 @@ fn programs(dir: &Path, v: &mut Vec<PathBuf>) {
 #[test]
 fn inference_corpus_against_oracle() {
     let Some(sdk) = sdk() else {
-        eprintln!("SDK do Dart ausente: teste pulado");
+        eprintln!("Dart SDK missing: test skipped");
         return;
     };
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/inferencia");
     let mut progs = Vec::new();
     programs(&root, &mut progs);
-    assert!(!progs.is_empty(), "corpus vazio em {}", root.display());
+    assert!(!progs.is_empty(), "empty corpus in {}", root.display());
     let list_path = root.join("divergencias.txt");
 
     let (current, summary) = std::thread::Builder::new()
@@ -62,7 +62,7 @@ fn inference_corpus_against_oracle() {
                 let target = path.to_string_lossy().replace('\\', "/");
                 let target = target.trim_start_matches("//?/");
                 let Some(u) = d.unidades.iter().find(|u| u.caminho.eq_ignore_ascii_case(target)).or(d.unidades.first()) else {
-                    panic!("{rel}: unidade não despejada");
+                    panic!("{rel}: unit not dumped");
                 };
                 let c = compare_block(&line_block(&u.linhas), &expected_block(&text));
                 compared += c.compared;
@@ -117,8 +117,8 @@ fn inference_corpus_against_oracle() {
     let resolved: Vec<&String> = known.difference(&current).collect();
     assert!(
         new_.is_empty() && resolved.is_empty(),
-        "corpus/inferencia mudou ({summary}).\nnovas ({}):\n{}\nresolvidas, tirar da lista ({}):\n{}\n\
-         (ATUALIZAR_DIVERGENCIAS=1 regrava corpus/inferencia/divergencias.txt)",
+        "corpus/inferencia changed ({summary}).\nnew ({}):\n{}\nresolved, remove from the list ({}):\n{}\n\
+         (ATUALIZAR_DIVERGENCIAS=1 rewrites corpus/inferencia/divergencias.txt)",
         new_.len(),
         new_.iter().map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n"),
         resolved.len(),

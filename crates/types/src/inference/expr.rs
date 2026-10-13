@@ -2671,7 +2671,7 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: Exp
         Busca::Missing => {
             if let Some((x, _)) = cx.overlays.get(&target).cloned() {
                 let extension = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
-                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_GETTER.template, inf.interner.resolve(name.sym), extension);
+                let msg = format!("{}: '{}' in '{}'", UNDEFINED_EXTENSION_GETTER.template, inf.interner.resolve(name.sym), extension);
                 inf.aviso(msg, name.span);
                 return (inf.core.dynamic_, short_circuit);
             }
@@ -2680,7 +2680,7 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: Exp
                 return (m.tipo, short_circuit);
             }
             let msg = format!(
-                "{}: getter '{}' não definido para o tipo '{}'",
+                "{}: getter '{}' not defined for the type '{}'",
                 UNDEFINED_GETTER.template,
                 inf.interner.resolve(name.sym),
                 inf.table.format(recv, inf.interner, inf.program)
@@ -2763,7 +2763,7 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, rt: Typ
                     return inf.core.dynamic_;
                 }
                 let extension = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
-                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_GETTER.template, inf.interner.resolve(name.sym), extension);
+                let msg = format!("{}: '{}' in '{}'", UNDEFINED_EXTENSION_GETTER.template, inf.interner.resolve(name.sym), extension);
                 inf.aviso(msg, name.span);
                 inf.core.dynamic_
             }
@@ -3280,7 +3280,7 @@ fn index_span(inf: &BodyInferrer<'_>, cx: &Body, tgt: ExprId, target: ExprId) ->
 
 fn warn_extension_operator(inf: &mut BodyInferrer<'_>, x: ExtensionId, the_name: &str, span: dartforge_diagnostics::Span) {
     let extension = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
-    let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, the_name, extension);
+    let msg = format!("{}: '{}' in '{}'", UNDEFINED_EXTENSION_OPERATOR.template, the_name, extension);
     inf.aviso(msg, span);
 }
 
@@ -3650,7 +3650,7 @@ fn binary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: BinaryOp, le
                 let snippet = inf.program.unit(cx.unit).source.get(start..end).unwrap_or("");
                 let pos = skip_whitespace_and_comments(snippet);
                 let extension = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
-                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, text, extension);
+                let msg = format!("{}: '{}' in '{}'", UNDEFINED_EXTENSION_OPERATOR.template, text, extension);
                 if snippet.get(pos..).is_some_and(|rest| rest.starts_with(text)) {
                     let offset = start + pos;
                     inf.aviso(msg, dartforge_diagnostics::Span { start: offset, end: offset + text.len() });
@@ -3743,7 +3743,7 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
                 }
                 let operator = if op == UnaryOp::Neg { "unary-" } else { "~" };
                 let extension = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
-                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, operator, extension);
+                let msg = format!("{}: '{}' in '{}'", UNDEFINED_EXTENSION_OPERATOR.template, operator, extension);
                 inf.aviso(msg, dartforge_diagnostics::Span { start: span.start, end: span.start + 1 });
                 return inf.core.dynamic_;
             }
@@ -3922,7 +3922,7 @@ fn warn_member_without_setter(inf: &mut BodyInferrer<'_>, the_name: ast::Name, f
                 .or_else(|| fe.extension.and_then(|e| inf.program.extension(e).name));
             let Some(owner) = owner else { return false };
             let msg = format!(
-                "{}: '{}' na classe '{}'",
+                "{}: '{}' in class '{}'",
                 ASSIGNMENT_TO_FINAL_NO_SETTER.template,
                 inf.interner.resolve(the_name.sym),
                 inf.interner.resolve(owner)
@@ -4618,7 +4618,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
                             && (!inf.interner.resolve(name.sym).starts_with('_') || cls.library == cx.lib)
                         {
                             let msg = format!(
-                                "{}: setter '{}' não definido para o tipo '{}'",
+                                "{}: setter '{}' not defined for the type '{}'",
                                 UNDEFINED_SETTER.template,
                                 inf.interner.resolve(name.sym),
                                 inf.interner.resolve(cls.name),
@@ -4653,7 +4653,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
                 }
                 if missing_getter && let TypeRef::Extensao(x) = rt {
                     let extension = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
-                    let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extension);
+                    let msg = format!("{}: '{}' in '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extension);
                     inf.aviso(msg, name.span);
                 }
                 // `_resolveTargetInterfaceElement` with neither setter nor getter
@@ -4672,7 +4672,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
                     if !of_instance && name.span.start != name.span.end {
                         let this = inf.class_this_type(c);
                         let msg = format!(
-                            "{}: setter '{}' não definido para o tipo '{}'",
+                            "{}: setter '{}' not defined for the type '{}'",
                             UNDEFINED_SETTER.template,
                             inf.interner.resolve(name.sym),
                             inf.table.format(this, inf.interner, inf.program),
@@ -4702,7 +4702,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
     // `x.new = v` (`type_property_resolver.dart:75-79`): no `new` setter.
     if !cx.overlays.contains_key(&target) && inf.interner.resolve(name.sym) == "new" {
         let msg = format!(
-            "{}: setter '{}' não definido para o tipo '{}'",
+            "{}: setter '{}' not defined for the type '{}'",
             UNDEFINED_SETTER.template,
             "new",
             inf.table.format(recv, inf.interner, inf.program),
@@ -4731,7 +4731,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
             return inf.core.dynamic_;
         }
         let extension = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
-        let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extension);
+        let msg = format!("{}: '{}' in '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extension);
         inf.aviso(msg, name.span);
         return inf.core.dynamic_;
     }
@@ -4816,7 +4816,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
                 }
             }
             let msg = format!(
-                "{}: setter '{}' não definido para o tipo '{}'",
+                "{}: setter '{}' not defined for the type '{}'",
                 UNDEFINED_SETTER.template,
                 inf.interner.resolve(name.sym),
                 inf.table.format(recv, inf.interner, inf.program)
@@ -5310,7 +5310,7 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
             {
                 let token = operator_token(inf, cx, inf.span_expr(cx.unit, left).end);
                 let extension = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
-                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, "==", extension);
+                let msg = format!("{}: '{}' in '{}'", UNDEFINED_EXTENSION_OPERATOR.template, "==", extension);
                 inf.aviso(msg, token);
             }
             // `super == x`: the `==` of the `super` chain, with the parameter made

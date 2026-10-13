@@ -381,22 +381,22 @@ fn without_args(s: &str) -> &str {
 /// Shape of the difference between our type and the oracle's.
 pub fn forma(ours: &str, oracle: &str) -> &'static str {
     if ours == "?" {
-        return "não visitada";
+        return "not visited";
     }
     if ours == "dynamic" {
-        return "nós dynamic";
+        return "ours dynamic";
     }
     if oracle == "dynamic" {
-        return "oráculo dynamic";
+        return "oracle dynamic";
     }
     if ours.trim_end_matches('?') == oracle.trim_end_matches('?') {
-        return "nulabilidade";
+        return "nullability";
     }
     if without_args(ours) == without_args(oracle) {
-        return "argumentos de tipo";
+        return "type arguments";
     }
     if oracle.contains("Function") || ours.contains("Function") {
-        return "tipo de função";
+        return "function type";
     }
-    "outro tipo"
+    "other type"
 }

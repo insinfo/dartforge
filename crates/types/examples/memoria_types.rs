@@ -23,18 +23,18 @@ fn main() {
         if default_path.exists() {
             default_path
         } else {
-            eprintln!("Uso: memoria <caminho_para_main.dart>");
+            eprintln!("Usage: memoria <path_to_main.dart>");
             return;
         }
     };
 
     println!("============================================================");
-    println!(" Medição de Memória e Desempenho — dartforge-types");
-    println!(" Alvo: {}", entry_point.display());
+    println!(" Memory and Performance Measurement — dartforge-types");
+    println!(" Target: {}", entry_point.display());
     println!("============================================================");
 
     let sdk_dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
-    let sdk = SdkLayout::load(&sdk_dir, "dartdevc").expect("Falha ao carregar SdkLayout");
+    let sdk = SdkLayout::load(&sdk_dir, "dartdevc").expect("Failed to load SdkLayout");
 
     let package_config = entry_point
         .parent()
@@ -79,45 +79,45 @@ fn main() {
         resolved_exprs += u.resolved.iter().filter(|r| r.is_some()).count();
     }
 
-    println!("\n--- Métricas Estruturais ---");
-    println!("Bibliotecas carregadas:         {}", program.libraries.len());
-    println!("Unidades (.dart):               {}", program.units.len());
+    println!("\n--- Structural Metrics ---");
+    println!("Loaded libraries:               {}", program.libraries.len());
+    println!("Units (.dart):                  {}", program.units.len());
     println!("Classes / Mixins / Enums:       {}", program.classes.len());
-    println!("Funções e Métodos:              {}", program.functions.len());
-    println!("Variáveis e Campos:             {}", program.variables.len());
-    println!("Tipos distintos (TypeTable):    {}", table.len());
-    println!("Expressões tipadas:             {}", total_exprs);
-    println!("Expressões resolvidas:          {} ({:.1}%)",
+    println!("Functions and Methods:          {}", program.functions.len());
+    println!("Variables and Fields:           {}", program.variables.len());
+    println!("Distinct types (TypeTable):     {}", table.len());
+    println!("Typed expressions:              {}", total_exprs);
+    println!("Resolved expressions:           {} ({:.1}%)",
         resolved_exprs,
         if total_exprs > 0 { (resolved_exprs as f64 / total_exprs as f64) * 100.0 } else { 0.0 }
     );
 
-    println!("\n--- Diagnósticos Emitidos ---");
-    println!("Elementos / Parser:             {}", elements_diags.len());
-    println!("Outline (Tipos):                {}", outline_diags.len());
-    println!("Corpos (Inferência e Fluxo):    {}", body_diags.len());
+    println!("\n--- Emitted Diagnostics ---");
+    println!("Elements / Parser:              {}", elements_diags.len());
+    println!("Outline (Types):                {}", outline_diags.len());
+    println!("Bodies (Inference and Flow):    {}", body_diags.len());
 
-    println!("\n--- Consumo de Memória ---");
-    println!("Memória Base:                   {:.2} MB", base_bytes as f64 / 1_048_576.0);
-    println!("Após Carga de Elementos:        {:.2} MB (+{:.2} MB)",
+    println!("\n--- Memory Usage ---");
+    println!("Base Memory:                    {:.2} MB", base_bytes as f64 / 1_048_576.0);
+    println!("After Loading Elements:         {:.2} MB (+{:.2} MB)",
         bytes_after_elements as f64 / 1_048_576.0,
         (bytes_after_elements.saturating_sub(base_bytes)) as f64 / 1_048_576.0
     );
-    println!("Após Resolução de Outline:      {:.2} MB (+{:.2} MB)",
+    println!("After Outline Resolution:       {:.2} MB (+{:.2} MB)",
         bytes_after_outline as f64 / 1_048_576.0,
         (bytes_after_outline.saturating_sub(bytes_after_elements)) as f64 / 1_048_576.0
     );
-    println!("Após Inferência de Corpos:      {:.2} MB (+{:.2} MB)",
+    println!("After Body Inference:           {:.2} MB (+{:.2} MB)",
         bytes_after_bodies as f64 / 1_048_576.0,
         (bytes_after_bodies.saturating_sub(bytes_after_outline)) as f64 / 1_048_576.0
     );
-    println!("Pico de Memória Global:         {:.2} MB", peak_bytes as f64 / 1_048_576.0);
-    println!("Alocações Totais:               {}", total_allocations);
+    println!("Global Peak Memory:             {:.2} MB", peak_bytes as f64 / 1_048_576.0);
+    println!("Total Allocations:              {}", total_allocations);
 
-    println!("\n--- Tempos de Execução ---");
-    println!("Carga e Parse (Elementos):      {:.2?}", t_elements);
-    println!("Resolução de Outline:           {:.2?}", t_outline);
-    println!("Inferência de Corpos:           {:.2?}", t_bodies);
-    println!("Tempo Total de Front-end:       {:.2?}", t_elements + t_outline + t_bodies);
+    println!("\n--- Execution Times ---");
+    println!("Load and Parse (Elements):      {:.2?}", t_elements);
+    println!("Outline Resolution:             {:.2?}", t_outline);
+    println!("Body Inference:                 {:.2?}", t_bodies);
+    println!("Total Front-end Time:           {:.2?}", t_elements + t_outline + t_bodies);
     println!("============================================================");
 }

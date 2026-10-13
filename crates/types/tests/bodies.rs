@@ -103,7 +103,7 @@ fn mock_sdk(dir: &Path) -> SdkLayout {
     )
     .unwrap();
 
-    SdkLayout::load(&lib_dir, "dartdevc").expect("carrega layout sdk simulado")
+    SdkLayout::load(&lib_dir, "dartdevc").expect("loads the simulated sdk layout")
 }
 
 fn get_real_sdk() -> Option<(PathBuf, SdkLayout)> {
@@ -180,22 +180,22 @@ fn promotion_and_inference() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carrega programa de teste");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loads the test program");
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, outline_diags) = resolve_outline(&prog, &interner, &mut table, &core);
 
-    assert!(outline_diags.is_empty(), "Outline não deve ter diagnósticos: {outline_diags:?}");
+    assert!(outline_diags.is_empty(), "The outline must not have diagnostics: {outline_diags:?}");
 
     let (body_types, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
     // Unit 0 is `dart:core` (without body inference); the user's is the entry one.
     let entry_unit = prog.library(prog.entry.unwrap()).units[0];
     let unit = &body_types.units[entry_unit.0 as usize];
-    assert!(unit.static_types.len() > 10, "Expressões devem estar tipadas");
+    assert!(unit.static_types.len() > 10, "Expressions must be typed");
 
     // Checks that there were no spurious diagnostics
-    assert!(diags.is_empty(), "Corpos válidos não devem emitir diagnósticos: {diags:?}");
+    assert!(diags.is_empty(), "Valid bodies must not emit diagnostics: {diags:?}");
 }
 
 // ===========================================================================
@@ -227,7 +227,7 @@ fn verify_diagnostic(dart_code: &str, expected_diagnostic: DiagnosticCode) {
     });
     assert!(
         found,
-        "Esperava diagnóstico '{}', mas obteve:\n{:?}",
+        "Expected diagnostic '{}', but got:\n{:?}",
         expected_diagnostic.template,
         diags
     );
@@ -253,7 +253,7 @@ fn class_getter_without_setter_in_simple_assignment() {
         let x = source.find(target).unwrap() + target.find("x").unwrap();
         assert_eq!(d.span.start as usize, x, "{diags:?}");
         assert_eq!(d.span.end as usize, x + 1, "{diags:?}");
-        assert!(d.message.contains("'x' na classe 'A'"), "{diags:?}");
+        assert!(d.message.contains("'x' in class 'A'"), "{diags:?}");
     }
     let missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_SETTER.template)).collect();
     assert_eq!(missing.len(), 1, "{diags:?}");
@@ -326,11 +326,11 @@ fn lexical_getter_without_setter_in_assignments_and_increments() {
         let index = source.find(target).unwrap() + target.find(|c| c == 'x' || c == 's').unwrap();
         assert_eq!(d.span.start as usize, index, "{diags:?}");
         assert_eq!(d.span.end as usize, index + 1, "{diags:?}");
-        assert!(d.message.contains("na classe 'A'"), "{diags:?}");
+        assert!(d.message.contains("in class 'A'"), "{diags:?}");
     }
     let inherited = source.rfind("x = 0").unwrap();
     assert_eq!(readonly[8].span.start as usize, inherited, "{diags:?}");
-    assert!(readonly[8].message.contains("na classe 'A'"), "{diags:?}");
+    assert!(readonly[8].message.contains("in class 'A'"), "{diags:?}");
 }
 
 #[test]
@@ -353,7 +353,7 @@ fn extension_getter_without_setter() {
         let index = source.find(target).unwrap() + target.find('x').unwrap();
         assert_eq!(d.span.start as usize, index, "{diags:?}");
         assert_eq!(d.span.end as usize, index + 1, "{diags:?}");
-        assert!(d.message.contains("na classe 'E'"), "{diags:?}");
+        assert!(d.message.contains("in class 'E'"), "{diags:?}");
     }
 }
 
@@ -375,7 +375,7 @@ fn explicit_extension_override_without_setter() {
     assert_eq!(the_missing.len(), 2, "{diags:?}");
     for d in the_missing {
         assert_eq!(&source[d.span.start as usize..d.span.end as usize], "foo", "{diags:?}");
-        assert!(d.message.contains("'foo' em 'E'"), "{diags:?}");
+        assert!(d.message.contains("'foo' in 'E'"), "{diags:?}");
     }
     assert!(!diags.iter().any(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)), "{diags:?}");
     assert!(!diags.iter().any(|d| d.message.contains("'bar'")), "{diags:?}");
@@ -399,7 +399,7 @@ fn explicit_override_without_getter_uses_extension_code() {
     assert_eq!(the_missing.len(), 2, "{diags:?}");
     for d in the_missing {
         assert_eq!(&source[d.span.start as usize..d.span.end as usize], "foo");
-        assert!(d.message.contains("'foo' em 'E'"));
+        assert!(d.message.contains("'foo' in 'E'"));
     }
     assert!(!diags.iter().any(|d| d.message.starts_with(UNDEFINED_GETTER.template)), "{diags:?}");
 }
@@ -424,7 +424,7 @@ fn missing_static_getter_in_extension_per_oracle() {
         let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_GETTER.template)).collect();
         assert_eq!(the_missing.len(), 1, "{diags:?}");
         assert_eq!((the_missing[0].span.start, the_missing[0].span.end), (offset, offset + 1));
-        assert!(the_missing[0].message.contains("'v' em 'E'"));
+        assert!(the_missing[0].message.contains("'v' in 'E'"));
     }
 }
 
@@ -446,7 +446,7 @@ fn missing_static_setter_in_extension_per_oracle() {
     let d = the_found[0];
     assert_eq!(&source[d.span.start as usize..d.span.end as usize], "foo");
     assert_eq!(d.span.start as usize, source.find("E.foo").unwrap() + 2);
-    assert!(d.message.contains("'foo' em 'E'"));
+    assert!(d.message.contains("'foo' in 'E'"));
 }
 
 #[test]
@@ -785,7 +785,7 @@ fn explicit_override_without_method_uses_extension_code() {
     let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_METHOD.template)).collect();
     assert_eq!(the_missing.len(), 1, "{diags:?}");
     assert_eq!(&source[the_missing[0].span.start as usize..the_missing[0].span.end as usize], "m");
-    assert!(the_missing[0].message.contains("'m' em 'E'"));
+    assert!(the_missing[0].message.contains("'m' in 'E'"));
 }
 
 #[test]
@@ -808,7 +808,7 @@ fn missing_static_method_in_extension_per_oracle() {
         let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_METHOD.template)).collect();
         assert_eq!(the_missing.len(), 1, "{diags:?}");
         assert_eq!((the_missing[0].span.start, the_missing[0].span.end), (offset, offset + 1));
-        assert!(the_missing[0].message.contains("'m' em 'E'"));
+        assert!(the_missing[0].message.contains("'m' in 'E'"));
     }
 }
 
@@ -922,7 +922,7 @@ fn unary_operator_in_override_per_oracle() {
         assert_eq!(operators.len(), usize::from(missing_), "{diags:?}");
         if missing_ {
             assert_eq!((operators[0].span.start, operators[0].span.end), (33, 34));
-            assert!(operators[0].message.contains("'unary-' em 'E'"));
+            assert!(operators[0].message.contains("'unary-' in 'E'"));
         }
     }
 }
@@ -947,7 +947,7 @@ fn binary_operator_in_override_per_oracle() {
         assert_eq!(operators.len(), usize::from(missing_), "{diags:?}");
         if missing_ {
             assert_eq!((operators[0].span.start, operators[0].span.end), (40, 41));
-            assert!(operators[0].message.contains("'+' em 'E'"));
+            assert!(operators[0].message.contains("'+' in 'E'"));
         }
     }
 
@@ -959,7 +959,7 @@ fn binary_operator_in_override_per_oracle() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-    let operator = diags.iter().find(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).expect("operador ausente");
+    let operator = diags.iter().find(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).expect("missing operator");
     assert_eq!(operator.span.start, source.rfind('+').unwrap());
 }
 
@@ -1009,7 +1009,7 @@ fn index_operators_in_override_per_oracle() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-    let operator = diags.iter().find(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).expect("operador ausente");
+    let operator = diags.iter().find(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).expect("missing operator");
     assert_eq!(operator.span.start, source.rfind("[0]").unwrap());
 }
 
@@ -1065,7 +1065,7 @@ fn read_only_static_members_in_assignments() {
     }
     for d in getters {
         assert_eq!(&source[d.span.start as usize..d.span.end as usize], "g");
-        assert!(d.message.contains("na classe 'A'"));
+        assert!(d.message.contains("in class 'A'"));
     }
     assert_eq!(&source[constantes[0].span.start as usize..constantes[0].span.end as usize], "c");
     assert!(!diags.iter().any(|d| d.message.contains("'l'")), "{diags:?}");
@@ -1420,7 +1420,7 @@ fn analyzer_negatives_40_cases() {
 #[ignore]
 fn sdk_bodies_type_check() {
     let Some((_lib_dir, sdk)) = get_real_sdk() else {
-        eprintln!("SDK 3.6.2 não disponível, pulando teste.");
+        eprintln!("SDK 3.6.2 not available, skipping test.");
         return;
     };
 
@@ -1457,25 +1457,25 @@ fn sdk_bodies_type_check() {
     }
 
     println!("============================================================");
-    println!(" Tipagem de Corpos do SDK Dart 3.6.2 ({lib_count} bibliotecas)");
+    println!(" Dart SDK 3.6.2 Body Typing ({lib_count} libraries)");
     println!("============================================================");
-    println!("Unidades (.dart):               {}", program.units.len());
-    println!("Expressões tipadas:             {}", total_exprs);
-    println!("Expressões resolvidas:          {} ({:.1}%)",
+    println!("Units (.dart):                  {}", program.units.len());
+    println!("Typed expressions:              {}", total_exprs);
+    println!("Resolved expressions:           {} ({:.1}%)",
         resolved_exprs,
         (resolved_exprs as f64 / total_exprs as f64) * 100.0
     );
-    println!("Tipos únicos em TypeTable:      {}", table.len());
-    println!("Tempo de inferência:            {:.2?}", time);
-    println!("Diagnósticos de Parser:         {}", elements_diags.len());
-    println!("Diagnósticos de Outline:        {}", outline_diags.len());
-    println!("Diagnósticos de Corpos:         {}", body_diags.len());
+    println!("Unique types in TypeTable:      {}", table.len());
+    println!("Inference time:                 {:.2?}", time);
+    println!("Parser diagnostics:             {}", elements_diags.len());
+    println!("Outline diagnostics:            {}", outline_diags.len());
+    println!("Body diagnostics:               {}", body_diags.len());
     println!("============================================================");
 
     // Since the DDC emission, SDK bodies are not inferred (only the outline):
     // the tables of the SDK units stay empty and no warning comes from them.
-    assert_eq!(total_exprs, 0, "unidades do SDK não recebem inferência de corpos");
-    assert!(body_diags.is_empty(), "nenhum aviso de corpos deve vir do SDK: {}", body_diags.len());
+    assert_eq!(total_exprs, 0, "SDK units do not get body inference");
+    assert!(body_diags.is_empty(), "no body warning may come from the SDK: {}", body_diags.len());
 }
 
 // ===========================================================================
@@ -1486,13 +1486,13 @@ fn sdk_bodies_type_check() {
 #[ignore]
 fn pub_corpus_type_checks() {
     let Some((_lib_dir, sdk)) = get_real_sdk() else {
-        eprintln!("SDK 3.6.2 não disponível, pulando teste.");
+        eprintln!("SDK 3.6.2 not available, skipping test.");
         return;
     };
 
     let pub_dir = PathBuf::from("references/pub");
     if !pub_dir.exists() {
-        eprintln!("references/pub não existe, pulando teste.");
+        eprintln!("references/pub does not exist, skipping test.");
         return;
     }
 
@@ -1519,7 +1519,7 @@ fn pub_corpus_type_checks() {
                 for u in &body_types.units {
                     total_exprs += u.static_types.len();
                 }
-                println!("Pacote {}: {} expressões tipadas", pkg_path.file_name().unwrap().to_string_lossy(), total_exprs);
+                println!("Package {}: {} typed expressions", pkg_path.file_name().unwrap().to_string_lossy(), total_exprs);
                 break;
             }
         }
@@ -1534,7 +1534,7 @@ fn pub_corpus_type_checks() {
 #[ignore]
 fn new_sali_type_checks() {
     let Some((_lib_dir, sdk)) = get_real_sdk() else {
-        eprintln!("SDK 3.6.2 não disponível, pulando teste.");
+        eprintln!("SDK 3.6.2 not available, skipping test.");
         return;
     };
 
@@ -1543,7 +1543,7 @@ fn new_sali_type_checks() {
 
     for (label, entry) in [("Frontend", frontend_entry), ("Backend", backend_entry)] {
         if !entry.exists() {
-            eprintln!("{entry:?} não encontrado, pulando {label}.");
+            eprintln!("{entry:?} not found, skipping {label}.");
             continue;
         }
 
@@ -1563,12 +1563,12 @@ fn new_sali_type_checks() {
             resolved_exprs += u.resolved.iter().filter(|r| r.is_some()).count();
         }
 
-        println!("new_sali {label}: {} unidades, {} expressões tipadas, {} resolvidas",
+        println!("new_sali {label}: {} units, {} typed expressions, {} resolved",
             prog.units.len(),
             total_exprs,
             resolved_exprs
         );
-        assert!(total_exprs > 0, "new_sali {label} deve conter expressões em corpos");
+        assert!(total_exprs > 0, "new_sali {label} must contain expressions in bodies");
     }
 }
 
@@ -1821,7 +1821,7 @@ fn types_with_sdk(source: &str) -> Option<Vec<(String, String)>> {
         .stack_size(1 << 28)
         .spawn(move || {
             let d = dartforge_types::despejo::dump(&main, &sdk, None);
-            d.unidades.into_iter().next().expect("unidade despejada").linhas
+            d.unidades.into_iter().next().expect("dumped unit").linhas
         })
         .unwrap()
         .join()
@@ -1837,7 +1837,7 @@ fn tipo_de<'a>(types: &'a [(String, String)], snippet: &str, n: usize) -> &'a st
         .filter(|(t, _)| t == snippet)
         .nth(n)
         .map(|(_, ty)| ty.as_str())
-        .unwrap_or_else(|| panic!("expressão `{snippet}` #{n} não encontrada em {types:?}"))
+        .unwrap_or_else(|| panic!("expression `{snippet}` #{n} not found in {types:?}"))
 }
 
 #[test]
@@ -2155,7 +2155,7 @@ fn switch_on_nullable_sealed_is_exhaustive() {
         }";
     let diags = diagnostics_of(source);
     assert!(
-        !diags.iter().any(|d| d.message.contains("é lida antes de ser atribuída")),
+        !diags.iter().any(|d| d.message.contains("is read before it is assigned")),
         "{diags:?}"
     );
 }

@@ -213,7 +213,7 @@ impl TestHarness {
                         _ => None,
                     })
             })
-            .unwrap_or_else(|| panic!("Classe não encontrada no mock: {}", name));
+            .unwrap_or_else(|| panic!("Class not found in the mock: {}", name));
 
         self.table.intern(Type::Interface {
             class: cid,
@@ -565,7 +565,7 @@ fn test_table_60_normative_subtyping_cases() {
         } else {
             failed += 1;
             eprintln!(
-                "FALHA: {} (esperado: {}, obtido: {})",
+                "FAILURE: {} (expected: {}, got: {})",
                 desc, expected, result
             );
         }
@@ -574,13 +574,13 @@ fn test_table_60_normative_subtyping_cases() {
     assert_eq!(
         failed,
         0,
-        "Falharam {}/{} casos da tabela de subtipagem normativa!",
+        "{}/{} cases of the normative subtyping table failed!",
         failed,
         passed + failed
     );
     assert!(
         passed >= 60,
-        "Esperado pelo menos 60 casos, rodou {}",
+        "Expected at least 60 cases, ran {}",
         passed
     );
 }

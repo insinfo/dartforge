@@ -978,7 +978,7 @@ impl<'a> BodyInferrer<'a> {
             return;
         }
         let msg = format!(
-            "{}: '{}' não é atribuível a '{}'",
+            "{}: '{}' is not assignable to '{}'",
             template,
             self.table.format(of, self.interner, self.program),
             self.table.format(for_, self.interner, self.program)

@@ -624,7 +624,7 @@ impl<'a> BodyInferrer<'a> {
         }
         let d = crate::resolve::type_name_diagnostic(context, found, the_name, range);
         let args: Vec<&str> = d.args.iter().map(|a| &**a).collect();
-        let code = d.code.expect("com código");
+        let code = d.code.expect("has a code");
         self.warning_with_code(code, range, &args);
     }
 

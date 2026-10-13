@@ -77,7 +77,7 @@ fn mock_sdk(dir: &Path) -> SdkLayout {
     )
     .unwrap();
 
-    SdkLayout::load(&lib_dir, "dartdevc").expect("carrega layout sdk simulado")
+    SdkLayout::load(&lib_dir, "dartdevc").expect("loads the simulated sdk layout")
 }
 
 #[test]
@@ -105,12 +105,12 @@ fn test_generic_typedef_expansion() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carrega programa com typedef");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loads the program with a typedef");
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
 
     let (outline, diags) = resolve_outline(&prog, &interner, &mut table, &core);
-    assert!(diags.is_empty(), "não deve haver erros de resolução: {:?}", diags);
+    assert!(diags.is_empty(), "there must be no resolution errors: {:?}", diags);
 
     // Finds the field Target.cb
     let cb_sym = interner.intern("cb");
@@ -119,11 +119,11 @@ fn test_generic_typedef_expansion() {
         .iter()
         .enumerate()
         .find(|(_, v)| v.name == cb_sym)
-        .expect("encontra variável cb");
+        .expect("finds variable cb");
 
     let cb_ty = outline.variables[cb_idx]
         .declared_type
-        .expect("tipo declarado de cb deve estar presente");
+        .expect("the declared type of cb must be present");
 
     // Checks that it is Type::Function with return int and positional int, marked nullable
     match table.get(cb_ty) {
@@ -133,12 +133,12 @@ fn test_generic_typedef_expansion() {
             nullable,
             ..
         } => {
-            assert!(*nullable, "cb deve ser nullable (F<int>?)");
-            assert_eq!(*ret, core.int, "retorno expandido do typedef deve ser int");
-            assert_eq!(positional.len(), 1, "deve ter 1 parâmetro posicional");
-            assert_eq!(positional[0], core.int, "parâmetro deve ser int");
+            assert!(*nullable, "cb must be nullable (F<int>?)");
+            assert_eq!(*ret, core.int, "the expanded return of the typedef must be int");
+            assert_eq!(positional.len(), 1, "must have 1 positional parameter");
+            assert_eq!(positional[0], core.int, "the parameter must be int");
         }
-        other => panic!("esperava Type::Function para F<int>?, obteve {:?}", other),
+        other => panic!("expected Type::Function for F<int>?, got {:?}", other),
     }
 
     // Also tests direct expansion through the typedef table
@@ -162,7 +162,7 @@ fn test_generic_typedef_expansion() {
             assert_eq!(positional.len(), 1);
             assert_eq!(positional[0], core.int);
         }
-        other => panic!("esperava função expandida, obteve {:?}", other),
+        other => panic!("expected an expanded function, got {:?}", other),
     }
 }
 
@@ -197,12 +197,12 @@ fn test_override_inference() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carrega programa com override");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loads the program with an override");
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
 
     let (outline, diags) = resolve_outline(&prog, &interner, &mut table, &core);
-    assert!(diags.is_empty(), "não deve haver erros de resolução: {:?}", diags);
+    assert!(diags.is_empty(), "there must be no resolution errors: {:?}", diags);
 
     let child_sym = interner.intern("Child");
     let (child_cid, _) = prog
@@ -219,11 +219,11 @@ fn test_override_inference() {
     let val_fn_id = child_elem
         .instance_members
         .get(&val_sym)
-        .expect("encontra membro val em Child");
+        .expect("finds member val in Child");
     let val_fn_data = &outline.functions[val_fn_id.0 as usize];
     assert_eq!(
         val_fn_data.return_type, core.int,
-        "retorno de 'get val' em Child deve ser inferido como int"
+        "the return of 'get val' in Child must be inferred as int"
     );
 
     // 2. Method 'setVal(x)' with an omitted parameter inherits type 'int' from Base<int>
@@ -231,12 +231,12 @@ fn test_override_inference() {
     let set_val_fn_id = child_elem
         .instance_members
         .get(&set_val_sym)
-        .expect("encontra membro setVal em Child");
+        .expect("finds member setVal in Child");
     let set_val_fn_data = &outline.functions[set_val_fn_id.0 as usize];
     assert_eq!(set_val_fn_data.parameters.len(), 1);
     assert_eq!(
         set_val_fn_data.parameters[0].ty, core.int,
-        "parâmetro 'x' em setVal(x) deve ser inferido como int"
+        "parameter 'x' in setVal(x) must be inferred as int"
     );
 
     // 3. Method 'compute(input)' without return or parameter type inherits both as 'int'
@@ -244,16 +244,16 @@ fn test_override_inference() {
     let compute_fn_id = child_elem
         .instance_members
         .get(&compute_sym)
-        .expect("encontra membro compute em Child");
+        .expect("finds member compute in Child");
     let compute_fn_data = &outline.functions[compute_fn_id.0 as usize];
     assert_eq!(
         compute_fn_data.return_type, core.int,
-        "retorno de 'compute' em Child deve ser inferido como int"
+        "the return of 'compute' in Child must be inferred as int"
     );
     assert_eq!(compute_fn_data.parameters.len(), 1);
     assert_eq!(
         compute_fn_data.parameters[0].ty, core.int,
-        "parâmetro 'input' em compute deve ser inferido como int"
+        "parameter 'input' in compute must be inferred as int"
     );
 }
 
@@ -284,12 +284,12 @@ fn test_mixin_application_instantiated_supertypes() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carrega programa com mixin");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loads the program with a mixin");
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
 
     let (outline, diags) = resolve_outline(&prog, &interner, &mut table, &core);
-    assert!(diags.is_empty(), "não deve haver erros de resolução: {:?}", diags);
+    assert!(diags.is_empty(), "there must be no resolution errors: {:?}", diags);
 
     let mut find_cls = |name: &str| -> ClassId {
         let sym = interner.intern(name);
@@ -297,7 +297,7 @@ fn test_mixin_application_instantiated_supertypes() {
             prog.classes
                 .iter()
                 .position(|c| c.name == sym)
-                .unwrap_or_else(|| panic!("classe {name} deve existir")) as u32,
+                .unwrap_or_else(|| panic!("class {name} must exist")) as u32,
         )
     };
 
@@ -317,56 +317,56 @@ fn test_mixin_application_instantiated_supertypes() {
     let b_super = outline
         .hierarchy
         .supertype_of(c_ty, b_cls, &mut table, &core)
-        .expect("C deve herdar B");
+        .expect("C must inherit B");
     match table.get(b_super) {
         Type::Interface { class, args, .. } => {
             assert_eq!(*class, b_cls);
             assert_eq!(args.len(), 1);
             assert_eq!(args[0], core.int);
         }
-        other => panic!("esperava Interface B<int>, obteve {:?}", other),
+        other => panic!("expected Interface B<int>, got {:?}", other),
     }
 
     // C tem M<String>
     let m_super = outline
         .hierarchy
         .supertype_of(c_ty, m_cls, &mut table, &core)
-        .expect("C deve incluir mixin M");
+        .expect("C must include mixin M");
     match table.get(m_super) {
         Type::Interface { class, args, .. } => {
             assert_eq!(*class, m_cls);
             assert_eq!(args.len(), 1);
             assert_eq!(args[0], core.string);
         }
-        other => panic!("esperava Interface M<String>, obteve {:?}", other),
+        other => panic!("expected Interface M<String>, got {:?}", other),
     }
 
     // C transitively inherits I1<int> through B<int>
     let i1_super = outline
         .hierarchy
         .supertype_of(c_ty, i1_cls, &mut table, &core)
-        .expect("C deve herdar transitivamente I1");
+        .expect("C must transitively inherit I1");
     match table.get(i1_super) {
         Type::Interface { class, args, .. } => {
             assert_eq!(*class, i1_cls);
             assert_eq!(args.len(), 1);
             assert_eq!(args[0], core.int);
         }
-        other => panic!("esperava Interface I1<int>, obteve {:?}", other),
+        other => panic!("expected Interface I1<int>, got {:?}", other),
     }
 
     // C transitively inherits I2<String> through M<String>
     let i2_super = outline
         .hierarchy
         .supertype_of(c_ty, i2_cls, &mut table, &core)
-        .expect("C deve herdar transitivamente I2");
+        .expect("C must transitively inherit I2");
     match table.get(i2_super) {
         Type::Interface { class, args, .. } => {
             assert_eq!(*class, i2_cls);
             assert_eq!(args.len(), 1);
             assert_eq!(args[0], core.string);
         }
-        other => panic!("esperava Interface I2<String>, obteve {:?}", other),
+        other => panic!("expected Interface I2<String>, got {:?}", other),
     }
 }
 
@@ -392,12 +392,12 @@ fn test_extension_type_erasure_and_subtyping() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carrega extension type");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loads the extension type");
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
 
     let (outline, diags) = resolve_outline(&prog, &interner, &mut table, &core);
-    assert!(diags.is_empty(), "não deve haver erros de resolução: {:?}", diags);
+    assert!(diags.is_empty(), "there must be no resolution errors: {:?}", diags);
 
     let mut find_cls = |name: &str| -> ClassId {
         let sym = interner.intern(name);
@@ -405,7 +405,7 @@ fn test_extension_type_erasure_and_subtyping() {
             prog.classes
                 .iter()
                 .position(|c| c.name == sym)
-                .unwrap_or_else(|| panic!("classe {name} deve existir")) as u32,
+                .unwrap_or_else(|| panic!("class {name} must exist")) as u32,
         )
     };
 
@@ -441,10 +441,10 @@ fn test_extension_type_erasure_and_subtyping() {
     };
 
     let erased_id = erase_extension_type(id_ty, &mut table, &rep_fn);
-    assert_eq!(erased_id, core.int, "erase_extension_type(Id) deve retornar int");
+    assert_eq!(erased_id, core.int, "erase_extension_type(Id) must return int");
 
     let erased_sub = erase_extension_type(sub_id_ty, &mut table, &rep_fn);
-    assert_eq!(erased_sub, core.int, "erase_extension_type(SubId) deve retornar int");
+    assert_eq!(erased_sub, core.int, "erase_extension_type(SubId) must return int");
 
     // 2. Subtipagem
     let mut env = dartforge_types::subtyping::SubtypeEnv::new(
@@ -456,29 +456,29 @@ fn test_extension_type_erasure_and_subtyping() {
     // Id does not implement int: Id <: int is FALSE
     assert!(
         !is_subtype(id_ty, core.int, &mut env),
-        "Id sem implements int não deve ser subtipo de int"
+        "Id without implements int must not be a subtype of int"
     );
     // int <: Id is FALSE
     assert!(
         !is_subtype(core.int, id_ty, &mut env),
-        "int não deve ser subtipo de Id"
+        "int must not be a subtype of Id"
     );
 
     // SubId implements int: SubId <: int is TRUE
     assert!(
         is_subtype(sub_id_ty, core.int, &mut env),
-        "SubId com implements int deve ser subtipo de int"
+        "SubId with implements int must be a subtype of int"
     );
     // int <: SubId continua FALSO
     assert!(
         !is_subtype(core.int, sub_id_ty, &mut env),
-        "int não deve ser subtipo de SubId"
+        "int must not be a subtype of SubId"
     );
 
     // SubId <: Object is TRUE (via int <: Object)
     assert!(
         is_subtype(sub_id_ty, core.object, &mut env),
-        "SubId deve ser subtipo de Object"
+        "SubId must be a subtype of Object"
     );
 }
 
@@ -506,7 +506,7 @@ fn test_accumulated_diagnostics_unknown_type() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carrega programa com erro de tipo");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loads the program with a type error");
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
 
@@ -515,12 +515,12 @@ fn test_accumulated_diagnostics_unknown_type() {
 
     assert!(
         !diags.is_empty(),
-        "deve acumular diagnóstico para o tipo inexistente"
+        "must accumulate a diagnostic for the nonexistent type"
     );
     assert!(
         diags.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "undefined_class")
             && d.message.starts_with("Undefined class '")),
-        "o erro deve ser o undefined_class do analyzer: {:?}",
+        "the error must be the analyzer's undefined_class: {:?}",
         diags
     );
 
@@ -536,20 +536,20 @@ fn test_accumulated_diagnostics_unknown_type() {
             assert_eq!(
                 outline.variables[idx].declared_type,
                 Some(core.dynamic_),
-                "campo com tipo inválido deve ter fallback para Type::Dynamic"
+                "a field with an invalid type must fall back to Type::Dynamic"
             );
             found_bad = true;
         } else if v.name == good_sym {
             assert_eq!(
                 outline.variables[idx].declared_type,
                 Some(core.int),
-                "campo com tipo válido deve ser resolvido normalmente como int"
+                "a field with a valid type must be resolved normally as int"
             );
             found_good = true;
         }
     }
 
-    assert!(found_bad && found_good, "ambos os campos devem ter sido inspecionados");
+    assert!(found_bad && found_good, "both fields must have been inspected");
 }
 
 /// `class C extends C` (`recursive_interface_inheritance`): the outline

@@ -41,7 +41,7 @@ fn programs(dir: &Path, v: &mut Vec<PathBuf>) {
 
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let i = args.iter().position(|a| a == "--packages").expect("uso: gravar_corpus --packages <package_config.json> [raiz]");
+    let i = args.iter().position(|a| a == "--packages").expect("usage: gravar_corpus --packages <package_config.json> [raiz]");
     let packages = args[i + 1].clone();
     args.drain(i..i + 2);
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -69,14 +69,14 @@ fn main() {
         .arg(&output)
         .status()
         .expect("dart");
-    assert!(st.success(), "oráculo falhou: {st}");
+    assert!(st.success(), "oracle failed: {st}");
 
     // Oracle lines per program (path in lowercase).
     let mut by: HashMap<String, Vec<Vec<String>>> = HashMap::new();
     for l in BufReader::new(std::fs::File::open(&output).unwrap()).lines() {
         let l = l.unwrap();
         if l.starts_with('#') {
-            panic!("oráculo falhou: {l}");
+            panic!("oracle failed: {l}");
         }
         let c: Vec<String> = l.split('\t').map(String::from).collect();
         if c.len() >= 6 {
@@ -109,5 +109,5 @@ fn main() {
             writeln!(f, "{l}").unwrap();
         }
     }
-    println!("{} programas gravados em {root_txt}", progs.len());
+    println!("{} programs written to {root_txt}", progs.len());
 }

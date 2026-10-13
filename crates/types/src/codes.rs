@@ -19,97 +19,97 @@ impl DiagnosticCode {
 // Typing and assignment errors
 pub const ARGUMENT_TYPE_NOT_ASSIGNABLE: DiagnosticCode = DiagnosticCode::new(
     "argument_type_not_assignable",
-    "O tipo de argumento '{0}' não pode ser atribuído ao parâmetro do tipo '{1}'.",
+    "The argument type '{0}' can't be assigned to the parameter type '{1}'.",
 );
 
 pub const RETURN_OF_INVALID_TYPE: DiagnosticCode = DiagnosticCode::new(
     "return_of_invalid_type",
-    "Um valor do tipo '{0}' não pode ser retornado de uma função com retorno '{1}'.",
+    "A value of type '{0}' can't be returned from a function with return type '{1}'.",
 );
 
 pub const INVALID_ASSIGNMENT: DiagnosticCode = DiagnosticCode::new(
     "invalid_assignment",
-    "Um valor do tipo '{0}' não pode ser atribuído a uma variável do tipo '{1}'.",
+    "A value of type '{0}' can't be assigned to a variable of type '{1}'.",
 );
 
 pub const ASSIGNMENT_TO_FINAL_LOCAL: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_final_local",
-    "A variável local final '{0}' só pode ser atribuída uma vez.",
+    "The final local variable '{0}' can only be assigned once.",
 );
 
 pub const ASSIGNMENT_TO_FINAL: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_final",
-    "A variável final não tem setter.",
+    "The final variable has no setter.",
 );
 
 pub const ASSIGNMENT_TO_FINAL_NO_SETTER: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_final_no_setter",
-    "Não há setter para '{0}' na classe '{1}'.",
+    "There is no setter for '{0}' in class '{1}'.",
 );
 
 pub const ASSIGNMENT_TO_METHOD: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_method",
-    "Não é possível atribuir um valor a um método.",
+    "A value can't be assigned to a method.",
 );
 
 pub const UNDEFINED_EXTENSION_SETTER: DiagnosticCode = DiagnosticCode::new(
     "undefined_extension_setter",
-    "Setter de extensão não encontrado",
+    "Extension setter not found",
 );
 
 pub const UNDEFINED_EXTENSION_GETTER: DiagnosticCode = DiagnosticCode::new(
     "undefined_extension_getter",
-    "Getter de extensão não encontrado",
+    "Extension getter not found",
 );
 
 pub const UNDEFINED_EXTENSION_METHOD: DiagnosticCode = DiagnosticCode::new(
     "undefined_extension_method",
-    "Método de extensão não encontrado",
+    "Extension method not found",
 );
 
 pub const STATIC_ACCESS_TO_INSTANCE_MEMBER: DiagnosticCode = DiagnosticCode::new(
     "static_access_to_instance_member",
-    "Acesso estático a membro de instância",
+    "Static access to an instance member",
 );
 
 pub const CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER: DiagnosticCode = DiagnosticCode::new(
     "class_instantiation_access_to_instance_member",
-    "Membro de instância em instanciação de classe",
+    "Instance member in a class instantiation",
 );
 
 pub const CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER: DiagnosticCode = DiagnosticCode::new(
     "class_instantiation_access_to_static_member",
-    "Membro estático em instanciação de classe",
+    "Static member in a class instantiation",
 );
 
 pub const CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER: DiagnosticCode = DiagnosticCode::new(
     "class_instantiation_access_to_unknown_member",
-    "Membro desconhecido em instanciação de classe",
+    "Unknown member in a class instantiation",
 );
 
 pub const NEW_WITH_UNDEFINED_CONSTRUCTOR: DiagnosticCode = DiagnosticCode::new(
     "new_with_undefined_constructor",
-    "Construtor nomeado não encontrado",
+    "Named constructor not found",
 );
 
 pub const NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT: DiagnosticCode = DiagnosticCode::new(
     "new_with_undefined_constructor_default",
-    "Construtor sem nome não encontrado",
+    "Unnamed constructor not found",
 );
 
 pub const INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR: DiagnosticCode = DiagnosticCode::new(
     "invalid_reference_to_generative_enum_constructor",
-    "Referência inválida a construtor gerador de enum",
+    "Invalid reference to an enum generative constructor",
 );
 
 pub const INVOCATION_OF_EXTENSION_WITHOUT_CALL: DiagnosticCode = DiagnosticCode::new(
     "invocation_of_extension_without_call",
-    "Invocação de extensão sem call",
+    "Extension invocation without call",
 );
 
 pub const UNDEFINED_EXTENSION_OPERATOR: DiagnosticCode = DiagnosticCode::new(
     "undefined_extension_operator",
-    "Operador de extensão não encontrado",
+    "Extension operator not found",
 );
 
 pub const EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER: DiagnosticCode = DiagnosticCode::new(
@@ -119,27 +119,27 @@ pub const EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER: DiagnosticCode = Diagnosti
 
 pub const ASSIGNMENT_TO_CONST: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_const",
-    "Variáveis constantes não podem receber nova atribuição.",
+    "Constant variables can't be assigned a new value.",
 );
 
 pub const ASSIGNMENT_TO_TYPE: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_type",
-    "Tipos não podem receber uma atribuição.",
+    "Types can't be assigned a value.",
 );
 
 pub const ASSIGNMENT_TO_FUNCTION: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_function",
-    "Funções não podem receber uma atribuição.",
+    "Functions can't be assigned a value.",
 );
 
 pub const NOT_INITIALIZED_NON_NULLABLE_VARIABLE: DiagnosticCode = DiagnosticCode::new(
     "not_initialized_non_nullable_variable",
-    "A variável não-anulável '{0}' deve ser definitivamente atribuída antes do uso.",
+    "The non-nullable variable '{0}' must be definitely assigned before it is used.",
 );
 
 pub const DEFINITELY_UNASSIGNED_VARIABLE: DiagnosticCode = DiagnosticCode::new(
     "definitely_unassigned_variable",
-    "A variável '{0}' é lida antes de ser atribuída.",
+    "The variable '{0}' is read before it is assigned.",
 );
 
 // Member and identifier resolution errors
@@ -150,132 +150,132 @@ pub const UNDEFINED_IDENTIFIER: DiagnosticCode = DiagnosticCode::new(
 
 pub const REFERENCED_BEFORE_DECLARATION: DiagnosticCode = DiagnosticCode::new(
     "referenced_before_declaration",
-    "A variável local '{0}' não pode ser referenciada antes de sua declaração.",
+    "The local variable '{0}' can't be referenced before it is declared.",
 );
 
 pub const UNDEFINED_GETTER: DiagnosticCode = DiagnosticCode::new(
     "undefined_getter",
-    "O getter '{0}' não está definido para o tipo '{1}'.",
+    "The getter '{0}' isn't defined for the type '{1}'.",
 );
 
 pub const UNDEFINED_SETTER: DiagnosticCode = DiagnosticCode::new(
     "undefined_setter",
-    "O setter '{0}' não está definido para o tipo '{1}'.",
+    "The setter '{0}' isn't defined for the type '{1}'.",
 );
 
 pub const UNDEFINED_METHOD: DiagnosticCode = DiagnosticCode::new(
     "undefined_method",
-    "O método '{0}' não está definido para o tipo '{1}'.",
+    "The method '{0}' isn't defined for the type '{1}'.",
 );
 
 pub const UNDEFINED_OPERATOR: DiagnosticCode = DiagnosticCode::new(
     "undefined_operator",
-    "O operador '{0}' não está definido para o tipo '{1}'.",
+    "The operator '{0}' isn't defined for the type '{1}'.",
 );
 
 pub const AMBIGUOUS_EXTENSION_MEMBER_ACCESS: DiagnosticCode = DiagnosticCode::new(
     "ambiguous_extension_member_access",
-    "Membro ambíguo '{0}' encontrado nas extensões '{1}' e '{2}'.",
+    "Ambiguous member '{0}' found in extensions '{1}' and '{2}'.",
 );
 
 // Flow and control errors
 pub const AWAIT_IN_WRONG_CONTEXT: DiagnosticCode = DiagnosticCode::new(
     "await_in_wrong_context",
-    "A expressão 'await' só pode ser usada em funções assíncronas.",
+    "The 'await' expression can only be used in asynchronous functions.",
 );
 
 pub const YIELD_EACH_IN_NON_GENERATOR: DiagnosticCode = DiagnosticCode::new(
     "yield_each_in_non_generator",
-    "A instrução 'yield*' só pode ser usada em funções geradoras.",
+    "The 'yield*' statement can only be used in generator functions.",
 );
 
 pub const NON_BOOL_CONDITION: DiagnosticCode = DiagnosticCode::new(
     "non_bool_condition",
-    "Condições devem ter o tipo estático 'bool'.",
+    "Conditions must have a static type of 'bool'.",
 );
 
 pub const NON_BOOL_NEGATION_EXPRESSION: DiagnosticCode = DiagnosticCode::new(
     "non_bool_negation_expression",
-    "A expressão negada deve ter o tipo estático 'bool'.",
+    "A negated expression must have a static type of 'bool'.",
 );
 
 // Argument and parameter errors
 pub const EXTRA_POSITIONAL_ARGUMENTS: DiagnosticCode = DiagnosticCode::new(
     "extra_positional_arguments",
-    "Muitos argumentos posicionais: esperava {0}, mas recebeu {1}.",
+    "Too many positional arguments: expected {0}, but got {1}.",
 );
 
 pub const NOT_ENOUGH_POSITIONAL_ARGUMENTS: DiagnosticCode = DiagnosticCode::new(
     "not_enough_positional_arguments",
-    "Poucos argumentos posicionais: esperava pelo menos {0}, mas recebeu {1}.",
+    "Too few positional arguments: expected at least {0}, but got {1}.",
 );
 
 pub const MISSING_REQUIRED_ARGUMENT: DiagnosticCode = DiagnosticCode::new(
     "missing_required_argument",
-    "O parâmetro nomeado obrigatório '{0}' não foi fornecido.",
+    "The required named parameter '{0}' was not provided.",
 );
 
 pub const UNDEFINED_NAMED_PARAMETER: DiagnosticCode = DiagnosticCode::new(
     "undefined_named_parameter",
-    "O parâmetro nomeado '{0}' não está definido para a função.",
+    "The named parameter '{0}' isn't defined for the function.",
 );
 
 pub const TYPE_ARGUMENT_NOT_MATCHING_BOUNDS: DiagnosticCode = DiagnosticCode::new(
     "type_argument_not_matching_bounds",
-    "O argumento de tipo '{0}' não estende o limite '{1}'.",
+    "The type argument '{0}' doesn't extend the bound '{1}'.",
 );
 
 // Constant errors
 pub const CONST_WITH_NON_CONSTANT_ARGUMENT: DiagnosticCode = DiagnosticCode::new(
     "const_with_non_constant_argument",
-    "Argumentos de uma instanciação const devem ser expressões constantes.",
+    "Arguments of a const instantiation must be constant expressions.",
 );
 
 pub const CONST_EVAL_THROWS_EXCEPTION: DiagnosticCode = DiagnosticCode::new(
     "const_eval_throws_exception",
-    "A avaliação da expressão constante lançou uma exceção: {0}.",
+    "Evaluation of the constant expression threw an exception: {0}.",
 );
 
 pub const EQUAL_ELEMENTS_IN_CONST_SET: DiagnosticCode = DiagnosticCode::new(
     "equal_elements_in_const_set",
-    "Dois elementos em um conjunto constante avaliam para o mesmo valor.",
+    "Two elements in a constant set evaluate to the same value.",
 );
 
 pub const EQUAL_KEYS_IN_CONST_MAP: DiagnosticCode = DiagnosticCode::new(
     "equal_keys_in_const_map",
-    "Duas chaves em um mapa constante avaliam para o mesmo valor.",
+    "Two keys in a constant map evaluate to the same value.",
 );
 
 pub const CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE: DiagnosticCode = DiagnosticCode::new(
     "const_initialized_with_non_constant_value",
-    "A variável const deve ser inicializada com um valor constante.",
+    "A const variable must be initialized with a constant value.",
 );
 
 // Dead code and unnecessary construct warnings
 pub const INVALID_NULL_AWARE_OPERATOR: DiagnosticCode = DiagnosticCode::new(
     "invalid_null_aware_operator",
-    "O operador de verificação de nulo é desnecessário porque o receptor não pode ser nulo.",
+    "The null check operator is unnecessary because the receiver can't be null.",
 );
 
 /// `e!` with `e` strictly non-nullable (warning, at the `!`).
 pub const UNNECESSARY_NON_NULL_ASSERTION: DiagnosticCode = DiagnosticCode::new(
     "unnecessary_non_null_assertion",
-    "O '!' não tem efeito porque o receptor não pode ser nulo.",
+    "The '!' has no effect because the receiver can't be null.",
 );
 
 pub const UNNECESSARY_CAST: DiagnosticCode = DiagnosticCode::new(
     "unnecessary_cast",
-    "O cast de tipo é desnecessário porque o valor já possui este tipo.",
+    "The type cast is unnecessary because the value already has this type.",
 );
 
 pub const UNNECESSARY_TYPE_CHECK_TRUE: DiagnosticCode = DiagnosticCode::new(
     "unnecessary_type_check",
-    "O teste de tipo sempre avalia para true.",
+    "The type test always evaluates to true.",
 );
 
 pub const DEAD_CODE: DiagnosticCode = DiagnosticCode::new(
     "dead_code",
-    "Código inalcançável (dead code).",
+    "Unreachable code (dead code).",
 );
 
 // Language errors of the 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §3).
@@ -287,7 +287,7 @@ pub const DEAD_CODE: DiagnosticCode = DiagnosticCode::new(
 // `dartforge-jsprod`, native) aborts as it aborts on load errors.
 
 /// Prefix of language error messages.
-pub const ERRO_DE_LINGUAGEM: &str = "erro de linguagem: ";
+pub const ERRO_DE_LINGUAGEM: &str = "language error: ";
 
 /// Is the message a language error (and not a types warning)?
 pub fn is_language_error(message: &str) -> bool {
@@ -321,20 +321,20 @@ pub fn e_erro_de_compilacao(message: &str) -> bool {
 
 pub const WILDCARD_DOES_NOT_BIND: DiagnosticCode = DiagnosticCode::new(
     "undefined_identifier",
-    "nenhum '_' visível: numa biblioteca 3.7+, local e parâmetro chamados '_' são curingas e não ligam nome",
+    "no visible '_': in a 3.7+ library, locals and parameters named '_' are wildcards and do not bind a name",
 );
 
 pub const DOT_SHORTHAND_NO_CONTEXT: DiagnosticCode = DiagnosticCode::new(
     "dot_shorthand_missing_context",
-    "o atalho de ponto '.{0}' precisa de um tipo de contexto que denote uma classe, mixin, enum ou extension type",
+    "the dot shorthand '.{0}' needs a context type that denotes a class, mixin, enum or extension type",
 );
 
 pub const DOT_SHORTHAND_NO_MEMBER: DiagnosticCode = DiagnosticCode::new(
     "dot_shorthand_undefined_member",
-    "'{1}' não tem membro estático nem construtor '{0}' para o atalho de ponto",
+    "'{1}' has no static member or constructor '{0}' for the dot shorthand",
 );
 
 pub const PRIMARY_CONSTRUCTOR: DiagnosticCode = DiagnosticCode::new(
     "primary_constructor",
-    "construtor primário: {0}",
+    "primary constructor: {0}",
 );

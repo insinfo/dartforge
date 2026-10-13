@@ -125,12 +125,12 @@ fn main() {
                 let end_t = end.min(start + 90).min(u.len());
                 let txt = String::from_utf16_lossy(u.get(start.min(u.len())..end_t).unwrap_or(&[])).replace(['\n', '\r'], " ");
                 let name = file.rsplit('/').next().unwrap_or(&file);
-                g.examples.push(format!("           {name}:{line}  `{txt}`  nós={t}  oráculo={ot}"));
+                g.examples.push(format!("           {name}:{line}  `{txt}`  ours={t}  oracle={ot}"));
             }
         }
     }
     let mut output = std::io::BufWriter::new(std::io::stdout().lock());
-    writeln!(output, "expressões comparadas: {compared}; iguais: {equal}; divergentes: {divergent}; causas: {ncauses}").unwrap();
+    writeln!(output, "compared expressions: {compared}; equal: {equal}; divergent: {divergent}; causes: {ncauses}").unwrap();
     let mut list: Vec<(&String, &Grupo)> = groups.iter().collect();
     list.sort_by(|a, b| b.1.total.cmp(&a.1.total).then(a.0.cmp(b.0)));
     for (name, g) in list {

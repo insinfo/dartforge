@@ -32,7 +32,7 @@ impl Result_ {
             .iter()
             .find(|(t, _)| t == snippet)
             .map(|(_, ty)| ty.as_str())
-            .unwrap_or_else(|| panic!("expressão `{snippet}` não encontrada"))
+            .unwrap_or_else(|| panic!("expression `{snippet}` not found"))
     }
 }
 
@@ -147,7 +147,7 @@ macro_rules! or_skip {
         match $e {
             Some(r) => r,
             None => {
-                eprintln!("SDK 3.6.2 indisponível: pulando");
+                eprintln!("SDK 3.6.2 unavailable: skipping");
                 return;
             }
         }
@@ -191,7 +191,7 @@ void main() {
     assert_eq!(r.tipo("[1, 2]"), "List<double>");
     assert_eq!(r.tipo("lista.isEmpty ? null : lista.first"), "int?");
     assert_eq!(r.tipo("super.f()"), "int");
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
 }
 
 /// A raw type in an outline annotation is instantiated to bounds (`Map` →
@@ -249,7 +249,7 @@ void main() {
     assert_eq!(r.tipo("id(3)"), "int");
     assert_eq!(r.tipo("nomes.length"), "int");
     assert_eq!(r.tipo("E.vazio().callback"), "dynamic Function(List<String>, {String rawValue})?");
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
 }
 
 /// `late final x;` without an initializer has a setter (single assignment):
@@ -271,7 +271,7 @@ class V {
     ));
     assert_eq!(r.tipo("nome = cast(o)"), "String");
     assert_eq!(r.tipo("this.nome = cast(o)"), "String");
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
 }
 
 /// An SDK class whose patch comes in a *part* of a patch file
@@ -291,7 +291,7 @@ void main() {
     assert_eq!(r.tipo("BigInt.parse('1')"), "BigInt");
     assert_eq!(r.tipo("n << 8"), "BigInt");
     assert_eq!(r.tipo("n.bitLength"), "int");
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
 }
 
 /// An old-style function parameter with `?` (`int f(int x)?`): the
@@ -342,7 +342,7 @@ void main() {
     assert_eq!(r.tipo("partes()"), "Iterable<List<T>>");
     assert_eq!(r.tipo("-1"), "double");
     assert_eq!(r.tipo("() => w"), "int? Function()");
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
 }
 
 /// Import conflict between `dart:` and a package: the system one stays
@@ -359,7 +359,7 @@ import 'lib.dart';
 void main() { var d = Duration(3); var n = d.n; }").unwrap();
     let r = infer_file(&main);
     assert_eq!(r.tipo("d.n"), "int");
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
 }
 
 /// Type variable promotion: the intersection `X & B` (`T?` tested against
@@ -382,7 +382,7 @@ T f<T>(T? a, T b, Map<String, T> m) {
     assert_eq!(tb, ["T", "T & int", "T"]);
     assert_eq!(r.tipo("m['k']"), "T?");
     assert_eq!(r.tipo("m['k']!"), "T & Object");
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
 }
 
 /// Promotion of a private final field (Dart 3.2), through `this`, implicit
@@ -415,7 +415,7 @@ int g(A a) {
     assert_eq!(types("this._o"), ["Object", "String"]);
     assert_eq!(types("_y"), ["int?", "int?"]);
     assert_eq!(types("a._x"), ["int?", "int"]);
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
 }
 
 /// `?.` promotes the receiver only inside the chain (arguments included);
@@ -481,7 +481,7 @@ void main() {
     let types = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
     // `botao!`, then `botao.write` inside the closure: promoted.
     assert_eq!(types("botao")[..2], ["StringBuffer?", "StringBuffer"]);
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
 }
 
 /// Cases from the bodies of the SDK compiled from source: an extension
@@ -529,7 +529,7 @@ const int deslocado = base << 5;
 const lista = [base, deslocado, 'x$base'];
 "#
     ));
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
 }
 
 /// Promotion of a private final field only from language version 3.2
@@ -546,7 +546,7 @@ class A {
 }
 "#
     ));
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
     let types: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "_x").map(|(_, y)| y.as_str()).collect();
     assert_eq!(types, ["int?", "int?"]);
 }
@@ -568,7 +568,7 @@ double f(double? d, double? e) {
 }
 "#
     ));
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
     let types: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "e").map(|(_, y)| y.as_str()).collect();
     // A write after the condition: the variable does not restore the promotion.
     assert_eq!(types.last(), Some(&"double?"));
@@ -590,7 +590,7 @@ A f(C c) => c;
     // `C <: A` through `implements`; `B` is not a subtype of `Object` (no
     // superinterface leads to a class), and analyzer 3.6.2 reports the
     // initializer `_ = b` (checked against `dart analyze`).
-    assert_eq!(r.avisos, vec!["The initializer type 'B' can't be assigned to the field type 'Object'.".to_string()], "avisos: {:?}", r.avisos);
+    assert_eq!(r.avisos, vec!["The initializer type 'B' can't be assigned to the field type 'Object'.".to_string()], "warnings: {:?}", r.avisos);
 }
 
 /// An object with `call` passed to a function-typed parameter of a generic
@@ -612,7 +612,7 @@ void main() {
 }
 "#
     ));
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
     assert_eq!(r.tipo("[1, 2, 3].map(s)"), "Iterable<int>");
 }
 
@@ -628,7 +628,7 @@ void main() {
 }
 "#
     ));
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
     assert_eq!(r.tipo("Never"), "Type");
     assert_eq!(r.tipo("[Never, Null, dynamic]"), "List<Type>");
 }
@@ -657,7 +657,7 @@ Object comando(Expr e) {
 }
 "#
     ));
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert!(r.avisos.is_empty(), "warnings: {:?}", r.avisos);
     let types: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "e").map(|(_, y)| y.as_str()).collect();
     assert_eq!(types, ["Expr", "Num", "Expr", "Expr", "Expr", "Num"]);
 }

@@ -58,7 +58,7 @@ impl Contexto<'_, '_> {
             }
             col.atual = Some(ops::normalize(col.simples, self.table, self.core));
         }
-        let current = col.atual.expect("atual");
+        let current = col.atual.expect("current");
         let nt = ops::normalize(t, self.table, self.core);
         // `_merge`: `Object` and `Object?` give the non-nullable one.
         let r = if col.objeto && self.anulavel(current) != self.anulavel(nt) {

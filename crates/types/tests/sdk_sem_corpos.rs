@@ -94,7 +94,7 @@ fn sdk_without_bodies_and_typed_user() {
     .unwrap();
 
     let mut interner = Interner::new();
-    let program = load(&main, &sdk, None, &mut interner).expect("programa carrega");
+    let program = load(&main, &sdk, None, &mut interner).expect("program loads");
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
     let (mut outline, _) = resolve_outline(&program, &interner, &mut table, &core);
@@ -105,13 +105,13 @@ fn sdk_without_bodies_and_typed_user() {
     for (i, u) in program.units.iter().enumerate() {
         if program.library(u.library).is_sdk {
             sdk_units += 1;
-            assert!(u.ast.exprs.len() > 0, "{}: a unidade do SDK tem expressões na AST", u.uri);
-            assert!(bodies.units[i].static_types.is_empty(), "{}: SDK não deve ter corpos inferidos", u.uri);
-            assert!(bodies.units[i].resolved.is_empty(), "{}: SDK não deve ter resoluções", u.uri);
+            assert!(u.ast.exprs.len() > 0, "{}: the SDK unit has expressions in the AST", u.uri);
+            assert!(bodies.units[i].static_types.is_empty(), "{}: the SDK must not have inferred bodies", u.uri);
+            assert!(bodies.units[i].resolved.is_empty(), "{}: the SDK must not have resolutions", u.uri);
         }
     }
     assert_eq!(sdk_units, 4, "core, int.dart (parte), core_patch e convert");
-    assert!(diags.is_empty(), "sem avisos do usuário nem do SDK: {diags:?}");
+    assert!(diags.is_empty(), "no warnings from the user or the SDK: {diags:?}");
 
     // The user stays typed: `y` in `dobro` is `int`.
     let entry_unit = program.library(program.entry.unwrap()).units[0];
@@ -130,7 +130,7 @@ fn sdk_without_bodies_and_typed_user() {
             }
         }
     }
-    assert!(y_int, "`y` deve ter tipo `int`");
+    assert!(y_int, "`y` must have type `int`");
 
     // The SDK's `const json = JsonCodec()`, without a written type, still has
     // its initializer visited (`inferred` filled in), which is what
@@ -138,5 +138,5 @@ fn sdk_without_bodies_and_typed_user() {
     // infers `dynamic` both in the SDK and in the user: a resolver gap, not one
     // of this cut.)
     let json_var = program.variables.iter().position(|v| interner.resolve(v.name) == "json").unwrap();
-    assert!(outline.variables[json_var].inferred.is_some(), "json tem tipo inferido");
+    assert!(outline.variables[json_var].inferred.is_some(), "json has an inferred type");
 }

@@ -38,7 +38,7 @@ fn main() {
             _ => entry = Some(PathBuf::from(a)),
         }
     }
-    let entry = entry.expect("uso: despejo_tipos <entrada.dart> --packages <cfg> -o <saida.tsv>");
+    let entry = entry.expect("usage: despejo_tipos <entrada.dart> --packages <cfg> -o <saida.tsv>");
     let sdk_dir = sdk_dir
         .or_else(SdkLayout::discover)
         .unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
@@ -49,7 +49,7 @@ fn main() {
         .stack_size(1 << 30)
         .spawn(move || {
             let d = dump(&entry, &sdk, packages.as_deref());
-            eprintln!("inferência: {:?}; avisos: {}", d.inference_time, d.avisos.len());
+            eprintln!("inference: {:?}; warnings: {}", d.inference_time, d.avisos.len());
             let mut out = std::io::BufWriter::new(std::fs::File::create(output.expect("-o")).unwrap());
             let mut total = 0usize;
             for u in &d.unidades {
@@ -58,7 +58,7 @@ fn main() {
                 }
                 total += u.linhas.len();
             }
-            eprintln!("despejo: {} unidades, {total} expressões, {} não visitadas", d.unidades.len(), d.not_visited);
+            eprintln!("dump: {} units, {total} expressions, {} not visited", d.unidades.len(), d.not_visited);
             if let Some(a) = files {
                 let list: Vec<&str> = d.unidades.iter().map(|u| u.caminho.as_str()).collect();
                 std::fs::write(a, list.join("\n")).unwrap();
