@@ -431,7 +431,7 @@ mod testes {
 
     #[test]
     fn marker_after_script_and_comments() {
-        let f = "#!/usr/bin/env dart\n// licença\n/* bloco\n// @dart=2.1 não conta */\n// @dart=3.8\nimport 'x.dart';";
+        let f = "#!/usr/bin/env dart\n// license\n/* block\n// @dart=2.1 does not count */\n// @dart=3.8\nimport 'x.dart';";
         assert_eq!(marcador_versao(f).map(|m| m.0), Some(v(3, 8)));
         assert_eq!(
             marcador_versao("\u{FEFF}// @dart=3.7\n").map(|m| m.0),

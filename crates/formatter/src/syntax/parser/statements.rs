@@ -837,7 +837,7 @@ impl Parser<'_> {
         }
     }
 
-    /// `parseForLoopPartsRest`: `; condição? ; atualizações`.
+    /// `parseForLoopPartsRest`: `; condition? ; updaters`.
     fn for_rest(
         &mut self,
         await_keyword: Option<usize>,

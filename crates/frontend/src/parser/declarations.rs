@@ -1,40 +1,41 @@
-//! Unidade de compilação, diretivas, metadata, declarações de topo, membros
-//! de classe, construtores e corpos de função (Dart 3.6, sem resolução).
+//! Compilation unit, directives, metadata, top-level declarations, class
+//! members, constructors and function bodies (Dart 3.6, without
+//! resolution).
 //!
-//! Decisões que não são tradução direta da gramática:
+//! Decisions that are not a direct translation of the grammar:
 //!
-//! * **Recuperação de erro.** Uma declaração de topo que falha sem consumir
-//!   nada registra um único diagnóstico e pula um token (o fasta relata um
-//!   erro por token: `expected_executable`); com progresso, o cursor é
-//!   sincronizado até a próxima fronteira plausível (`;` ou `}` no nível de
-//!   aninhamento em que a declaração começou, ou um token que inicia
-//!   declaração de topo). A recuperação de membros segue o mesmo desenho,
-//!   um membro por vez. Sintaxe 3.7+ em biblioteca ≤3.6 é o superconjunto com
-//!   `experiment_not_enabled`, e **não** a cascata do fasta 3.6.2: a
-//!   ferramenta é 3.13 (D2), e o analyzer 3.13.4 relata o mesmo na mesma
-//!   biblioteca e segue analisando (sondado em 2026-09-25; o oráculo desses
-//!   arquivos é o 3.13.4, `corpus/diags/sintaxe-nova.json`). A
-//!   exceção é `augment` sem o experimento: o scanner do fasta o faz
-//!   identificador comum, e a cascata vale nos dois SDKs. O lookahead de
-//!   declaração ainda recusa `]`/`}` como continuação (`int? a]` vira
-//!   `expected_token` no tipo, não no nome).
-//! * **Construtor × método.** `Nome(` é construtor quando `Nome` é o da
-//!   classe corrente (o nome é passado ao parser de membros); `Nome.x(` é
-//!   sempre construtor, porque métodos não têm nome pontuado; `factory` e
-//!   `const Nome(` idem.
-//! * **Função × variável.** Após `kind? nome`, `(` ou `<` abre uma função;
-//!   qualquer outra coisa é uma lista de variáveis. `get`/`set` seguidos de
-//!   identificador são getter/setter mesmo sem tipo de retorno, porque são
-//!   identificadores embutidos e não podem nomear um tipo.
-//! * **Metadata.** `@Nome (` só é lista de argumentos se o `(` estiver colado
-//!   ao nome (ou houver argumentos de tipo), como faz o parser do SDK — caso
-//!   contrário o `(` inicia um tipo record da declaração seguinte.
-//! * **Redirecionamento de factory.** Em `= D.x;` o `D.x` é lido primeiro
-//!   como tipo (possivelmente `prefix.Tipo`); `.x` só vira nome de construtor
-//!   se sobrar após o tipo. Distinguir `prefix.Tipo` de `Tipo.construtor`
-//!   exige resolução.
-//! * **Ordem das diretivas.** Não é imposta: qualquer diretiva é aceita em
-//!   qualquer ponto do nível de topo (superconjunto; a fase seguinte valida).
+//! * **Error recovery.** A top-level declaration that fails without
+//!   consuming anything records a single diagnostic and skips one token
+//!   (fasta reports one error per token: `expected_executable`); with
+//!   progress, the cursor is synchronized up to the next plausible boundary
+//!   (`;` or `}` at the nesting level where the declaration started, or a
+//!   token that starts a top-level declaration). Member recovery follows the
+//!   same design, one member at a time. 3.7+ syntax in a ≤3.6 library is the
+//!   superset with `experiment_not_enabled`, and **not** fasta 3.6.2's
+//!   cascade: the tool is 3.13 (D2), and the 3.13.4 analyzer reports the
+//!   same in the same library and keeps analyzing (probed on 2026-09-25; the
+//!   oracle for those files is 3.13.4, `corpus/diags/sintaxe-nova.json`).
+//!   The exception is `augment` without the experiment: fasta's scanner
+//!   makes it a plain identifier, and the cascade applies in both SDKs. The
+//!   declaration lookahead still rejects `]`/`}` as a continuation
+//!   (`int? a]` becomes `expected_token` at the type, not at the name).
+//! * **Constructor × method.** `Name(` is a constructor when `Name` is the
+//!   current class's (the name is passed to the member parser); `Name.x(` is
+//!   always a constructor, because methods have no dotted name; `factory`
+//!   and `const Name(` likewise.
+//! * **Function × variable.** After `type? name`, `(` or `<` opens a
+//!   function; anything else is a variable list. `get`/`set` followed by an
+//!   identifier are a getter/setter even without a return type, because they
+//!   are built-in identifiers and cannot name a type.
+//! * **Metadata.** `@Name (` is only an argument list if the `(` is glued to
+//!   the name (or there are type arguments), as the SDK parser does —
+//!   otherwise the `(` starts a record type of the next declaration.
+//! * **Factory redirection.** In `= D.x;` the `D.x` is first read as a type
+//!   (possibly `prefix.Type`); `.x` only becomes a constructor name if it is
+//!   left over after the type. Telling `prefix.Type` from `Type.constructor`
+//!   needs resolution.
+//! * **Directive order.** It is not enforced: any directive is accepted
+//!   anywhere at top level (superset; the next phase validates).
 use super::{ComposedGt, PResult, ParseError, Parser};
 use crate::ast::ExprId;
 use crate::ast::{
@@ -49,30 +50,30 @@ use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Diagnostic, Span, codigos};
 
-/// Cabeçalho de um construtor primário já lido (Dart 3.13).
+/// Header of a primary constructor already read (Dart 3.13).
 struct PrimaryHeader {
-    /// Da palavra `class`/`enum` ao fim dos parâmetros.
+    /// From the `class`/`enum` word to the end of the parameters.
     span: Span,
     const_: bool,
-    /// `.id`; `None` sem nome ou com `.new`.
+    /// `.id`; `None` without a name or with `.new`.
     nome: Option<Name>,
     params: Vec<crate::ast::Parameter>,
 }
 
-/// Que declaração está sendo elaborada.
+/// Which declaration is being elaborated.
 #[derive(Clone, Copy)]
 enum Elaborating {
-    /// `class`: `has_supertypes` desliga o tipo sintático de declarante sem
-    /// tipo (um getter herdado mandaria).
+    /// `class`: `has_supertypes` turns off the syntactic type of an untyped
+    /// declaring parameter (an inherited getter would decide).
     Class { has_supertypes: bool },
-    /// `enum`: o construtor é sempre constante.
+    /// `enum`: the constructor is always constant.
     Enum,
 }
 
-/// Modificadores que podem preceder um membro ou uma declaração de topo.
+/// Modifiers that may precede a member or a top-level declaration.
 ///
-/// São lidos em qualquer ordem (superconjunto): a gramática fixa uma ordem,
-/// mas rejeitar a ordem errada é papel da fase seguinte.
+/// They are read in any order (superset): the grammar fixes an order, but
+/// rejecting the wrong order is the job of the next phase.
 #[derive(Debug, Default, Clone, Copy)]
 struct Modifiers {
     external: bool,
@@ -86,12 +87,12 @@ struct Modifiers {
     const_: bool,
     const_span: Option<Span>,
     var_: bool,
-    /// Os tokens dos modificadores, para os diagnósticos do fasta.
+    /// The modifier tokens, for fasta's diagnostics.
     modifier_tokens: ModifierTokens,
 }
 
 impl Modifiers {
-    /// Algum modificador foi lido?
+    /// Was any modifier read?
     fn algum(self) -> bool {
         self.external
             || self.static_
@@ -104,17 +105,17 @@ impl Modifiers {
     }
 }
 
-/// O que começa no cursor do topo ([`Parser::top_level_route`]).
+/// What starts at the top-level cursor ([`Parser::top_level_route`]).
 enum TopLevelRoute {
-    /// Sem modificadores antes da palavra de topo: o despacho de sempre.
+    /// No modifiers before the top-level word: the usual dispatch.
     Plain,
-    /// Um membro de topo (função, getter, setter ou variáveis).
+    /// A top-level member (function, getter, setter or variables).
     Member,
-    /// Uma palavra de topo na posição `word`, com modificadores antes.
+    /// A top-level word at position `word`, with modifiers before it.
     Word { word: usize },
 }
 
-/// Resultado de `kind? nome …`: função/método/acessor ou lista de variáveis.
+/// Result of `type? name …`: a function/method/accessor or a variable list.
 enum FunctionOrVariables {
     Function(FunctionId),
     Variables(VariableList),
@@ -122,13 +123,13 @@ enum FunctionOrVariables {
 
 impl<'s, 'i> Parser<'s, 'i> {
     // -----------------------------------------------------------------------
-    // Unidade de compilação
+    // Compilation unit
     // -----------------------------------------------------------------------
 
-    /// Lê a unidade inteira, com recuperação nas fronteiras de declaração.
+    /// Reads the whole unit, with recovery at declaration boundaries.
     ///
-    /// Nunca falha: cada declaração que não pode ser lida vira um diagnóstico
-    /// e a análise continua na próxima fronteira plausível.
+    /// Never fails: each declaration that cannot be read becomes a diagnostic
+    /// and parsing continues at the next plausible boundary.
     pub(crate) fn parse_compilation_unit(&mut self) -> CompilationUnit {
         let mut unit = CompilationUnit::default();
         if self.kind() == Kind::ScriptTag {
@@ -145,7 +146,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         unit
     }
 
-    /// Uma diretiva ou uma declaração de topo, com sua metadata.
+    /// A directive or a top-level declaration, with its metadata.
     fn parse_top_level_item(&mut self, unit: &mut CompilationUnit) -> PResult<()> {
         let start = self.span();
         let metadata = self.parse_metadata()?;
@@ -159,18 +160,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             });
             return Ok(());
         }
-        // `checkDeclaration`: depois de uma declaração, diretiva é erro.
+        // `checkDeclaration`: after a declaration, a directive is an error.
         if self.directive_state != super::DirectiveState::PartOf {
             self.directive_state = super::DirectiveState::Declarations;
         }
         let augment = self.parse_augment_opt();
-        // `;` solto no topo é `unexpected_token` no fasta 3.6.2 ("Unexpected
-        // text ';'"), não `expected_executable` (que vale para `)`, `]` e
-        // `}`). No corpo de classe o `;` continua `expected_class_member`.
+        // A stray `;` at top level is `unexpected_token` in fasta 3.6.2
+        // ("Unexpected text ';'"), not `expected_executable` (which applies to `)`,
+        // `]` and `}`). In a class body the `;` stays `expected_class_member`.
         if self.at_op(Op::Semicolon) {
             let span = self.span();
-            // Sem consumir: a recuperação sem progresso pula o token, como
-            // nos demais erros de token solto (ver `recover_top_level`).
+            // Without consuming: recovery without progress skips the token, as with the
+            // other stray-token errors (see `recover_top_level`).
             return Err(self.error_at(codigos::parser::UNEXPECTED_TOKEN, span, &[";"]));
         }
         if !self.can_start_declaration() {
@@ -181,20 +182,21 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(())
     }
 
-    /// A ordem das diretivas (`DirectiveContext` do fasta,
-    /// `directive_context.dart`): `import`/`export` depois de `part` são
+    /// Directive order (fasta's `DirectiveContext`, `directive_context.dart`):
+    /// `import`/`export` after `part` are
     /// `IMPORT_DIRECTIVE_AFTER_PART_DIRECTIVE`/`EXPORT_DIRECTIVE_AFTER_PART_DIRECTIVE`;
-    /// qualquer diretiva depois de uma declaração,
-    /// `DIRECTIVE_AFTER_DECLARATION`; `library` fora do começo,
-    /// `LIBRARY_DIRECTIVE_NOT_FIRST`/`MULTIPLE_LIBRARY_DIRECTIVES`; numa
-    /// `part of`, outra diretiva é `NON_PART_OF_DIRECTIVE_IN_PART` (salvo
-    /// com `enhanced-parts` ou `macros`) e outro `part of`, `MULTIPLE_PART_OF_DIRECTIVES`.
-    /// O erro vai na palavra que abre a diretiva.
+    /// any directive after a declaration, `DIRECTIVE_AFTER_DECLARATION`;
+    /// `library` not at the start,
+    /// `LIBRARY_DIRECTIVE_NOT_FIRST`/`MULTIPLE_LIBRARY_DIRECTIVES`; in a
+    /// `part of`, another directive is `NON_PART_OF_DIRECTIVE_IN_PART` (except
+    /// with `enhanced-parts` or `macros`) and another `part of`,
+    /// `MULTIPLE_PART_OF_DIRECTIVES`. The error goes at the word that opens the
+    /// directive.
     fn check_directive_order(&mut self, kind: &DirectiveKind, word: Span) {
         use super::DirectiveState as E;
         use codigos::parser as c;
-        // `macros` traz `enhanced-parts` (o experimento depende dele): o
-        // `*.macro.dart` materializado é um `part of` com `import`s.
+        // `macros` brings `enhanced-parts` (the experiment depends on it): the
+        // materialized `*.macro.dart` is a `part of` with `import`s.
         let partes = self.features.tem(Feature::EnhancedParts) || self.features.tem(Feature::Macros);
         let estado = self.directive_state;
         let erro = match kind {
@@ -255,18 +257,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O modificador `augment` de uma declaração de topo ou de um membro
-    /// (docs/AUGMENTATIONS.md), consumido se presente.
+    /// The `augment` modifier of a top-level declaration or a member
+    /// (docs/AUGMENTATIONS.md), consumed if present.
     ///
-    /// `augment` é identificador embutido só onde o recurso existe: com
-    /// `augmentations` ou `macros` ligados, é modificador quando vem antes de
-    /// outra palavra (`augment class`, `augment void f()`, `augment C.x(`).
-    /// Sem eles, é sempre um identificador comum, como no scanner do fasta
+    /// `augment` is a built-in identifier only where the feature exists: with
+    /// `augmentations` or `macros` on, it is a modifier when it comes before
+    /// another word (`augment class`, `augment void f()`, `augment C.x(`).
+    /// Without them, it is always a plain identifier, as in fasta's scanner
     /// (`abstract_scanner.dart`: `!_enableAugmentations && keyword ==
-    /// Keyword.AUGMENT` vira `tokenizeIdentifier`). Até `augment class C {}`
-    /// cai na recuperação de topo (`expected_token` e
-    /// `missing_const_final_var_or_type` no `augment`), sem
-    /// `experiment_not_enabled`: é o que o analyzer 3.13.4 e o 3.6.2 relatam.
+    /// Keyword.AUGMENT` becomes `tokenizeIdentifier`). Even `augment class C {}`
+    /// falls into top-level recovery (`expected_token` and
+    /// `missing_const_final_var_or_type` at the `augment`), without
+    /// `experiment_not_enabled`: that is what the 3.13.4 and 3.6.2 analyzers
+    /// report.
     fn parse_augment_opt(&mut self) -> bool {
         if !self.at_ident("augment") {
             return false;
@@ -280,10 +283,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         true
     }
 
-    /// O token corrente pode iniciar uma declaração de topo ou um membro?
+    /// Can the current token start a top-level declaration or a member?
     ///
-    /// Serve para falhar cedo em tokens soltos (`;`, `}`, `)`) sem consultar
-    /// os *lookaheads* de tipo.
+    /// Used to fail early on stray tokens (`;`, `}`, `)`) without asking the
+    /// type *lookaheads*.
     fn can_start_declaration(&self) -> bool {
         matches!(
             self.kind(),
@@ -300,7 +303,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         )
     }
 
-    /// Profundidade de `()[]{}` acumulada entre duas posições de token.
+    /// `()[]{}` depth accumulated between two token positions.
     fn nesting_between(&self, from: usize, to: usize) -> usize {
         let mut depth = 0usize;
         for token in &self.tokens[from.min(self.tokens.len())..to.min(self.tokens.len())] {
@@ -315,19 +318,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         depth
     }
 
-    /// Sincroniza após uma declaração de topo falhar em `start_pos`.
+    /// Synchronizes after a top-level declaration failed at `start_pos`.
     ///
-    /// Sem progresso (nada consumido: token solto), um token basta — o fasta
-    /// relata um erro por token (`expected_executable`) e continua no
-    /// seguinte; engolir até `;`/`}` esconderia as declarações válidas no meio
-    /// do lixo (FN em cascata). Com progresso, pula até fechar o nível em que
-    /// a declaração começou (`;` ou `}` com profundidade zero) ou até um token
-    /// que inicia declaração de topo. Garante progresso: consome ao menos um
-    /// token.
+    /// Without progress (nothing consumed: a stray token), one token is enough —
+    /// fasta reports one error per token (`expected_executable`) and continues
+    /// with the next one; swallowing up to `;`/`}` would hide the valid
+    /// declarations in the middle of the garbage (cascading false negatives).
+    /// With progress, skips until the level where the declaration started
+    /// closes (`;` or `}` at depth zero) or until a token that starts a
+    /// top-level declaration. Guarantees progress: consumes at least one token.
     fn recover_top_level(&mut self, start_pos: usize) {
         if self.pos == start_pos && !self.at_eof() {
-            // `parseInvalidTopLevelDeclaration`: um `{` leva o bloco inteiro
-            // (`parseInvalidBlock`, até o `endGroup`).
+            // `parseInvalidTopLevelDeclaration`: a `{` takes the whole block
+            // (`parseInvalidBlock`, up to the `endGroup`).
             if self.at_op(Op::LBrace)
                 && let Some(closes) = self.matching_close(self.pos)
             {
@@ -348,11 +351,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.advance();
                 }
                 Kind::Op(Op::RParen | Op::RBracket) => {
-                    // Um fechamento solto no nível zero é, ele próprio, uma
-                    // fronteira e é denunciado à parte (`expected_executable`
-                    // nele, como faz o fasta): não é consumido aqui — a
-                    // próxima volta do topo o relata e a recuperação sem
-                    // progresso o pula. Avançar esconderia o erro.
+                    // A stray closer at level zero is itself a boundary and is flagged
+                    // separately (`expected_executable` at it, as fasta does): it is not
+                    // consumed here — the next top-level round reports it and recovery without
+                    // progress skips it. Advancing would hide the error.
                     if depth == 0 {
                         break;
                     }
@@ -385,8 +387,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O token corrente é um início plausível de declaração de topo (para a
-    /// sincronização de erro)?
+    /// Is the current token a plausible start of a top-level declaration (for
+    /// error synchronization)?
     fn starts_top_level_declaration(&self) -> bool {
         match self.kind() {
             Kind::Op(Op::At) => true,
@@ -419,22 +421,23 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Sincroniza após um membro falhar em `start_pos`, sem sair do corpo.
+    /// Synchronizes after a member failed at `start_pos`, without leaving the
+    /// body.
     ///
-    /// Espelha [`Parser::recover_top_level`]: sem progresso (nada consumido:
-    /// token solto), um token basta — o fasta relata um erro por token
-    /// (`expected_class_member`) e continua no seguinte; engolir até `;`
-    /// esconderia os membros válidos no meio do lixo (`42` antes de
-    /// `int x = 1;` apagava o campo). Com progresso, pula até fechar o nível
-    /// em que o membro começou (`;` ou `}` com profundidade zero) ou até um
-    /// token que inicia membro — onde tenta o resto como membro, de forma
-    /// especulativa: se vingar (ex.: a cauda `set foo...` de
-    /// `augment static set foo...` sem o recurso), fica e os membros
-    /// seguintes sobrevivem; se falhar, os diagnósticos da tentativa são
-    /// descartados e a varredura continua no modo antigo, sem nova parada
-    /// (um erro pelo membro quebrado, não um por token do resto). A `}` que
-    /// fecha a classe **não** é consumida, para que o laço do corpo termine.
-    /// Garante progresso: consome ao menos um token.
+    /// Mirrors [`Parser::recover_top_level`]: without progress (nothing
+    /// consumed: a stray token), one token is enough — fasta reports one error
+    /// per token (`expected_class_member`) and continues with the next one;
+    /// swallowing up to `;` would hide the valid members in the middle of the
+    /// garbage (`42` before `int x = 1;` erased the field). With progress, skips
+    /// until the level where the member started closes (`;` or `}` at depth
+    /// zero) or until a token that starts a member — where it tries the rest as
+    /// a member, speculatively: if that works (e.g. the `set foo...` tail of
+    /// `augment static set foo...` without the feature), it stays and the
+    /// following members survive; if it fails, the attempt's diagnostics are
+    /// discarded and the scan continues the old way, without a new stop (one
+    /// error for the broken member, not one per token of the rest). The `}`
+    /// that closes the class is **not** consumed, so that the body loop ends.
+    /// Guarantees progress: consumes at least one token.
     fn recover_member(
         &mut self,
         start_pos: usize,
@@ -457,11 +460,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.advance();
                 }
                 Kind::Op(Op::RParen | Op::RBracket) => {
-                    // Um fechamento solto no nível zero é, ele próprio, uma
-                    // fronteira e é denunciado à parte (`expected_class_member`
-                    // nele, como faz o fasta): não é consumido aqui — a
-                    // próxima volta do corpo o relata e a recuperação sem
-                    // progresso o pula. Avançar esconderia o erro.
+                    // A stray closer at level zero is itself a boundary and is flagged
+                    // separately (`expected_class_member` at it, as fasta does): it is not
+                    // consumed here — the next body round reports it and recovery without
+                    // progress skips it. Advancing would hide the error.
                     if depth == 0 {
                         break;
                     }
@@ -514,11 +516,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O token corrente é um início plausível de membro (para a
-    /// sincronização de erro)? Identificadores (nomes, tipos, modificadores
-    /// contextuais como `static`/`factory`/`get`), metadata (`@`) e as
-    /// palavras que só abrem declaração (`final`/`const`/`var`/`void`;
-    /// `this`/`new` abrem membro na 3.13).
+    /// Is the current token a plausible start of a member (for error
+    /// synchronization)? Identifiers (names, types, contextual modifiers like
+    /// `static`/`factory`/`get`), metadata (`@`) and the words that only open a
+    /// declaration (`final`/`const`/`var`/`void`; `this`/`new` open a member in
+    /// 3.13).
     fn starts_member(&self) -> bool {
         match self.kind() {
             Kind::Ident | Kind::Op(Op::At) => true,
@@ -535,22 +537,21 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     // -----------------------------------------------------------------------
-    // Diretivas
+    // Directives
     // -----------------------------------------------------------------------
 
-    /// O token `n` à frente é um literal de string?
+    /// Is the token `n` ahead a string literal?
     fn string_at(&self, n: usize) -> bool {
         matches!(self.kind_at(n), Kind::Str(_) | Kind::StrBegin(..))
     }
 
-    /// Lê uma diretiva se o token corrente inicia uma; `None` caso contrário
-    /// (sem consumir nada). `library`, `import`, `export` e `part` são
-    /// identificadores embutidos, então a decisão olha o token seguinte.
+    /// Reads a directive if the current token starts one; `None` otherwise
+    /// (without consuming anything). `library`, `import`, `export` and `part`
+    /// are built-in identifiers, so the decision looks at the next token.
     fn parse_directive_opt(&mut self) -> PResult<Option<DirectiveKind>> {
-        // `import augment 'uri';` e `augment library 'uri';`: a forma de
-        // biblioteca de augmentation que o SDK 3.6 aceita com
-        // `--enable-experiment=macros` (e a que o CFE 3.6.2 gera para a saída
-        // das macros).
+        // `import augment 'uri';` and `augment library 'uri';`: the augmentation
+        // library form SDK 3.6 accepts with `--enable-experiment=macros` (and the
+        // one the 3.6.2 CFE generates for the macro output).
         if self.at_ident("import") && self.at_ident_at(1, "augment") && self.string_at(2) {
             self.advance();
             let t = self.advance();
@@ -589,8 +590,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 None
             };
-            // `parseImport`: `deferred` sem `as` é
-            // `MISSING_PREFIX_IN_DEFERRED_IMPORT` no `deferred`.
+            // `parseImport`: `deferred` without `as` is
+            // `MISSING_PREFIX_IN_DEFERRED_IMPORT` at the `deferred`.
             if let (Some(span), None) = (deferred_span, prefix) {
                 self.error_at(codigos::parser::MISSING_PREFIX_IN_DEFERRED_IMPORT, span, &[]);
             }
@@ -638,7 +639,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(None)
     }
 
-    /// `a`, `a.b.c` — nome de biblioteca ou teste de configuração.
+    /// `a`, `a.b.c` — a library name or a configuration test.
     fn parse_dotted_name(&mut self) -> PResult<Vec<Name>> {
         let mut names = vec![self.expect_identifier()?];
         while self.at_op(Op::Dot) && self.at_identifier_at(1) {
@@ -648,7 +649,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(names)
     }
 
-    /// Zero ou mais `if (dart.library.io == 'x') 'uri'`.
+    /// Zero or more `if (dart.library.io == 'x') 'uri'`.
     fn parse_configurations(&mut self) -> PResult<Vec<Configuration>> {
         let mut out = Vec::new();
         while self.at_kw(Keyword::If) {
@@ -673,7 +674,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(out)
     }
 
-    /// Zero ou mais `show a, b` / `hide c`, em qualquer ordem.
+    /// Zero or more `show a, b` / `hide c`, in any order.
     fn parse_combinators(&mut self) -> PResult<Vec<Combinator>> {
         let mut out = Vec::new();
         loop {
@@ -687,7 +688,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `a, b, c` — ao menos um identificador.
+    /// `a, b, c` — at least one identifier.
     fn parse_identifier_list(&mut self) -> PResult<Vec<Name>> {
         let mut names = vec![self.expect_identifier()?];
         while self.eat_op(Op::Comma) {
@@ -700,12 +701,12 @@ impl<'s, 'i> Parser<'s, 'i> {
     // Metadata
     // -----------------------------------------------------------------------
 
-    /// Zero ou mais `@anotação`.
+    /// Zero or more `@annotation`.
     ///
-    /// Formas: `@a`, `@p.a`, `@C.ctor(args)`, `@p.C.ctor(args)`, `@C<T>(args)`,
-    /// `@p.C<T>.ctor(args)`. Os argumentos só são lidos se o `(` estiver
-    /// colado ao nome (ou se houver argumentos de tipo), para não engolir um
-    /// tipo record que inicie a declaração seguinte.
+    /// Forms: `@a`, `@p.a`, `@C.ctor(args)`, `@p.C.ctor(args)`, `@C<T>(args)`,
+    /// `@p.C<T>.ctor(args)`. The arguments are only read if the `(` is glued to
+    /// the name (or there are type arguments), so as not to swallow a record
+    /// type that starts the next declaration.
     pub(crate) fn parse_metadata(&mut self) -> PResult<Vec<Annotation>> {
         let mut out = Vec::new();
         while self.at_op(Op::At) {
@@ -717,8 +718,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 name.push(self.identifier());
             }
             let with_types = self.at_op(Op::Lt);
-            // `endMetadata` (`ast_builder.dart:2512-2518`): argumentos de tipo
-            // sem `generic-metadata`, no `<`.
+            // `endMetadata` (`ast_builder.dart:2512-2518`): type arguments without
+            // `generic-metadata`, at the `<`.
             if with_types {
                 let less = self.span();
                 self.require(Feature::GenericMetadata, less);
@@ -733,17 +734,17 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let part = self.identifier_or_new()?;
                 name.push(part);
             }
-            // `parseMetadata` (`parser_impl.dart:1346-1349`): com argumentos de
-            // tipo, o que segue tem de ser `(`; o erro vai no último token
-            // lido da anotação (o `>` ou o `.nome`).
+            // `parseMetadata` (`parser_impl.dart:1346-1349`): with type arguments, what
+            // follows must be `(`; the error goes at the last token read of the
+            // annotation (the `>` or the `.name`).
             if with_types && !self.at_op(Op::LParen) {
                 let ultimo = self.tokens[self.pos - 1].span;
                 self.error_at(codigos::parser::ANNOTATION_WITH_TYPE_ARGUMENTS_UNINSTANTIATED, ultimo, &[]);
             }
-            // `parseArgumentsOptMetadata` (`:7718-7752`): `(` colado são os
-            // argumentos; separado, só com argumentos de tipo ou quando o que
-            // segue o `)` é `class`/`enum`, com
-            // `ANNOTATION_SPACE_BEFORE_PARENTHESIS` no `(`.
+            // `parseArgumentsOptMetadata` (`:7718-7752`): a glued `(` is the
+            // arguments; a separate one, only with type arguments or when what follows
+            // the `)` is `class`/`enum`, with `ANNOTATION_SPACE_BEFORE_PARENTHESIS` at
+            // the `(`.
             let glued = self.pos > 0 && self.tokens[self.pos - 1].glued;
             let arguments = if self.at_op(Op::LParen) {
                 let after_closer = self.matching_close(self.pos).map(|f| f + 1 - self.pos);
@@ -770,8 +771,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(out)
     }
 
-    /// `identifierOrNew`: um identificador ou a palavra `new` (nome de
-    /// construtor `C.new`).
+    /// `identifierOrNew`: an identifier or the word `new` (constructor name
+    /// `C.new`).
     fn identifier_or_new(&mut self) -> PResult<Name> {
         if self.at_kw(Keyword::New) {
             let token = self.advance();
@@ -782,10 +783,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     // -----------------------------------------------------------------------
-    // Declarações de topo
+    // Top-level declarations
     // -----------------------------------------------------------------------
 
-    /// Despacha a declaração de topo que começa no token corrente.
+    /// Dispatches the top-level declaration starting at the current token.
     fn parse_top_level_declaration(
         &mut self,
         start: Span,
@@ -839,14 +840,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
-    /// A decisão de `parseTopLevelDeclarationImpl` (`parser_impl.dart:528`)
-    /// sobre o que começa no cursor: uma palavra de topo (`class`, `enum`,
-    /// `mixin`…) precedida de modificadores (`isModifier` do token, sem olhar
-    /// o seguinte) e de no máximo um `macro`/`sealed`/`base`/`interface`; ou
-    /// um membro de topo — sempre que começa por `var`, `late`, `final` (não
-    /// antes de `class`/`mixin`/`enum`) ou `const` (não antes de `class`), e
-    /// quando os modificadores não levam a uma palavra de topo
-    /// (`final abstract class` é um campo `final` mal formado).
+    /// The decision of `parseTopLevelDeclarationImpl` (`parser_impl.dart:528`)
+    /// on what starts at the cursor: a top-level word (`class`, `enum`,
+    /// `mixin`…) preceded by modifiers (the token's `isModifier`, without
+    /// looking at the next one) and at most one `macro`/`sealed`/`base`/
+    /// `interface`; or a top-level member — whenever it starts with `var`,
+    /// `late`, `final` (not before `class`/`mixin`/`enum`) or `const` (not
+    /// before `class`), and when the modifiers do not lead to a top-level word
+    /// (`final abstract class` is a malformed `final` field).
     fn top_level_route(&self) -> TopLevelRoute {
         let p0 = self.pos;
         let word = |p: usize| match self.kind_of(p) {
@@ -879,22 +880,22 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             return TopLevelRoute::Word { word: k };
         }
-        // Modificadores seguidos de nome, ou `sealed`/`base`/… fora da ordem
-        // (`base abstract class`, `sealed sealed class`): membro.
+        // Modifiers followed by a name, or `sealed`/`base`/… out of order
+        // (`base abstract class`, `sealed sealed class`): a member.
         if j > p0 || (k == j && self.class_follows()) {
             return TopLevelRoute::Member;
         }
         TopLevelRoute::Plain
     }
 
-    /// Os modificadores de membro antes de uma palavra de topo, lidos pelo
+    /// The member modifiers before a top-level word, read by the
     /// `ModifierContext` (`parseClassModifiers`, `parseEnumModifiers`,
-    /// `parseMixinModifiers`…): o que não cabe ali é relatado e
-    /// descartado; `abstract`/`final` de classe vão para `pre`.
+    /// `parseMixinModifiers`…): what does not fit there is reported and
+    /// discarded; the class's `abstract`/`final` go to `pre`.
     fn modifiers_before_word(&mut self, word: usize, pre: &mut ClassModifiers) {
         let mut f = ModifierTokens::default();
         self.modifier_context(&mut f, false);
-        // `mixin class` é classe (`_handleModifiersForClassDeclaration`).
+        // `mixin class` is a class (`_handleModifiersForClassDeclaration`).
         let mut texto = self.text_of(word);
         if texto == "mixin" && self.text_of(word + 1) == "class" {
             texto = "class";
@@ -922,11 +923,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `sealed`/`base`/`interface` antes de `mixin`, `mixin class` ou
-    /// `enum` (`parseTopLevelKeywordDeclaration`): só `base` cabe em mixin,
-    /// nenhum em enum; o que não cabe é relatado (`SEALED_MIXIN`,
-    /// `INTERFACE_MIXIN_CLASS`, `BASE_ENUM`…) e descartado. As formas
-    /// válidas (`base mixin`, `sealed class`…) seguem para o despacho comum.
+    /// `sealed`/`base`/`interface` before `mixin`, `mixin class` or `enum`
+    /// (`parseTopLevelKeywordDeclaration`): only `base` fits on a mixin, none on
+    /// an enum; what does not fit is reported (`SEALED_MIXIN`,
+    /// `INTERFACE_MIXIN_CLASS`, `BASE_ENUM`…) and discarded. The valid forms
+    /// (`base mixin`, `sealed class`…) go on to the common dispatch.
     fn mixin_and_enum_prefixes(&mut self) {
         if self.kind() != Kind::Ident || !matches!(self.text(), "sealed" | "base" | "interface") {
             return;
@@ -954,14 +955,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.advance();
     }
 
-    /// `modifiers_* class` começa aqui?
+    /// Does `modifiers_* class` start here?
     fn class_follows(&self) -> bool {
         let mut i = self.pos;
         loop {
             match self.kind_of(i) {
                 Kind::Keyword(Keyword::Final) => i += 1,
-                // `mixin` só abre classe colado a `class` (`mixin base class`
-                // é um mixin chamado `base`, como no fasta).
+                // `mixin` only opens a class when glued to `class` (`mixin base class` is a
+                // mixin named `base`, as in fasta).
                 Kind::Ident if self.text_of(i) == "mixin" => {
                     return self.kind_of(i + 1) == Kind::Keyword(Keyword::Class);
                 }
@@ -979,21 +980,21 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `base? mixin Nome` começa aqui?
+    /// Does `base? mixin Name` start here?
     fn mixin_follows(&self) -> bool {
-        // `parseTopLevelKeywordDeclaration`: depois de `mixin`, só `(`, `.` e
-        // `<` fazem dele um nome comum (membro de topo); o resto abre um
-        // mixin, mesmo que o nome falte (`mixin final M {}`).
+        // `parseTopLevelKeywordDeclaration`: after `mixin`, only `(`, `.` and `<`
+        // make it a plain name (a top-level member); anything else opens a mixin,
+        // even if the name is missing (`mixin final M {}`).
         let abre = |i: usize| !matches!(self.kind_of(i), Kind::Op(Op::LParen | Op::Dot | Op::Lt) | Kind::Eof);
         (self.at_ident("mixin") && abre(self.pos + 1))
             || (self.at_ident("base") && self.at_ident_at(1, "mixin") && abre(self.pos + 2))
     }
 
-    /// `AstBuilder.beginClassDeclaration`/`beginNamedMixinApplication`
-    /// (3.6.2, `ast_builder.dart:261-300`, `:525-570`): sem `sealed-class`,
-    /// o `sealed`; sem `class-modifiers`, o `base`, o `interface`, o `final`
-    /// e o `mixin` são `EXPERIMENT_NOT_ENABLED` no token, e o modificador é
-    /// esquecido. Os tokens são os que precedem o `class` corrente.
+    /// `AstBuilder.beginClassDeclaration`/`beginNamedMixinApplication` (3.6.2,
+    /// `ast_builder.dart:261-300`, `:525-570`): without `sealed-class`, the
+    /// `sealed`; without `class-modifiers`, the `base`, `interface`, `final` and
+    /// `mixin` are `EXPERIMENT_NOT_ENABLED` at the token, and the modifier is
+    /// forgotten. The tokens are those preceding the current `class`.
     fn class_modifiers_without_feature(&mut self, m: &mut ClassModifiers) {
         let sealed = self.features.tem(Feature::SealedClass);
         let modifiers_ = self.features.tem(Feature::ClassModifiers);
@@ -1006,7 +1007,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             i -= 1;
             let tk = &self.tokens[i];
             let texto = &self.source[tk.span.start..tk.span.end];
-            // O nome de uma anotação (`@sealed class C`) não é modificador.
+            // An annotation's name (`@sealed class C`) is not a modifier.
             let from_annotation = i > 0 && &self.source[self.tokens[i - 1].span.start..self.tokens[i - 1].span.end] == "@";
             match texto {
                 "abstract" | "base" | "interface" | "final" | "sealed" | "mixin" | "macro" | "augment" if !from_annotation => {
@@ -1043,7 +1044,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `classDeclaration`, inclusive a forma `class C = S with M;`.
+    /// `classDeclaration`, including the form `class C = S with M;`.
     fn parse_class(&mut self, pre: ClassModifiers) -> PResult<ClassDecl> {
         let mut modifiers = pre;
         let mut sealed = None;
@@ -1073,20 +1074,20 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let class_token = self.expect_kw(Keyword::Class)?;
         self.class_modifiers_without_feature(&mut modifiers);
-        // `parseClassOrNamedMixinApplication`: `abstract` com `sealed` é
-        // `ABSTRACT_SEALED_CLASS` no `sealed` (em qualquer ordem).
+        // `parseClassOrNamedMixinApplication`: `abstract` with `sealed` is
+        // `ABSTRACT_SEALED_CLASS` at the `sealed` (in any order).
         if modifiers.abstract_
             && let Some(span) = sealed
         {
             self.error_at(codigos::parser::ABSTRACT_SEALED_CLASS, span, &[]);
         }
-        // `class const K(...)`: construtor primário constante (3.13).
+        // `class const K(...)`: a constant primary constructor (3.13).
         let primary_const = self.at_kw(Keyword::Const).then(|| self.advance().span);
         let (name_text, name) = self.declaration_name()?;
         let type_params = self.parse_type_parameters_opt_variance()?;
         if self.at_op(Op::Assign) {
-            // `class const C = S with M;`: o `const` é
-            // `CONST_WITHOUT_PRIMARY_CONSTRUCTOR`, com ou sem o recurso
+            // `class const C = S with M;`: the `const` is
+            // `CONST_WITHOUT_PRIMARY_CONSTRUCTOR`, with or without the feature
             // (`parseClassOrNamedMixinApplication`, `parser_impl.dart:2983-2986`).
             if let Some(c) = primary_const {
                 self.error_at(codigos::parser::CONST_WITHOUT_PRIMARY_CONSTRUCTOR, c, &[]);
@@ -1121,9 +1122,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
-        // `parseClassHeaderOpt`: `native 'nome'?` depois das cláusulas (o
-        // analyzer aceita a forma antiga; fora do SDK o `ErrorVerifier` dá
-        // `NATIVE_CLAUSE_IN_NON_SDK_CODE`, em `analise::nativos`).
+        // `parseClassHeaderOpt`: `native 'name'?` after the clauses (the analyzer
+        // accepts the old form; outside the SDK the `ErrorVerifier` gives
+        // `NATIVE_CLAUSE_IN_NON_SDK_CODE`, in `analise::nativos`).
         if self.eat_ident("native") && self.string_at(0) {
             self.parse_string_literal()?;
         }
@@ -1149,9 +1150,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    /// `(.id)? (params)` depois do nome e dos parâmetros de tipo de uma
-    /// classe ou enum: o cabeçalho de um construtor primário (Dart 3.13,
-    /// `<primaryConstructor>`). `var`/`final` nos parâmetros declaram campo.
+    /// `(.id)? (params)` after the name and type parameters of a class or enum:
+    /// the header of a primary constructor (Dart 3.13, `<primaryConstructor>`).
+    /// `var`/`final` in the parameters declare a field.
     fn parse_primary_header_opt(
         &mut self,
         start_offset: Span,
@@ -1159,10 +1160,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     ) -> PResult<Option<PrimaryHeader>> {
         if !self.at_op(Op::LParen) && !(self.at_op(Op::Dot) && self.kind_at(1) != Kind::Op(Op::Dot))
         {
-            // `parsePrimaryConstructorOpt` sem cabeçalho (3.13.4,
-            // `parser_impl.dart:3829-3862`): o `const` é
-            // `CONST_WITHOUT_PRIMARY_CONSTRUCTOR` com o recurso ligado e
-            // `UNEXPECTED_TOKEN` sem ele, e a declaração segue.
+            // `parsePrimaryConstructorOpt` without a header (3.13.4,
+            // `parser_impl.dart:3829-3862`): the `const` is
+            // `CONST_WITHOUT_PRIMARY_CONSTRUCTOR` with the feature on and
+            // `UNEXPECTED_TOKEN` without it, and the declaration goes on.
             if let Some(c) = const_ {
                 if self.features.tem(Feature::PrimaryConstructors) {
                     self.error_at(codigos::parser::CONST_WITHOUT_PRIMARY_CONSTRUCTOR, c, &[]);
@@ -1186,8 +1187,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.in_primary_constructor = salvo;
         let params = params?;
         let span = self.span_from(beginning);
-        // O analyzer 3.13.4 relata o recurso desligado no primeiro token do
-        // cabeçalho (`(`, ou o `.` de `C.nome(`), não no cabeçalho inteiro.
+        // The 3.13.4 analyzer reports the disabled feature at the header's first
+        // token (`(`, or the `.` of `C.name(`), not on the whole header.
         self.require(Feature::PrimaryConstructors, beginning);
         Ok(Some(PrimaryHeader {
             span: Span {
@@ -1200,7 +1201,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
-    /// `{ members_ }` ou, a partir da 3.13, `;` (corpo vazio).
+    /// `{ members }` or, from 3.13 on, `;` (empty body).
     fn parse_class_body_or_empty(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
         let synthetic = self.synthetic_name.take();
         if self.at_op(Op::Semicolon) {
@@ -1208,10 +1209,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.require_in_ast(Feature::PrimaryConstructors, t.span);
             return Ok(Vec::new());
         }
-        // `ensureBlock` (`parser_impl.dart:4204`) com o `BlockKind` da
-        // declaração: sem `{`, `EXPECTED_CLASS_BODY`/`EXPECTED_MIXIN_BODY`/…
-        // no último token lido (no lugar do nome sintético, se houver) e um
-        // corpo vazio sintético; o resto é lido como declarações seguintes.
+        // `ensureBlock` (`parser_impl.dart:4204`) with the declaration's
+        // `BlockKind`: without `{`, `EXPECTED_CLASS_BODY`/`EXPECTED_MIXIN_BODY`/…
+        // at the last token read (in place of the synthetic name, if any) and a
+        // synthetic empty body; the rest is read as the following declarations.
         if !self.at_op(Op::LBrace) && self.pos > 0 {
             let code = match self.owner {
                 super::MemberOwner::Class => codigos::parser::EXPECTED_CLASS_BODY,
@@ -1227,12 +1228,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.parse_class_body(class_name)
     }
 
-    /// O nome de uma classe ou mixin (`ClassOrMixinOrExtensionIdentifierContext`,
-    /// `identifier_context_impl.dart`): uma palavra que abre a declaração
-    /// seguinte (`mixin mixin class C`, `mixin final M`) ou que só caberia
-    /// depois do nome não é o nome — `MISSING_IDENTIFIER` nela e um nome
-    /// sintético vazio, sem consumir; outra palavra reservada é
-    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` e vira o nome.
+    /// The name of a class or mixin (`ClassOrMixinOrExtensionIdentifierContext`,
+    /// `identifier_context_impl.dart`): a word that opens the next declaration
+    /// (`mixin mixin class C`, `mixin final M`) or that would only fit after the
+    /// name is not the name — `MISSING_IDENTIFIER` at it and an empty synthetic
+    /// name, without consuming; another reserved word is
+    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` and becomes the name.
     fn declaration_name(&mut self) -> PResult<(&'s str, Name)> {
         let segue = |p: &Self, i: usize| {
             matches!(p.kind_of(i), Kind::Op(Op::Lt | Op::LBrace | Op::Assign | Op::LParen | Op::Dot) | Kind::Eof)
@@ -1258,14 +1259,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok((texto, self.expect_identifier()?))
     }
 
-    /// Derivação D → D2 do construtor primário (spec 3.13, `:926-1025`),
-    /// feita na árvore, logo depois do parse da declaração: cada parâmetro
-    /// declarante `var`/`final T p` vira um campo `T p;`/`final T p;` e o
-    /// parâmetro vira `T this.p` (o `covariant` passa ao campo); o construtor
-    /// `k2` recebe o nome, o `const` do cabeçalho (ou do `enum`), a lista de
-    /// inicialização e o corpo da parte `this`. Os consumidores veem código
-    /// comum. Devolve o `k2`, que fica no lugar da parte `this` (ou depois dos
-    /// campos, se não houver).
+    /// The D → D2 derivation of the primary constructor (3.13 spec,
+    /// `:926-1025`), done on the tree right after the declaration is parsed:
+    /// each declaring parameter `var`/`final T p` becomes a field
+    /// `T p;`/`final T p;` and the parameter becomes `T this.p` (the
+    /// `covariant` moves to the field); the constructor `k2` gets the name, the
+    /// header's `const` (or the `enum`'s), the initializer list and the body of
+    /// the `this` part. Consumers see regular code. Returns `k2`, which takes
+    /// the place of the `this` part (or goes after the fields, if there is
+    /// none).
     fn elaborate_primary_constructor(
         &mut self,
         class: Name,
@@ -1273,7 +1275,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         members: &mut Vec<MemberId>,
         where_: Elaborating,
     ) -> Option<MemberId> {
-        // Partes `this` no corpo.
+        // `this` parts in the body.
         let partes: Vec<usize> = members
             .iter()
             .enumerate()
@@ -1281,8 +1283,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             .map(|(i, _)| i)
             .collect();
         // `_checkForMultiplePrimaryConstructorBodyDeclarations` (3.13.4,
-        // `error_verifier.dart:6293-6305`): da segunda parte em diante, com ou
-        // sem o cabeçalho primário.
+        // `error_verifier.dart:6293-6305`): from the second part on, with or
+        // without the primary header.
         for &i in partes.iter().skip(1) {
             let span = self.this_span(members[i]);
             self.error_at(codigos::compile_time_error::MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS, span, &[]);
@@ -1294,9 +1296,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             return None;
         };
-        // Construtor generativo não redirecionador no corpo: proibido (o k2 é
-        // o único, para os inicializadores de campo poderem ler os
-        // parâmetros); o nome do k2 não pode repetir o de outro construtor.
+        // A non-redirecting generative constructor in the body: forbidden (k2 is
+        // the only one, so the field initializers can read the parameters); k2's
+        // name cannot repeat another constructor's.
         for &m in members.iter() {
             if let MemberKind::Constructor(c) = &self.ast.member(m).kind {
                 if c.parte_primaria {
@@ -1307,7 +1309,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     .iter()
                     .any(|i| matches!(i, Initializer::Redirect { .. }));
                 if !c.factory && !redirects {
-                    // No nome do construtor (`C` ou `C.nome`), como o analyzer.
+                    // At the constructor's name (`C` or `C.name`), like the analyzer.
                     let end_offset = c.name.map_or(c.class_name.span.end, |n| n.span.end);
                     let span = Span { start: c.class_name.span.start, end: end_offset };
                     self.diagnostics.push(Diagnostic::com_codigo(
@@ -1317,8 +1319,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                     ));
                 }
                 if c.name.map(|n| n.sym) == cab.nome.map(|n| n.sym) {
-                    // O construtor do corpo repete o nome do primário: o
-                    // `duplicate_constructor` do analyzer, no nome do segundo.
+                    // The body's constructor repeats the primary one's name: the analyzer's
+                    // `duplicate_constructor`, at the second one's name.
                     let end_offset = c.name.map_or(c.class_name.span.end, |n| n.span.end);
                     let span = Span { start: c.class_name.span.start, end: end_offset };
                     let d = match c.name {
@@ -1339,24 +1341,23 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let (has_supertypes, const_) = match where_ {
             Elaborating::Class { has_supertypes } => (has_supertypes, cab.const_),
-            // Construtor de enum é sempre constante.
+            // An enum constructor is always constant.
             Elaborating::Enum => (true, true),
         };
         let mut fields_: Vec<MemberId> = Vec::new();
         let mut parameters_ = cab.params;
         for p in parameters_.iter_mut() {
-            // O `covariant` sobrando é do `parseFormalParameterModifiers`
+            // The leftover `covariant` belongs to `parseFormalParameterModifiers`
             // (`report_parameter_modifiers`, `PrimaryConstructor`).
             if !(p.var_ || p.final_) || p.this_ || p.super_ {
                 continue;
             }
             let Some(nome) = p.name else { continue };
-            // O declarante no estilo antigo de parâmetro função
-            // (`final int _f()`): o campo tem o tipo função inteiro
-            // (`int Function()`), não só o retorno. Os parâmetros do tipo são
-            // cópias rasas (nome, tipo, espécie): um tipo função não tem
-            // metadados nem valores padrão; o parâmetro do construtor fica
-            // como está.
+            // A declaring parameter in the old function-parameter style
+            // (`final int _f()`): the field has the whole function type
+            // (`int Function()`), not just the return type. The type's parameters are
+            // shallow copies (name, type, kind): a function type has no metadata or
+            // default values; the constructor parameter stays as it is.
             let ty = if let Some(fps) = &p.function_parameters {
                 let parameters_: Vec<crate::ast::Parameter> = fps
                     .iter()
@@ -1416,14 +1417,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 augment: false,
             };
             fields_.push(self.ast.push_member(campo));
-            // `var T p` → `T this.p` (com o tipo, se escrito).
+            // `var T p` → `T this.p` (with the type, if written).
             p.this_ = true;
             p.declarante = true;
             p.var_ = false;
             p.final_ = false;
             p.covariant = false;
         }
-        // Lista de inicialização e corpo da parte `this`.
+        // Initializer list and body of the `this` part.
         let (initializers, body, part_span, body_part) = match partes.first() {
             Some(&i) => {
                 let mid = members[i];
@@ -1434,10 +1435,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let inits = std::mem::take(&mut c.initializers);
                 let body = std::mem::replace(&mut c.body, FunctionBody::Empty);
                 let body_node = self.primary_bodies.get(&c.class_name.span.start).copied();
-                // `this : this.nome()`: o primário não redireciona
-                // (`PRIMARY_CONSTRUCTOR_CANNOT_REDIRECT` no `this` do
-                // redirecionamento). O inicializador fica (conta para o ciclo
-                // constante e para o uso do alvo); o ciclo gerador o ignora.
+                // `this : this.name()`: the primary constructor does not redirect
+                // (`PRIMARY_CONSTRUCTOR_CANNOT_REDIRECT` at the redirection's `this`). The
+                // initializer stays (it counts for the constant cycle and for the use of
+                // the target); the generative cycle ignores it.
                 for i in inits.iter() {
                     if let Initializer::Redirect { span: sp, .. } = i {
                         let s = Span { start: sp.start, end: sp.start + 4 };
@@ -1448,8 +1449,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             None => (Vec::new().into_boxed_slice(), FunctionBody::Empty, None, None),
         };
-        // Corpo da parte `this`, no `{`/`=>` que o abre (registrado no parse):
-        // `const` não aceita corpo nenhum; fora dele, `=>` é o erro.
+        // Body of the `this` part, at the `{`/`=>` that opens it (recorded during
+        // the parse): `const` accepts no body at all; otherwise, `=>` is the error.
         if let Some(span) = body_part {
             let code = match (&body, const_) {
                 (FunctionBody::Block(_), true) => Some(codigos::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY),
@@ -1482,15 +1483,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         let k2 = match partes.first() {
             Some(&i) => {
-                // O k2 fica no lugar da parte `this`.
+                // k2 takes the place of the `this` part.
                 let mid = members[i];
                 self.ast.members[mid.0 as usize] = k2;
                 mid
             }
             None => self.ast.push_member(k2),
         };
-        // Campos primeiro (na ordem dos parâmetros), depois o corpo; o k2
-        // entra depois dos campos quando não havia parte `this`.
+        // Fields first (in parameter order), then the body; k2 goes after the
+        // fields when there was no `this` part.
         let mut novos = fields_;
         if partes.is_empty() {
             novos.push(k2);
@@ -1500,12 +1501,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         Some(k2)
     }
 
-    /// Tipo de um parâmetro declarante sem tipo (spec 3.13, `:945-962`): o
-    /// do getter herdado de mesmo nome; senão o do valor padrão; senão
-    /// `Object?`. Aqui, sintaticamente: um default literal dá o tipo dele,
-    /// `null` ou nenhum default dá `Object?` — mas só quando a classe não
-    /// tem supertipo declarado, porque aí um getter herdado poderia mandar
-    /// (sem tipo, o campo fica para a inferência do `types`).
+    /// Type of an untyped declaring parameter (3.13 spec, `:945-962`): that of
+    /// the inherited getter of the same name; otherwise that of the default
+    /// value; otherwise `Object?`. Here, syntactically: a literal default gives
+    /// its type, `null` or no default gives `Object?` — but only when the class
+    /// has no declared supertype, because then an inherited getter could decide
+    /// (without a type, the field is left to `types` inference).
     fn untyped_declarant_type(
         &mut self,
         padrao: Option<ExprId>,
@@ -1535,7 +1536,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
-    /// `implements A, B` opcional.
+    /// Optional `implements A, B`.
     fn parse_implements_opt(&mut self) -> PResult<Vec<TypeId>> {
         if self.eat_ident("implements") {
             self.parse_type_list()
@@ -1544,7 +1545,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `A, B, C` — ao menos um tipo.
+    /// `A, B, C` — at least one type.
     fn parse_type_list(&mut self) -> PResult<Vec<TypeId>> {
         let mut out = vec![self.parse_type()?];
         while self.eat_op(Op::Comma) {
@@ -1557,8 +1558,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_mixin(&mut self) -> PResult<MixinDecl> {
         let base_span = self.at_ident("base").then(|| self.span());
         let mut base = self.eat_ident("base");
-        // `beginMixinDeclaration` (`ast_builder.dart:488-497`): sem
-        // `class-modifiers`, o `base` é o recurso desligado e é esquecido.
+        // `beginMixinDeclaration` (`ast_builder.dart:488-497`): without
+        // `class-modifiers`, the `base` is the disabled feature and is forgotten.
         if let Some(sp) = base_span
             && !self.features.tem(Feature::ClassModifiers)
         {
@@ -1568,9 +1569,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.expect_ident("mixin")?;
         let (name_text, name) = self.declaration_name()?;
         let type_params = self.parse_type_parameters_opt_variance()?;
-        // Mixin não tem construtor primário: `(` ou `.nome(` depois do nome
-        // é `UNEXPECTED_TOKEN` no primeiro token, e o grupo é pulado
-        // (analyzer 3.13.4, `primary_constructors/syntax/mixin_error_test`).
+        // A mixin has no primary constructor: `(` or `.name(` after the name is
+        // `UNEXPECTED_TOKEN` at the first token, and the group is skipped (3.13.4
+        // analyzer, `primary_constructors/syntax/mixin_error_test`).
         if self.at_op(Op::LParen) || (self.at_op(Op::Dot) && self.at_identifier_at(1)) {
             let texto = self.text().to_string();
             self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
@@ -1580,9 +1581,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             if self.at_op(Op::LParen) {
                 match self.matching_close(self.pos) {
                     Some(f) if self.kind_of(f) == Kind::Op(Op::RParen) => {
-                        // O 3.13.4 ainda lê os parâmetros: o `var` de um
-                        // parâmetro (declarante) é o recurso desligado; o
-                        // `final` era permitido antes.
+                        // 3.13.4 still reads the parameters: a parameter's `var` (declaring) is the
+                        // disabled feature; `final` was allowed before.
                         let vars: Vec<Span> = (self.pos + 1..f)
                             .filter(|&i| self.kind_of(i) == Kind::Keyword(Keyword::Var))
                             .map(|i| self.tokens[i].span)
@@ -1596,9 +1596,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
             }
         }
-        // Recuperação do cabeçalho do mixin: um nome solto antes de `on`,
-        // `implements` ou `{` é `UNEXPECTED_TOKEN` e é pulado
-        // (`mixin sealed M {}`).
+        // Mixin header recovery: a stray name before `on`, `implements` or `{` is
+        // `UNEXPECTED_TOKEN` and is skipped (`mixin sealed M {}`).
         if self.kind() == Kind::Ident
             && !self.at_ident("on")
             && !self.at_ident("implements")
@@ -1626,8 +1625,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    /// `enumType`: constantes (com metadata, argumentos de tipo, construtor
-    /// e argumentos), vírgula final opcional, `;` e membros opcionais.
+    /// `enumType`: constants (with metadata, type arguments, constructor and
+    /// arguments), optional trailing comma, `;` and optional members.
     fn parse_enum(&mut self) -> PResult<EnumDecl> {
         let enum_token = self.expect_kw(Keyword::Enum)?;
         let primary_const = self.at_kw(Keyword::Const).then(|| self.advance().span);
@@ -1641,8 +1640,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
-        // Corpo vazio `;` (3.13, construtores primários): sem constantes nem
-        // membros (o `ENUM_WITHOUT_CONSTANTS` sai depois).
+        // Empty `;` body (3.13, primary constructors): no constants or members
+        // (`ENUM_WITHOUT_CONSTANTS` comes out later).
         if self.at_op(Op::Semicolon) {
             let t = self.advance();
             self.require_in_ast(Feature::PrimaryConstructors, t.span);
@@ -1666,10 +1665,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             if self.eat_op(Op::Comma) || self.at_op(Op::RBrace) || self.at_op(Op::Semicolon) {
                 continue;
             }
-            // `parseEnum` (`parser_impl.dart`): outro nome é a constante
-            // seguinte depois de uma vírgula que falta (`EXPECTED_TOKEN` `,`
-            // nele); qualquer outra coisa é `EXPECTED_TOKEN` `}` nela e o
-            // corpo acaba no `}` casado.
+            // `parseEnum` (`parser_impl.dart`): another name is the next constant after
+            // a missing comma (`EXPECTED_TOKEN` `,` at it); anything else is
+            // `EXPECTED_TOKEN` `}` at it and the body ends at the matching `}`.
             match self.matching_close(abre) {
                 Some(closes) if self.kind_of(closes) == Kind::Op(Op::RBrace) => {
                     if self.at_identifier() {
@@ -1733,10 +1731,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    /// `extension` já foi visto: decide entre `extension [Nome]<T> on Tipo`
-    /// e `extension type`. `extension type on X {}` é uma extension chamada
-    /// `type`; `extension type Nome(...)` e `extension type const` são
-    /// extension types.
+    /// `extension` was already seen: decides between
+    /// `extension [Name]<T> on Type` and `extension type`.
+    /// `extension type on X {}` is an extension named `type`;
+    /// `extension type Name(...)` and `extension type const` are extension
+    /// types.
     fn parse_extension_or_extension_type(&mut self) -> PResult<DeclKind> {
         let is_extension_type = self.at_ident_at(1, "type")
             && (self.at_kw_at(2, Keyword::Const)
@@ -1753,7 +1752,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `extension Nome? <T>? on Tipo { members_ }`.
     fn parse_extension(&mut self) -> PResult<ExtensionDecl> {
         self.expect_ident("extension")?;
-        // `on` só é nome da extension se ainda houver um `on` (ou `<`) depois.
+        // `on` is only the extension's name if there is another `on` (or `<`)
+        // after it.
         let named = self.at_identifier()
             && (!self.at_ident("on") || self.at_ident_at(1, "on") || self.at_op_at(1, Op::Lt));
         let (name_text, name) = if named {
@@ -1763,11 +1763,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             (None, None)
         };
         let type_params = self.parse_type_parameters_opt()?;
-        // `parseExtensionDeclaration` (`parser_impl.dart`): sem `on`,
-        // `extends`/`implements`/`with` fazem as vezes dele com
-        // `EXPECTED_INSTEAD`; senão `EXPECTED_TOKEN` (`on`) no último token
-        // lido e um `on` sintético. Sem tipo depois (`{`), `EXPECTED_TYPE_NAME`
-        // no `{` e um tipo sintético; o corpo é lido normalmente.
+        // `parseExtensionDeclaration` (`parser_impl.dart`): without `on`,
+        // `extends`/`implements`/`with` stand in for it with `EXPECTED_INSTEAD`;
+        // otherwise `EXPECTED_TOKEN` (`on`) at the last token read and a synthetic
+        // `on`. Without a type after it (`{`), `EXPECTED_TYPE_NAME` at the `{` and
+        // a synthetic type; the body is read normally.
         if !self.eat_ident("on") {
             if self.at_kw(Keyword::Extends) || self.at_kw(Keyword::With) || self.at_ident("implements") {
                 self.erro(codigos::parser::EXPECTED_INSTEAD, &["on"]);
@@ -1818,11 +1818,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         let (representation_metadata, representation_type, representation_name) = if self.at_op(Op::LParen) {
             self.parse_representation()?
         } else {
-            // `parseExtensionTypeDeclaration`: sem `(` nem `.`,
-            // `MISSING_PRIMARY_CONSTRUCTOR` no último token lido (o nome ou o
-            // `>`); com `.nome` sem `(`, `MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS`
-            // no nome. O resto da declaração é lido normalmente, com a
-            // representação sintética (vazia, sem largura).
+            // `parseExtensionTypeDeclaration`: without `(` or `.`,
+            // `MISSING_PRIMARY_CONSTRUCTOR` at the last token read (the name or the
+            // `>`); with `.name` without `(`, `MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS`
+            // at the name. The rest of the declaration is read normally, with the
+            // synthetic representation (empty, zero width).
             let code = if has_primary {
                 codigos::parser::MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS
             } else {
@@ -1843,8 +1843,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         let implements = self.parse_implements_opt()?;
         self.owner = super::MemberOwner::ExtensionType;
         let members = self.parse_class_body_or_empty(Some(name_text))?;
-        // A segunda parte `this` em diante: `MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS`
-        // (o mesmo `_checkForMultiplePrimaryConstructorBodyDeclarations` da classe).
+        // From the second `this` part on:
+        // `MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS` (the same
+        // `_checkForMultiplePrimaryConstructorBodyDeclarations` as for classes).
         let partes: Vec<MemberId> = members
             .iter()
             .copied()
@@ -1854,9 +1855,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             let span = self.this_span(m);
             self.error_at(codigos::compile_time_error::MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS, span, &[]);
         }
-        // A parte de corpo `this …` do primário do tipo de extensão (a
-        // representação), como a de classe (`elaborate_primary_constructor`):
-        // `const` não aceita corpo nenhum; fora dele, `=>` é o erro.
+        // The `this …` body part of the extension type's primary constructor (the
+        // representation), like the class one (`elaborate_primary_constructor`):
+        // `const` accepts no body at all; otherwise, `=>` is the error.
         for &mid in members.iter() {
             let MemberKind::Constructor(c) = &self.ast.member(mid).kind else { continue };
             if !c.parte_primaria {
@@ -1887,15 +1888,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    /// A lista de parâmetros do construtor primário de um extension type
-    /// (`parseFormalParameters` com `MemberKind.PrimaryConstructor`) e a
-    /// representação que o `AstBuilder.endPrimaryConstructor` tira dela: o
-    /// primeiro parâmetro, se é posicional simples (senão
-    /// `EXPECTED_REPRESENTATION_FIELD` no token depois do `(`, e tipo e nome
-    /// sintéticos); sem tipo, `EXPECTED_REPRESENTATION_TYPE`; `var`/`final`
-    /// (antes da 3.13, em que `final` declara), `REPRESENTATION_FIELD_MODIFIER`;
-    /// a vírgula depois dele, `REPRESENTATION_FIELD_TRAILING_COMMA` (um só
-    /// parâmetro) ou `MULTIPLE_REPRESENTATION_FIELDS`.
+    /// The parameter list of an extension type's primary constructor
+    /// (`parseFormalParameters` with `MemberKind.PrimaryConstructor`) and the
+    /// representation `AstBuilder.endPrimaryConstructor` takes from it: the
+    /// first parameter, if it is a simple positional one (otherwise
+    /// `EXPECTED_REPRESENTATION_FIELD` at the token after the `(`, and a
+    /// synthetic type and name); without a type, `EXPECTED_REPRESENTATION_TYPE`;
+    /// `var`/`final` (before 3.13, where `final` declares),
+    /// `REPRESENTATION_FIELD_MODIFIER`; the comma after it,
+    /// `REPRESENTATION_FIELD_TRAILING_COMMA` (a single parameter) or
+    /// `MULTIPLE_REPRESENTATION_FIELDS`.
     fn parse_representation(&mut self) -> PResult<(Vec<Annotation>, TypeId, Name)> {
         let abre = self.pos;
         if !self.at_op(Op::LParen) {
@@ -1923,16 +1925,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         let simple = params.first().is_some_and(|p| {
             p.kind == ParameterKind::Required && !p.this_ && !p.super_ && p.function_parameters.is_none() && p.name.is_some()
         });
-        // O analyzer 3.13.4 relata mais de um parâmetro como
-        // `MULTIPLE_REPRESENTATION_FIELDS` na primeira vírgula, qualquer que
-        // seja a forma do primeiro; o 3.6.2, o campo que falta. Qual dos
-        // dois fica depende da referência da unidade, que só se conhece no
-        // fim (`Parsed::referencia`): saem os dois, cada um marcado.
+        // The 3.13.4 analyzer reports more than one parameter as
+        // `MULTIPLE_REPRESENTATION_FIELDS` at the first comma, whatever the shape
+        // of the first one; 3.6.2, the missing field. Which of the two stays
+        // depends on the unit's reference, only known at the end
+        // (`Parsed::referencia`): both come out, each one marked.
         let n = params.len();
-        // O 3.13.4 confere o nome do único parâmetro da representação contra
-        // os membros de `Object` (`EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT`
-        // no nome, `error_verifier.dart` do checkout main, `:5641-5655`),
-        // qualquer que seja a forma do parâmetro; o 3.6.2 não confere.
+        // 3.13.4 checks the name of the representation's single parameter against
+        // the members of `Object` (`EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT` at
+        // the name, `error_verifier.dart` in the main checkout, `:5641-5655`),
+        // whatever the parameter's shape; 3.6.2 does not check.
         if n == 1
             && let Some(p) = params.first()
             && !p.this_
@@ -1958,11 +1960,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok((Vec::new(), ty, nome));
         }
         if !simple {
-            // O 3.13.4 relata no `ErrorVerifier`
-            // (`_checkForExtensionTypeRepresentationErrorCodes`): o `this`
-            // de `int this.x`, o `super` de `int super.x`, o parâmetro sem
-            // nome inteiro, o delimitador de `[`/`{` (recurso desligado) e o
-            // começo do parâmetro de função; o 3.6.2, o token depois do `(`.
+            // 3.13.4 reports in the `ErrorVerifier`
+            // (`_checkForExtensionTypeRepresentationErrorCodes`): the `this` of
+            // `int this.x`, the `super` of `int super.x`, the whole unnamed parameter,
+            // the `[`/`{` delimiter (disabled feature) and the start of a function
+            // parameter; 3.6.2, the token after the `(`.
             let in_3_13 = params.first().and_then(|p| {
                 let word = |pp: &Self, k: Keyword| {
                     pp.tokens[abre..pp.pos].iter().find(|t| t.span.start >= p.span.start && t.kind == Kind::Keyword(k)).map(|t| t.span)
@@ -2003,15 +2005,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         let with_type = p.ty.is_some();
         let ty = match p.ty {
             Some(ty) => ty,
-            // Com `final`/`var` e o recurso ligado, a forma é a declarante,
-            // que aceita sem tipo. Com ele desligado (caso c23 de
-            // `corpus/especificacao/t2/v`), o 3.6.2 relata o tipo que falta
-            // no token depois do `(` e o 3.13.4, no nome.
+            // With `final`/`var` and the feature on, the form is the declaring one,
+            // which accepts no type. With it off (case c23 of
+            // `corpus/especificacao/t2/v`), 3.6.2 reports the missing type at the token
+            // after the `(` and 3.13.4, at the name.
             None if p.final_ || p.var_ => {
                 if !self.features.tem(Feature::PrimaryConstructors) {
                     self.error_at(codigos::parser::EXPECTED_REPRESENTATION_TYPE, after_open, &[]);
                     self.so_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, after_open));
-                    // Com mais de um parâmetro, o 3.13.4 só relata
+                    // With more than one parameter, 3.13.4 only reports
                     // `MULTIPLE_REPRESENTATION_FIELDS` (`extension type
                     // ET3(final i, final x)`).
                     if let Some(nome) = p.name
@@ -2024,7 +2026,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 synthetic(self).0
             }
             None => {
-                // O 3.13.4 relata no nome (`@anno int`: `int` é o nome).
+                // 3.13.4 reports at the name (`@anno int`: `int` is the name).
                 match p.name {
                     Some(nome) if nome.span != after_open => {
                         self.error_at(codigos::parser::EXPECTED_REPRESENTATION_TYPE, after_open, &[]);
@@ -2039,14 +2041,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 synthetic(self).0
             }
         };
-        // O argumento só entra no molde do 3.13.4, que escreve `var` também
-        // para o `final` (casos c02 e c23). Com mais de um parâmetro o
-        // 3.13.4 só relata `MULTIPLE_REPRESENTATION_FIELDS`
-        // (`extension type E(final i, final x)`): o do modificador é só do
-        // 3.6.2. O `var` com o recurso desligado é, no 3.13.4, uso de
-        // construtor primário (relatado pelo `AstBuilder`, versão `3.13`), e
-        // faz dele a referência da unidade — só com tipo depois do `var`
-        // (`parseFormalParameter`, `typeInfo != noType`): `(var i)` não.
+        // The argument only goes into the 3.13.4 template, which writes `var` for
+        // `final` too (cases c02 and c23). With more than one parameter 3.13.4 only
+        // reports `MULTIPLE_REPRESENTATION_FIELDS`
+        // (`extension type E(final i, final x)`): the modifier one is 3.6.2's only.
+        // `var` with the feature off is, in 3.13.4, a use of the primary
+        // constructor (reported by the `AstBuilder`, version `3.13`), and makes it
+        // the unit's reference — only with a type after the `var`
+        // (`parseFormalParameter`, `typeInfo != noType`): `(var i)` does not.
         let modifier = p.var_ || (p.final_ && !self.features.tem(Feature::PrimaryConstructors));
         if modifier {
             let target_expr = if p.var_ { Keyword::Var } else { Keyword::Final };
@@ -2070,13 +2072,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             };
             self.error_at(code, span, &[]);
         }
-        let nome = p.name.expect("parâmetro simples tem nome");
+        let nome = p.name.expect("a simple parameter has a name");
         Ok((p.metadata.into_vec(), ty, nome))
     }
 
-    /// Posição após `<...>` iniciado em `pos` contando só `<`/`>` (serve para
-    /// parâmetros de tipo, que podem ter `extends`); `pos` se não houver
-    /// `<` ou se a lista não fechar antes de `;`/`{`/`}`/`=`.
+    /// Position after the `<...>` starting at `pos`, counting only `<`/`>` (used
+    /// for type parameters, which may have `extends`); `pos` if there is no `<`
+    /// or if the list does not close before `;`/`{`/`}`/`=`.
     fn skip_angles(&self, pos: usize) -> usize {
         if self.kind_of(pos) != Kind::Op(Op::Lt) {
             return pos;
@@ -2100,13 +2102,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `typedef F<T> = kind;` ou a forma antiga `typedef ret? F<T>(params);`.
+    /// `typedef F<T> = type;` or the old form `typedef ret? F<T>(params);`.
     /// `ensureIdentifierPotentiallyRecovered(…, typedefDeclaration,
-    /// isRecovered: true)` (`identifier_context_impl.dart:1166-1189`): o nome
-    /// do typedef de estilo novo (antes do `=`), ou do antigo seguido de `(`,
-    /// que é palavra embutida (ou o `Function`, pseudo) é
-    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` no nome; a outra pseudo-palavra
-    /// passa. O `BUILT_IN_IDENTIFIER_IN_DECLARATION` sai do `ErrorVerifier`.
+    /// isRecovered: true)` (`identifier_context_impl.dart:1166-1189`): the name
+    /// of a new-style typedef (before the `=`), or of an old-style one followed
+    /// by `(`, that is a built-in word (or `Function`, a pseudo-keyword) is
+    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` at the name; another pseudo-keyword
+    /// passes. `BUILT_IN_IDENTIFIER_IN_DECLARATION` comes from the
+    /// `ErrorVerifier`.
     fn recovered_typedef_name(&mut self) {
         let texto = self.text().to_string();
         let relata = match super::fasta::word_style(&texto) {
@@ -2122,8 +2125,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_typedef(&mut self) -> PResult<TypedefDecl> {
         self.expect_ident("typedef")?;
         if self.at_identifier() {
-            // `computeTypeParamOrArg(inDeclaration: true)`: a lista inteira,
-            // inclusive limites com tipos de função de parâmetros nomeados.
+            // `computeTypeParamOrArg(inDeclaration: true)`: the whole list, including
+            // bounds with function types of named parameters.
             let after = self.skip_type_arguments(self.pos + 1).unwrap_or_else(|| self.skip_angles(self.pos + 1));
             if self.kind_of(after) == Kind::Op(Op::Assign) {
                 self.recovered_typedef_name();
@@ -2132,8 +2135,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let equals_ = self.span();
                 self.expect_op(Op::Assign)?;
                 let ty = self.parse_type()?;
-                // `endTypedef` (`ast_builder.dart:3496-3501`): o alvo que não é
-                // `GenericFunctionType` sem `nonfunction-type-aliases`, no `=`.
+                // `endTypedef` (`ast_builder.dart:3496-3501`): a target that is not a
+                // `GenericFunctionType` without `nonfunction-type-aliases`, at the `=`.
                 if !matches!(self.ast.ty(ty).kind, TypeKind::Function { .. }) {
                     self.require(Feature::NonfunctionTypeAliases, equals_);
                 }
@@ -2184,12 +2187,12 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     // -----------------------------------------------------------------------
-    // Modificadores, funções e variáveis (comum a topo e membros)
+    // Modifiers, functions and variables (shared by top level and members)
     // -----------------------------------------------------------------------
 
-    /// Modificadores em qualquer ordem (superconjunto), lidos como no fasta
-    /// (`read_top_level_modifiers`/`read_member_modifiers`, que
-    /// relatam ordem errada, repetição e o que não cabe no contexto).
+    /// Modifiers in any order (superset), read as in fasta
+    /// (`read_top_level_modifiers`/`read_member_modifiers`, which report wrong
+    /// order, repetition and what does not fit in the context).
     fn parse_modifiers(&mut self, topo: bool) -> Modifiers {
         let f = if topo { self.read_top_level_modifiers() } else { self.read_member_modifiers() };
         let span = |p: Option<usize>| p.map(|p| self.tokens[p].span);
@@ -2209,10 +2212,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `get nome`, `set nome`, `operator op` começam aqui? Devolve o tipo do
-    /// acessor sem consumir nada.
-    /// Com `!topo` (membro), também `get`/`set` seguido de palavra
-    /// reservada que indica método ou campo (`parseClassOrMixin…MemberImpl`:
+    /// Do `get name`, `set name`, `operator op` start here? Returns the accessor
+    /// kind without consuming anything.
+    /// With `!top_level` (a member), also `get`/`set` followed by a reserved
+    /// word that indicates a method or field (`parseClassOrMixin…MemberImpl`:
     /// "Getter or setter followed by a reserved word (name)").
     fn accessor_follows_at(&self, topo: bool) -> Option<FunctionKind> {
         let name_after = |p: &Self| p.at_identifier_at(1) || (!topo && matches!(p.kind_at(1), Kind::Keyword(_)) && p.indicates_method_or_field(p.pos + 2));
@@ -2232,9 +2235,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         matches!(self.kind_of(pos), Kind::Op(Op::Semicolon | Op::Assign | Op::LParen | Op::LBrace | Op::Arrow | Op::Lt))
     }
 
-    /// O nome de uma declaração: identificador, ou a palavra reservada que
-    /// a recuperação do fasta toma como nome quando o que segue indica
-    /// método ou campo (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` nela).
+    /// A declaration's name: an identifier, or the reserved word that fasta's
+    /// recovery takes as the name when what follows indicates a method or field
+    /// (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` at it).
     fn declaration_name_or_reserved(&mut self) -> PResult<Name> {
         if !self.at_identifier() && matches!(self.kind(), Kind::Keyword(_)) && self.indicates_method_or_field(self.pos + 1) {
             let texto = self.text().to_string();
@@ -2245,14 +2248,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.expect_identifier()
     }
 
-    /// O token após `operator` é um operador declarável? `operator<T>()` é
-    /// um método chamado `operator`, então `<` só conta se `(` vier depois.
+    /// Is the token after `operator` a declarable operator? `operator<T>()` is a
+    /// method named `operator`, so `<` only counts if `(` comes after it.
     fn operator_follows(&self) -> bool {
         self.operator_follows_at(self.pos)
     }
 
-    /// Nome de operador como texto: `+`, `[]`, `[]=`, `>=`, `>>`, `>>>`…
-    /// (`>` chega isolado do lexer e é composto aqui).
+    /// Operator name as text: `+`, `[]`, `[]=`, `>=`, `>>`, `>>>`… (`>` arrives
+    /// isolated from the lexer and is composed here).
     fn parse_operator_name(&mut self) -> PResult<Name> {
         let start = self.span();
         let text: &str = match self.kind() {
@@ -2291,8 +2294,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 | Op::Amp
                 | Op::EqEq),
             ) => {
-                // `operator ===`: o nome é o lexema (o scanner já relatou o
-                // operador).
+                // `operator ===`: the name is the lexeme (the scanner already reported the
+                // operator).
                 let texto = if op == Op::EqEq && self.span().end - self.span().start == 3 { "===" } else { op.text() };
                 self.advance();
                 texto
@@ -2302,9 +2305,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.name_from(text, self.span_from(start)))
     }
 
-    /// `kind? nome (params) body_node`, `kind? get nome body_node`, `tipo? set nome
-    /// (params) corpo`, `tipo? operator op (params) corpo` ou
-    /// `kind? a = 1, b;`. Os modificadores já foram lidos.
+    /// `type? name (params) body`, `type? get name body`,
+    /// `type? set name (params) body`, `type? operator op (params) body` or
+    /// `type? a = 1, b;`. The modifiers were already read.
     fn parse_function_or_variables(
         &mut self,
         mods: Modifiers,
@@ -2316,23 +2319,24 @@ impl<'s, 'i> Parser<'s, 'i> {
             let id = self.parse_accessor(mods, start, None, kind, external_topo, topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
-        // A palavra reservada seguida do que indica método ou campo é o nome,
-        // e o identificador, o tipo (`int new() => 1;`), sem `var`/`final`/`const`.
+        // A reserved word followed by what indicates a method or field is the name,
+        // and the identifier is the type (`int new() => 1;`), without
+        // `var`/`final`/`const`.
         let reserved_as_name = !mods.var_
             && !mods.final_
             && !mods.const_
             && matches!(self.kind_at(1), Kind::Keyword(_))
             && self.indicates_method_or_field(self.pos + 2);
-        // `foo;`, `foo = e;`, `foo, ...` (também `static = 1;`, `external;`,
-        // `C;`): o identificador é o NOME do campo sem tipo — `modifier_ok`
-        // já recusou o papel de modificador onde cabia. O fasta 3.6.2 relata
-        // `missing_const_final_var_or_type` no nome, salvo com
-        // `const`/`final`/`var`, que dispensam o tipo sem erro (sondado no
-        // SDK local, membro e topo). Seguido de palavra reservada
-        // (`augment class C {}` sem o experimento), o identificador também é
-        // o nome: uma palavra reservada não pode ser o nome depois de um tipo
-        // (`computeType` do fasta devolve `noType`), e o `;` que falta é
-        // relatado depois dele.
+        // `foo;`, `foo = e;`, `foo, ...` (also `static = 1;`, `external;`, `C;`):
+        // the identifier is the NAME of an untyped field — `modifier_ok` already
+        // refused the modifier role where it fit. fasta 3.6.2 reports
+        // `missing_const_final_var_or_type` at the name, except with
+        // `const`/`final`/`var`, which make the type unnecessary without an error
+        // (probed on the local SDK, member and top level). Followed by a reserved
+        // word (`augment class C {}` without the experiment), the identifier is
+        // also the name: a reserved word cannot be the name after a type (fasta's
+        // `computeType` returns `noType`), and the missing `;` is reported after
+        // it.
         if self.at_identifier()
             && !reserved_as_name
             && matches!(
@@ -2363,11 +2367,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 variables: variables.into_boxed_slice(),
             }));
         }
-        // `parseTopLevelMemberImpl`/`parseClassOrMixin…MemberImpl`: com
-        // `var`/`final`/`const`, um padrão externo seguido de `=` (`const
-        // f() = e`, `var (a, b) = e`) é
-        // `PATTERN_VARIABLE_DECLARATION_OUTSIDE_FUNCTION_OR_METHOD` sobre o
-        // padrão, que é descartado; o resto é um campo de nome sintético.
+        // `parseTopLevelMemberImpl`/`parseClassOrMixin…MemberImpl`: with
+        // `var`/`final`/`const`, an outer pattern followed by `=` (`const
+        // f() = e`, `var (a, b) = e`) is
+        // `PATTERN_VARIABLE_DECLARATION_OUTSIDE_FUNCTION_OR_METHOD` over the
+        // pattern, which is discarded; the rest is a field with a synthetic name.
         if (mods.var_ || mods.final_ || mods.const_)
             && let Some(end_offset) = self.outer_pattern_followed_by_equals(self.pos)
         {
@@ -2394,8 +2398,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             None
         } else if self.at_kw(Keyword::Void)
             || self.looks_like_type_then_identifier_in_declaration(self.pos)
-            // "<return type>? <reserved word> <token indicating method or
-            // field>": a palavra reservada é o nome (`int new() => 1;`).
+            // "<return type>? <reserved word> <token indicating method or field>": the
+            // reserved word is the name (`int new() => 1;`).
             || (!mods.final_
                 && !mods.const_
                 && self.skip_type(self.pos).is_some_and(|end_offset| matches!(self.kind_of(end_offset), Kind::Keyword(_)) && self.indicates_method_or_field(end_offset + 1)))
@@ -2408,45 +2412,42 @@ impl<'s, 'i> Parser<'s, 'i> {
             let id = self.parse_accessor(mods, start, ty, kind, external_topo, topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
-        // `(` sem tipo nem modificadores não abre declaração: um tipo record
-        // pediria um nome depois do `)`. É lixo no topo, e o fasta relata
-        // `expected_executable` e continua no token seguinte (ver
-        // `recover_top_level`), em vez do `missing_identifier` genérico.
+        // `(` without a type or modifiers does not open a declaration: a record
+        // type would ask for a name after the `)`. It is garbage at top level, and
+        // fasta reports `expected_executable` and continues at the next token (see
+        // `recover_top_level`), instead of the generic `missing_identifier`.
         if topo && ty.is_none() && !mods.algum() && self.at_op(Op::LParen) {
             return Err(self.erro(codigos::parser::EXPECTED_EXECUTABLE, &[]));
         }
-        // Fasta `TopLevelDeclarationIdentifierContext`: no topo, uma palavra
-        // que abre a declaração seguinte (`mixin M`, `extension X`,
-        // `typedef`, `import`…) não é aceita como nome depois de um tipo, a
-        // menos que venha `;`, `=`, `,` ou os parâmetros de uma função
-        // (`(`, `<`). O nome vira sintético (antes
-        // dela), com `missing_identifier` na palavra, e o `;` que falta é
-        // relatado no tipo (`augment mixin M {}` sem o experimento).
-        // O mesmo vale, depois de modificadores ou de um tipo, para as
-        // palavras reservadas que abrem declaração (`class`, `enum`, `final`,
-        // `const`, `var`, `void`): `final abstract class C {}` e
-        // `final final class C {}` são um campo sem nome (`;` que falta no
-        // último modificador) seguido da classe.
+        // fasta `TopLevelDeclarationIdentifierContext`: at top level, a word that
+        // opens the next declaration (`mixin M`, `extension X`, `typedef`,
+        // `import`…) is not accepted as a name after a type, unless `;`, `=`, `,`
+        // or a function's parameters (`(`, `<`) follow. The name becomes synthetic
+        // (before it), with `missing_identifier` at the word, and the missing `;`
+        // is reported at the type (`augment mixin M {}` without the experiment).
+        // The same holds, after modifiers or a type, for the reserved words that
+        // open a declaration (`class`, `enum`, `final`, `const`, `var`, `void`):
+        // `final abstract class C {}` and `final final class C {}` are an unnamed
+        // field (missing `;` at the last modifier) followed by the class.
         // `looksLikeStartOfNextTopLevelDeclaration`
-        // (identifier_context_impl.dart:1330): `isTopLevelKeyword`, ou
-        // `const`, `get`, `final`, `set`, `var`, `void`.
+        // (identifier_context_impl.dart:1330): `isTopLevelKeyword`, or `const`,
+        // `get`, `final`, `set`, `var`, `void`.
         let texto = self.text_of(self.pos);
         let next_declaration = matches!(self.kind(), Kind::Ident | Kind::Keyword(_))
             && (super::fasta::is_top_level_word(texto) || matches!(texto, "const" | "get" | "final" | "set" | "var" | "void"));
         if topo
             && (ty.is_some() || mods.algum())
             && next_declaration
-            // Seguida de parâmetros é o nome de uma função (`String
-            // extension(String path)` do `package:path`), como no Fasta.
-            // Os `followingValues` do contexto: `;`, `=`, `,` no de variável;
-            // `<`, `(`, `{`, `=>` no de função (o que vem depois do nome
-            // decide qual é).
+            // Followed by parameters it is a function's name (`String
+            // extension(String path)` from `package:path`), as in fasta. The context's
+            // `followingValues`: `;`, `=`, `,` for a variable; `<`, `(`, `{`, `=>` for
+            // a function (what comes after the name decides which).
             && !matches!(self.kind_at(1), Kind::Op(Op::Semicolon | Op::Assign | Op::Comma | Op::LParen | Op::Lt | Op::LBrace | Op::Arrow))
         {
-            // `insertSyntheticIdentifier` antes da palavra: a variável fica,
-            // com o nome sintético (o analyzer ainda relata o que falta nela,
-            // `FINAL_NOT_INITIALIZED` e afins, com o nome vazio), e o
-            // `ensureSemicolon` relata o `;` que falta no token anterior.
+            // `insertSyntheticIdentifier` before the word: the variable stays, with the
+            // synthetic name (the analyzer still reports what is missing in it,
+            // `FINAL_NOT_INITIALIZED` and the like, with the empty name), and
+            // `ensureSemicolon` reports the missing `;` at the previous token.
             let word = self.span();
             self.error_at(codigos::parser::MISSING_IDENTIFIER, word, &[]);
             let _ = self.expected_error(";");
@@ -2465,8 +2466,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 variables: vec![crate::ast::Variable { name: nome, initializer: None }].into_boxed_slice(),
             }));
         }
-        // `recoverFromInvalidMember`: num membro, `(` ou `{` no lugar do nome
-        // é método de nome sintético (`MISSING_IDENTIFIER` no token).
+        // `recoverFromInvalidMember`: in a member, `(` or `{` in place of the name
+        // is a method with a synthetic name (`MISSING_IDENTIFIER` at the token).
         let name = if !topo && matches!(self.kind(), Kind::Op(Op::LParen | Op::LBrace)) {
             let s = self.span();
             self.error_at(codigos::parser::MISSING_IDENTIFIER, s, &[]);
@@ -2474,12 +2475,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             self.declaration_name_or_reserved()?
         };
-        // `parseTopLevelMemberImpl`/`parseClassOrMixin...MemberImpl`: nome
-        // seguido de `{` ou `=>` é método sem parâmetros
-        // (`parseGetterOrFormalParameters`: `MISSING_FUNCTION_PARAMETERS`, ou
-        // `MISSING_METHOD_PARAMETERS` em classe, no nome) e o corpo é lido.
-        // Com `.` depois do nome também (`augment core.int foo();` sem o
-        // experimento: `augment` é o tipo e `core`, a função).
+        // `parseTopLevelMemberImpl`/`parseClassOrMixin...MemberImpl`: a name
+        // followed by `{` or `=>` is a method without parameters
+        // (`parseGetterOrFormalParameters`: `MISSING_FUNCTION_PARAMETERS`, or
+        // `MISSING_METHOD_PARAMETERS` in a class, at the name) and the body is
+        // read. Also with `.` after the name (`augment core.int foo();` without the
+        // experiment: `augment` is the type and `core`, the function).
         let without_parameters = self.at_op(Op::LBrace) || self.at_op(Op::Arrow) || self.at_op(Op::Dot);
         if self.at_op(Op::LParen) || self.at_op(Op::Lt) || without_parameters {
             self.report_method_modifiers(mods, topo, FunctionKind::Function);
@@ -2491,7 +2492,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 } else {
                     codigos::parser::MISSING_FUNCTION_PARAMETERS
                 };
-                // No nome sintético, o erro vai para o token seguinte.
+                // At a synthetic name, the error goes to the next token.
                 let target_expr = if name.span.start == name.span.end { self.span() } else { name.span };
                 self.error_at(code, target_expr, &[]);
                 Vec::new()
@@ -2518,9 +2519,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(FunctionOrVariables::Function(id));
         }
         self.report_field_modifiers(mods, topo, name.span);
-        // `parseFields`: sem tipo e sem `var`/`final`/`const`,
-        // `MISSING_CONST_FINAL_VAR_OR_TYPE` no nome (`interface interface
-        // class C {}`: o identificador embutido não é tipo).
+        // `parseFields`: without a type and without `var`/`final`/`const`,
+        // `MISSING_CONST_FINAL_VAR_OR_TYPE` at the name (`interface interface
+        // class C {}`: the built-in identifier is not a type).
         if ty.is_none() && !mods.var_ && !mods.final_ && !mods.const_ {
             self.error_at(codigos::parser::MISSING_CONST_FINAL_VAR_OR_TYPE, name.span, &[]);
         }
@@ -2539,9 +2540,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
-    /// `skipOuterPattern` + `=`: o último token de um padrão externo
-    /// (`Nome(...)`, `p.Nome(...)`, `(...)`, `[...]`, `{...}`) que começa em
-    /// `pos` e é seguido de `=`.
+    /// `skipOuterPattern` + `=`: the last token of an outer pattern
+    /// (`Name(...)`, `p.Name(...)`, `(...)`, `[...]`, `{...}`) starting at `pos`
+    /// and followed by `=`.
     fn outer_pattern_followed_by_equals(&self, pos: usize) -> Option<usize> {
         let mut i = pos;
         if self.kind_of(i) == Kind::Ident {
@@ -2562,7 +2563,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         (self.kind_of(closes + 1) == Kind::Op(Op::Assign)).then_some(closes)
     }
 
-    /// Getter, setter ou operador a partir de `get`/`set`/`operator`.
+    /// Getter, setter or operator starting from `get`/`set`/`operator`.
     fn parse_accessor(
         &mut self,
         mods: Modifiers,
@@ -2579,8 +2580,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             FunctionKind::Getter => {
                 let name = self.declaration_name_or_reserved()?;
                 self.check_member_name(name.span);
-                // `parseGetterOrFormalParameters`: `get x(...)` é
-                // `GETTER_WITH_PARAMETERS` no `(`, e a lista é lida.
+                // `parseGetterOrFormalParameters`: `get x(...)` is `GETTER_WITH_PARAMETERS`
+                // at the `(`, and the list is read.
                 if self.at_op(Op::LParen) {
                     self.erro(codigos::parser::GETTER_WITH_PARAMETERS, &[]);
                     self.params_owner = self.parameter_owner(mods, topo);
@@ -2591,10 +2592,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             FunctionKind::Setter => {
                 let name = self.declaration_name_or_reserved()?;
                 self.check_member_name(name.span);
-                // `parseGetterOrFormalParameters`: sem `(`, o erro de
-                // parâmetros que faltam no nome (`missingParameterMessage`:
-                // de método em classe, mixin e enum; de função no resto) e
-                // uma lista vazia sintética.
+                // `parseGetterOrFormalParameters`: without `(`, the missing-parameters
+                // error at the name (`missingParameterMessage`: method's in a class, mixin
+                // and enum; function's elsewhere) and a synthetic empty list.
                 if !self.at_op(Op::LParen) {
                     let code = if !topo && !matches!(self.owner, super::MemberOwner::Extension | super::MemberOwner::ExtensionType) {
                         codigos::parser::MISSING_METHOD_PARAMETERS
@@ -2610,9 +2610,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             _ => {
                 let name = self.parse_operator_name()?;
-                // `parseMethodTypeVar` lê os parâmetros de tipo do operador e
-                // o `AstBuilder.endClassMethod` os recusa no intervalo `<…>`
-                // (`TYPE_PARAMETER_ON_OPERATOR`); a árvore fica com eles.
+                // `parseMethodTypeVar` reads the operator's type parameters and
+                // `AstBuilder.endClassMethod` rejects them on the `<…>` range
+                // (`TYPE_PARAMETER_ON_OPERATOR`); the tree keeps them.
                 if self.at_op(Op::Lt) {
                     let abre = self.span();
                     type_params = self.parse_type_parameters_opt()?;
@@ -2642,14 +2642,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
-    /// Os erros de modificador de um método, getter, setter ou operador: o
-    /// ramo de método de `parseTopLevelMemberImpl` (`var` é
-    /// `VAR_RETURN_TYPE`; `final`/`const`/`late`, `EXTRANEOUS_MODIFIER`) e o
-    /// começo de `parseMethod` (`parser_impl.dart:4827`) para membros;
-    /// O `MemberKind` do fasta para os parâmetros de uma função de topo ou
-    /// de um membro (`parseMethod`): `covariant` não cabe em função de topo
-    /// nem em método estático, e tem código próprio em extension e
-    /// extension type.
+    /// The modifier errors of a method, getter, setter or operator: the method
+    /// branch of `parseTopLevelMemberImpl` (`var` is `VAR_RETURN_TYPE`;
+    /// `final`/`const`/`late`, `EXTRANEOUS_MODIFIER`) and the start of
+    /// `parseMethod` (`parser_impl.dart:4827`) for members;
+    /// fasta's `MemberKind` for the parameters of a top-level function or a
+    /// member (`parseMethod`): `covariant` does not fit in a top-level function
+    /// or a static method, and has its own code in extensions and extension
+    /// types.
     fn parameter_owner(&self, mods: Modifiers, topo: bool) -> ParameterOwner {
         use super::MemberOwner as D;
         match self.owner {
@@ -2661,7 +2661,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Chamado assim que a declaração se revela método.
+    /// Called as soon as the declaration turns out to be a method.
     fn report_method_modifiers(&mut self, mods: Modifiers, topo: bool, kind: FunctionKind) {
         let f = mods.modifier_tokens;
         if topo {
@@ -2703,8 +2703,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Numa extension, método com corpo `;` sem `external` é
-    /// `EXTENSION_DECLARES_ABSTRACT_MEMBER` no nome (no operador, para
+    /// In an extension, a method with a `;` body and no `external` is
+    /// `EXTENSION_DECLARES_ABSTRACT_MEMBER` at the name (at the operator, for
     /// `operator`; `parser_impl.dart:5084`).
     fn check_abstract_in_extension(&mut self, mods: Modifiers, topo: bool, nome: Span, body: &FunctionBody) {
         if !topo
@@ -2716,14 +2716,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Os erros de modificador de um campo (`parseFields`,
-    /// `parser_impl.dart:3656`): `covariant final` sem `late` é
-    /// `FINAL_AND_COVARIANT`; `covariant late final` com inicializador,
+    /// The modifier errors of a field (`parseFields`, `parser_impl.dart:3656`):
+    /// `covariant final` without `late` is `FINAL_AND_COVARIANT`;
+    /// `covariant late final` with an initializer,
     /// `FINAL_AND_COVARIANT_LATE_WITH_INITIALIZER`; `abstract external`,
-    /// `ABSTRACT_EXTERNAL_FIELD`; numa extension, sem `static` nem
-    /// `external`, `EXTENSION_DECLARES_INSTANCE_FIELD` no primeiro nome
+    /// `ABSTRACT_EXTERNAL_FIELD`; in an extension, without `static` or
+    /// `external`, `EXTENSION_DECLARES_INSTANCE_FIELD` at the first name
     /// (`parser_impl.dart:3809`).
-    /// Chamado com o cursor logo depois do primeiro nome.
+    /// Called with the cursor right after the first name.
     fn report_field_modifiers(&mut self, mods: Modifiers, topo: bool, nome: Span) {
         let f = mods.modifier_tokens;
         if let (Some(c), Some(_)) = (f.covariant, f.final_) {
@@ -2745,16 +2745,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `parseFieldInitializerOpt` e o ramo de getter/setter de `parseMethod`
-    /// (`parser_impl.dart:3934`, `:5003`): campo, getter ou setter com o
-    /// nome da declaração envolvente é `MEMBER_WITH_CLASS_NAME` no nome.
+    /// `parseFieldInitializerOpt` and the getter/setter branch of `parseMethod`
+    /// (`parser_impl.dart:3934`, `:5003`): a field, getter or setter with the
+    /// enclosing declaration's name is `MEMBER_WITH_CLASS_NAME` at the name.
     fn check_member_name(&mut self, nome: Span) {
         if self.enclosing_name.is_some_and(|n| n == &self.source[nome.start..nome.end]) {
             self.error_at(codigos::parser::MEMBER_WITH_CLASS_NAME, nome, &[]);
         }
     }
 
-    /// `= e`? (`, nome = e`?)* `;` a partir do primeiro nome já lido.
+    /// `= e`? (`, name = e`?)* `;` from the first name already read.
     fn parse_declared_variables_tail(&mut self, first: Name) -> PResult<Vec<Variable>> {
         self.check_member_name(first.span);
         let mut variables = Vec::new();
@@ -2769,10 +2769,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             if !self.eat_op(Op::Comma) {
                 break;
             }
-            // `ensureIdentifier` no contexto de declaração de campo/variável:
-            // diante de `;`, `=`, `,` ou `}` (e do fim), o fasta relata
-            // `MISSING_IDENTIFIER` e insere um identificador sintético, e a
-            // lista segue com a variável sem nome (`Object? foo,;`).
+            // `ensureIdentifier` in the field/variable declaration context: before `;`,
+            // `=`, `,` or `}` (and the end), fasta reports `MISSING_IDENTIFIER` and
+            // inserts a synthetic identifier, and the list goes on with the unnamed
+            // variable (`Object? foo,;`).
             if matches!(self.kind(), Kind::Op(Op::Semicolon | Op::Assign | Op::Comma | Op::RBrace) | Kind::Eof) {
                 self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
                 let start_offset = self.span().start;
@@ -2782,11 +2782,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             name = self.expect_identifier()?;
             self.check_member_name(name.span);
         }
-        // Sem inicializador, a declaração acabou no nome: o `;` que falta é
-        // inserido diante de qualquer token, como no fasta (`augment Object?
-        // foo();` é o campo `Object` seguido do `?` solto). Com inicializador
-        // a expressão pode ter parado antes do que o fasta leria, e vale a
-        // regra prudente de `ensure_semicolon`.
+        // Without an initializer, the declaration ended at the name: the missing
+        // `;` is inserted before any token, as in fasta (`augment Object?
+        // foo();` is the field `Object` followed by the stray `?`). With an
+        // initializer the expression may have stopped before what fasta would read,
+        // and the cautious rule of `ensure_semicolon` applies.
         if variables.last().is_some_and(|v| v.initializer.is_none()) && !self.speculating {
             self.ensure_semicolon_forced();
             return Ok(variables);
@@ -2796,21 +2796,21 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     // -----------------------------------------------------------------------
-    // Membros
+    // Members
     // -----------------------------------------------------------------------
 
-    /// `{ members_ }` de classe, mixin, extension ou extension type.
-    /// `primary` diz se a declaração tem cabeçalho primário: nele, `this`
-    /// e `new` abrem parte de corpo mesmo sem o recurso ligado (o oráculo
-    /// 3.6 silencia pela cascata do cabeçalho, que aceitamos por superconjunto).
+    /// `{ members }` of a class, mixin, extension or extension type. `primary`
+    /// says whether the declaration has a primary header: in it, `this` and
+    /// `new` open a body part even without the feature on (the 3.6 oracle is
+    /// silenced by the header's cascade, which we accept as a superset).
     fn parse_class_body(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
         self.expect_op(Op::LBrace)?;
         self.parse_member_list(class_name)
     }
 
-    /// Membros até a `}` de fechamento (inclusive), com recuperação por
-    /// membro. Um fim de arquivo prematuro registra o erro mas devolve os
-    /// membros já lidos.
+    /// Members up to the closing `}` (inclusive), with per-member recovery. A
+    /// premature end of file records the error but returns the members already
+    /// read.
     fn parse_member_list(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
         let mut members = Vec::new();
         loop {
@@ -2832,8 +2832,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Um `classMemberDefinition`: campo, método, acessor, operador ou
-    /// construtor. `class_name` decide se `Nome(` é construtor.
+    /// A `classMemberDefinition`: field, method, accessor, operator or
+    /// constructor. `class_name` decides whether `Name(` is a constructor.
     fn parse_member(&mut self, class_name: Option<&'s str>) -> PResult<MemberId> {
         self.enclosing_name = class_name;
         let r = self.parse_member_inside(class_name);
@@ -2844,46 +2844,45 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_member_inside(&mut self, class_name: Option<&'s str>) -> PResult<MemberId> {
         let start = self.span();
         let metadata = self.parse_metadata()?;
-        // `=>` onde um membro era esperado: método sem nome nem parâmetros
-        // (o fasta denuncia os dois no `=>`, sondado no SDK 3.6.2 local).
+        // `=>` where a member was expected: a method without a name or parameters
+        // (fasta flags both at the `=>`, probed on the local SDK 3.6.2).
         if self.at_op(Op::Arrow) {
             let span = self.span();
             self.error_at(codigos::parser::MISSING_IDENTIFIER, span, &[]);
             self.error_at(codigos::parser::MISSING_METHOD_PARAMETERS, span, &[]);
             return Err(self.skip_broken_member());
         }
-        // `this` (parte de construtor primário) e `new` (construtor sem o
-        // nome da classe) iniciam membro em qualquer versão: sem o recurso,
-        // o analyzer 3.13.4 lê o membro como com ele (com os diagnósticos
-        // próprios da parte `this`) e só acrescenta `experiment_not_enabled`
-        // no `this`/`new` (sondado numa biblioteca 3.6). O superconjunto
-        // vale até em classe sem cabeçalho primário.
+        // `this` (a primary constructor part) and `new` (a constructor without the
+        // class name) start a member in any version: without the feature, the
+        // 3.13.4 analyzer reads the member as with it (with the `this` part's own
+        // diagnostics) and only adds `experiment_not_enabled` at the `this`/`new`
+        // (probed in a 3.6 library). The superset applies even in a class without
+        // a primary header.
         if !self.can_start_declaration() && !self.at_kw(Keyword::This) && !self.at_kw(Keyword::New) {
             return Err(self.erro(codigos::parser::EXPECTED_CLASS_MEMBER, &[]));
         }
         let augment = self.parse_augment_opt();
         let fstart = self.span();
         let mods = self.parse_modifiers(false);
-        // `this` abre parte de corpo com qualquer corpo (os diagnósticos
-        // próprios valem), com ou sem o recurso.
+        // `this` opens a body part with any body (its own diagnostics apply), with
+        // or without the feature.
         let part = self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot);
         let kind = if part {
-            // `this : inits? body_node` / `this;`: parte de corpo do construtor
-            // primário.
+            // `this : inits? body` / `this;`: the primary constructor's body part.
             self.parse_primary_part(&mods)?
         } else if self.at_kw(Keyword::New)
             && (self.at_op_at(1, Op::LParen) || self.at_identifier_at(1))
         {
-            // `new nome?(...)` (3.13): construtor com o nome da classe implícito.
+            // `new name?(...)` (3.13): a constructor with the class name implied.
             self.parse_new_constructor(mods, class_name)?
         } else if let Some(end_offset) = self.type_before_new() {
-            // `parseClassMember` do 3.13.4: o `new` depois do tipo é o nome
-            // de um construtor (`newToken`, `_isConstructor`): o tipo é
-            // `CONSTRUCTOR_WITH_RETURN_TYPE`, e o resto é `new nome?(…)`. O
-            // 3.6.2 leria um método chamado `new`, mas o `experiment_not_enabled`
-            // do `new` já põe a unidade na referência 3.13.
+            // 3.13.4's `parseClassMember`: the `new` after the type is a constructor's
+            // name (`newToken`, `_isConstructor`): the type is
+            // `CONSTRUCTOR_WITH_RETURN_TYPE`, and the rest is `new name?(…)`. 3.6.2
+            // would read a method named `new`, but the `new`'s
+            // `experiment_not_enabled` already puts the unit on the 3.13 reference.
             let tstart = self.span();
-            // O tipo não fica na árvore (o `AstBuilder` o descarta).
+            // The type does not stay in the tree (the `AstBuilder` discards it).
             let types_before = self.ast.types.len();
             let _ty = self.parse_type()?;
             self.ast.types.truncate(types_before);
@@ -2891,9 +2890,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             debug_assert_eq!(self.pos, end_offset);
             self.parse_new_constructor(mods, class_name)?
         } else if let Some(end_offset) = self.type_before_factory() {
-            // `parseClassMember`: um tipo antes de `factory` é
-            // `TYPE_BEFORE_FACTORY` no último token dele, e o resto é a
-            // factory (`augment factory C.f()` sem o experimento).
+            // `parseClassMember`: a type before `factory` is `TYPE_BEFORE_FACTORY` at
+            // its last token, and the rest is the factory (`augment factory C.f()`
+            // without the experiment).
             let span = self.tokens[end_offset - 1].span;
             self.error_at(codigos::parser::TYPE_BEFORE_FACTORY, span, &[]);
             self.pos = end_offset;
@@ -2903,21 +2902,21 @@ impl<'s, 'i> Parser<'s, 'i> {
                 || (self.features.tem(Feature::PrimaryConstructors) && self.at_op_at(1, Op::LParen))
                 || self.factory_new_as_constructor())
         {
-            // `factory(` só é construtor a partir da 3.13; antes, é um método
-            // chamado `factory` (a versão decide, VERSOES-LINGUAGEM.md §4.5).
+            // `factory(` is only a constructor from 3.13 on; before that, it is a
+            // method named `factory` (the version decides, VERSOES-LINGUAGEM.md §4.5).
             self.parse_constructor(mods, true, class_name)?
         } else if self.constructor_follows(class_name) {
             self.parse_constructor(mods, false, class_name)?
         } else if self.constructor_with_return(class_name) {
-            // `T C(` (C é a classe) ou `T X.Y(` / `T X.Y` sem parênteses:
-            // construtor com tipo de retorno — o fasta relata
-            // `constructor_with_return_type` em T e, sem parênteses,
-            // `missing_method_parameters` em X (sondado no SDK 3.6.2 local).
-            // Sem isso, `augment A(...) : inits` caía no caminho de método
-            // e a cauda falhava em cascata.
+            // `T C(` (C is the class) or `T X.Y(` / `T X.Y` without parentheses: a
+            // constructor with a return type — fasta reports
+            // `constructor_with_return_type` at T and, without parentheses,
+            // `missing_method_parameters` at X (probed on the local SDK 3.6.2). Without
+            // this, `augment A(...) : inits` fell into the method path and the tail
+            // failed in cascade.
             let tstart = self.span();
-            // O tipo não fica na árvore (o `AstBuilder` o descarta): nem os
-            // verificadores dos tipos escritos o veem.
+            // The type does not stay in the tree (the `AstBuilder` discards it): not
+            // even the checkers of written types see it.
             let types_before = self.ast.types.len();
             let _ty = self.parse_type()?;
             self.ast.types.truncate(types_before);
@@ -2929,7 +2928,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             if self.constructor_follows(class_name) {
                 self.parse_constructor(mods, false, class_name)?
             } else if self.method_without_parameters() {
-                // `T X.Y` sem parênteses (`int C.named;`): X é denunciado.
+                // `T X.Y` without parentheses (`int C.named;`): X is flagged.
                 let span = self.span();
                 self.error_at(
                     codigos::parser::MISSING_METHOD_PARAMETERS,
@@ -2938,17 +2937,17 @@ impl<'s, 'i> Parser<'s, 'i> {
                 );
                 return Err(self.skip_broken_member());
             } else {
-                // Forma exótica (`T get.Y;`): sem regra sondada, só falha
-                // para a recuperação sem novos erros.
+                // Exotic form (`T get.Y;`): no probed rule, it just fails for recovery
+                // without new errors.
                 return Err(ParseError);
             }
         } else if self.method_without_parameters() {
-            // `X.Y` / `X.new` sem `(` em membro (`C.named;`, `foo.bar = 1;`,
-            // `C.named : ...`): o fasta relata `missing_method_parameters`
-            // em X (sondado no SDK 3.6.2 local). `X.Y(` é construtor,
-            // `X.Y<` é outro grupo e `X.Y nome` pode ser campo de tipo
-            // prefixado — esses seguem o caminho antigo. O resto do membro
-            // é pulado sem novos erros (cada código tem a sua vez).
+            // `X.Y` / `X.new` without `(` in a member (`C.named;`, `foo.bar = 1;`,
+            // `C.named : ...`): fasta reports `missing_method_parameters` at X (probed
+            // on the local SDK 3.6.2). `X.Y(` is a constructor, `X.Y<` is another
+            // group and `X.Y name` may be a field of a prefixed type — those follow the
+            // old path. The rest of the member is skipped without new errors (each code
+            // has its turn).
             let span = self.span();
             self.error_at(
                 codigos::parser::MISSING_METHOD_PARAMETERS,
@@ -2960,8 +2959,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             match self.parse_function_or_variables(mods, fstart, None, false)? {
                 FunctionOrVariables::Function(id) => MemberKind::Method(id),
                 FunctionOrVariables::Variables(list) => {
-                    // Fasta `AstBuilder._endClassFields`: a restrição deixa de
-                    // valer com o experimento de augmentations.
+                    // fasta `AstBuilder._endClassFields`: the restriction no longer applies
+                    // with the augmentations experiment.
                     if mods.static_ && !self.features.tem(Feature::Augmentations) {
                         if let Some(span) = mods.abstract_span {
                             self.diagnostics.push(Diagnostic::com_codigo(
@@ -2983,9 +2982,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
-    /// Pula o resto do membro quebrado até `;` (consumido) ou `}`/fim
-    /// (preservados), sem novos erros — cada código tem a sua vez — e
-    /// devolve a falha para a recuperação continuar depois.
+    /// Skips the rest of the broken member up to `;` (consumed) or `}`/end
+    /// (kept), without new errors — each code has its turn — and returns the
+    /// failure so that recovery continues afterwards.
     fn skip_broken_member(&mut self) -> ParseError {
         loop {
             match self.kind() {
@@ -3002,10 +3001,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         ParseError
     }
 
-    /// `X.Y` / `X.new` sem `(` nem `<` começam aqui, com o membro
-    /// claramente terminado depois (`;`, `=`, `,`, `:`, `=>`, fecho, fim)?
-    /// `get`/`set`/`operator`/`typedef`/`factory` e nomes seguidos de nome
-    /// (`p.Foo x`) seguem o caminho antigo.
+    /// Do `X.Y` / `X.new` without `(` or `<` start here, with the member clearly
+    /// finished afterwards (`;`, `=`, `,`, `:`, `=>`, closer, end)?
+    /// `get`/`set`/`operator`/`typedef`/`factory` and names followed by a name
+    /// (`p.Foo x`) follow the old path.
     fn method_without_parameters(&self) -> bool {
         if !self.at_identifier()
             || self.at_ident("get")
@@ -3036,9 +3035,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         )
     }
 
-    /// `T C(` (C é a classe) ou `T X.Y(` começam aqui? `get`/`set`/
-    /// `operator`/`typedef`/`factory` têm caminho próprio e `void` segue o
-    /// antigo; o resto com forma de construtor após o tipo é retorno.
+    /// Do `T C(` (C is the class) or `T X.Y(` start here? `get`/`set`/
+    /// `operator`/`typedef`/`factory` have their own path and `void` follows the
+    /// old one; the rest with a constructor shape after the type is a return
+    /// type.
     fn constructor_with_return(&self, class_name: Option<&str>) -> bool {
         if !self.at_identifier()
             || self.at_ident("get")
@@ -3058,9 +3058,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.kind_of(end + 1) == Kind::Op(Op::LParen) {
             return Some(self.text_of(end)) == class_name;
         }
-        // Com parênteses (`T X.Y(`) o construtor é lido; sem (`T X.Y;`,
-        // `int C.named;`) o X ainda cai na regra do método sem parâmetros.
-        // `X.Y<` é outro grupo e `X.Y nome` pode ser campo prefixado.
+        // With parentheses (`T X.Y(`) the constructor is read; without (`T X.Y;`,
+        // `int C.named;`) the X still falls into the parameterless-method rule.
+        // `X.Y<` is another group and `X.Y name` may be a prefixed field.
         self.kind_of(end + 1) == Kind::Op(Op::Dot)
             && (self.kind_of(end + 2) == Kind::Ident
                 || self.kind_of(end + 2) == Kind::Keyword(Keyword::New))
@@ -3080,24 +3080,24 @@ impl<'s, 'i> Parser<'s, 'i> {
                 ))
     }
 
-    /// `Nome(` com o nome da classe (ou após `const`), ou `Nome.x(`.
+    /// `Name(` with the class name (or after `const`), or `Name.x(`.
     fn constructor_follows(&self, class_name: Option<&str>) -> bool {
         if !self.at_identifier() {
             return false;
         }
         if self.at_op_at(1, Op::LParen) {
-            // `parseMethod`: com lista de inicialização (`Nome(...) :`) é
-            // construtor qualquer que seja o nome (`INVALID_CONSTRUCTOR_NAME`
-            // se não for o da classe).
+            // `parseMethod`: with an initializer list (`Name(...) :`) it is a
+            // constructor whatever the name (`INVALID_CONSTRUCTOR_NAME` if it is not
+            // the class's).
             let with_initializers = self
                 .matching_close(self.pos + 1)
                 .is_some_and(|f| self.kind_of(f + 1) == Kind::Op(Op::Colon));
-            // `const nome(` com outro nome é método (`CONST_METHOD`), como no
-            // `parseMethod` do fasta.
+            // `const name(` with another name is a method (`CONST_METHOD`), as in
+            // fasta's `parseMethod`.
             return class_name == Some(self.text()) || with_initializers;
         }
-        // `Nome<T>(` com o nome da classe: construtor com parâmetros de tipo
-        // (erro, relatado em `parse_constructor`).
+        // `Name<T>(` with the class name: a constructor with type parameters (an
+        // error, reported in `parse_constructor`).
         if class_name == Some(self.text())
             && self.at_op_at(1, Op::Lt)
             && self.skip_type_arguments(self.pos + 1).is_some_and(|f| self.kind_of(f) == Kind::Op(Op::LParen))
@@ -3109,10 +3109,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             && self.at_op_at(3, Op::LParen)
     }
 
-    /// `factory? C(.nome)? (params) (= Alvo.nome; | (: inits)? body_node)`. Na
-    /// 3.13 também `factory nome?(...)`: sem o nome da classe (`factory(`) é
-    /// o construtor sem nome, `factory id(` é `C.id` — salvo `id` = `C`, que
-    /// continua o sem nome (spec, a exceção para não quebrar código antigo).
+    /// `factory? C(.name)? (params) (= Target.name; | (: inits)? body)`. In
+    /// 3.13 also `factory name?(...)`: without the class name (`factory(`) it is
+    /// the unnamed constructor, `factory id(` is `C.id` — except `id` = `C`,
+    /// which stays the unnamed one (spec, the exception so as not to break old
+    /// code).
     fn parse_constructor(
         &mut self,
         mods: Modifiers,
@@ -3120,10 +3121,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         class: Option<&'s str>,
     ) -> PResult<MemberKind> {
         if factory {
-            // `parseFactoryMethod` (`parser_impl.dart:5108`): `static`,
-            // `covariant`, `var` e `final` antes de `factory` são
-            // `EXTRANEOUS_MODIFIER`; `abstract`, `ABSTRACT_CLASS_MEMBER`
-            // (`parseClassOrMixinOrExtensionOrEnumMemberImpl`).
+            // `parseFactoryMethod` (`parser_impl.dart:5108`): `static`, `covariant`,
+            // `var` and `final` before `factory` are `EXTRANEOUS_MODIFIER`; `abstract`,
+            // `ABSTRACT_CLASS_MEMBER` (`parseClassOrMixinOrExtensionOrEnumMemberImpl`).
             let f = mods.modifier_tokens;
             if let Some(a) = f.abstract_ {
                 self.error_at_token(a, codigos::parser::ABSTRACT_CLASS_MEMBER);
@@ -3133,7 +3133,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.check_constructor_in_mixin_or_extension(self.span());
             let t = self.advance();
             if self.at_op(Op::LParen) {
-                // `factory(...)`: só chega aqui na 3.13 (antes é método).
+                // `factory(...)`: only reaches here in 3.13 (before that it is a method).
                 let class_name = self.class_name(class, t.span);
                 return self.parse_constructor_rest(mods, true, class_name, None);
             }
@@ -3144,9 +3144,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 return self.parse_constructor_rest(mods, true, class_name, nome);
             }
         }
-        // `factory new(…)` (3.13.4, `parseFactoryMethod`): o `new` é o nome,
-        // com `FACTORY_CONSTRUCTOR_NEW_NAME`; o nome que não é o da classe é,
-        // depois, `INVALID_FACTORY_NAME_NOT_A_CLASS`.
+        // `factory new(…)` (3.13.4, `parseFactoryMethod`): the `new` is the name,
+        // with `FACTORY_CONSTRUCTOR_NEW_NAME`; a name that is not the class's is,
+        // afterwards, `INVALID_FACTORY_NAME_NOT_A_CLASS`.
         if factory && self.at_kw(Keyword::New) && !self.at_op_at(1, Op::Dot) {
             let t = self.advance();
             self.error_at(codigos::parser::FACTORY_CONSTRUCTOR_NEW_NAME, t.span, &[]);
@@ -3156,18 +3156,18 @@ impl<'s, 'i> Parser<'s, 'i> {
         let class_name = self.expect_identifier()?;
         if !factory {
             self.check_constructor_in_mixin_or_extension(class_name.span);
-            // `parseMethod` (`parser_impl.dart:5014`): construtor com outro
-            // nome (`Other.x()`) é `INVALID_CONSTRUCTOR_NAME` no nome;
-            // `static`, `STATIC_CONSTRUCTOR`.
+            // `parseMethod` (`parser_impl.dart:5014`): a constructor with another name
+            // (`Other.x()`) is `INVALID_CONSTRUCTOR_NAME` at the name; `static`,
+            // `STATIC_CONSTRUCTOR`.
             if Some(&self.source[class_name.span.start..class_name.span.end]) != class {
                 self.error_at(codigos::parser::INVALID_CONSTRUCTOR_NAME, class_name.span, &[]);
             }
             if let Some(st) = mods.modifier_tokens.static_ {
                 self.error_at_token(st, codigos::parser::STATIC_CONSTRUCTOR);
             }
-            // `AstBuilder.endClassConstructor` (`ast_builder.dart:5897`):
-            // parâmetros de tipo num construtor são
-            // `TYPE_PARAMETER_ON_CONSTRUCTOR` sobre a lista, que é lida.
+            // `AstBuilder.endClassConstructor` (`ast_builder.dart:5897`): type
+            // parameters on a constructor are `TYPE_PARAMETER_ON_CONSTRUCTOR` over the
+            // list, which is read.
             if self.at_op(Op::Lt) {
                 let abre = self.span();
                 self.parse_type_parameters_opt()?;
@@ -3183,9 +3183,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.parse_constructor_rest(mods, factory, class_name, name)
     }
 
-    /// Construtor em mixin ou extension: `MIXIN_DECLARES_CONSTRUCTOR` /
-    /// `EXTENSION_DECLARES_CONSTRUCTOR` no nome (no `factory`, se houver;
-    /// `parser_impl.dart:5042` e `:5182`).
+    /// A constructor in a mixin or extension: `MIXIN_DECLARES_CONSTRUCTOR` /
+    /// `EXTENSION_DECLARES_CONSTRUCTOR` at the name (at the `factory`, if any;
+    /// `parser_impl.dart:5042` and `:5182`).
     fn check_constructor_in_mixin_or_extension(&mut self, span: Span) {
         let code = match self.owner {
             super::MemberOwner::Mixin => codigos::parser::MIXIN_DECLARES_CONSTRUCTOR,
@@ -3195,15 +3195,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.error_at(code, span, &[]);
     }
 
-    /// O `Name` da classe dona para um construtor escrito sem ele (`new`,
-    /// `factory(`, parte `this`), com o intervalo da palavra-chave.
+    /// The owner class's `Name` for a constructor written without it (`new`,
+    /// `factory(`, `this` part), with the keyword's range.
     fn class_name(&mut self, class: Option<&str>, span: Span) -> Name {
         let texto = class.unwrap_or("").to_string();
         self.name_from(&texto, span)
     }
 
-    /// `new nome?(params) (: inits)? body_node` (3.13): a mesma coisa que
-    /// `C.nome(...)`/`C(...)`.
+    /// `new name?(params) (: inits)? body` (3.13): the same as
+    /// `C.name(...)`/`C(...)`.
     fn parse_new_constructor(
         &mut self,
         mods: Modifiers,
@@ -3211,8 +3211,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     ) -> PResult<MemberKind> {
         let t = self.advance();
         self.require_in_ast(Feature::PrimaryConstructors, t.span);
-        // `_isConstructor` com `newToken`: o `static` é `STATIC_CONSTRUCTOR`
-        // (`parseMethod` do 3.13.4).
+        // `_isConstructor` with `newToken`: the `static` is `STATIC_CONSTRUCTOR`
+        // (3.13.4's `parseMethod`).
         if let Some(st) = mods.modifier_tokens.static_ {
             self.error_at_token(st, codigos::parser::STATIC_CONSTRUCTOR);
         }
@@ -3225,10 +3225,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.parse_constructor_rest(mods, false, class_name, nome)
     }
 
-    /// `this (: inits)? body_node` (3.13): a parte de corpo do construtor
-    /// primário. Vira um `Constructor { parte_primaria: true }` que a
-    /// elaboração funde no `k2` da declaração. `async`/`sync*`/`=>` são erro.
-    /// O `this` de uma parte de construtor primário (o `class_name` dela).
+    /// `this (: inits)? body` (3.13): the primary constructor's body part. It
+    /// becomes a `Constructor { parte_primaria: true }` that elaboration merges
+    /// into the declaration's `k2`. `async`/`sync*`/`=>` are errors.
+    /// The `this` of a primary constructor part (its `class_name`).
     fn this_span(&self, member: MemberId) -> Span {
         match &self.ast.member(member).kind {
             MemberKind::Constructor(c) => c.class_name.span,
@@ -3239,8 +3239,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_primary_part(&mut self, mods: &Modifiers) -> PResult<MemberKind> {
         let t = self.advance();
         self.require_in_ast(Feature::PrimaryConstructors, t.span);
-        // Os modificadores antes do `this` são `EXTRANEOUS_MODIFIER`, nesta
-        // ordem (`parseClassOrMixinOrExtensionOrEnumMemberImpl` do 3.13.4,
+        // The modifiers before the `this` are `EXTRANEOUS_MODIFIER`, in this order
+        // (3.13.4's `parseClassOrMixinOrExtensionOrEnumMemberImpl`,
         // `parser_impl.dart:5514-5556`): `var`/`final`/`const`, `external`,
         // `static`, `covariant`, `late`.
         let f = mods.modifier_tokens;
@@ -3260,9 +3260,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let antes = self.pos;
         let (modifier, body) = self.parse_function_body()?;
-        // `async`, `async*`, `sync*` antes do corpo: o analyzer relata no
-        // `async`/`sync`, com o modificador inteiro no texto. O corpo
-        // (`=>`/`{`) é julgado na elaboração, que sabe se é `const`.
+        // `async`, `async*`, `sync*` before the body: the analyzer reports at the
+        // `async`/`sync`, with the whole modifier in the text. The body (`=>`/`{`)
+        // is judged during elaboration, which knows whether it is `const`.
         let mut body_node = antes;
         if modifier != AsyncModifier::None {
             let texto = match modifier {
@@ -3294,8 +3294,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
-    /// O que segue o nome de um construtor: parâmetros, redirecionamento
-    /// de factory ou lista de inicialização, e o corpo.
+    /// What follows a constructor's name: parameters, factory redirection or
+    /// initializer list, and the body.
     fn parse_constructor_rest(
         &mut self,
         mods: Modifiers,
@@ -3307,8 +3307,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.params_owner = self.parameter_owner(mods, false);
         }
         let parameters = self.parse_formal_parameters()?;
-        // `_buildConstructorDeclaration` do AstBuilder (`ast_builder.dart:5911-5920`):
-        // construtor `external` (não factory), um erro por `this.x`, no `this`.
+        // The AstBuilder's `_buildConstructorDeclaration`
+        // (`ast_builder.dart:5911-5920`): an `external` (non-factory) constructor,
+        // one error per `this.x`, at the `this`.
         if mods.external && !factory {
             let fonte = self.source;
             for p in parameters.iter().filter(|p| p.this_) {
@@ -3321,10 +3322,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let mut initializers = Vec::new();
         let mut redirect = None;
-        // `parseFactoryMethod` (`parser_impl.dart:5139-5145`): o modificador
-        // do corpo de uma factory é `NON_SYNC_FACTORY`, no token
-        // `async`/`sync`, antes do teste do `=` — vale também na factory
-        // redirecionadora, que não tem corpo (ali o modificador é só pulado).
+        // `parseFactoryMethod` (`parser_impl.dart:5139-5145`): the body modifier of
+        // a factory is `NON_SYNC_FACTORY`, at the `async`/`sync` token, before the
+        // `=` test — it also applies to the redirecting factory, which has no body
+        // (there the modifier is just skipped).
         if factory && (self.at_ident("async") || (self.at_ident("sync") && self.at_op_at(1, Op::Star))) {
             let span = self.span();
             self.error_at(codigos::compile_time_error::NON_SYNC_FACTORY, span, &[]);
@@ -3342,8 +3343,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.error_at(codigos::parser::EXTERNAL_FACTORY_REDIRECTION, eq.span, &[]);
             }
             if !factory {
-                // `Foo() = Bar;` sem `factory`: o alvo é lido normalmente e
-                // só o `=` é denunciado (fasta 3.6.2, sem cascata).
+                // `Foo() = Bar;` without `factory`: the target is read normally and only
+                // the `=` is flagged (fasta 3.6.2, without a cascade).
                 self.error_at(
                     codigos::parser::REDIRECTION_IN_NON_FACTORY_CONSTRUCTOR,
                     eq.span,
@@ -3365,9 +3366,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.ensure_semicolon()?;
             FunctionBody::Empty
         } else {
-            // `parseMethod` (`parser_impl.dart:5030`): construtor `external`
-            // com lista de inicialização é
-            // `EXTERNAL_CONSTRUCTOR_WITH_INITIALIZER` no `:`.
+            // `parseMethod` (`parser_impl.dart:5030`): an `external` constructor with
+            // an initializer list is `EXTERNAL_CONSTRUCTOR_WITH_INITIALIZER` at the
+            // `:`.
             if mods.external && !factory && self.at_op(Op::Colon) {
                 self.erro(codigos::parser::EXTERNAL_CONSTRUCTOR_WITH_INITIALIZER, &[]);
             }
@@ -3381,18 +3382,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             let body_start = self.pos;
             let (modifier, body) = self.parse_function_body()?;
-            // `_checkForInvalidModifierOnBody` (`error_verifier.dart:4044-4053`):
-            // construtor (gerador ou factory) com `async`, `async*` ou
-            // `sync*`, no primeiro token do modificador; o argumento é o
-            // texto dele (`async` também para `async*`).
+            // `_checkForInvalidModifierOnBody` (`error_verifier.dart:4044-4053`): a
+            // constructor (generative or factory) with `async`, `async*` or `sync*`, at
+            // the modifier's first token; the argument is its text (`async` also for
+            // `async*`).
             if modifier != AsyncModifier::None {
                 let span = self.tokens[body_start].span;
                 let word = if modifier == AsyncModifier::SyncStar { "sync" } else { "async" };
                 self.error_at(codigos::compile_time_error::INVALID_MODIFIER_ON_CONSTRUCTOR, span, &[word]);
             }
             self.check_external_body(mods.external, factory, body_start, &body, None);
-            // `parseFactoryMethod`: só a factory `external` dispensa o corpo;
-            // o construtor gerador segue a regra dos métodos (`parseMethod`).
+            // `parseFactoryMethod`: only an `external` factory may omit the body; the
+            // generative constructor follows the method rule (`parseMethod`).
             let allows = if factory { mods.external } else { Self::allows_abstract(mods, modifier, false) };
             self.check_empty_body(&body, allows);
             if mods.const_ && !factory {
@@ -3413,9 +3414,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             body
         };
-        // O SDK declara factories constantes `external` (por exemplo
-        // `bool.fromEnvironment`); o ErrorVerifier só aplica `constFactory`
-        // ao ramo sem `externalKeyword`.
+        // The SDK declares `external` constant factories (for example
+        // `bool.fromEnvironment`); the ErrorVerifier only applies `constFactory` to
+        // the branch without `externalKeyword`.
         if factory && !mods.external && redirect.is_none() {
             if let Some(span) = mods.const_span {
                 self.error_at(codigos::parser::CONST_FACTORY, span, &[]);
@@ -3435,9 +3436,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
-    /// Uma entrada da lista de inicializadores: `super(...)`, `super.n(...)`,
-    /// `this(...)`/`this.n(...)` (redirecionamento), `this.x = e`, `x = e`
-    /// ou `assert(c, m)`.
+    /// One entry of the initializer list: `super(...)`, `super.n(...)`,
+    /// `this(...)`/`this.n(...)` (redirection), `this.x = e`, `x = e` or
+    /// `assert(c, m)`.
     fn parse_initializer(&mut self) -> PResult<Initializer> {
         // `parseInitializers` do fasta desliga `mayParseFunctionExpressions`.
         let salvo = std::mem::replace(&mut self.without_named_function, true);
@@ -3449,19 +3450,19 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_initializer_inner(&mut self) -> PResult<Initializer> {
         let start = self.span();
         if self.eat_kw(Keyword::Super) {
-            // `super?.x()`: `INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER`
-            // no `?.` (`parseSuperExpression`), lido como `.`.
+            // `super?.x()`: `INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER` at the
+            // `?.` (`parseSuperExpression`), read as `.`.
             if self.at_op(Op::QuestionDot) {
                 let span = self.span();
                 self.error_at(codigos::parser::INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER, span, &[]);
             }
             let mut via_primary = false;
             let constructor = if self.eat_op(Op::Dot) || self.eat_op(Op::QuestionDot) {
-                // `parseSuperInitializerExpression`: o `ensureIdentifier`
-                // (`expressionContinuation`) e, no `parseInitializerExpressionRest`,
-                // a releitura como expressão. Uma palavra reservada leva os
-                // dois erros (`super.const()`: a palavra como nome e, relida
-                // pela `parsePrimary`, o `const ()` recusado como nome).
+                // `parseSuperInitializerExpression`: the `ensureIdentifier`
+                // (`expressionContinuation`) and, in `parseInitializerExpressionRest`, the
+                // reread as an expression. A reserved word gets both errors
+                // (`super.const()`: the word as a name and, reread by `parsePrimary`, the
+                // `const ()` rejected as a name).
                 if self.at_kw(Keyword::New) || self.at_identifier() {
                     Some(self.identifier_or_new()?)
                 } else if matches!(self.kind(), Kind::Keyword(_)) && !self.looks_like_statement_start(self.pos) {
@@ -3476,8 +3477,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 None
             };
-            // `super` ou `super.x` sem `(` nem `=`: `EXPECTED_TOKEN` (`(`) no
-            // token seguinte e parênteses sintéticos (`insertParens`, em
+            // `super` or `super.x` without `(` or `=`: `EXPECTED_TOKEN` (`(`) at the
+            // next token and synthetic parentheses (`insertParens`, in
             // `parseSuperInitializerExpression`).
             if !via_primary && !self.at_op(Op::LParen) && !self.at_op(Op::Assign) {
                 self.erro(codigos::parser::EXPECTED_TOKEN, &["("]);
@@ -3488,15 +3489,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                     arguments: crate::ast::Arguments { span: Span { start: s, end: s }, type_args: Box::default(), args: Box::default() },
                 });
             }
-            // `buildInitializer`: relido pela `parsePrimary`, `super.x` sem
-            // argumentos não é chamada do construtor da superclasse
+            // `buildInitializer`: reread by `parsePrimary`, `super.x` without arguments
+            // is not a call to the superclass constructor
             // (`INVALID_SUPER_IN_INITIALIZER`).
             if via_primary && !self.at_op(Op::LParen) {
                 self.error_at(codigos::parser::INVALID_SUPER_IN_INITIALIZER, Span { start: start.start, end: start.start + 5 }, &[]);
                 self.skip_rest_of_initializer();
                 let s = self.span().start;
-                // Não é invocação de construtor no `AstBuilder`: sem o nome,
-                // para a análise não procurar o construtor `const`.
+                // Not a constructor invocation in the `AstBuilder`: without the name, so
+                // that analysis does not look for the `const` constructor.
                 let _ = constructor;
                 return Ok(Initializer::Super {
                     span: self.span_from(start),
@@ -3505,10 +3506,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 });
             }
             let arguments = self.parse_arguments()?;
-            // `buildInitializer`: `super(…)`/`super.n(…)` seguido de mais
-            // seletores não é chamada do construtor da superclasse:
-            // `INVALID_SUPER_IN_INITIALIZER` no `super` (o nó vira a chamada
-            // com a última lista de argumentos).
+            // `buildInitializer`: `super(…)`/`super.n(…)` followed by more selectors is
+            // not a call to the superclass constructor: `INVALID_SUPER_IN_INITIALIZER`
+            // at the `super` (the node becomes the call with the last argument list).
             if self.selector_after_initializer() {
                 self.error_at(codigos::parser::INVALID_SUPER_IN_INITIALIZER, Span { start: start.start, end: start.start + 5 }, &[]);
                 self.skip_rest_of_initializer();
@@ -3548,7 +3548,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 });
             }
             if !self.at_op(Op::LParen) {
-                // `this` sem `.` nem `(`: `EXPECTED_TOKEN` (`.`) no que segue
+                // `this` without `.` or `(`: `EXPECTED_TOKEN` (`.`) at what follows
                 // (`parseInitializer`, `parser_impl.dart:4098`).
                 self.expected_error(".");
                 return self.initializer_without_assignment(start);
@@ -3567,7 +3567,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         if self.eat_kw(Keyword::Assert) {
             self.expect_op(Op::LParen)?;
-            // `parseAssert` religa as funções literais.
+            // `parseAssert` turns function literals back on.
             let condition = self.with_functions(|p| p.parse_expression())?;
             let message = if self.eat_op(Op::Comma) && !self.at_op(Op::RParen) {
                 Some(self.with_functions(|p| p.parse_expression())?)
@@ -3593,19 +3593,20 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    /// `parseInitializer` (`parser_impl.dart:4089`): `this(...)` seguido de
-    /// `{` ou `=>` é `REDIRECTING_CONSTRUCTOR_WITH_BODY` nele.
+    /// `parseInitializer` (`parser_impl.dart:4089`): `this(...)` followed by
+    /// `{` or `=>` is `REDIRECTING_CONSTRUCTOR_WITH_BODY` at it.
     fn check_redirecting_body(&mut self) {
         if self.at_op(Op::LBrace) || self.at_op(Op::Arrow) {
             self.erro(codigos::parser::REDIRECTING_CONSTRUCTOR_WITH_BODY, &[]);
         }
     }
 
-    /// A recuperação final de `parseInitializer` (`parser_impl.dart:4134`):
-    /// `this.x`/`this` sem atribuição é `MISSING_ASSIGNMENT_IN_INITIALIZER` no
-    /// `this`, e o inicializador vira `<sintético> = expressão`, com a
-    /// expressão lida desde o `this`.
-    /// Depois dos argumentos de `super(…)`/`this(…)` vem outro seletor
+    /// The final recovery of `parseInitializer` (`parser_impl.dart:4134`):
+    /// `this.x`/`this` without an assignment is
+    /// `MISSING_ASSIGNMENT_IN_INITIALIZER` at the `this`, and the initializer
+    /// becomes `<synthetic> = expression`, with the expression read from the
+    /// `this`.
+    /// After the arguments of `super(…)`/`this(…)` comes another selector
     /// (`.`, `?.`, `..`, `?..`, `[`, `(`).
     fn selector_after_initializer(&self) -> bool {
         matches!(
@@ -3614,8 +3615,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         )
     }
 
-    /// Pula o resto de um inicializador (os seletores, com os grupos
-    /// casados) até a `,` seguinte, o corpo (`{`, `=>`), o `;` ou o fim.
+    /// Skips the rest of an initializer (the selectors, with matched groups)
+    /// up to the next `,`, the body (`{`, `=>`), the `;` or the end.
     fn skip_rest_of_initializer(&mut self) {
         while !self.at_eof() {
             match self.kind() {
@@ -3645,14 +3646,15 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     // -----------------------------------------------------------------------
-    // Corpos de função
+    // Function bodies
     // -----------------------------------------------------------------------
 
-    /// O parser oficial relata função de topo no token `external`, mas membro
-    /// e construtor no `{` do bloco ou no `=>` (`parseTopLevelMethod` e
-    /// `parseMethod`/`parseFactoryMethod` do fasta).
-    /// O intervalo desde `start_offset` começa antes do modificador `async` e só
-    /// inclui tokens desta função, então o primeiro delimitador é o corpo.
+    /// The official parser reports a top-level function at the `external`
+    /// token, but members and constructors at the block's `{` or at the `=>`
+    /// (fasta's `parseTopLevelMethod` and `parseMethod`/`parseFactoryMethod`).
+    /// The range from `start_offset` starts before the `async` modifier and
+    /// only includes this function's tokens, so the first delimiter is the
+    /// body.
     fn check_external_body(&mut self, external: bool, factory: bool, start_offset: usize, body: &FunctionBody, external_topo: Option<Span>) {
         if !external {
             return;
@@ -3676,13 +3678,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O fim do tipo que precede `factory nome` num membro, se houver.
-    /// `void` seguido de `new` e de `(` ou de um identificador
-    /// (`static void new() {}`): o fim do tipo, no `new`. Só o `void`: o
-    /// `computeType` do 3.13.4 só aceita os outros tipos quando o token
-    /// seguinte parece um nome (`looksLikeName`), e o `new` não parece —
-    /// `int new() => 1` fica um método de nome inválido
-    /// (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD`), como no 3.6.2.
+    /// The end of the type that precedes `factory name` in a member, if any.
+    /// `void` followed by `new` and by `(` or an identifier
+    /// (`static void new() {}`): the end of the type, at the `new`. Only
+    /// `void`: 3.13.4's `computeType` only accepts the other types when the
+    /// next token looks like a name (`looksLikeName`), and `new` does not —
+    /// `int new() => 1` stays a method with an invalid name
+    /// (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD`), as in 3.6.2.
     fn type_before_new(&self) -> Option<usize> {
         if !self.at_kw(Keyword::Void) {
             return None;
@@ -3692,10 +3694,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         (self.at_kw_at(n, Keyword::New) && (self.at_op_at(n + 1, Op::LParen) || self.at_identifier_at(n + 1))).then_some(end_offset)
     }
 
-    /// `factory new(` (sem `.` depois do `new`): o 3.13.4 lê um construtor
-    /// de fábrica chamado `new`; o 3.6.2, um campo `factory` (o `new` não é
-    /// identificador). Fora do modo 3.13, segue o 3.6.2 e anota a
-    /// divergência ([`Parser::diverged_313`]).
+    /// `factory new(` (without `.` after the `new`): 3.13.4 reads a factory
+    /// constructor named `new`; 3.6.2, a `factory` field (`new` is not an
+    /// identifier). Outside 3.13 mode, it follows 3.6.2 and records the
+    /// divergence ([`Parser::diverged_313`]).
     fn factory_new_as_constructor(&mut self) -> bool {
         if !(self.at_kw_at(1, Keyword::New) && !self.at_op_at(2, Op::Dot)) {
             return false;
@@ -3716,10 +3718,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             .then_some(end_offset)
     }
 
-    /// O `allowAbstract` com que o fasta lê o corpo: no topo
-    /// (`parseTopLevelMethod`), só `external` dispensa o corpo; num membro
-    /// (`parseMethod`), o que não é `static` (ou é `external`) e não tem
-    /// modificador `async`/`sync*` (`inPlainSync`).
+    /// The `allowAbstract` with which fasta reads the body: at top level
+    /// (`parseTopLevelMethod`), only `external` makes the body optional; in a
+    /// member (`parseMethod`), whatever is not `static` (or is `external`) and
+    /// has no `async`/`sync*` modifier (`inPlainSync`).
     fn allows_abstract(mods: Modifiers, modifier: AsyncModifier, topo: bool) -> bool {
         if topo {
             mods.external
@@ -3728,8 +3730,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `parseFunctionBody` do fasta: corpo `;` onde `allowAbstract` é falso
-    /// dá `MISSING_FUNCTION_BODY` no `;` (a árvore fica com o corpo vazio).
+    /// fasta's `parseFunctionBody`: a `;` body where `allowAbstract` is false
+    /// gives `MISSING_FUNCTION_BODY` at the `;` (the tree keeps the empty
+    /// body).
     fn check_empty_body(&mut self, body: &FunctionBody, allows_abstract: bool) {
         if !allows_abstract && matches!(body, FunctionBody::Empty) && self.pos > 0 {
             let span = self.tokens[self.pos - 1].span;
@@ -3737,18 +3740,18 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `async`/`async*`/`sync*` opcional seguido de `{...}`, `=> e;`, `;` ou
-    /// `native ...;`. Ajusta `in_async`/`in_generator` durante o corpo.
+    /// Optional `async`/`async*`/`sync*` followed by `{...}`, `=> e;`, `;` or
+    /// `native ...;`. Adjusts `in_async`/`in_generator` during the body.
     pub(crate) fn parse_function_body(&mut self) -> PResult<(AsyncModifier, FunctionBody)> {
         self.parse_function_body_ex(true)
     }
 
-    /// Como [`Parser::parse_function_body`], mas em expressões de função
-    /// (`(x) => x + 1`) não há `;` após a expressão: passe `false`.
+    /// Like [`Parser::parse_function_body`], but in function expressions
+    /// (`(x) => x + 1`) there is no `;` after the expression: pass `false`.
     ///
-    /// O contexto `async`/generator do corpo é o do modificador lido aqui —
-    /// uma função aninhada não herda o do exterior — e o contexto anterior é
-    /// restaurado ao sair, mesmo em caso de erro.
+    /// The body's `async`/generator context is that of the modifier read here —
+    /// a nested function does not inherit the outer one — and the previous
+    /// context is restored on exit, even on error.
     pub(crate) fn parse_function_body_ex(
         &mut self,
         expect_semicolon: bool,
@@ -3762,8 +3765,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok((modifier, body?))
     }
 
-    /// `async`, `async*`, `sync*` (identificadores contextuais; `*` é um
-    /// token separado) ou nada.
+    /// `async`, `async*`, `sync*` (contextual identifiers; `*` is a separate
+    /// token) or nothing.
     fn parse_async_modifier(&mut self) -> AsyncModifier {
         if self.at_ident("async") {
             self.advance();
@@ -3781,7 +3784,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O corpo propriamente dito, após o modificador.
+    /// The body proper, after the modifier.
     fn parse_body_after_modifier(&mut self, expect_semicolon: bool) -> PResult<FunctionBody> {
         if self.at_op(Op::LBrace) {
             return Ok(FunctionBody::Block(self.parse_body_block()?));
@@ -3805,12 +3808,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.ensure_semicolon()?;
             return Ok(FunctionBody::Native(name));
         }
-        // Recuperação de `parseFunctionBody` (`parser_impl.dart`): `=` ou
-        // `return` no lugar de `=>` são `MISSING_FUNCTION_BODY` neles e a
-        // expressão é lida como corpo `=>`; uma palavra solta antes de `=>`
-        // ou `{` é `UNEXPECTED_TOKEN` e é pulada; qualquer outra coisa é
-        // `MISSING_FUNCTION_BODY` nela, com um bloco vazio sintético, sem
-        // consumir nada (`ensureBlock`).
+        // `parseFunctionBody` recovery (`parser_impl.dart`): `=` or `return` in
+        // place of `=>` are `MISSING_FUNCTION_BODY` at them and the expression is
+        // read as a `=>` body; a stray word before `=>` or `{` is
+        // `UNEXPECTED_TOKEN` and is skipped; anything else is
+        // `MISSING_FUNCTION_BODY` at it, with a synthetic empty block, without
+        // consuming anything (`ensureBlock`).
         if self.at_op(Op::Assign) || self.at_kw(Keyword::Return) {
             self.erro(codigos::parser::MISSING_FUNCTION_BODY, &[]);
             self.advance();
@@ -3844,9 +3847,8 @@ mod tests {
     use crate::parser::{Parsed, Parser, parse};
     use dartforge_intern::Interner;
 
-    /// Representação de extension type pelo `AstBuilder.endPrimaryConstructor`
-    /// e parâmetros de tipo em operador (conferidos com o `dart analyze`
-    /// 3.6.2).
+    /// Extension type representation by `AstBuilder.endPrimaryConstructor` and
+    /// type parameters on operators (checked against `dart analyze` 3.6.2).
     #[test]
     fn representation_and_operator_with_type_parameters() {
         let fonte = "// @dart = 3.6\n\
@@ -3881,11 +3883,11 @@ mod tests {
         );
     }
 
-    /// `MISSING_FUNCTION_BODY` no `;` onde o fasta lê o corpo sem
-    /// `allowAbstract` (conferido com o `dart analyze` 3.6.2): função e
-    /// acessor de topo sem `external`, membro `static`, membro `async`,
-    /// factory sem `external`. Método de instância, construtor gerador e
-    /// `external` aceitam `;`.
+    /// `MISSING_FUNCTION_BODY` at the `;` where fasta reads the body without
+    /// `allowAbstract` (checked against `dart analyze` 3.6.2): top-level
+    /// function and accessor without `external`, `static` member, `async`
+    /// member, factory without `external`. An instance method, a generative
+    /// constructor and `external` accept `;`.
     #[test]
     fn empty_body_without_allow_abstract() {
         let fonte = "class A {\n  static int get foo;\n  static set foo(int _);\n  static void m();\n  void i();\n  \
@@ -3911,8 +3913,8 @@ mod tests {
         out
     }
 
-    /// Como [`parse_ok`], tolerando só os erros de ordem de diretivas (as
-    /// amostras juntam `library`, `part` e `part of` numa unidade só).
+    /// Like [`parse_ok`], tolerating only directive-order errors (the samples
+    /// put `library`, `part` and `part of` together in a single unit).
     fn parse_ok_except_order(src: &str, names: &mut Interner) -> Parsed {
         use dartforge_diagnostics::codigos::parser as c;
         let out = parse(src, names);
@@ -3936,7 +3938,7 @@ mod tests {
     fn class(out: &Parsed, i: usize) -> &crate::ast::ClassDecl {
         match decl(out, i) {
             DeclKind::Class(class) => class,
-            other => panic!("esperava classe, veio {other:?}"),
+            other => panic!("expected a class, got {other:?}"),
         }
     }
 
@@ -3944,9 +3946,9 @@ mod tests {
         &out.ast.member(class.members[i]).kind
     }
 
-    /// `extension`, `get`, `set`, `mixin`… são identificadores embutidos: no
-    /// topo, depois de um tipo, com parâmetros, são o nome de uma função
-    /// (`String extension(String path, [int level = 1])` do `package:path`).
+    /// `extension`, `get`, `set`, `mixin`… are built-in identifiers: at top
+    /// level, after a type, with parameters, they are a function's name
+    /// (`String extension(String path, [int level = 1])` from `package:path`).
     #[test]
     fn builtin_identifier_as_top_level_function_name() {
         let mut names = Interner::new();
@@ -3955,8 +3957,8 @@ mod tests {
             &mut names,
         );
         for (i, expected_) in ["extension", "get", "mixin"].into_iter().enumerate() {
-            let DeclKind::Function(f) = decl(&out, i) else { panic!("esperava função") };
-            assert_eq!(text(&names, out.ast.function(*f).name.expect("nome")), expected_);
+            let DeclKind::Function(f) = decl(&out, i) else { panic!("expected a function") };
+            assert_eq!(text(&names, out.ast.function(*f).name.expect("name")), expected_);
         }
     }
 
@@ -4112,7 +4114,7 @@ mod tests {
         let parsed = parse("class A { const A(); const factory A.named() = A; }", &mut names);
         assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)));
 
-        // Declarações do SDK 3.6.2: lib/core/bool.dart e lib/core/int.dart.
+        // SDK 3.6.2 declarations: lib/core/bool.dart and lib/core/int.dart.
         let sdk = "class bool { external const factory bool.fromEnvironment(String name, {bool defaultValue = false}); external const factory bool.hasEnvironment(String name); } class int { external const factory int.fromEnvironment(String name, {int defaultValue = 0}); }";
         let parsed = parse(sdk, &mut names);
         assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)), "{:?}", parsed.diagnostics);
@@ -4122,7 +4124,7 @@ mod tests {
         assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)), "{:?}", parsed.diagnostics);
     }
 
-    // -- Independentes dos outros módulos -----------------------------------
+    // -- Independent of the other modules --------------------------------------
 
     #[test]
     fn script_tag_and_library() {
@@ -4293,8 +4295,8 @@ mod tests {
             &mut names,
         );
         assert_eq!(out.diagnostics.len(), 3, "{:?}", out.diagnostics);
-        // `class {}` vira classe de nome sintético vazio (como no fasta);
-        // `enum {}` ainda cai na recuperação de topo.
+        // `class {}` becomes a class with an empty synthetic name (as in fasta);
+        // `enum {}` still falls into top-level recovery.
         assert_eq!(out.unit.declarations.len(), 4);
         assert_eq!(text(&names, class(&out, 0).name), "");
         assert_eq!(text(&names, class(&out, 1).name), "A");
@@ -4305,8 +4307,8 @@ mod tests {
     fn recovery_skips_the_broken_declaration_body() {
         let mut names = Interner::new();
         let out = parse("class A B { var x; } class C {}", &mut names);
-        // `ensureBlock`: `EXPECTED_CLASS_BODY` no `A` e corpo sintético; `B
-        // { … }` é função sem parâmetros (`MISSING_FUNCTION_PARAMETERS`).
+        // `ensureBlock`: `EXPECTED_CLASS_BODY` at the `A` and a synthetic body;
+        // `B { … }` is a function without parameters (`MISSING_FUNCTION_PARAMETERS`).
         assert_eq!(out.diagnostics.len(), 2, "{:?}", out.diagnostics);
         assert_eq!(out.unit.declarations.len(), 3);
         assert_eq!(text(&names, class(&out, 0).name), "A");
@@ -4333,9 +4335,10 @@ mod tests {
         assert_eq!(out.unit.declarations.len(), 1);
     }
 
-    /// Membro inválido no estilo do fasta: um erro por token, sem engolir o
-    /// membro válido seguinte (sondado no SDK 3.6.2 local: `42` dá um único
-    /// `EXPECTED_CLASS_MEMBER` e `int x` sobrevive; idem `;` e `)`).
+    /// An invalid member in fasta's style: one error per token, without
+    /// swallowing the next valid member (probed on the local SDK 3.6.2: `42`
+    /// gives a single `EXPECTED_CLASS_MEMBER` and `int x` survives; likewise
+    /// `;` and `)`).
     #[test]
     fn fasta_member_stray_token_skips_one_and_keeps_valid() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -4357,10 +4360,10 @@ mod tests {
         }
     }
 
-    /// O `;` que falta é apontado no token anterior (`1`) e inserido, como
-    /// no `ensureSemicolon` do fasta: `x` fica, `garbage` vira um campo sem
-    /// tipo (`MISSING_CONST_FINAL_VAR_OR_TYPE`) e o `var y` não é engolido
-    /// (conferido com o `dart analyze` 3.6.2).
+    /// The missing `;` is pointed at the previous token (`1`) and inserted, as
+    /// in fasta's `ensureSemicolon`: `x` stays, `garbage` becomes an untyped
+    /// field (`MISSING_CONST_FINAL_VAR_OR_TYPE`) and `var y` is not swallowed
+    /// (checked against `dart analyze` 3.6.2).
     #[test]
     fn fasta_member_boundary_does_not_swallow_valid() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -4385,7 +4388,7 @@ mod tests {
         assert_eq!(field_names, ["x", "garbage", "y"], "{fonte}: {:?}", out.diagnostics);
     }
 
-    /// Membros válidos de todas as formas nunca tocam a recuperação.
+    /// Valid members of every shape never touch recovery.
     #[test]
     fn valid_member_does_not_touch_recovery() {
         let mut names = Interner::new();
@@ -4396,10 +4399,10 @@ mod tests {
         assert_eq!(class(&out, 0).members.len(), 8);
     }
 
-    /// Sem o recurso, `augment` vira o tipo de um campo `int` (o `;` que
-    /// falta é inserido depois dele, como no `ensureSemicolon` do fasta) e
-    /// a cauda `get foo => 0;` é retida como membro — o `dart analyze` 3.6.2
-    /// dá `expected_token` em `int` e `undefined_class` em `augment`.
+    /// Without the feature, `augment` becomes the type of an `int` field (the
+    /// missing `;` is inserted after it, as in fasta's `ensureSemicolon`) and
+    /// the `get foo => 0;` tail is kept as a member — `dart analyze` 3.6.2
+    /// gives `expected_token` at `int` and `undefined_class` at `augment`.
     #[test]
     fn member_speculative_recovery_keeps_valid_tail() {
         use crate::features::{LanguageVersion, LibraryFeatures};
@@ -4422,9 +4425,9 @@ mod tests {
         }
     }
 
-    /// `extension type A {}`: `MISSING_PRIMARY_CONSTRUCTOR` no nome (o
-    /// último token lido) e o corpo lido normalmente; `A.n {}`,
-    /// `MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS` em `n` (fasta 3.6.2).
+    /// `extension type A {}`: `MISSING_PRIMARY_CONSTRUCTOR` at the name (the
+    /// last token read) and the body read normally; `A.n {}`,
+    /// `MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS` at `n` (fasta 3.6.2).
     #[test]
     fn extension_type_without_primary_constructor() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -4444,10 +4447,10 @@ mod tests {
         }
     }
 
-    /// Tentativa com tipo de retorno: `augment C.named() : ...` lê o tipo,
-    /// denuncia `constructor_with_return_type` nele e lê o construtor com
-    /// o redirect — sem cascata (sondado no SDK 3.6.2 local: só o erro no
-    /// `augment` mais o semântico de redirect).
+    /// Attempt with a return type: `augment C.named() : ...` reads the type,
+    /// flags `constructor_with_return_type` at it and reads the constructor
+    /// with the redirect — without a cascade (probed on the local SDK 3.6.2:
+    /// only the error at `augment` plus the semantic redirect one).
     #[test]
     fn member_speculative_recovery_discards_cascade() {
         use crate::features::{LanguageVersion, LibraryFeatures};
@@ -4467,10 +4470,11 @@ mod tests {
         assert_eq!(class(&out, 0).members.len(), 1, "{fonte}: {:?}", out.diagnostics);
     }
 
-    /// Token solto pula um: `[` não engole o resto (`int? a]` continua
-    /// declaração e falta `;` no nome, cada fecho solto é denunciado e o
-    /// `;` final é inesperado; o `var b` do fim sobrevive). Sequência
-    /// sondada no SDK 3.6.2 local, byte a byte nos 5 diagnósticos.
+    /// A stray token skips one: `[` does not swallow the rest (`int? a]` stays
+    /// a declaration with a missing `;` at the name, each stray closer is
+    /// flagged and the final `;` is unexpected; the trailing `var b` survives).
+    /// Sequence probed on the local SDK 3.6.2, byte for byte across the 5
+    /// diagnostics.
     #[test]
     fn fasta_top_level_stray_token_skips_one() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -4491,13 +4495,13 @@ mod tests {
             "{fonte}: {:?}",
             out.diagnostics
         );
-        // `int? a` vira campo com o `;` inserido; `var b` vem depois.
+        // `int? a` becomes a field with the inserted `;`; `var b` comes after.
         assert_eq!(out.unit.declarations.len(), 2);
         assert!(matches!(decl(&out, 1), DeclKind::Variables(l) if l.variables.iter().any(|v| text(&names, v.name) == "b")));
     }
 
-    /// `Foo() = Bar;` sem `factory`: o alvo é lido e só o `=` é
-    /// denunciado, sem cascata (sondado no SDK 3.6.2 local).
+    /// `Foo() = Bar;` without `factory`: the target is read and only the `=` is
+    /// flagged, without a cascade (probed on the local SDK 3.6.2).
     #[test]
     fn fasta_member_redirect_without_factory_reports_equals() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -4514,9 +4518,9 @@ mod tests {
         );
     }
 
-    /// `augment C(...) : campo = e;` com o recurso desligado lê o tipo como
-    /// retorno de construtor (`constructor_with_return_type` nele, sondado
-    /// no SDK 3.6.2 local) e a cauda como inits — sem cascata.
+    /// `augment C(...) : field = e;` with the feature off reads the type as a
+    /// constructor return type (`constructor_with_return_type` at it, probed on
+    /// the local SDK 3.6.2) and the tail as inits — without a cascade.
     #[test]
     fn fasta_member_augment_constructor_reads_as_constructor() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -4534,9 +4538,9 @@ mod tests {
         assert_eq!(class(&out, 0).members.len(), 2, "{fonte}: {:?}", out.diagnostics);
     }
 
-    /// `this :` em classe COM cabeçalho primário é parte de corpo mesmo sem
-    /// o recurso (o oráculo 3.6 silencia pela cascata do cabeçalho, que
-    /// aceitamos por superconjunto): sem `expected_class_member`.
+    /// `this :` in a class WITH a primary header is a body part even without
+    /// the feature (the 3.6 oracle is silenced by the header's cascade, which we
+    /// accept as a superset): no `expected_class_member`.
     #[test]
     fn fasta_member_this_in_primary_class_does_not_report() {
         use crate::features::{LanguageVersion, LibraryFeatures};
@@ -4555,11 +4559,12 @@ mod tests {
         assert_eq!(class(&out, 0).members.len(), 2, "{fonte}: {:?}", out.diagnostics);
     }
 
-    /// `this => 0;` sem o recurso: o analyzer 3.13.4 lê a parte `this` como
-    /// com o recurso e só acrescenta `experiment_not_enabled` — no `(` do
-    /// cabeçalho (`3.13.0`, do parser) e no `this` (`3.13`, do
-    /// `AstBuilder`) —, sem `expected_class_member` (sondado numa
-    /// biblioteca 3.6). `=> 0;` em classe dá só o par sem-nome/sem-parâmetros.
+    /// `this => 0;` without the feature: the 3.13.4 analyzer reads the `this`
+    /// part as with the feature and only adds `experiment_not_enabled` — at
+    /// the header's `(` (`3.13.0`, from the parser) and at the `this` (`3.13`,
+    /// from the `AstBuilder`) —, without `expected_class_member` (probed in a
+    /// 3.6 library). `=> 0;` in a class only gives the no-name/no-parameters
+    /// pair.
     #[test]
     fn member_this_arrow_without_feature_follows_3_13_4() {
         use crate::features::{LanguageVersion, LibraryFeatures};
@@ -4593,9 +4598,9 @@ mod tests {
         );
     }
 
-    /// `new foo();` sem o recurso é o construtor da 3.13 com
-    /// `experiment_not_enabled` no `new` (versão `3.13`) e nada mais de
-    /// sintaxe (sondado no analyzer 3.13.4, biblioteca 3.6).
+    /// `new foo();` without the feature is the 3.13 constructor with
+    /// `experiment_not_enabled` at the `new` (version `3.13`) and no other
+    /// syntax error (probed on the 3.13.4 analyzer, 3.6 library).
     #[test]
     fn member_new_without_feature_is_constructor_with_feature_off() {
         use crate::features::{LanguageVersion, LibraryFeatures};
@@ -4619,10 +4624,10 @@ mod tests {
         assert_eq!(class(&out, 0).members.len(), 2);
     }
 
-    /// Nomeado privado sem nome público (`{this._123}`) e sem o recurso: o
-    /// analyzer 3.13.4 relata só `experiment_not_enabled` no nome (oráculo
-    /// gravado, biblioteca 3.6); a falta de nome público só é erro com o
-    /// recurso ligado.
+    /// A private named parameter without a public name (`{this._123}`) and
+    /// without the feature: the 3.13.4 analyzer only reports
+    /// `experiment_not_enabled` at the name (recorded oracle, 3.6 library); the
+    /// missing public name is only an error with the feature on.
     #[test]
     fn private_named_without_feature_only_reports_the_feature() {
         use crate::features::{LanguageVersion, LibraryFeatures};
@@ -4637,7 +4642,7 @@ mod tests {
         assert_eq!(codigos, [(Some(c::EXPERIMENT_NOT_ENABLED), (start_offset, start_offset + 4))], "{:?}", out.diagnostics);
     }
 
-    /// `T X.Y` sem parênteses: os dois erros (`int C.named;`, sondado).
+    /// `T X.Y` without parentheses: both errors (`int C.named;`, probed).
     #[test]
     fn fasta_member_type_and_method_without_parameters() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -4657,8 +4662,8 @@ mod tests {
         );
     }
 
-    /// `X.Y` / `X.new` sem `(` em membro: `missing_method_parameters` em X
-    /// (sondado no SDK 3.6.2 local: `C.named;`, `foo.bar = 1;`,
+    /// `X.Y` / `X.new` without `(` in a member: `missing_method_parameters` at X
+    /// (probed on the local SDK 3.6.2: `C.named;`, `foo.bar = 1;`,
     /// `C.named : x = 1;`, `C.new;`).
     #[test]
     fn fasta_member_method_without_parameters() {
@@ -4678,9 +4683,10 @@ mod tests {
         }
     }
 
-    /// `foo;`, `foo = 1;`, `foo, bar;` em membro: o nome é campo sem tipo —
-    /// `missing_const_final_var_or_type` nele (salvo `const`/`final`/`var`),
-    /// sondado no SDK 3.6.2 local. Também `static = 1;` e `C;`.
+    /// `foo;`, `foo = 1;`, `foo, bar;` in a member: the name is an untyped
+    /// field — `missing_const_final_var_or_type` at it (except with
+    /// `const`/`final`/`var`), probed on the local SDK 3.6.2. Also `static = 1;`
+    /// and `C;`.
     #[test]
     fn fasta_member_untyped_field_reports_at_name() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -4707,8 +4713,8 @@ mod tests {
             }
         }
     }
-    /// `int? ab]` em membro continua declaração: falta `;` no nome e o `]`
-    /// é `expected_class_member` nele (sondado no SDK 3.6.2 local).
+    /// `int? ab]` in a member stays a declaration: `;` missing at the name and
+    /// the `]` is `expected_class_member` at it (probed on the local SDK 3.6.2).
     #[test]
     fn fasta_member_nullable_type_with_closer_continues_declaration() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -4727,12 +4733,12 @@ mod tests {
             out.diagnostics
         );
         assert_eq!(out.unit.declarations.len(), 1, "{fonte}");
-        // O `;` inserido fecha o campo `int? ab` (`ensureSemicolon`).
+        // The inserted `;` closes the field `int? ab` (`ensureSemicolon`).
         assert_eq!(class(&out, 0).members.len(), 1, "{fonte}: {:?}", out.diagnostics);
     }
 
-    /// `(` sem tipo nem modificadores não abre declaração no topo: é
-    /// `expected_executable`, não `missing_identifier`.
+    /// `(` without a type or modifiers does not open a declaration at top
+    /// level: it is `expected_executable`, not `missing_identifier`.
     #[test]
     fn fasta_top_level_stray_paren_is_not_identifier() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -4768,7 +4774,7 @@ mod tests {
             assert_eq!(m, modifier, "{src}");
             assert!(p.diagnostics.is_empty());
             assert!(p.at_eof());
-            assert!(!p.in_async && !p.in_generator, "contexto restaurado: {src}");
+            assert!(!p.in_async && !p.in_generator, "context restored: {src}");
             match body {
                 FunctionBody::Empty => assert!(!native),
                 FunctionBody::Native(None) => assert!(native),
@@ -4783,8 +4789,8 @@ mod tests {
         let src = "async )";
         let tokens = crate::lexer::lex(src).unwrap();
         let mut p = Parser::new(src, tokens, &mut names);
-        // `ensureBlock` do fasta: corpo ausente vira bloco vazio sintético,
-        // sem consumir o `)`.
+        // fasta's `ensureBlock`: a missing body becomes a synthetic empty block,
+        // without consuming the `)`.
         assert!(matches!(p.parse_function_body(), Ok((_, FunctionBody::Block(_)))));
         assert_eq!(p.diagnostics.len(), 1);
         assert!(p.at_op(crate::token::Op::RParen));
@@ -4813,10 +4819,10 @@ mod tests {
         }
     }
 
-    // -- Dependentes de types/expressions/statements ------------------------
+    // -- Depending on types/expressions/statements -----------------------------
     //
-    // Estes testes panicam com `not yet implemented` enquanto os outros
-    // módulos são stubs; passam quando eles existirem.
+    // These tests panic with `not yet implemented` while the other modules are
+    // stubs; they pass once those exist.
     mod dependents {
         use super::*;
         use crate::ast::{Combinator, Initializer, TypedefKind};
@@ -5026,7 +5032,7 @@ mod tests {
             assert!(f(14).return_type.is_some());
         }
 
-        /// `operator` é identificador embutido: serve de nome de campo.
+        /// `operator` is a built-in identifier: it can be a field name.
         #[test]
         fn field_named_operator() {
             let mut names = Interner::new();
@@ -5166,8 +5172,8 @@ mod tests {
         }
     }
 
-    /// `augment`, `macro class`, `import augment` e `augment library`
-    /// (docs/AUGMENTATIONS.md, experimentos `augmentations`/`macros`).
+    /// `augment`, `macro class`, `import augment` and `augment library`
+    /// (docs/AUGMENTATIONS.md, `augmentations`/`macros` experiments).
     mod augmentations {
         use super::*;
         use crate::features::{Feature, LanguageVersion, LibraryFeatures};
@@ -5195,15 +5201,15 @@ mod tests {
 
         #[test]
         fn augment_is_a_plain_name_without_the_feature() {
-            // Sem `augmentations`/`macros`, `augment` continua identificador:
-            // código 3.6 que o usa como nome não muda de sentido.
+            // Without `augmentations`/`macros`, `augment` stays an identifier: 3.6
+            // code that uses it as a name does not change meaning.
             let mut names = Interner::new();
             let out = com(&[], "var augment = 1; int f() => augment; void augment2() {}", &mut names);
             assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
             assert!(!out.ast.decl(out.unit.declarations[0]).augment);
-            // Nem `augment class` é modificador: o fasta tokeniza `augment`
-            // como identificador e a recuperação de topo relata o par do
-            // analyzer 3.13.4 no `augment` (sondado), sem recurso desligado.
+            // Not even `augment class` is a modifier: fasta tokenizes `augment` as an
+            // identifier and top-level recovery reports the 3.13.4 analyzer's pair at
+            // the `augment` (probed), without a disabled feature.
             let out = com(&[], "augment class C {}", &mut names);
             let mut codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, d.span.start, d.span.end)).collect();
             codigos.sort();
@@ -5219,10 +5225,10 @@ mod tests {
             assert!(out.unit.declarations.iter().all(|&d| !out.ast.decl(d).augment));
         }
 
-        /// Sem o experimento, `augment` antes de uma declaração é nome comum
-        /// e cai na recuperação de topo. Códigos sintáticos e intervalos do
-        /// analyzer 3.13.4 num pacote 3.6 (sondados; `undefined_class` e
-        /// `unused_element` são semânticos e ficam fora).
+        /// Without the experiment, `augment` before a declaration is a plain name
+        /// and falls into top-level recovery. Syntactic codes and ranges of the
+        /// 3.13.4 analyzer in a 3.6 package (probed; `undefined_class` and
+        /// `unused_element` are semantic and left out).
         #[test]
         fn augment_without_the_feature_follows_fasta_recovery() {
             use dartforge_diagnostics::codigos::parser as c;
@@ -5257,7 +5263,7 @@ macro class M implements Macro { const M(); }";
 import 'dart:core' as p;", &mut names);
             assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
             assert!(matches!(out.unit.directives[0].kind, DirectiveKind::AugmentLibrary { .. }));
-            // Sem `macros`: diagnóstico, não erro de sintaxe.
+            // Without `macros`: a diagnostic, not a syntax error.
             let out = com(&[], "macro class M {}", &mut names);
             assert_eq!(out.diagnostics.len(), 1, "{:?}", out.diagnostics);
             assert!(class(&out, 0).modifiers.macro_);
@@ -5265,7 +5271,7 @@ import 'dart:core' as p;", &mut names);
 
         #[test]
         fn text_generated_by_cfe_for_json_codable() {
-            // A augmentation que o CFE 3.6.2 gera para o `@JsonCodable`.
+            // The augmentation the 3.6.2 CFE generates for `@JsonCodable`.
             let mut names = Interner::new();
             let src = "augment library 'main.dart';
 

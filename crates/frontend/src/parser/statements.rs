@@ -1071,7 +1071,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     // -- Lookaheads -------------------------------------------------------
 
-    /// `nome:` no token corrente.
+    /// `name:` at the current token.
     fn at_label(&self) -> bool {
         self.at_identifier() && self.at_op_at(1, Op::Colon)
     }
