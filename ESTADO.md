@@ -4859,7 +4859,7 @@ Frentes desta rodada: as quatro especificações (`docs/ANALYZER-ESPECIFICACAO.m
 | FN do placar | — | **146** (era 2.095 no começo de 2026-10-05) |
 | Projetos reais (`new_sali` core e frontend, `limitless_ui`): diagnósticos sem par no `dart analyze` | 61 | **0** |
 | Lints novos (`E:\dftemp\lints_novos`, 14 regras) | — | 211/211 iguais ao `dart analyze` |
-| Casos s01–s12 do T5 (`corpus/especificacao/t2/t5`) | — | 12/12 iguais |
+| Casos s01–s12 do T5 (`corpus/specification/t2/t5`) | — | 12/12 iguais |
 
 Oráculo do LSP (`crates/lsp/oraculo`, `dart language-server` 3.6.2 contra o `dartforge-lsp`,
 projetos `app`, `args`, `path`, `string_scanner`; rodada `r6` de 2026-10-06, com as reprises por

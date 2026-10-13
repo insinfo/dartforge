@@ -1628,7 +1628,7 @@ impl Verifier<'_, '_> {
                     let typ = self.m.format(t);
                     // The fourth argument only exists for the "private" variant of
                     // 3.13.4 (`constant_verifier.dart` from main, case c29 of
-                    // `corpus/especificacao/t2/v`): the value is from an enum of
+                    // `corpus/specification/t2/v`): the value is from an enum of
                     // another library and what is missing is private. The original
                     // looks at all the witnesses; here, the first one.
                     let private = match self.m.table.get(t) {

@@ -1,6 +1,6 @@
 //! The reference of a unit (docs/ANALYZER-ESPECIFICACAO.md, T2): which
 //! analyzer gives the name and text of the file's diagnostics. The cases are
-//! those of `corpus/especificacao/t2/v`, with the outputs of both live
+//! those of `corpus/specification/t2/v`, with the outputs of both live
 //! oracles. Written without compiling or running (2026-10-05).
 
 use dartforge_frontend::features::{LibraryFeatures, AnalyzerReference};

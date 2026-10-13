@@ -1,6 +1,6 @@
 """Troca, nos documentos de especificação, o caminho antigo dos casos dirigidos
 (pasta temporária fora do repositório) pelo caminho versionado
-`corpus/especificacao`. Rodar da raiz do repositório:
+`corpus/specification`. Rodar da raiz do repositório:
 
     python scripts/cases_path.py
 """
@@ -9,7 +9,7 @@ import io
 
 B = chr(92)
 ANTIGO = 'E:' + B + 'dftemp' + B + 'analise' + B + 'spec-r4' + B + 'casos'
-NOVO = 'corpus' + B + 'especificacao'
+NOVO = 'corpus' + B + 'specification'
 
 total = 0
 for caminho in glob.glob('docs/*.md'):

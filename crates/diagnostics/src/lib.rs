@@ -479,7 +479,7 @@ mod tests {
         assert!(codes::compile_time_error::UNDEFINED_FUNCTION.variants_3_13().is_empty());
     }
 
-    /// Cases c02, c03, c04, c05, c13 and c16 of `corpus/especificacao/t2/v`.
+    /// Cases c02, c03, c04, c05, c13 and c16 of `corpus/specification/t2/v`.
     #[test]
     fn for_reference_switches_name_text_and_arguments() {
         use codes::{compile_time_error as c, parser as p, warning as w};

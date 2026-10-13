@@ -2055,7 +2055,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Some(ty) => ty,
             // With `final`/`var` and the feature on, the form is the declaring one,
             // which accepts no type. With it off (case c23 of
-            // `corpus/especificacao/t2/v`), 3.6.2 reports the missing type at the token
+            // `corpus/specification/t2/v`), 3.6.2 reports the missing type at the token
             // after the `(` and 3.13.4, at the name.
             None if p.final_ || p.var_ => {
                 if !self.features.has(Feature::PrimaryConstructors) {

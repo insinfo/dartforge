@@ -19,7 +19,7 @@ famílias com listas fixas (`E:\dftemp\analise\trab\familia-*.txt`):
 | E parser e scanner (com o `for` de padrão) | §E | 38 | 477 | 5.070 |
 | F nomes e tipos não resolvidos, não usados | §F | 23 | 632 | 5.325 |
 
-Rodada 4: auditoria de completude (§0.A), aprofundamento das famílias E, D e F e complementos de A, B, C (no fim de cada família, em "Rodada 4 — família X"), planos de implementação dos achados transversais (§G), índice por código (§H). Os exemplos "entrada → diagnósticos" da rodada 4 foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --format=json`); os casos ficam em `corpus\especificacao\`.
+Rodada 4: auditoria de completude (§0.A), aprofundamento das famílias E, D e F e complementos de A, B, C (no fim de cada família, em "Rodada 4 — família X"), planos de implementação dos achados transversais (§G), índice por código (§H). Os exemplos "entrada → diagnósticos" da rodada 4 foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --format=json`); os casos ficam em `corpus\specification\`.
 
 Cada código traz: **emissão** (visitante/verificador e método, arquivo:linha,
 fase), **condição exata**, **posição** (nó/token, offset e length), **mensagem**
@@ -1247,7 +1247,7 @@ Complementos da rodada 4 (2026-10-04) para os códigos da família A que a audit
 Completa os códigos da família A que a auditoria da rodada 4 achou sem algum dos seis campos
 (lista `E:\dftemp\analise\spec-r4\tail-A-00.txt`). Fonte: 3.6.2 (`analyzer/lib/src/...`). Exemplos
 rodados no oráculo vivo (`dart analyze --format=json` do 3.6.2), casos em
-`corpus\especificacao\a1\`; cada linha é `código | offset, length | linha:coluna | mensagem`.
+`corpus\specification\a1\`; cada linha é `código | offset, length | linha:coluna | mensagem`.
 
 ##### `type_argument_not_matching_bounds` — complemento (perda 99: FN 97, FP 2)
 - **Supressões e ordem** (tipo nomeado escrito: `TypeArgumentsVerifier._checkForTypeArgumentNotMatchingBounds`,
@@ -1410,7 +1410,7 @@ rodados no oráculo vivo (`dart analyze --format=json` do 3.6.2), casos em
 Completa os códigos da família A que a auditoria da rodada 4 achou sem algum dos seis campos
 (lista `E:\dftemp\analise\spec-r4\tail-A-01.txt`). Fonte: 3.6.2 (`analyzer/lib/src/...`). Os exemplos
 foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --format=json`), casos em
-`corpus\especificacao\a2\`; cada linha de saída é
+`corpus\specification\a2\`; cada linha de saída é
 `código | offset, length | linha:coluna | mensagem`. "Hoje" no DartForge = o que está no disco
 (há trabalho não commitado em `crates/types`).
 
@@ -12450,7 +12450,7 @@ has_type_parameter_reference,has_invalid_type,from_environment_evaluator,constan
 `_fe_analyzer_shared/lib/src/util/dependency_walker.dart`, `analyzer/lib/src/dart/analysis/library_analyzer.dart`,
 `analyzer/lib/src/dart/element/element.dart`, `analyzer/lib/src/summary2/detach_nodes.dart`; linhas conferidas
 nesta sessão. Exemplos rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2`), arquivos em
-`corpus\especificacao\d1\` (`c01`–`c38`, `s01`–`s28`, `t01`–`t20`, `u01`, `v01`–`v04`; saídas
+`corpus\specification\d1\` (`c01`–`c38`, `s01`–`s28`, `t01`–`t20`, `u01`, `v01`–`v04`; saídas
 `out1.txt`…`out4.txt`). Formato dos diagnósticos: `código off=offset len=length linha:coluna | mensagem`;
 `ctx` = mensagem de contexto. Perdas de `E:\dftemp\analise\trab\familia-D.txt`, amostras de `placar-r7.txt`.
 
@@ -14203,7 +14203,7 @@ Fonte: SDK 3.6.2 — `analyzer/lib/src/dart/constant/{constant_verifier,potentia
 `analyzer/lib/src/dart/ast/ast.dart`, `analyzer/lib/src/dart/element/element.dart`, `analyzer/lib/error/listener.dart`,
 `analyzer/lib/src/fasta/error_converter.dart`, `_fe_analyzer_shared/lib/src/{parser/parser_impl,type_inference/type_analyzer,flow_analysis/flow_analysis}.dart`,
 `analyzer/messages.yaml`; linhas conferidas nesta sessão. Exemplos rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2`); arquivos em
-`corpus\especificacao\d2\{a,b,c,e,f,g,h}\` (46 arquivos; `python roda.py <pasta>` reproduz). Formato dos diagnósticos:
+`corpus\specification\d2\{a,b,c,e,f,g,h}\` (46 arquivos; `python roda.py <pasta>` reproduz). Formato dos diagnósticos:
 `código off=offset len=length linha:coluna | mensagem`; `ctx` = mensagem de contexto. Nos exemplos longos a entrada aparece linha a linha
 (`linha: trecho → diagnóstico`); o arquivo inteiro está na pasta de casos. Perdas de `E:\dftemp\analise\trab\familia-D.txt`, amostras de
 `placar-r7.txt`. O motor de avaliação (valor/erro de cada nó, grafo, exceções) é de D.R4-1; aqui entra o que o verificador manda avaliar,
@@ -16118,7 +16118,7 @@ Aprofundamento da rodada 4 (2026-10-04): algoritmo de recuperação do scanner e
 
 Fonte: `E:\references\dart-sdk-3.6.2\pkg`, citada como `fe:` = `_fe_analyzer_shared/lib/src/` e
 `an:` = `analyzer/lib/src/` (linhas do 3.6.2 conferidas nesta rodada). Exemplos rodados no oráculo
-vivo (`C:\tools\dartsdk-3.6.2`), arquivos em `corpus\especificacao\e1\` (`gen.py` gera e roda;
+vivo (`C:\tools\dartsdk-3.6.2`), arquivos em `corpus\specification\e1\` (`gen.py` gera e roda;
 `saida.txt` tem a saída bruta; o nome `aNN`/`bNN`/`cNN` de cada exemplo é o do arquivo). Perdas de
 `familia-E.txt` (placar `r7`). Esta parte aprofunda e corrige o T3 e o §SCANNER da família E (rodada 3).
 
@@ -17213,7 +17213,7 @@ Ordem de implementação sugerida pelos dados: (1) lexer que não aborta, devolv
 Fonte: SDK 3.6.2 em `E:\references\dart-sdk-3.6.2\pkg`. Abreviações das citações: `fe:` =
 `_fe_analyzer_shared/lib/src/`, `an:` = `analyzer/lib/src/`. Todos os números de linha foram
 conferidos nesta sessão. Exemplos: rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2`), arquivos em
-`corpus\especificacao\e2\` (o nome do arquivo vai entre colchetes; `off`/`len` em
+`corpus\specification\e2\` (o nome do arquivo vai entre colchetes; `off`/`len` em
 unidades UTF-16, `l:c` a partir de 1). Perdas: `familia-E.txt`; amostras: `placar-r7.txt`.
 
 Correções ao texto existente da família E (§E, rodada 3):
@@ -18354,7 +18354,7 @@ main/3.14 (`E:\references\dart-sdk`) está marcado **[main]** e serve só para o
 pelo 3.13.4; quando há, cito o **oráculo gravado** (`corpus/diagnosticos/<grupo>/oracle.jsonl`,
 saída do 3.13.4) porque não há binário 3.13.4 nesta máquina. Todo exemplo "entrada → diagnósticos"
 foi rodado no oráculo vivo 3.6.2 (`C:\tools\dartsdk-3.6.2`, casos em
-`corpus\especificacao\e3\{a,b,c}\`); formato das saídas: `código · offset+length ·
+`corpus\specification\e3\{a,b,c}\`); formato das saídas: `código · offset+length ·
 linha:coluna · mensagem`. Perdas de `familia-E.txt`, amostras de `placar-r7.txt`.
 
 Correções ao texto existente da família E (§E, r3-e), detalhadas nos códigos:
@@ -19456,7 +19456,7 @@ gerado; `this` não abre membro: `d31`). É do `ErrorVerifier` posterior ([main]
 
 Saída integral do `dart analyze --format=json` de cada arquivo (todos os diagnósticos, ordenados por
 offset; `⏎` = quebra de linha na entrada). Os arquivos estão em
-`corpus\especificacao\e3\{a,b,c}\<caso>.dart`; `res-a.txt`, `res-b.txt`, `res-c.txt` trazem
+`corpus\specification\e3\{a,b,c}\<caso>.dart`; `res-a.txt`, `res-b.txt`, `res-c.txt` trazem
 os 338 casos rodados (os citados no texto que não estão na tabela estão lá). Leitura das cascatas:
 - `c05`: `+` solto → operador sem `operator` → sem parâmetros → sem corpo; o
   `wrong_number_of_parameters_for_operator` é do verificador sobre a árvore recuperada.
@@ -19588,7 +19588,7 @@ linha conferida no arquivo: `pi:N` = `_fe_analyzer_shared/lib/src/parser/parser_
 `ic:N` = `_fe_analyzer_shared/lib/src/parser/identifier_context_impl.dart:N`; `fe:` e `an:` como em §E.
 Números de perda: `E:\dftemp\analise\trab\familia-E.txt`; amostras: `placar-r7.txt`. Todos os exemplos
 "entrada → diagnósticos" foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2`, casos em
-`corpus\especificacao\e4\`, saídas `saida.txt`, `saida2.txt`, `saida3.txt`, `saida4.txt`); o formato é
+`corpus\specification\e4\`, saídas `saida.txt`, `saida2.txt`, `saida3.txt`, `saida4.txt`); o formato é
 `codigo @offset len N (linha:coluna) mensagem`. Diagnósticos semânticos que acompanham (`unused_local_variable`,
 `dead_code`, `undefined_identifier`…) aparecem só quando ajudam a entender a árvore que o parser entregou.
 
@@ -21469,7 +21469,7 @@ Aprofundamento da rodada 4 (2026-10-04): escopos e `NamedTypeResolver` (F.R4-1) 
 
 Fonte: analyzer 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\analyzer\lib`), linhas conferidas nesta rodada.
 Exemplos: todos rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart.exe analyze --format=json`),
-arquivos em `corpus\especificacao\f1\` (nome do arquivo no título de cada exemplo; saídas
+arquivos em `corpus\specification\f1\` (nome do arquivo no título de cada exemplo; saídas
 integrais em `saida-tudo.txt` e `saida-b2.txt` da mesma pasta). Notação dos diagnósticos:
 `codigo | offset+length | linha:coluna | mensagem`. Nas mensagens com URI, `<f1>` abrevia
 `file:///E:/dftemp/analise/spec-r4/casos/f1`. Complementa e corrige §F (linhas 5561–5923); as
@@ -22034,7 +22034,7 @@ class D extends p.Undef {}
 
 #### F.R4-1.9 Casos rodados no oráculo vivo 3.6.2
 
-Transcrição das saídas de `corpus\especificacao\f1\saida-tudo.txt` e `saida-b2.txt`
+Transcrição das saídas de `corpus\specification\f1\saida-tudo.txt` e `saida-b2.txt`
 (`dart analyze --format=json` da pasta inteira, agrupado por arquivo). Formato de cada linha:
 `código | offset+length | linha:coluna | mensagem`. Nas mensagens, o caminho da pasta dos casos foi
 trocado por `<raiz>`. Arquivos sem nenhum diagnóstico não aparecem. Os casos de vários arquivos
@@ -23696,7 +23696,7 @@ undefined_identifier | 177+2 | 19:5 | Undefined name 'zz'.
 Fonte: `analyzer/lib/src/error/unused_local_elements_verifier.dart` (1.190 linhas, lido inteiro),
 `analyzer/lib/src/error/imports_verifier.dart` (412 linhas) e o rastreamento de imports em
 `analyzer/lib/src/dart/element/scope.dart:119-262`. Os casos foram rodados no oráculo vivo 3.6.2 e estão
-em `corpus\especificacao\f2\`; as saídas estão transcritas na seção F.R4-2.6. Os seis campos
+em `corpus\specification\f2\`; as saídas estão transcritas na seção F.R4-2.6. Os seis campos
 de cada código já estão em §F (rodada 3); aqui está o algoritmo que eles resumem, e as correções.
 
 #### F.R4-2.1 A coleta de usos (`GatherUsedLocalElementsVisitor`, `:25-490`)
@@ -26428,7 +26428,7 @@ Um plano por achado do §0 (T1–T8): comportamento oficial preciso, estado atua
 
 #### T1 — Plano de implementação detalhado
 
-Os casos desta seção estão em `corpus\especificacao\t1\` (`c01.dart`…`c22.dart`) e a saída do
+Os casos desta seção estão em `corpus\specification\t1\` (`c01.dart`…`c22.dart`) e a saída do
 oráculo vivo 3.6.2 em `oraculo-out.txt`, na mesma pasta. **Corrige o §0 T1:** a regra não é "a primeira
 declaração vence" em tudo. São quatro mecanismos distintos, com vencedores diferentes; o resumo do §0
 junta os quatro num só e erra em dois.
@@ -26791,7 +26791,7 @@ Cada caso vira um teste em `crates/parity/tests/` no molde da sonda
 
 #### T4 — Plano de implementação detalhado
 
-Casos em `corpus\especificacao\t4\` (`a.dart`…`d.dart`), saída do oráculo vivo 3.6.2 em
+Casos em `corpus\specification\t4\` (`a.dart`…`d.dart`), saída do oráculo vivo 3.6.2 em
 `oraculo-out.txt` na mesma pasta. O levantamento dos pontos da fonte foi feito por script
 (`E:\dftemp\analise\spec-r4\final\inv.py`, 129 ocorrências fora de `type.dart`).
 
@@ -27279,7 +27279,7 @@ declaração pública nas 66 leituras de `outline.functions`, e o LSP.
 
 ##### T3.5 Casos de teste dirigidos (oráculo vivo 3.6.2)
 
-Rodados em `corpus\especificacao\t3x\` com `dart analyze --format=json`.
+Rodados em `corpus\specification\t3x\` com `dart analyze --format=json`.
 
 1. Construtores `external const factory` do `dart:core` em contexto const — **sem diagnóstico**:
    ```dart
@@ -27381,7 +27381,7 @@ Fontes desta subseção: `E:\references\dart-sdk-3.6.2\pkg` (3.6.2, citado como 
 sempre como "main"), oráculo vivo 3.6.2 (`C:\tools\dartsdk-3.6.2`) e oráculo vivo **3.13.4**
 (`E:\DartSDKs\3.13.4\dart-sdk`, só o binário; não há fonte 3.13.4 na máquina). Onde o texto diz
 "main", o fato foi lido na fonte 3.14 e **não** vale como fato do 3.13.4 a menos que venha marcado
-"vivo 3.13.4" (rodado nos casos de `corpus\especificacao\t2\v`, pacote com
+"vivo 3.13.4" (rodado nos casos de `corpus\specification\t2\v`, pacote com
 `languageVersion` 3.6, como os grupos do corpus).
 
 Corrige §0/T2 e §E: (a) `versao_do_null_aware_no_3_6` e `exigir_versao`, citados em §E como "já
@@ -27873,8 +27873,8 @@ gerador do catálogo foi executado (compilado sozinho com `rustc`, porque não d
 os casos novos foram rodados nos dois oráculos vivos.
 
 - **Casos dirigidos no repositório.** A pasta dos casos saiu de `E:\dftemp` e está em
-  `corpus\especificacao` (script `scripts/cases_path.py` trocou as citações deste documento).
-- **Casos novos, c24 a c30** (`corpus\especificacao\t2\v`, rodados no 3.6.2 e no 3.13.4), que fecham
+  `corpus\specification` (script `scripts/cases_path.py` trocou as citações deste documento).
+- **Casos novos, c24 a c30** (`corpus\specification\t2\v`, rodados no 3.6.2 e no 3.13.4), que fecham
   pontos "não verificado" de 1.2 e 1.3:
   - c24: `non_exhaustive_switch_statement` mudou como o de expressão (`isn't exhaustively matched …
     the pattern 'E.b'`; a correção `Try adding a default case or cases that match 'E.b'.` não mudou).
@@ -27932,7 +27932,7 @@ os casos novos foram rodados nos dois oráculos vivos.
 Fontes: `analyzer/lib/src/dart/analysis/library_analyzer.dart` (3.6.2, lido inteiro, 1.132 linhas),
 `analyzer/lib/error/listener.dart`, `analyzer/lib/error/error.dart`,
 `analyzer/lib/src/ignore_comments/ignore_info.dart`, `analysis_server/lib/src/protocol_server.dart`;
-oráculo vivo 3.6.2 nos casos de `corpus\especificacao\t2\t5` (pacote 3.6, sem
+oráculo vivo 3.6.2 nos casos de `corpus\specification\t2\t5` (pacote 3.6, sem
 `analysis_options.yaml` — os grupos do corpus também não têm nenhum: `find corpus/diagnosticos
 -maxdepth 2 -name analysis_options.yaml` não acha nada). A ordenação da saída do `dart analyze` é do
 `dartdev`, que **não** está na cópia 3.6.2; o trecho citado é de `E:\references\dart-sdk` (main) e a
@@ -28531,7 +28531,7 @@ dos TODOs do `dart analyze` (`analyze.dart:191-192`) e a junção das extensões
 Fontes (3.6.2): `analyzer/lib/error/listener.dart` (lido inteiro),
 `analyzer/lib/src/dart/element/display_string_builder.dart` (lido inteiro, 611 linhas),
 `analyzer/lib/src/dart/element/type.dart`, `analyzer/lib/src/dart/element/element.dart`; oráculo vivo
-3.6.2 nos casos de `corpus\especificacao\t2\t7` (pacote 3.6).
+3.6.2 nos casos de `corpus\specification\t2\t7` (pacote 3.6).
 
 Corrige §0/T7: (a) a regra "argumento `String` → sem alias (`format_sem_alias`)" não é uma regra do
 `ErrorReporter` — uma `String` passa **como veio**; `format_sem_alias` só reproduz o caso em que o
@@ -28870,7 +28870,7 @@ void f(a.C x, List<a.C> y, void Function(a.C) z, a.G<C> w) {
   print([c1, c2, c3, c4, c5]);
 }
 ```
-(`<t7>` = `corpus\especificacao\t2\t7`, com as barras nativas)
+(`<t7>` = `corpus\specification\t2\t7`, com as barras nativas)
 - 111 1 6:10 | `C (where C is defined in <t7>\apoio\a.dart)` → `C (where C is defined in <t7>\p04_homonimos.dart)`
 - 129 1 7:16 | `List<C> (where C is defined in <t7>\apoio\a.dart)` → `List<C> (where C is defined in <t7>\p04_homonimos.dart)`
 - 156 1 8:25 | `void Function(C) (where C is defined in <t7>\apoio\a.dart)` → `void Function(C) (where C is defined in <t7>\p04_homonimos.dart)`
@@ -29100,7 +29100,7 @@ Fonte oficial (3.6.2, linhas conferidas nesta sessão): `_fe_analyzer_shared/lib
 `analyzer/lib/src/dart/ast/ast.dart`, `analyzer/lib/src/dart/resolver/{shared_type_analyzer,flow_analysis_visitor,list_pattern_resolver}.dart`,
 `analyzer/lib/src/dart/constant/constant_verifier.dart`, `analyzer/lib/src/error/best_practices_verifier.dart`,
 `analyzer/lib/src/dart/element/{type_system,type}.dart`. Casos rodados no oráculo vivo em
-`corpus\especificacao\t3\` (`a01`–`a18`, `b01`–`b04`). O §B Apêndice A (estado e regras por padrão) e o
+`corpus\specification\t3\` (`a01`–`a18`, `b01`–`b04`). O §B Apêndice A (estado e regras por padrão) e o
 Apêndice B (onde o trecho morto começa e termina) valem; aqui só o que eles não dizem, as correções e o plano.
 
 ##### T6.1 Comportamento oficial preciso (complemento do Apêndice A)
@@ -29363,7 +29363,7 @@ Dependências: 1 e 2 antes de 3; 3 antes de 4, 5 e 9; 7 depende de 4; 8 depende 
 
 ##### T6.5 Casos de teste dirigidos
 
-Os 22 arquivos de `corpus\especificacao\t3\` (`a01`…`a18`, `b01`…`b04`), com a saída do
+Os 22 arquivos de `corpus\specification\t3\` (`a01`…`a18`, `b01`…`b04`), com a saída do
 oráculo vivo 3.6.2 em `oraculo-out.txt` na mesma pasta (166 diagnósticos). O que cada um fixa, pelos
 códigos que saem:
 
@@ -29411,7 +29411,7 @@ emitido dentro de um ramo de `switch`/`if-case` cujo tipo depende da promoção 
 * O passo 4 muda o tipo visto por **todo** corpo com `switch` ou `if-case`: é o de maior risco de
   regressão nos projetos reais. Fazer atrás de uma chave interna do `BodyInferrer` e comparar, no
   `new_sali` e nos pacotes do pub-cache, o tipo de cada expressão com a chave ligada e desligada contra
-  o oráculo de tipos (`tools/oraculo_tipos`); só inverter o padrão quando o número de divergências não
+  o oráculo de tipos (`tools/type_oracle`); só inverter o padrão quando o número de divergências não
   subir.
 * O emissor JS e o nativo consomem os tipos promovidos (chamadas diretas, `as` omitidos). Conferir o
   corpus diferencial depois do passo 4.
@@ -29525,7 +29525,7 @@ Invariantes:
 
 ##### T8.4 Casos de teste dirigidos
 
-Os da parte D.R4-1 já rodados no oráculo vivo, em `corpus\especificacao\d1\`: ciclo de três
+Os da parte D.R4-1 já rodados no oráculo vivo, em `corpus\specification\d1\`: ciclo de três
 variáveis com um dependente limpo (`c02`), auto-referência direta (`t01`, `s23`), o falso ciclo por
 ordem de declaração (`c27`) e o mesmo código em outra ordem sem o falso ciclo (`s28`), enum com
 `values` no argumento (`s19`), e os exemplos de `recursive_compile_time_constant` e

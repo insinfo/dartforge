@@ -48,4 +48,4 @@ runtime/ddc/*/
 /bench/simd/pubspec.lock
 __pycache__/
 # casos dirigidos das especificações: o package_config do pub get tem caminhos da máquina
-/corpus/especificacao/**/.dart_tool/
+/corpus/specification/**/.dart_tool/

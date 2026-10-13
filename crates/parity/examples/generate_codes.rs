@@ -286,7 +286,7 @@ const SUPPLEMENT_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
     ),
     // The 3.13.4 shapes of codes 6.11 already has (T2 §1.3 (a) and (b)): the targets of
     // `VARIANTS_3_13`. The `_3_13` suffix only distinguishes the unique name; the reported
-    // name is the next column. Texts from the live 3.13.4 oracle (cases `corpus/especificacao/t2/v`).
+    // name is the next column. Texts from the live 3.13.4 oracle (cases `corpus/specification/t2/v`).
     (
         "WarningCode",
         "warning",
