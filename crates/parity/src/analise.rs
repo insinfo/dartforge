@@ -511,7 +511,7 @@ impl Motor {
                     cru.message = msg.to_string();
                     let sintatico = cru.code.is_none_or(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError);
                     if sintatico {
-                        analise.por(k, bridge::codificar_sintaxe(&cru), fase::PARSER);
+                        analise.por(k, bridge::encode_syntax(&cru), fase::PARSER);
                         analise.arquivos.get_mut(k).expect("próprio").sintaticos += 1;
                     } else {
                         da_carga_semanticos.push((k.clone(), cru));
@@ -1148,12 +1148,12 @@ impl Motor {
             // Os códigos de constantes vêm de `types::constantes`; o que a
             // inferência emite deles (sem código) fica de fora.
             if d.code.is_none() {
-                let cod = bridge::codificar_tipos(d, trecho);
+                let cod = bridge::encode_types(d, trecho);
                 if cod.code.is_some_and(|c| dartforge_types::constantes::CODIGOS.contains(&c.info().nome)) {
                     continue;
                 }
             }
-            let cod = bridge::codificar_tipos(d, trecho);
+            let cod = bridge::encode_types(d, trecho);
             // A validade de uma anotação depende do SDK (`@Deprecated.optional()`
             // só existe depois do 3.6.2): numa biblioteca julgada pelo 3.13.4,
             // o nosso SDK 3.6.2 não decide.
