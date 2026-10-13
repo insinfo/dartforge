@@ -295,7 +295,7 @@ outros builds rodando. Os números são os mínimos por medida, em µs:
 No programa grande o padrão é o tamanho. Uma decisão do dono, depois da medida: 33 min e 94 MB
 eram inaceitáveis. O preço está na §5.1. Para voltar ao código em linha:
 `DARTFORGE_CAMPOS_POR_CHAMADA=0` e `DARTFORGE_AJUDANTES_FORA=` (vazio). Também dá para escolher
-os ajudantes um a um (`DARTFORGE_AJUDANTES_FORA=alocar,barreira`).
+os ajudantes um a um (`DARTFORGE_AJUDANTES_FORA=allocate,barrier`).
 
 Achado no caminho: com as partes do programa em ThinLTO e o SDK em LTO completa, a divisão do
 módulo do SDK em partições (`/opt:lldltopartitions`) promove o `@df.area_id` interno de um

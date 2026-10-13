@@ -270,3 +270,44 @@ outras já em inglês ficam.
 | `dartforge-dev`: testes `custo_zero`, `plato`; exemplos `medir`, `medir_geracao` | `zero_cost`, `plateau`; `measure`, `measure_generation` (a linha `média … ms/edição` que o `custo-zero.ps1` lê fica) |
 | `lsp::especies_g::ESPECIES` (gerado por `scripts/gerar-especies-de-acao.py`) | `lsp::action_kinds_g::KINDS` |
 | método de teste `dartforge/dormir`, sentinela `dartforge__completar`, arquivo sintético `.dartforge_conhecidos.dart` | `dartforge/sleep`, `dartforge__complete`, `.dartforge_known.dart` |
+
+## Crates nativos e ABI do runtime (fase 3b-3)
+
+Os símbolos da ABI mudaram de nome sem aliases: o cache do SDK compilado é chaveado pelo
+hash das fontes do emissor e do runtime (e dos catálogos), então objetos antigos não são
+reaproveitados. As versões (`_v1`) ficam.
+
+| antes | depois |
+|---|---|
+| `crates/runtime/efeitos.tsv` (`nome coleta lanca roda_dart`) | `crates/runtime/effects.tsv` (`name collects throws runs_dart`); as marcas não mudaram |
+| `ownership.tsv`: `vetor:native`, `tabela:native` | `vector:native`, `table:native` |
+| `dartforge_runtime::{simbolos::{NOMES, FRAGMENTOS, tabela}, efeitos::EFEITOS}` | `dartforge_runtime::{symbols::{NAMES, FRAGMENTS, table}, effects::EFFECTS}` |
+| `ownership::{Contrato, CONTRATOS, ModoParametro, ModoResultado, contrato}` (`nome`, `parametros`, `resultado`, `retencao_persistente`, `invalida_borrows`, `pode_falhar`, `chama_dart`) | `ownership::{Contract, CONTRACTS, ParamMode, ResultMode, contract}` (`name`, `parameters`, `result`, `persistent_retention`, `invalidates_borrows`, `may_fail`, `calls_dart`) |
+| `dartforge_nativo_<Nome>` | `dartforge_native_<Name>` (os nomes da VM, como `Double_add`, ficam) |
+| `DartForge_<x>` (natives da sobreposição `native_sdk/`) | tradução direta: `DartForge_porta_enviar` → `DartForge_port_send`, `DartForge_ffi_gravar_*` → `DartForge_ffi_store_*`, `DartForge_ffi_carregar_*` → `DartForge_ffi_load_*` |
+| sobreposição `dartforge_nativo` (`native_sdk/libraries.json`) | `dartforge_native` |
+| `dartforge_arc_quadro_*`, `dartforge_arc_lista_*`, `dartforge_arc_gravar_campo_*`, `dartforge_arc_ler_campo_*` | `dartforge_arc_frame_*`, `dartforge_arc_list_*`, `dartforge_arc_write_field_*`, `dartforge_arc_read_field_*` |
+| `dartforge_arc_escopo_nativo_{abrir,fechar}_v1` | `dartforge_arc_native_scope_{open,close}_v1` |
+| `dartforge_texto_*`, `df.texto_*` | `dartforge_string_*`, `df.string_*` (`dartforge_texto_novo` → `dartforge_string_allocate`) |
+| `dartforge_record_novo` | `dartforge_record_from_refs` |
+| `dartforge_rastro_{entrar,sair,texto}` / `dartforge_rastro_{entrada,saida}` | `dartforge_stack_trace_{enter,exit,string}` / `dartforge_call_trace_{entry,exit}` |
+| `dartforge_personalidade[_cleanup_itanium]`, `dartforge_objeto_de_desenrolamento` | `dartforge_personality[_cleanup_itanium]`, `dartforge_unwind_object` |
+| `dartforge_contexto`, `dartforge_ponto_seguro`, `dartforge_laco_de_eventos` | `dartforge_context`, `dartforge_safepoint`, `dartforge_event_loop` |
+| `df.manter_vivo`, `df.contexto`, `df.tipada_*`, `df.nucleo_*`, `df.caixa_*`, `df.desencaixa_*` | `df.keep_alive`, `df.context`, `df.typed_*`, `df.core_*`, `df.box_*`, `df.unbox_*` |
+| `df.classe`, `df.corpo`, `df.barreira[_elemento]`, `df.filho_jovem`, `df.e_objeto`, `df.nova_instancia` | `df.class`, `df.body`, `df.barrier`/`df.element_barrier`, `df.young_child`, `df.is_object`, `df.new_instance` |
+| `df.registrar.*`, `df.$registro.*`, `df.$tipo.*`, `; df.classe`, `; df.campos` | `df.register.*`, `df.$record.*`, `df.$type.*`, `; df.class`, `; df.fields` |
+| sufixos `$novo`, `$primario`, `$quadro`, `$indice`; parâmetros `$tipos`, `$tipos_de_fora` | `$new`, `$primary`, `$frame`, `$index`; `$types`, `$outer_types` |
+| `runtime/src/{textos, tipadas, tabela_rti, ffi_api_nativa, io_observador, io_windows_eventos}.rs` | `{text, typed_lists, rti_table, ffi_native_api, io_watcher, io_windows_events}.rs` |
+| `textos::{Texto, TextoRef::{Um, Dois}}`, `layout::{desl, estado}` | `text::{Text, TextRef::{OneByte, TwoByte}}`, `layout::{offsets, state}` |
+| `layout::CAMPOS_EM_LINHA`, `DESLOCAMENTO_DO_HANDLE`, `flags::{FORA, FORMA, BRUTO, INSTANCIA, CARTOES}` | `INLINE_FIELDS`, `HANDLE_OFFSET`, `flags::{OUT_OF_LINE, FORMAT, RAW, INSTANCE, CARDS}` |
+| `heap::EstadoDoArc`, `Heap::coletar` | `ArcHeapState`, `Heap::run_collection` |
+| `emit_native/src/{alvo, gerador, ligador, ligador_macos, ligador_windows, resumo, sdk_modulo}.rs` | `{target, generator, linker, linker_macos, linker_windows, summary, sdk_module}.rs` |
+| `alvo::{Sistema, sistema}`, `gerador::Cpu::do_nome`, `resumo::ResumoIr::de` | `target::{Os, target_os}`, `generator::Cpu::from_name`, `summary::IrSummary::of` |
+| `compilar`, `emitir_ir`, `construtos_do_erro`, `objeto_do_cache`, `sdk_do_dart` | `compile`, `emit_ir`, `error_constructs`, `cache_object`, `dart_sdk` |
+| `CompileOptions { versao_linguagem, experimentos, depuracao, gerador }` | `CompileOptions { language_version, experiments, debug, generator }` |
+| mensagens `erro de compilação`, `não suportado no backend nativo: …`, `bug do compilador` | `compile error`, `not supported by the native backend: …`, `compiler bug` (o `differential` casa os novos textos) |
+| guarda de layout ARC: `layout escalar ARC incompatível`, `classe/tamanho fora dos layouts Ref` | `incompatible ARC scalar layout`, `class/size outside the Ref layouts` (lidas por `scripts/provar-arc-aot.py`) |
+| `cli/src/empacotar.rs` (o subcomando `empacotar` fica) | `cli/src/pack.rs` |
+| testes da CLI `memoria_cli`, `reload_estado`, `jit_programa`, `io_regressao`, `mapas_dirigidos`, `depuracao` | `memory_cli`, `reload_state`, `jit_program`, `io_regression`, `directed_maps`, `debugging` |
+| testes do emit_native `contrato`, `depuracao`; binário `diferencial` | `contract`, `debugging`; `differential` |
+| exemplos `arc_alocacao_campos`, `arc_campos_locais`, `arc_cleanup_laco`, `arc_instancia_zerada`, `arc_keepalive_campos`, `arc_porta_nativa_owned`, `arc_retorno_da_fonte`, `arc_retornos_guardados`, `arc_unwind_estrangeiro`… | `arc_field_allocation`, `arc_local_fields`, `arc_loop_cleanup`, `arc_zeroed_instance`, `arc_field_keepalive`, `arc_native_port_owned`, `arc_source_return`, `arc_guarded_returns`, `arc_foreign_unwind`… (os diretórios `target/prova-*` do `provar-arc-aot.py` ficam) |
