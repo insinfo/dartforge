@@ -1,23 +1,24 @@
-//! Despacho do protocolo: um [`Server`] dono de tudo, passado por `&mut`.
+//! Protocol dispatch: a [`Server`] that owns everything, passed by `&mut`.
 //!
-//! O desenho copia o do rust-analyzer (`main_loop.rs`, `op_queue.rs`,
-//! `global_state.rs`, `mem_docs.rs`): os documentos em memória são versionados
-//! e têm dono explícito ([`crate::DocumentStore`]); as mensagens que chegam
-//! do `stdin` esperam numa fila; `$/cancelRequest` cancela a requisição ainda
-//! na fila com `RequestCancelled`, e a que está em execução checa a
-//! cancelamento em pontos seguros.
+//! The design copies rust-analyzer's (`main_loop.rs`, `op_queue.rs`,
+//! `global_state.rs`, `mem_docs.rs`): in-memory documents are versioned and
+//! have an explicit owner ([`crate::DocumentStore`]); messages arriving from
+//! `stdin` wait in a queue; `$/cancelRequest` cancels a request still in the
+//! queue with `RequestCancelled`, and the one being executed checks for
+//! cancellation at safe points.
 //!
-//! A fila vive **dentro** do servidor (não num canal externo), para que o
-//! cancelamento seja determinístico: cada [`Server::pump`] primeiro
-//! extrai e aplica *todos* os `$/cancelRequest` da fila — estejam eles antes
-//! ou depois da requisição alvo — e só então executa uma requisição. Sem
-//! isso, o cancelamento dependeria de a thread leitora ser mais rápida que o
-//! despacho, que é condição de corrida, não protocolo.
+//! The queue lives **inside** the server (not in an external channel), so
+//! that cancellation is deterministic: each [`Server::pump`] first extracts
+//! and applies *all* the `$/cancelRequest`s of the queue — whether they come
+//! before or after the target request — and only then executes a request.
+//! Without that, cancellation would depend on the reader thread being faster
+//! than the dispatcher, which is a race condition, not protocol.
 //!
-//! Nada aqui cresce com o número de mensagens: o conjunto de cancelamentos
-//! só guarda ids de requisições ainda na fila (cancelar id desconhecido é
-//! descartado), e é limpo ao responder; nenhum histórico de versões, nenhum
-//! log em memória. Por documento, o único estado é o do [`crate::DocumentStore`].
+//! Nothing here grows with the number of messages: the cancellation set only
+//! keeps ids of requests still in the queue (cancelling an unknown id is
+//! discarded), and is cleared on responding; no version history, no
+//! in-memory log. Per document, the only state is that of the
+//! [`crate::DocumentStore`].
 //!
 //! ```
 //! use dartforge_lsp::Server;
@@ -33,12 +34,12 @@ use crate::{Analyzer, SyntacticAnalyzer, DocumentStore, ContentChange, Position}
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
 
-/// Capacidade anunciada de sincronização: incremental (1 = full, 2 = incremental).
+/// Announced synchronization capability: incremental (1 = full, 2 = incremental).
 const SYNC_INCREMENTAL: u32 = 2;
-/// `severity` LSP para todo diagnóstico sintático.
+/// LSP `severity` for every syntactic diagnostic.
 const SEVERITY_ERROR: u32 = 1;
 
-/// `DiagnosticSeverity` do LSP para a severidade do analyzer (1 erro, 2 aviso, 3 informação).
+/// LSP `DiagnosticSeverity` for the analyzer's severity (1 error, 2 warning, 3 information).
 fn severity(s: dartforge_diagnostics::Severidade) -> u32 {
     match s {
         dartforge_diagnostics::Severidade::Error => SEVERITY_ERROR,
@@ -47,22 +48,22 @@ fn severity(s: dartforge_diagnostics::Severidade) -> u32 {
     }
 }
 
-/// A mensagem como o servidor do Dart a mostra: o problema e, se houver, a correção.
+/// The message as the Dart server shows it: the problem and, if any, the correction.
 fn message(d: &dartforge_diagnostics::Diagnostic) -> String {
     match d.correcao() {
         Some(c) => format!("{}\n{c}", d.message),
         None => d.message.clone(),
     }
 }
-/// Origem publicada em cada diagnóstico.
+/// Source published on every diagnostic.
 const SOURCE: &str = "dartforge";
 
-/// Códigos de erro JSON-RPC/LSP usados nas respostas.
+/// JSON-RPC/LSP error codes used in the responses.
 const REQUEST_CANCELLED: i32 = -32800;
 const METHOD_NOT_FOUND: i32 = -32601;
 const INVALID_REQUEST: i32 = -32600;
 const SERVER_NOT_INITIALIZED: i32 = -32002;
-/// Os erros do servidor do Dart usados pelos comandos
+/// The Dart server errors used by the commands
 /// (`AS:src/lsp/constants.dart:273-312`).
 const ERROR_NOT_HANDLED: i32 = -32001;
 const UNKNOWN_COMMAND: i32 = -32005;
@@ -71,8 +72,8 @@ const FILE_NOT_ANALYZED: i32 = -32007;
 const FILE_WITH_ERRORS: i32 = -32008;
 const CLIENT_NOT_APPLIED: i32 = -32009;
 const FEATURE_DISABLED: i32 = -32012;
-/// Os comandos de `workspace/executeCommand`, na ordem do Dart
-/// (`constants.dart:99-111` e `refactoring_processor.dart:20-28`).
+/// The `workspace/executeCommand` commands, in Dart's order
+/// (`constants.dart:99-111` and `refactoring_processor.dart:20-28`).
 const COMMANDS: &[&str] = &[
     "dart.edit.sortMembers",
     "dart.edit.organizeImports",
@@ -88,7 +89,7 @@ const COMMANDS: &[&str] = &[
     "dart.refactor.move_selected_formal_parameters_left",
     "dart.refactor.move_top_level_to_file",
 ];
-/// Os `RefactoringKind` que o construtor do protocolo aceita
+/// The `RefactoringKind`s the protocol constructor accepts
 /// (`protocol_common.dart:3702-3724`).
 const REFACTORING_TYPES: &[&str] = &[
     "CONVERT_GETTER_TO_METHOD",
@@ -105,241 +106,240 @@ const REFACTORING_TYPES: &[&str] = &[
 const COMPUTATION_FAILURE: i32 = -32014;
 /// `ContentModified`.
 const MODIFIED_CONTENT: i32 = -32801;
-/// As ações de fonte de `codeAction`, na ordem do Dart: título, espécie e
-/// comando.
+/// The `codeAction` source actions, in Dart's order: title, kind and command.
 const SOURCE_ACTIONS: &[(&str, &str, &str)] = &[
     ("Sort Members", "source.sortMembers", "dart.edit.sortMembers"),
     ("Organize Imports", "source.organizeImports", "dart.edit.organizeImports"),
     ("Fix All", "source.fixAll", "dart.edit.fixAll"),
 ];
-/// Renomear recusado (nome inválido, elemento externo, conflito): o mesmo
-/// código do servidor do Dart (`ServerErrorCodes.RenameNotValid`).
+/// Rename refused (invalid name, external element, conflict): the same code
+/// as the Dart server (`ServerErrorCodes.RenameNotValid`).
 const RENAME_INVALID: i32 = -32010;
 
-/// Teto do conjunto de cancelamentos: defesa contra cliente que cancela ids
-/// inexistentes em volume. Acima do teto, o conjunto é esvaziado — o pior
-/// caso é uma requisição cancelável executar mesmo assim, nunca retenção.
+/// Ceiling of the cancellation set: a defense against a client that cancels
+/// nonexistent ids in bulk. Above the ceiling, the set is emptied — the
+/// worst case is a cancellable request running anyway, never retention.
 const MAX_CANCELLATIONS: usize = 4096;
 
-/// Gancho de teste: `dartforge/sleep` com `{"ms": N}` dorme em fatias de
-/// 10 ms checando cancelamento, para o teste de aceite exercitar as duas
-/// formas de cancelamento (na fila e em execução) sem depender de análise
-/// lenta. Clientes reais nunca enviam este método.
+/// Test hook: `dartforge/sleep` with `{"ms": N}` sleeps in 10 ms slices
+/// checking for cancellation, so the acceptance test can exercise both forms
+/// of cancellation (queued and running) without depending on a slow
+/// analysis. Real clients never send this method.
 const SLEEP_METHOD: &str = "dartforge/dormir";
 
-/// O texto de um arquivo do disco e a tabela de linhas dele.
+/// The text of a file on disk and its line table.
 type TextWithLines = std::sync::Arc<(String, crate::utf16::LineTable)>;
 
-/// Estado global do servidor: dono dos documentos, da fila e dos cancelamentos.
+/// Global server state: owner of the documents, the queue and the cancellations.
 ///
-/// Parametrizado pelo [`Analyzer`] para que a semântica entre sem tocar no
-/// transporte. Nada de `Rc<RefCell<…>>`: o despacho recebe `&mut self`.
+/// Parameterized by the [`Analyzer`] so that semantics come in without
+/// touching the transport. No `Rc<RefCell<…>>`: the dispatcher receives
+/// `&mut self`.
 #[derive(Debug)]
 pub struct Server<A = SyntacticAnalyzer> {
     documents: DocumentStore,
-    /// Texto e tabela de linhas dos arquivos do disco (não abertos) que a
-    /// requisição em curso converteu para posições LSP: uma busca que
-    /// devolve milhares de locais no SDK lê cada arquivo uma vez. Esvaziado
-    /// a cada requisição (o disco pode mudar entre elas).
+    /// Text and line table of the disk files (not open) that the current request
+    /// converted to LSP positions: a search that returns thousands of locations
+    /// in the SDK reads each file once. Emptied at each request (the disk may
+    /// change between them).
     disk_lines: std::cell::RefCell<HashMap<String, Option<TextWithLines>>>,
     analyzer: A,
-    /// Mensagens recebidas ainda não despachadas, em ordem de chegada.
+    /// Messages received and not dispatched yet, in arrival order.
     queue: VecDeque<Value>,
-    /// Ids cancelados de requisições ainda não respondidas, em forma canônica.
+    /// Cancelled ids of requests not answered yet, in canonical form.
     cancelled: HashSet<String>,
-    /// `shutdown` já foi respondido; `exit` sai com 0, sem ele sai com 1.
+    /// `shutdown` has already been answered; `exit` exits with 0, without it with 1.
     disabling: bool,
-    /// O `initialize` já foi respondido: um segundo é recusado (§2.3).
+    /// `initialize` has already been answered: a second one is refused (§2.3).
     initialized: bool,
-    /// `exit` chegou (ou o fluxo acabou): o laço principal deve terminar.
+    /// `exit` arrived (or the stream ended): the main loop must end.
     shutdown: bool,
-    /// Código de saída correspondente.
+    /// Corresponding exit code.
     code: i32,
-    /// O cliente aceita a árvore `DocumentSymbol` (LSP 3.10+).
+    /// The client accepts the `DocumentSymbol` tree (LSP 3.10+).
     hierarchical_symbols: bool,
     hover_markdown: bool,
-    /// O cliente aceita `prepareRename` (`rename.prepareSupport`).
+    /// The client accepts `prepareRename` (`rename.prepareSupport`).
     prepare_rename: bool,
-    /// O cliente aceita `WorkspaceEdit.documentChanges` (edições com a
-    /// versão do documento): as edições saem nessa forma.
+    /// The client accepts `WorkspaceEdit.documentChanges` (edits with the
+    /// document version): edits go out in that form.
     versioned_changes: bool,
-    /// O cliente anunciou `experimental.snippetTextEdit`: as ações de código
-    /// com seleção ou grupos ligados saem como `SnippetTextEdit`.
+    /// The client announced `experimental.snippetTextEdit`: code actions with a
+    /// selection or linked groups go out as `SnippetTextEdit`.
     edits_snippet: bool,
-    /// O cliente aceita a operação de recurso `rename` e pediu
-    /// `renameFilesWithClasses: "always"` nas opções de inicialização.
+    /// The client accepts the `rename` resource operation and asked for
+    /// `renameFilesWithClasses: "always"` in the initialization options.
     rename_files: bool,
-    /// O cliente aceita `documentChanges` com a operação `create`: as
-    /// correções que criam arquivo (`Create file`) são oferecidas.
+    /// The client accepts `documentChanges` with the `create` operation: the
+    /// fixes that create a file (`Create file`) are offered.
     create_files: bool,
-    /// O cliente aceita snippets no completar e não pediu
-    /// `completeFunctionCalls: false`: chamadas saem com os parênteses e os
-    /// parâmetros obrigatórios como marcadores.
+    /// The client accepts snippets in completion and did not ask for
+    /// `completeFunctionCalls: false`: calls go out with the parentheses and
+    /// the required parameters as placeholders.
     completion_calls: bool,
-    /// `suggestFromUnimportedLibraries` (padrão `true`) e o cliente aceita
-    /// `workspace/applyEdit`: o completar traz os não importados.
+    /// `suggestFromUnimportedLibraries` (default `true`) and the client accepts
+    /// `workspace/applyEdit`: completion brings the not-imported items.
     completion_not_imported: bool,
-    /// O cliente aceita Markdown na documentação dos itens.
+    /// The client accepts Markdown in the items' documentation.
     documentation_markdown: bool,
-    /// As capacidades do completar do cliente (§14.8.2).
+    /// The client's completion capabilities (§14.8.2).
     completion_capabilities: crate::completion_item::Capabilities,
-    /// Os itens não importados da última resposta, pela chave do `data`
-    /// (`ref`): a origem (para a documentação) e o import (o resolve).
+    /// The not-imported items of the last response, by the `data` key (`ref`):
+    /// the origin (for the documentation) and the import (for resolve).
     not_imported: HashMap<String, (Option<(std::path::PathBuf, usize)>, Option<crate::completion::AutoImport>, Option<String>)>,
-    /// Raízes do workspace anunciadas no `initialize` (`rootUri`,
-    /// `workspaceFolders`), para o `workspace/symbol` varrer o disco.
+    /// Workspace roots announced in `initialize` (`rootUri`, `workspaceFolders`),
+    /// for `workspace/symbol` to scan the disk.
     roots: Vec<std::path::PathBuf>,
-    /// `_filesWithClientDiagnostics`: os URIs cujos diagnósticos no
-    /// cliente não estão vazios.
+    /// `_filesWithClientDiagnostics`: the URIs whose diagnostics in the client
+    /// are not empty.
     with_client_diagnostics: std::collections::HashSet<String>,
-    /// O documento do último `prepareTypeHierarchy` com resposta: o projeto
-    /// dos supertipos e subtipos de itens fora do workspace.
+    /// The document of the last answered `prepareTypeHierarchy`: the project of
+    /// the supertypes and subtypes of items outside the workspace.
     hierarchy_origin: Option<String>,
-    /// Trabalhador dos diagnósticos tipados (`crate::typed`), iniciado no
-    /// primeiro documento aberto quando o analisador tem SDK.
+    /// Worker of the typed diagnostics (`crate::typed`), started with the first
+    /// open document when the analyzer has an SDK.
     typed: Option<crate::typed::Typed>,
-    /// O trabalhador já foi tentado (iniciado ou recusado).
+    /// The worker has already been tried (started or refused).
     typed_tried: bool,
-    /// Chamado pelo trabalhador quando há resultado (acorda o laço do `main`).
+    /// Called by the worker when there is a result (wakes up the `main` loop).
     wake: Option<crate::typed::Wake>,
-    /// Resultados tipados descartados por versão velha ou documento fechado.
+    /// Typed results discarded for an old version or a closed document.
     typed_discarded: usize,
-    /// A última publicação tipada de cada documento aberto, com a versão:
-    /// as ações de código corrigem o que o editor mostra. Uma entrada por
-    /// documento, substituída a cada publicação e removida no `didClose`.
+    /// The last typed publication of each open document, with the version: code
+    /// actions fix what the editor shows. One entry per document, replaced at
+    /// each publication and removed on `didClose`.
     typed_published: HashMap<String, (i32, Vec<dartforge_diagnostics::Diagnostic>)>,
-    /// O cliente puxa os diagnósticos (`textDocument/diagnostic`, LSP 3.17:
-    /// anunciou `textDocument.diagnostic`): o servidor anuncia o
-    /// `diagnosticProvider` e deixa de empurrar `publishDiagnostics`.
+    /// The client pulls diagnostics (`textDocument/diagnostic`, LSP 3.17: it
+    /// announced `textDocument.diagnostic`): the server announces the
+    /// `diagnosticProvider` and stops pushing `publishDiagnostics`.
     pulled_diagnostics: bool,
-    /// Com os diagnósticos puxados, o cliente aceita
-    /// `workspace/diagnostic/refresh`: pedido quando chega um resultado
-    /// tipado, para ele puxar de novo.
+    /// With pulled diagnostics, the client accepts
+    /// `workspace/diagnostic/refresh`: requested when a typed result arrives, so
+    /// that it pulls again.
     update_pulled: bool,
-    /// Número do próximo pedido do servidor ao cliente (o id do `refresh`).
+    /// Number of the server's next request to the client (the `refresh` id).
     next_request: u64,
-    /// O cliente aceita `workspace/applyEdit` (`workspace.applyEdit`): sem
-    /// isso não há ações de fonte (docs/LSP-ESPECIFICACAO.md §13.12.1).
+    /// The client accepts `workspace/applyEdit` (`workspace.applyEdit`): without
+    /// it there are no source actions (docs/LSP-ESPECIFICACAO.md §13.12.1).
     apply_edits: bool,
-    /// A opção de inicialização `closingLabels`: o servidor envia
-    /// `dart/textDocument/publishClosingLabels` dos documentos abertos.
+    /// The `closingLabels` initialization option: the server sends
+    /// `dart/textDocument/publishClosingLabels` for the open documents.
     closing_labels: bool,
-    /// O cliente aceita progresso de trabalho (`window.workDoneProgress`):
-    /// o estado da análise sai por `$/progress` com o token `ANALYZING`;
-    /// sem isso, por `$/analyzerStatus` (§2.6).
+    /// The client accepts work done progress (`window.workDoneProgress`): the
+    /// analysis state goes out through `$/progress` with the `ANALYZING` token;
+    /// without it, through `$/analyzerStatus` (§2.6).
     work_progress: bool,
-    /// A análise tipada está em curso e o cliente já foi avisado.
+    /// The typed analysis is running and the client has already been notified.
     analyzing: bool,
-    /// Mensagens ao cliente produzidas fora de `pump` (o começo da
-    /// análise), entregues na próxima passada.
+    /// Messages to the client produced outside `pump` (the start of the
+    /// analysis), delivered on the next pass.
     pending_outputs: Vec<Value>,
-    /// A opção de inicialização `outline`: o servidor envia
-    /// `dart/textDocument/publishOutline` dos documentos abertos.
+    /// The `outline` initialization option: the server sends
+    /// `dart/textDocument/publishOutline` for the open documents.
     outline: bool,
-    /// O cliente aceita anotações de mudança
+    /// The client accepts change annotations
     /// (`workspace.workspaceEdit.changeAnnotationSupport`).
     change_annotations: bool,
-    /// O cliente aceita `CodeAction` literal
-    /// (`textDocument.codeAction.codeActionLiteralSupport`); sem isso as
-    /// ações de fonte saem como `Command` puro.
+    /// The client accepts literal `CodeAction`s
+    /// (`textDocument.codeAction.codeActionLiteralSupport`); without it the
+    /// source actions go out as plain `Command`s.
     actions_literals: bool,
-    /// O `codeActionKind.valueSet` do cliente, quando ele o anuncia.
+    /// The client's `codeActionKind.valueSet`, when it announces it.
     action_kinds: Option<Vec<String>>,
-    /// Os `workspace/applyEdit` enviados e ainda sem resposta do cliente:
-    /// pelo id do pedido, o id do `executeCommand` que espera, o rótulo do
-    /// comando e o `WorkspaceEdit` enviado.
+    /// The `workspace/applyEdit` requests sent and not answered by the client
+    /// yet: by request id, the id of the waiting `executeCommand`, the command's
+    /// label and the sent `WorkspaceEdit`.
     pending_edits: HashMap<String, (Value, &'static str, Value)>,
-    /// O cliente aceita Markdown na documentação da ajuda de assinatura.
+    /// The client accepts Markdown in the signature help documentation.
     signature_markdown: bool,
-    /// O cliente aceita `activeParameter: null` (`noActiveParameterSupport`).
+    /// The client accepts `activeParameter: null` (`noActiveParameterSupport`).
     signature_without_active: bool,
-    /// O cliente só dobra linhas inteiras (`foldingRange.lineFoldingOnly`).
+    /// The client only folds whole lines (`foldingRange.lineFoldingOnly`).
     folds_line_only: bool,
-    /// O cliente aceita tokens semânticos de várias linhas.
+    /// The client accepts multi-line semantic tokens.
     multiline_tokens: bool,
-    /// `SymbolKind`s que o cliente anuncia (`documentSymbol.symbolKind`);
-    /// sem a lista, só os da primeira versão do protocolo (1 a 18), e
-    /// `EnumMember` vira `Enum` como no servidor do Dart.
+    /// `SymbolKind`s the client announces (`documentSymbol.symbolKind`); without
+    /// the list, only those of the first protocol version (1 to 18), and
+    /// `EnumMember` becomes `Enum` as in the Dart server.
     symbol_kinds: Option<Vec<u64>>,
-    /// `workspace.symbol.symbolKind.valueSet` do cliente.
+    /// The client's `workspace.symbol.symbolKind.valueSet`.
     workspace_symbol_kinds: Option<Vec<u64>>,
-    /// O índice sintático das bibliotecas para o `workspace/symbol`.
+    /// The syntactic index of the libraries for `workspace/symbol`.
     symbol_index: crate::workspace_symbols::Index,
-    /// O cliente aceita `labelDetails` nos itens do completar: o rótulo é
-    /// só o nome, e a assinatura curta e a biblioteca a importar vão nos
-    /// detalhes (como o servidor do Dart faz com esse cliente).
+    /// The client accepts `labelDetails` on completion items: the label is only
+    /// the name, and the short signature and the library to import go in the
+    /// details (as the Dart server does with such a client).
     label_details: bool,
-    /// O cliente responde `workspace/configuration` (§2.5).
+    /// The client answers `workspace/configuration` (§2.5).
     requestable_configuration: bool,
-    /// As features que o cliente registra dinamicamente (§2.4) e se ele
-    /// quer o `workspace/didChangeConfiguration` registrado.
+    /// The features the client registers dynamically (§2.4) and whether it wants
+    /// `workspace/didChangeConfiguration` registered.
     dynamic: Vec<&'static str>,
     dynamic_configuration: bool,
-    /// O cliente registra dinamicamente o `workspace/didChangeWatchedFiles`.
+    /// The client registers `workspace/didChangeWatchedFiles` dynamically.
     observe_files: bool,
-    /// O cliente registra as operações de arquivo dinamicamente
+    /// The client registers the file operations dynamically
     /// (`workspace.fileOperations.dynamicRegistration`).
     dynamic_file_operations: bool,
-    /// As capacidades estáticas completas (antes de tirar as dinâmicas): a
-    /// fonte das opções de cada registro.
+    /// The full static capabilities (before removing the dynamic ones): the
+    /// source of each registration's options.
     static_capabilities: Value,
-    /// Os registros dinâmicos vigentes e o contador dos ids.
+    /// The current dynamic registrations and the id counter.
     records: crate::registration::Records,
-    /// O `workspace/configuration` enviado e ainda sem resposta.
+    /// The `workspace/configuration` request sent and not answered yet.
     configuration_request: Option<String>,
-    /// As pastas do workspace (`scopeUri` dos itens da configuração).
+    /// The workspace folders (`scopeUri` of the configuration items).
     folders: Vec<String>,
-    /// A configuração vigente do cliente (a global).
+    /// The client's current configuration (the global one).
     configuration: crate::registration::Configuration,
-    /// A configuração de cada pasta do workspace (`forResource`), pelo
-    /// caminho da pasta.
+    /// The configuration of each workspace folder (`forResource`), by folder path.
     configuration_by_folder: Vec<(std::path::PathBuf, crate::registration::Configuration)>,
-    /// O cliente aceita renomear arquivo numa edição (para o
-    /// `renameFilesWithClasses: always` da configuração).
+    /// The client accepts renaming a file in an edit (for the configuration's
+    /// `renameFilesWithClasses: always`).
     possible_file_rename: bool,
-    /// Os comandos que o cliente declara (`experimental.commands`, o
-    /// `supportedCommands`): `dart.goToLocation` liga as lentes.
+    /// The commands the client declares (`experimental.commands`, the
+    /// `supportedCommands`): `dart.goToLocation` enables the lenses.
     client_commands: Vec<String>,
-    /// O cliente declarou `experimental.supportsWindowShowMessageRequest`
-    /// (o `userPromptSender` do Dart): o rename pergunta ao usuário.
+    /// The client declared `experimental.supportsWindowShowMessageRequest`
+    /// (Dart's `userPromptSender`): rename asks the user.
     user_questions: bool,
-    /// Os `window/showMessageRequest` do rename ainda sem resposta, pelo id
-    /// do pedido (§12.1 passos 13 e 17).
+    /// The rename `window/showMessageRequest`s not answered yet, by request id
+    /// (§12.1 steps 13 and 17).
     pending_renames: HashMap<String, PendingRename>,
 }
 
-/// O `rename` à espera da resposta do usuário.
+/// The `rename` waiting for the user's answer.
 #[derive(Debug)]
 struct PendingRename {
-    /// O id do `textDocument/rename`.
+    /// The id of the `textDocument/rename`.
     id: Value,
-    /// O documento da requisição e a versão dele no começo (`null` se
-    /// fechado), para o `fileHasBeenModified`.
+    /// The request's document and its version at the start (`null` if closed),
+    /// for `fileHasBeenModified`.
     uri: String,
     version: Option<i32>,
     edits: Vec<crate::Edit>,
     file: Option<crate::RenameFile>,
-    /// A pergunta feita: `Rename Anyway`/`Cancel` (falso) ou
-    /// `Yes`/`No` do arquivo (verdadeiro).
+    /// The question asked: `Rename Anyway`/`Cancel` (false) or the file's
+    /// `Yes`/`No` (true).
     file_question: bool,
 }
 
 impl Server<SyntacticAnalyzer> {
-    /// Cria o servidor com o analisador sintático e fila vazia.
+    /// Creates the server with the syntactic analyzer and an empty queue.
     pub fn new() -> Self {
         Self::with_analyzer(SyntacticAnalyzer::new())
     }
 }
 
 impl Default for Server<SyntacticAnalyzer> {
-    /// Cria o servidor com o analisador sintático e fila vazia.
+    /// Creates the server with the syntactic analyzer and an empty queue.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl<A: Analyzer> Server<A> {
-    /// Cria o servidor com um analisador arbitrário (a costura da semântica).
+    /// Creates the server with an arbitrary analyzer (the semantic seam).
     pub fn with_analyzer(analyzer: A) -> Self {
         Self {
             documents: DocumentStore::new(),
@@ -410,8 +410,8 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// Pede a configuração ao cliente (`workspace/configuration`, §2.5):
-    /// uma entrada por pasta do workspace, na ordem, e a global por último.
+    /// Asks the client for the configuration (`workspace/configuration`, §2.5):
+    /// one entry per workspace folder, in order, and the global one last.
     fn request_configuration(&mut self) {
         self.next_request += 1;
         let id = format!("dartforge/configuration/{}", self.next_request);
@@ -421,8 +421,9 @@ impl<A: Analyzer> Server<A> {
         self.pending_outputs.push(json!({"jsonrpc": "2.0", "id": id, "method": "workspace/configuration", "params": {"items": items}}));
     }
 
-    /// `performDynamicRegistration` (§2.4): a diferença contra os registros
-    /// vigentes, primeiro o que sai, depois o que entra; nada sem diferença.
+    /// `performDynamicRegistration` (§2.4): the difference against the current
+    /// registrations, first what leaves, then what comes in; nothing without a
+    /// difference.
     fn register_dynamic(&mut self) {
         let rename_files = self.dynamic_file_operations && self.configuration.update_imports_on_rename;
         let new = crate::registration::records(
@@ -432,8 +433,8 @@ impl<A: Analyzer> Server<A> {
             rename_files,
             self.observe_files,
         );
-        // `supportsDynamic => enableFormatter && ...` das três features de
-        // formatação: com `enableSdkFormatter: false`, elas saem.
+        // `supportsDynamic => enableFormatter && ...` of the three formatting
+        // features: with `enableSdkFormatter: false`, they go away.
         let mut new = new;
         if !self.configuration.enable_sdk_formatter {
             new.retain(|(m, _)| !m.ends_with("ormatting"));
@@ -442,7 +443,7 @@ impl<A: Analyzer> Server<A> {
         if !exit.is_empty() {
             self.next_request += 1;
             let id = format!("dartforge/unregisterCapability/{}", self.next_request);
-            // A grafia do protocolo: `unregisterations`.
+            // The protocol's spelling: `unregisterations`.
             self.pending_outputs.push(json!({"jsonrpc": "2.0", "id": id, "method": "client/unregisterCapability", "params": {"unregisterations": exit}}));
         }
         if !enter.is_empty() {
@@ -452,9 +453,9 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// A resposta ao `workspace/configuration`: só uma lista com uma entrada
-    /// por pasta e a global vale (item `null` é `{}`); fora isso, fica a
-    /// configuração anterior. Depois, sempre, o registro dinâmico.
+    /// The response to `workspace/configuration`: only a list with one entry per
+    /// folder and the global one counts (a `null` item is `{}`); otherwise, the
+    /// previous configuration stays. Then, always, the dynamic registration.
     fn received_configuration(&mut self, message: &Value) {
         self.configuration_request = None;
         if let Some(list) = message.get("result").and_then(Value::as_array)
@@ -467,13 +468,12 @@ impl<A: Analyzer> Server<A> {
             } else if new.rename_files_with_classes == "never" && self.configuration.rename_files_with_classes != "never" {
                 self.rename_files = false;
             }
-            // `affectsAnalysisResults` e `affectsAnalysisRoots`: os TODOs ou
-            // as pastas excluídas mudaram, a análise refaz.
+            // `affectsAnalysisResults` and `affectsAnalysisRoots`: the TODOs or the
+            // excluded folders changed, the analysis runs again.
             let redo = new.show_all != self.configuration.show_all
                 || new.show_all_types != self.configuration.show_all_types
                 || new.analysis_excluded_folders != self.configuration.analysis_excluded_folders;
-            // As das pastas (a lista vem na ordem de `folders`, a global por
-            // último).
+            // Those of the folders (the list comes in `folders` order, the global one last).
             self.configuration_by_folder = self
                 .folders
                 .iter()
@@ -491,8 +491,8 @@ impl<A: Analyzer> Server<A> {
         self.register_dynamic();
     }
 
-    /// A configuração de `uri` (`forResource`): a da pasta do workspace mais
-    /// funda que o contém, senão a global.
+    /// The configuration of `uri` (`forResource`): that of the deepest workspace
+    /// folder that contains it, otherwise the global one.
     fn configuration_of(&self, uri: &str) -> &crate::registration::Configuration {
         let Some(path) = url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()) else { return &self.configuration };
         self.configuration_by_folder
@@ -502,9 +502,9 @@ impl<A: Analyzer> Server<A> {
             .map_or(&self.configuration, |(_, c)| c)
     }
 
-    /// As pastas excluídas da análise (`analysisExcludedFolders`): os
-    /// caminhos absolutos como estão; os relativos, sob cada pasta do
-    /// workspace (`_refreshAnalysisRoots`).
+    /// The folders excluded from analysis (`analysisExcludedFolders`): absolute
+    /// paths as they are; relative ones, under each workspace folder
+    /// (`_refreshAnalysisRoots`).
     fn excluded_folders(&self) -> Vec<std::path::PathBuf> {
         let mut v = Vec::new();
         for e in &self.configuration.analysis_excluded_folders {
@@ -518,16 +518,15 @@ impl<A: Analyzer> Server<A> {
         v
     }
 
-    /// O documento está numa pasta excluída da análise.
+    /// The document is in a folder excluded from analysis.
     fn excluded(&self, uri: &str) -> bool {
         let excluded = self.excluded_folders();
         !excluded.is_empty()
             && url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| excluded.iter().any(|e| c.starts_with(e)))
     }
 
-    /// Os TODOs mostrados ou as pastas excluídas mudaram: o trabalhador
-    /// tipado recebe a configuração nova e os documentos abertos são
-    /// analisados e publicados de novo.
+    /// The shown TODOs or the excluded folders changed: the typed worker gets the
+    /// new configuration and the open documents are analyzed and published again.
     fn reconfigure_analysis(&mut self) {
         let excluded = self.excluded_folders();
         if let Some(t) = &self.typed {
@@ -543,16 +542,17 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// Registra o gancho chamado (de outra thread) quando a análise tipada
-    /// tem resultado: o laço do `main` o usa para acordar e chamar
-    /// [`Server::pump`], que publica o que ainda for da versão vigente.
+    /// Registers the hook called (from another thread) when the typed analysis
+    /// has a result: the `main` loop uses it to wake up and call
+    /// [`Server::pump`], which publishes what is still of the current version.
     pub fn on_diagnostics(&mut self, hook: impl Fn() + Send + Sync + 'static) {
         self.wake = Some(crate::typed::Wake(std::sync::Arc::new(hook)));
     }
 
-    /// Espera a análise tipada ficar ociosa (até `limit`) e devolve as
-    /// publicações que ela produziu, já filtradas pela versão vigente. Para
-    /// testes e medições; o editor recebe as mesmas pelo [`Server::pump`].
+    /// Waits for the typed analysis to go idle (up to `limit`) and returns the
+    /// publications it produced, already filtered by the current version. For
+    /// tests and measurements; the editor gets the same ones through
+    /// [`Server::pump`].
     pub fn await_diagnostics(&mut self, limit: std::time::Duration) -> Vec<Value> {
         if let Some(t) = &self.typed {
             t.wait_idle(limit);
@@ -560,15 +560,15 @@ impl<A: Analyzer> Server<A> {
         self.drain_typed()
     }
 
-    /// Espera a análise tipada ficar ociosa sem publicar o resultado (que
-    /// fica para o próximo [`Server::pump`]). Gancho de teste.
+    /// Waits for the typed analysis to go idle without publishing the result
+    /// (which is left for the next [`Server::pump`]). Test hook.
     #[doc(hidden)]
     pub fn wait_idle_analysis(&self, limit: std::time::Duration) -> bool {
         self.typed.as_ref().is_none_or(|t| t.wait_idle(limit))
     }
 
-    /// Suspende (ou retoma) o início de análises tipadas. Gancho de teste
-    /// para exercitar a coalescência de edições rápidas.
+    /// Suspends (or resumes) the start of typed analyses. Test hook to exercise
+    /// the coalescing of fast edits.
     #[doc(hidden)]
     pub fn pause_typed_analysis(&mut self, pause: bool) {
         self.ensure_typed();
@@ -577,13 +577,13 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// Resultados tipados descartados até agora (versão velha ou documento
-    /// fechado antes de publicar).
+    /// Typed results discarded so far (old version or document closed before
+    /// publishing).
     pub fn typed_discarded(&self) -> usize {
         self.typed_discarded
     }
 
-    /// Inicia o trabalhador tipado uma vez, se o analisador tem SDK.
+    /// Starts the typed worker once, if the analyzer has an SDK.
     fn ensure_typed(&mut self) {
         if self.typed_tried {
             return;
@@ -592,7 +592,7 @@ impl<A: Analyzer> Server<A> {
         if let Some(sdk) = crate::typed::analyzer_sdk(&self.analyzer) {
             self.typed = crate::typed::Typed::start(sdk, self.wake.clone());
         }
-        // A configuração vigente da análise (os TODOs, as pastas excluídas).
+        // The current analysis configuration (the TODOs, the excluded folders).
         let excluded = self.excluded_folders();
         if let Some(t) = &self.typed
             && (self.configuration.show_all || !self.configuration.show_all_types.is_empty() || !excluded.is_empty())
@@ -601,8 +601,8 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// As pastas do workspace para o trabalhador tipado: todo `.dart` delas
-    /// é analisado e publicado (§3.2, I7).
+    /// The workspace folders for the typed worker: every `.dart` in them is
+    /// analyzed and published (§3.2, I7).
     fn analyze_folders(&mut self) {
         self.ensure_typed();
         let Some(t) = &self.typed else { return };
@@ -612,7 +612,7 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// Pede a análise tipada do texto vigente de `uri`.
+    /// Requests the typed analysis of the current text of `uri`.
     fn request_typed(&mut self, uri: &str) {
         self.ensure_typed();
         let (Some(t), Some(version), Some(text)) = (&self.typed, self.documents.version(uri), self.documents.get(uri)) else {
@@ -622,7 +622,7 @@ impl<A: Analyzer> Server<A> {
         self.mark_analyzing();
     }
 
-    /// O estado da análise (§2.6): ociosa → trabalhando.
+    /// The analysis state (§2.6): idle → working.
     fn mark_analyzing(&mut self) {
         if !self.analyzing {
             self.analyzing = true;
@@ -645,8 +645,8 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// Publica os resultados tipados prontos que ainda são da versão vigente;
-    /// os demais são descartados.
+    /// Publishes the ready typed results that are still of the current version;
+    /// the others are discarded.
     fn drain_typed(&mut self) -> Vec<Value> {
         let Some(results) = self.typed.as_ref().map(|t| t.receive()) else { return Vec::new() };
         let mut outputs = Vec::new();
@@ -654,9 +654,9 @@ impl<A: Analyzer> Server<A> {
         let mut received = false;
         for r in results {
             received = true;
-            // Um arquivo das raízes que não está aberto (I7): publica com o
-            // texto analisado (do disco); se abriu nesse meio tempo, vale a
-            // análise do documento.
+            // A file of the roots that is not open (I7): publishes with the analyzed
+            // text (from disk); if it was opened in the meantime, the document's
+            // analysis counts.
             let Some(version) = r.version else {
                 if self.documents.version(&r.uri).is_some() {
                     self.typed_discarded += 1;
@@ -686,9 +686,8 @@ impl<A: Analyzer> Server<A> {
                     outputs.push(p);
                 }
             }
-            // A unidade acabou de ser resolvida para a versão vigente: é o
-            // ponto em que o servidor do Dart manda os rótulos de fechamento
-            // de um arquivo aberto (§3.4).
+            // The unit has just been resolved for the current version: it is the point
+            // at which the Dart server sends the closing labels of an open file (§3.4).
             if self.closing_labels {
                 let labels = self.analyzer.closing_labels(&self.documents, &r.uri);
                 let list: Vec<Value> = labels
@@ -701,7 +700,7 @@ impl<A: Analyzer> Server<A> {
                     "params": {"uri": r.uri, "labels": list},
                 }));
             }
-            // O contorno no formato do Dart, no mesmo ponto (§3.4).
+            // The outline in Dart's format, at the same point (§3.4).
             if self.outline
                 && let Some(text) = self.documents.get(&r.uri)
             {
@@ -714,8 +713,8 @@ impl<A: Analyzer> Server<A> {
             self.typed_published.insert(r.uri, (version, r.diagnostics));
             new = true;
         }
-        // Puxados: um pedido de `refresh` por lote, e o cliente puxa de novo
-        // os documentos visíveis (o `resultId` muda com o resultado tipado).
+        // Pulled: one `refresh` request per batch, and the client pulls the visible
+        // documents again (the `resultId` changes with the typed result).
         if new && self.pulled_diagnostics && self.update_pulled {
             self.next_request += 1;
             outputs.push(json!({
@@ -724,14 +723,13 @@ impl<A: Analyzer> Server<A> {
                 "method": "workspace/diagnostic/refresh",
             }));
         }
-        // O estado da análise (§2.6): trabalhando → ociosa. O resultado
-        // chega um instante antes de o trabalhador se declarar ocioso; a
-        // espera curta cobre essa janela.
+        // The analysis state (§2.6): working → idle. The result arrives a moment
+        // before the worker declares itself idle; the short wait covers that window.
         let idle = self.typed.as_ref().is_some_and(|t| t.idle() || (received && t.wait_idle(std::time::Duration::from_millis(20))));
         if self.analyzing && idle {
             self.analyzing = false;
-            // Na frente das publicações desta passada: quem lê a última
-            // mensagem continua achando a publicação.
+            // Ahead of this pass's publications: whoever reads the last message still
+            // finds the publication.
             let end = if self.work_progress {
                 json!({"jsonrpc": "2.0", "method": "$/progress", "params": {"token": "ANALYZING", "value": {"kind": "end"}}})
             } else {
@@ -742,47 +740,46 @@ impl<A: Analyzer> Server<A> {
         outputs
     }
 
-    /// Enfileira uma mensagem decodificada do transporte, sem despachar.
+    /// Enqueues a message decoded from the transport, without dispatching it.
     ///
-    /// Enfileirar nunca responde: as saídas saem de [`Server::pump`].
+    /// Enqueuing never responds: the outputs come out of [`Server::pump`].
     pub fn receive(&mut self, message: Value) {
         self.queue.push_back(message);
     }
 
-    /// Há mensagens esperando despacho.
+    /// There are messages waiting for dispatch.
     pub fn has_pending(&self) -> bool {
         !self.queue.is_empty()
     }
 
-    /// O laço principal deve terminar após escrever as saídas devolvidas.
+    /// The main loop must end after writing the returned outputs.
     pub fn must_shutdown(&self) -> bool {
         self.shutdown
     }
 
-    /// Código de saída: 0 após `shutdown`, 1 sem.
+    /// Exit code: 0 after `shutdown`, 1 without it.
     pub fn exit_code(&self) -> i32 {
         self.code
     }
 
-    /// O analisador (medição e testes: estatísticas da sessão semântica).
+    /// The analyzer (measurement and tests: semantic session stats).
     pub fn analyzer(&self) -> &A {
         &self.analyzer
     }
 
-    /// Documentos abertos retidos (uso em testes e medição).
+    /// Retained open documents (used in tests and measurement).
     pub fn open_documents(&self) -> usize {
         self.documents.len()
     }
 
-    /// Despacha o próximo passo e devolve as mensagens de saída, em ordem.
+    /// Dispatches the next step and returns the outgoing messages, in order.
     ///
-    /// Um passo é: aplicar todos os cancelamentos da fila; processar as
-    /// notificações líderes (cada `didOpen`/`didChange` publica
-    /// diagnósticos); executar **uma** requisição (ou responder
-    /// `RequestCancelled` se ela foi cancelada). Mensagens que não são
-    /// requisições nem notificações válidas são ignoradas em silêncio: entre
-    /// elas as respostas do cliente ao único pedido do servidor
-    /// (`workspace/diagnostic/refresh`), que não levam dado.
+    /// A step is: apply all the cancellations in the queue; process the leading
+    /// notifications (each `didOpen`/`didChange` publishes diagnostics); execute
+    /// **one** request (or answer `RequestCancelled` if it was cancelled).
+    /// Messages that are neither requests nor valid notifications are silently
+    /// ignored: among them the client's responses to the server's only request
+    /// (`workspace/diagnostic/refresh`), which carry no data.
     pub fn pump(&mut self) -> Vec<Value> {
         self.apply_cancellations();
         let mut outputs = Vec::new();
@@ -791,9 +788,9 @@ impl<A: Analyzer> Server<A> {
                 break;
             }
             let message = self.queue.pop_front().expect("fila não vazia");
-            // Um pânico numa notificação: o `showMessage` e o `logMessage` do
-            // servidor do Dart (`lsp_analysis_server.dart`, `sendErrorResponse`
-            // e `logException`), e a sessão semântica cai.
+            // A panic in a notification: the Dart server's `showMessage` and
+            // `logMessage` (`lsp_analysis_server.dart`, `sendErrorResponse` and
+            // `logException`), and the semantic session drops.
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.handle_notification(&message))) {
                 Ok(Some(output)) => outputs.push(output),
                 Ok(None) => {}
@@ -812,16 +809,15 @@ impl<A: Analyzer> Server<A> {
         }
         if let Some(request) = self.queue.pop_front() {
             debug_assert!(is_request(&request));
-            // Um pânico numa consulta não derruba o servidor (o do Dart
-            // nunca cai por um pedido): a resposta é um erro interno e a
-            // sessão semântica, que pode ter ficado pela metade, cai.
+            // A panic in a query does not bring the server down (Dart's never goes down
+            // because of a request): the response is an internal error and the semantic
+            // session, which may have been left half-done, drops.
             let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.handle_request(&request)));
             match response {
                 Ok(r) => outputs.push(r),
                 Err(panic) => {
-                    // O `UnhandledError` (-32001) do servidor do Dart, com a
-                    // mensagem dele, e o `logException` (`window/logMessage`
-                    // do tipo erro, com a causa).
+                    // The Dart server's `UnhandledError` (-32001), with its message, and the
+                    // `logException` (an error-type `window/logMessage`, with the cause).
                     self.analyzer.changed_document("");
                     let id = request.get("id").cloned().unwrap_or(Value::Null);
                     let method = request.get("method").and_then(Value::as_str).unwrap_or("?").to_string();
@@ -832,10 +828,10 @@ impl<A: Analyzer> Server<A> {
                 }
             }
         }
-        // Resultados tipados depois das notificações: o que uma mudança já
-        // recebida tornou velho é descartado aqui, antes de chegar ao editor.
-        // (Uma requisição não muda documentos; a resposta sai primeiro.)
-        // O começo da análise vai na frente das saídas da passada.
+        // Typed results after the notifications: what an already received change
+        // made stale is discarded here, before reaching the editor. (A request does
+        // not change documents; the response goes out first.) The start of the
+        // analysis goes ahead of the pass's outputs.
         if !self.pending_outputs.is_empty() {
             let mut with_pending = std::mem::take(&mut self.pending_outputs);
             with_pending.append(&mut outputs);
@@ -845,11 +841,12 @@ impl<A: Analyzer> Server<A> {
         outputs
     }
 
-    /// Extrai e aplica todo `$/cancelRequest` da fila, seja qual for a posição.
+    /// Extracts and applies every `$/cancelRequest` in the queue, whatever its
+    /// position.
     ///
-    /// Só guarda o id quando há requisição com esse id ainda na fila; fora
-    /// isso o cancelamento é descartado, para que ids desconhecidos não
-    /// façam o conjunto crescer com o número de mensagens.
+    /// Only keeps the id when there is a request with that id still in the
+    /// queue; otherwise the cancellation is discarded, so that unknown ids do
+    /// not make the set grow with the number of messages.
     fn apply_cancellations(&mut self) {
         let mut scan = 0;
         while scan < self.queue.len() {
@@ -877,30 +874,29 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// Trata uma notificação; devolve a publicação de diagnósticos quando há.
+    /// Handles a notification; returns the diagnostics publication when there is one.
     fn handle_notification(&mut self, message: &Value) -> Option<Value> {
         if message.get("method").is_none() {
             return self.client_response(message);
         }
         let method = message.get("method")?.as_str()?;
         match method {
-            // Com a capacidade, a configuração e depois o registro
-            // dinâmico; sem ela, só o registro (§2.2).
+            // With the capability, the configuration and then the dynamic registration;
+            // without it, only the registration (§2.2).
             "initialized" => {
                 if self.requestable_configuration {
                     self.request_configuration();
                 } else {
                     self.register_dynamic();
                 }
-                // Os arquivos das raízes são analisados e publicados desde o
-                // começo (o driver do Dart os adiciona ao criar os
-                // contextos, §3.2).
+                // The files of the roots are analyzed and published from the start (Dart's
+                // driver adds them when creating the contexts, §3.2).
                 self.analyze_folders();
                 None
             }
             "$/cancelRequest" => None,
-            // O `settings` recebido é ignorado: a configuração é pedida de
-            // novo (`handler_workspace_configuration.dart:22-31`).
+            // The received `settings` are ignored: the configuration is requested again
+            // (`handler_workspace_configuration.dart:22-31`).
             "workspace/didChangeConfiguration" => {
                 if self.requestable_configuration {
                     self.request_configuration();
@@ -961,21 +957,19 @@ impl<A: Analyzer> Server<A> {
                 if self.pulled_diagnostics {
                     return None;
                 }
-                // Dentro das pastas do workspace o `didClose` não limpa: o
-                // arquivo volta a ser analisado pelo disco e é republicado
-                // (§3.2). Fora delas, a raiz do arquivo some e os resultados
-                // dele são limpos (`flushResults`).
+                // Inside the workspace folders `didClose` does not clear: the file is
+                // analyzed again from disk and republished (§3.2). Outside them, the file's
+                // root goes away and its results are cleared (`flushResults`).
                 let inside = url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| self.roots.iter().any(|r| c.starts_with(r)));
                 if inside && self.typed.is_some() {
                     return None;
                 }
                 self.filter_repeated_empty(uri, empty_publication(uri))
             }
-            // Notificações comuns dos editores que este servidor não usa:
-            // aceitas em silêncio (o do Dart trata as duas primeiras e não
-            // registra a terceira).
-            // As pastas do workspace mudaram: as raízes de análise e as do
-            // pedido de configuração acompanham (o `changeNotifications`).
+            // Common editor notifications this server does not use: accepted silently
+            // (Dart's handles the first two and does not register the third).
+            // The workspace folders changed: the analysis roots and those of the
+            // configuration request follow (the `changeNotifications`).
             "workspace/didChangeWorkspaceFolders" => {
                 let of_uri = |v: &Value| v.as_str().and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
                 let list = |k: &str| message.pointer(&format!("/params/event/{k}")).and_then(Value::as_array).cloned().unwrap_or_default();
@@ -1000,16 +994,16 @@ impl<A: Analyzer> Server<A> {
                         self.roots.push(p);
                     }
                 }
-                // O que a sessão retém pode depender das raízes.
+                // What the session retains may depend on the roots.
                 self.analyzer.changed_document("");
-                // As pastas novas entram na análise do trabalhador (I7).
+                // The new folders join the worker's analysis (I7).
                 if self.typed_tried {
                     self.analyze_folders();
                 }
                 None
             }
             "workspace/didChangeWatchedFiles" => {
-                // O observador de arquivos (§3.3): o que mudou no disco.
+                // The file watcher (§3.3): what changed on disk.
                 if let Some(t) = &self.typed
                     && let Some(changes) = message.pointer("/params/changes").and_then(Value::as_array)
                 {
@@ -1030,10 +1024,9 @@ impl<A: Analyzer> Server<A> {
             }
             _ => {
                 register(format!("notificação desconhecida ignorada: {method}"));
-                // §2.3: `$/…` é ignorada; qualquer outra vira o erro
-                // `Unknown method`, que para uma notificação é um
-                // `window/showMessage` de erro. Depois do `shutdown`, é
-                // descartada.
+                // §2.3: `$/…` is ignored; any other becomes the `Unknown method` error,
+                // which for a notification is an error `window/showMessage`. After
+                // `shutdown`, it is discarded.
                 if method.starts_with("$/") || self.disabling {
                     None
                 } else {
@@ -1047,7 +1040,7 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// Executa uma requisição e devolve exatamente uma resposta.
+    /// Executes a request and returns exactly one response.
     fn handle_request(&mut self, message: &Value) -> Value {
         self.disk_lines.get_mut().clear();
         let id = message.get("id").cloned().unwrap_or(Value::Null);
@@ -1056,9 +1049,9 @@ impl<A: Analyzer> Server<A> {
             return error(&id, REQUEST_CANCELLED, "requisição cancelada");
         }
         let method = message.get("method").and_then(Value::as_str).unwrap_or("");
-        // Os estados do servidor do Dart (§2.3) que não dependem da
-        // notificação `initialized`: depois do `shutdown` só o `exit` vale, e
-        // o `initialize` só vale uma vez.
+        // The Dart server's states (§2.3) that do not depend on the `initialized`
+        // notification: after `shutdown` only `exit` counts, and `initialize` only
+        // counts once.
         if self.disabling {
             return error(&id, INVALID_REQUEST, format!("Unable to handle {method} after shutdown request"));
         }
@@ -1084,8 +1077,7 @@ impl<A: Analyzer> Server<A> {
                     .pointer("/params/capabilities/workspace/workspaceEdit/documentChanges")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                // `experimental.snippetTextEdit == true`
-                // (`client_capabilities.dart:368-371`).
+                // `experimental.snippetTextEdit == true` (`client_capabilities.dart:368-371`).
                 self.edits_snippet =
                     message.pointer("/params/capabilities/experimental/snippetTextEdit").and_then(Value::as_bool).unwrap_or(false);
                 self.apply_edits =
@@ -1135,7 +1127,7 @@ impl<A: Analyzer> Server<A> {
                     .pointer("/params/capabilities/workspace/fileOperations/dynamicRegistration")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                // As pastas do workspace (ou a raiz), para o `scopeUri`.
+                // The workspace folders (or the root), for the `scopeUri`.
                 self.folders = match message.pointer("/params/workspaceFolders").and_then(Value::as_array) {
                     Some(l) => l.iter().filter_map(|p| p.get("uri").and_then(Value::as_str)).map(str::to_string).collect(),
                     None => message.pointer("/params/rootUri").and_then(Value::as_str).map(|u| vec![u.to_string()]).unwrap_or_default(),
@@ -1192,8 +1184,8 @@ impl<A: Analyzer> Server<A> {
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 let rename_ = if self.prepare_rename { json!({"prepareProvider": true}) } else { json!(true) };
-                // `handler_code_actions.dart:252-280`: a lista de espécies só
-                // para o cliente com literais; senão, `true`.
+                // `handler_code_actions.dart:252-280`: the list of kinds only for a client
+                // with literals; otherwise, `true`.
                 let code_actions = if self.actions_literals {
                     json!({"codeActionKinds": ["source", "source.organizeImports", "source.fixAll", "source.sortMembers", "quickfix", "refactor"]})
                 } else {
@@ -1210,11 +1202,9 @@ impl<A: Analyzer> Server<A> {
                         "hoverProvider": true,
                         "renameProvider": rename_,
                         "codeActionProvider": code_actions,
-                        // Só os comandos que este servidor executa (o do
-                        // Dart anuncia treze, §13.12.4).
+                        // Only the commands this server executes (Dart's announces thirteen, §13.12.4).
                         "executeCommandProvider": {"commands": COMMANDS, "workDoneProgress": true},
-                        // Os caracteres do servidor do Dart
-                        // (`dartSignatureHelpTriggerCharacters`).
+                        // The Dart server's characters (`dartSignatureHelpTriggerCharacters`).
                         "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]},
                         "documentHighlightProvider": true,
                         "implementationProvider": true,
@@ -1243,11 +1233,11 @@ impl<A: Analyzer> Server<A> {
                         "version": env!("CARGO_PKG_VERSION"),
                     },
                 });
-                // `workspace`: as pastas e, sem o registro dinâmico das
-                // operações de arquivo, o `willRename` estático (com
-                // `updateImportsOnRename`, `server_capabilities_computer.dart:197-205`).
-                // A formatação (`FormattingRegistrations` e afins): estática
-                // quando `enableSdkFormatter` (o padrão).
+                // `workspace`: the folders and, without dynamic registration of the file
+                // operations, the static `willRename` (with `updateImportsOnRename`,
+                // `server_capabilities_computer.dart:197-205`).
+                // Formatting (`FormattingRegistrations` and the like): static when
+                // `enableSdkFormatter` (the default).
                 if self.configuration.enable_sdk_formatter {
                     result["capabilities"]["documentFormattingProvider"] = json!(true);
                     result["capabilities"]["documentOnTypeFormattingProvider"] = json!({
@@ -1261,17 +1251,17 @@ impl<A: Analyzer> Server<A> {
                     result["capabilities"]["workspace"]["fileOperations"] = json!({"willRename": crate::registration::file_operation_options()});
                 }
                 if self.pulled_diagnostics {
-                    // Um documento depende de outros (imports): editar um
-                    // muda os diagnósticos de quem o importa. Sem diagnóstico
-                    // do workspace inteiro (só dos documentos pedidos).
+                    // A document depends on others (imports): editing one changes the
+                    // diagnostics of whoever imports it. No whole-workspace diagnostics (only
+                    // for the requested documents).
                     result["capabilities"]["diagnosticProvider"] = json!({
                         "identifier": SOURCE,
                         "interFileDependencies": true,
                         "workspaceDiagnostics": false,
                     });
                 }
-                // §2.4: as features dinâmicas saem do estático e são
-                // registradas depois do `initialized`.
+                // §2.4: the dynamic features leave the static ones and are registered after
+                // `initialized`.
                 self.static_capabilities = result["capabilities"].clone();
                 crate::registration::remove_dynamic(&mut result["capabilities"], &self.dynamic);
                 response(&id, result)
@@ -1369,10 +1359,9 @@ impl<A: Analyzer> Server<A> {
                     let table = self.documents.lines(u)?;
                     let offset = table.position_offset(&text, p.line, p.column);
                     let found = self.analyzer.references_in(&self.documents, u, offset)?;
-                    // A ordem do `SearchEngine` do servidor do Dart (sondado no
-                    // 3.6.2): os outros arquivos pelo caminho, depois o que
-                    // declara; em cada um, pela posição. A declaração vai no
-                    // fim (`_getDeclarations`, §11.5).
+                    // The order of the Dart server's `SearchEngine` (probed on 3.6.2): the
+                    // other files by path, then the declaring one; within each one, by
+                    // position. The declaration goes at the end (`_getDeclarations`, §11.5).
                     let owner = found.declaration.as_ref().map(|(target, _)| target.clone());
                     let mut uses = found.uses.clone();
                     uses.sort_by(|(a, sa), (b, sb)| {
@@ -1404,11 +1393,11 @@ impl<A: Analyzer> Server<A> {
                     let hover = self.analyzer.hover_in_workspace(u, &text, offset, &self.documents)?;
                     let (l0, c0) = table.offset_position(&text, hover.range.start);
                     let (l1, c1) = table.offset_position(&text, hover.range.end);
-                    // O formato do servidor do Dart: a descrição em bloco de
-                    // código, o tipo e, separada por `---`, a documentação.
+                    // The Dart server's format: the description in a code block, the type and,
+                    // separated by `---`, the documentation.
                     let content = if self.hover_markdown {
-                        // Como o `toHover` do Dart: descrição, tipo, biblioteca
-                        // e, depois de `---`, a documentação.
+                        // Like Dart's `toHover`: description, type, library and, after `---`, the
+                        // documentation.
                         let mut value = format!("```dart\n{}\n```\n", hover.description);
                         if let Some(t) = &hover.ty {
                             value.push_str(&format!("Type: `{t}`\n\n"));
@@ -1441,8 +1430,8 @@ impl<A: Analyzer> Server<A> {
                 response(&id, result.unwrap_or(Value::Null))
             }
             "textDocument/completion" => {
-                // `maxCompletionItems` e `enableSnippets` são da pasta do
-                // documento (`forResource`).
+                // `maxCompletionItems` and `enableSnippets` come from the document's folder
+                // (`forResource`).
                 let request_uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
                 let max = self.configuration_of(&request_uri).max_completion_items.map_or(crate::completion::MAX_PATTERN, |m| m as usize);
                 self.analyzer.set_completion_max(max);
@@ -1451,8 +1440,7 @@ impl<A: Analyzer> Server<A> {
                     let completion = self.analyzer.completion(&self.documents, &u, offset)?;
                     let text = self.documents.get(&u)?.to_string();
                     let table = self.documents.lines(&u)?;
-                    // `computeReplacementRange`: a palavra inteira; `insert`
-                    // até o cursor.
+                    // `computeReplacementRange`: the whole word; `insert` up to the cursor.
                     let word_end = completion.replacement_end.unwrap_or_else(|| {
                         text[completion.end.min(text.len())..]
                             .char_indices()
@@ -1474,7 +1462,7 @@ impl<A: Analyzer> Server<A> {
                             if !cap.insert_replace || equal { replace.clone() } else { json!({"insert": insert, "replace": replace}) },
                         );
                     }
-                    // `_hasExistingArgList`: já há parênteses depois do nome.
+                    // `_hasExistingArgList`: there are already parentheses after the name.
                     let with_parens = text[word_end..].trim_start_matches([' ', '\t']).starts_with('(');
                     let file = url::Url::parse(&u).ok().and_then(|x| x.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
                     let request = crate::completion_item::Request {
@@ -1486,7 +1474,7 @@ impl<A: Analyzer> Server<A> {
                         file: &file,
                         doc_preference: &self.configuration.documentation,
                     };
-                    // A documentação de cada item (do arquivo da declaração).
+                    // The documentation of each item (from the declaration's file).
                     let mut texts: HashMap<std::path::PathBuf, Option<String>> = HashMap::new();
                     self.not_imported.clear();
                     let mut items: Vec<Value> = Vec::new();
@@ -1510,7 +1498,7 @@ impl<A: Analyzer> Server<A> {
                         items.push(v);
                     }
                     let mut incomplete = completion.incomplete;
-                    // Os snippets (sem ranqueamento, no fim).
+                    // The snippets (without ranking, at the end).
                     if cap.snippet && self.configuration_of(&u).enable_snippets {
                         let prefix = &text[completion.start..completion.end];
                         if let Some(context) = crate::completion_item::snippet_context(&text, offset) {
@@ -1552,8 +1540,8 @@ impl<A: Analyzer> Server<A> {
             }
             "completionItem/resolve" => {
                 let mut item = message.get("params").cloned().unwrap_or(Value::Null);
-                // `resolveDartCompletion`: só o item com `data` (não
-                // importado): o import, a documentação e o `detail`.
+                // `resolveDartCompletion`: only an item with `data` (not imported): the
+                // import, the documentation and the `detail`.
                 let key = item.pointer("/data/ref").and_then(Value::as_str).map(str::to_string);
                 if let Some(key) = key
                     && let Some((origin, import, detail)) = self.not_imported.get(&key).cloned()
@@ -1597,7 +1585,7 @@ impl<A: Analyzer> Server<A> {
                     .and_then(|p| p.pointer("/context/only"))
                     .and_then(Value::as_array)
                     .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect());
-                // Só os tipados publicados para a versão vigente.
+                // Only the typed ones published for the current version.
                 let empty = Vec::new();
                 let published = match self.typed_published.get(&u) {
                     Some((v, d)) if Some(*v) == self.documents.version(&u) => d,
@@ -1605,9 +1593,9 @@ impl<A: Analyzer> Server<A> {
                 };
                 let actions = self.analyzer.actions(&self.documents, &u, start, end, published);
                 let mut output = Vec::new();
-                // As ações de fonte (§13.12.1): antes de todas as outras, na
-                // forma de comando, sempre oferecidas (o cálculo fica para o
-                // `executeCommand`), e só a quem aceita `workspace/applyEdit`.
+                // The source actions (§13.12.1): before all the others, as commands, always
+                // offered (the computation is left to `executeCommand`), and only to a
+                // client that accepts `workspace/applyEdit`.
                 let requested_sources = only.as_ref().is_none_or(|l| l.iter().any(|w| w == "source" || w.starts_with("source.")));
                 let path = url::Url::parse(&u).ok().filter(|x| x.scheme() == "file").and_then(|x| x.to_file_path().ok());
                 if let (true, true, true, Some(path)) = (requested_sources, self.apply_edits, u.ends_with(".dart"), path) {
@@ -1632,8 +1620,8 @@ impl<A: Analyzer> Server<A> {
                 let (mut fixes, mut assists, mut refactorings): (Vec<Value>, Vec<Value>, Vec<Value>) =
                     (Vec::new(), Vec::new(), Vec::new());
                 for action in actions {
-                    // As de fonte do analisador (a edição pronta do
-                    // `Organize Imports`) dão lugar aos comandos acima.
+                    // The analyzer's source actions (the ready edit of `Organize Imports`) give
+                    // way to the commands above.
                     if action.kind.starts_with("source") {
                         continue;
                     }
@@ -1644,8 +1632,8 @@ impl<A: Analyzer> Server<A> {
                         continue;
                     }
                     let edit = match &action.create_file {
-                        // Só a quem aceita criar arquivo: a capacidade é a
-                        // edição inteira ou nada.
+                        // Only to a client that accepts creating files: the capability is the whole
+                        // edit or nothing.
                         Some(_) if !self.create_files => continue,
                         Some((new, content)) => {
                             let mut e = self.workspace_edit(&action.edits, Some(json!({"kind": "create", "uri": new})));
@@ -1664,14 +1652,13 @@ impl<A: Analyzer> Server<A> {
                             None => self.workspace_edit(&action.edits, None),
                         },
                     };
-                    // A forma do servidor do Dart (§13.7.1 item 8 e §13.8.1):
-                    // `diagnostics` (o do erro numa correção, vazia numa
-                    // assistência), o comando de registro com o id original
-                    // da mudança, e nunca `isPreferred`. As duas refatorações
-                    // legadas (`Inline`/`Extract Local Variable`) não são
-                    // assistências e ficam como estavam.
-                    // A assistência `Inline invocation of '…'` (`dart.assist.inline`)
-                    // tem a mesma espécie e é assistência.
+                    // The Dart server's form (§13.7.1 item 8 and §13.8.1): `diagnostics` (the
+                    // error's for a fix, empty for an assist), the logging command with the
+                    // change's original id, and never `isPreferred`. The two legacy
+                    // refactorings (`Inline`/`Extract Local Variable`) are not assists and stay
+                    // as they were.
+                    // The `Inline invocation of '…'` assist (`dart.assist.inline`) has the same
+                    // kind and is an assist.
                     let refactoring = matches!(action.kind.as_str(), "refactor.inline" | "refactor.extract")
                         && !action.title.starts_with("Inline invocation of");
                     let mut value = json!({"title": action.title, "kind": action.kind, "edit": edit});
@@ -1693,12 +1680,11 @@ impl<A: Analyzer> Server<A> {
                         assists.push(value);
                     }
                 }
-                // As ações de fonte, as correções, as assistências e as
-                // refatorações, nesta ordem; correções e assistências passam
-                // cada grupo pelo `_CodeActionSorter`.
+                // The source actions, the fixes, the assists and the refactorings, in this
+                // order; fixes and assists pass each group through `_CodeActionSorter`.
                 let request_column = i64::from(de.column);
-                // `getFixActions`/`getAssistActions`: só como `CodeAction`
-                // literal; sem `codeActionLiteralSupport`, nenhuma.
+                // `getFixActions`/`getAssistActions`: only as literal `CodeAction`s; without
+                // `codeActionLiteralSupport`, none.
                 if !self.actions_literals {
                     fixes.clear();
                     assists.clear();
@@ -1728,7 +1714,7 @@ impl<A: Analyzer> Server<A> {
                 let Some((u, offset)) = self.request_position(message) else {
                     return response(&id, Value::Null);
                 };
-                // A versão no começo da requisição (`extractDocumentVersion`).
+                // The version at the start of the request (`extractDocumentVersion`).
                 let version = self.documents.version(&u);
                 match self.analyzer.rename(&self.documents, &u, offset, &new) {
                     Ok(rename) if rename.null => response(&id, Value::Null),
@@ -1742,8 +1728,8 @@ impl<A: Analyzer> Server<A> {
                             file_question: false,
                         };
                         match rename.warning {
-                            // ERROR/WARNING do `checkFinalConditions`: sem
-                            // `userPromptSender`, `-32010`; com, a pergunta.
+                            // ERROR/WARNING from `checkFinalConditions`: without `userPromptSender`,
+                            // `-32010`; with it, the question.
                             Some(warning) if !self.user_questions => error(&id, RENAME_INVALID, warning),
                             Some(warning) => self.ask_on_rename(
                                 pending,
@@ -1759,8 +1745,8 @@ impl<A: Analyzer> Server<A> {
                 let Some((u, offset)) = self.request_position(message) else {
                     return response(&id, Value::Null);
                 };
-                // Disparo automático (`(` digitado, ajuda fechada): só se o
-                // `(` abre a lista, como o servidor do Dart.
+                // Automatic trigger (`(` typed, help closed): only if the `(` opens the
+                // list, like the Dart server.
                 let auto = message.pointer("/params/context/triggerKind").and_then(Value::as_u64) == Some(2)
                     && message.pointer("/params/context/isRetrigger").and_then(Value::as_bool) == Some(false);
                 let Some(a) = self.analyzer.signature(&self.documents, &u, offset, auto) else {
@@ -1774,8 +1760,8 @@ impl<A: Analyzer> Server<A> {
                     signature["documentation"] =
                         if self.signature_markdown { json!({"kind": "markdown", "value": d}) } else { json!(d) };
                 }
-                // Sem parâmetro ativo e sem `null` no cliente: um índice fora
-                // da lista (o VS Code não destaca nenhum).
+                // No active parameter and no `null` in the client: an index outside the
+                // list (VS Code highlights none).
                 let active = match a.active {
                     Some(i) => json!(i),
                     None if self.signature_without_active => Value::Null,
@@ -1789,7 +1775,7 @@ impl<A: Analyzer> Server<A> {
                 };
                 let document_highlights = self.analyzer.document_highlights(&self.documents, &u, offset).unwrap_or_default();
                 let items: Vec<Value> = document_highlights.into_iter().filter_map(|s| Some(json!({"range": self.range(&u, s)?}))).collect();
-                // O Dart responde `[]`, nunca `null` (§11.6).
+                // Dart answers `[]`, never `null` (§11.6).
                 response(&id, json!(items))
             }
             "textDocument/implementation" => {
@@ -1805,9 +1791,8 @@ impl<A: Analyzer> Server<A> {
                 response(&id, json!(locals))
             }
             // `workspace/willRenameFiles` (`MoveFileRefactoringImpl.multi`,
-            // `crate::move_file`): as URIs das diretivas que chegam aos
-            // arquivos movidos e as relativas que saem deles; `null` numa
-            // condição fatal.
+            // `crate::move_file`): the URIs of the directives that reach the moved
+            // files and the relative ones that leave them; `null` on a fatal condition.
             "workspace/willRenameFiles" => {
                 let mut map = Vec::new();
                 for f in message.pointer("/params/files").and_then(Value::as_array).cloned().unwrap_or_default() {
@@ -1831,7 +1816,7 @@ impl<A: Analyzer> Server<A> {
                     None => response(&id, Value::Null),
                 }
             }
-            // `dart/textDocument/super` (o "ir para o super" do Dart-Code).
+            // `dart/textDocument/super` (Dart-Code's "go to super").
             "dart/textDocument/super" => {
                 let Some((u, offset)) = self.request_position(message) else {
                     return response(&id, Value::Null);
@@ -1852,16 +1837,15 @@ impl<A: Analyzer> Server<A> {
                     .and_then(|(target, s)| Some(json!({"uri": target, "range": self.range(&target, s)?})));
                 response(&id, local.unwrap_or_else(|| json!([])))
             }
-            // `handler_document_link.dart:26-53` (docs/LSP-ESPECIFICACAO.md
-            // §8.4): no 3.6.2 o visitante só liga os comentários "See code
-            // in examples/api/…" do Flutter; as URIs das diretivas não viram
-            // link (o oráculo devolve `[]` nos 36 arquivos, todos com
-            // imports). Fora do Flutter a resposta é sempre a lista vazia.
+            // `handler_document_link.dart:26-53` (docs/LSP-ESPECIFICACAO.md §8.4): in
+            // 3.6.2 the visitor only links Flutter's "See code in examples/api/…"
+            // comments; directive URIs do not become links (the oracle returns `[]` on
+            // the 36 files, all with imports). Outside Flutter the response is always
+            // the empty list.
             "textDocument/formatting" | "textDocument/rangeFormatting" | "textDocument/onTypeFormatting" => {
-                // `FormattingHandler`, `FormatRangeHandler` e
-                // `FormatOnTypeHandler`: só arquivos Dart, nada com
-                // `enableSdkFormatter: false`, o `lineLength` do recurso; o
-                // `onTypeFormatting` formata o documento inteiro.
+                // `FormattingHandler`, `FormatRangeHandler` and `FormatOnTypeHandler`: only
+                // Dart files, nothing with `enableSdkFormatter: false`, the resource's
+                // `lineLength`; `onTypeFormatting` formats the whole document.
                 let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
                 if !uri.ends_with(".dart") {
                     return response(&id, Value::Null);
@@ -1875,8 +1859,8 @@ impl<A: Analyzer> Server<A> {
                     return response(&id, Value::Null);
                 };
                 let range_ = if method == "textDocument/rangeFormatting" {
-                    // `toOffset`: linha além do fim é erro; a coluna soma ao
-                    // início da linha sem limite (pode passar da quebra).
+                    // `toOffset`: a line past the end is an error; the column is added to the
+                    // line start without a limit (it may go past the line break).
                     let mut points = [0usize; 2];
                     for (i, p) in ["start", "end"].into_iter().enumerate() {
                         let l = message.pointer(&format!("/params/range/{p}/line")).and_then(Value::as_u64).unwrap_or(0);
@@ -1893,8 +1877,8 @@ impl<A: Analyzer> Server<A> {
                 response(&id, crate::formatting::edits(&text, width, range_))
             }
             "textDocument/documentLink" => {
-                // Os blocos `{@tool}` que citam o código de exemplo
-                // (`crate::links`, o visitor do 3.6.2).
+                // The `{@tool}` blocks that cite the example code (`crate::links`, the 3.6.2
+                // visitor).
                 let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
                 let path = url::Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok());
                 let (Some(text), Some(path)) = (self.documents.get(&uri).map(str::to_string), path) else {
@@ -1912,9 +1896,9 @@ impl<A: Analyzer> Server<A> {
                     .collect();
                 response(&id, json!(links))
             }
-            // `handler_code_lens.dart:32-61` (§8.3): só há lentes de
-            // augmentations, e só para o cliente que declara o comando
-            // `dart.goToLocation`; sem augmentations, lista vazia.
+            // `handler_code_lens.dart:32-61` (§8.3): there are only augmentation
+            // lenses, and only for a client that declares the `dart.goToLocation`
+            // command; without augmentations, an empty list.
             "textDocument/codeLens" => {
                 let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
                 let (augmentations, augmented) = (self.configuration.code_lens_augmentation, self.configuration.code_lens_augmented);
@@ -1932,8 +1916,8 @@ impl<A: Analyzer> Server<A> {
                     .collect();
                 response(&id, json!(lenses))
             }
-            // `textDocument/documentColor` (o `ColorComputer`, §8.2): as
-            // cores de 0 a 1.
+            // `textDocument/documentColor` (the `ColorComputer`, §8.2): the colors from
+            // 0 to 1.
             "textDocument/documentColor" => {
                 let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
                 if !uri.ends_with(".dart") {
@@ -1950,9 +1934,9 @@ impl<A: Analyzer> Server<A> {
                     .collect();
                 response(&id, json!(colors))
             }
-            // `textDocument/colorPresentation`: as quatro formas, com `const`
-            // quando a expressão é constante fora de contexto constante; nada
-            // fora das raízes de análise ou sem o `Color` do Flutter.
+            // `textDocument/colorPresentation`: the four forms, with `const` when the
+            // expression is constant outside a constant context; nothing outside the
+            // analysis roots or without Flutter's `Color`.
             "textDocument/colorPresentation" => {
                 let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
                 let color = message.pointer("/params/color").cloned().unwrap_or(Value::Null);
@@ -1976,7 +1960,7 @@ impl<A: Analyzer> Server<A> {
                     .collect();
                 response(&id, json!(list))
             }
-            // `dart/textDocument/augmented` e `augmentation` (§8.6).
+            // `dart/textDocument/augmented` and `augmentation` (§8.6).
             "dart/textDocument/augmented" | "dart/textDocument/augmentation" => {
                 let Some((u, offset)) = self.request_position(message) else {
                     return response(&id, Value::Null);
@@ -2029,7 +2013,7 @@ impl<A: Analyzer> Server<A> {
                     };
                     let spans = self.analyzer.selections(&u, &text, offset);
                     let Some(table) = self.documents.lines(&u) else { break };
-                    // Do mais externo ao mais interno, cada um pai do seguinte.
+                    // From the outermost to the innermost, each one the parent of the next.
                     let mut current: Option<Value> = None;
                     for s in spans.iter().rev() {
                         let mut v = json!({"range": lsp_range(&text, table, s.start, s.end)});
@@ -2093,8 +2077,8 @@ impl<A: Analyzer> Server<A> {
                 response(&id, value.map_or(Value::Null, |v| json!([v])))
             }
             "callHierarchy/incomingCalls" | "callHierarchy/outgoingCalls" => {
-                // `toServerItem`: o arquivo, o nome em `selectionRange` e o
-                // nome exibido do item do cliente.
+                // `toServerItem`: the file, the name in `selectionRange` and the displayed
+                // name of the client's item.
                 let item = message.pointer("/params/item");
                 let uri = item.and_then(|i| i.get("uri")).and_then(Value::as_str).map(str::to_string);
                 let name = item.and_then(|i| i.get("name")).and_then(Value::as_str).unwrap_or("").to_string();
@@ -2116,8 +2100,7 @@ impl<A: Analyzer> Server<A> {
                 let calls = self.analyzer.calls(&self.documents, &uri, offset, &name, constructor, received);
                 let mut output = Vec::new();
                 for (item, spans) in calls {
-                    // Recebidas: intervalos no arquivo de quem chama; feitas:
-                    // no arquivo do item pedido.
+                    // Incoming: ranges in the caller's file; outgoing: in the requested item's file.
                     let file = if received { item.uri.clone() } else { uri.clone() };
                     let ranges: Vec<Value> = spans.iter().filter_map(|s| self.range(&file, *s)).collect();
                     let Some(v) = self.call_item(&item) else { continue };
@@ -2126,7 +2109,7 @@ impl<A: Analyzer> Server<A> {
                 response(&id, json!(output))
             }
             "textDocument/prepareTypeHierarchy" => {
-                // `isDartDocument`: outro arquivo responde lista vazia.
+                // `isDartDocument`: another file answers an empty list.
                 let request = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or("");
                 if !request.ends_with(".dart") {
                     return response(&id, json!([]));
@@ -2138,8 +2121,8 @@ impl<A: Analyzer> Server<A> {
                 if item.is_some() {
                     self.hierarchy_origin = Some(u.clone());
                 }
-                // `toLspItem(target, unit.lineInfo)`: as posições do arquivo
-                // da classe convertidas com as linhas do documento atual.
+                // `toLspItem(target, unit.lineInfo)`: the positions of the class's file
+                // converted with the current document's lines.
                 let value = item.and_then(|i| self.hierarchy_item(&i, Some(&u)));
                 response(&id, value.map_or(Value::Null, |v| json!([v])))
             }
@@ -2160,8 +2143,8 @@ impl<A: Analyzer> Server<A> {
                 let items = self.analyzer.hierarchy(&self.documents, &project, &reference, anchor.as_ref().map(|(r, c)| (r.as_str(), c.as_slice())), supertypes);
                 match items {
                     None => response(&id, Value::Null),
-                    // `_convertItems`: cada item com as linhas do próprio
-                    // arquivo; o que não se lê fica de fora.
+                    // `_convertItems`: each item with its own file's lines; what cannot be read
+                    // is left out.
                     Some(list) => response(&id, json!(list.iter().filter_map(|i| self.hierarchy_item(i, None)).collect::<Vec<_>>())),
                 }
             }
@@ -2189,9 +2172,9 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// Um `CallHierarchyItem` (`toLspItem`): a espécie pelo
-    /// `toSymbolKindMapping` com o recuo (`File` → `Module`; outra não
-    /// anunciada ou desconhecida → `Object`), sem `data`.
+    /// A `CallHierarchyItem` (`toLspItem`): the kind through
+    /// `toSymbolKindMapping` with the fallback (`File` → `Module`; another one
+    /// not announced or unknown → `Object`), without `data`.
     fn call_item(&self, item: &crate::CallItem) -> Option<Value> {
         let accepted: Vec<u64> = self.symbol_kinds.clone().unwrap_or_else(|| (1..=18).collect());
         let kind = match item.kind.symbol() {
@@ -2212,7 +2195,7 @@ impl<A: Analyzer> Server<A> {
         Some(v)
     }
 
-    /// O offset (bytes) de uma posição LSP de `uri` (aberto ou no disco).
+    /// The offset (bytes) of an LSP position of `uri` (open or on disk).
     fn offset_in_file(&self, uri: &str, line: u32, column: u32) -> Option<usize> {
         if let (Some(text), Some(table)) = (self.documents.get(uri), self.documents.lines(uri)) {
             return Some(table.position_offset(text, line, column));
@@ -2223,9 +2206,9 @@ impl<A: Analyzer> Server<A> {
         Some(table.position_offset(&source, line, column))
     }
 
-    /// Um `TypeHierarchyItem` (`toLspItem`): espécie 5 (classe), `data` com
-    /// o `ElementLocation` (`ref`) e a âncora. Com `lines_of`, os
-    /// intervalos são convertidos com as linhas desse documento.
+    /// A `TypeHierarchyItem` (`toLspItem`): kind 5 (class), `data` with the
+    /// `ElementLocation` (`ref`) and the anchor. With `lines_of`, the ranges are
+    /// converted with that document's lines.
     fn hierarchy_item(&self, item: &crate::TypeItem, lines_of: Option<&str>) -> Option<Value> {
         let (range, selection) = match lines_of {
             Some(origin) => (self.range_with_lines_of(&item.uri, origin, item.range)?, self.range_with_lines_of(&item.uri, origin, item.selection)?),
@@ -2245,9 +2228,10 @@ impl<A: Analyzer> Server<A> {
         }))
     }
 
-    /// O documento cujo projeto atende `typeHierarchy/supertypes` e
-    /// `subtypes` do item em `uri`: o próprio arquivo quando está numa raiz
-    /// do workspace; senão (SDK, pacote) o do último `prepareTypeHierarchy`.
+    /// The document whose project serves `typeHierarchy/supertypes` and
+    /// `subtypes` of the item at `uri`: the file itself when it is in a
+    /// workspace root; otherwise (SDK, package) that of the last
+    /// `prepareTypeHierarchy`.
     fn hierarchy_document(&self, uri: &str) -> String {
         let in_workspace = url::Url::parse(uri)
             .ok()
@@ -2259,7 +2243,7 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// O texto de `uri`: o aberto, senão o do disco.
+    /// The text of `uri`: the open one, otherwise the disk's.
     fn file_text(&self, uri: &str) -> Option<std::borrow::Cow<'_, str>> {
         if let Some(text) = self.documents.get(uri) {
             return Some(std::borrow::Cow::Borrowed(text));
@@ -2268,10 +2252,10 @@ impl<A: Analyzer> Server<A> {
         std::fs::read_to_string(path).ok().map(std::borrow::Cow::Owned)
     }
 
-    /// Um intervalo de `file` convertido com o `LineInfo` de `origin`
-    /// (`sourceRangeToRange(unit.lineInfo, …)` do `prepareTypeHierarchy`):
-    /// os offsets UTF-16 do arquivo da classe, a linha pelo último início de
-    /// linha de `origin` que não passa deles e a coluna sem limite.
+    /// A range of `file` converted with the `LineInfo` of `origin`
+    /// (`sourceRangeToRange(unit.lineInfo, …)` of `prepareTypeHierarchy`): the
+    /// UTF-16 offsets of the class's file, the line from the last line start of
+    /// `origin` that does not exceed them, and the column without a limit.
     fn range_with_lines_of(&self, file: &str, origin: &str, span: dartforge_diagnostics::Span) -> Option<Value> {
         if file == origin {
             return self.range(file, span);
@@ -2291,15 +2275,14 @@ impl<A: Analyzer> Server<A> {
         Some(json!({"start": position(span.start), "end": position(span.end)}))
     }
 
-    /// `workspace/executeCommand` (docs/LSP-ESPECIFICACAO.md §13.12.2 a
-    /// §13.12.6). Devolve a resposta, ou, quando o comando tem edição a
-    /// aplicar, o pedido `workspace/applyEdit`: a resposta do
-    /// `executeCommand` sai quando o cliente responder
-    /// ([`Server::client_response`]).
-    /// As refatorações de `codeAction` (§13.11.1): depois dos assists, na
-    /// ordem do Dart, na forma de comando; só com `workspace/applyEdit` e
-    /// com `refactor` pedido. As legadas passam pelo `shouldIncludeKind`; a
-    /// do `RefactoringProcessor` (Move) não.
+    /// `workspace/executeCommand` (docs/LSP-ESPECIFICACAO.md §13.12.2 to
+    /// §13.12.6). Returns the response, or, when the command has an edit to
+    /// apply, the `workspace/applyEdit` request: the `executeCommand` response
+    /// goes out when the client answers ([`Server::client_response`]).
+    /// The `codeAction` refactorings (§13.11.1): after the assists, in Dart's
+    /// order, as commands; only with `workspace/applyEdit` and with `refactor`
+    /// requested. The legacy ones go through `shouldIncludeKind`; that of the
+    /// `RefactoringProcessor` (Move) does not.
     fn refactorings_by_command(&mut self, u: &str, start: usize, end: usize, only: Option<&[String]>) -> Vec<Value> {
         let requested = only.is_none_or(|l| l.iter().any(|w| w == "refactor" || w.starts_with("refactor.")));
         if !requested || !self.apply_edits || !u.ends_with(".dart") {
@@ -2360,7 +2343,7 @@ impl<A: Analyzer> Server<A> {
         output
     }
 
-    /// O texto vigente do arquivo (o aberto, senão o do disco).
+    /// The current text of the file (the open one, otherwise the disk's).
     fn current_text(&self, uri: &str, path: &str) -> Option<String> {
         self.documents.get(uri).map(str::to_string).or_else(|| std::fs::read_to_string(path).ok())
     }
@@ -2377,7 +2360,7 @@ impl<A: Analyzer> Server<A> {
                 ),
             )
         };
-        // `parseArgList`: posicional, 6 itens; outra forma vira `{}`.
+        // `parseArgList`: positional, 6 items; any other shape becomes `{}`.
         let arguments = message.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
         if arguments.len() != 6 {
             return invalid();
@@ -2421,8 +2404,8 @@ impl<A: Analyzer> Server<A> {
         self.refactoring_response(id, name, result, if only_validate { None } else { Some((uri, version)) })
     }
 
-    /// A resposta de uma refatoração calculada. `versioned`: o arquivo e a
-    /// versão pedida, para o `ContentModified` do `refactor.perform`.
+    /// The response of a computed refactoring. `versioned`: the file and the
+    /// requested version, for the `ContentModified` of `refactor.perform`.
     fn refactoring_response(
         &mut self,
         id: &Value,
@@ -2439,7 +2422,7 @@ impl<A: Analyzer> Server<A> {
             R::Failure(reason) => error(id, COMPUTATION_FAILURE, reason.unwrap_or_else(|| "Cannot compute the change. No details.".to_string())),
             R::Error(m) if validate => response(id, json!({"valid": false, "message": m})),
             R::Error(m) => {
-                // `showErrorMessageToUser` e sucesso `null`.
+                // `showErrorMessageToUser` and a `null` success.
                 self.pending_outputs.push(json!({
                     "jsonrpc": "2.0",
                     "method": "window/showMessage",
@@ -2478,7 +2461,7 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// Os comandos do `RefactoringProcessor` (§13.11.2, "Comandos do
+    /// The commands of the `RefactoringProcessor` (§13.11.2, "Comandos do
     /// framework novo").
     fn run_new_refactoring(&mut self, id: &Value, message: &Value, command: &'static str) -> Value {
         let invalid = || {
@@ -2516,13 +2499,13 @@ impl<A: Analyzer> Server<A> {
         let start = byte_from_utf16(&text, offset as usize);
         let end = byte_from_utf16(&text, (offset + length) as usize);
         let result = if command == "dart.refactor.move_top_level_to_file" {
-            // `arguments[0] as String`: outro tipo lança.
+            // `arguments[0] as String`: another type throws.
             match list.first().and_then(Value::as_str) {
                 Some(target) => self.analyzer.move_to_file(&self.documents, &uri, start, end - start, target),
                 None => crate::RefactoringResult::InternalError("type 'Null' is not a subtype of type 'String' in type cast".to_string()),
             }
         } else {
-            // As experimentais (`analyzeAvailability`): sem a mudança.
+            // The experimental ones (`analyzeAvailability`): without the change.
             crate::RefactoringResult::Failure(None)
         };
         self.refactoring_response(id, command, result, None)
@@ -2555,8 +2538,8 @@ impl<A: Analyzer> Server<A> {
             _ => return error(id, INVALID_COMMAND_ARGUMENTS, format!("{command} requires a single Map argument")),
         };
         match command.as_str() {
-            // Só telemetria no servidor do Dart; sem `action`, a conversão
-            // dele lança (`log_action.dart:23`).
+            // Only telemetry in the Dart server; without `action`, its conversion
+            // throws (`log_action.dart:23`).
             "dart.logAction" => match parameters.get("action").and_then(Value::as_str) {
                 Some(_) => response(id, Value::Null),
                 None => error(id, ERROR_NOT_HANDLED, "dart.logAction sem o campo action"),
@@ -2594,7 +2577,7 @@ impl<A: Analyzer> Server<A> {
                 }
                 let mut names = dartforge_intern::Interner::new();
                 let analyzed = dartforge_frontend::parser::parse(&text, &mut names);
-                // `hasScanParseErrors`: algum erro do scanner ou do parser.
+                // `hasScanParseErrors`: some scanner or parser error.
                 let with_errors = analyzed.diagnostics.iter().any(|d| {
                     d.code.is_none_or(|c| {
                         let single = c.info().unico;
@@ -2624,9 +2607,9 @@ impl<A: Analyzer> Server<A> {
                         })
                         .unwrap_or_default()
                 } else {
-                    // Os erros semânticos são os da última publicação tipada,
-                    // se ela é da versão vigente; sem ela, nenhum import sai
-                    // por erro (só as duplicatas textuais).
+                    // The semantic errors are those of the last typed publication, if it is of
+                    // the current version; without it, no import is removed because of an
+                    // error (only the textual duplicates).
                     let typed: &[dartforge_diagnostics::Diagnostic] = self
                         .typed_published
                         .get(&uri)
@@ -2640,7 +2623,7 @@ impl<A: Analyzer> Server<A> {
                         .filter(|d| matches!(name_of(d), "DUPLICATE_IMPORT" | "UNUSED_IMPORT" | "UNNECESSARY_IMPORT"))
                         .map(|d| d.span.start)
                         .collect();
-                    // Os nove códigos com `isUnresolvedIdentifier`.
+                    // The nine codes with `isUnresolvedIdentifier`.
                     let not_resolved = typed.iter().any(|d| {
                         matches!(
                             name_of(d),
@@ -2666,7 +2649,7 @@ impl<A: Analyzer> Server<A> {
                         })
                         .unwrap_or_default()
                 };
-                // Nada a mudar: `null`, sem falar com o cliente.
+                // Nothing to change: `null`, without talking to the client.
                 if edits.is_empty() {
                     return response(id, Value::Null);
                 }
@@ -2676,13 +2659,13 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
-    /// `Fix All` (docs/LSP-ESPECIFICACAO.md §13.12.7): até quatro passadas;
-    /// em cada uma, as correções aplicáveis em lote dos diagnósticos do
-    /// arquivo, em ordem de offset, cada produtor de forma atômica e
-    /// descartado se conflita. A primeira passada vê os diagnósticos tipados
-    /// publicados para a versão vigente; as seguintes rodam sobre o texto já
-    /// corrigido (uma cópia dos documentos abertos) e só veem os
-    /// diagnósticos imediatos do analisador. Sem recusa por erro de sintaxe.
+    /// `Fix All` (docs/LSP-ESPECIFICACAO.md §13.12.7): up to four passes; in
+    /// each one, the bulk-applicable fixes of the file's diagnostics, in offset
+    /// order, each producer atomically and discarded if it conflicts. The first
+    /// pass sees the typed diagnostics published for the current version; the
+    /// following ones run over the already fixed text (a copy of the open
+    /// documents) and only see the analyzer's immediate diagnostics. No refusal
+    /// because of syntax errors.
     fn fix_all(&mut self, id: &Value, label: &'static str, uri: &str, text: &str, auto: bool) -> Value {
         use crate::fix_all::{Constructor, Ed};
         if !uri.ends_with(".dart") || crate::fix_all::generated(uri) {
@@ -2702,7 +2685,7 @@ impl<A: Analyzer> Server<A> {
             let documents = overlapping.as_ref().unwrap_or(&self.documents);
             let seen: &[dartforge_diagnostics::Diagnostic] = if passed_ == 0 { &published } else { &[] };
             let actions = self.analyzer.actions(documents, uri, 0, current.len(), seen);
-            // Fase A: por diagnóstico, em ordem de offset.
+            // Phase A: per diagnostic, in offset order.
             let mut candidates: Vec<&crate::CodeAction> = actions
                 .iter()
                 .filter(|a| {
@@ -2717,9 +2700,9 @@ impl<A: Analyzer> Server<A> {
             for a in candidates {
                 constructor.apply_producer(a.edits.iter().map(|e| (e.span.start, e.span.end - e.span.start, e.text.clone())));
             }
-            // Fase B: a limpeza de imports, só no pedido manual e numa
-            // passada sem edição da fase A. Os erros de import são os
-            // tipados, que só valem para o texto original.
+            // Phase B: the import cleanup, only on a manual request and in a pass
+            // without phase A edits. The import errors are the typed ones, which only
+            // apply to the original text.
             if constructor.edits.is_empty() && !auto && passed_ == 0 {
                 let mut names = dartforge_intern::Interner::new();
                 let analyzed = dartforge_frontend::parser::parse(&current, &mut names);
@@ -2732,8 +2715,8 @@ impl<A: Analyzer> Server<A> {
             }
             current = constructor.apply(&current);
             passed.push(constructor.edits);
-            // O texto corrigido como documento aberto, para a passada
-            // seguinte; os outros documentos abertos seguem como estão.
+            // The fixed text as an open document, for the next pass; the other open
+            // documents stay as they are.
             let mut copy = DocumentStore::new();
             for other in self.documents.uris() {
                 if other != uri
@@ -2744,11 +2727,11 @@ impl<A: Analyzer> Server<A> {
             }
             copy.open(uri.to_string(), version.unwrap_or(0), current.clone());
             overlapping = Some(copy);
-            // O que o analisador retém era do texto anterior.
+            // What the analyzer retains belonged to the previous text.
             self.analyzer.changed_document(uri);
         }
         if overlapping.is_some() {
-            // O analisador volta a ver os documentos de verdade.
+            // The analyzer sees the real documents again.
             self.analyzer.changed_document(uri);
         }
         let edits: Vec<Ed> = match passed.len() {
@@ -2756,7 +2739,7 @@ impl<A: Analyzer> Server<A> {
             1 => passed.pop().unwrap_or_default(),
             _ => crate::fix_all::merge(passed.concat()),
         };
-        // Em LSP, ordem crescente de offset; todas relativas ao original.
+        // In LSP, ascending offset order; all relative to the original.
         let edits: Vec<crate::Edit> = edits
             .into_iter()
             .rev()
@@ -2770,13 +2753,12 @@ impl<A: Analyzer> Server<A> {
         self.request_application(id, label, edit)
     }
 
-    /// `Fix All in Workspace` e a prévia (docs/LSP-ESPECIFICACAO.md
-    /// §13.12.8): uma única passada, manual, por todos os arquivos `.dart`
-    /// não gerados das raízes do workspace e dos documentos abertos, com as
-    /// fases A e B do `Fix All`; cada edição leva a anotação com o modelo
-    /// da mensagem da correção. Um documento aberto usa os diagnósticos
-    /// tipados publicados para a versão vigente; um arquivo só do disco, os
-    /// imediatos do analisador.
+    /// `Fix All in Workspace` and its preview (docs/LSP-ESPECIFICACAO.md
+    /// §13.12.8): a single manual pass over every non-generated `.dart` file of
+    /// the workspace roots and of the open documents, with phases A and B of
+    /// `Fix All`; each edit carries the annotation with the fix's message
+    /// template. An open document uses the typed diagnostics published for the
+    /// current version; a disk-only file, the analyzer's immediate ones.
     fn fix_workspace(&mut self, id: &Value, label: &'static str, confirm: bool) -> Value {
         use crate::fix_all::{Constructor, Ed};
         if !self.apply_edits {
@@ -2785,7 +2767,7 @@ impl<A: Analyzer> Server<A> {
         if !self.change_annotations {
             return error(id, FEATURE_DISABLED, format!("\"{label}\" is only available for clients that support change annotations"));
         }
-        // Os alvos: os abertos e, do disco, os que não estão abertos.
+        // The targets: the open ones and, from disk, those not open.
         let mut targets: Vec<(String, bool)> = self.documents.uris().map(|u| (u.to_string(), true)).collect();
         targets.sort();
         let open: HashSet<std::path::PathBuf> =
@@ -2801,8 +2783,8 @@ impl<A: Analyzer> Server<A> {
                 }
             }
         }
-        // Uma cópia dos abertos, em que cada arquivo do disco entra só
-        // enquanto é examinado.
+        // A copy of the open documents, in which each disk file only enters while
+        // it is being examined.
         let mut copy = DocumentStore::new();
         for u in self.documents.uris() {
             if let (Some(v), Some(t)) = (self.documents.version(u), self.documents.get(u)) {
@@ -2874,7 +2856,7 @@ impl<A: Analyzer> Server<A> {
             }
         }
         if touched_copy {
-            // O analisador volta a ver os documentos de verdade.
+            // The analyzer sees the real documents again.
             self.analyzer.changed_document("");
         }
         if changes.is_empty() {
@@ -2884,10 +2866,10 @@ impl<A: Analyzer> Server<A> {
         let mut by_file: Vec<(String, Vec<Value>)> = Vec::new();
         for (u, edits_) in &changes {
             let mut list = Vec::new();
-            // Em LSP, ordem crescente de offset.
+            // In LSP, ascending offset order.
             for ((offset, length, new), description) in edits_.iter().rev() {
                 let Some(range) = self.range(u, dartforge_diagnostics::Span { start: *offset, end: offset + length }) else { continue };
-                // Sem descrição, o último segmento da URI.
+                // Without a description, the last segment of the URI.
                 let edit_label: &str = if description.is_empty() { u.rsplit('/').next().unwrap_or(u.as_str()) } else { *description };
                 annotations
                     .entry(edit_label.to_string())
@@ -2916,8 +2898,8 @@ impl<A: Analyzer> Server<A> {
         self.request_application(id, label, edit)
     }
 
-    /// Um `window/showMessageRequest` do rename; o `rename` fica pendente
-    /// até a resposta.
+    /// A rename `window/showMessageRequest`; the `rename` stays pending until
+    /// the answer.
     fn ask_on_rename(&mut self, pending: PendingRename, params: Value) -> Value {
         self.next_request += 1;
         let request = json!(format!("dartforge/prompt/{}", self.next_request));
@@ -2925,10 +2907,10 @@ impl<A: Analyzer> Server<A> {
         json!({"jsonrpc": "2.0", "id": request, "method": "window/showMessageRequest", "params": params})
     }
 
-    /// `handler_rename.dart:205-269` depois das condições: a versão do
-    /// documento (`-32801`), o arquivo da classe (`renameFilesWithClasses`:
-    /// `always` renomeia, `prompt` pergunta `Yes`/`No`) e o `WorkspaceEdit`
-    /// com o `RenameFile` no fim.
+    /// `handler_rename.dart:205-269` after the conditions: the document version
+    /// (`-32801`), the class's file (`renameFilesWithClasses`: `always` renames,
+    /// `prompt` asks `Yes`/`No`) and the `WorkspaceEdit` with the `RenameFile`
+    /// at the end.
     fn finish_rename(&mut self, mut pending: PendingRename) -> Value {
         if !pending.file_question
             && pending.version.is_some()
@@ -2940,7 +2922,7 @@ impl<A: Analyzer> Server<A> {
         if let Some(file) = pending.file.take()
             && self.possible_file_rename
         {
-            // `renameFilesWithClasses` da pasta do arquivo (`forResource`).
+            // `renameFilesWithClasses` of the file's folder (`forResource`).
             let mode = self.configuration_of(&file.de).rename_files_with_classes.clone();
             let renames = if pending.file_question || mode == "always" || (self.rename_files && mode != "never" && mode != "prompt") {
                 true
@@ -2956,23 +2938,23 @@ impl<A: Analyzer> Server<A> {
             } else {
                 false
             };
-            // Só a operação de arquivo: o servidor do Dart não reescreve as
-            // diretivas no `rename` (o cliente pede `willRenameFiles`).
+            // Only the file operation: the Dart server does not rewrite the directives
+            // in `rename` (the client asks for `willRenameFiles`).
             if renames {
                 feature = Some(json!({"kind": "rename", "oldUri": file.de, "newUri": file.para}));
             }
         }
-        // A ordem do `SourceChange`: o arquivo da declaração (a primeira
-        // edição) e os outros na ordem da busca (pelo caminho).
+        // The `SourceChange` order: the declaration's file (the first edit) and the
+        // others in search order (by path).
         if let Some(first) = pending.edits.first().map(|e| e.uri.clone()) {
             pending.edits.sort_by(|a, b| (a.uri != first, &a.uri).cmp(&(b.uri != first, &b.uri)));
         }
         response(&pending.id, self.workspace_edit(&pending.edits, feature))
     }
 
-    /// A resposta do usuário a uma pergunta do rename: `Rename Anyway`
-    /// segue (qualquer outra, inclusive `null` ou erro, dá `{}`); `Yes`
-    /// renomeia o arquivo (outra resposta, só as edições).
+    /// The user's answer to a rename question: `Rename Anyway` proceeds (any
+    /// other, including `null` or an error, gives `{}`); `Yes` renames the file
+    /// (another answer, only the edits).
     fn rename_response(&mut self, mut pending: PendingRename, message: &Value) -> Value {
         let choice = message.pointer("/result/title").and_then(Value::as_str);
         if pending.file_question {
@@ -2987,8 +2969,8 @@ impl<A: Analyzer> Server<A> {
         self.finish_rename(pending)
     }
 
-    /// O pedido `workspace/applyEdit` de um comando (§13.12.3); o
-    /// `executeCommand` de id `id` fica pendente até a resposta do cliente.
+    /// The `workspace/applyEdit` request of a command (§13.12.3); the
+    /// `executeCommand` with id `id` stays pending until the client answers.
     fn request_application(&mut self, id: &Value, label: &'static str, edit: Value) -> Value {
         self.next_request += 1;
         let request = json!(format!("dartforge/applyEdit/{}", self.next_request));
@@ -3001,9 +2983,9 @@ impl<A: Analyzer> Server<A> {
         })
     }
 
-    /// Uma resposta do cliente a um pedido do servidor. A de um
-    /// `workspace/applyEdit` pendente vira a resposta do `executeCommand`
-    /// que o enviou (tabela da §13.12.3); as outras não levam dado.
+    /// A client response to a server request. That of a pending
+    /// `workspace/applyEdit` becomes the response of the `executeCommand` that
+    /// sent it (the table of §13.12.3); the others carry no data.
     fn client_response(&mut self, message: &Value) -> Option<Value> {
         let key = key_id(message.get("id")?);
         if self.configuration_request.as_ref().is_some_and(|p| key_id(&json!(p)) == key) {
@@ -3013,8 +2995,8 @@ impl<A: Analyzer> Server<A> {
         if let Some(pending) = self.pending_renames.remove(&key) {
             return Some(self.rename_response(pending, message));
         }
-        // O cliente recusou o registro dinâmico (`_applyRegistrations`): o
-        // erro vai ao log do cliente.
+        // The client refused the dynamic registration (`_applyRegistrations`): the
+        // error goes to the client's log.
         if message.get("id").and_then(Value::as_str).is_some_and(|i| i.starts_with("dartforge/registerCapability/"))
             && let Some(e) = message.get("error").filter(|e| !e.is_null())
         {
@@ -3038,7 +3020,7 @@ impl<A: Analyzer> Server<A> {
             return Some(response(&id, Value::Null));
         }
         Some(match result.get("failureReason").and_then(Value::as_str) {
-            // Sem motivo: o usuário recusou uma prévia; não é erro.
+            // Without a reason: the user declined a preview; not an error.
             None => response(&id, Value::Null),
             Some(reason) => error_with_data(
                 &id,
@@ -3049,16 +3031,17 @@ impl<A: Analyzer> Server<A> {
         })
     }
 
-    /// `WorkspaceEdit` das edições: `documentChanges` (cada documento com a
-    /// versão vigente, `null` se fechado) quando o cliente aceita, senão
-    /// `changes`. Uma operação de recurso (renomear arquivo) vai depois das
-    /// edições de texto, que valem para o texto antes dela.
+    /// `WorkspaceEdit` of the edits: `documentChanges` (each document with the
+    /// current version, `null` if closed) when the client accepts it, otherwise
+    /// `changes`. A resource operation (renaming a file) goes after the text
+    /// edits, which apply to the text before it.
     /// `createWorkspaceEdit(..., allowSnippets: true)` (`mapping.dart:156-213`,
-    /// docs/LSP-ESPECIFICACAO.md §13.8.1-G): a ação vira um `TextDocumentEdit`
-    /// com um `SnippetTextEdit` só quando o cliente anunciou
-    /// `experimental.snippetTextEdit` e `documentChanges`, a mudança é **uma**
-    /// edição no arquivo do pedido (que já existe) e há seleção ou grupo
-    /// ligado. Senão `None`: a edição simples, sem seleção nem grupos.
+    /// docs/LSP-ESPECIFICACAO.md §13.8.1-G): the action becomes a
+    /// `TextDocumentEdit` with a `SnippetTextEdit` only when the client
+    /// announced `experimental.snippetTextEdit` and `documentChanges`, the
+    /// change is **one** edit in the request's file (which already exists) and
+    /// there is a selection or a linked group. Otherwise `None`: the plain
+    /// edit, without selection or groups.
     fn edit_snippet(&self, uri: &str, action: &crate::CodeAction) -> Option<Value> {
         if !self.edits_snippet || !self.versioned_changes || action.create_file.is_some() || action.linked.empty() {
             return None;
@@ -3068,8 +3051,8 @@ impl<A: Analyzer> Server<A> {
             return None;
         }
         let range = self.range(&e.uri, e.span)?;
-        // Uma só edição: o texto dela começa no mesmo offset no documento
-        // final (`toSnippetTextEdits`, `offsetDelta` = 0).
+        // A single edit: its text starts at the same offset in the final document
+        // (`toSnippetTextEdits`, `offsetDelta` = 0).
         let new = crate::snippets::snippet_text(&e.text, e.span.start, &action.linked);
         let version = self.documents.version(&e.uri).map_or(Value::Null, |v| json!(v));
         Some(json!({"documentChanges": [{
@@ -3106,21 +3089,21 @@ impl<A: Analyzer> Server<A> {
         json!({"changes": changes})
     }
 
-    /// `workspace/symbol`: os símbolos dos documentos abertos e dos arquivos
-    /// `.dart` dos projetos do workspace (raízes do `initialize` e o projeto,
-    /// com `pubspec.yaml`, de cada documento aberto). O texto aberto vale
-    /// mais que o disco; cada árvore é descartada antes da próxima. Casa por
-    /// aproximação (`crate::fuzzy_matcher`): os que contêm a consulta primeiro,
-    /// depois as subsequências; entre iguais, a ordem de (URI, posição).
+    /// `workspace/symbol`: the symbols of the open documents and of the `.dart`
+    /// files of the workspace projects (the `initialize` roots and the project,
+    /// with `pubspec.yaml`, of each open document). The open text wins over the
+    /// disk; each tree is discarded before the next one. Matches fuzzily
+    /// (`crate::fuzzy_matcher`): those that contain the query first, then the
+    /// subsequences; among equals, (URI, position) order.
     fn workspace_symbols(&mut self, query: &str) -> Vec<Value> {
-        // `handler_workspace_symbols.dart:28-123` (docs/LSP-ESPECIFICACAO.md
-        // §5): consulta vazia não devolve nada.
+        // `handler_workspace_symbols.dart:28-123` (docs/LSP-ESPECIFICACAO.md §5):
+        // an empty query returns nothing.
         if query.is_empty() {
             return Vec::new();
         }
         let mut roots = self.roots.clone();
-        // O caminho de cada documento aberto (o da URI `file:`; senão o
-        // caminho da URI, só para indexar o texto aberto).
+        // The path of each open document (that of the `file:` URI; otherwise the
+        // URI's path, only to index the open text).
         let open_path = |u: &str| -> Option<std::path::PathBuf> {
             let x = url::Url::parse(u).ok()?;
             Some(x.to_file_path().unwrap_or_else(|_| std::path::PathBuf::from(x.path())))
@@ -3140,11 +3123,11 @@ impl<A: Analyzer> Server<A> {
                 loose.push(file);
             }
         }
-        // `addedFiles`: os arquivos das raízes analisadas; os conhecidos:
-        // o SDK e os `lib/` dos pacotes de cada raiz.
+        // `addedFiles`: the files of the analyzed roots; the known ones: the SDK
+        // and the `lib/` of the packages of each root.
         let mut added: Vec<std::path::PathBuf> = roots.iter().flat_map(|r| crate::project::project_files(r)).collect();
-        // Um documento aberto fora das raízes também é analisado (o
-        // servidor cria um contexto para ele).
+        // An open document outside the roots is also analyzed (the server creates a
+        // context for it).
         loose.retain(|c| !roots.iter().any(|r| c.starts_with(r)));
         loose.sort();
         added.extend(loose);
@@ -3154,8 +3137,8 @@ impl<A: Analyzer> Server<A> {
         self.symbol_index.search(query, &added, sdk.as_deref(), &packages, &open_texts, kinds.as_deref())
     }
 
-    /// URI e offset (bytes) de `params.textDocument` + `params.position`,
-    /// quando o documento está aberto.
+    /// URI and offset (bytes) of `params.textDocument` + `params.position`, when
+    /// the document is open.
     fn request_position(&self, message: &Value) -> Option<(String, usize)> {
         let params = message.get("params")?;
         let uri = params.get("textDocument")?.get("uri")?.as_str()?;
@@ -3165,8 +3148,8 @@ impl<A: Analyzer> Server<A> {
         Some((uri.to_string(), offset))
     }
 
-    /// Intervalo LSP de `span` (bytes) em `uri`: pelo texto aberto, senão
-    /// pelo arquivo no disco (renomear toca arquivos fechados do projeto).
+    /// LSP range of `span` (bytes) in `uri`: through the open text, otherwise
+    /// through the file on disk (rename touches closed files of the project).
     fn range(&self, uri: &str, span: dartforge_diagnostics::Span) -> Option<Value> {
         if let (Some(text), Some(table)) = (self.documents.get(uri), self.documents.lines(uri)) {
             return Some(lsp_range(text, table, span.start, span.end));
@@ -3185,12 +3168,12 @@ impl<A: Analyzer> Server<A> {
         Some(lsp_range(&read.0, &read.1, span.start, span.end))
     }
 
-    /// Diagnostica o documento e monta `textDocument/publishDiagnostics`.
+    /// Diagnoses the document and builds `textDocument/publishDiagnostics`.
     fn publish(&mut self, uri: &str) -> Value {
         let Some(text) = self.documents.get(uri).map(str::to_string) else {
             return empty_publication(uri);
         };
-        // Fora das raízes de análise (`analysisExcludedFolders`): nada.
+        // Outside the analysis roots (`analysisExcludedFolders`): nothing.
         if self.excluded(uri) {
             return empty_publication(uri);
         }
@@ -3198,9 +3181,9 @@ impl<A: Analyzer> Server<A> {
         self.publication(uri, &diagnostics)
     }
 
-    /// `_filesWithClientDiagnostics` (`lsp_analysis_server.dart:709-729`):
-    /// uma lista vazia para um arquivo que o cliente já tem vazio não é
-    /// enviada; as outras atualizam o registro.
+    /// `_filesWithClientDiagnostics` (`lsp_analysis_server.dart:709-729`): an
+    /// empty list for a file the client already has empty is not sent; the
+    /// others update the record.
     fn filter_repeated_empty(&mut self, uri: &str, publication: Value) -> Option<Value> {
         let empty = publication.pointer("/params/diagnostics").and_then(Value::as_array).is_none_or(|l| l.is_empty());
         if empty {
@@ -3213,9 +3196,10 @@ impl<A: Analyzer> Server<A> {
         Some(publication)
     }
 
-    /// `publishDiagnostics` de um arquivo não aberto, com o texto analisado.
-    /// A publicação dos diagnósticos de um YAML (no JSON do analyzer: linha e
-    /// coluna a partir de 1, deslocamento UTF-16): as faixas pelo texto lido.
+    /// `publishDiagnostics` of a file that is not open, with the analyzed text.
+    /// The publication of the diagnostics of a YAML file (in the analyzer's
+    /// JSON: 1-based line and column, UTF-16 offset): the ranges through the
+    /// read text.
     fn yaml_publication(&mut self, uri: &str, text: &str, diagnostics: &[dartforge_parity::json::DiagJson]) -> Option<Value> {
         let items: Vec<Value> = diagnostics
             .iter()
@@ -3259,12 +3243,12 @@ impl<A: Analyzer> Server<A> {
         self.filter_repeated_empty(uri, p)
     }
 
-    /// O relatório de `textDocument/diagnostic` de `uri`: o resultado tipado
-    /// da versão vigente, senão o do analisador (o mesmo que o
-    /// `publishDiagnostics` levaria). O `resultId` é a versão e se o
-    /// resultado é o tipado; igual ao `previousResultId`, a resposta é
-    /// `unchanged` sem recalcular. Documento que não está aberto não tem
-    /// diagnóstico (como o `didClose` do modo empurrado).
+    /// The `textDocument/diagnostic` report of `uri`: the typed result of the
+    /// current version, otherwise the analyzer's (the same that
+    /// `publishDiagnostics` would carry). The `resultId` is the version and
+    /// whether the result is the typed one; when equal to `previousResultId`, the
+    /// response is `unchanged` without recomputing. A document that is not open
+    /// has no diagnostics (like `didClose` in push mode).
     fn pulled_report(&mut self, uri: &str, previous: Option<&str>) -> Value {
         let Some(version) = self.documents.version(uri) else {
             return json!({"kind": "full", "items": []});
@@ -3290,7 +3274,7 @@ impl<A: Analyzer> Server<A> {
         json!({"kind": "full", "resultId": result_id, "items": items})
     }
 
-    /// `publishDiagnostics` de `diagnostics` (spans do texto vigente de `uri`).
+    /// `publishDiagnostics` of `diagnostics` (spans of the current text of `uri`).
     fn publication(&self, uri: &str, diagnostics: &[dartforge_diagnostics::Diagnostic]) -> Value {
         let (Some(text), Some(table)) = (self.documents.get(uri), self.documents.lines(uri)) else {
             return empty_publication(uri);
@@ -3308,10 +3292,10 @@ impl<A: Analyzer> Server<A> {
     }
 }
 
-/// Raízes do workspace no `initialize`: `workspaceFolders`, senão
-/// `rootUri`, senão `rootPath`; só diretórios existentes.
-/// Os inícios de linha (`LineInfo.lineStarts`) de `text` em unidades
-/// UTF-16: depois de `\n`, de `\r\n` e de `\r` isolado.
+/// Workspace roots in `initialize`: `workspaceFolders`, else `rootUri`, else
+/// `rootPath`; only existing directories.
+/// The line starts (`LineInfo.lineStarts`) of `text` in UTF-16 units: after
+/// `\n`, `\r\n` and a lone `\r`.
 fn utf16_starts(text: &str) -> Vec<usize> {
     let mut starts = vec![0];
     let mut o = 0usize;
@@ -3355,11 +3339,12 @@ fn initialize_roots(params: Option<&Value>) -> Vec<std::path::PathBuf> {
     roots
 }
 
-/// Dorme até `ms` em fatias de 10 ms; verdadeiro quando cancelado no meio.
+/// Sleeps up to `ms` in 10 ms slices; true when cancelled midway.
 ///
-/// O ponto seguro de cancelamento em execução: entre fatias, sem estado
-/// parcial, porque dormir não produz nada. A análise real checará a mesma
-/// condição entre documentos, nunca no meio de uma frase do parser.
+/// The safe cancellation point while running: between slices, without
+/// partial state, because sleeping produces nothing. Real analysis will
+/// check the same condition between documents, never in the middle of a
+/// parser sentence.
 fn sleep_cancellable(ms: u64, cancelled: &HashSet<String>, key: &str) -> bool {
     let slices = ms / 10 + u64::from(!ms.is_multiple_of(10));
     for _ in 0..slices {
@@ -3371,33 +3356,34 @@ fn sleep_cancellable(ms: u64, cancelled: &HashSet<String>, key: &str) -> bool {
     false
 }
 
-/// Verdadeiro quando a mensagem é requisição (tem `id` e `method` textual).
+/// True when the message is a request (it has an `id` and a textual `method`).
 fn is_request(message: &Value) -> bool {
     message.get("id").is_some() && message.get("method").is_some_and(|m| m.is_string())
 }
 
-/// Chave canônica do id (número e texto com o mesmo dígito são ids distintos
-/// no JSON-RPC; a serialização canônica preserva a distinção).
+/// Canonical key of the id (a number and a text with the same digit are
+/// distinct ids in JSON-RPC; canonical serialization preserves the
+/// distinction).
 fn key_id(id: &Value) -> String {
     id.to_string()
 }
 
-/// Resposta de sucesso JSON-RPC.
+/// JSON-RPC success response.
 fn response(id: &Value, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "result": result})
 }
 
-/// Resposta de erro JSON-RPC.
+/// JSON-RPC error response.
 fn error(id: &Value, code: i32, message: impl Into<String>) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message.into()}})
 }
 
-/// `window/showMessage` ou `window/logMessage` do `ty` (1 = erro).
+/// `window/showMessage` or `window/logMessage` of type `ty` (1 = error).
 fn message_notification(method: &str, ty: i32, text: &str) -> Value {
     json!({"jsonrpc": "2.0", "method": method, "params": {"type": ty, "message": text}})
 }
 
-/// A mensagem de um pânico (o `&str` ou a `String` do `panic!`).
+/// The message of a panic (the `&str` or the `String` of the `panic!`).
 fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
     panic
         .downcast_ref::<&str>()
@@ -3406,12 +3392,12 @@ fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "pânico sem mensagem".to_string())
 }
 
-/// A prioridade de uma correção ou assistência pela espécie
-/// (docs/LSP-ESPECIFICACAO.md §13.7.2 e §13.3): só as espécies que este
-/// servidor emite têm valor próprio; as demais ficam no padrão do grupo (50
-/// para correções, 40 para as `*.multi`, 30 para assistências).
+/// The priority of a fix or assist by kind (docs/LSP-ESPECIFICACAO.md
+/// §13.7.2 and §13.3): only the kinds this server emits have their own
+/// value; the others get the group's default (50 for fixes, 40 for the
+/// `*.multi` ones, 30 for assists).
 fn action_priority(kind: &str) -> i32 {
-    // A tabela gerada das espécies do Dart (§13.7.2 e `DartAssistKind`).
+    // The generated table of Dart's kinds (§13.7.2 and `DartAssistKind`).
     if let Some(id) = action_id(kind)
         && let Some((p, _)) = crate::actions::dart_kind(&id)
     {
@@ -3424,8 +3410,8 @@ fn action_priority(kind: &str) -> i32 {
     }
 }
 
-/// O id original da mudança (`dart.fix.…`, `dart.assist.…`) de uma espécie
-/// LSP: o inverso de `toCodeActionKind`.
+/// The original id of the change (`dart.fix.…`, `dart.assist.…`) of an LSP
+/// kind: the inverse of `toCodeActionKind`.
 fn action_id(kind: &str) -> Option<String> {
     if let Some(rest) = kind.strip_prefix("quickfix.") {
         return Some(format!("dart.fix.{rest}"));
@@ -3434,12 +3420,12 @@ fn action_id(kind: &str) -> Option<String> {
 }
 
 /// `_CodeActionSorter.sort` (`handler_code_actions.dart:284-406`;
-/// docs/LSP-ESPECIFICACAO.md §13.7.1, item 9): agrupa por título na ordem
-/// da primeira ocorrência; num grupo, fica a ação cujo primeiro diagnóstico
-/// começa na coluna mais próxima da do pedido, com os diagnósticos das
-/// outras de mesma edição fundidos (as de edição diferente saem); depois,
-/// prioridade decrescente e ordem de chegada.
-/// O offset em bytes do offset UTF-16 `u` (o fim do texto se passar dele).
+/// docs/LSP-ESPECIFICACAO.md §13.7.1, item 9): groups by title in the order
+/// of the first occurrence; within a group, keeps the action whose first
+/// diagnostic starts at the column closest to the request's, with the
+/// diagnostics of the others with the same edit merged (those with a
+/// different edit go away); then, descending priority and arrival order.
+/// The byte offset of UTF-16 offset `u` (the end of the text if it goes past it).
 fn byte_from_utf16(text: &str, u: usize) -> usize {
     let mut counted = 0usize;
     for (i, c) in text.char_indices() {
@@ -3478,17 +3464,17 @@ fn sort_actions(actions: Vec<Value>, request_column: i64) -> Vec<Value> {
             unique.extend(group);
         }
     }
-    // Estável: em empate vale a ordem de chegada.
+    // Stable: on a tie, arrival order counts.
     unique.sort_by_key(|a| -action_priority(a["kind"].as_str().unwrap_or("")));
     unique
 }
 
-/// Resposta de erro JSON-RPC com o campo `data`.
+/// JSON-RPC error response with the `data` field.
 fn error_with_data(id: &Value, code: i32, message: impl Into<String>, given: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message.into(), "data": given}})
 }
 
-/// Publicação vazia: documento fechado ou desconhecido não tem diagnósticos.
+/// Empty publication: a closed or unknown document has no diagnostics.
 fn empty_publication(uri: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -3497,8 +3483,9 @@ fn empty_publication(uri: &str) -> Value {
     })
 }
 
-/// O LSP exige `SymbolInformation[]` para clientes que não anunciaram suporte
-/// a `DocumentSymbol[]` hierárquico. A localização plana é a seleção do nome.
+/// LSP requires `SymbolInformation[]` for clients that did not announce
+/// support for hierarchical `DocumentSymbol[]`. The flat location is the
+/// selection of the name.
 fn flatten_symbols(symbol: &Value, uri: &str, parent: Option<&str>, output: &mut Vec<Value>) {
     let name = symbol.get("name").and_then(Value::as_str).unwrap_or("");
     let mut plan = json!({
@@ -3517,10 +3504,11 @@ fn flatten_symbols(symbol: &Value, uri: &str, parent: Option<&str>, output: &mut
     }
 }
 
-/// Converte `contentChanges` do protocolo em mudanças internas.
+/// Converts the protocol's `contentChanges` into internal changes.
 ///
-/// Intervalo ausente ou malformado vira substituição integral (nunca `panic`
-/// por mensagem malformada do cliente: o pior caso é reanalisar tudo).
+/// A missing or malformed range becomes a full replacement (never a `panic`
+/// because of a malformed client message: the worst case is reanalyzing
+/// everything).
 fn read_changes(value: &Value) -> Vec<ContentChange> {
     let Some(list) = value.as_array() else {
         return Vec::new();
@@ -3539,21 +3527,21 @@ fn read_changes(value: &Value) -> Vec<ContentChange> {
         .collect()
 }
 
-/// Lê `{start: {line, character}, end: {...}}` em posições internas.
+/// Reads `{start: {line, character}, end: {...}}` into internal positions.
 fn read_range(value: &Value) -> Option<(Position, Position)> {
     let start = read_position(value.get("start")?)?;
     let end = read_position(value.get("end")?)?;
     Some((start, end))
 }
 
-/// Lê `{line, character}`; número ausente ou negativo vira 0 (satura).
+/// Reads `{line, character}`; a missing or negative number becomes 0 (saturates).
 fn read_position(value: &Value) -> Option<Position> {
     let line = value.get("line")?.as_u64()? as u32;
     let column = value.get("character")?.as_u64()? as u32;
     Some(Position { line, column })
 }
 
-/// Intervalo LSP (UTF-16) de `start..end` em bytes, saturado no texto.
+/// LSP range (UTF-16) of `start..end` in bytes, saturated to the text.
 fn lsp_range(text: &str, table: &crate::utf16::LineTable, start: usize, end: usize) -> Value {
     let start = start.min(text.len());
     let end = end.clamp(start, text.len());
@@ -3562,9 +3550,10 @@ fn lsp_range(text: &str, table: &crate::utf16::LineTable, start: usize, end: usi
     json!({"start": {"line": l0, "character": c0}, "end": {"line": l1, "character": c1}})
 }
 
-/// Converte um diagnóstico (span em bytes UTF-8) em diagnóstico LSP.
+/// Converts a diagnostic (span in UTF-8 bytes) into an LSP diagnostic.
 ///
-/// Offsets saturados para o texto; fim antes do início colapsa no início.
+/// Offsets saturated to the text; an end before the start collapses onto the
+/// start.
 fn convert_diagnostic(
     text: &str,
     table: &crate::utf16::LineTable,
@@ -3589,16 +3578,16 @@ fn convert_diagnostic(
     })
 }
 
-/// Log do servidor: sempre `stderr`, nunca `stdout` (que é só protocolo).
+/// Server log: always `stderr`, never `stdout` (which is protocol only).
 ///
-/// Um `println!` esquecido corrompe a sessão; esta função existe para que o
-/// caminho certo seja o mais curto.
+/// A forgotten `println!` corrupts the session; this function exists so that
+/// the right path is the shortest one.
 fn register(message: String) {
     eprintln!("[dartforge-lsp] {message}");
 }
 
-/// Mapa de teste não usado fora de depuração: registra método de cada mensagem
-/// quando `DARTFORGE_LSP_DEBUG` ou `RUST_LOG` indicam verbosidade.
+/// Test map unused outside debugging: logs the method of each message when
+/// `DARTFORGE_LSP_DEBUG` or `RUST_LOG` ask for verbosity.
 pub(crate) fn detail_level() -> bool {
     std::env::var("DARTFORGE_LSP_DEBUG").is_ok()
         || std::env::var("RUST_LOG")
@@ -3606,7 +3595,7 @@ pub(crate) fn detail_level() -> bool {
 }
 
 impl<A: Analyzer> Server<A> {
-    /// Registra a mensagem recebida em `stderr` quando o nível é detalhado.
+    /// Logs the received message to `stderr` when the level is verbose.
     pub fn register_received(&self, message: &Value) {
         if detail_level() {
             let method = message
@@ -3618,7 +3607,7 @@ impl<A: Analyzer> Server<A> {
     }
 }
 
-/// Documenta os métodos aceitos, para `docs/LSP.md` e para o teste de aceite.
+/// Documents the accepted methods, for `docs/LSP.md` and for the acceptance test.
 pub fn supported_methods() -> HashMap<&'static str, &'static str> {
     HashMap::from([
         (
@@ -3681,9 +3670,9 @@ pub fn supported_methods() -> HashMap<&'static str, &'static str> {
     ])
 }
 
-/// Troca, na árvore de símbolos, as espécies que o cliente não anunciou
-/// pela alternativa do servidor do Dart (`elementKindToSymbolKind`):
-/// `EnumMember` (22) → `Enum` (10), `TypeParameter` (26) → `Variable` (13).
+/// Replaces, in the symbol tree, the kinds the client did not announce with
+/// the Dart server's alternative (`elementKindToSymbolKind`): `EnumMember`
+/// (22) → `Enum` (10), `TypeParameter` (26) → `Variable` (13).
 fn adjust_kinds(symbol: &mut Value, supported: Option<&[u64]>) {
     let accepts = |k: u64| supported.map_or(k <= 18, |l| l.contains(&k));
     if let Some(k) = symbol["kind"].as_u64()
