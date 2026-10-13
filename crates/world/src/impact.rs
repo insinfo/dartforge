@@ -986,6 +986,11 @@ fn static_member(m: &mut Engine<'_>, ctx: &Context, target: StaticTarget, name: 
             for f in fs {
                 m.use_function(f);
             }
+            // An enum constant (`.azul` as a dot shorthand) lives one by one.
+            let constants: Vec<VariableId> = class.enum_constants.iter().copied().filter(|v| p.variable(*v).name == name).collect();
+            for v in constants {
+                m.use_variable(v);
+            }
             // A call (`C.name(..)`) or a tearoff (`C.name` without a call):
             // only the tearoff cites the static `_#name#tearOff`.
             m.create(c, text, tearoff);
