@@ -14,7 +14,7 @@
 //! nondeterministic results; 2 invalid usage.
 
 use dartforge_parity::analise::Motor;
-use dartforge_parity::corpus::{self, Grupo};
+use dartforge_parity::corpus::{self, Group};
 use dartforge_parity::oraculo::{self, Meta, Record};
 use dartforge_parity::projetos::{self, Mutation, Project};
 use dartforge_parity::scoreboard::Scoreboard;
@@ -103,7 +103,7 @@ fn read_args() -> Option<Args> {
         oracle: false,
         mutations: 0,
         rerecord: false,
-        corpus: corpus::raiz_corpus(),
+        corpus: corpus::corpus_root(),
     };
     while let Some(x) = it.next() {
         match x.as_str() {
@@ -135,7 +135,7 @@ fn main() -> ExitCode {
     // `saida [DIR] [--gravar]`: the project parity harness (III.1).
     if raw.first().is_some_and(|c| c == "saida") {
         let write = raw.iter().any(|x| x == "--gravar");
-        let dir = raw.iter().skip(1).find(|x| !x.starts_with("--")).map(PathBuf::from).unwrap_or_else(|| corpus::raiz_corpus().join("saida-analyze"));
+        let dir = raw.iter().skip(1).find(|x| !x.starts_with("--")).map(PathBuf::from).unwrap_or_else(|| corpus::corpus_root().join("saida-analyze"));
         let ok = if write { dartforge_parity::output::record(&dir) } else { dartforge_parity::output::compare(&dir) };
         return if ok { ExitCode::SUCCESS } else { ExitCode::from(1) };
     }
@@ -150,7 +150,7 @@ fn main() -> ExitCode {
         "determinismo" => determinism(&a),
         "oraculo" => rerecord_oracle(&a),
         "sintaxe-nova" => classify_new_syntax(&a),
-        "gerar-corpus" => match corpus::gerar(&a.references, &a.corpus, &a.pub_cache) {
+        "gerar-corpus" => match corpus::generate(&a.references, &a.corpus, &a.pub_cache) {
             Ok(r) => {
                 print!("{r}");
                 ExitCode::SUCCESS
@@ -163,7 +163,7 @@ fn main() -> ExitCode {
         "projetos" => cmd_projects(&a),
         "encurtar" => {
             for (name, _) in chosen_groups(&a) {
-                match corpus::encurtar(&a.corpus.join(&name)) {
+                match corpus::shorten(&a.corpus.join(&name)) {
                     Ok(n) => println!("{name}: {n} files renamed"),
                     Err(e) => eprintln!("{name}: {e}"),
                 }
@@ -174,8 +174,8 @@ fn main() -> ExitCode {
     }
 }
 
-fn chosen_groups(a: &Args) -> Vec<(String, Grupo)> {
-    corpus::grupos(&a.corpus).into_iter().filter(|(n, _)| a.groups.is_empty() || a.groups.contains(n)).collect()
+fn chosen_groups(a: &Args) -> Vec<(String, Group)> {
+    corpus::groups(&a.corpus).into_iter().filter(|(n, _)| a.groups.is_empty() || a.groups.contains(n)).collect()
 }
 
 fn engine() -> Motor {
@@ -207,11 +207,11 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
                 continue;
             }
         };
-        if meta.hash != corpus::hash_fontes(&dir) {
+        if meta.hash != corpus::sources_hash(&dir) {
             let _ = writeln!(body, "group {name}: ORACLE OUT OF DATE (sources changed) — re-record");
             ok = false;
         }
-        let cfg = match corpus::preparar(&dir, name, g) {
+        let cfg = match corpus::prepare(&dir, name, g) {
             Ok(c) => c,
             Err(e) => {
                 let _ = writeln!(body, "group {name}: {e}");
@@ -368,7 +368,7 @@ fn rerecord_oracle(a: &Args) -> ExitCode {
     let mut failed = false;
     for (name, g) in chosen_groups(a) {
         let dir = a.corpus.join(&name);
-        if let Err(e) = corpus::preparar(&dir, &name, &g) {
+        if let Err(e) = corpus::prepare(&dir, &name, &g) {
             eprintln!("{name}: {e}");
             failed = true;
             continue;
@@ -419,7 +419,7 @@ fn rerecord_oracle(a: &Args) -> ExitCode {
         regs.dedup();
         let meta = Meta {
             sdk: g.sdk,
-            hash: corpus::hash_fontes(&dir),
+            hash: corpus::sources_hash(&dir),
             arquivos: corpus::arquivos_dart(&dir).len(),
             diagnosticos: regs.len(),
             excluidos: excluded,
@@ -473,7 +473,7 @@ fn classify_new_syntax(a: &Args) -> ExitCode {
             continue;
         }
         let dir = a.corpus.join(&name);
-        if let Err(e) = corpus::preparar(&dir, &name, &g) {
+        if let Err(e) = corpus::prepare(&dir, &name, &g) {
             eprintln!("{name}: {e}");
             failed = true;
             continue;
@@ -533,7 +533,7 @@ fn classify_new_syntax(a: &Args) -> ExitCode {
         meta.excluidos.sort();
         meta.excluidos.dedup();
         if !marked.is_empty() {
-            meta.hash = corpus::hash_fontes(&dir);
+            meta.hash = corpus::sources_hash(&dir);
             meta.arquivos = corpus::arquivos_dart(&dir).len();
         }
         regs.sort();

@@ -16,7 +16,7 @@
 //! publication filters.
 
 use dartforge_parity::analise::Motor;
-use dartforge_parity::corpus::{self, Grupo};
+use dartforge_parity::corpus::{self, Group};
 use dartforge_parity::oraculo::{self, Record, OracleSdk};
 use dartforge_parity::{Execution, filtros, run_ours};
 use std::collections::{BTreeMap, BTreeSet};
@@ -90,14 +90,14 @@ type Setup = (PathBuf, PathBuf, Vec<Record>, Vec<String>);
 
 /// A corpus group, with the recorded oracle.
 fn from_corpus(group: &str, rels: &[String]) -> Setup {
-    let root = corpus::raiz_corpus();
+    let root = corpus::corpus_root();
     let root = std::path::absolute(&root).unwrap_or(root);
-    let Some((_, g)) = corpus::grupos(&root).into_iter().find(|(n, _)| n == group) else {
+    let Some((_, g)) = corpus::groups(&root).into_iter().find(|(n, _)| n == group) else {
         eprintln!("unknown group: {group}");
         std::process::exit(2);
     };
     let dir = root.join(group);
-    let cfg = corpus::preparar(&dir, group, &g).expect("prepare the group");
+    let cfg = corpus::prepare(&dir, group, &g).expect("prepare the group");
     let (oracle, _) = oraculo::read(&dir).expect("recorded oracle");
     (dir, cfg, oracle, rels.to_vec())
 }
@@ -108,8 +108,8 @@ fn free(d: &Path, rels: &[String]) -> Setup {
     let name = "sonda_livre";
     std::fs::write(dir.join("pubspec.yaml"), format!("name: {name}\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n"))
         .expect("pubspec");
-    let g = Grupo { sdk: OracleSdk::V362, pacotes: Vec::new(), origem: String::new() };
-    let cfg = corpus::preparar(&dir, name, &g).expect("package_config");
+    let g = Group { sdk: OracleSdk::V362, pacotes: Vec::new(), origem: String::new() };
+    let cfg = corpus::prepare(&dir, name, &g).expect("package_config");
     let rels: Vec<String> = if rels.is_empty() {
         corpus::arquivos_dart(&dir).iter().filter_map(|a| oraculo::relativo(a, &dir)).collect()
     } else {

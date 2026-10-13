@@ -5,7 +5,7 @@
 //! length), and nothing beyond that may come out.
 
 use dartforge_parity::analise::Motor;
-use dartforge_parity::corpus::{self, Grupo};
+use dartforge_parity::corpus::{self, Group};
 use dartforge_parity::oraculo::OracleSdk;
 use dartforge_parity::{Execution, filtros, run_ours};
 use std::path::PathBuf;
@@ -295,8 +295,8 @@ fn ported_rules_give_what_analyzer_3_6_2_gives() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("pubspec.yaml"), "name: regras\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
-    let g = Grupo { sdk: OracleSdk::V362, pacotes: Vec::new(), origem: String::new() };
-    let cfg = corpus::preparar(&root, "regras", &g).unwrap();
+    let g = Group { sdk: OracleSdk::V362, pacotes: Vec::new(), origem: String::new() };
+    let cfg = corpus::prepare(&root, "regras", &g).unwrap();
     let mut sources = Vec::new();
     for (name, text, _) in CASES {
         std::fs::create_dir_all(root.join(name).parent().unwrap()).unwrap();

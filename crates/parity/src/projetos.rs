@@ -86,7 +86,7 @@ pub fn copy(p: &Project, dest: &Path) -> Result<PathBuf, String> {
     }
     // build_runner outputs: the analyzer sees them (ngdart's `.template.dart`).
     let generated = p.caminho.join(".dart_tool/build/generated");
-    for a in crate::corpus::arquivos_dart_todos(&generated) {
+    for a in crate::corpus::all_dart_files(&generated) {
         let r = a.strip_prefix(&p.caminho).map_err(|_| "prefix")?;
         let d = dest.join(r);
         std::fs::create_dir_all(d.parent().expect("parent")).map_err(|e| e.to_string())?;

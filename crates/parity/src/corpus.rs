@@ -1,22 +1,22 @@
-//! O corpus de paridade, `corpus/diagnosticos/<grupo>/`.
+//! The parity corpus, `corpus/diagnosticos/<group>/`.
 //!
-//! Cada grupo é um pacote Dart (`pubspec.yaml` versionado; o
-//! `.dart_tool/package_config.json` é escrito por [`preparar`] e fica fora do
-//! git) com um `grupo.json` que diz qual SDK é o oráculo e quais pacotes de
-//! apoio (`corpus/diagnosticos/pacotes/<nome>`) ele enxerga. A expectativa é
-//! **sempre** a que o oráculo gravou (`oraculo.jsonl`); as anotações das
-//! fontes de onde os casos vieram (`// [analyzer] ...`, `[diag.x]`) são do SDK
-//! `main` e serviram só de semente.
+//! Each group is a Dart package (versioned `pubspec.yaml`; the
+//! `.dart_tool/package_config.json` is written by [`prepare`] and stays out of
+//! git) with a `grupo.json` that says which SDK is the oracle and which
+//! support packages (`corpus/diagnosticos/pacotes/<name>`) it sees. The
+//! expectation is **always** what the oracle recorded (`oraculo.jsonl`); the
+//! annotations in the sources the cases came from (`// [analyzer] ...`,
+//! `[diag.x]`) are from SDK `main` and only served as seeds.
 //!
-//! [`gerar`] monta os grupos a partir de `references/` (máquina local):
-//! * `linguagem`: `references/dart-sdk/tests/language`, os arquivos com
-//!   marcas `// [analyzer]` e o fecho dos imports/partes relativos deles;
-//! * `analyzer`: `references/dart-sdk/pkg/analyzer/test/src/diagnostics`, um
-//!   arquivo por trecho de `assertErrorsInCode`/`assertNoErrorsInCode`/
-//!   `resolveTestCodeWithDiagnostics`, exceto os testes que montam contexto
-//!   (outros arquivos, opções, pacotes);
-//! * `*-3.13`: os arquivos que declaram `// @dart = 3.7` ou mais, cujo
-//!   oráculo é o 3.13.4.
+//! [`generate`] builds the groups from `references/` (local machine):
+//! * `linguagem`: `references/dart-sdk/tests/language`, the files with
+//!   `// [analyzer]` marks and the closure of their relative imports/parts;
+//! * `analyzer`: `references/dart-sdk/pkg/analyzer/test/src/diagnostics`, one
+//!   file per snippet of `assertErrorsInCode`/`assertNoErrorsInCode`/
+//!   `resolveTestCodeWithDiagnostics`, except the tests that set up context
+//!   (other files, options, packages);
+//! * `*-3.13`: the files that declare `// @dart = 3.7` or later, whose oracle
+//!   is 3.13.4.
 
 use crate::oraculo::{FNV_START, OracleSdk, fnv};
 use serde::{Deserialize, Serialize};
@@ -25,30 +25,30 @@ use std::path::{Path, PathBuf};
 
 /// `grupo.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Grupo {
+pub struct Group {
     pub sdk: OracleSdk,
-    /// Pacotes de apoio em `corpus/diagnosticos/pacotes/`.
+    /// Support packages in `corpus/diagnosticos/pacotes/`.
     #[serde(default)]
     pub pacotes: Vec<String>,
-    /// De onde os casos vieram (texto livre, para o relatório).
+    /// Where the cases came from (free text, for the report).
     #[serde(default)]
     pub origem: String,
 }
 
-/// Raiz do corpus no repositório.
-pub fn raiz_corpus() -> PathBuf {
+/// The corpus root in the repository.
+pub fn corpus_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos")
 }
 
-/// Grupos do corpus, em ordem de nome.
-pub fn grupos(raiz: &Path) -> Vec<(String, Grupo)> {
+/// The corpus groups, in name order.
+pub fn groups(root: &Path) -> Vec<(String, Group)> {
     let mut v = Vec::new();
-    let Ok(ents) = std::fs::read_dir(raiz) else { return v };
+    let Ok(ents) = std::fs::read_dir(root) else { return v };
     for e in ents.flatten() {
         let g = e.path().join("grupo.json");
         if let Ok(t) = std::fs::read_to_string(&g) {
-            if let Ok(grupo) = serde_json::from_str::<Grupo>(&t) {
-                v.push((e.file_name().to_string_lossy().into_owned(), grupo));
+            if let Ok(group) = serde_json::from_str::<Group>(&t) {
+                v.push((e.file_name().to_string_lossy().into_owned(), group));
             }
         }
     }
@@ -56,23 +56,23 @@ pub fn grupos(raiz: &Path) -> Vec<(String, Grupo)> {
     v
 }
 
-/// Os `.dart` de um diretório, recursivo, ordenados, como o
-/// `ContextRootImpl.analyzedFiles` (INFRA §4.5): pastas e arquivos começados
-/// por `.` ficam fora (`.dart_tool`, `.git`, `.x.dart`); `build` entra.
+/// The `.dart` files of a directory, recursively, sorted, like
+/// `ContextRootImpl.analyzedFiles` (INFRA §4.5): folders and files starting
+/// with `.` are left out (`.dart_tool`, `.git`, `.x.dart`); `build` is in.
 pub fn arquivos_dart(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let mut pilha = vec![dir.to_path_buf()];
-    while let Some(d) = pilha.pop() {
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
         let Ok(ents) = std::fs::read_dir(&d) else { continue };
         for e in ents.flatten() {
             let p = e.path();
-            let nome = e.file_name();
-            let nome = nome.to_string_lossy();
+            let name = e.file_name();
+            let name = name.to_string_lossy();
             if p.is_dir() {
-                if !nome.starts_with('.') {
-                    pilha.push(p);
+                if !name.starts_with('.') {
+                    stack.push(p);
                 }
-            } else if nome.ends_with(".dart") && !nome.starts_with('.') {
+            } else if name.ends_with(".dart") && !name.starts_with('.') {
                 out.push(p);
             }
         }
@@ -81,16 +81,17 @@ pub fn arquivos_dart(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Os `.dart` de um diretório, recursivo, sem pular nada (saídas geradas).
-pub fn arquivos_dart_todos(dir: &Path) -> Vec<PathBuf> {
+/// The `.dart` files of a directory, recursively, skipping nothing
+/// (generated outputs).
+pub fn all_dart_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let mut pilha = vec![dir.to_path_buf()];
-    while let Some(d) = pilha.pop() {
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
         let Ok(ents) = std::fs::read_dir(&d) else { continue };
         for e in ents.flatten() {
             let p = e.path();
             if p.is_dir() {
-                pilha.push(p);
+                stack.push(p);
             } else if p.extension().is_some_and(|x| x == "dart") {
                 out.push(p);
             }
@@ -100,8 +101,8 @@ pub fn arquivos_dart_todos(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Hash das fontes do grupo (caminho relativo + conteúdo, em ordem).
-pub fn hash_fontes(dir: &Path) -> String {
+/// Hash of the group's sources (relative path + contents, in order).
+pub fn sources_hash(dir: &Path) -> String {
     let mut h = FNV_START;
     for a in arquivos_dart(dir) {
         let rel = crate::oraculo::relativo(&a, dir).unwrap_or_default();
@@ -112,12 +113,12 @@ pub fn hash_fontes(dir: &Path) -> String {
     format!("{h:016x}")
 }
 
-/// Escreve `.dart_tool/package_config.json` do grupo (URIs relativas).
-/// Devolve o caminho dele.
-pub fn preparar(dir: &Path, nome: &str, g: &Grupo) -> std::io::Result<PathBuf> {
-    let pacote = nome_pacote(nome);
+/// Writes the group's `.dart_tool/package_config.json` (relative URIs).
+/// Returns its path.
+pub fn prepare(dir: &Path, name: &str, g: &Group) -> std::io::Result<PathBuf> {
+    let package = package_name(name);
     let mut pkgs = vec![serde_json::json!({
-        "name": pacote, "rootUri": "../", "packageUri": "lib/", "languageVersion": g.sdk.language()
+        "name": package, "rootUri": "../", "packageUri": "lib/", "languageVersion": g.sdk.language()
     })];
     for p in &g.pacotes {
         pkgs.push(serde_json::json!({
@@ -125,29 +126,29 @@ pub fn preparar(dir: &Path, nome: &str, g: &Grupo) -> std::io::Result<PathBuf> {
         }));
     }
     let cfg = serde_json::json!({ "configVersion": 2, "packages": pkgs, "generator": "dartforge-parity" });
-    let destino = dir.join(".dart_tool").join("package_config.json");
-    std::fs::create_dir_all(destino.parent().expect("pai"))?;
-    std::fs::write(&destino, serde_json::to_string_pretty(&cfg).expect("JSON") + "\n")?;
-    Ok(destino)
+    let dest = dir.join(".dart_tool").join("package_config.json");
+    std::fs::create_dir_all(dest.parent().expect("parent"))?;
+    std::fs::write(&dest, serde_json::to_string_pretty(&cfg).expect("JSON") + "\n")?;
+    Ok(dest)
 }
 
-/// Nome de pacote Dart válido para o grupo.
-pub fn nome_pacote(grupo: &str) -> String {
-    format!("corpus_{}", grupo.replace(['-', '.'], "_"))
+/// A valid Dart package name for the group.
+pub fn package_name(group: &str) -> String {
+    format!("corpus_{}", group.replace(['-', '.'], "_"))
 }
 
-fn escrever_grupo(dir: &Path, nome: &str, g: &Grupo) -> std::io::Result<()> {
+fn write_group(dir: &Path, name: &str, g: &Group) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     std::fs::write(
         dir.join("pubspec.yaml"),
-        format!("name: {}\npublish_to: none\nenvironment:\n  sdk: {}\n", nome_pacote(nome), g.sdk.constraint()),
+        format!("name: {}\npublish_to: none\nenvironment:\n  sdk: {}\n", package_name(name), g.sdk.constraint()),
     )?;
     std::fs::write(dir.join("grupo.json"), serde_json::to_string_pretty(g).expect("JSON") + "\n")
 }
 
-/// `// @dart = 3.7` ou mais no começo do arquivo (antes de código)?
-pub fn declara_3_7_ou_mais(texto: &str) -> bool {
-    for l in texto.lines().take(40) {
+/// `// @dart = 3.7` or later at the start of the file (before code)?
+pub fn declares_3_7_or_later(text: &str) -> bool {
+    for l in text.lines().take(40) {
         let t = l.trim();
         if let Some(r) = t.strip_prefix("//") {
             let r: String = r.chars().filter(|c| !c.is_whitespace()).collect();
@@ -162,17 +163,17 @@ pub fn declara_3_7_ou_mais(texto: &str) -> bool {
     false
 }
 
-/// URIs relativas de `import`/`export`/`part` num arquivo (texto cru).
-fn uris_relativas(texto: &str) -> Vec<String> {
+/// Relative `import`/`export`/`part` URIs in a file (raw text).
+fn relative_uris(text: &str) -> Vec<String> {
     let mut v = Vec::new();
-    for l in texto.lines() {
+    for l in text.lines() {
         let t = l.trim_start();
-        let resto = ["import ", "export ", "part "].iter().find_map(|k| t.strip_prefix(k));
-        let Some(resto) = resto else { continue };
-        let resto = resto.trim_start();
-        let Some(q) = resto.chars().next().filter(|c| *c == '\'' || *c == '"') else { continue };
-        let Some(fim) = resto[1..].find(q) else { continue };
-        let uri = &resto[1..1 + fim];
+        let rest = ["import ", "export ", "part "].iter().find_map(|k| t.strip_prefix(k));
+        let Some(rest) = rest else { continue };
+        let rest = rest.trim_start();
+        let Some(q) = rest.chars().next().filter(|c| *c == '\'' || *c == '"') else { continue };
+        let Some(end) = rest[1..].find(q) else { continue };
+        let uri = &rest[1..1 + end];
         if !uri.contains(':') && uri.ends_with(".dart") {
             v.push(uri.to_string());
         }
@@ -184,199 +185,200 @@ fn normal(p: &Path) -> PathBuf {
     crate::analise::chave(p)
 }
 
-/// Monta os grupos a partir de `references` (substitui os `.dart` deles;
-/// o oráculo precisa ser regravado depois).
-pub fn gerar(referencias: &Path, destino: &Path, pub_cache: &Path) -> Result<String, String> {
+/// Builds the groups from `references` (replacing their `.dart` files; the
+/// oracle must be re-recorded afterwards).
+pub fn generate(references: &Path, dest: &Path, pub_cache: &Path) -> Result<String, String> {
     let mut rel = String::new();
-    // Pacotes de apoio.
-    copiar_arvore(&referencias.join("dart-sdk/pkg/expect/lib"), &destino.join("pacotes/expect/lib"))?;
-    copiar_arvore(&pub_cache.join("meta-1.16.0/lib"), &destino.join("pacotes/meta/lib"))?;
-    let pacotes = vec!["expect".to_string(), "meta".to_string()];
+    // Support packages.
+    copy_tree(&references.join("dart-sdk/pkg/expect/lib"), &dest.join("pacotes/expect/lib"))?;
+    copy_tree(&pub_cache.join("meta-1.16.0/lib"), &dest.join("pacotes/meta/lib"))?;
+    let packages = vec!["expect".to_string(), "meta".to_string()];
 
-    // --- linguagem
-    let base = referencias.join("dart-sdk/tests/language");
-    let mut sementes = BTreeSet::new();
+    // --- language
+    let base = references.join("dart-sdk/tests/language");
+    let mut seeds = BTreeSet::new();
     for a in arquivos_dart(&base) {
         let t = std::fs::read_to_string(&a).unwrap_or_default();
         if t.contains("// [analyzer]") {
-            sementes.insert(normal(&a));
+            seeds.insert(normal(&a));
         }
     }
-    let n_sementes = sementes.len();
-    let mut fecho: BTreeSet<PathBuf> = BTreeSet::new();
-    let mut pilha: Vec<PathBuf> = sementes.iter().cloned().collect();
-    while let Some(a) = pilha.pop() {
-        if !fecho.insert(a.clone()) {
+    let n_seeds = seeds.len();
+    let mut closure: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut stack: Vec<PathBuf> = seeds.iter().cloned().collect();
+    while let Some(a) = stack.pop() {
+        if !closure.insert(a.clone()) {
             continue;
         }
         let t = std::fs::read_to_string(&a).unwrap_or_default();
-        for u in uris_relativas(&t) {
-            let alvo = normal(&a.parent().expect("pai").join(&u));
-            if alvo.is_file() && alvo.starts_with(normal(&base)) && !fecho.contains(&alvo) {
-                pilha.push(alvo);
+        for u in relative_uris(&t) {
+            let target = normal(&a.parent().expect("parent").join(&u));
+            if target.is_file() && target.starts_with(normal(&base)) && !closure.contains(&target) {
+                stack.push(target);
             }
         }
     }
-    let mut por_grupo: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut by_group: BTreeMap<&str, usize> = BTreeMap::new();
     for g in ["linguagem", "linguagem-3.13"] {
-        let _ = std::fs::remove_dir_all(destino.join(g));
+        let _ = std::fs::remove_dir_all(dest.join(g));
     }
-    for a in &fecho {
+    for a in &closure {
         let t = std::fs::read(a).map_err(|e| e.to_string())?;
-        let g = if declara_3_7_ou_mais(&String::from_utf8_lossy(&t)) { "linguagem-3.13" } else { "linguagem" };
-        let r = a.strip_prefix(normal(&base)).map_err(|_| "fora da base")?;
-        let d = destino.join(g).join(r);
-        std::fs::create_dir_all(d.parent().expect("pai")).map_err(|e| e.to_string())?;
+        let g = if declares_3_7_or_later(&String::from_utf8_lossy(&t)) { "linguagem-3.13" } else { "linguagem" };
+        let r = a.strip_prefix(normal(&base)).map_err(|_| "outside the base")?;
+        let d = dest.join(g).join(r);
+        std::fs::create_dir_all(d.parent().expect("parent")).map_err(|e| e.to_string())?;
         std::fs::write(&d, t).map_err(|e| e.to_string())?;
-        *por_grupo.entry(g).or_default() += 1;
+        *by_group.entry(g).or_default() += 1;
     }
     for (g, sdk) in [("linguagem", OracleSdk::V362), ("linguagem-3.13", OracleSdk::V3134)] {
-        if por_grupo.contains_key(g) {
-            escrever_grupo(
-                &destino.join(g),
+        if by_group.contains_key(g) {
+            write_group(
+                &dest.join(g),
                 g,
-                &Grupo {
+                &Group {
                     sdk,
-                    pacotes: pacotes.clone(),
-                    origem: "references/dart-sdk/tests/language (marcas // [analyzer] + fecho de imports)".into(),
+                    pacotes: packages.clone(),
+                    origem: "references/dart-sdk/tests/language (// [analyzer] marks + import closure)".into(),
                 },
             )
             .map_err(|e| e.to_string())?;
         }
     }
     rel.push_str(&format!(
-        "linguagem: {n_sementes} arquivos com // [analyzer], {} com o fecho; {:?}\n",
-        fecho.len(),
-        por_grupo
+        "linguagem: {n_seeds} files with // [analyzer], {} with the closure; {:?}\n",
+        closure.len(),
+        by_group
     ));
 
     // --- analyzer
     for g in ["analyzer", "analyzer-3.13"] {
-        let _ = std::fs::remove_dir_all(destino.join(g));
+        let _ = std::fs::remove_dir_all(dest.join(g));
     }
-    let base = referencias.join("dart-sdk/pkg/analyzer/test/src/diagnostics");
-    let mut n_arquivos = 0;
-    let mut n_trechos: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut n_pulados = 0;
+    let base = references.join("dart-sdk/pkg/analyzer/test/src/diagnostics");
+    let mut n_files = 0;
+    let mut n_snippets: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut n_skipped = 0;
     for a in arquivos_dart(&base) {
         if a.parent() != Some(base.as_path()) {
             continue;
         }
         let t = std::fs::read_to_string(&a).map_err(|e| e.to_string())?;
-        let stem = a.file_stem().expect("nome").to_string_lossy().trim_end_matches("_test").to_string();
-        let (trechos, pulados) = extrair_trechos(&t);
-        n_pulados += pulados;
-        if trechos.is_empty() {
+        let stem = a.file_stem().expect("name").to_string_lossy().trim_end_matches("_test").to_string();
+        let (snippets, skipped) = extract_snippets(&t);
+        n_skipped += skipped;
+        if snippets.is_empty() {
             continue;
         }
-        n_arquivos += 1;
-        let mut usados = BTreeSet::new();
-        for (classe, metodo, codigo) in trechos {
-            let mut nome = format!("{}__{}", curto(&classe), metodo.trim_start_matches("test_"));
+        n_files += 1;
+        let mut used = BTreeSet::new();
+        for (class, method, code) in snippets {
+            let mut name = format!("{}__{}", short_class(&class), method.trim_start_matches("test_"));
             let mut k = 2;
-            while !usados.insert(nome.clone()) {
-                nome = format!("{}__{}_{k}", curto(&classe), metodo.trim_start_matches("test_"));
+            while !used.insert(name.clone()) {
+                name = format!("{}__{}_{k}", short_class(&class), method.trim_start_matches("test_"));
                 k += 1;
             }
-            let g = if declara_3_7_ou_mais(&codigo) { "analyzer-3.13" } else { "analyzer" };
-            let d = destino.join(g).join(&stem).join(format!("{}.dart", nome_curto(&nome)));
-            std::fs::create_dir_all(d.parent().expect("pai")).map_err(|e| e.to_string())?;
-            std::fs::write(&d, codigo).map_err(|e| e.to_string())?;
-            *n_trechos.entry(g).or_default() += 1;
+            let g = if declares_3_7_or_later(&code) { "analyzer-3.13" } else { "analyzer" };
+            let d = dest.join(g).join(&stem).join(format!("{}.dart", short_name(&name)));
+            std::fs::create_dir_all(d.parent().expect("parent")).map_err(|e| e.to_string())?;
+            std::fs::write(&d, code).map_err(|e| e.to_string())?;
+            *n_snippets.entry(g).or_default() += 1;
         }
     }
     for (g, sdk) in [("analyzer", OracleSdk::V362), ("analyzer-3.13", OracleSdk::V3134)] {
-        if n_trechos.contains_key(g) {
-            escrever_grupo(
-                &destino.join(g),
+        if n_snippets.contains_key(g) {
+            write_group(
+                &dest.join(g),
                 g,
-                &Grupo {
+                &Group {
                     sdk,
-                    pacotes: pacotes.clone(),
-                    origem: "references/dart-sdk/pkg/analyzer/test/src/diagnostics (um arquivo por trecho)".into(),
+                    pacotes: packages.clone(),
+                    origem: "references/dart-sdk/pkg/analyzer/test/src/diagnostics (one file per snippet)".into(),
                 },
             )
             .map_err(|e| e.to_string())?;
         }
     }
     rel.push_str(&format!(
-        "analyzer: {n_arquivos} arquivos de teste, trechos {n_trechos:?}, {n_pulados} testes pulados (montam contexto)\n"
+        "analyzer: {n_files} test files, snippets {n_snippets:?}, {n_skipped} tests skipped (they set up context)\n"
     ));
     Ok(rel)
 }
 
-/// Nome de arquivo curto o bastante para o limite de 260 caracteres do
-/// Windows (o checkout do CI e as worktrees têm prefixos longos): até 48
-/// caracteres; acima disso, 39 + `_` + 8 hexadecimais do hash do nome.
-pub fn nome_curto(stem: &str) -> String {
+/// A file name short enough for Windows' 260-character limit (the CI checkout
+/// and the worktrees have long prefixes): up to 48 characters; above that,
+/// 39 + `_` + 8 hex digits of the name's hash.
+pub fn short_name(stem: &str) -> String {
     if stem.len() <= 48 {
         return stem.to_string();
     }
-    let mut corte = 39;
-    while !stem.is_char_boundary(corte) {
-        corte -= 1;
+    let mut cut = 39;
+    while !stem.is_char_boundary(cut) {
+        cut -= 1;
     }
-    format!("{}_{:08x}", &stem[..corte], fnv(stem.as_bytes(), FNV_START) as u32)
+    format!("{}_{:08x}", &stem[..cut], fnv(stem.as_bytes(), FNV_START) as u32)
 }
 
-/// Renomeia os arquivos de nome longo de um grupo já gravado e reescreve o
-/// registro do oráculo (os offsets não mudam; só o caminho). Devolve quantos.
-pub fn encurtar(dir: &Path) -> Result<usize, String> {
+/// Renames the long-named files of an already recorded group and rewrites
+/// the oracle record (the offsets do not change; only the path). Returns how
+/// many.
+pub fn shorten(dir: &Path) -> Result<usize, String> {
     let (mut regs, mut meta) = crate::oraculo::read(dir)?;
-    let mut mapa = std::collections::BTreeMap::new();
-    // Os testes de linguagem se importam pelo nome: lá não se renomeia (só
-    // se regrava o registro com o hash das fontes).
-    let renomear = !dir.file_name().is_some_and(|n| n.to_string_lossy().starts_with("linguagem"));
-    for a in arquivos_dart(dir).into_iter().filter(|_| renomear) {
-        let stem = a.file_stem().expect("nome").to_string_lossy().into_owned();
-        let novo = nome_curto(&stem);
-        if novo != stem {
-            let destino = a.with_file_name(format!("{novo}.dart"));
-            std::fs::rename(&a, &destino).map_err(|e| e.to_string())?;
-            let de = crate::oraculo::relativo(&a, dir).expect("relativo");
-            let para = crate::oraculo::relativo(&destino, dir).expect("relativo");
-            mapa.insert(de, para);
+    let mut map = std::collections::BTreeMap::new();
+    // The language tests import each other by name: nothing is renamed there
+    // (the record is only rewritten with the sources' hash).
+    let rename = !dir.file_name().is_some_and(|n| n.to_string_lossy().starts_with("linguagem"));
+    for a in arquivos_dart(dir).into_iter().filter(|_| rename) {
+        let stem = a.file_stem().expect("name").to_string_lossy().into_owned();
+        let new = short_name(&stem);
+        if new != stem {
+            let dest = a.with_file_name(format!("{new}.dart"));
+            std::fs::rename(&a, &dest).map_err(|e| e.to_string())?;
+            let from = crate::oraculo::relativo(&a, dir).expect("relative");
+            let to = crate::oraculo::relativo(&dest, dir).expect("relative");
+            map.insert(from, to);
         }
     }
     for r in regs.iter_mut() {
-        if let Some(n) = mapa.get(&r.arquivo) {
+        if let Some(n) = map.get(&r.arquivo) {
             r.arquivo = n.clone();
         }
     }
-    meta.hash = hash_fontes(dir);
+    meta.hash = sources_hash(dir);
     crate::oraculo::write(dir, regs, &meta).map_err(|e| e.to_string())?;
-    Ok(mapa.len())
+    Ok(map.len())
 }
 
-/// Nome curto da classe de teste (`NonBoolConditionTest` → `NonBoolCondition`).
-fn curto(classe: &str) -> String {
-    classe.trim_end_matches("Test").to_string()
+/// The test class's short name (`NonBoolConditionTest` → `NonBoolCondition`).
+fn short_class(class: &str) -> String {
+    class.trim_end_matches("Test").to_string()
 }
 
-fn copiar_arvore(de: &Path, para: &Path) -> Result<(), String> {
-    let _ = std::fs::remove_dir_all(para);
-    for a in arquivos_dart(de) {
-        let r = a.strip_prefix(de).map_err(|_| "prefixo")?;
-        let d = para.join(r);
-        std::fs::create_dir_all(d.parent().expect("pai")).map_err(|e| e.to_string())?;
+fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+    let _ = std::fs::remove_dir_all(to);
+    for a in arquivos_dart(from) {
+        let r = a.strip_prefix(from).map_err(|_| "prefix")?;
+        let d = to.join(r);
+        std::fs::create_dir_all(d.parent().expect("parent")).map_err(|e| e.to_string())?;
         std::fs::copy(&a, &d).map_err(|e| format!("{}: {e}", a.display()))?;
     }
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Extração dos trechos dos testes do analyzer.
+// Extracting the snippets of the analyzer tests.
 
 #[derive(Debug, Clone, PartialEq)]
 enum T {
     Id(String),
-    /// String literal: (cru, triplo, conteúdo).
+    /// String literal: (raw, triple, contents).
     Str(bool, bool, String),
     P(char),
 }
 
-/// Tokens com posição; comentários descartados; strings inteiras (sem
-/// interpretar escapes nem interpolação).
+/// Tokens with positions; comments dropped; whole strings (escapes and
+/// interpolation are not interpreted).
 fn tokens(src: &str) -> Vec<(usize, T)> {
     let b = src.as_bytes();
     let mut i = 0;
@@ -390,15 +392,15 @@ fn tokens(src: &str) -> Vec<(usize, T)> {
                 i += 1;
             }
         } else if b[i..].starts_with(b"/*") {
-            let mut prof = 0;
+            let mut depth = 0;
             while i < b.len() {
                 if b[i..].starts_with(b"/*") {
-                    prof += 1;
+                    depth += 1;
                     i += 2;
                 } else if b[i..].starts_with(b"*/") {
-                    prof -= 1;
+                    depth -= 1;
                     i += 2;
-                    if prof == 0 {
+                    if depth == 0 {
                         break;
                     }
                 } else {
@@ -406,48 +408,48 @@ fn tokens(src: &str) -> Vec<(usize, T)> {
                 }
             }
         } else if c == b'\'' || c == b'"' || (c == b'r' && matches!(b.get(i + 1), Some(b'\'') | Some(b'"'))) {
-            let ini = i;
-            let cru = c == b'r';
-            if cru {
+            let start = i;
+            let raw = c == b'r';
+            if raw {
                 i += 1;
             }
             let q = b[i];
-            let triplo = b[i..].starts_with(&[q, q, q]);
-            let n = if triplo { 3 } else { 1 };
+            let triple = b[i..].starts_with(&[q, q, q]);
+            let n = if triple { 3 } else { 1 };
             i += n;
-            let conteudo_ini = i;
-            // Interpolação `${...}` com strings dentro: basta contar chaves.
-            let mut chaves = 0i32;
+            let contents_start = i;
+            // `${...}` interpolation with strings inside: counting braces is enough.
+            let mut braces = 0i32;
             loop {
                 if i >= b.len() {
                     break;
                 }
-                if chaves == 0 && ((triplo && b[i..].starts_with(&[q, q, q])) || (!triplo && b[i] == q)) {
+                if braces == 0 && ((triple && b[i..].starts_with(&[q, q, q])) || (!triple && b[i] == q)) {
                     break;
                 }
-                if !cru && b[i] == b'\\' {
+                if !raw && b[i] == b'\\' {
                     i += 2;
                     continue;
                 }
-                if !cru && b[i..].starts_with(b"${") {
-                    chaves += 1;
+                if !raw && b[i..].starts_with(b"${") {
+                    braces += 1;
                     i += 2;
                     continue;
                 }
-                if chaves > 0 && b[i] == b'}' {
-                    chaves -= 1;
+                if braces > 0 && b[i] == b'}' {
+                    braces -= 1;
                 }
                 i += 1;
             }
-            let conteudo = src[conteudo_ini..i.min(b.len())].to_string();
+            let contents = src[contents_start..i.min(b.len())].to_string();
             i = (i + n).min(b.len());
-            out.push((ini, T::Str(cru, triplo, conteudo)));
+            out.push((start, T::Str(raw, triple, contents)));
         } else if c.is_ascii_alphanumeric() || c == b'_' || c == b'$' {
-            let ini = i;
+            let start = i;
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$') {
                 i += 1;
             }
-            out.push((ini, T::Id(src[ini..i].to_string())));
+            out.push((start, T::Id(src[start..i].to_string())));
         } else {
             let ch = src[i..].chars().next().expect("char");
             out.push((i, T::P(ch)));
@@ -457,13 +459,13 @@ fn tokens(src: &str) -> Vec<(usize, T)> {
     out
 }
 
-/// Chamadas que recebem o código do teste como primeiro argumento.
-const CHAMADAS: &[&str] =
+/// Calls that take the test's code as their first argument.
+const CALLS: &[&str] =
     &["assertErrorsInCode", "assertNoErrorsInCode", "resolveTestCodeWithDiagnostics", "assertErrorsInCode2"];
 
-/// Chamadas que montam contexto além do arquivo de teste: o trecho sozinho
-/// não reproduz o teste.
-const CONTEXTO: &[&str] = &[
+/// Calls that set up context beyond the test file: the snippet alone does not
+/// reproduce the test.
+const CONTEXT: &[&str] = &[
     "newFile",
     "writeTestPackageConfig",
     "writeTestPackageConfigWithMeta",
@@ -479,38 +481,38 @@ const CONTEXTO: &[&str] = &[
     "addFile",
 ];
 
-/// `(classe, método, código)` de cada trecho, e o número de testes pulados.
-pub fn extrair_trechos(src: &str) -> (Vec<(String, String, String)>, usize) {
+/// `(class, method, code)` of each snippet, and the number of skipped tests.
+pub fn extract_snippets(src: &str) -> (Vec<(String, String, String)>, usize) {
     let t = tokens(src);
     let mut out = Vec::new();
-    let mut pulados = 0;
+    let mut skipped = 0;
     let mut i = 0;
-    let mut prof = 0i32;
-    let mut classe: Option<(String, i32, bool)> = None; // nome, profundidade do corpo, setUp com contexto
+    let mut depth = 0i32;
+    let mut class: Option<(String, i32, bool)> = None; // name, body depth, setUp with context
     while i < t.len() {
         match &t[i].1 {
-            T::P('{') => prof += 1,
+            T::P('{') => depth += 1,
             T::P('}') => {
-                prof -= 1;
-                if classe.as_ref().is_some_and(|c| prof < c.1) {
-                    classe = None;
+                depth -= 1;
+                if class.as_ref().is_some_and(|c| depth < c.1) {
+                    class = None;
                 }
             }
-            T::Id(k) if k == "class" && prof == 0 => {
-                if let Some((_, T::Id(nome))) = t.get(i + 1) {
-                    // Corpo da classe: próximo `{`. setUp com contexto pula a classe.
+            T::Id(k) if k == "class" && depth == 0 => {
+                if let Some((_, T::Id(name))) = t.get(i + 1) {
+                    // The class body: the next `{`. A setUp with context skips the class.
                     let mut j = i + 2;
                     while j < t.len() && t[j].1 != T::P('{') {
                         j += 1;
                     }
-                    let fim = fim_do_bloco(&t, j);
-                    let ctx = metodo_contexto(&t[j..fim]);
-                    classe = Some((nome.clone(), prof + 1, ctx));
+                    let end = block_end(&t, j);
+                    let ctx = has_context_setup(&t[j..end]);
+                    class = Some((name.clone(), depth + 1, ctx));
                     i = j;
                     continue;
                 }
             }
-            T::Id(m) if m.starts_with("test_") && classe.as_ref().is_some_and(|c| prof == c.1) => {
+            T::Id(m) if m.starts_with("test_") && class.as_ref().is_some_and(|c| depth == c.1) => {
                 // test_x() async { ... }
                 let mut j = i + 1;
                 while j < t.len() && t[j].1 != T::P('{') && t[j].1 != T::P(';') {
@@ -520,36 +522,36 @@ pub fn extrair_trechos(src: &str) -> (Vec<(String, String, String)>, usize) {
                     i += 1;
                     continue;
                 }
-                let fim = fim_do_bloco(&t, j);
-                let corpo = &t[j..fim];
-                let (nome_classe, _, ctx_classe) = classe.clone().expect("classe");
-                let usa_contexto = ctx_classe || corpo.iter().any(|(_, x)| matches!(x, T::Id(n) if CONTEXTO.contains(&n.as_str())));
-                let mut achados = Vec::new();
-                for w in corpo.windows(3) {
-                    if let (T::Id(n), T::P('('), T::Str(cru, true, codigo)) = (&w[0].1, &w[1].1, &w[2].1) {
-                        if CHAMADAS.contains(&n.as_str()) {
-                            if !*cru && (codigo.contains('$') || codigo.contains('\\')) {
+                let end = block_end(&t, j);
+                let body = &t[j..end];
+                let (class_name, _, class_ctx) = class.clone().expect("class");
+                let uses_context = class_ctx || body.iter().any(|(_, x)| matches!(x, T::Id(n) if CONTEXT.contains(&n.as_str())));
+                let mut found = Vec::new();
+                for w in body.windows(3) {
+                    if let (T::Id(n), T::P('('), T::Str(raw, true, code)) = (&w[0].1, &w[1].1, &w[2].1) {
+                        if CALLS.contains(&n.as_str()) {
+                            if !*raw && (code.contains('$') || code.contains('\\')) {
                                 continue;
                             }
-                            // Na string de várias linhas do Dart, espaços e a quebra logo
-                            // depois das aspas de abertura não fazem parte do valor.
-                            let sem_espacos = codigo.trim_start_matches([' ', '\t']);
-                            let valor = sem_espacos
+                            // In a Dart multi-line string, spaces and the line break right
+                            // after the opening quotes are not part of the value.
+                            let trimmed = code.trim_start_matches([' ', '\t']);
+                            let value = trimmed
                                 .strip_prefix("\r\n")
-                                .or_else(|| sem_espacos.strip_prefix('\n'))
-                                .unwrap_or(codigo);
-                            achados.push(valor.to_string());
+                                .or_else(|| trimmed.strip_prefix('\n'))
+                                .unwrap_or(code);
+                            found.push(value.to_string());
                         }
                     }
                 }
-                if usa_contexto {
-                    pulados += 1;
+                if uses_context {
+                    skipped += 1;
                 } else {
-                    for c in achados {
-                        out.push((nome_classe.clone(), m.clone(), c));
+                    for c in found {
+                        out.push((class_name.clone(), m.clone(), c));
                     }
                 }
-                // o laço segue a partir do `{`, contando profundidade normalmente
+                // the loop continues from the `{`, counting depth as usual
                 i = j;
                 continue;
             }
@@ -557,12 +559,12 @@ pub fn extrair_trechos(src: &str) -> (Vec<(String, String, String)>, usize) {
         }
         i += 1;
     }
-    (out, pulados)
+    (out, skipped)
 }
 
-fn fim_do_bloco(t: &[(usize, T)], abre: usize) -> usize {
+fn block_end(t: &[(usize, T)], open: usize) -> usize {
     let mut p = 0;
-    let mut j = abre;
+    let mut j = open;
     while j < t.len() {
         match t[j].1 {
             T::P('{') => p += 1,
@@ -579,19 +581,19 @@ fn fim_do_bloco(t: &[(usize, T)], abre: usize) -> usize {
     t.len()
 }
 
-/// O corpo da classe tem `setUp` que monta contexto?
-fn metodo_contexto(corpo: &[(usize, T)]) -> bool {
+/// Does the class body have a `setUp` that sets up context?
+fn has_context_setup(body: &[(usize, T)]) -> bool {
     let mut i = 0;
-    while i < corpo.len() {
-        if let T::Id(n) = &corpo[i].1 {
+    while i < body.len() {
+        if let T::Id(n) = &body[i].1 {
             if n == "setUp" {
                 let mut j = i;
-                while j < corpo.len() && corpo[j].1 != T::P('{') && corpo[j].1 != T::P(';') {
+                while j < body.len() && body[j].1 != T::P('{') && body[j].1 != T::P(';') {
                     j += 1;
                 }
-                if j < corpo.len() && corpo[j].1 == T::P('{') {
-                    let fim = fim_do_bloco(corpo, j);
-                    if corpo[j..fim].iter().any(|(_, x)| matches!(x, T::Id(n) if CONTEXTO.contains(&n.as_str()))) {
+                if j < body.len() && body[j].1 == T::P('{') {
+                    let end = block_end(body, j);
+                    if body[j..end].iter().any(|(_, x)| matches!(x, T::Id(n) if CONTEXT.contains(&n.as_str()))) {
                         return true;
                     }
                 }
@@ -603,11 +605,11 @@ fn metodo_contexto(corpo: &[(usize, T)]) -> bool {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn extrai_trechos_e_pula_contexto() {
+    fn extracts_snippets_and_skips_context() {
         let src = r#"
 class ATest extends PubPackageResolutionTest {
   test_um() async {
@@ -628,17 +630,17 @@ var s = '${1}';
   }
 }
 "#;
-        let (v, pulados) = extrair_trechos(src);
-        assert_eq!(pulados, 1);
+        let (v, skipped) = extract_snippets(src);
+        assert_eq!(skipped, 1);
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].1, "test_um");
         assert_eq!(v[0].2, "f() { return 3 ? 2 : 1; }\n");
     }
 
     #[test]
-    fn versao_declarada() {
-        assert!(declara_3_7_ou_mais("// @dart = 3.8\nvoid main() {}"));
-        assert!(!declara_3_7_ou_mais("// @dart=2.19\n"));
-        assert!(!declara_3_7_ou_mais("void main() {}"));
+    fn declared_version() {
+        assert!(declares_3_7_or_later("// @dart = 3.8\nvoid main() {}"));
+        assert!(!declares_3_7_or_later("// @dart=2.19\n"));
+        assert!(!declares_3_7_or_later("void main() {}"));
     }
 }
