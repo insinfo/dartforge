@@ -1,6 +1,6 @@
-// Escopo léxico de identificadores: membro herdado não está no escopo
-// léxico da subclasse; a declaração de topo homônima vence o `this`
-// implícito. Membro declarado na própria classe vence a de topo.
+// Lexical scope of identifiers: an inherited member is not in the subclass's
+// lexical scope; the top-level declaration with the same name wins over the
+// implicit `this`. A member declared in the class itself wins over the top-level one.
 String nome = 'topo';
 
 String saudacao() => 'saudação de topo';

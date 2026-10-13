@@ -1,6 +1,6 @@
-// Encaminhadores de noSuchMethod: muitos membros abstratos vindos da
-// superclasse, de mixins e de interfaces. A ordem em que o emissor os escreve
-// tem de ser a mesma em toda execução (tests/determinismo.rs).
+// noSuchMethod forwarders: many abstract members coming from the superclass,
+// mixins and interfaces. The order in which the emitter writes them must be the
+// same on every run (tests/determinism.rs).
 abstract class Forma {
   double area();
   double perimetro();

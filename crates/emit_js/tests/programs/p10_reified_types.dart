@@ -1,6 +1,6 @@
-// Argumentos de tipo reificados que vêm da inferência (docs/INFERENCIA-JS-ALINHAMENTO.md §4):
-// a instanciação de chamadas genéricas, literais de coleção, construtores e
-// closures é observável por `is`, `as`, `runtimeType` e pelo `T` impresso.
+// Reified type arguments that come from inference (docs/INFERENCIA-JS-ALINHAMENTO.md §4):
+// the instantiation of generic calls, collection literals, constructors and
+// closures is observable through `is`, `as`, `runtimeType` and the printed `T`.
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -34,16 +34,16 @@ class Child extends Base {}
 String tipo<T>(T x) => '$T';
 
 void main() async {
-  // E7: T fixado pelo contexto de `print` (Object?).
+  // E7: T fixed by the context of `print` (Object?).
   print(id(5) is int);
   print(nomeDe(id(5)));
   print(tipo(id(5)));
-  // E7: lista inferida no contexto de `primeiro`.
+  // E7: list inferred in the context of `primeiro`.
   print(primeiro([7, 8]));
-  // Contexto que desce para o argumento genérico.
+  // Context that flows down to the generic argument.
   print(tipo(first(singleton('x'))));
   print(tipo(maior(3, 9)));
-  // E13: literais com o contexto certo.
+  // E13: literals with the right context.
   final cs = [Caixa(1), Caixa('x')];
   print(cs.map((c) => c.tipo).toList());
   final m = [
@@ -63,7 +63,7 @@ void main() async {
   print(regs is Set<Record>);
   print(regs is Set<(int, int)>);
   print(<Comparable>[3] is List<Comparable<dynamic>>);
-  // E9 / E10: closures sem `return` e que só lançam.
+  // E9 / E10: closures without `return` and that only throw.
   final f1 = Future(() {
     print('corpo');
   });
@@ -76,21 +76,21 @@ void main() async {
   } catch (e) {
     print('pegou ${e.runtimeType}');
   }
-  // Coleção dentro de classe genérica.
+  // Collection inside a generic class.
   final p = Pilha<int>()..push(1);
   print(p.itens is List<int>);
-  // E3: tipagem especial de int.
+  // E3: special typing of int.
   print(tipo(15.clamp(0, 10)));
   print(tipo(-7.remainder(2)));
   print(tipo(math.max(1, 2)));
-  // Promoção por atribuição: o tipo declarado continua `Base?`.
+  // Promotion by assignment: the declared type stays `Base?`.
   Base? b;
   b = Child();
   print(tipo(b));
-  // List.generate: o parâmetro da closure é int.
+  // List.generate: the closure parameter is int.
   final g = List.generate(3, (i) => tipo(i));
   print(g);
-  // Chamada genérica com closure cujo retorno fixa T.
+  // Generic call with a closure whose return fixes T.
   final r = [1, 2, 3].map((x) => x * 2.5);
   print(r is Iterable<double>);
   print([1, 2].expand((x) => [x, -x]).toList() is List<int>);
