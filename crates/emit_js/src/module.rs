@@ -1900,12 +1900,20 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             .collect();
         w.line(&format!("dart.setFieldSignature({cref}, {});", sig(&items, "getFields")));
     }
+    // The constants (and `values`) that the closed world keeps: an enum
+    // constant lives one by one, only when read (`dartforge_world`).
+    let enum_constant_live = |ec: &ast::EnumConstant| {
+        class.enum_constants.iter().find(|v| ctx.program.variable(**v).name == ec.name.sym).is_none_or(|v| ctx.var_state(*v) != crate::filter::State::Dead)
+    };
+    let enum_values_live = ctx.sym("values").and_then(|s| class.static_members.get(&s)).is_none_or(|f| ctx.fn_state(*f) != crate::filter::State::Dead);
     // Statics: fields.
     let static_fields: Vec<VariableId> = class.fields.iter().copied().filter(|v| ctx.program.variable(*v).static_ && ctx.var_state(*v) != crate::filter::State::Dead).collect();
     let mut static_names: Vec<String> = static_fields.iter().map(|v| ctx.name(ctx.program.variable(*v).name).to_string()).collect();
     if is_enum {
-        static_names.insert(0, "values".into());
-        for (_, ec) in &enum_constants {
+        if enum_values_live {
+            static_names.insert(0, "values".into());
+        }
+        for (_, ec) in enum_constants.iter().filter(|(_, ec)| enum_constant_live(ec)) {
             static_names.push(ctx.name(ec.name.sym).to_string());
         }
     }
@@ -1938,6 +1946,9 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         e.in_const = true;
         let mut names = Vec::new();
         for (i, &(unit_k, ec)) in enum_constants.iter().enumerate() {
+            if !enum_constant_live(ec) {
+                continue;
+            }
             // The arguments of an augmented value are read in its own unit.
             let mut e_k = (unit_k != unit).then(|| {
                 let mut x = FnEmitter::new(ctx, m, unit_k, Some(c), true);
@@ -1967,8 +1978,10 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             }
             lazy.push(format!("get {}() {{ return dart.const(new {cref}.{jsname}({})); }}", js::prop_key(&static_member_name(&n)), args.join(", ")));
         }
-        let rti = e.rti(&Ty::iface(c));
-        lazy.insert(0, format!("get values() {{ return dart.constList({rti}, [{}]); }}", names.join(", ")));
+        if enum_values_live {
+            let rti = e.rti(&Ty::iface(c));
+            lazy.insert(0, format!("get values() {{ return dart.constList({rti}, [{}]); }}", names.join(", ")));
+        }
     }
     for vid in static_fields {
         let v = ctx.program.variable(vid);

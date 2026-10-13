@@ -114,6 +114,14 @@ pub(crate) fn of_function(m: &mut Engine<'_>, f: FunctionElementId) {
             walk_body(m, &ctx, &c.body);
         }
         FunctionRef::None => {
+            // The synthetic `values` of an enum lists every constant.
+            if func.static_ && func.kind == FunctionKind::Getter {
+                if let Some(k) = func.class.filter(|k| p.class(*k).kind == ClassKind::Enum && e.interner.resolve(func.name) == "values") {
+                    for &vid in &p.class(k).enum_constants {
+                        m.use_variable(vid);
+                    }
+                }
+            }
             if func.kind == FunctionKind::SyntheticConstructor {
                 if let Some(k) = func.class {
                     // A synthetic mixin application forwards to the
@@ -132,6 +140,10 @@ pub(crate) fn of_function(m: &mut Engine<'_>, f: FunctionElementId) {
 pub(crate) fn of_variable(m: &mut Engine<'_>, v: VariableId) {
     let e = m.e;
     let var = e.program.variable(v);
+    if let dartforge_elements::model::VariableRef::EnumConstant { .. } = var.node {
+        enum_constant(m, v);
+        return;
+    }
     if let Some(vt) = e.outline.variables.get(v.0 as usize) {
         if let Some(t) = vt.declared_type.or(vt.inferred) {
             m.visit_type(t);
@@ -165,26 +177,28 @@ pub(crate) fn of_fields(m: &mut Engine<'_>, c: ClassId) {
             expr(m, &ctx, init);
         }
     }
-    if class.kind == ClassKind::Enum {
-        // The emitter writes all the constants and `values` together with the class.
-        for &vid in &class.enum_constants {
-            m.use_variable(vid);
-        }
-        let Some(d) = class.decl else { return };
-        let ast = &p.unit(d.unit).ast;
-        if let ast::DeclKind::Enum(ed) = &ast.decl(d.decl).kind {
-            let ctx = Context { unit: d.unit, library: class.library, class: Some(c), extension: None, no_this: false };
-            for k in ed.constants.iter() {
-                let ctor_name = k.constructor.map(|n| m.e.interner.resolve(n.sym)).unwrap_or("");
-                m.create(c, ctor_name, false);
-                for t in k.type_args.iter() {
-                    ast_type(m, &ctx, *t);
-                }
-                if let Some(a) = &k.arguments {
-                    walk_arguments(m, &ctx, a);
-                }
-            }
-        }
+    // The constants of an enum live one by one: each one read (or all of
+    // them, through `values`) is created by [`enum_constant`], and the
+    // emitter leaves out the others (`docs/JS-PRODUCAO-TAMANHO.md` §12).
+}
+
+/// An enum constant that has become live: its constructor and arguments.
+fn enum_constant(m: &mut Engine<'_>, v: VariableId) {
+    let p = m.e.program;
+    let var = p.variable(v);
+    let dartforge_elements::model::VariableRef::EnumConstant { unit, decl, index } = var.node else { return };
+    let Some(c) = var.class else { return };
+    let ast = &p.unit(unit).ast;
+    let ast::DeclKind::Enum(ed) = &ast.decl(decl).kind else { return };
+    let Some(k) = ed.constants.get(index) else { return };
+    let ctx = Context { unit, library: p.class(c).library, class: Some(c), extension: None, no_this: false };
+    let ctor_name = k.constructor.map(|n| m.e.interner.resolve(n.sym)).unwrap_or("");
+    m.create(c, ctor_name, false);
+    for t in k.type_args.iter() {
+        ast_type(m, &ctx, *t);
+    }
+    if let Some(a) = &k.arguments {
+        walk_arguments(m, &ctx, a);
     }
 }
 
