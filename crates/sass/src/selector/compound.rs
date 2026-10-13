@@ -212,12 +212,13 @@ impl CompoundSelector {
     ///
     /// If no such selector can be produced, returns `None`.
     ///
-    /// `unifyCompound` do dart-sass 1.102 (1.79.5+): os simples de `other`
-    /// entram em `self`, e as pseudo-classes depois de um pseudo-elemento
-    /// são unificadas à parte, para manter a ordem relativa a ele. No modo
-    /// 1.66, o algoritmo antigo: os simples de `self` entram em `other`.
+    /// `unifyCompound` of dart-sass 1.102 (1.79.5+): the simple selectors of
+    /// `other` go into `self`, and the pseudo-classes after a pseudo-element
+    /// are unified separately, to keep their order relative to it. In the
+    /// 1.66 mode, the old algorithm: the simple selectors of `self` go into
+    /// `other`.
     pub fn unify(self, other: Self) -> Option<Self> {
-        if crate::options::versao_corrente() == crate::VersaoDartSass::V1_66_0 {
+        if crate::options::current_version() == crate::VersaoDartSass::V1_66_0 {
             let mut components = other.components;
             for simple in self.components {
                 components = simple.unify(std::mem::take(&mut components))?;
@@ -228,8 +229,8 @@ impl CompoundSelector {
         let mut pseudo_result: Vec<SimpleSelector> = Vec::new();
         let mut pseudo_element_found = false;
         for simple in other.components {
-            let e_pseudo = matches!(simple, SimpleSelector::Pseudo(..));
-            if pseudo_element_found && e_pseudo {
+            let is_pseudo = matches!(simple, SimpleSelector::Pseudo(..));
+            if pseudo_element_found && is_pseudo {
                 pseudo_result = simple.unify(std::mem::take(&mut pseudo_result))?;
             } else {
                 pseudo_element_found |= matches!(&simple, SimpleSelector::Pseudo(p) if !p.is_class);

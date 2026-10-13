@@ -1,17 +1,17 @@
-//! A compilação como o `sass_builder` 2.2.1 a faz (`lib/sass_builder.dart`
-//! e `lib/src/build_importer.dart`): a entrada é um ativo do `build_runner`
-//! (`package:pkg/x.scss` para o que está em `lib/`, `asset:pkg/web/y.scss`
-//! para o resto), e as folhas que ela carrega são resolvidas pelo
-//! `BuildImporter`, isto é, pelo `AssetId.resolve` do pacote `build`
-//! contra os pacotes do `package_config.json`.
+//! Compilation the way `sass_builder` 2.2.1 does it (`lib/sass_builder.dart`
+//! and `lib/src/build_importer.dart`): the input is a `build_runner` asset
+//! (`package:pkg/x.scss` for what is in `lib/`, `asset:pkg/web/y.scss` for
+//! the rest), and the stylesheets it loads are resolved by the
+//! `BuildImporter`, that is, by the `AssetId.resolve` of the `build` package
+//! against the packages of `package_config.json`.
 //!
-//! Opções que o `sass_builder` passa ao dart-sass
-//! (`compileStringToResultAsync`): `syntax: Syntax.forPath(entrada)`,
-//! `importers: [BuildImporter]`, `style` (`expanded` por padrão,
-//! `compressed`), `url: inputId.uri` e `sourceMap`. Nada de `loadPaths`,
-//! `quietDeps`, `charset` (padrão: ligado) nem funções próprias; o
-//! importador base da entrada é o `FilesystemImporter.cwd`, que não resolve
-//! URL `package:`/`asset:` — na prática só o `BuildImporter` resolve.
+//! Options that `sass_builder` passes to dart-sass
+//! (`compileStringToResultAsync`): `syntax: Syntax.forPath(input)`,
+//! `importers: [BuildImporter]`, `style` (`expanded` by default,
+//! `compressed`), `url: inputId.uri` and `sourceMap`. No `loadPaths`,
+//! `quietDeps`, `charset` (default: on) or custom functions; the base
+//! importer of the input is `FilesystemImporter.cwd`, which does not resolve
+//! `package:`/`asset:` URLs — in practice only the `BuildImporter` resolves.
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
@@ -20,8 +20,8 @@ use std::path::{Path, PathBuf};
 use crate::importer::{Importer, ImporterResult};
 use crate::{InputSyntax, Options, OutputStyle};
 
-/// Um ativo do `build_runner`: pacote e caminho dentro dele (`lib/a.scss`,
-/// `web/b.scss`), sempre com `/`.
+/// A `build_runner` asset: package and path inside it (`lib/a.scss`,
+/// `web/b.scss`), always with `/`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Ativo {
     pub pacote: String,
@@ -29,194 +29,195 @@ pub struct Ativo {
 }
 
 impl Ativo {
-    /// `AssetId.uri`: `package:` dentro de `lib/`, `asset:` fora.
+    /// `AssetId.uri`: `package:` inside `lib/`, `asset:` outside.
     pub fn uri(&self) -> String {
         match self.caminho.strip_prefix("lib/") {
-            Some(resto) => format!("package:{}/{resto}", self.pacote),
+            Some(rest) => format!("package:{}/{rest}", self.pacote),
             None => format!("asset:{}/{}", self.pacote, self.caminho),
         }
     }
 
-    /// `AssetId.resolve(uri, from: de)`: URL relativa resolve contra a URI
-    /// de `de` (`Uri.resolveUri`); só `package:` e `asset:` são aceitas.
-    pub fn resolver(uri: &str, de: &Ativo) -> Result<Ativo, String> {
-        let resolvida = match esquema(uri) {
+    /// `AssetId.resolve(uri, from: from)`: a relative URL resolves against
+    /// the URI of `from` (`Uri.resolveUri`); only `package:` and `asset:` are
+    /// accepted.
+    pub fn resolve(uri: &str, from: &Ativo) -> Result<Ativo, String> {
+        let resolved = match scheme(uri) {
             Some(_) => uri.to_owned(),
-            None => resolver_relativa(&de.uri(), uri),
+            None => resolve_relative(&from.uri(), uri),
         };
-        let erro =
+        let error =
             || format!("Cannot resolve {uri}; only \"package\" and \"asset\" schemes supported");
-        let (esq, resto) = resolvida.split_once(':').ok_or_else(erro)?;
-        // `pathSegments` do `Uri` do Dart: o caminho sem consulta/fragmento,
-        // dividido em `/` (um `/` inicial não gera segmento vazio).
-        let resto = resto.split(['?', '#']).next().unwrap_or("");
-        let resto = resto.strip_prefix('/').unwrap_or(resto);
-        let mut segs = resto.split('/');
+        let (sch, rest) = resolved.split_once(':').ok_or_else(error)?;
+        // `pathSegments` of Dart's `Uri`: the path without query/fragment,
+        // split on `/` (a leading `/` does not produce an empty segment).
+        let rest = rest.split(['?', '#']).next().unwrap_or("");
+        let rest = rest.strip_prefix('/').unwrap_or(rest);
+        let mut segs = rest.split('/');
         let pacote = segs.next().unwrap_or("").to_owned();
-        let demais: Vec<&str> = segs.collect();
-        match esq {
+        let others: Vec<&str> = segs.collect();
+        match sch {
             "package" => Ok(Ativo {
                 pacote,
-                caminho: juntar("lib", &demais),
+                caminho: join_segments("lib", &others),
             }),
             "asset" => Ok(Ativo {
                 pacote,
-                caminho: juntar("", &demais),
+                caminho: join_segments("", &others),
             }),
-            _ => Err(erro()),
+            _ => Err(error()),
         }
     }
 }
 
-/// `p.url.join(base, p.url.joinAll(segs))` com a normalização que o
-/// construtor de `AssetId` faz (`p.url.normalize`).
-fn juntar(base: &str, segs: &[&str]) -> String {
-    let mut partes: Vec<&str> = Vec::new();
+/// `p.url.join(base, p.url.joinAll(segs))` with the normalization that the
+/// `AssetId` constructor does (`p.url.normalize`).
+fn join_segments(base: &str, segs: &[&str]) -> String {
+    let mut parts: Vec<&str> = Vec::new();
     for s in std::iter::once(base).chain(segs.iter().copied()) {
         match s {
             "" | "." => {}
             ".." => {
-                if partes.last().is_some_and(|u| *u != "..") {
-                    partes.pop();
+                if parts.last().is_some_and(|u| *u != "..") {
+                    parts.pop();
                 } else {
-                    partes.push("..");
+                    parts.push("..");
                 }
             }
-            s => partes.push(s),
+            s => parts.push(s),
         }
     }
-    partes.join("/")
+    parts.join("/")
 }
 
-/// O esquema de uma URI (`[a-zA-Z][a-zA-Z0-9+.-]*:`), se houver.
-fn esquema(uri: &str) -> Option<&str> {
+/// The scheme of a URI (`[a-zA-Z][a-zA-Z0-9+.-]*:`), if any.
+fn scheme(uri: &str) -> Option<&str> {
     let (e, _) = uri.split_once(':')?;
     let mut cs = e.chars();
-    let primeiro = cs.next()?;
-    (primeiro.is_ascii_alphabetic() && cs.all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c)))
+    let first = cs.next()?;
+    (first.is_ascii_alphabetic() && cs.all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c)))
         .then_some(e)
 }
 
-/// `Uri.resolveUri` do Dart para uma referência sem esquema contra uma base
-/// sem autoridade (`package:`/`asset:`): RFC 3986 §5.2, com a remoção de
-/// segmentos de ponto do Dart (`_removeDotSegments`, que para caminho sem
-/// `/` inicial mantém `..` que sobram — `_normalizeRelativePath`).
-fn resolver_relativa(base: &str, rel: &str) -> String {
-    let (esq, caminho_base) = base.split_once(':').unwrap_or(("", base));
-    let caminho_base = caminho_base.split(['?', '#']).next().unwrap_or("");
-    let (rel_caminho, sufixo) = match rel.find(['?', '#']) {
+/// Dart's `Uri.resolveUri` for a reference without a scheme against a base
+/// without authority (`package:`/`asset:`): RFC 3986 §5.2, with Dart's
+/// removal of dot segments (`_removeDotSegments`, which for a path without
+/// a leading `/` keeps the leftover `..` — `_normalizeRelativePath`).
+fn resolve_relative(base: &str, rel: &str) -> String {
+    let (sch, base_path) = base.split_once(':').unwrap_or(("", base));
+    let base_path = base_path.split(['?', '#']).next().unwrap_or("");
+    let (rel_path, suffix) = match rel.find(['?', '#']) {
         Some(i) => (&rel[..i], &rel[i..]),
         None => (rel, ""),
     };
-    if rel_caminho.is_empty() {
-        return format!("{esq}:{caminho_base}{sufixo}");
+    if rel_path.is_empty() {
+        return format!("{sch}:{base_path}{suffix}");
     }
-    let juntado = if rel_caminho.starts_with('/') {
-        rel_caminho.to_owned()
+    let joined = if rel_path.starts_with('/') {
+        rel_path.to_owned()
     } else {
-        match caminho_base.rfind('/') {
-            Some(i) => format!("{}{rel_caminho}", &caminho_base[..=i]),
-            None => rel_caminho.to_owned(),
+        match base_path.rfind('/') {
+            Some(i) => format!("{}{rel_path}", &base_path[..=i]),
+            None => rel_path.to_owned(),
         }
     };
-    let absoluto = juntado.starts_with('/');
-    let mut saida: Vec<&str> = Vec::new();
-    let segs: Vec<&str> = juntado.split('/').collect();
+    let absolute = joined.starts_with('/');
+    let mut output: Vec<&str> = Vec::new();
+    let segs: Vec<&str> = joined.split('/').collect();
     let n = segs.len();
-    let mut fim_com_barra = false;
+    let mut trailing_slash = false;
     for (i, s) in segs.iter().enumerate() {
-        let ultimo = i + 1 == n;
+        let last = i + 1 == n;
         match *s {
-            "." => fim_com_barra = ultimo,
+            "." => trailing_slash = last,
             ".." => {
-                if saida.last().is_some_and(|u| *u != ".." && !u.is_empty()) {
-                    saida.pop();
-                } else if !absoluto {
-                    saida.push("..");
+                if output.last().is_some_and(|u| *u != ".." && !u.is_empty()) {
+                    output.pop();
+                } else if !absolute {
+                    output.push("..");
                 }
-                fim_com_barra = ultimo;
+                trailing_slash = last;
             }
-            "" if i == 0 && absoluto => {}
+            "" if i == 0 && absolute => {}
             s => {
-                saida.push(s);
-                fim_com_barra = false;
+                output.push(s);
+                trailing_slash = false;
             }
         }
     }
-    let mut c = saida.join("/");
-    if absoluto {
+    let mut c = output.join("/");
+    if absolute {
         c.insert(0, '/');
     }
-    if fim_com_barra {
+    if trailing_slash {
         c.push('/');
     }
-    format!("{esq}:{c}{sufixo}")
+    format!("{sch}:{c}{suffix}")
 }
 
-/// As raízes dos pacotes, por nome, como no `package_config.json`.
+/// The package roots, by name, as in `package_config.json`.
 #[derive(Debug, Clone, Default)]
 pub struct Pacotes {
-    raizes: HashMap<String, PathBuf>,
+    roots: HashMap<String, PathBuf>,
 }
 
 impl Pacotes {
-    /// Pacotes vazios; acrescente com [`Pacotes::inserir`].
+    /// Empty packages; add to it with [`Pacotes::inserir`].
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Acrescenta (ou troca) a raiz de um pacote.
-    pub fn inserir(&mut self, nome: impl Into<String>, raiz: impl Into<PathBuf>) {
-        self.raizes.insert(nome.into(), raiz.into());
+    /// Adds (or replaces) the root of a package.
+    pub fn inserir(&mut self, name: impl Into<String>, root: impl Into<PathBuf>) {
+        self.roots.insert(name.into(), root.into());
     }
 
-    /// A raiz de `nome`, se conhecida.
-    pub fn raiz(&self, nome: &str) -> Option<&Path> {
-        self.raizes.get(nome).map(PathBuf::as_path)
+    /// The root of `name`, if known.
+    pub fn root(&self, name: &str) -> Option<&Path> {
+        self.roots.get(name).map(PathBuf::as_path)
     }
 
-    /// Lê um `package_config.json` (versão 2): `rootUri` absoluta
-    /// (`file:///…`) ou relativa ao diretório do arquivo.
+    /// Reads a `package_config.json` (version 2): `rootUri` absolute
+    /// (`file:///…`) or relative to the file's directory.
     ///
-    /// # Erros
+    /// # Errors
     ///
-    /// O arquivo não se lê ou não tem a forma esperada.
-    pub fn de_package_config(caminho: &Path) -> io::Result<Self> {
-        let texto = std::fs::read_to_string(caminho)?;
-        let dir = caminho.parent().unwrap_or(Path::new(""));
+    /// The file cannot be read or does not have the expected shape.
+    pub fn de_package_config(path: &Path) -> io::Result<Self> {
+        let text = std::fs::read_to_string(path)?;
+        let dir = path.parent().unwrap_or(Path::new(""));
         let mut p = Pacotes::new();
-        let invalido =
-            || io::Error::new(io::ErrorKind::InvalidData, "package_config.json inválido");
-        // Leitura mínima de JSON: os objetos de `packages` com `name` e
-        // `rootUri` (o crate não depende de um leitor de JSON).
-        let lista = texto.find("\"packages\"").ok_or_else(invalido)?;
-        let mut resto = &texto[lista..];
-        while let Some(i) = resto.find('{') {
-            let fim = resto[i..].find('}').ok_or_else(invalido)? + i;
-            let obj = &resto[i..fim];
-            if let (Some(nome), Some(raiz)) = (campo_json(obj, "name"), campo_json(obj, "rootUri"))
+        let invalid =
+            || io::Error::new(io::ErrorKind::InvalidData, "invalid package_config.json");
+        // Minimal JSON reading: the objects of `packages` with `name` and
+        // `rootUri` (the crate does not depend on a JSON reader).
+        let list = text.find("\"packages\"").ok_or_else(invalid)?;
+        let mut rest = &text[list..];
+        while let Some(i) = rest.find('{') {
+            let end = rest[i..].find('}').ok_or_else(invalid)? + i;
+            let obj = &rest[i..end];
+            if let (Some(name), Some(root)) = (json_field(obj, "name"), json_field(obj, "rootUri"))
             {
-                let raiz = match raiz.strip_prefix("file://") {
-                    Some(abs) => PathBuf::from(decodificar_pct(abs)),
-                    None => dir.join(decodificar_pct(&raiz)),
+                let root = match root.strip_prefix("file://") {
+                    Some(abs) => PathBuf::from(percent_decode(abs)),
+                    None => dir.join(percent_decode(&root)),
                 };
-                p.inserir(nome, normalizar(&raiz));
+                p.inserir(name, normalize(&root));
             }
-            resto = &resto[fim + 1..];
+            rest = &rest[end + 1..];
         }
         Ok(p)
     }
 }
 
-fn campo_json(obj: &str, nome: &str) -> Option<String> {
-    let i = obj.find(&format!("\"{nome}\""))? + nome.len() + 2;
-    let depois = obj[i..]
+fn json_field(obj: &str, name: &str) -> Option<String> {
+    let i = obj.find(&format!("\"{name}\""))? + name.len() + 2;
+    let after = obj[i..]
         .trim_start()
         .strip_prefix(':')?
         .trim_start()
         .strip_prefix('"')?;
     let mut s = String::new();
-    let mut cs = depois.chars();
+    let mut cs = after.chars();
     while let Some(c) = cs.next() {
         match c {
             '"' => return Some(s),
@@ -235,7 +236,7 @@ fn campo_json(obj: &str, nome: &str) -> Option<String> {
     None
 }
 
-fn decodificar_pct(s: &str) -> String {
+fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -253,7 +254,7 @@ fn decodificar_pct(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn normalizar(p: &Path) -> PathBuf {
+fn normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {
         match c {
@@ -267,123 +268,124 @@ fn normalizar(p: &Path) -> PathBuf {
     out
 }
 
-/// Como o importador lê os ativos: o `BuildStep.canRead`/`readAsString`.
-/// O padrão é o disco; o motor de build passa o dele (que vê as saídas de
-/// builders anteriores e registra as dependências).
+/// How the importer reads assets: `BuildStep.canRead`/`readAsString`.
+/// The default is the disk; the build engine passes its own (which sees the
+/// outputs of earlier builders and records the dependencies).
 pub trait Leitor {
-    /// O arquivo existe e pode ser lido?
-    fn existe(&self, caminho: &Path) -> bool;
-    /// O texto do arquivo.
+    /// Does the file exist and can it be read?
+    fn existe(&self, path: &Path) -> bool;
+    /// The text of the file.
     ///
-    /// # Erros
+    /// # Errors
     ///
-    /// O arquivo não se lê ou não é UTF-8.
-    fn ler(&self, caminho: &Path) -> io::Result<String>;
+    /// The file cannot be read or is not UTF-8.
+    fn ler(&self, path: &Path) -> io::Result<String>;
 }
 
-/// O disco, sem mais nada.
+/// The disk, and nothing else.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Disco;
 
 impl Leitor for Disco {
-    fn existe(&self, caminho: &Path) -> bool {
-        caminho.is_file()
+    fn existe(&self, path: &Path) -> bool {
+        path.is_file()
     }
-    fn ler(&self, caminho: &Path) -> io::Result<String> {
-        std::fs::read_to_string(caminho)
+    fn ler(&self, path: &Path) -> io::Result<String> {
+        std::fs::read_to_string(path)
     }
 }
 
-/// O `BuildImporter` do `sass_builder` sobre um [`Leitor`], guardando o
-/// que foi lido e o que foi sondado sem existir (as dependências da ação).
+/// The `BuildImporter` of `sass_builder` over a [`Leitor`], keeping what
+/// was read and what was probed without existing (the action's
+/// dependencies).
 struct BuildImporter<'a> {
-    entrada: &'a Ativo,
-    pacotes: &'a Pacotes,
-    leitor: &'a dyn Leitor,
-    lidos: RefCell<Vec<PathBuf>>,
-    sondados: RefCell<Vec<PathBuf>>,
+    input: &'a Ativo,
+    packages: &'a Pacotes,
+    reader: &'a dyn Leitor,
+    read: RefCell<Vec<PathBuf>>,
+    probed: RefCell<Vec<PathBuf>>,
 }
 
 impl std::fmt::Debug for BuildImporter<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BuildImporter")
-            .field("entrada", self.entrada)
+            .field("input", self.input)
             .finish()
     }
 }
 
 impl BuildImporter<'_> {
-    fn arquivo(&self, a: &Ativo) -> Option<PathBuf> {
-        self.pacotes.raiz(&a.pacote).map(|r| r.join(&a.caminho))
+    fn file(&self, a: &Ativo) -> Option<PathBuf> {
+        self.packages.root(&a.pacote).map(|r| r.join(&a.caminho))
     }
 
     /// `buildStep.canRead(id)`.
-    fn pode_ler(&self, a: &Ativo) -> bool {
-        let Some(f) = self.arquivo(a) else {
+    fn can_read(&self, a: &Ativo) -> bool {
+        let Some(f) = self.file(a) else {
             return false;
         };
-        let sim = self.leitor.existe(&f);
-        let mut lista = if sim {
-            self.lidos.borrow_mut()
+        let yes = self.reader.existe(&f);
+        let mut list = if yes {
+            self.read.borrow_mut()
         } else {
-            self.sondados.borrow_mut()
+            self.probed.borrow_mut()
         };
-        if !lista.contains(&f) {
-            lista.push(f);
+        if !list.contains(&f) {
+            list.push(f);
         }
-        sim
+        yes
     }
 
-    /// `_resolveImport`, resolvendo relativas contra `de`.
-    fn resolver(&self, import: &str, de: &Ativo) -> Result<Option<Ativo>, String> {
-        let ext = extensao(import);
+    /// `_resolveImport`, resolving relative URLs against `from`.
+    fn resolve(&self, import: &str, from: &Ativo) -> Result<Option<Ativo>, String> {
+        let ext = extension(import);
         if ext == ".sass" || ext == ".scss" {
-            return exatamente_um(self.tentar(import, de)?);
+            return exactly_one(self.try_import(import, from)?);
         }
-        if let Some(a) = exatamente_um(self.tentar_com_extensoes(import, de)?)? {
+        if let Some(a) = exactly_one(self.try_with_extensions(import, from)?)? {
             return Ok(Some(a));
         }
         // `_tryImportAsDirectory`: `p.url.join(import, 'index')`.
-        let indice = if import.is_empty() || import.ends_with('/') {
+        let index = if import.is_empty() || import.ends_with('/') {
             format!("{import}index")
         } else {
             format!("{import}/index")
         };
-        exatamente_um(self.tentar_com_extensoes(&indice, de)?)
+        exactly_one(self.try_with_extensions(&index, from)?)
     }
 
-    fn tentar_com_extensoes(&self, import: &str, de: &Ativo) -> Result<Vec<Ativo>, String> {
-        let mut v = self.tentar(&format!("{import}.sass"), de)?;
-        v.extend(self.tentar(&format!("{import}.scss"), de)?);
+    fn try_with_extensions(&self, import: &str, from: &Ativo) -> Result<Vec<Ativo>, String> {
+        let mut v = self.try_import(&format!("{import}.sass"), from)?;
+        v.extend(self.try_import(&format!("{import}.scss"), from)?);
         Ok(v)
     }
 
-    /// `_tryImport`: o parcial `_nome` e o próprio, nessa ordem.
-    fn tentar(&self, import: &str, de: &Ativo) -> Result<Vec<Ativo>, String> {
+    /// `_tryImport`: the partial `_name` and the file itself, in that order.
+    fn try_import(&self, import: &str, from: &Ativo) -> Result<Vec<Ativo>, String> {
         let mut v = Vec::new();
         let (dir, base) = dirname_basename(import);
-        let parcial = if dir == "." {
+        let partial = if dir == "." {
             format!("_{base}")
         } else if dir.ends_with('/') {
             format!("{dir}_{base}")
         } else {
             format!("{dir}/_{base}")
         };
-        let parcial = Ativo::resolver(&parcial, de)?;
-        if self.pode_ler(&parcial) {
-            v.push(parcial);
+        let partial = Ativo::resolve(&partial, from)?;
+        if self.can_read(&partial) {
+            v.push(partial);
         }
-        let proprio = Ativo::resolver(import, de)?;
-        if self.pode_ler(&proprio) {
-            v.push(proprio);
+        let itself = Ativo::resolve(import, from)?;
+        if self.can_read(&itself) {
+            v.push(itself);
         }
         Ok(v)
     }
 }
 
-/// `p.extension` (estilo URL): do último `.` do último segmento, se não for
-/// o primeiro caractere dele.
-fn extensao(s: &str) -> &str {
+/// `p.extension` (URL style): from the last `.` of the last segment, unless
+/// it is its first character.
+fn extension(s: &str) -> &str {
     let base = s.rsplit('/').next().unwrap_or(s);
     match base.rfind('.') {
         Some(i) if i > 0 => &base[i..],
@@ -391,8 +393,9 @@ fn extensao(s: &str) -> &str {
     }
 }
 
-/// `p.dirname`/`p.basename` do pacote `path` (estilo POSIX, como o
-/// `sass_builder` chama no Dart da VM em Linux), sem barras finais.
+/// `p.dirname`/`p.basename` of the `path` package (POSIX style, as
+/// `sass_builder` calls them on the Dart VM on Linux), without trailing
+/// slashes.
 fn dirname_basename(s: &str) -> (String, String) {
     let t = s.trim_end_matches('/');
     if t.is_empty() {
@@ -422,7 +425,7 @@ fn dirname_basename(s: &str) -> (String, String) {
     }
 }
 
-fn exatamente_um(v: Vec<Ativo>) -> Result<Option<Ativo>, String> {
+fn exactly_one(v: Vec<Ativo>) -> Result<Option<Ativo>, String> {
     match v.len() {
         0 => Ok(None),
         1 => Ok(v.into_iter().next()),
@@ -437,31 +440,31 @@ impl Importer for BuildImporter<'_> {
         base: &str,
         _for_import: bool,
     ) -> Result<Option<String>, String> {
-        // `ImportCache.canonicalize`: URL relativa vai primeiro ao importador
-        // da folha que a contém, resolvida contra a URL canônica dela; depois
-        // à lista de importadores com a URL como veio — e o `BuildImporter`
-        // a resolve contra a **entrada** (`AssetId.resolve(…, from:
-        // inputId)`).
-        if esquema(url).is_none() {
-            if let Ok(de) = Ativo::resolver(base, self.entrada) {
-                if de != *self.entrada {
-                    let resolvida = resolver_relativa(base, url);
-                    if let Some(a) = self.resolver(&resolvida, &de)? {
+        // `ImportCache.canonicalize`: a relative URL goes first to the
+        // importer of the stylesheet that contains it, resolved against that
+        // stylesheet's canonical URL; then to the list of importers with the
+        // URL as it came — and the `BuildImporter` resolves it against the
+        // **input** (`AssetId.resolve(…, from: inputId)`).
+        if scheme(url).is_none() {
+            if let Ok(from) = Ativo::resolve(base, self.input) {
+                if from != *self.input {
+                    let resolved = resolve_relative(base, url);
+                    if let Some(a) = self.resolve(&resolved, &from)? {
                         return Ok(Some(a.uri()));
                     }
                 }
             }
         }
-        Ok(self.resolver(url, self.entrada)?.map(|a| a.uri()))
+        Ok(self.resolve(url, self.input)?.map(|a| a.uri()))
     }
 
     fn load(&self, canonical: &str) -> Result<ImporterResult, String> {
-        let a = Ativo::resolver(canonical, self.entrada)?;
+        let a = Ativo::resolve(canonical, self.input)?;
         let f = self
-            .arquivo(&a)
-            .ok_or_else(|| format!("pacote desconhecido: {}", a.pacote))?;
-        let contents = self.leitor.ler(&f).map_err(|e| format!("{e}"))?;
-        let mut l = self.lidos.borrow_mut();
+            .file(&a)
+            .ok_or_else(|| format!("unknown package: {}", a.pacote))?;
+        let contents = self.reader.ler(&f).map_err(|e| format!("{e}"))?;
+        let mut l = self.read.borrow_mut();
         if !l.contains(&f) {
             l.push(f);
         }
@@ -472,31 +475,31 @@ impl Importer for BuildImporter<'_> {
     }
 }
 
-/// O resultado de [`compilar`].
+/// The result of [`compilar`].
 #[derive(Debug, Clone)]
-pub struct Compilado {
-    /// O `compileResult.css` (sem `\n` final nem comentário de mapa).
+pub struct Compiled {
+    /// The `compileResult.css` (without a final `\n` or source map comment).
     pub css: String,
-    /// O `.css.map` como o `sass_builder` o escreve (`json.encode`, com as
-    /// `sources` reescritas), quando pedido.
+    /// The `.css.map` as `sass_builder` writes it (`json.encode`, with the
+    /// `sources` rewritten), when requested.
     pub mapa: Option<String>,
-    /// Os arquivos que a compilação leu (dependências).
+    /// The files the compilation read (dependencies).
     pub lidos: Vec<PathBuf>,
-    /// Os arquivos que o importador procurou e não achou (também
-    /// dependências: criar um deles muda o resultado).
+    /// The files the importer looked for and did not find (also
+    /// dependencies: creating one of them changes the result).
     pub sondados: Vec<PathBuf>,
 }
 
-impl Compilado {
-    /// O `.css` que o `sass_builder` grava: o CSS, o comentário
-    /// `sourceMappingURL` quando há mapa, e `\n`.
-    pub fn arquivo_css(&self, entrada: &Ativo) -> String {
+impl Compiled {
+    /// The `.css` that `sass_builder` writes: the CSS, the
+    /// `sourceMappingURL` comment when there is a source map, and `\n`.
+    pub fn arquivo_css(&self, input: &Ativo) -> String {
         match &self.mapa {
             Some(_) => {
-                let nome = entrada.caminho.rsplit('/').next().unwrap_or("");
-                let base = match nome.rfind('.') {
-                    Some(i) if i > 0 => &nome[..i],
-                    _ => nome,
+                let name = input.caminho.rsplit('/').next().unwrap_or("");
+                let base = match name.rfind('.') {
+                    Some(i) if i > 0 => &name[..i],
+                    _ => name,
                 };
                 format!("{}\n\n/*# sourceMappingURL={base}.css.map */\n", self.css)
             }
@@ -505,90 +508,90 @@ impl Compilado {
     }
 }
 
-/// Compila `fonte`, o texto do ativo `entrada`, como o `SassBuilder` com o
-/// dart-sass `versao`.
+/// Compiles `source`, the text of the asset `input`, like `SassBuilder`
+/// with dart-sass `version`.
 ///
-/// # Erros
+/// # Errors
 ///
-/// O erro de compilação do Sass (a mensagem do grass/dart-sass).
+/// The Sass compilation error (the grass/dart-sass message).
 pub fn compilar(
-    fonte: &str,
-    entrada: &Ativo,
-    pacotes: &Pacotes,
-    leitor: &dyn Leitor,
-    estilo: OutputStyle,
-    mapa: bool,
-    versao: crate::VersaoDartSass,
-) -> Result<Compilado, Box<crate::Error>> {
+    source: &str,
+    input: &Ativo,
+    packages: &Pacotes,
+    reader: &dyn Leitor,
+    style: OutputStyle,
+    source_map: bool,
+    version: crate::VersaoDartSass,
+) -> Result<Compiled, Box<crate::Error>> {
     let importer = BuildImporter {
-        entrada,
-        pacotes,
-        leitor,
-        lidos: RefCell::new(Vec::new()),
-        sondados: RefCell::new(Vec::new()),
+        input,
+        packages,
+        reader,
+        read: RefCell::new(Vec::new()),
+        probed: RefCell::new(Vec::new()),
     };
-    let opcoes = Options::default()
-        .style(estilo)
-        .versao(versao)
+    let options = Options::default()
+        .style(style)
+        .version(version)
         .quiet(true)
         .importer(&importer)
-        .input_syntax(InputSyntax::for_path(Path::new(&entrada.caminho)));
-    let (css, mapa_bruto) =
-        crate::compilar_com_mapa(fonte.to_owned(), &entrada.uri(), &opcoes, mapa)?;
-    let mapa = mapa_bruto.map(|m| m.json_sass_builder(entrada));
-    Ok(Compilado {
+        .input_syntax(InputSyntax::for_path(Path::new(&input.caminho)));
+    let (css, raw_map) =
+        crate::compile_with_source_map(source.to_owned(), &input.uri(), &options, source_map)?;
+    let mapa = raw_map.map(|m| m.json_sass_builder(input));
+    Ok(Compiled {
         css,
         mapa,
-        lidos: importer.lidos.into_inner(),
-        sondados: importer.sondados.into_inner(),
+        lidos: importer.read.into_inner(),
+        sondados: importer.probed.into_inner(),
     })
 }
 
-/// A reescrita das `sources` do mapa que o `sass_builder` faz
-/// (`writeSourceMaps`): o que está em `lib/` vira
-/// `packages/<pacote>/<resto>`; o que está em `web/` do próprio pacote,
-/// relativo a `web/`; o resto fica como veio.
-pub fn fonte_do_mapa(url: &str, entrada: &Ativo) -> String {
-    let Ok(a) = Ativo::resolver(url, entrada) else {
+/// The rewriting of the source map `sources` that `sass_builder` does
+/// (`writeSourceMaps`): what is in `lib/` becomes
+/// `packages/<package>/<rest>`; what is in `web/` of the package itself,
+/// relative to `web/`; the rest stays as it came.
+pub fn map_source(url: &str, input: &Ativo) -> String {
+    let Ok(a) = Ativo::resolve(url, input) else {
         return url.to_owned();
     };
-    if let Some(resto) = a.caminho.strip_prefix("lib/") {
-        return format!("packages/{}/{resto}", a.pacote);
+    if let Some(rest) = a.caminho.strip_prefix("lib/") {
+        return format!("packages/{}/{rest}", a.pacote);
     }
-    if a.pacote == entrada.pacote {
-        if let Some(resto) = a.caminho.strip_prefix("web/") {
-            return resto.to_owned();
+    if a.pacote == input.pacote {
+        if let Some(rest) = a.caminho.strip_prefix("web/") {
+            return rest.to_owned();
         }
     }
     url.to_owned()
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn resolve_como_o_asset_id() {
+    fn resolves_like_asset_id() {
         let e = Ativo {
             pacote: "app".into(),
             caminho: "web/css/main.scss".into(),
         };
         assert_eq!(e.uri(), "asset:app/web/css/main.scss");
-        let a = Ativo::resolver("../x/_y.scss", &e).unwrap();
+        let a = Ativo::resolve("../x/_y.scss", &e).unwrap();
         assert_eq!(a.caminho, "web/x/_y.scss");
-        let b = Ativo::resolver("package:ui/src/a.scss", &e).unwrap();
+        let b = Ativo::resolve("package:ui/src/a.scss", &e).unwrap();
         assert_eq!(
             (b.pacote.as_str(), b.caminho.as_str()),
             ("ui", "lib/src/a.scss")
         );
         assert_eq!(
-            fonte_do_mapa("package:ui/src/a.scss", &e),
+            map_source("package:ui/src/a.scss", &e),
             "packages/ui/src/a.scss"
         );
         assert_eq!(
-            fonte_do_mapa("asset:app/web/css/main.scss", &e),
+            map_source("asset:app/web/css/main.scss", &e),
             "css/main.scss"
         );
-        assert!(Ativo::resolver("http://x/y", &e).is_err());
+        assert!(Ativo::resolve("http://x/y", &e).is_err());
     }
 }

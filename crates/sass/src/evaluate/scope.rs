@@ -22,9 +22,9 @@ pub(crate) struct Scopes {
     pub(crate) functions: Arc<RefCell<Vec<Arc<RefCell<BTreeMap<Identifier, SassFunction>>>>>>,
     len: Arc<Cell<usize>>,
     pub last_variable_index: Option<(Identifier, usize)>,
-    /// O nó de cada variável (`_variableNodes` do `Environment` do
-    /// dart-sass): o `span` da expressão que lhe deu o valor, para o
-    /// `valueSpanForMap` das declarações. Paralelo a `variables`.
+    /// The node of each variable (`_variableNodes` of dart-sass's
+    /// `Environment`): the `span` of the expression that gave it its value,
+    /// for the `valueSpanForMap` of declarations. Parallel to `variables`.
     pub(crate) nodes: Arc<RefCell<Vec<Arc<RefCell<BTreeMap<Identifier, Span>>>>>>,
 }
 
@@ -127,7 +127,7 @@ impl Scopes {
 
 /// Variables
 impl Scopes {
-    /// Guarda (ou apaga) o nó da variável `name` no escopo `idx`.
+    /// Stores (or removes) the node of the variable `name` in scope `idx`.
     pub fn set_node(&mut self, idx: usize, name: Identifier, node: Option<Span>) {
         let nodes = (*self.nodes).borrow();
         let Some(scope) = nodes.get(idx) else { return };
@@ -142,7 +142,7 @@ impl Scopes {
         }
     }
 
-    /// O nó da variável visível `name` (`getVariableNode`).
+    /// The node of the visible variable `name` (`getVariableNode`).
     pub fn get_node(&self, name: Identifier) -> Option<Span> {
         let vars = (*self.variables).borrow();
         let nodes = (*self.nodes).borrow();

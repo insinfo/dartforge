@@ -136,8 +136,9 @@ pub struct ArgumentInvocation {
     pub(crate) rest: Option<AstExpr>,
     pub(crate) keyword_rest: Option<AstExpr>,
     pub(crate) span: Span,
-    /// O `span` de cada argumento posicional e nomeado (o dart-sass o tem
-    /// em toda expressão; aqui só para o nó das variáveis no mapa).
+    /// The `span` of each positional and named argument (dart-sass has it on
+    /// every expression; here only for the variable nodes in the source
+    /// map).
     pub(crate) positional_spans: Vec<Span>,
     pub(crate) named_spans: BTreeMap<Identifier, Span>,
 }
@@ -175,12 +176,12 @@ pub struct ArgumentResult {
     pub(crate) span: Span,
     // todo: hack
     pub(crate) touched: BTreeSet<usize>,
-    /// Os nós (`_expressionNode`) dos argumentos, quando conhecidos.
+    /// The nodes (`_expressionNode`) of the arguments, when known.
     pub(crate) nodes: ArgNodes,
 }
 
-/// Os nós dos argumentos avaliados: `positionalNodes`/`namedNodes` do
-/// `_ArgumentResults` do dart-sass.
+/// The nodes of the evaluated arguments: `positionalNodes`/`namedNodes` of
+/// dart-sass's `_ArgumentResults`.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ArgNodes {
     pub positional: Vec<Option<Span>>,

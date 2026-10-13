@@ -1,19 +1,20 @@
-//! Seletores CSS de diretiva e o casamento com os elementos do template.
+//! Directive CSS selectors and matching them against template elements.
 //!
-//! Porte de `selector.dart` e `attribute_matcher.dart` do `ngcompiler`. O
-//! oficial decide que diretivas um elemento recebe casando o seletor de cada
-//! uma (`@Directive(selector: 'form:not([ngNoForm])')`) com uma descrição do
-//! elemento (`createElementCssSelector`, em `template_parser.dart`): o nome da
-//! tag, cada atributo com o seu valor, cada ligação de propriedade e cada
-//! evento como atributo, e as classes do `class="..."`.
+//! Port of `selector.dart` and `attribute_matcher.dart` from `ngcompiler`. The
+//! official compiler decides which directives an element gets by matching the
+//! selector of each one (`@Directive(selector: 'form:not([ngNoForm])')`)
+//! against a description of the element (`createElementCssSelector`, in
+//! `template_parser.dart`): the tag name, each attribute with its value, each
+//! property binding and each event as an attribute, and the classes of
+//! `class="..."`.
 //!
-//! O gerador precisa da mesma resposta por dois motivos: saber que um
-//! elemento é de uma diretiva que ele ainda não emite (e recusar — emitir o
-//! elemento puro compila e faz outra coisa) e, adiante, instanciar as
-//! diretivas que sabe emitir, na ordem certa.
+//! The generator needs the same answer for two reasons: to know that an element
+//! belongs to a directive it does not emit yet (and refuse — emitting the plain
+//! element compiles and does something else) and, further on, to instantiate
+//! the directives it knows how to emit, in the right order.
 
-/// Um seletor simples: `tag.classe[attr=valor]:not(...)`. Uma lista separada
-/// por vírgula vira vários destes.
+/// A simple selector: `tag.class[attr=value]:not(...)`. A comma-separated list
+/// becomes several of these.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Seletor {
     pub elemento: Option<String>,
@@ -34,9 +35,9 @@ pub struct Atributo {
 pub enum Casamento {
     /// `[nome]`: basta existir.
     Existe,
-    /// `[nome=valor]`, com o valor já em minúsculas.
+    /// `[name=value]`, with the value already lowercase.
     Igual(Option<String>),
-    /// `[nome~=valor]`: um dos itens separados por espaço.
+    /// `[name~=value]`: one of the space-separated items.
     Lista(String),
     /// `[nome|=valor]`: o valor ou `valor-…`.
     Hifen(String),
@@ -53,8 +54,9 @@ impl Casamento {
         match self {
             Casamento::Existe => true,
             Casamento::Igual(v) => v.as_deref() == valor,
-            // Os demais recebem o valor com `!` no oficial: atributo sem
-            // valor não chega aqui na prática; sem valor, não casa.
+            // The others get the value with `!` in the official code: an
+            // attribute without a value does not get here in practice; without
+            // a value, it does not match.
             Casamento::Lista(v) => valor.is_some_and(|x| x.split_whitespace().any(|i| i == v)),
             Casamento::Hifen(v) => valor.is_some_and(|x| x == v || x.starts_with(&format!("{v}-"))),
             Casamento::Prefixo(v) => valor.is_some_and(|x| x.starts_with(v.as_str())),
@@ -64,12 +66,12 @@ impl Casamento {
     }
 }
 
-/// `\w` do Dart (sem unicode) mais o hífen: `[-\w]`.
+/// Dart's `\w` (without unicode) plus the hyphen: `[-\w]`.
 fn de_nome(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
 }
 
-/// Lê um nome `[-\w]+` a partir de `i`; devolve o fim.
+/// Reads a `[-\w]+` name starting at `i`; returns the end.
 fn nome_ate(b: &[u8], i: usize) -> usize {
     let mut j = i;
     while j < b.len() && de_nome(b[j]) {
@@ -128,14 +130,14 @@ fn atributo_em(s: &str, i: usize) -> Option<(String, Option<String>, Option<Stri
         Some((op, valor, j)) if b.get(j) == Some(&b']') => {
             Some((nome, Some(op), Some(valor), j + 1))
         }
-        // Sem o grupo opcional, o `]` tem de vir logo depois do nome.
+        // Without the optional group, the `]` must come right after the name.
         _ if b.get(fim_nome) == Some(&b']') => Some((nome, None, None, fim_nome + 1)),
         _ => None,
     }
 }
 
-/// O seletor que recebe o que se lê: o de fora ou, dentro de `:not(`, o
-/// último negado.
+/// The selector that receives what is read: the outer one or, inside `:not(`,
+/// the last negated one.
 fn alvo(atual: &mut Seletor, em_nao: bool) -> &mut Seletor {
     if em_nao {
         atual.nao.last_mut().expect("`:not(` abriu um seletor")
@@ -144,7 +146,7 @@ fn alvo(atual: &mut Seletor, em_nao: bool) -> &mut Seletor {
     }
 }
 
-/// Espaços, vírgula, espaços: `\s*,\s*`.
+/// Whitespace, comma, whitespace: `\s*,\s*`.
 fn virgula_em(b: &[u8], i: usize) -> Option<usize> {
     let mut j = i;
     while j < b.len() && b[j].is_ascii_whitespace() {
@@ -161,8 +163,9 @@ fn virgula_em(b: &[u8], i: usize) -> Option<usize> {
 }
 
 impl Seletor {
-    /// `CssSelector.parse`: as alternativas da expressão regular do oficial,
-    /// na mesma ordem, e o que não casa com nenhuma é pulado.
+    /// `CssSelector.parse`: the alternatives of the official regular
+    /// expression, in the same order, and whatever matches none of them is
+    /// skipped.
     pub fn analisar(texto: &str) -> Vec<Seletor> {
         fn fechar(res: &mut Vec<Seletor>, mut s: Seletor) {
             if !s.nao.is_empty()
@@ -177,7 +180,8 @@ impl Seletor {
         let b = texto.as_bytes();
         let mut resultados = Vec::new();
         let mut atual = Seletor::default();
-        // Dentro de `:not(`, o seletor que recebe é o último de `atual.nao`.
+        // Inside `:not(`, the selector that receives is the last one of
+        // `atual.nao`.
         let mut em_nao = false;
         let mut i = 0;
         while i < b.len() {
@@ -212,8 +216,8 @@ impl Seletor {
                     Some("=") => Some(Casamento::Igual(valor)),
                     Some(o) => {
                         let v = valor.unwrap_or_default();
-                        // Com valor vazio estes não casam nada, e o oficial
-                        // nem os registra.
+                        // With an empty value these match nothing, and the
+                        // official code does not even register them.
                         if v.is_empty() {
                             None
                         } else {
@@ -254,8 +258,8 @@ impl Seletor {
         resultados
     }
 
-    /// O seletor é só um nome de tag (`li-modal`)? É a forma que o emissor
-    /// de componente filho sabe casar pelo nome.
+    /// Is the selector just a tag name (`li-modal`)? It is the shape the child
+    /// component emitter knows how to match by name.
     pub fn so_tag(&self) -> Option<&str> {
         match self {
             Seletor {
@@ -270,11 +274,11 @@ impl Seletor {
         }
     }
 
-    /// `SelectorMatcher.match` para um seletor só, contra a descrição de um
-    /// elemento. As regras que a árvore de casamento do oficial produz:
-    /// `*` sem mais nada casa qualquer elemento; `*` com classe ou atributo
-    /// não casa nada (o parcial é procurado pelo nome da tag); cada classe e
-    /// cada atributo têm de estar presentes; nenhum `:not(...)` pode casar.
+    /// `SelectorMatcher.match` for a single selector, against the description
+    /// of an element. The rules the official matching tree produces: `*` alone
+    /// matches any element; `*` with a class or attribute matches nothing (the
+    /// partial is looked up by tag name); each class and each attribute must be
+    /// present; no `:not(...)` may match.
     pub fn casa(&self, el: &Elemento) -> bool {
         let simples = self.classes.is_empty() && self.atributos.is_empty();
         match self.elemento.as_deref() {
@@ -284,7 +288,7 @@ impl Seletor {
             _ => {}
         }
         if self.elemento.is_none() && simples {
-            // Seletor vazio: não entra em mapa nenhum.
+            // Empty selector: does not go into any map.
             return false;
         }
         if !self.classes.iter().all(|c| el.classes.contains(c)) {
@@ -301,8 +305,8 @@ impl Seletor {
         !self.nao.iter().any(|n| n.casa_como_nao(el))
     }
 
-    /// Um seletor de `:not(...)` é casado por um `SelectorMatcher` à parte,
-    /// sem a regra do `*` que o `addResult` aplica.
+    /// A `:not(...)` selector is matched by a separate `SelectorMatcher`,
+    /// without the `*` rule that `addResult` applies.
     fn casa_como_nao(&self, el: &Elemento) -> bool {
         let simples = self.classes.is_empty() && self.atributos.is_empty();
         if simples && self.elemento.is_none() {
@@ -318,8 +322,8 @@ impl Seletor {
     }
 }
 
-/// A descrição de um elemento para o casamento (`createElementCssSelector`):
-/// nome, atributos com valor (em minúsculas) e classes.
+/// The description of an element for matching (`createElementCssSelector`):
+/// name, attributes with value (lowercase) and classes.
 #[derive(Debug, Clone, Default)]
 pub struct Elemento {
     pub nome: String,
@@ -335,8 +339,8 @@ impl Elemento {
         }
     }
 
-    /// `cssSelector.addAttribute(nome, '=', valor)`, e as classes quando o
-    /// atributo é `class`.
+    /// `cssSelector.addAttribute(name, '=', value)`, and the classes when the
+    /// attribute is `class`.
     pub fn atributo(&mut self, nome: &str, valor: Option<&str>) {
         let valor = valor.map(|v| v.to_lowercase());
         if nome.eq_ignore_ascii_case("class")
@@ -348,10 +352,9 @@ impl Elemento {
         self.atributos.push((nome.to_string(), valor));
     }
 
-    /// A descrição de um elemento do template, como `_elementSelector` a
-    /// monta: atributos, depois propriedades (os `[(x)]` viram a propriedade
-    /// `x` e o evento `xChange`, como o `DesugarVisitor` do `ngast`), depois
-    /// eventos.
+    /// The description of a template element, as `_elementSelector` builds it:
+    /// attributes, then properties (the `[(x)]` become the property `x` and the
+    /// event `xChange`, like ngast's `DesugarVisitor`), then events.
     pub fn do_template(e: &crate::html::Elemento) -> Self {
         let mut el = Elemento::novo(&e.nome);
         for a in &e.atributos {

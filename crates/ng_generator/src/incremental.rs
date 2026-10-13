@@ -1,11 +1,11 @@
-//! A geração de **um** arquivo, para o motor de build (`crates/build`,
-//! `docs/BUILD-PEDIDOS-GERADOR-NG.md`): o motor tem uma ação por `.dart` e
-//! reexecuta só a do componente editado. Além do texto, a geração devolve o
-//! que perguntou a outras bibliotecas ([`ConsultaNg`]) — é por essas
-//! consultas que o motor sabe quem acordar quando um `@Input` de um filho
-//! muda ou um seletor aparece.
+//! Generation of **one** file, for the build engine (`crates/build`,
+//! `docs/BUILD-PEDIDOS-GERADOR-NG.md`): the engine has one action per `.dart`
+//! and reruns only that of the edited component. Besides the text, the
+//! generation returns what it asked other libraries ([`ConsultaNg`]) — it is
+//! through these queries that the engine knows whom to wake up when a child's
+//! `@Input` changes or a selector appears.
 //!
-//! A saída é a mesma de [`crate::gerar_em`]: as duas passam por
+//! The output is the same as [`crate::gerar_em`]: both go through
 //! `gerar_interno`.
 use crate::resolucao::{Designado, Resolucao};
 use crate::view::Recusa;
@@ -14,41 +14,41 @@ use dartforge_intern::Interner;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-/// O que a geração de um arquivo produz.
+/// What generating one file produces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SaidaArquivo {
     /// Texto do `<nome>.template.dart`.
     pub template: String,
-    /// Arquivos lidos: o `.dart`, o `.html` do `templateUrl`, cada folha do
-    /// `styleUrls` (o `.css`, ou o `.scss` de onde ele sai).
+    /// Files read: the `.dart`, the `.html` of `templateUrl`, each `styleUrls`
+    /// stylesheet (the `.css`, or the `.scss` it comes from).
     pub entradas: Vec<PathBuf>,
-    /// Saídas extras (`<nome>.css.shim.dart`), por caminho natural.
+    /// Extra outputs (`<name>.css.shim.dart`), by natural path.
     pub extras: Vec<(PathBuf, String)>,
-    /// O que a geração perguntou a outras bibliotecas, sem repetição, na
-    /// ordem em que perguntou.
+    /// What the generation asked other libraries, without repetition, in the
+    /// order it asked.
     pub consultas: Vec<ConsultaNg>,
 }
 
-/// Uma pergunta que a geração fez fora do próprio arquivo.
+/// A question the generation asked outside its own file.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ConsultaNg {
-    /// Um componente ou diretiva de `directives:` resolvido: o seletor e
-    /// quem o declara.
+    /// A component or directive of `directives:` resolved: the selector and who
+    /// declares it.
     Filho {
         seletor: String,
         biblioteca: String,
         classe: String,
     },
-    /// Um tipo resolvido pelo banco semântico (injeção, tipo de membro para
-    /// o `interpolate*`, item de `directives:`/`pipes:`): a biblioteca que o
-    /// declara e o nome.
+    /// A type resolved by the semantic database (injection, member type for
+    /// `interpolate*`, item of `directives:`/`pipes:`): the library that
+    /// declares it and the name.
     Tipo { biblioteca: String, nome: String },
-    /// Uma tag do template que não é HTML e que nenhum componente de
-    /// `directives:` declara: se um aparecer, a geração muda.
+    /// A template tag that is not HTML and that no component of `directives:`
+    /// declares: if one appears, the generation changes.
     SeletorAusente(String),
 }
 
-/// Lê e analisa um `.dart`: os achados que a geração e o índice usam.
+/// Reads and analyzes a `.dart`: the findings the generation and the index use.
 pub fn analisar_arquivo(fonte: &Path, texto: &str, nomes: &mut Interner) -> Achados {
     let _ = fonte;
     let tokens = dartforge_frontend::lexer::lex(texto);
@@ -56,9 +56,9 @@ pub fn analisar_arquivo(fonte: &Path, texto: &str, nomes: &mut Interner) -> Acha
     crate::achar(&analisada.ast, &analisada.unit, texto, nomes)
 }
 
-/// Gera o `.template.dart` de `fonte` — o mesmo texto que
-/// [`crate::gerar_em`] escreveria para ele —, ou diz por que não. A recusa
-/// traz o [`crate::view::Motivo`] (`recusa.motivo`) e a sub-forma.
+/// Generates the `.template.dart` of `fonte` — the same text
+/// [`crate::gerar_em`] would write for it —, or says why not. The refusal
+/// carries the [`crate::view::Motivo`] (`recusa.motivo`) and the sub-shape.
 pub fn gerar_arquivo(
     pacote: &Pacote,
     fonte: &Path,
@@ -101,8 +101,8 @@ pub fn gerar_arquivo(
     })
 }
 
-/// Os filhos que cada componente do arquivo resolveu, e as tags que não
-/// acharam dono.
+/// The children each component of the file resolved, and the tags that found no
+/// owner.
 fn filhos_consultados(
     fonte: &Path,
     achados: &Achados,
@@ -159,7 +159,7 @@ fn tags_de(nos: &[crate::html::No], saida: &mut Vec<String>) {
     }
 }
 
-/// Um [`Resolucao`] que responde pelo de dentro e anota cada tipo achado.
+/// A [`Resolucao`] that answers for the inner one and records each type found.
 struct Gravador<'a> {
     dentro: &'a dyn Resolucao,
     consultas: RefCell<Vec<ConsultaNg>>,
@@ -271,9 +271,9 @@ impl Resolucao for Gravador<'_> {
         r
     }
 
-    // O tipo ausente do escopo depende das bibliotecas que o arquivo
-    // importa, que o fecho de imports da invalidação (`NgEstagioA`) já
-    // cobre; não há biblioteca que o declare para anotar.
+    // The type missing from the scope depends on the libraries the file
+    // imports, which the import closure of the invalidation (`NgEstagioA`)
+    // already covers; there is no declaring library to record.
     fn tipo_inexistente(&self, arquivo: &Path, tipo: &str) -> bool {
         self.dentro.tipo_inexistente(arquivo, tipo)
     }

@@ -1,9 +1,9 @@
-//! Porte de `csslib/src/token_kind.dart` (csslib 1.0.2): os tipos de token
-//! (`TokenKind`), as tabelas de diretivas, unidades, operadores de mídia e
-//! cores, e as funções de busca nelas.
+//! Port of `csslib/src/token_kind.dart` (csslib 1.0.2): the token kinds
+//! (`TokenKind`), the tables of directives, units, media operators and colors,
+//! and the lookup functions over them.
 //!
-//! As constantes são a tabela integral do `TokenKind`, na mesma numeração;
-//! parte delas só existe para manter a numeração igual à oficial.
+//! The constants are the complete `TokenKind` table, with the same numbering;
+//! some of them exist only to keep the numbering equal to the official one.
 #![allow(dead_code)]
 
 pub(crate) const UNUSED: i32 = 0;
@@ -157,7 +157,7 @@ pub(crate) const ASCII_UPPER_A: i32 = 65;
 pub(crate) const ASCII_UPPER_Z: i32 = 90;
 
 /// `TokenKind._DIRECTIVES`.
-const DIRETIVAS: &[(i32, &str)] = &[
+const DIRECTIVES: &[(i32, &str)] = &[
     (DIRECTIVE_IMPORT, "import"),
     (DIRECTIVE_MEDIA, "media"),
     (DIRECTIVE_PAGE, "page"),
@@ -188,8 +188,8 @@ pub(crate) const MEDIA_OPERATORS: &[(i32, &str)] = &[
     (MEDIA_OP_AND, "and"),
 ];
 
-/// `TokenKind.MARGIN_DIRECTIVES` — com o `left-bottom` que o oficial
-/// escreve `right-bottom`.
+/// `TokenKind.MARGIN_DIRECTIVES` — with the `left-bottom` that the official
+/// code writes as `right-bottom`.
 pub(crate) const MARGIN_DIRECTIVES: &[(i32, &str)] = &[
     (MARGIN_DIRECTIVE_TOPLEFTCORNER, "top-left-corner"),
     (MARGIN_DIRECTIVE_TOPLEFT, "top-left"),
@@ -210,7 +210,7 @@ pub(crate) const MARGIN_DIRECTIVES: &[(i32, &str)] = &[
 ];
 
 /// `TokenKind._UNITS`.
-const UNIDADES: &[(i32, &str)] = &[
+const UNITS: &[(i32, &str)] = &[
     (UNIT_EM, "em"),
     (UNIT_EX, "ex"),
     (UNIT_LENGTH_PX, "px"),
@@ -241,9 +241,9 @@ const UNIDADES: &[(i32, &str)] = &[
     (UNIT_RLH, "rlh"),
 ];
 
-/// `TokenKind._EXTENDED_COLOR_NAMES`, na ordem oficial (a busca por valor
-/// devolve o primeiro nome: `aqua` antes de `cyan`, `gray` antes de `grey`).
-const CORES_ESTENDIDAS: &[(&str, i64)] = &[
+/// `TokenKind._EXTENDED_COLOR_NAMES`, in the official order (the lookup by
+/// value returns the first name: `aqua` before `cyan`, `gray` before `grey`).
+const EXTENDED_COLORS: &[(&str, i64)] = &[
     ("aliceblue", 0xF08FF),
     ("antiquewhite", 0xFAEBD7),
     ("aqua", 0x00FFFF),
@@ -393,103 +393,104 @@ const CORES_ESTENDIDAS: &[(&str, i64)] = &[
     ("yellowgreen", 0x9ACD32),
 ];
 
-/// `TokenKind.matchList`: compara `texto` (unidades UTF-16) com cada nome da
-/// lista; maiúscula ASCII casa com a minúscula da tabela.
-fn match_list(lista: &[(i32, &str)], texto: &[u16]) -> i32 {
-    for &(tipo, nome) in lista {
-        let nome = nome.as_bytes();
-        if texto.len() != nome.len() {
+/// `TokenKind.matchList`: compares `text` (UTF-16 code units) with each name in
+/// the list; an ASCII uppercase letter matches the table's lowercase one.
+fn match_list(list: &[(i32, &str)], text: &[u16]) -> i32 {
+    for &(kind, name) in list {
+        let name = name.as_bytes();
+        if text.len() != name.len() {
             continue;
         }
-        let casa = texto.iter().zip(nome).all(|(&c, &n)| {
+        let matched = text.iter().zip(name).all(|(&c, &n)| {
             let n = u16::from(n);
             c == n || ((ASCII_UPPER_A as u16..=ASCII_UPPER_Z as u16).contains(&c) && c + 32 == n)
         });
-        if casa {
-            return tipo;
+        if matched {
+            return kind;
         }
     }
     -1
 }
 
 /// `TokenKind.matchUnits`.
-pub(crate) fn match_units(texto: &[u16]) -> i32 {
-    match_list(UNIDADES, texto)
+pub(crate) fn match_units(text: &[u16]) -> i32 {
+    match_list(UNITS, text)
 }
 
 /// `TokenKind.matchDirectives`.
-pub(crate) fn match_directives(texto: &[u16]) -> i32 {
-    match_list(DIRETIVAS, texto)
+pub(crate) fn match_directives(text: &[u16]) -> i32 {
+    match_list(DIRECTIVES, text)
 }
 
 /// `TokenKind.matchMarginDirectives`.
-pub(crate) fn match_margin_directives(texto: &[u16]) -> i32 {
-    match_list(MARGIN_DIRECTIVES, texto)
+pub(crate) fn match_margin_directives(text: &[u16]) -> i32 {
+    match_list(MARGIN_DIRECTIVES, text)
 }
 
 /// `TokenKind.matchMediaOperator`.
-pub(crate) fn match_media_operator(texto: &[u16]) -> i32 {
-    match_list(MEDIA_OPERATORS, texto)
+pub(crate) fn match_media_operator(text: &[u16]) -> i32 {
+    match_list(MEDIA_OPERATORS, text)
 }
 
 /// `TokenKind.idToValue`.
-pub(crate) fn id_to_value(lista: &[(i32, &'static str)], id: i32) -> Option<&'static str> {
-    lista.iter().find(|(t, _)| *t == id).map(|(_, v)| *v)
+pub(crate) fn id_to_value(list: &[(i32, &'static str)], id: i32) -> Option<&'static str> {
+    list.iter().find(|(t, _)| *t == id).map(|(_, v)| *v)
 }
 
 /// `TokenKind.unitToString`.
-pub(crate) fn unit_to_string(unidade: i32) -> &'static str {
-    if unidade == PERCENT {
+pub(crate) fn unit_to_string(unit: i32) -> &'static str {
+    if unit == PERCENT {
         return "%";
     }
-    UNIDADES
+    UNITS
         .iter()
-        .find(|(u, _)| *u == unidade)
+        .find(|(u, _)| *u == unit)
         .map(|(_, v)| *v)
         .unwrap_or("<BAD UNIT>")
 }
 
-/// `TokenKind.matchColorName`: o valor da cor de nome `texto` (sem
-/// distinguir caixa).
-pub(crate) fn match_color_name(texto: &str) -> Option<i64> {
-    let nome = texto.to_lowercase();
-    CORES_ESTENDIDAS
+/// `TokenKind.matchColorName`: the value of the color named `text`
+/// (case-insensitive).
+pub(crate) fn match_color_name(text: &str) -> Option<i64> {
+    let name = text.to_lowercase();
+    EXTENDED_COLORS
         .iter()
-        .find(|(n, _)| *n == nome)
+        .find(|(n, _)| *n == name)
         .map(|(_, v)| *v)
 }
 
 /// `TokenKind.hexToColorName`.
-pub(crate) fn hex_to_color_name(valor: i64) -> Option<&'static str> {
-    CORES_ESTENDIDAS
+pub(crate) fn hex_to_color_name(value: i64) -> Option<&'static str> {
+    EXTENDED_COLORS
         .iter()
-        .find(|(_, v)| *v == valor)
+        .find(|(_, v)| *v == value)
         .map(|(n, _)| *n)
 }
 
 /// `TokenKind.decimalToHex`.
-pub(crate) fn decimal_to_hex(numero: i64, min_digitos: usize) -> String {
-    const DIGITOS: &[u8] = b"0123456789abcdef";
-    let mut resultado = Vec::new();
-    let mut dividendo = numero >> 4;
-    resultado.push(DIGITOS[numero.rem_euclid(16) as usize]);
-    while dividendo != 0 {
-        resultado.push(DIGITOS[dividendo.rem_euclid(16) as usize]);
-        dividendo >>= 4;
+pub(crate) fn decimal_to_hex(numero: i64, min_digits: usize) -> String {
+    const DIGITS: &[u8] = b"0123456789abcdef";
+    let mut result = Vec::new();
+    let mut dividend = numero >> 4;
+    result.push(DIGITS[numero.rem_euclid(16) as usize]);
+    while dividend != 0 {
+        result.push(DIGITS[dividend.rem_euclid(16) as usize]);
+        dividend >>= 4;
     }
-    let mut saida = String::new();
-    for _ in resultado.len()..min_digitos {
-        saida.push('0');
+    let mut output = String::new();
+    for _ in result.len()..min_digits {
+        output.push('0');
     }
-    for &d in resultado.iter().rev() {
-        saida.push(char::from(d));
+    for &d in result.iter().rev() {
+        output.push(char::from(d));
     }
-    saida
+    output
 }
 
-/// `TokenKind.kindToString`: `None` onde o oficial lança `StateError`.
-pub(crate) fn kind_to_string(tipo: i32) -> Option<&'static str> {
-    Some(match tipo {
+/// `TokenKind.kindToString`: `None` where the official code throws
+/// `StateError`.
+pub(crate) fn kind_to_string(kind: i32) -> Option<&'static str> {
+    Some(match kind {
         UNUSED => "ERROR",
         END_OF_FILE => "end of file",
         LPAREN => "(",
@@ -530,9 +531,9 @@ pub(crate) fn kind_to_string(tipo: i32) -> Option<&'static str> {
 }
 
 /// `TokenKind.isKindIdentifier`.
-pub(crate) fn is_kind_identifier(tipo: i32) -> bool {
+pub(crate) fn is_kind_identifier(kind: i32) -> bool {
     matches!(
-        tipo,
+        kind,
         DIRECTIVE_IMPORT
             | DIRECTIVE_MEDIA
             | DIRECTIVE_PAGE
@@ -571,6 +572,6 @@ pub(crate) fn is_kind_identifier(tipo: i32) -> bool {
 }
 
 /// `TokenKind.isIdentifier`.
-pub(crate) fn is_identifier(tipo: i32) -> bool {
-    tipo == IDENTIFIER
+pub(crate) fn is_identifier(kind: i32) -> bool {
+    kind == IDENTIFIER
 }

@@ -237,8 +237,8 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
                 | None => true,
                 Some(Token { kind, .. }) => kind.is_ascii_whitespace(),
             },
-            // dart-sass 1.102 `_lookingAtExpression`: `%` sozinho também
-            // (`_percentExpression`, como em `attr(x, %)`).
+            // dart-sass 1.102 `_lookingAtExpression`: a lone `%` too
+            // (`_percentExpression`, as in `attr(x, %)`).
             '(' | '/' | '[' | '\'' | '"' | '#' | '+' | '-' | '\\' | '$' | '&' | '%' => true,
             c => is_name_start(c) || c.is_ascii_digit(),
         }
@@ -1003,10 +1003,11 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
         let query_span = self.toks_mut().span_from(query_start);
 
         let body = self.with_children(Self::parse_statement)?;
-        // O `span` vai do `@` ao `}` (sem o branco que o `with_children`
-        // consome depois), como o `spanFrom(start)` do dart-sass.
-        let tudo = self.toks_mut().span_from(start);
-        let span = tudo.subspan(0, body.span.high() - tudo.low());
+        // The `span` goes from the `@` to the `}` (without the whitespace
+        // that `with_children` consumes afterwards), like dart-sass's
+        // `spanFrom(start)`.
+        let whole = self.toks_mut().span_from(start);
+        let span = whole.subspan(0, body.span.high() - whole.low());
 
         Ok(AstStmt::Media(AstMedia {
             query,
@@ -1148,10 +1149,10 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
                 None
             };
 
-        let mut fim = None;
+        let mut end = None;
         let children = if self.looking_at_children()? {
             let c = self.with_children(Self::parse_statement)?;
-            fim = Some(c.span.high());
+            end = Some(c.span.high());
             Some(c.node)
         } else {
             self.expect_statement_separator(None)?;
@@ -1161,11 +1162,12 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
         self.flags_mut()
             .set(ContextFlags::IN_UNKNOWN_AT_RULE, was_in_unknown_at_rule);
 
-        let tudo = self.toks_mut().span_from(start);
-        let span = match fim {
-            // Do `@` ao `}`, sem o branco consumido depois do bloco.
-            Some(f) => tudo.subspan(0, f - tudo.low()),
-            None => tudo,
+        let whole = self.toks_mut().span_from(start);
+        let span = match end {
+            // From the `@` to the `}`, without the whitespace consumed after
+            // the block.
+            Some(f) => whole.subspan(0, f - whole.low()),
+            None => whole,
         };
         Ok(AstStmt::UnknownAtRule(AstUnknownAtRule {
             name,
@@ -1401,10 +1403,11 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
         self.whitespace()?;
         let children = self.with_children(Self::parse_statement)?;
 
-        // `SupportsRule(condition, children, spanFrom(start))`: do `@` ao
-        // `}` (sem o branco que o `with_children` consome depois).
-        let tudo = self.toks_mut().span_from(start);
-        let span = tudo.subspan(0, children.span.high() - tudo.low());
+        // `SupportsRule(condition, children, spanFrom(start))`: from the `@`
+        // to the `}` (without the whitespace that `with_children` consumes
+        // afterwards).
+        let whole = self.toks_mut().span_from(start);
+        let span = whole.subspan(0, children.span.high() - whole.low());
         Ok(AstStmt::Supports(AstSupportsRule {
             condition,
             body: children.node,
@@ -1861,7 +1864,7 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
 
         if parse_custom_properties && name.initial_plain().starts_with("--") {
             let interpolation =
-                self.parse_interpolated_declaration_value_com(false, false, true, false)?;
+                self.parse_interpolated_declaration_value_with(false, false, true, false)?;
             let value_span = self.toks_mut().span_from(start);
             let value = AstExpr::String(StringExpr(interpolation, QuoteKind::None), value_span)
                 .span(value_span);
@@ -2100,7 +2103,7 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
         allow_colon: bool,
     ) -> SassResult<Interpolation> {
         let silent_comments = !self.options().v166();
-        self.parse_interpolated_declaration_value_com(
+        self.parse_interpolated_declaration_value_with(
             allow_semicolon,
             allow_empty,
             allow_colon,
@@ -2108,10 +2111,10 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
         )
     }
 
-    /// `_interpolatedDeclarationValue` com o `silentComments` do dart-sass
-    /// 1.77.7+: `//` é comentário silencioso (fora do valor de propriedade
-    /// customizada). O 1.66 o mantinha no texto.
-    fn parse_interpolated_declaration_value_com(
+    /// `_interpolatedDeclarationValue` with the `silentComments` of dart-sass
+    /// 1.77.7+: `//` is a silent comment (outside the value of a custom
+    /// property). 1.66 kept it in the text.
+    fn parse_interpolated_declaration_value_with(
         &mut self,
         allow_semicolon: bool,
         allow_empty: bool,
@@ -2323,9 +2326,9 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
                     return Err(("Duplicate argument.", name.span).into());
                 }
 
-                let valor = self.parse_expression_until_comma(!for_mixin)?;
-                named_spans.insert(name.node, valor.span);
-                named.insert(name.node, valor.node);
+                let named_value = self.parse_expression_until_comma(!for_mixin)?;
+                named_spans.insert(name.node, named_value.span);
+                named.insert(name.node, named_value.node);
             } else if self.scan_char('.') {
                 self.expect_char('.')?;
                 self.expect_char('.')?;
@@ -2455,7 +2458,7 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
         // Parse custom properties as declarations no matter what.
         if name_buffer.initial_plain().starts_with("--") {
             let value_start = self.toks().cursor();
-            let value = self.parse_interpolated_declaration_value_com(false, false, true, false)?;
+            let value = self.parse_interpolated_declaration_value_with(false, false, true, false)?;
             let value_span = self.toks_mut().span_from(value_start);
             self.expect_statement_separator(Some("custom property"))?;
             return Ok(DeclarationOrBuffer::Stmt(AstStmt::Style(AstStyle {

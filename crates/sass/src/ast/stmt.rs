@@ -116,8 +116,8 @@ pub struct AstVariableDecl {
     pub namespace: Option<Spanned<Identifier>>,
     pub name: Identifier,
     pub value: AstExpr,
-    /// Onde a expressão do valor começa (o `span` da expressão no
-    /// dart-sass; vira o nó da variável para o mapa de fontes).
+    /// Where the value expression starts (the `span` of the expression in
+    /// dart-sass; it becomes the variable's node for the source map).
     pub value_span: Span,
     pub is_guarded: bool,
     pub is_global: bool,
@@ -411,8 +411,8 @@ impl Configuration {
 pub struct ConfiguredValue {
     pub value: Value,
     pub configuration_span: Option<Span>,
-    /// `assignmentNode`: o nó da expressão que deu o valor (vira o nó da
-    /// variável configurada, para o mapa de fontes).
+    /// `assignmentNode`: the node of the expression that gave the value (it
+    /// becomes the node of the configured variable, for the source map).
     pub node: Option<Span>,
 }
 
@@ -433,7 +433,7 @@ impl ConfiguredValue {
         }
     }
 
-    /// O mesmo valor com o nó da expressão.
+    /// The same value with the expression's node.
     pub fn with_node(mut self, node: Span) -> Self {
         self.node = Some(node);
         self

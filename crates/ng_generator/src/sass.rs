@@ -1,31 +1,30 @@
-//! O Sass do `sass_builder` 2.2.1 (dart-sass 1.102.0), pelo compilador do
-//! crate `dartforge-sass`.
+//! The Sass of `sass_builder` 2.2.1 (dart-sass 1.102.0), through the compiler
+//! of the `dartforge-sass` crate.
 //!
-//! `styleUrls: ['x.css']` aponta para um arquivo que não existe no disco: o
-//! `sass_builder` o gera de `x.scss`. Sem isto, nenhum componente com folha
-//! de estilo pode ser gerado sem o `build_runner`.
+//! `styleUrls: ['x.css']` points to a file that does not exist on disk:
+//! `sass_builder` generates it from `x.scss`. Without this, no component with a
+//! stylesheet could be generated without `build_runner`.
 //!
-//! O compilador é o `grass_compiler` 0.13.4 trazido para o repositório
-//! (`crates/sass`) e corrigido para sair **byte a byte** igual ao dart-sass
-//! 1.102.0 — qualquer SCSS, sem subconjunto. As folhas que `@use`,
-//! `@forward` e `@import` carregam são resolvidas como o `BuildImporter` do
-//! `sass_builder` as resolve: relativas ao arquivo e `package:` pelo
-//! `.dart_tool/package_config.json` do projeto (ver
-//! [`dartforge_sass::sass_builder`]).
+//! The compiler is `grass_compiler` 0.13.4 brought into the repository
+//! (`crates/sass`) and fixed to produce output **byte for byte** equal to
+//! dart-sass 1.102.0 — any SCSS, no subset. The stylesheets loaded by `@use`,
+//! `@forward` and `@import` are resolved as the `sass_builder` `BuildImporter`
+//! resolves them: relative to the file, and `package:` through the project's
+//! `.dart_tool/package_config.json` (see [`dartforge_sass::sass_builder`]).
 use crate::view::Motivo;
 use dartforge_sass::OutputStyle;
 use dartforge_sass::sass_builder::{self, Ativo, Disco, Pacotes};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// Como a compilação lê os arquivos (o `BuildStep` do `build_runner`): o
-/// motor de build passa o dele, que vê as saídas de builders anteriores.
+/// How the compilation reads files (the `build_runner` `BuildStep`): the build
+/// engine passes its own, which sees the outputs of earlier builders.
 pub use dartforge_sass::sass_builder::Leitor;
 
-/// A versão do dart-sass imitada (a do `sass` no `pubspec.lock`).
+/// The imitated dart-sass version (that of `sass` in `pubspec.lock`).
 pub use dartforge_sass::VersaoDartSass;
 
-/// O estilo de saída do `sass_builder` (`outputStyle`).
+/// The output style of `sass_builder` (`outputStyle`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Estilo {
     Expandido,
@@ -41,11 +40,11 @@ impl Estilo {
     }
 }
 
-/// Compila Sass para CSS, sem resolver módulos (`@use`/`@import` falham).
+/// Compiles Sass to CSS, without resolving modules (`@use`/`@import` fail).
 ///
-/// # Erros
+/// # Errors
 ///
-/// [`Motivo::Estilos`] quando o dart-sass recusaria a folha.
+/// [`Motivo::Estilos`] when dart-sass would refuse the stylesheet.
 ///
 /// ```
 /// use dartforge_ng_generator::sass::compilar;
@@ -55,18 +54,18 @@ pub fn compilar(fonte: &str) -> Result<String, Motivo> {
     compilar_em(fonte, None)
 }
 
-/// Compila Sass resolvendo `@use`, `@forward` e `@import` a partir de `dir`,
-/// para o caminho do shim do ngdart (a folha de um componente cujo `.css`
-/// não existe e que o motor não trouxe do `sass_builder`).
+/// Compiles Sass resolving `@use`, `@forward` and `@import` from `dir`, for the
+/// ngdart shim path (the stylesheet of a component whose `.css` does not exist
+/// and that the engine did not bring from `sass_builder`).
 ///
-/// O estilo é o `compressed`: o do new_sali, contra o qual este caminho foi
-/// conferido quando o Sass daqui era um subconjunto. O shim tira os
-/// comentários e espaços; o que importa são os valores como o dart-sass os
-/// escreve nesse estilo.
+/// The style is `compressed`: the one of new_sali, against which this path was
+/// checked when the Sass here was a subset. The shim strips comments and
+/// whitespace; what matters are the values as dart-sass writes them in that
+/// style.
 ///
-/// # Erros
+/// # Errors
 ///
-/// [`Motivo::Estilos`] quando o dart-sass recusaria a folha.
+/// [`Motivo::Estilos`] when dart-sass would refuse the stylesheet.
 ///
 /// ```
 /// use dartforge_ng_generator::sass::compilar_em;
@@ -76,20 +75,21 @@ pub fn compilar_em(fonte: &str, dir: Option<&Path>) -> Result<String, Motivo> {
     compilar_com(fonte, dir, Estilo::Comprimido).map(|(css, _)| css)
 }
 
-/// Compila como o `sass_builder` 2.2.1 (o dart-sass do lock): o CSS **byte a
-/// byte** do oficial no estilo pedido, terminado em `\n` — sem o comentário
-/// `/*# sourceMappingURL=… */` do fim, que depende do nome do arquivo e de
-/// haver mapa; quem escreve o `.css` o acrescenta —, e os arquivos que a
-/// compilação leu (os módulos de `@use`/`@import`, que também são entradas).
+/// Compiles like `sass_builder` 2.2.1 (the dart-sass of the lock): the official
+/// CSS **byte for byte** in the requested style, ending in `\n` — without the
+/// trailing `/*# sourceMappingURL=… */` comment, which depends on the file name
+/// and on there being a map; whoever writes the `.css` appends it —, and the
+/// files the compilation read (the `@use`/`@import` modules, which are inputs
+/// too).
 ///
-/// A folha é tratada como um arquivo de `dir` (o pacote é o do
-/// `pubspec.yaml` mais próximo; sem um, `dir` é a raiz de um pacote
-/// anônimo). Quem sabe o arquivo de entrada deve usar [`compilar_arquivo`],
-/// que também gera o mapa.
+/// The stylesheet is treated as a file in `dir` (the package is that of the
+/// nearest `pubspec.yaml`; without one, `dir` is the root of an anonymous
+/// package). Whoever knows the input file should use [`compilar_arquivo`],
+/// which also generates the map.
 ///
-/// # Erros
+/// # Errors
 ///
-/// [`Motivo::Estilos`] quando o dart-sass recusaria a folha.
+/// [`Motivo::Estilos`] when dart-sass would refuse the stylesheet.
 ///
 /// ```
 /// use dartforge_ng_generator::sass::{compilar_com, Estilo};
@@ -102,7 +102,8 @@ pub fn compilar_com(
     dir: Option<&Path>,
     estilo: Estilo,
 ) -> Result<(String, Vec<PathBuf>), Motivo> {
-    // Sem diretório, um pacote anônimo sem raiz: nada se carrega.
+    // Without a directory, an anonymous package without a root: nothing is
+    // loaded.
     let (entrada, pacotes) = match dir {
         Some(d) => identificar(&d.join("__entrada__.scss")),
         None => (
@@ -129,25 +130,25 @@ pub fn compilar_com(
 /// O resultado de [`compilar_arquivo`].
 #[derive(Debug, Clone)]
 pub struct Folha {
-    /// O `.css` exatamente como o `sass_builder` o grava (com o comentário
-    /// `sourceMappingURL` quando há mapa).
+    /// The `.css` exactly as `sass_builder` writes it (with the
+    /// `sourceMappingURL` comment when there is a map).
     pub css: String,
     /// O `.css.map`, quando pedido.
     pub mapa: Option<String>,
-    /// Os arquivos lidos (a entrada não entra) e os procurados sem existir:
-    /// dependências da compilação.
+    /// The files read (the input is not included) and those looked up without
+    /// existing: dependencies of the compilation.
     pub lidos: Vec<PathBuf>,
     pub sondados: Vec<PathBuf>,
 }
 
-/// Compila o arquivo `scss` como o `sass_builder` (entrada, pacote e
-/// `package_config.json` achados a partir do caminho) e, se `mapa`, gera o
-/// `.css.map` dele.
+/// Compiles the `scss` file like `sass_builder` (input, package and
+/// `package_config.json` found from the path) and, if `mapa`, generates its
+/// `.css.map`.
 ///
-/// # Erros
+/// # Errors
 ///
-/// [`Motivo::Estilos`] quando o arquivo não se lê ou o dart-sass recusaria
-/// a folha.
+/// [`Motivo::Estilos`] when the file cannot be read or dart-sass would refuse
+/// the stylesheet.
 pub fn compilar_arquivo(scss: &Path, estilo: Estilo, mapa: bool) -> Result<Folha, Motivo> {
     let fonte = std::fs::read_to_string(scss).map_err(|_| Motivo::Estilos)?;
     let (entrada, pacotes) = identificar(scss);
@@ -169,27 +170,27 @@ pub fn compilar_arquivo(scss: &Path, estilo: Estilo, mapa: bool) -> Result<Folha
     })
 }
 
-/// Compila o ativo `caminho` (relativo à raiz do pacote, com `/`) do pacote
-/// `pacote`, de texto `fonte`, como o `SassBuilder` do `sass_builder` 2.2.1:
-/// `raizes` são as raízes dos pacotes do `package_config.json` e `leitor`,
-/// o `BuildStep`. Com `mapa`, gera o `.css.map` e põe o comentário
-/// `sourceMappingURL` no `.css`. `versao` é o dart-sass imitado (o `sass`
-/// do `pubspec.lock`).
+/// Compiles the asset `caminho` (relative to the package root, with `/`) of
+/// package `pacote`, with text `fonte`, like the `SassBuilder` of
+/// `sass_builder` 2.2.1: `raizes` are the package roots of
+/// `package_config.json` and `leitor` is the `BuildStep`. With `mapa`,
+/// generates the `.css.map` and puts the `sourceMappingURL` comment in the
+/// `.css`. `versao` is the imitated dart-sass (the `sass` of `pubspec.lock`).
 ///
-/// # Erros
+/// # Errors
 ///
-/// A mensagem do dart-sass quando a folha é recusada.
+/// The dart-sass message when the stylesheet is refused.
 ///
 /// ```
 /// use dartforge_ng_generator::sass::{compilar_ativo, Estilo, Leitor, VersaoDartSass};
 /// use std::collections::BTreeMap;
 /// use std::path::Path;
-/// struct Nada;
-/// impl Leitor for Nada {
+/// struct Nothing;
+/// impl Leitor for Nothing {
 ///     fn existe(&self, _: &Path) -> bool { false }
 ///     fn ler(&self, _: &Path) -> std::io::Result<String> { Err(std::io::ErrorKind::NotFound.into()) }
 /// }
-/// let f = compilar_ativo("a { b: c }", "app", "web/x.scss", &BTreeMap::new(), &Nada, Estilo::Comprimido, true, VersaoDartSass::V1_102_0).unwrap();
+/// let f = compilar_ativo("a { b: c }", "app", "web/x.scss", &BTreeMap::new(), &Nothing, Estilo::Comprimido, true, VersaoDartSass::V1_102_0).unwrap();
 /// assert_eq!(f.css, "a{b:c}\n\n/*# sourceMappingURL=x.css.map */\n");
 /// assert_eq!(f.mapa.unwrap(), r#"{"version":3,"sourceRoot":"","sources":["x.scss"],"names":[],"mappings":"AAAA"}"#);
 /// ```
@@ -229,10 +230,11 @@ pub fn compilar_ativo(
     })
 }
 
-/// O ativo de `arquivo` e os pacotes: o pacote é o do `pubspec.yaml` mais
-/// próximo (sem um, o diretório do arquivo é a raiz de um pacote anônimo);
-/// os outros vêm do `.dart_tool/package_config.json` do pacote ou de um
-/// diretório acima (espaço de trabalho).
+/// The asset of `arquivo` and the packages: the package is that of the nearest
+/// `pubspec.yaml` (without one, the file's directory is the root of an
+/// anonymous package); the others come from the
+/// `.dart_tool/package_config.json` of the package or of a directory above it
+/// (workspace).
 fn identificar(arquivo: &Path) -> (Ativo, Pacotes) {
     let dir = arquivo.parent().unwrap_or(Path::new(""));
     let raiz = dir.ancestors().find(|d| d.join("pubspec.yaml").is_file());
@@ -264,7 +266,7 @@ fn identificar(arquivo: &Path) -> (Ativo, Pacotes) {
     )
 }
 
-/// O `name:` de um `pubspec.yaml`.
+/// The `name:` of a `pubspec.yaml`.
 fn nome_do_pubspec(pubspec: &Path) -> Option<String> {
     let texto = std::fs::read_to_string(pubspec).ok()?;
     texto.lines().find_map(|l| {

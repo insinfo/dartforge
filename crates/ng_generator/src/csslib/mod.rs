@@ -1,21 +1,20 @@
-//! Porte do csslib 1.0.2 (`package:csslib`) no que o shim de estilo do
-//! ngcompiler usa: `parse(css, errors: …)` com as opções padrão, a árvore, o
-//! `Visitor` e a `CssPrinter` compacta.
+//! Port of csslib 1.0.2 (`package:csslib`) limited to what the ngcompiler style
+//! shim uses: `parse(css, errors: …)` with the default options, the tree, the
+//! `Visitor` and the compact `CssPrinter`.
 //!
 //! - [`tokenizer`] — `src/tokenizer.dart`, `src/tokenizer_base.dart`,
 //!   `src/token.dart`;
 //! - [`token_kind`] — `src/token_kind.dart`;
-//! - [`parser`] — o `_Parser` de `parser.dart`;
+//! - [`parser`] — the `_Parser` of `parser.dart`;
 //! - [`tree`] — `src/tree.dart`, `src/tree_base.dart`;
 //! - [`visitor`] — `visitor.dart`;
 //! - [`printer`] — `src/css_printer.dart`.
 //!
-//! Fica de fora o que o caminho do shim não percorre: `analyzer.dart`
-//! (`compile`, não `parse`), `polyfill.dart`, `tree_printer.dart`,
-//! `validate.dart` e, de `property.dart`, os valores dos estilos para Dart
-//! (ninguém os lê; ver [`parser`]). As opções são as padrão do `parse`:
-//! `checked` falso (os avisos condicionados a ele não existem) e
-//! `lessSupport` verdadeiro.
+//! Left out is whatever the shim path does not go through: `analyzer.dart`
+//! (`compile`, not `parse`), `polyfill.dart`, `tree_printer.dart`,
+//! `validate.dart` and, from `property.dart`, the style values for Dart (nobody
+//! reads them; see [`parser`]). The options are the `parse` defaults: `checked`
+//! false (the warnings conditioned on it do not exist) and `lessSupport` true.
 pub mod tree;
 pub mod printer;
 pub mod parser;
@@ -23,21 +22,21 @@ pub mod token_kind;
 pub mod tokenizer;
 pub mod visitor;
 
-/// Uma exceção que o código oficial lança (o nome do tipo do Dart, ou a
-/// descrição de um laço sem fim): o builder falharia.
+/// An exception that the official code throws (the name of the Dart type, or
+/// the description of an endless loop): the builder would fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Excecao(pub &'static str);
+pub struct Exception(pub &'static str);
 
-impl std::fmt::Display for Excecao {
+impl std::fmt::Display for Exception {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0)
     }
 }
 
-/// `parse(input, errors: errors)`: a folha, lida do texto como o Dart o vê
-/// (unidades UTF-16). Os erros de parse não interrompem a leitura.
-pub fn parse(css: &str) -> Result<tree::Folha, Excecao> {
-    let fonte: Vec<u16> = css.encode_utf16().collect();
-    let mut p = parser::Parser::novo(&fonte)?;
+/// `parse(input, errors: errors)`: the stylesheet, read from the text as Dart
+/// sees it (UTF-16 code units). Parse errors do not stop the reading.
+pub fn parse(css: &str) -> Result<tree::StyleSheet, Exception> {
+    let source: Vec<u16> = css.encode_utf16().collect();
+    let mut p = parser::Parser::new(&source)?;
     p.parse()
 }

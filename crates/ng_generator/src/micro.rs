@@ -1,37 +1,37 @@
-//! A microssintaxe de `*dir="..."`.
+//! The microsyntax of `*dir="..."`.
 //!
-//! É o que transforma a forma abreviada no `<template>` com atributos que o
-//! casamento de diretivas enxerga:
+//! It is what turns the shorthand into the `<template>` with attributes that
+//! directive matching sees:
 //!
 //! ```text
 //! *ngIf="cond"              <template [ngIf]="cond">
 //! *ngFor="let x of xs"      <template ngFor let-x [ngForOf]="xs">
 //! ```
 //!
-//! As regras vieram de `expression/micro/parser.dart` do `ngast`, que é o
-//! parser que o `ngcompiler` usa:
+//! The rules came from `expression/micro/parser.dart` of `ngast`, which is the
+//! parser `ngcompiler` uses:
 //!
-//! | forma | efeito |
+//! | shape | effect |
 //! |---|---|
-//! | expressão solta (só na primeira posição) | propriedade `dir` |
-//! | `let x` | local `x` ligado a `$implicit` |
-//! | `let x = y` | local `x` ligado a `locals['y']` |
-//! | `nome: expr` | propriedade `dir` + `Nome` |
+//! | bare expression (only in the first position) | property `dir` |
+//! | `let x` | local `x` bound to `$implicit` |
+//! | `let x = y` | local `x` bound to `locals['y']` |
+//! | `name: expr` | property `dir` + `Name` |
 //!
-//! Só é microssintaxe o valor que começa com `let` ou com uma palavra
-//! colada a `:`/`;` (`isMicroExpression`); o resto é uma expressão só,
-//! mesmo com `:` dentro (`a ? b : c`, `x == 'a:b'`).
+//! Only a value that starts with `let` or with a word glued to `:`/`;`
+//! (`isMicroExpression`) is microsyntax; the rest is a single expression, even
+//! with `:` inside (`a ? b : c`, `x == 'a:b'`).
 
-/// O que um `*dir="..."` declara.
+/// What a `*dir="..."` declares.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Micro {
-    /// `(nome da propriedade, expressão)`, já com o prefixo da diretiva.
+    /// `(property name, expression)`, already with the directive prefix.
     pub propriedades: Vec<(String, String)>,
     /// `(nome do local, chave em `locals`)`.
     pub locais: Vec<(String, String)>,
 }
 
-/// Analisa o valor de `*dir`, onde `dir` é o nome da diretiva.
+/// Parses the value of `*dir`, where `dir` is the directive name.
 pub fn analisar(dir: &str, valor: &str) -> Micro {
     let mut m = Micro::default();
     let valor = valor.trim();
@@ -53,9 +53,9 @@ pub fn analisar(dir: &str, valor: &str) -> Micro {
                     .locais
                     .push((nome.trim().to_string(), chave.trim().to_string())),
                 None => {
-                    // Sem valor, o local é o item implícito do laço. Mas
-                    // `let x of xs` traz o `of` na mesma parte: o que vem
-                    // depois do nome é uma propriedade.
+                    // Without a value, the local is the implicit item of the
+                    // loop. But `let x of xs` carries the `of` in the same
+                    // part: what comes after the name is a property.
                     let mut palavras = resto.split_whitespace();
                     let nome = palavras.next().unwrap_or("").to_string();
                     m.locais.push((nome, "$implicit".to_string()));
@@ -69,8 +69,8 @@ pub fn analisar(dir: &str, valor: &str) -> Micro {
             }
             continue;
         }
-        // `chave: expr` — a chave é um identificador (o `:` de um ternário
-        // ou de um texto não conta).
+        // `key: expr` — the key is an identifier (the `:` of a ternary or of a
+        // string does not count).
         if let Some((nome, expr)) = parte.split_once(':')
             && e_identificador(nome.trim())
         {
@@ -79,16 +79,17 @@ pub fn analisar(dir: &str, valor: &str) -> Micro {
             continue;
         }
         if i == 0 {
-            // A primeira parte sem `let` e sem `:` é o valor da própria
-            // diretiva (`*ngIf="cond"`).
+            // The first part without `let` and without `:` is the value of the
+            // directive itself (`*ngIf="cond"`).
             m.propriedades.push((dir.to_string(), parte.to_string()));
         }
     }
     m
 }
 
-/// As partes separadas por `;` no nível de cima: fora de texto entre aspas
-/// e de parênteses, colchetes e chaves (o `;` de um literal não separa).
+/// The parts separated by `;` at the top level: outside quoted strings and
+/// outside parentheses, brackets and braces (the `;` of a literal does not
+/// separate).
 fn partes(valor: &str) -> Vec<&str> {
     let mut saida = Vec::new();
     let mut nivel = 0i32;
@@ -128,8 +129,8 @@ fn e_identificador(s: &str) -> bool {
         && cs.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
 }
 
-/// `isMicroExpression` do ngast: começa com `let` ou casa `\S+[:;]` no
-/// início — uma palavra sem espaço seguida de `:` ou `;`.
+/// ngast's `isMicroExpression`: starts with `let` or matches `\S+[:;]` at the
+/// start — a word without whitespace followed by `:` or `;`.
 pub(crate) fn e_micro(valor: &str) -> bool {
     if valor.starts_with("let") {
         return true;
@@ -163,7 +164,7 @@ mod testes {
         assert!(m.locais.is_empty());
     }
 
-    /// `:` dentro de uma expressão que não é microssintaxe (caso i43).
+    /// `:` inside an expression that is not microsyntax (case i43).
     #[test]
     fn dois_pontos_na_expressao_solta() {
         let m = analisar("ngIf", "ativo ? mostrar : false");

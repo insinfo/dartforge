@@ -1,22 +1,22 @@
-//! Confere o compilador contra saídas do dart-sass 1.102.0 gravadas por um
-//! oráculo (o `SassBuilder` reproduzido num programa Dart).
+//! Checks the compiler against dart-sass 1.102.0 outputs recorded by an
+//! oracle (`SassBuilder` reproduced in a Dart program).
 //!
-//! Uso: `cargo run --release -p dartforge-sass --example check --
-//! <manifesto> <dir do oráculo> [dir de diferenças]` (com `SASS_VERSAO=1.66.0`,
-//! o modo de compatibilidade com o dart-sass 1.66.0).
+//! Usage: `cargo run --release -p dartforge-sass --example check --
+//! <manifest> <oracle dir> [diff dir]` (with `SASS_VERSION=1.66.0`, the
+//! compatibility mode with dart-sass 1.66.0).
 //!
-//! O manifesto tem uma linha por `.scss`: `<arquivo>\t<raiz do pacote>\t
-//! <nome do pacote>\t<package_config.json ou ->`. O oráculo, para a linha
-//! `i`, grava `i.expanded.css`, `i.expanded.css.map`, `i.compressed.css`,
-//! `i.compressed.css.map` (o `.css` como o `sass_builder` o escreve, com o
-//! comentário `sourceMappingURL`), ou `i.<estilo>.err` quando o dart-sass
-//! recusa.
+//! The manifest has one line per `.scss`: `<file>\t<package root>\t
+//! <package name>\t<package_config.json or ->`. The oracle, for line `i`,
+//! writes `i.expanded.css`, `i.expanded.css.map`, `i.compressed.css`,
+//! `i.compressed.css.map` (the `.css` as `sass_builder` writes it, with the
+//! `sourceMappingURL` comment), or `i.<style>.err` when dart-sass refuses.
 use dartforge_sass::sass_builder::{compilar, Ativo, Disco, Pacotes};
 use dartforge_sass::{OutputStyle, VersaoDartSass};
 
-/// A versão imitada: `SASS_VERSAO` (`1.66.0` ou `1.102.0`, o padrão).
-fn versao() -> VersaoDartSass {
-    std::env::var("SASS_VERSAO")
+/// The imitated version: `SASS_VERSION` (`1.66.0` or `1.102.0`, the
+/// default).
+fn version() -> VersaoDartSass {
+    std::env::var("SASS_VERSION")
         .ok()
         .and_then(|v| VersaoDartSass::do_lock(&v))
         .unwrap_or_default()
@@ -25,56 +25,56 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let manifesto = std::fs::read_to_string(&args[1]).expect("manifesto");
-    let oraculo = PathBuf::from(&args[2]);
-    let difs = args.get(3).map(PathBuf::from);
-    if let Some(d) = &difs {
+    let manifest = std::fs::read_to_string(&args[1]).expect("manifest");
+    let oracle = PathBuf::from(&args[2]);
+    let diffs = args.get(3).map(PathBuf::from);
+    if let Some(d) = &diffs {
         let _ = std::fs::create_dir_all(d);
     }
     let (mut css_ok, mut map_ok, mut total, mut err_ok) = (0, 0, 0, 0);
-    let mut ruins = Vec::new();
-    for (i, linha) in manifesto.lines().enumerate() {
-        let c: Vec<&str> = linha.split('\t').collect();
+    let mut bad = Vec::new();
+    for (i, line) in manifest.lines().enumerate() {
+        let c: Vec<&str> = line.split('\t').collect();
         if c.len() < 4 {
             continue;
         }
-        let (arquivo, raiz, nome, cfg) = (Path::new(c[0]), Path::new(c[1]), c[2], c[3]);
-        let mut pacotes = if cfg == "-" {
+        let (file, root, name, cfg) = (Path::new(c[0]), Path::new(c[1]), c[2], c[3]);
+        let mut packages = if cfg == "-" {
             Pacotes::new()
         } else {
             Pacotes::de_package_config(Path::new(cfg)).expect("cfg")
         };
-        pacotes.inserir(nome, raiz);
-        let caminho = arquivo
-            .strip_prefix(raiz)
+        packages.inserir(name, root);
+        let path = file
+            .strip_prefix(root)
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        let entrada = Ativo {
-            pacote: nome.into(),
-            caminho,
+        let input = Ativo {
+            pacote: name.into(),
+            caminho: path,
         };
-        let fonte = std::fs::read_to_string(arquivo).unwrap_or_default();
-        for (estilo, en) in [
+        let source = std::fs::read_to_string(file).unwrap_or_default();
+        for (style, en) in [
             (OutputStyle::Expanded, "expanded"),
             (OutputStyle::Compressed, "compressed"),
         ] {
             total += 1;
-            let base = oraculo.join(format!("{i}.{en}"));
-            let esperado_css =
+            let base = oracle.join(format!("{i}.{en}"));
+            let expected_css =
                 std::fs::read_to_string(base.with_extension(format!("{en}.css"))).ok();
-            let esperado_map =
+            let expected_map =
                 std::fs::read_to_string(base.with_extension(format!("{en}.css.map"))).ok();
-            // Cada compilação numa thread com pilha grande e prazo: um laço
-            // infinito ou recursão funda não derruba a conferência.
+            // Each compilation in a thread with a large stack and a deadline:
+            // an infinite loop or deep recursion does not bring the check down.
             let (tx, rx) = std::sync::mpsc::channel();
             {
-                let (fonte, entrada, pacotes) = (fonte.clone(), entrada.clone(), pacotes.clone());
+                let (source, input, packages) = (source.clone(), input.clone(), packages.clone());
                 std::thread::Builder::new()
                     .stack_size(256 << 20)
                     .spawn(move || {
                         let r = std::panic::catch_unwind(|| {
-                            compilar(&fonte, &entrada, &pacotes, &Disco, estilo, true, versao())
+                            compilar(&source, &input, &packages, &Disco, style, true, version())
                         })
                         .map(|r| r.map_err(|e| e.to_string()));
                         let _ = tx.send(r);
@@ -84,37 +84,37 @@ fn main() {
             let r = match rx.recv_timeout(std::time::Duration::from_secs(20)) {
                 Ok(r) => r,
                 Err(_) => {
-                    ruins.push(format!("{i} {en} {}: PRAZO", arquivo.display()));
+                    bad.push(format!("{i} {en} {}: TIMEOUT", file.display()));
                     continue;
                 }
             };
-            let rotulo = format!("{i} {en} {}", arquivo.display());
-            match (r, esperado_css) {
+            let label = format!("{i} {en} {}", file.display());
+            match (r, expected_css) {
                 (Ok(Ok(c)), Some(e)) => {
-                    // O trailer do mapa entra mesmo antes de o mapa existir.
-                    let mut com_mapa = c.clone();
-                    com_mapa.mapa.get_or_insert_with(String::new);
-                    let nosso = com_mapa.arquivo_css(&entrada);
-                    let igual = nosso == e;
-                    css_ok += igual as usize;
-                    let mapa_igual = c.mapa.as_deref() == esperado_map.as_deref();
-                    map_ok += mapa_igual as usize;
-                    if !igual || !mapa_igual {
-                        ruins.push(format!(
-                            "{rotulo}: {}{}",
-                            if igual { "" } else { "CSS " },
-                            if mapa_igual { "" } else { "MAPA" }
+                    // The source map trailer goes in even before the map exists.
+                    let mut with_map = c.clone();
+                    with_map.mapa.get_or_insert_with(String::new);
+                    let ours = with_map.arquivo_css(&input);
+                    let same = ours == e;
+                    css_ok += same as usize;
+                    let same_map = c.mapa.as_deref() == expected_map.as_deref();
+                    map_ok += same_map as usize;
+                    if !same || !same_map {
+                        bad.push(format!(
+                            "{label}: {}{}",
+                            if same { "" } else { "CSS " },
+                            if same_map { "" } else { "MAP" }
                         ));
-                        if let Some(d) = &difs {
-                            let _ = std::fs::write(d.join(format!("{i}.{en}.nosso.css")), &nosso);
-                            let _ = std::fs::write(d.join(format!("{i}.{en}.oficial.css")), &e);
+                        if let Some(d) = &diffs {
+                            let _ = std::fs::write(d.join(format!("{i}.{en}.ours.css")), &ours);
+                            let _ = std::fs::write(d.join(format!("{i}.{en}.official.css")), &e);
                             let _ = std::fs::write(
-                                d.join(format!("{i}.{en}.nosso.map")),
+                                d.join(format!("{i}.{en}.ours.map")),
                                 c.mapa.unwrap_or_default(),
                             );
                             let _ = std::fs::write(
-                                d.join(format!("{i}.{en}.oficial.map")),
-                                esperado_map.unwrap_or_default(),
+                                d.join(format!("{i}.{en}.official.map")),
+                                expected_map.unwrap_or_default(),
                             );
                         }
                     }
@@ -124,21 +124,21 @@ fn main() {
                     css_ok += 1;
                     map_ok += 1;
                 }
-                (Ok(Err(e)), Some(_)) => ruins.push(format!(
-                    "{rotulo}: ERRO nosso: {}",
+                (Ok(Err(e)), Some(_)) => bad.push(format!(
+                    "{label}: our ERROR: {}",
                     e.lines().next().unwrap_or("")
                 )),
                 (Ok(Ok(_)), None) => {
-                    ruins.push(format!("{rotulo}: oficial rejeita, nosso compila"))
+                    bad.push(format!("{label}: official rejects, ours compiles"))
                 }
-                (Err(_), _) => ruins.push(format!("{rotulo}: PÂNICO")),
+                (Err(_), _) => bad.push(format!("{label}: PANIC")),
             }
         }
     }
-    for r in &ruins {
+    for r in &bad {
         println!("{r}");
     }
     println!(
-        "total {total}: css iguais {css_ok}, mapas iguais {map_ok} (erros em ambos: {err_ok})"
+        "total {total}: css equal {css_ok}, maps equal {map_ok} (errors in both: {err_ok})"
     );
 }

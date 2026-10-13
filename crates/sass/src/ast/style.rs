@@ -8,7 +8,7 @@ pub(crate) struct Style {
     pub property: InternedString,
     pub value: Box<Spanned<Value>>,
     pub declared_as_custom_property: bool,
-    /// `CssDeclaration.name.span`, `span` e `valueSpanForMap` do dart-sass.
+    /// dart-sass's `CssDeclaration.name.span`, `span` and `valueSpanForMap`.
     pub name_span: codemap::Span,
     pub span: codemap::Span,
     pub value_span_for_map: codemap::Span,

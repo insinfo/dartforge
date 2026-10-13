@@ -301,8 +301,9 @@ impl Environment {
             .or_else(|| self.get_function_from_global_modules(name)))
     }
 
-    /// `getVariableNode(name, namespace:)`: o nó da variável — no escopo
-    /// local, no módulo do namespace ou nos módulos globais (`as *`).
+    /// `getVariableNode(name, namespace:)`: the variable's node — in the
+    /// local scope, in the namespace's module or in the global modules
+    /// (`as *`).
     pub fn get_var_node(
         &self,
         name: Identifier,

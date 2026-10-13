@@ -47,13 +47,13 @@ pub struct BinaryOpExpr {
     pub rhs: AstExpr,
     pub allows_slash: bool,
     pub span: Span,
-    /// Os `span`s dos operandos: num cálculo, `+`/`-` precisam de espaço dos
-    /// dois lados (`_checkWhitespaceAroundCalculationOperator`).
+    /// The `span`s of the operands: in a calculation, `+`/`-` need whitespace
+    /// on both sides (`_checkWhitespaceAroundCalculationOperator`).
     pub lhs_span: Span,
     pub rhs_span: Span,
 }
 
-/// Uma condição do `if()` do CSS (`IfConditionExpression` do dart-sass).
+/// A condition of the CSS `if()` (dart-sass's `IfConditionExpression`).
 #[derive(Debug, Clone)]
 pub enum IfCondition {
     Paren(Box<IfCondition>),
@@ -120,7 +120,7 @@ impl IfCondition {
     }
 }
 
-/// O `if()` do CSS (`IfExpression`): ramos com condição (ou `else`).
+/// The CSS `if()` (`IfExpression`): branches with a condition (or `else`).
 #[derive(Debug, Clone)]
 pub struct CssIfExpr {
     pub branches: Vec<(Option<IfCondition>, AstExpr)>,
@@ -148,10 +148,11 @@ pub enum AstExpr {
     ParentSelector,
     String(StringExpr, Span),
     Supports(Arc<AstSupportsCondition>),
-    /// A `CalculationInterpolation` do dart-sass 1.66 (modo 1.66): o texto
-    /// cru, com as interpolações, de um argumento de cálculo ou de um grupo
-    /// entre parênteses dentro dele que tem `#{}` no nível de cima
-    /// (`_tryCalculationInterpolation`). Como operando sai entre parênteses.
+    /// The `CalculationInterpolation` of dart-sass 1.66 (the 1.66 mode): the
+    /// raw text, with the interpolations, of a calculation argument or of a
+    /// parenthesized group inside it that has `#{}` at the top level
+    /// (`_tryCalculationInterpolation`). As an operand it comes out in
+    /// parentheses.
     CalcInterp166(Interpolation, Span),
     UnaryOp(UnaryOp, Arc<Self>, Span),
     Variable {
@@ -249,8 +250,8 @@ impl AstExpr {
 
     pub fn is_slash_operand(&self) -> bool {
         match self {
-            // dart-sass `_isSlashOperand`: número, qualquer chamada de função
-            // (os cálculos também são chamadas) ou outra barra.
+            // dart-sass `_isSlashOperand`: a number, any function call
+            // (calculations are calls too) or another slash.
             Self::Number { .. } | Self::FunctionCall(..) => true,
             Self::BinaryOp(binop) => binop.allows_slash,
             _ => false,

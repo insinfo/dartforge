@@ -4,7 +4,7 @@ version.workspace = true
 edition = "2021"
 license = "MIT"
 publish = false
-description = "Compilador Sass do DartForge: o grass_compiler 0.13.4 (MIT, Connor Skees) trazido para o repositório e mantido aqui para sair byte a byte igual ao dart-sass 1.102.0."
+description = "The DartForge Sass compiler: grass_compiler 0.13.4 (MIT, Connor Skees) brought into the repository and maintained here to come out byte for byte equal to dart-sass 1.102.0."
 
 [lib]
 name = "dartforge_sass"

@@ -1,8 +1,8 @@
-//! As referências de caractere nomeadas que o ngast 3.0.0-dev.2 decodifica
-//! no texto do template (`namedEntities`, em `lib/src/token/chars.dart`):
-//! a lista não é a do HTML inteira — o ngast a mantém curta —, e um nome
-//! fora dela vira o próprio nome (`namedEntities[nome] ?? nome`).
-//! Gerada do `chars.dart`, em ordem para a busca binária.
+//! The named character references that ngast 3.0.0-dev.2 decodes in the
+//! template text (`namedEntities`, in `lib/src/token/chars.dart`): the list is
+//! not the whole HTML one — ngast keeps it short —, and a name outside it
+//! becomes the name itself (`namedEntities[nome] ?? nome`). Generated from
+//! `chars.dart`, sorted for binary search.
 
 pub(crate) const ENTIDADES: &[(&str, &str)] = &[
     ("AElig", "\u{c6}"),

@@ -1,20 +1,21 @@
-//! O modelo de cor do dart-sass 1.66.0 (`lib/src/value/color.dart` dessa
-//! versão), para o modo de compatibilidade
+//! The color model of dart-sass 1.66.0 (`lib/src/value/color.dart` of that
+//! version), for the compatibility mode
 //! ([`crate::VersaoDartSass::V1_66_0`]).
 //!
-//! O `SassColor` do 1.66 guarda o RGB **inteiro** (0–255) e o HSL: a cor
-//! criada por RGB deriva o HSL dos inteiros (`_rgbToHsl`); a criada por HSL
-//! guarda os canais como vieram e deriva o RGB arredondado (`_hslToRgb`,
-//! com `fuzzyRound`). Aqui ela vive no [`Color`] do 1.102 como espaço `rgb`
-//! com canais inteiros ou espaço `hsl` com os canais do 1.66, marcada com
-//! [`Color::modelo_166`]; [`rgb`] e [`hsl`] dão as leituras do 1.66 e
-//! devolvem `None` para cores que o 1.66 não teria (outros espaços, canais
-//! ausentes, RGB fracionário ou fora de 0–255), que o modo recusa.
+//! The 1.66 `SassColor` stores the **integer** RGB (0–255) and the HSL: a
+//! color created from RGB derives the HSL from the integers (`_rgbToHsl`);
+//! one created from HSL keeps the channels as they came and derives the
+//! rounded RGB (`_hslToRgb`, with `fuzzyRound`). Here it lives in the 1.102
+//! [`Color`] as an `rgb` space with integer channels or an `hsl` space with
+//! the 1.66 channels, marked with [`Color::model_166`]; [`rgb`] and [`hsl`]
+//! give the 1.66 readings and return `None` for colors that 1.66 would not
+//! have (other spaces, missing channels, fractional RGB or outside 0–255),
+//! which the mode refuses.
 use super::{dart_max, dart_min, dart_mod, Color, ColorFormat, ColorSpace};
 use crate::value::{fuzzy_equals, fuzzy_less_than, fuzzy_less_than_or_equals};
 
-/// `fuzzyRound` do 1.66 (`util/number.dart`), com o `%` do Dart (resto
-/// euclidiano: `-0.3 % 1 == 0.7`).
+/// `fuzzyRound` of 1.66 (`util/number.dart`), with Dart's `%` (Euclidean
+/// remainder: `-0.3 % 1 == 0.7`).
 pub(crate) fn fuzzy_round(number: f64) -> f64 {
     if number > 0.0 {
         if fuzzy_less_than(dart_mod(number, 1.0), 0.5) {
@@ -40,14 +41,14 @@ fn fuzzy_check_range(n: f64, min: f64, max: f64) -> Option<f64> {
     }
 }
 
-/// `fuzzyAssertRange`: o `RangeError` do Dart vira erro de texto.
-pub(crate) fn fuzzy_assert_range(n: f64, min: f64, max: f64, nome: &str) -> Result<f64, String> {
+/// `fuzzyAssertRange`: Dart's `RangeError` becomes a text error.
+pub(crate) fn fuzzy_assert_range(n: f64, min: f64, max: f64, name: &str) -> Result<f64, String> {
     fuzzy_check_range(n, min, max)
-        .ok_or_else(|| format!("RangeError ({nome}): must be between {min} and {max}: {n}"))
+        .ok_or_else(|| format!("RangeError ({name}): must be between {min} and {max}: {n}"))
 }
 
-fn nova(space: ColorSpace, c: [f64; 3], alpha: f64, format: ColorFormat) -> Color {
-    let mut cor = Color::new_raw(
+fn new_color(space: ColorSpace, c: [f64; 3], alpha: f64, format: ColorFormat) -> Color {
+    let mut color = Color::new_raw(
         space,
         Some(c[0]),
         Some(c[1]),
@@ -55,19 +56,19 @@ fn nova(space: ColorSpace, c: [f64; 3], alpha: f64, format: ColorFormat) -> Colo
         Some(alpha),
         format,
     );
-    // O `new_raw` corta o alfa para [0, 1] com tolerância; o 1.66 guarda o
-    // valor que passou no `fuzzyAssertRange`.
-    cor.alpha = Some(alpha);
-    cor.modelo_166 = true;
-    cor
+    // `new_raw` clamps the alpha to [0, 1] with tolerance; 1.66 keeps the
+    // value that passed `fuzzyAssertRange`.
+    color.alpha = Some(alpha);
+    color.model_166 = true;
+    color
 }
 
-/// `SassColor.rgbInternal`: canais inteiros em 0–255 e alfa em [0, 1].
+/// `SassColor.rgbInternal`: integer channels in 0–255 and alpha in [0, 1].
 ///
-/// # Erros
+/// # Errors
 ///
-/// O `RangeError` do 1.66 quando um canal ou o alfa está fora da faixa.
-pub(crate) fn de_rgb(
+/// The 1.66 `RangeError` when a channel or the alpha is out of range.
+pub(crate) fn from_rgb(
     r: f64,
     g: f64,
     b: f64,
@@ -75,23 +76,23 @@ pub(crate) fn de_rgb(
     format: ColorFormat,
 ) -> Result<Color, String> {
     let alpha = fuzzy_assert_range(alpha, 0.0, 1.0, "alpha")?;
-    for (v, nome) in [(r, "red"), (g, "green"), (b, "blue")] {
+    for (v, name) in [(r, "red"), (g, "green"), (b, "blue")] {
         if !(0.0..=255.0).contains(&v) || v.fract() != 0.0 {
             return Err(format!(
-                "RangeError ({nome}): Not in inclusive range 0..255: {v}"
+                "RangeError ({name}): Not in inclusive range 0..255: {v}"
             ));
         }
     }
-    Ok(nova(ColorSpace::Rgb, [r, g, b], alpha, format))
+    Ok(new_color(ColorSpace::Rgb, [r, g, b], alpha, format))
 }
 
-/// `SassColor.hslInternal`: a matiz módulo 360, saturação e luminosidade em
+/// `SassColor.hslInternal`: the hue modulo 360, saturation and lightness in
 /// 0–100.
 ///
-/// # Erros
+/// # Errors
 ///
-/// O `RangeError` do 1.66 fora das faixas.
-pub(crate) fn de_hsl(
+/// The 1.66 `RangeError` outside the ranges.
+pub(crate) fn from_hsl(
     h: f64,
     s: f64,
     l: f64,
@@ -101,7 +102,7 @@ pub(crate) fn de_hsl(
     let s = fuzzy_assert_range(s, 0.0, 100.0, "saturation")?;
     let l = fuzzy_assert_range(l, 0.0, 100.0, "lightness")?;
     let alpha = fuzzy_assert_range(alpha, 0.0, 1.0, "alpha")?;
-    Ok(nova(
+    Ok(new_color(
         ColorSpace::Hsl,
         [dart_mod(h, 360.0), s, l],
         alpha,
@@ -109,26 +110,26 @@ pub(crate) fn de_hsl(
     ))
 }
 
-/// `SassColor.hwb` do 1.66: convertida na hora para RGB inteiro.
+/// `SassColor.hwb` of 1.66: converted right away to integer RGB.
 ///
-/// # Erros
+/// # Errors
 ///
-/// O `RangeError` do 1.66 fora das faixas.
-pub(crate) fn de_hwb(h: f64, w: f64, b: f64, alpha: f64) -> Result<Color, String> {
+/// The 1.66 `RangeError` outside the ranges.
+pub(crate) fn from_hwb(h: f64, w: f64, b: f64, alpha: f64) -> Result<Color, String> {
     let scaled_hue = dart_mod(h, 360.0) / 360.0;
     let mut sw = fuzzy_assert_range(w, 0.0, 100.0, "whiteness")? / 100.0;
     let mut sb = fuzzy_assert_range(b, 0.0, 100.0, "blackness")? / 100.0;
-    let soma = sw + sb;
-    if soma > 1.0 {
-        sw /= soma;
-        sb /= soma;
+    let sum = sw + sb;
+    if sum > 1.0 {
+        sw /= sum;
+        sb /= sum;
     }
-    let fator = 1.0 - sw - sb;
-    let canal = |hue: f64| fuzzy_round((hue_to_rgb(0.0, 1.0, hue) * fator + sw) * 255.0);
-    de_rgb(
-        canal(scaled_hue + 1.0 / 3.0),
-        canal(scaled_hue),
-        canal(scaled_hue - 1.0 / 3.0),
+    let factor = 1.0 - sw - sb;
+    let channel = |hue: f64| fuzzy_round((hue_to_rgb(0.0, 1.0, hue) * factor + sw) * 255.0);
+    from_rgb(
+        channel(scaled_hue + 1.0 / 3.0),
+        channel(scaled_hue),
+        channel(scaled_hue - 1.0 / 3.0),
         alpha,
         ColorFormat::Infer,
     )
@@ -153,16 +154,16 @@ fn hue_to_rgb(m1: f64, m2: f64, mut hue: f64) -> f64 {
     }
 }
 
-/// Os canais presentes, ou `None` se algum falta.
-fn canais(c: &Color) -> Option<[f64; 3]> {
+/// The present channels, or `None` if one is missing.
+fn channels(c: &Color) -> Option<[f64; 3]> {
     Some([c.c0?, c.c1?, c.c2?])
 }
 
-/// `red`/`green`/`blue` do 1.66: os inteiros de uma cor RGB, ou o
-/// `_hslToRgb` de uma HSL. `None` quando o 1.66 não teria a cor.
+/// `red`/`green`/`blue` of 1.66: the integers of an RGB color, or the
+/// `_hslToRgb` of an HSL one. `None` when 1.66 would not have the color.
 pub(crate) fn rgb(c: &Color) -> Option<[f64; 3]> {
     c.alpha?;
-    let [a, b, d] = canais(c)?;
+    let [a, b, d] = channels(c)?;
     match c.space {
         ColorSpace::Rgb => {
             let mut out = [0.0; 3];
@@ -193,12 +194,12 @@ pub(crate) fn rgb(c: &Color) -> Option<[f64; 3]> {
     }
 }
 
-/// `hue`/`saturation`/`lightness` do 1.66: os canais de uma cor HSL, ou o
-/// `_rgbToHsl` dos inteiros de uma RGB.
+/// `hue`/`saturation`/`lightness` of 1.66: the channels of an HSL color, or
+/// the `_rgbToHsl` of the integers of an RGB one.
 pub(crate) fn hsl(c: &Color) -> Option<[f64; 3]> {
     if c.space == ColorSpace::Hsl {
         c.alpha?;
-        return canais(c);
+        return channels(c);
     }
     let [r, g, b] = rgb(c)?;
     let (r, g, b) = (r / 255.0, g / 255.0, b / 255.0);
@@ -225,7 +226,7 @@ pub(crate) fn hsl(c: &Color) -> Option<[f64; 3]> {
     Some([hue, saturation, lightness])
 }
 
-/// `whiteness`/`blackness` do 1.66 (dos inteiros).
+/// `whiteness`/`blackness` of 1.66 (from the integers).
 pub(crate) fn hwb(c: &Color) -> Option<[f64; 2]> {
     let [r, g, b] = rgb(c)?;
     Some([
@@ -234,40 +235,41 @@ pub(crate) fn hwb(c: &Color) -> Option<[f64; 2]> {
     ])
 }
 
-/// `changeAlpha` do 1.66: a mesma representação, sem formato.
+/// `changeAlpha` of 1.66: the same representation, without a format.
 ///
-/// # Erros
+/// # Errors
 ///
-/// Alfa fora de [0, 1], ou cor que o 1.66 não teria.
-pub(crate) fn com_alpha(c: &Color, alpha: f64) -> Result<Color, String> {
+/// Alpha outside [0, 1], or a color that 1.66 would not have.
+pub(crate) fn with_alpha(c: &Color, alpha: f64) -> Result<Color, String> {
     let alpha = fuzzy_assert_range(alpha, 0.0, 1.0, "alpha")?;
     match c.space {
-        ColorSpace::Hsl => Ok(nova(
+        ColorSpace::Hsl => Ok(new_color(
             ColorSpace::Hsl,
-            canais(c).ok_or_else(|| nao_garantida(c))?,
+            channels(c).ok_or_else(|| not_guaranteed(c))?,
             alpha,
             ColorFormat::Infer,
         )),
-        _ => Ok(nova(
+        _ => Ok(new_color(
             ColorSpace::Rgb,
-            rgb(c).ok_or_else(|| nao_garantida(c))?,
+            rgb(c).ok_or_else(|| not_guaranteed(c))?,
             alpha,
             ColorFormat::Infer,
         )),
     }
 }
 
-/// O alfa (o 1.66 não tem alfa ausente).
+/// The alpha (1.66 has no missing alpha).
 pub(crate) fn alpha(c: &Color) -> f64 {
     c.alpha.unwrap_or(0.0)
 }
 
-/// A mensagem de recusa de uma cor sem representação no 1.66.
-pub(crate) fn nao_garantida(c: &Color) -> String {
+/// The refusal message for a color without a representation in 1.66.
+pub(crate) fn not_guaranteed(c: &Color) -> String {
     format!(
-        "dartforge-sass (modo dart-sass 1.66): a cor no espaço {} com canais \
-         {:?}/{:?}/{:?} e alfa {:?} não existe no modelo de cor do 1.66 (RGB \
-         inteiro de 0 a 255 ou HSL); a saída do 1.66 não é garantida",
+        "dartforge-sass (dart-sass 1.66 mode): the color in space {} with \
+         channels {:?}/{:?}/{:?} and alpha {:?} does not exist in the 1.66 color \
+         model (integer RGB from 0 to 255, or HSL); the 1.66 output is not \
+         guaranteed",
         c.space.name(),
         c.c0,
         c.c1,
@@ -276,18 +278,18 @@ pub(crate) fn nao_garantida(c: &Color) -> String {
     )
 }
 
-/// `SassColor.==` do 1.66: os inteiros RGB e o alfa exatos.
-pub(crate) fn iguais(a: &Color, b: &Color) -> bool {
+/// `SassColor.==` of 1.66: the exact RGB integers and alpha.
+pub(crate) fn equals(a: &Color, b: &Color) -> bool {
     match (rgb(a), rgb(b)) {
         (Some(x), Some(y)) => x == y && a.alpha == b.alpha,
         _ => false,
     }
 }
 
-/// O hash de uma cor do modelo 1.66, coerente com [`iguais`] e com o hash
-/// do 1.102 para cores RGB de canais inteiros; `None` para as outras.
+/// The hash of a 1.66-model color, consistent with [`equals`] and with the
+/// 1.102 hash for RGB colors with integer channels; `None` for the others.
 pub(crate) fn hash(c: &Color) -> Option<i64> {
-    if !c.modelo_166 {
+    if !c.model_166 {
         return None;
     }
     let fh = |x: f64| (x * 1e11).round() as i64;

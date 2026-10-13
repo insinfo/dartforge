@@ -1,4 +1,4 @@
-//! O módulo `sass:color` (`module` de `lib/src/functions/color.dart`).
+//! The `sass:color` module (`module` of `lib/src/functions/color.dart`).
 use crate::builtin::{color as c, modules::Module};
 
 pub(crate) fn declare(f: &mut Module) {
@@ -10,19 +10,19 @@ pub(crate) fn declare(f: &mut Module) {
     f.insert_builtin("hue", c::hue);
     f.insert_builtin("saturation", c::saturation);
     f.insert_builtin("lightness", c::lightness);
-    f.insert_builtin("adjust-hue", c::removida_adjust_hue);
-    f.insert_builtin("lighten", c::removida_lighten);
-    f.insert_builtin("darken", c::removida_darken);
-    f.insert_builtin("saturate", c::removida_saturate);
-    f.insert_builtin("desaturate", c::removida_desaturate);
+    f.insert_builtin("adjust-hue", c::removed_adjust_hue);
+    f.insert_builtin("lighten", c::removed_lighten);
+    f.insert_builtin("darken", c::removed_darken);
+    f.insert_builtin("saturate", c::removed_saturate);
+    f.insert_builtin("desaturate", c::removed_desaturate);
     f.insert_builtin("grayscale", c::grayscale_module);
     f.insert_builtin("hwb", c::hwb_module);
     f.insert_builtin("whiteness", c::whiteness);
     f.insert_builtin("blackness", c::blackness);
-    f.insert_builtin("opacify", c::removida_opacify);
-    f.insert_builtin("fade-in", c::removida_fade_in);
-    f.insert_builtin("transparentize", c::removida_transparentize);
-    f.insert_builtin("fade-out", c::removida_fade_out);
+    f.insert_builtin("opacify", c::removed_opacify);
+    f.insert_builtin("fade-in", c::removed_fade_in);
+    f.insert_builtin("transparentize", c::removed_transparentize);
+    f.insert_builtin("fade-out", c::removed_fade_out);
     f.insert_builtin("alpha", c::alpha_module);
     f.insert_builtin("opacity", c::opacity_module);
     f.insert_builtin("space", c::space);

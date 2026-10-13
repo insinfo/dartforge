@@ -227,16 +227,16 @@ impl Value {
         }
     }
 
-    /// `Value.toCssString()`/`serializeValue` do dart-sass: sempre no estilo
-    /// padrão (`expanded`), qualquer que seja o estilo da saída — é assim
-    /// que `rgba(var(--x), 0.5)` mantém `0.5` e `, ` no `compressed`. O
-    /// grass usava o estilo da saída.
+    /// dart-sass's `Value.toCssString()`/`serializeValue`: always in the
+    /// default style (`expanded`), whatever the output style — that is how
+    /// `rgba(var(--x), 0.5)` keeps `0.5` and `, ` in `compressed`. grass used
+    /// the output style.
     pub fn to_css_string(&self, span: Span, _is_compressed: bool) -> SassResult<String> {
         serialize_value(
             self,
             &Options::default()
                 .style(OutputStyle::Expanded)
-                .versao(crate::options::versao_corrente()),
+                .version(crate::options::current_version()),
             span,
         )
     }
@@ -244,7 +244,7 @@ impl Value {
     pub fn inspect(&self, span: Span) -> SassResult<String> {
         inspect_value(
             self,
-            &Options::default().versao(crate::options::versao_corrente()),
+            &Options::default().version(crate::options::current_version()),
             span,
         )
     }

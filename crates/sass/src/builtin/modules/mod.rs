@@ -379,9 +379,9 @@ impl Module {
         }
     }
 
-    /// `variableNodes[name]` do módulo: o nó da variável (para o mapa de
-    /// fontes). Módulos repassados (`@forward`) tiram o prefixo e perguntam
-    /// ao módulo de dentro.
+    /// The module's `variableNodes[name]`: the variable's node (for the
+    /// source map). Forwarded modules (`@forward`) strip the prefix and ask
+    /// the inner module.
     pub fn get_var_node(&self, name: Identifier) -> Option<codemap::Span> {
         match self {
             Self::Builtin { .. } => None,
@@ -398,14 +398,14 @@ impl Module {
                 scope,
             }) => {
                 scope.variables.get(name)?;
-                let texto = name.as_str();
-                let sem_prefixo = match &forward_rule.prefix {
-                    Some(p) => texto.strip_prefix(p.as_str())?,
-                    None => texto,
+                let text = name.as_str();
+                let unprefixed = match &forward_rule.prefix {
+                    Some(p) => text.strip_prefix(p.as_str())?,
+                    None => text,
                 };
                 (**inner)
                     .borrow()
-                    .get_var_node(Identifier::from(sem_prefixo))
+                    .get_var_node(Identifier::from(unprefixed))
             }
             Self::Shadowed(ShadowedModule { inner, scope }) => {
                 scope.variables.get(name)?;

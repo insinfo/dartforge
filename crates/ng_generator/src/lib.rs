@@ -1,21 +1,22 @@
-//! Gerador do ngdart: produz os `.template.dart` que o `build_runner` produz,
-//! sem `build_runner`.
+//! ngdart generator: produces the `.template.dart` files that `build_runner`
+//! produces, without `build_runner`.
 //!
-//! O compilador do ngdart transforma componente + template HTML em Dart
-//! imperativo (`ViewXComp0.build()`, fábricas, injeção). O `build_runner` só
-//! orquestra isso — e é ele, com o `build_web_compilers`, que custa o minuto e
-//! meio de compilação do new_sali. Gerando aqui, o ciclo inteiro fica nosso.
+//! The ngdart compiler turns component + HTML template into imperative Dart
+//! (`ViewXComp0.build()`, factories, injection). `build_runner` only
+//! orchestrates this — and it is `build_runner`, with `build_web_compilers`,
+//! that costs the minute and a half of compiling new_sali. Generating here, the
+//! whole cycle is ours.
 //!
-//! Regra: **não mexer no ngdart nem na aplicação**. O que importa não é sair
-//! texto idêntico, e sim a mesma ABI — os mesmos símbolos públicos
-//! (`XNgFactory`, `createXFactory`, `ViewX0`) com a mesma semântica. Onde sair
-//! igual ao oficial, melhor ainda: dá para comparar byte a byte, e os 284
-//! arquivos que o build_runner já escreveu no new_sali servem de oráculo, como
-//! o `dartdevc` serve para o emissor.
+//! Rule: **do not touch ngdart or the application**. What matters is not
+//! producing identical text, but the same ABI — the same public symbols
+//! (`XNgFactory`, `createXFactory`, `ViewX0`) with the same semantics. Where
+//! the output is equal to the official one, even better: it can be compared
+//! byte for byte, and the 284 files that build_runner already wrote in new_sali
+//! serve as an oracle, as `dartdevc` does for the emitter.
 //!
-//! O avanço é gradual e medido: o que ainda não sabemos gerar fica de fora e
-//! continua vindo do `build_runner`. A aplicação funciona em todos os passos e
-//! o placar diz exatamente onde estamos.
+//! Progress is gradual and measured: what we cannot generate yet is left out
+//! and keeps coming from `build_runner`. The application works at every step
+//! and the scoreboard says exactly where we are.
 pub mod component;
 pub mod css;
 pub mod csslib;
@@ -43,56 +44,57 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use view::{Motivo, Recusa, recusa};
 
-/// Cabeçalho que o compilador oficial escreve em todo arquivo gerado.
+/// Header that the official compiler writes in every generated file.
 pub const CABECALHO: &str = "// **************************************************************************\n// Generator: AngularDart Compiler\n// **************************************************************************\n\n";
 
-/// O que uma biblioteca tem de interessante para o gerador.
+/// What a library has of interest to the generator.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Achados {
-    /// `@Component` lidos por inteiro — é deles que sai a visão.
+    /// `@Component`s read in full — the view comes from them.
     pub componentes: Vec<component::Componente>,
-    /// `@Directive`, lidas como o oficial as vê de quem as usa (seletor,
-    /// entradas, saídas, construtor).
+    /// `@Directive`s, read as the official compiler sees them from their users
+    /// (selector, inputs, outputs, constructor).
     pub diretivas: Vec<component::Componente>,
-    /// `@Pipe`, com o que quem o usa precisa saber dele.
+    /// `@Pipe`s, with what their users need to know about them.
     pub pipes: Vec<component::Pipe>,
-    /// As variáveis de topo com `@GenerateInjector`, na ordem do fonte.
+    /// The top-level variables with `@GenerateInjector`, in source order.
     pub injetores: Vec<String>,
-    /// `@Directive` com `@HostBinding`: cada uma ganha um
-    /// `DirectiveChangeDetector` no arquivo gerado.
+    /// `@Directive`s with `@HostBinding`: each one gets a
+    /// `DirectiveChangeDetector` in the generated file.
     pub hospedeiras: Vec<Hospedeira>,
-    /// `@Directive` com `@HostBinding`/`@HostListener` que herda de alguém
-    /// (`extends`, `with`): o oficial coleta também os membros herdados, que
-    /// daqui não se veem.
+    /// `@Directive`s with `@HostBinding`/`@HostListener` that inherit from
+    /// something (`extends`, `with`): the official compiler also collects the
+    /// inherited members, which cannot be seen from here.
     pub hospedeiro_herdado: bool,
 }
 
-/// Uma `@Directive` com `@HostBinding`: o oficial gera para ela a classe
-/// `XNgCd` (`requiresDirectiveChangeDetector`, em `compile_metadata.dart`).
+/// A `@Directive` with `@HostBinding`: the official compiler generates the
+/// `XNgCd` class for it (`requiresDirectiveChangeDetector`, in
+/// `compile_metadata.dart`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Hospedeira {
     pub classe: String,
-    /// `(nome da ligação, membro)` de cada `@HostBinding` — `class.x`,
-    /// `attr.x`, propriedade ou, sem argumento, o nome do membro —, na ordem
-    /// em que o oficial os coleta (`DirectiveVisitor`, em
-    /// `angular_compiler/analyzer/view/directive.dart`): acessores, depois
-    /// métodos, depois campos — cada grupo em ordem de declaração.
+    /// `(binding name, member)` of each `@HostBinding` — `class.x`, `attr.x`,
+    /// property or, without an argument, the member name —, in the order the
+    /// official compiler collects them (`DirectiveVisitor`, in
+    /// `angular_compiler/analyzer/view/directive.dart`): accessors, then
+    /// methods, then fields — each group in declaration order.
     pub ligacoes: Vec<(String, String)>,
-    /// `style.x`: o tipo do membro como escrito (`String`, `int?`…), que
-    /// decide entre `toString()`, `?.toString()` e o valor direto
+    /// `style.x`: the member type as written (`String`, `int?`…), which decides
+    /// between `toString()`, `?.toString()` and the direct value
     /// (`visitStyleBinding`).
     pub tipos_de_estilo: std::collections::HashMap<String, String>,
-    /// Alguma ligação fora do que sabemos traduzir: o motivo.
+    /// Some binding outside what we know how to translate: the reason.
     pub recusada: Option<String>,
-    /// Os membros `final` (`isImmutable`): escritos uma vez, no
-    /// `if (firstCheck)`, sem campo `_expr_N`.
+    /// The `final` members (`isImmutable`): written once, in `if (firstCheck)`,
+    /// without an `_expr_N` field.
     pub imutaveis: std::collections::HashSet<String>,
-    /// Os membros estáticos da própria classe: lidos pela classe
-    /// (`StaticRead`), sempre imutáveis e `dynamic` (caso j134).
+    /// The static members of the class itself: read through the class
+    /// (`StaticRead`), always immutable and `dynamic` (case j134).
     pub estaticos: std::collections::HashSet<String>,
 }
 
-/// Lê os `@HostBinding` de uma classe `@Directive`; `None` se não há.
+/// Reads the `@HostBinding`s of a `@Directive` class; `None` if there are none.
 fn hospedeira(
     arvore: &ast::Ast,
     fonte: &str,
@@ -116,8 +118,8 @@ fn hospedeira(
                 continue;
             }
             alguma = true;
-            // Sem argumento (`Some(None)`), o nome da ligação é o do próprio
-            // membro (`bindingName ?? memberName`).
+            // Without an argument (`Some(None)`), the binding name is that of
+            // the member itself (`bindingName ?? memberName`).
             let nome = match a.arguments.as_ref().map(|args| &args.args[..]) {
                 None | Some([]) => Some(None),
                 Some([x]) if x.name.is_none() => match &arvore.expr(x.value).kind {
@@ -130,15 +132,15 @@ fn hospedeira(
             };
             let Some(nome) = nome else {
                 recusar(
-                    "@HostBinding com nome que não é texto".into(),
+                    "@HostBinding with a name that is not a string".into(),
                     &mut recusada,
                 );
                 continue;
             };
-            // `class.x`, `attr.x`, propriedade e `style.x`
-            // ([`view::forma_do_hospedeiro`]); o `style.x` pelo tipo escrito
-            // do campo (não `final`: o imutável seria escrito uma vez), como
-            // no componente.
+            // `class.x`, `attr.x`, property and `style.x`
+            // ([`view::forma_do_hospedeiro`]); `style.x` by the written type of
+            // the field (not `final`: the immutable one would be written once),
+            // as in the component.
             let aceita = |n: &str, membro: &str, campo: bool| match view::forma_do_hospedeiro(n) {
                 Ok(view::FormaDoHospedeiro::Estilo { .. }) => {
                     let tipo = membros
@@ -154,9 +156,9 @@ fn hospedeira(
                 Err(_) => false,
             };
             match &membro.kind {
-                // Campo `final` é imutável e é escrito uma vez, na primeira
-                // checagem (`isImmutable`); estático lê pela classe, ainda
-                // não.
+                // A `final` field is immutable and is written once, on the
+                // first check (`isImmutable`); a static one reads through the
+                // class, not yet.
                 ast::MemberKind::Field(l) if !l.static_ && l.variables.len() == 1 => {
                     let membro = interner.resolve(l.variables[0].name.sym).to_string();
                     let nome = nome.unwrap_or_else(|| membro.clone());
@@ -166,7 +168,7 @@ fn hospedeira(
                     }
                     if !aceita(&nome, &membro, !imutavel) {
                         recusar(
-                            format!("@HostBinding('{nome}') fora das formas"),
+                            format!("@HostBinding('{nome}') outside the known shapes"),
                             &mut recusada,
                         );
                     }
@@ -183,20 +185,21 @@ fn hospedeira(
                             let nome = nome.unwrap_or_else(|| membro.clone());
                             if !aceita(&nome, &membro, false) {
                                 recusar(
-                                    format!("@HostBinding('{nome}') fora das formas"),
+                                    format!("@HostBinding('{nome}') outside the known shapes"),
                                     &mut recusada,
                                 );
                             }
                             acessores.push((nome, membro));
                         }
                         _ => recusar(
-                            "@HostBinding em método, setter ou getter estático".into(),
+                            "@HostBinding on a method, setter or static getter".into(),
                             &mut recusada,
                         ),
                     }
                 }
-                // Estático imutável fora de `class.x`/`style.x`: `hostAttribute`,
-                // que não entra na `XNgCd` (`_computeHostBindingImmutability`).
+                // An immutable static outside `class.x`/`style.x`:
+                // `hostAttribute`, which does not go into the `XNgCd`
+                // (`_computeHostBindingImmutability`).
                 ast::MemberKind::Field(l)
                     if l.static_
                         && (l.final_ || l.const_)
@@ -204,27 +207,27 @@ fn hospedeira(
                             n.starts_with("class.") || n.starts_with("style.")
                         }) => {}
                 ast::MemberKind::Field(l) if l.static_ => {
-                    recusar("@HostBinding em campo estático".into(), &mut recusada)
+                    recusar("@HostBinding on a static field".into(), &mut recusada)
                 }
-                _ => recusar("@HostBinding em membro fora da forma".into(), &mut recusada),
+                _ => recusar("@HostBinding on a member outside the shape".into(), &mut recusada),
             }
         }
     }
     acessores.extend(campos);
-    // Sem `hostProperties` (só `hostAttributes`, ou nada) não há `XNgCd`
-    // (`requiresDirectiveChangeDetector`).
+    // Without `hostProperties` (only `hostAttributes`, or nothing) there is no
+    // `XNgCd` (`requiresDirectiveChangeDetector`).
     if !alguma || (acessores.is_empty() && recusada.is_none()) {
         return None;
     }
-    // O mapa do oficial é por nome de ligação: repetir o nome sobrescreve o
-    // valor e mantém a posição do primeiro.
+    // The official map is keyed by binding name: repeating the name overwrites
+    // the value and keeps the position of the first.
     let mut vistos = std::collections::HashSet::new();
     if !acessores.iter().all(|(c, _)| vistos.insert(c.clone())) {
-        recusar("@HostBinding com nome repetido".into(), &mut recusada);
+        recusar("@HostBinding with a repeated name".into(), &mut recusada);
     }
-    // Tipo genérico muda a declaração da classe (`XNgCd<T>`); ainda não.
+    // A generic type changes the class declaration (`XNgCd<T>`); not yet.
     if !classe.type_params.is_empty() {
-        recusar("@HostBinding em diretiva genérica".into(), &mut recusada);
+        recusar("@HostBinding on a generic directive".into(), &mut recusada);
     }
     Some(Hospedeira {
         classe: interner.resolve(classe.name.sym).to_string(),
@@ -237,8 +240,8 @@ fn hospedeira(
 }
 
 impl Achados {
-    /// Sem nada disto o arquivo gerado é só o cabeçalho e o `import` de si
-    /// mesmo — 120 dos 284 arquivos do new_sali/frontend.
+    /// Without any of this the generated file is just the header and the
+    /// `import` of itself — 120 of the 284 files of new_sali/frontend.
     pub fn trivial(&self) -> bool {
         self.componentes.is_empty()
             && self.diretivas.is_empty()
@@ -247,10 +250,10 @@ impl Achados {
     }
 }
 
-/// Nome efetivo de uma anotação: `@Component`, `@ng.Component` e
-/// `@Component.new` contam todos como `Component`. O prefixo de biblioteca vem
-/// em minúscula por convenção e a classe em maiúscula; é o que distingue
-/// `p.Component` de `Component.new`.
+/// Effective name of an annotation: `@Component`, `@ng.Component` and
+/// `@Component.new` all count as `Component`. The library prefix is lowercase
+/// by convention and the class uppercase; that is what tells `p.Component` from
+/// `Component.new`.
 pub(crate) fn nome_da_anotacao(a: &ast::Annotation, interner: &Interner) -> String {
     for parte in &a.name {
         let texto = interner.resolve(parte.sym);
@@ -264,7 +267,7 @@ pub(crate) fn nome_da_anotacao(a: &ast::Annotation, interner: &Interner) -> Stri
         .unwrap_or_default()
 }
 
-/// Varre as declarações de topo de uma unidade já analisada.
+/// Scans the top-level declarations of an already parsed unit.
 pub fn achar(
     arvore: &ast::Ast,
     unidade: &ast::CompilationUnit,
@@ -274,11 +277,11 @@ pub fn achar(
     let mut achados = Achados::default();
     for &id in &unidade.declarations {
         let decl = arvore.decl(id);
-        // `@Component` e `@Directive` só existem em classe, mas
-        // `@GenerateInjector` fica numa variável de topo
-        // (`@GenerateInjector([...]) final InjectorFactory injector = …`), que é
-        // como o new_sali monta a injeção. Por isso a varredura não filtra por
-        // tipo de declaração.
+        // `@Component` and `@Directive` only exist on classes, but
+        // `@GenerateInjector` sits on a top-level variable
+        // (`@GenerateInjector([...]) final InjectorFactory injector = …`),
+        // which is how new_sali sets up injection. That is why the scan does
+        // not filter by declaration kind.
         let alvo = match &decl.kind {
             ast::DeclKind::Class(c) => interner.resolve(c.name.sym).to_string(),
             _ => String::new(),
@@ -301,9 +304,9 @@ pub fn achar(
                             .diretivas
                             .push(component::ler_diretiva(arvore, fonte, interner, classe, a));
                     }
-                    // Só `@HostBinding` muda o arquivo da diretiva; o
-                    // `@HostListener` vai para quem a usa. Mas o oficial
-                    // coleta os dois também nas superclasses.
+                    // Only `@HostBinding` changes the directive's file;
+                    // `@HostListener` goes to its users. But the official
+                    // compiler collects both in the superclasses too.
                     if let ast::DeclKind::Class(classe) = &decl.kind {
                         let herda = classe.extends.is_some() || !classe.with.is_empty();
                         let anotada = classe.members.iter().any(|&m| {
@@ -345,35 +348,36 @@ pub fn achar(
     achados
 }
 
-/// Arquivo gerado de uma biblioteca sem nada de Angular.
+/// Generated file of a library with nothing Angular.
 pub fn template_trivial(nome_do_arquivo: &str) -> String {
     format!("{CABECALHO}import '{nome_do_arquivo}';\n")
 }
 
-/// Onde estamos: quantos arquivos o gerador já cobre e quais faltam.
+/// Where we are: how many files the generator already covers and which ones are
+/// missing.
 #[derive(Debug, Default)]
 pub struct Placar {
     /// Arquivos `.dart` examinados.
     pub examinados: usize,
-    /// Gerados por nós.
+    /// Generated by us.
     pub gerados: usize,
-    /// Deixados para quem souber gerar (hoje, o `build_runner`).
+    /// Left to whoever knows how to generate them (today, `build_runner`).
     pub pendentes: Vec<PathBuf>,
     /// Quantos pendentes por motivo da primeira recusa.
     pub motivos: std::collections::BTreeMap<Motivo, usize>,
-    /// Conjunto completo de recusas (motivo e sub-forma) de cada pendente,
-    /// coletado pela mesma emissão que gera. É por ele que se sabe quantos
-    /// arquivos uma forma nova destrava de verdade.
+    /// Complete set of refusals (reason and sub-shape) of each pending file,
+    /// collected by the same emission that generates. It is how one knows how
+    /// many files a new shape really unlocks.
     pub conjuntos: Vec<std::collections::BTreeSet<Recusa>>,
-    /// Quantas vezes cada forma não entendida aparece (`@HostBinding`,
-    /// `providers: [..]`…), contando todas as de cada componente pendente.
+    /// How many times each shape not understood appears (`@HostBinding`,
+    /// `providers: [..]`…), counting all of those of each pending component.
     pub nao_entendidos: std::collections::BTreeMap<String, usize>,
 }
 
 impl Placar {
     pub fn resumo(&self) -> String {
         format!(
-            "ngdart: {}/{} gerados por nós",
+            "ngdart: {}/{} generated by us",
             self.gerados, self.examinados
         )
     }
@@ -386,21 +390,22 @@ pub fn caminho_do_template(fonte: &Path) -> PathBuf {
     fonte.with_file_name(format!("{base}.template.dart"))
 }
 
-/// O pacote sendo gerado: o nome vale para as URIs `asset:` que o ngdart usa
-/// nas mensagens de modo de desenvolvimento.
+/// The package being generated: the name is used for the `asset:` URIs that
+/// ngdart uses in development-mode messages.
 #[derive(Default)]
 pub struct Pacote {
     pub nome: String,
     pub raiz: PathBuf,
-    /// As folhas `.css` que o `sass_builder` gerou nesta build (o motor as
-    /// lê da saída dele), pelo caminho: é delas que o shim do ngdart parte,
-    /// como no oficial — no estilo (`outputStyle`) que o projeto pediu. Sem
-    /// ela, o shim compila o `.scss` ao lado por conta própria.
+    /// The `.css` stylesheets that `sass_builder` generated in this build (the
+    /// engine reads them from its output), by path: the ngdart shim starts from
+    /// them, as in the official build — in the style (`outputStyle`) the
+    /// project asked for. Without it, the shim compiles the `.scss` next to it
+    /// on its own.
     pub folhas_geradas: std::collections::HashMap<PathBuf, String>,
 }
 
 impl Pacote {
-    /// Caminho de um arquivo dentro do pacote, com barras: `lib/src/x/f.dart`.
+    /// Path of a file inside the package, with slashes: `lib/src/x/f.dart`.
     fn relativo(&self, arquivo: &Path) -> String {
         arquivo
             .strip_prefix(&self.raiz)
@@ -410,7 +415,8 @@ impl Pacote {
     }
 }
 
-/// Gera o que sabe gerar para os `.dart` de `diretorios`, acumulando em `c`.
+/// Generates what it can for the `.dart` files of `diretorios`, accumulating
+/// into `c`.
 pub fn gerar_em(
     pacote: &Pacote,
     diretorios: &[PathBuf],
@@ -420,10 +426,10 @@ pub fn gerar_em(
     programa: Option<&resolucao::Resolvedor>,
 ) {
     let resolvedor = programa.map(|r| r as &dyn resolucao::Resolucao);
-    // Duas passadas: a primeira lê e analisa tudo, a segunda gera. É a
-    // primeira que monta o índice de componentes do pacote — sem ele não dá
-    // para saber que `<a02-texto-estatico>` é um componente e qual classe o
-    // implementa.
+    // Two passes: the first reads and parses everything, the second generates.
+    // It is the first that builds the package's component index — without it
+    // there is no way to know that `<a02-texto-estatico>` is a component and
+    // which class implements it.
     let mut arquivos: Vec<(PathBuf, String, Achados)> = Vec::new();
     for dir in diretorios {
         let mut pilha = vec![dir.clone()];
@@ -452,9 +458,10 @@ pub fn gerar_em(
                 };
                 let tokens = dartforge_frontend::lexer::lex(&fonte);
                 let analisada = dartforge_frontend::parser::parse_lexed(&fonte, tokens, interner);
-                // Uma parte (`part of`) não é biblioteca: o oficial não gera
-                // nada para ela (`resolver.isLibrary`), e o que ela declara
-                // entra no `.template.dart` da biblioteca dona.
+                // A part (`part of`) is not a library: the official compiler
+                // generates nothing for it (`resolver.isLibrary`), and what it
+                // declares goes into the `.template.dart` of the owning
+                // library.
                 if e_parte(&analisada.unit) {
                     placar.examinados -= 1;
                     continue;
@@ -472,10 +479,11 @@ pub fn gerar_em(
             match gerar_interno(pacote, p, nome, achados, resolvedor, interner, &indice) {
                 Ok(x) => x,
                 Err(primeira) => {
-                    // Forma que o gerador ainda não cobre: fica com o
-                    // build_runner, e a aplicação compila do mesmo jeito.
+                    // A shape the generator does not cover yet: it stays with
+                    // build_runner, and the application compiles all the same.
                     *placar.motivos.entry(primeira.motivo).or_default() += 1;
-                    // Toda forma presente conta, não só a que recusou.
+                    // Every shape present counts, not only the one that
+                    // refused.
                     for c in &achados.componentes {
                         for r in &c.nao_entendidos {
                             *placar.nao_entendidos.entry(r.forma.clone()).or_default() += 1;
@@ -495,9 +503,10 @@ pub fn gerar_em(
         placar.gerados += 1;
     }
 
-    // As folhas, uma a uma, como o `StylesheetCompiler`: todo `.css` dos
-    // diretórios — o escrito, o que o `sass_builder` gerou nesta build e,
-    // fora do motor, o de cada `.scss` que não é parcial.
+    // The stylesheets, one by one, like the `StylesheetCompiler`: every `.css`
+    // of the directories — the written one, the one `sass_builder` generated in
+    // this build and, outside the engine, the one of each `.scss` that is not a
+    // partial.
     for css in folhas_de(pacote, diretorios) {
         let entrada = if css.is_file() {
             css.clone()
@@ -517,8 +526,9 @@ pub fn gerar_em(
     }
 }
 
-/// Os `.css` de que o ngdart gera folhas, em ordem: os do disco, os que o
-/// `sass_builder` gerou nesta build e os dos `.scss` não parciais sem `.css`.
+/// The `.css` files for which ngdart generates stylesheets, in order: those on
+/// disk, those `sass_builder` generated in this build and those of the
+/// non-partial `.scss` files without a `.css`.
 fn folhas_de(pacote: &Pacote, diretorios: &[PathBuf]) -> Vec<PathBuf> {
     let mut v = std::collections::BTreeSet::new();
     for dir in diretorios {
@@ -556,7 +566,7 @@ fn folhas_de(pacote: &Pacote, diretorios: &[PathBuf]) -> Vec<PathBuf> {
     v.into_iter().collect()
 }
 
-/// A unidade é uma parte (`part of`), não uma biblioteca.
+/// The unit is a part (`part of`), not a library.
 pub fn e_parte(unit: &dartforge_frontend::ast::CompilationUnit) -> bool {
     unit.directives.iter().any(|d| {
         matches!(
@@ -566,40 +576,42 @@ pub fn e_parte(unit: &dartforge_frontend::ast::CompilationUnit) -> bool {
     })
 }
 
-/// Os componentes e diretivas do pacote, por biblioteca e classe.
+/// The components and directives of the package, by library and class.
 ///
-/// O oficial pergunta isso ao grafo de assets do `build`; aqui vem da
-/// primeira passada. É o que permite casar `<a02-texto-estatico>` com a
-/// classe que declara esse seletor e emitir a visão-filha — e saber que um
-/// `<form>` recebe `NgForm`.
+/// The official compiler asks the `build` asset graph for this; here it comes
+/// from the first pass. It is what allows matching `<a02-texto-estatico>` with
+/// the class that declares that selector and emitting the child view — and
+/// knowing that a `<form>` gets `NgForm`.
 ///
-/// É incremental: [`Indice::atualizar`] e [`Indice::remover`] trocam o que
-/// um arquivo pôs, sem reler o resto — o motor de build o mantém vivo na
-/// sessão.
+/// It is incremental: [`Indice::atualizar`] and [`Indice::remover`] replace
+/// what one file put in, without rereading the rest — the build engine keeps it
+/// alive during the session.
 #[derive(Default)]
 pub struct Indice {
     por_classe: std::collections::HashMap<(String, String), view::Filho>,
-    /// `@Directive` por (URI da biblioteca, classe): o seletor e o que o
-    /// emissor precisa para instanciá-la.
+    /// `@Directive` by (library URI, class): the selector and what the emitter
+    /// needs to instantiate it.
     diretivas: std::collections::HashMap<(String, String), component::Componente>,
     /// `@Pipe` por (URI da biblioteca, classe).
     pipes: std::collections::HashMap<(String, String), component::Pipe>,
-    /// Os metadados de cada `@Directive`, lidos do programa
-    /// (`metadata.rs`): é por eles que o emissor instancia a diretiva num
-    /// nó. Sem programa, vazio — e toda diretiva casada é recusada.
+    /// The metadata of each `@Directive`, read from the program
+    /// (`metadata.rs`): it is through them that the emitter instantiates the
+    /// directive on a node. Without a program, empty — and every matched
+    /// directive is refused.
     metadados: std::collections::HashMap<(String, String), std::sync::Arc<directives::Diretiva>>,
-    /// Os `@GenerateInjector` por (URI da biblioteca, variável), lidos do
-    /// programa (`metadata::ler_injetores`), ou o motivo de não se lerem.
+    /// The `@GenerateInjector`s by (library URI, variable), read from the
+    /// program (`metadata::ler_injetores`), or the reason they could not be
+    /// read.
     injetores: std::collections::HashMap<
         (String, String),
         Result<std::sync::Arc<metadata::Injetor>, String>,
     >,
-    /// As chaves que cada arquivo pôs, para `remover`/`atualizar`.
+    /// The keys each file put in, for `remover`/`atualizar`.
     por_arquivo: std::collections::HashMap<PathBuf, Vec<(String, String)>>,
 }
 
 impl Indice {
-    /// Um índice vazio.
+    /// An empty index.
     pub fn novo() -> Indice {
         Indice::default()
     }
@@ -609,9 +621,9 @@ impl Indice {
         arquivos: &[(PathBuf, String, Achados)],
         programa: Option<&resolucao::Resolvedor>,
     ) -> Self {
-        // Com o programa carregado, o índice cobre todos os pacotes: um
-        // `<li-select>` do limitless_ui é tão componente quanto um do próprio
-        // projeto. Sem ele, só o que a varredura de arquivos viu.
+        // With the program loaded, the index covers all packages: an
+        // `<li-select>` from limitless_ui is as much a component as one of the
+        // project itself. Without it, only what the file scan saw.
         let mut indice = match programa {
             Some(r) => Indice::do_programa(r),
             None => Indice::novo(),
@@ -625,9 +637,9 @@ impl Indice {
         indice
     }
 
-    /// O índice de todas as bibliotecas carregadas no programa (as
-    /// dependências inclusive), cada uma registrada pelo seu arquivo: depois,
-    /// [`Indice::atualizar`] troca só o que muda.
+    /// The index of all libraries loaded in the program (dependencies
+    /// included), each one registered by its file: afterwards,
+    /// [`Indice::atualizar`] replaces only what changes.
     pub fn do_programa(r: &resolucao::Resolvedor) -> Indice {
         let mut indice = Indice::novo();
         let interner = r.interner();
@@ -638,11 +650,11 @@ impl Indice {
         indice
     }
 
-    /// Os achados de `arquivo` entram no índice, no lugar dos anteriores. Com
-    /// o programa, os metadados das diretivas também são relidos dele (e a
-    /// injeção dos componentes resolvida); sem, os componentes ficam com a
-    /// injeção sem resolução e as diretivas sem metadados — o que recusa quem
-    /// os usa.
+    /// The findings of `arquivo` go into the index, replacing the previous
+    /// ones. With the program, the directive metadata is also reread from it
+    /// (and the components' injection resolved); without it, the components
+    /// keep unresolved injection and the directives no metadata — which refuses
+    /// whoever uses them.
     pub fn atualizar(
         &mut self,
         pacote: &Pacote,
@@ -657,7 +669,7 @@ impl Indice {
         self.juntar(&uri, Some(arquivo), achados, programa, true);
     }
 
-    /// Tira do índice tudo o que `arquivo` tinha posto.
+    /// Removes from the index everything `arquivo` had put in.
     pub fn remover(&mut self, arquivo: &Path) {
         let Some(chaves) = self
             .por_arquivo
@@ -674,8 +686,8 @@ impl Indice {
         }
     }
 
-    /// Os componentes que `comp` pode usar no template, na ordem de
-    /// `directives:` expandida (as diretivas ficam de fora).
+    /// The components `comp` can use in its template, in the order of the
+    /// expanded `directives:` (the directives are left out).
     pub fn filhos_de(
         &self,
         comp: &component::Componente,
@@ -689,8 +701,9 @@ impl Indice {
             .collect()
     }
 
-    /// Quem declara exatamente este seletor: (biblioteca, classe). Com mais
-    /// de um, o de menor chave — a resposta não depende da ordem do mapa.
+    /// Who declares exactly this selector: (library, class). With more than
+    /// one, the one with the smallest key — the answer does not depend on the
+    /// map order.
     pub fn declarante(&self, seletor: &str) -> Option<(String, String)> {
         self.por_classe
             .iter()
@@ -706,9 +719,9 @@ impl Indice {
             .cloned()
     }
 
-    /// Põe os achados de uma biblioteca. `substitui`: diretivas e pipes
-    /// trocam o que houver (senão, o que já está fica — a passada de arquivos
-    /// não sobrescreve o que o programa leu).
+    /// Adds the findings of a library. `substitui`: directives and pipes
+    /// replace whatever is there (otherwise, what is already there stays — the
+    /// file pass does not overwrite what the program read).
     fn juntar(
         &mut self,
         uri: &str,
@@ -730,25 +743,26 @@ impl Indice {
                 programa.map(|r| r as &dyn resolucao::Resolucao),
             );
             let k = (uri.to_string(), comp.classe.clone());
-            // Os metadados do componente: com eles, os `providers:` dele
-            // (`ExistingProvider`, como os das diretivas) entram no nó de
-            // quem o usa, e o "filho com providers" deixa de ser recusa.
+            // The component's metadata: with it, its `providers:`
+            // (`ExistingProvider`, like those of directives) go into the node
+            // of whoever uses it, and "child with providers" stops being a
+            // refusal.
             if let Some(r) = programa
                 && let Some(m) = r
                     .classe_por_uri(uri, &comp.classe)
                     .and_then(|id| crate::metadata::ler(r, id))
                 && let Some(f) = self.por_classe.get_mut(&k)
             {
-                // O nó de template escreve os `providers:` do filho como a
-                // hospedeira; o que ainda não sai (dependência de fora do
-                // nó, provedor pedido no próprio nó) é recusado pela visão,
-                // com o motivo.
+                // The template node writes the child's `providers:` as the host
+                // view does; what is not emitted yet (a dependency from outside
+                // the node, a provider requested on the node itself) is refused
+                // by the view, with the reason.
                 if crate::view::provedores_escreviveis(&m).is_ok() {
-                    f.pendencias.retain(|p| p.forma != "filho com providers");
+                    f.pendencias.retain(|p| p.forma != "child with providers");
                 }
-                // Os parâmetros do construtor pelos metadados (`@Inject`,
-                // `@Attribute`, tokens opacos): trocam os lidos do texto e a
-                // recusa que eles deram.
+                // The constructor parameters from the metadata (`@Inject`,
+                // `@Attribute`, opaque tokens): they replace the ones read from
+                // the text and the refusal they caused.
                 let recusa_do_texto = comp
                     .parametros
                     .iter()
@@ -760,8 +774,8 @@ impl Indice {
                         }
                         f.parametros = ps;
                     }
-                    // Os metadados dizem melhor o que falta: o motivo deles
-                    // troca o do texto.
+                    // The metadata says better what is missing: its reason
+                    // replaces that of the text.
                     Err(motivo) => {
                         if let Some(forma) = recusa_do_texto {
                             for p in f.pendencias.iter_mut().filter(|p| p.forma == forma) {
@@ -770,11 +784,11 @@ impl Indice {
                         }
                     }
                 }
-                // O filho que herda: `@Input`, `@Output`, `@HostBinding` e
-                // ganchos pelos metadados, que sobem os supertipos como o
-                // `_collectInheritableMetadata` do oficial. A consulta de
-                // conteúdo herdada ainda não se escreve.
-                // Os ganchos sempre pelo programa (interface indireta:
+                // The inheriting child: `@Input`, `@Output`, `@HostBinding` and
+                // hooks from the metadata, which walks up the supertypes like
+                // the official `_collectInheritableMetadata`. The inherited
+                // content query is not written yet.
+                // The hooks always come from the program (indirect interface:
                 // `implements X`, `X extends OnInit`).
                 if m.fora.is_empty() {
                     f.ganchos = m.ganchos;
@@ -798,7 +812,7 @@ impl Indice {
                     });
                     if m.consultas_de_conteudo.is_empty() {
                         f.pendencias
-                            .retain(|p| p.forma != "filho que herda (extends/with)");
+                            .retain(|p| p.forma != "child that inherits (extends/with)");
                     }
                 }
                 f.metadados = Some(std::sync::Arc::new(m));
@@ -847,11 +861,12 @@ impl Indice {
                 .extend(chaves);
         }
     }
-    /// Os pipes que este componente usa, na ordem de `pipes:` expandida em
-    /// profundidade (as listas constantes, como `commonPipes`, pelo banco
-    /// semântico). O oficial procura o nome do fim para o começo
-    /// (`_findPipeMeta`), então a ordem importa. Classe que não é pipe fica
-    /// de fora; nome que não se resolve volta como recusa.
+    /// The pipes this component uses, in the order of `pipes:` expanded
+    /// depth-first (the constant lists, like `commonPipes`, through the
+    /// semantic database). The official compiler looks the name up from the end
+    /// to the start (`_findPipeMeta`), so the order matters. A class that is
+    /// not a pipe is left out; a name that does not resolve comes back as a
+    /// refusal.
     fn pipes_de(
         &self,
         comp: &component::Componente,
@@ -863,7 +878,7 @@ impl Indice {
         if comp.pipes_ilegiveis {
             fora.push(recusa(
                 Motivo::PipesUsados,
-                "pipes: com item que não é nome",
+                "pipes: with an item that is not a name",
             ));
         }
         let mut pilha: Vec<(String, PathBuf, u32)> = comp
@@ -874,7 +889,7 @@ impl Indice {
             .collect();
         while let Some((nome, escopo, profundidade)) = pilha.pop() {
             if profundidade > 32 {
-                fora.push(recusa(Motivo::PipesUsados, "pipes: lista circular"));
+                fora.push(recusa(Motivo::PipesUsados, "pipes: circular list"));
                 break;
             }
             let simples = nome.rsplit('.').next().unwrap_or(&nome).to_string();
@@ -892,19 +907,19 @@ impl Indice {
                         pilha.push((item.clone(), escopo.clone(), profundidade + 1));
                     }
                 }
-                None => fora.push(recusa(Motivo::PipesUsados, "pipes: nome não resolvido")),
+                None => fora.push(recusa(Motivo::PipesUsados, "pipes: unresolved name")),
             }
         }
         (saida, fora)
     }
 
-    /// As diretivas e componentes que este componente usa, na ordem do
-    /// oficial: `directives:` expandida em profundidade (as listas
-    /// constantes pelo banco semântico), sem repetição (`removeDuplicates`).
-    /// Classe que não é diretiva nem componente é ignorada, como no oficial
-    /// (`typeDeclarationOf(value)?.accept(...)` devolve `null`). O que não
-    /// se consegue resolver volta como recusa: sem a lista inteira não se
-    /// sabe o que casa com cada elemento.
+    /// The directives and components this component uses, in the official
+    /// order: `directives:` expanded depth-first (the constant lists through
+    /// the semantic database), without repetition (`removeDuplicates`). A class
+    /// that is neither a directive nor a component is ignored, as in the
+    /// official compiler (`typeDeclarationOf(value)?.accept(...)` returns
+    /// `null`). What cannot be resolved comes back as a refusal: without the
+    /// whole list one cannot know what matches each element.
     fn diretivas_de(
         &self,
         comp: &component::Componente,
@@ -917,13 +932,13 @@ impl Indice {
         if comp.tipos_de_diretiva_ilegiveis {
             fora.push(recusa(
                 Motivo::NaoEntendido,
-                "directiveTypes: numa forma que não se lê",
+                "directiveTypes: in an unreadable shape",
             ));
         }
         if comp.diretivas_ilegiveis {
             fora.push(recusa(
                 Motivo::DiretivaPorSeletor,
-                "directives: com item que não é nome",
+                "directives: with an item that is not a name",
             ));
         }
         for nome in &comp.diretivas {
@@ -954,7 +969,7 @@ impl Indice {
         if profundidade > 32 {
             fora.push(recusa(
                 Motivo::DiretivaPorSeletor,
-                "directives: lista circular",
+                "directives: circular list",
             ));
             return;
         }
@@ -997,8 +1012,9 @@ impl Indice {
                 }
             }
             None => {
-                // Sem resposta do banco semântico: só um componente de nome
-                // único no pacote (o caminho de antes, sem programa).
+                // No answer from the semantic database: only a component with a
+                // unique name in the package (the earlier path, without a
+                // program).
                 let por_nome: Vec<&view::Filho> = self
                     .por_classe
                     .values()
@@ -1019,7 +1035,7 @@ impl Indice {
                     }
                     _ => fora.push(recusa(
                         Motivo::DiretivaPorSeletor,
-                        "directives: nome não resolvido",
+                        "directives: unresolved name",
                     )),
                 }
             }
@@ -1027,13 +1043,13 @@ impl Indice {
     }
 }
 
-/// Os componentes que o emissor casa pela tag: os de seletor só com nome de
-/// elemento. O resto da lista só serve à guarda de diretivas.
+/// The components the emitter matches by tag: those whose selector is only an
+/// element name. The rest of the list only serves the directive guard.
 fn filhos_por_tag(usadas: &[view::Usada]) -> std::collections::HashMap<String, view::Filho> {
     let mut saida = std::collections::HashMap::new();
-    // Seletor composto (`page-header-comp,pg-header`): cada alternativa que
-    // é só a tag casa o elemento com essa tag. As outras alternativas ficam
-    // com a guarda de diretivas.
+    // Compound selector (`page-header-comp,pg-header`): each alternative that
+    // is just the tag matches the element with that tag. The other alternatives
+    // are left to the directive guard.
     for u in usadas {
         let Some(f) = &u.filho else {
             continue;
@@ -1047,23 +1063,23 @@ fn filhos_por_tag(usadas: &[view::Usada]) -> std::collections::HashMap<String, v
     saida
 }
 
-/// Os parâmetros do construtor de um filho pelos metadados lidos do
-/// programa (`_getCompileDiDependencyMetadata`: os nomeados ficam de fora;
-/// `@Inject(token)` e `@Attribute('nome')` resolvidos), como o oficial os
-/// resolve no nó dele. Um tipo genérico sem `@Inject` e os embutidos do
-/// elemento anotados ainda não se traduzem.
+/// The constructor parameters of a child from the metadata read from the
+/// program (`_getCompileDiDependencyMetadata`: the named ones are left out;
+/// `@Inject(token)` and `@Attribute('name')` resolved), as the official
+/// compiler resolves them on its node. A generic type without `@Inject` and the
+/// annotated element built-ins are not translated yet.
 fn parametros_dos_metadados(
     comp: &component::Componente,
     meta: &directives::Diretiva,
 ) -> Result<Vec<view::Injetado>, String> {
     use directives::Token;
     if let Some(f) = meta.fora.first() {
-        return Err(format!("metadados do filho incompletos: {f}"));
+        return Err(format!("incomplete child metadata: {f}"));
     }
     let textuais: Vec<&component::Parametro> =
         comp.parametros.iter().filter(|p| !p.nomeado).collect();
     if textuais.len() != meta.dependencias.len() {
-        return Err("parâmetros do filho sem os metadados".into());
+        return Err("child parameters without the metadata".into());
     }
     let mut saida = Vec::new();
     for d in &meta.dependencias {
@@ -1078,7 +1094,7 @@ fn parametros_dos_metadados(
             _ => false,
         };
         if embutido && anotado {
-            return Err("embutido do elemento anotado no construtor do filho".into());
+            return Err("annotated element built-in in the child constructor".into());
         }
         saida.push(match &d.token {
             Token::Elemento => view::Injetado::Elemento,
@@ -1086,11 +1102,11 @@ fn parametros_dos_metadados(
             Token::Classe { uri, classe } if embutido_do_ngdart(uri, classe) => {
                 match classe.as_str() {
                     "ViewContainerRef" | "ComponentLoader" => view::Injetado::Container,
-                    _ => return Err("token do ngdart no construtor do filho".into()),
+                    _ => return Err("ngdart token in the child constructor".into()),
                 }
             }
             Token::Classe { uri, .. } if uri.starts_with("dart:") => {
-                return Err("tipo do SDK no construtor do filho".into());
+                return Err("SDK type in the child constructor".into());
             }
             t => view::Injetado::Servico {
                 token: t.clone(),
@@ -1104,10 +1120,10 @@ fn parametros_dos_metadados(
     Ok(saida)
 }
 
-/// Os embutidos do nó que o `_getLocalDependency` do oficial devolve sem
-/// procurar provedor (`ElementRef`, `ChangeDetectorRef`, `NgContentRef`,
-/// `TemplateRef`, `ViewContainerRef`, `ComponentLoader`, `Injector`); outra
-/// classe do ngdart (`NgZone`, …) é serviço como qualquer outro.
+/// The node built-ins that the official `_getLocalDependency` returns without
+/// looking for a provider (`ElementRef`, `ChangeDetectorRef`, `NgContentRef`,
+/// `TemplateRef`, `ViewContainerRef`, `ComponentLoader`, `Injector`); another
+/// ngdart class (`NgZone`, …) is a service like any other.
 fn embutido_do_ngdart(uri: &str, classe: &str) -> bool {
     uri.starts_with("package:ngdart/")
         && matches!(
@@ -1122,9 +1138,9 @@ fn embutido_do_ngdart(uri: &str, classe: &str) -> bool {
         )
 }
 
-/// Como o oficial resolve um parâmetro do construtor de um filho no nó dele:
-/// o nó, a visão do filho ou um serviço de fora da visão. O resto (outro
-/// token do ngdart, `@Inject`, `@Self`, genérico, nomeado) ainda não.
+/// How the official compiler resolves a constructor parameter of a child on its
+/// node: the node, the child's view or a service from outside the view. The
+/// rest (another ngdart token, `@Inject`, `@Self`, generic, named) not yet.
 fn injetado(
     p: &component::Parametro,
     caminho: Option<&Path>,
@@ -1133,26 +1149,26 @@ fn injetado(
     let tipo = p
         .tipo
         .as_deref()
-        .ok_or("parâmetro sem tipo no construtor do filho")?;
+        .ok_or("untyped parameter in the child constructor")?;
     if p.nomeado {
-        return Err("parâmetro nomeado no construtor do filho");
+        return Err("named parameter in the child constructor");
     }
     if p.outra_anotacao {
-        return Err("@Inject/@Attribute no construtor do filho");
+        return Err("@Inject/@Attribute in the child constructor");
     }
     let tipo = view::tipo_do_token(tipo);
     let uri = match (caminho, resolvedor) {
         (Some(c), Some(r)) => r.uri_do_tipo(c, tipo),
         _ => None,
     }
-    .ok_or("tipo injetado no filho sem resolução")?;
+    .ok_or("unresolved type injected into the child")?;
     let simples = tipo.rsplit('.').next().unwrap_or(tipo).to_string();
-    // Os embutidos do elemento (o nó, a visão, o `ViewContainer`) com
-    // `@Self`/`@Host`/`@SkipSelf`/`@Optional`: ainda sem caso.
+    // The element built-ins (the node, the view, the `ViewContainer`) with
+    // `@Self`/`@Host`/`@SkipSelf`/`@Optional`: no case yet.
     let embutido = crate::dialect::no_embutido(&uri, &simples).is_some()
         || embutido_do_ngdart(&uri, &simples);
     if embutido && p.anotado {
-        return Err("embutido do elemento anotado no construtor do filho");
+        return Err("annotated element built-in in the child constructor");
     }
     if crate::dialect::no_embutido(&uri, &simples).is_some() {
         return Ok(view::Injetado::Elemento);
@@ -1160,14 +1176,14 @@ fn injetado(
     if embutido_do_ngdart(&uri, &simples) {
         return match simples.as_str() {
             "ChangeDetectorRef" if !p.opcional => Ok(view::Injetado::Detector),
-            // O nó ganha um `ViewContainer` (`requiresViewContainer`), que o
-            // filho recebe (caso j47).
+            // The node gets a `ViewContainer` (`requiresViewContainer`), which
+            // the child receives (case j47).
             "ViewContainerRef" | "ComponentLoader" => Ok(view::Injetado::Container),
-            _ => Err("token do ngdart no construtor do filho"),
+            _ => Err("ngdart token in the child constructor"),
         };
     }
     if uri.starts_with("dart:") {
-        return Err("tipo do SDK no construtor do filho");
+        return Err("SDK type in the child constructor");
     }
     Ok(view::Injetado::Servico {
         token: directives::Token::Classe {
@@ -1181,7 +1197,7 @@ fn injetado(
     })
 }
 
-/// Põe um componente no índice, com o que o emissor precisa dele.
+/// Puts a component in the index, with what the emitter needs from it.
 fn indexar(
     por_classe: &mut std::collections::HashMap<(String, String), view::Filho>,
     uri: &str,
@@ -1192,7 +1208,7 @@ fn indexar(
     if comp.seletor.is_empty() {
         return;
     }
-    // Se o filho projeta conteúdo, quem o usa chama `createAndProject`.
+    // If the child projects content, its user calls `createAndProject`.
     let nos = match (&comp.template, &comp.template_url) {
         (Some(t), _) => Some(html::analisar(t)),
         (None, Some(u)) => caminho
@@ -1201,7 +1217,8 @@ fn indexar(
             .map(|t| html::analisar(&t)),
         (None, None) => None,
     };
-    // `ngContentSelectors`: o `select` de cada `<ng-content>`, `*` sem ele.
+    // `ngContentSelectors`: the `select` of each `<ng-content>`, `*` without
+    // it.
     let projecoes: Vec<String> = nos
         .as_deref()
         .map(html::projecoes)
@@ -1209,7 +1226,7 @@ fn indexar(
         .into_iter()
         .map(|s| s.unwrap_or_else(|| "*".to_string()))
         .collect();
-    // O que no filho muda o código de quem o usa e ainda não é escrito.
+    // What in the child changes the code of its user and is not written yet.
     let em_filho = |f: &str| recusa(Motivo::LigacaoEmFilho, f);
     let mut pendencias = Vec::new();
     let mut parametros = Vec::new();
@@ -1222,17 +1239,18 @@ fn indexar(
             }
         }
     }
-    // As consultas de conteúdo, com o alvo resolvido no arquivo do filho.
-    // Tipo do ngdart (`TemplateRef`, diretivas do núcleo) casaria com o que
-    // o emissor põe no conteúdo (`*ngIf`): ainda não.
+    // The content queries, with the target resolved in the child's file. An
+    // ngdart type (`TemplateRef`, core directives) would match what the emitter
+    // puts in the content (`*ngIf`): not yet.
     let mut consultas = Vec::new();
     match &comp.consultas_de_conteudo {
-        None => pendencias.push(em_filho("filho com @ContentChild fora da forma")),
+        None => pendencias.push(em_filho("child with @ContentChild outside the shape")),
         Some(lidas) => {
             for q in lidas {
-                // `read:` troca o valor lido: o nó (`HtmlElement`/`Element`)
-                // ou outro provedor do nó, de classe do pacote. O resto
-                // (`ViewContainerRef`, `TemplateRef`, tokens) ainda não.
+                // `read:` changes the value read: the node
+                // (`HtmlElement`/`Element`) or another provider of the node, of
+                // a package class. The rest (`ViewContainerRef`, `TemplateRef`,
+                // tokens) not yet.
                 let leitura = match &q.leitura {
                     None => None,
                     Some(nome) => {
@@ -1251,7 +1269,7 @@ fn indexar(
                                 Some(view::LeituraDaConsulta::Classe(u, simples.to_string()))
                             }
                             _ => {
-                                pendencias.push(em_filho("filho com @ContentChild(.., read:)"));
+                                pendencias.push(em_filho("child with @ContentChild(.., read:)"));
                                 break;
                             }
                         }
@@ -1283,7 +1301,7 @@ fn indexar(
                         });
                     }
                     _ => {
-                        pendencias.push(em_filho("filho com @ContentChild de tipo não resolvido"));
+                        pendencias.push(em_filho("child with @ContentChild of an unresolved type"));
                         break;
                     }
                 }
@@ -1291,15 +1309,15 @@ fn indexar(
         }
     }
     if comp.com_provedores {
-        pendencias.push(em_filho("filho com providers"));
+        pendencias.push(em_filho("child with providers"));
     }
-    // Ganchos, `@Input` e `@Output` herdados não se veem daqui (o oficial
-    // os coleta pelos supertipos).
+    // Inherited hooks, `@Input` and `@Output` cannot be seen from here (the
+    // official compiler collects them through the supertypes).
     if comp.herda {
-        pendencias.push(em_filho("filho que herda (extends/with)"));
+        pendencias.push(em_filho("child that inherits (extends/with)"));
     }
     if comp.template.is_none() && comp.template_url.is_some() && nos.is_none() {
-        pendencias.push(em_filho("template do filho não encontrado"));
+        pendencias.push(em_filho("child template not found"));
     }
     por_classe.insert(
         (uri.to_string(), comp.classe.clone()),
@@ -1313,8 +1331,9 @@ fn indexar(
             ganchos: comp.ganchos,
             on_push: comp.on_push,
             link_de_deteccao: comp.link_de_deteccao,
-            // O estático sai no construtor da visão do filho: sem outro, o
-            // filho não tem `detectHostChanges` (caso j101).
+            // The static one goes into the constructor of the child's view:
+            // without another one, the child has no `detectHostChanges` (case
+            // j101).
             hospedeiro: comp.liga_hospedeiro
                 && (comp.ligacoes_do_hospedeiro.is_empty()
                     || comp.ligacoes_do_hospedeiro.iter().any(|l| !l.estatico)),
@@ -1337,15 +1356,16 @@ fn indexar(
     );
 }
 
-/// Nome do pacote, lido do `pubspec.yaml` da raiz.
+/// Package name, read from the root `pubspec.yaml`.
 ///
-/// É a fonte autoritativa: o nome da pasta não serve (`limitless_ui/example`
-/// declara `name: limitless_ui_example`) e comparar `rootUri` do
-/// `package_config.json` com a raiz falha por barra final e canonicalização.
+/// It is the authoritative source: the folder name does not work
+/// (`limitless_ui/example` declares `name: limitless_ui_example`) and comparing
+/// the `rootUri` of `package_config.json` with the root fails because of
+/// trailing slashes and canonicalization.
 pub fn nome_do_pacote(raiz: &Path) -> Option<String> {
     let texto = std::fs::read_to_string(raiz.join("pubspec.yaml")).ok()?;
     for linha in texto.lines() {
-        // `name:` no primeiro nível, sem indentação.
+        // `name:` at the top level, without indentation.
         let Some(valor) = linha.strip_prefix("name:") else {
             continue;
         };
@@ -1360,28 +1380,29 @@ pub fn nome_do_pacote(raiz: &Path) -> Option<String> {
     None
 }
 
-/// URI `package:` de um arquivo do pacote, quando ele está em `lib/`.
+/// `package:` URI of a file of the package, when it is in `lib/`.
 fn uri_de_biblioteca(pacote: &Pacote, caminho: &Path) -> Option<String> {
     let rel = pacote.relativo(caminho);
     let dentro = rel.strip_prefix("lib/")?;
-    // Na forma canônica, a do índice (`package:ngx_forms/` → `ngforms`).
+    // In canonical form, that of the index (`package:ngx_forms/` → `ngforms`).
     Some(dialect::canonica_string(format!(
         "package:{}/{dentro}",
         pacote.nome
     )))
 }
 
-/// O que sai de um arquivo: o `.template.dart`, os arquivos que o alimentam
-/// e os gerados à parte (o `.css.shim.dart` de cada folha).
+/// What comes out of a file: the `.template.dart`, the files that feed it and
+/// those generated separately (the `.css.shim.dart` of each stylesheet).
 pub(crate) type Gerado = (String, Vec<PathBuf>, Vec<(PathBuf, String)>);
 
-/// As diretivas do arquivo que ganham `XNgCd`, na ordem do fonte: as
-/// ligações são as dos metadados lidos do programa (`hostProperties` do
-/// oficial, supertipos primeiro), também as herdadas — e a diretiva que só
-/// herda ligações também ganha o seu (caso j84). O membro herdado tem a
-/// imutabilidade (campo `final` seria escrito uma vez) e, no `style.x`, o
-/// tipo perguntados ao resolvedor. Sem os metadados, só as ligações da
-/// própria classe, e a diretiva que herda é recusada.
+/// The directives of the file that get an `XNgCd`, in source order: the
+/// bindings are those of the metadata read from the program (the official
+/// `hostProperties`, supertypes first), including inherited ones — and a
+/// directive that only inherits bindings gets one too (case j84). For an
+/// inherited member, the immutability (a `final` field would be written once)
+/// and, for `style.x`, the type are asked of the resolver. Without the
+/// metadata, only the bindings of the class itself, and an inheriting directive
+/// is refused.
 fn hospedeiras_efetivas(
     pacote: &Pacote,
     fonte: &Path,
@@ -1403,7 +1424,7 @@ fn hospedeiras_efetivas(
         if achados.hospedeiro_herdado {
             return Err(recusa(
                 Motivo::HostBindingEmDiretiva,
-                "@HostBinding/@HostListener em diretiva que herda",
+                "@HostBinding/@HostListener on an inheriting directive",
             ));
         }
         return Ok(achados.hospedeiras.clone());
@@ -1452,16 +1473,17 @@ fn hospedeiras_efetivas(
                 }
                 Ok(_) if final_.is_none() => {
                     h.recusada.get_or_insert(format!(
-                        "@HostBinding('{nome}') herdado sem declaração legível"
+                        "inherited @HostBinding('{nome}') without a readable declaration"
                     ));
                 }
                 Ok(view::FormaDoHospedeiro::Estilo { .. }) if final_ == Some(true) => {
                     h.recusada
-                        .get_or_insert(format!("@HostBinding('{nome}') em campo final"));
+                        .get_or_insert(format!("@HostBinding('{nome}') on a final field"));
                 }
                 Ok(view::FormaDoHospedeiro::Estilo { .. }) => {
-                    // O tipo escrito, pelo programa (que sobe até a classe
-                    // que declara o membro), senão o da própria classe.
+                    // The written type, from the program (which walks up to the
+                    // class that declares the member), otherwise that of the
+                    // class itself.
                     let tipo = resolvedor
                         .and_then(|r| r.tipo_do_membro(fonte, &d.classe, membro))
                         .map(|(t, _)| t)
@@ -1476,7 +1498,7 @@ fn hospedeiras_efetivas(
                         }
                         _ => {
                             h.recusada.get_or_insert(format!(
-                                "@HostBinding('{nome}') de tipo desconhecido"
+                                "@HostBinding('{nome}') of unknown type"
                             ));
                         }
                     }
@@ -1489,8 +1511,8 @@ fn hospedeiras_efetivas(
     Ok(saida)
 }
 
-/// Conteúdo do `.template.dart` de um arquivo, quando sabemos gerá-lo, com os
-/// arquivos que o alimentam (o `.dart` e o `.html` do template).
+/// Contents of the `.template.dart` of a file, when we know how to generate it,
+/// with the files that feed it (the `.dart` and the template's `.html`).
 pub(crate) fn gerar_interno(
     pacote: &Pacote,
     fonte: &Path,
@@ -1500,9 +1522,9 @@ pub(crate) fn gerar_interno(
     nomes: &mut Interner,
     indice: &Indice,
 ) -> Result<Gerado, Recusa> {
-    // Uma anotação do arquivo com nome que não se resolve não é constante:
-    // o oficial falha ao compilá-la ("Arguments of a constant creation must
-    // be constant expressions") e não gera nada.
+    // An annotation of the file with a name that does not resolve is not
+    // constant: the official compiler fails to compile it ("Arguments of a
+    // constant creation must be constant expressions") and generates nothing.
     if let Some(uri) = uri_de_biblioteca(pacote, fonte) {
         let metadados = achados
             .diretivas
@@ -1520,21 +1542,22 @@ pub(crate) fn gerar_interno(
                     .and_then(|f| f.metadados.clone())
             }));
         for m in metadados {
-            if let Some(f) = m.fora.iter().find(|f| f.contains("nome não resolvido")) {
+            if let Some(f) = m.fora.iter().find(|f| f.contains("unresolved name")) {
                 return Err(recusa(
                     Motivo::NaoEntendido,
                     format!(
-                        "anotação de {} com nome não resolvido ({f}): o oficial falha",
+                        "annotation of {} with an unresolved name ({f}): the official compiler fails",
                         m.classe
                     ),
                 ));
             }
         }
     }
-    // O mesmo vale para quem lista essa classe em `directives:`: o oficial
-    // lê os metadados de cada diretiva usada ao compilar o componente, e a
-    // falha dela é a dele (o `material_date_time_picker` com o
-    // `MaterialInputComponent` de `NG_VALIDATORS` inexistente).
+    // The same holds for whoever lists that class in `directives:`: the
+    // official compiler reads the metadata of each directive used when
+    // compiling the component, and its failure is the component's (the
+    // `material_date_time_picker` with the `MaterialInputComponent` of a
+    // nonexistent `NG_VALIDATORS`).
     for comp in &achados.componentes {
         let (usadas, _) = indice.diretivas_de(comp, fonte, resolvedor);
         for u in &usadas {
@@ -1544,12 +1567,12 @@ pub(crate) fn gerar_interno(
                 .and_then(|f| f.metadados.clone())
                 .or_else(|| u.diretiva.clone());
             if let Some(m) = m
-                && let Some(f) = m.fora.iter().find(|f| f.contains("nome não resolvido"))
+                && let Some(f) = m.fora.iter().find(|f| f.contains("unresolved name"))
             {
                 return Err(recusa(
                     Motivo::NaoEntendido,
                     format!(
-                        "directives: {} tem anotação com nome não resolvido ({f}): o oficial falha",
+                        "directives: {} has an annotation with an unresolved name ({f}): the official compiler fails",
                         m.classe
                     ),
                 ));
@@ -1567,10 +1590,10 @@ pub(crate) fn gerar_interno(
             indice,
         );
     }
-    // `buildGeneratedCode`: os imports dos injetores logo depois do import
-    // do próprio arquivo, antes dos das visões; o código deles no fim.
+    // `buildGeneratedCode`: the injectors' imports right after the import of
+    // the file itself, before those of the views; their code at the end.
     let uri = uri_de_biblioteca(pacote, fonte)
-        .ok_or_else(|| recusa(Motivo::Injetor, "@GenerateInjector fora de um pacote"))?;
+        .ok_or_else(|| recusa(Motivo::Injetor, "@GenerateInjector outside a package"))?;
     let mut injetores = Vec::new();
     for nome in &achados.injetores {
         match indice.injetores.get(&(uri.clone(), nome.clone())) {
@@ -1594,15 +1617,15 @@ pub(crate) fn gerar_interno(
     let depois = texto
         .find(&marca)
         .map(|i| i + marca.len())
-        .ok_or_else(|| recusa(Motivo::Injetor, "arquivo gerado sem o import de si mesmo"))?;
+        .ok_or_else(|| recusa(Motivo::Injetor, "generated file without the import of itself"))?;
     texto.insert_str(depois, &imports);
     texto.push('\n');
     texto.push_str(&corpo);
     Ok((texto, entradas, extras))
 }
 
-/// O `.template.dart` das visões (e dos `XNgCd`) de um arquivo, sem os
-/// injetores.
+/// The `.template.dart` of the views (and of the `XNgCd`s) of a file, without
+/// the injectors.
 fn gerar_visoes(
     pacote: &Pacote,
     fonte: &Path,
@@ -1619,11 +1642,11 @@ fn gerar_visoes(
             Vec::new(),
         ));
     }
-    // Diretiva e pipe não geram visão: o arquivo deles é o trivial, a não
-    // ser que uma diretiva tenha `@HostBinding` — aí o oficial gera o
-    // `DirectiveChangeDetector` dela.
-    // O `XNgCd` de cada diretiva do arquivo, com as ligações herdadas
-    // (caso j84).
+    // Directives and pipes do not generate a view: their file is the trivial
+    // one, unless a directive has `@HostBinding` — then the official compiler
+    // generates its `DirectiveChangeDetector`.
+    // The `XNgCd` of each directive of the file, with the inherited bindings
+    // (case j84).
     let hospedeiras = hospedeiras_efetivas(pacote, fonte, achados, resolvedor, indice)?;
     if achados.componentes.is_empty() {
         if hospedeiras.is_empty() {
@@ -1633,8 +1656,8 @@ fn gerar_visoes(
                 Vec::new(),
             ));
         }
-        // As classes `XNgCd` na ordem do fonte, com a tabela de imports
-        // compartilhada; diretiva sem `@HostBinding` e pipe não geram nada.
+        // The `XNgCd` classes in source order, with the shared import table; a
+        // directive without `@HostBinding` and a pipe generate nothing.
         if let Some(m) = hospedeiras.iter().find_map(|h| h.recusada.clone()) {
             return Err(recusa(Motivo::HostBindingEmDiretiva, m));
         }
@@ -1645,15 +1668,15 @@ fn gerar_visoes(
             Vec::new(),
         ));
     }
-    // Diretiva sem `@HostBinding`/`@HostListener` e pipe não geram nada no
-    // arquivo (caso j29); a com `@HostBinding` ganha a classe `XNgCd` depois
-    // dos componentes (caso j45).
+    // A directive without `@HostBinding`/`@HostListener` and a pipe generate
+    // nothing in the file (case j29); one with `@HostBinding` gets the `XNgCd`
+    // class after the components (case j45).
     if let Some(m) = hospedeiras.iter().find_map(|h| h.recusada.clone()) {
         return Err(recusa(Motivo::HostBindingEmDiretiva, m));
     }
-    // Vários componentes: a tabela de imports é uma só e os trechos saem na
-    // ordem do fonte (caso i24); o import da folha de cada um é alocado
-    // quando a lista `styles$X` dele é escrita (caso j44).
+    // Several components: there is a single import table and the fragments come
+    // out in source order (case i24); the import of each one's stylesheet is
+    // allocated when its `styles$X` list is written (case j44).
     let mut imp = view::Importacoes::default();
     let mut trechos = Vec::new();
     let mut entradas = vec![fonte.to_path_buf()];
@@ -1681,7 +1704,7 @@ fn gerar_visoes(
     ))
 }
 
-/// O `Local` de um componente: onde ele mora e os metadados dele.
+/// The `Local` of a component: where it lives and its metadata.
 fn local_do_componente<'a>(
     pacote: &'a Pacote,
     fonte: &'a Path,
@@ -1706,21 +1729,21 @@ fn local_do_componente<'a>(
     }
 }
 
-/// O template de um componente, já analisado: o texto do `.html` (ou o da
-/// anotação, com as posições deslocadas para as do `.dart`) e o arquivo
-/// que o alimenta.
+/// The template of a component, already parsed: the text of the `.html` (or
+/// that of the annotation, with the positions shifted to those of the `.dart`)
+/// and the file that feeds it.
 fn template_do_componente(
     fonte: &Path,
     comp: &component::Componente,
 ) -> Result<(Vec<html::No>, Option<PathBuf>), Recusa> {
-    let ausente = || recusa(Motivo::TemplateAusente, "templateUrl não encontrado");
+    let ausente = || recusa(Motivo::TemplateAusente, "templateUrl not found");
     Ok(match (&comp.template, &comp.template_url) {
         (Some(t), _) => {
             let (mut nos, erro) = html::analisar_no_modo(t, comp.preservar_espacos);
             if let Some(e) = erro {
                 return Err(recusa(
                     Motivo::NaoEntendido,
-                    format!("template inválido: {e}"),
+                    format!("invalid template: {e}"),
                 ));
             }
             if let Some(k) = comp.deslocamento_do_template {
@@ -1735,7 +1758,7 @@ fn template_do_componente(
             if let Some(e) = erro {
                 return Err(recusa(
                     Motivo::NaoEntendido,
-                    format!("template inválido: {e}"),
+                    format!("invalid template: {e}"),
                 ));
             }
             (nos, Some(caminho))
@@ -1744,7 +1767,7 @@ fn template_do_componente(
     })
 }
 
-/// O trecho de um componente no `.template.dart`, com o `.html` dele.
+/// The fragment of a component in the `.template.dart`, with its `.html`.
 #[allow(clippy::too_many_arguments)]
 fn trecho_do_componente(
     pacote: &Pacote,
@@ -1767,8 +1790,8 @@ fn trecho_do_componente(
         return Err(r);
     }
     let filhos = filhos_por_tag(&usadas);
-    // A lista de `pipes:` só pesa se o template usa pipe (caso b19): a
-    // recusa dela vai junto e é a visão que decide.
+    // The `pipes:` list only matters if the template uses a pipe (case b19):
+    // its refusal goes along and the view decides.
     let (pipes, fora) = indice.pipes_de(comp, fonte, resolvedor);
     let pipes = match fora.into_iter().next() {
         Some(r) => Err(r),
@@ -1777,33 +1800,35 @@ fn trecho_do_componente(
     let texto = view::trecho_de_componente(
         comp, &local, &nos, resolvedor, nomes, &filhos, &usadas, &pipes, imp,
     )?;
-    // A folha é outra saída ([`gerar_folha`], por `.css`, como o
-    // `StylesheetCompiler` do oficial): o template só importa o módulo
-    // dela, e o conteúdo não o muda. Aqui só se confere que ela existe.
+    // The stylesheet is another output ([`gerar_folha`], per `.css`, like the
+    // official `StylesheetCompiler`): the template only imports its module, and
+    // the contents do not change it. Here we only check that it exists.
     for url in &comp.style_urls {
-        // `package:este/x.css` é `lib/x.css`; a de outro pacote é saída da
-        // build dele, que o template só importa pelo URI.
+        // `package:this/x.css` is `lib/x.css`; one from another package is an
+        // output of that package's build, which the template only imports by
+        // URI.
         let css = match url.strip_prefix("package:").and_then(|r| r.split_once('/')) {
             Some((p, resto)) if p == pacote.nome => pacote.raiz.join("lib").join(resto),
             Some(_) => continue,
             None => fonte
                 .parent()
-                .ok_or_else(|| recusa(Motivo::Estilos, "folha fora de lib/"))?
+                .ok_or_else(|| recusa(Motivo::Estilos, "stylesheet outside lib/"))?
                 .join(url),
         };
         if texto_da_folha(pacote, &css).is_none() {
-            return Err(recusa(Motivo::Estilos, "folha não encontrada"));
+            return Err(recusa(Motivo::Estilos, "stylesheet not found"));
         }
     }
     Ok((texto, arquivo_html))
 }
 
-/// URI `package:` do arquivo do template — o que o oficial escreve no
-/// comentário `REF` de cada ligação. Só para componentes em `lib/` com
-/// `templateUrl`; com template escrito na anotação a referência é outra.
+/// `package:` URI of the template file — what the official compiler writes in
+/// the `REF` comment of each binding. Only for components in `lib/` with
+/// `templateUrl`; with the template written in the annotation the reference is
+/// different.
 fn url_do_template(pacote: &Pacote, fonte: &Path, comp: &component::Componente) -> Option<String> {
-    // Template na anotação: a referência é o `.dart` (`asset:`), com as
-    // posições dele — só quando o literal permite contá-las.
+    // Template in the annotation: the reference is the `.dart` (`asset:`), with
+    // its positions — only when the literal allows counting them.
     if comp.template.is_some() {
         comp.deslocamento_do_template?;
         return Some(format!("asset:{}/{}", pacote.nome, pacote.relativo(fonte)));
@@ -1815,26 +1840,29 @@ fn url_do_template(pacote: &Pacote, fonte: &Path, comp: &component::Componente) 
     Some(format!("package:{}/{dentro_de_lib}", pacote.nome))
 }
 
-/// A folha de um componente compila (Sass e shim)? É a mesma conta que o
-/// gerador faz; o placar usa para não marcar como pendente o que já sai.
-/// O texto da folha de um componente com `ViewEncapsulation.none`, que vai
-/// sem shim no `.css.dart`: o `.css` escrito, tal qual — o `compileStylesheet`
-/// do ngcompiler só tira os `@import` (`extractStyleUrls`) e escapa a
-/// string.
+/// Does a component's stylesheet compile (Sass and shim)? It is the same
+/// computation the generator does; the scoreboard uses it so as not to mark as
+/// pending what already comes out.
+/// The stylesheet text of a component with `ViewEncapsulation.none`, which goes
+/// without a shim into the `.css.dart`: the written `.css`, as is —
+/// ngcompiler's `compileStylesheet` only removes the `@import`s
+/// (`extractStyleUrls`) and escapes the string.
 ///
-/// # Erros
+/// # Errors
 ///
-/// A forma recusada, quando o texto não é conhecido byte a byte: a folha
-/// vem do `sass_builder` (o `.css` não existe; a formatação da saída dele
-/// não é a nossa), tem `@import` (vira outra entrada na lista) ou não se lê.
-/// O texto de uma folha `.css`, como o `StylesheetCompiler` do oficial o
-/// lê: a saída do `sass_builder` nesta build (o motor a passa em
-/// [`Pacote::folhas_geradas`]), o `.css` escrito, ou — fora do motor, sem o
-/// `sass_builder` — o `.scss` ao lado compilado aqui. `None` sem nenhum.
+/// The refused shape, when the text is not known byte for byte: the stylesheet
+/// comes from `sass_builder` (the `.css` does not exist; the formatting of its
+/// output is not ours), has `@import` (it becomes another entry in the list) or
+/// cannot be read.
+/// The text of a `.css` stylesheet, as the official `StylesheetCompiler` reads
+/// it: the output of `sass_builder` in this build (the engine passes it in
+/// [`Pacote::folhas_geradas`]), the written `.css`, or — outside the engine,
+/// without `sass_builder` — the `.scss` next to it compiled here. `None`
+/// without any.
 pub(crate) fn texto_da_folha(pacote: &Pacote, css: &Path) -> Option<Result<String, view::Motivo>> {
-    // `buildStep.readAsString` decodifica com `utf8.decode`, que tira o BOM
-    // do começo (a saída `compressed` do dart-sass com caractere não-ASCII
-    // começa com ele).
+    // `buildStep.readAsString` decodes with `utf8.decode`, which strips the
+    // leading BOM (the `compressed` output of dart-sass with a non-ASCII
+    // character starts with it).
     let sem_bom = |t: String| match t.strip_prefix('\u{FEFF}') {
         Some(resto) => resto.to_string(),
         None => t,
@@ -1850,13 +1878,14 @@ pub(crate) fn texto_da_folha(pacote: &Pacote, css: &Path) -> Option<Result<Strin
     Some(sass::compilar_em(&fonte, scss.parent()).map(sem_bom))
 }
 
-/// As saídas do `StylesheetCompiler` do ngdart para uma folha `.css`
-/// (`compileStylesheet`, `stylesheet_compiler/builder.dart`): o
-/// `.css.shim.dart`, com o CSS reescrito para o encapsulamento emulado, e o
-/// `.css.dart`, com ele como está. Cada `@import` resolúvel sai do texto e
-/// vira o módulo da folha importada, antes dele (`extractStyleUrls`,
-/// `_compileStyles`); o texto vai no `escapeSingleQuoteString` do emissor.
-/// Cada saída vem com o conteúdo ou o motivo de não gerá-la.
+/// The outputs of the ngdart `StylesheetCompiler` for a `.css` stylesheet
+/// (`compileStylesheet`, `stylesheet_compiler/builder.dart`): the
+/// `.css.shim.dart`, with the CSS rewritten for emulated encapsulation, and the
+/// `.css.dart`, with it as is. Each resolvable `@import` leaves the text and
+/// becomes the module of the imported stylesheet, before it
+/// (`extractStyleUrls`, `_compileStyles`); the text goes through the emitter's
+/// `escapeSingleQuoteString`. Each output comes with the contents or the reason
+/// for not generating it.
 pub fn gerar_folha(pacote: &Pacote, css: &Path) -> Vec<(PathBuf, Result<String, Recusa>)> {
     let destino = |sufixo: &str| {
         css.with_file_name(format!(
@@ -1868,9 +1897,9 @@ pub fn gerar_folha(pacote: &Pacote, css: &Path) -> Vec<(PathBuf, Result<String, 
         Some(Ok(t)) => Ok(t),
         Some(Err(_)) => Err(recusa(
             Motivo::Estilos,
-            "Sass que o compilador nativo não traduz",
+            "Sass the native compiler does not translate",
         )),
-        None => Err(recusa(Motivo::Estilos, "folha não encontrada")),
+        None => Err(recusa(Motivo::Estilos, "stylesheet not found")),
     };
     let asset = format!("asset:{}/{}", pacote.nome, pacote.relativo(css));
     let texto = texto.map(|t| extrair_imports(&asset, &t));
@@ -1885,7 +1914,7 @@ pub fn gerar_folha(pacote: &Pacote, css: &Path) -> Vec<(PathBuf, Result<String, 
                     .or_else(|| importado.starts_with("asset:").then(|| importado.clone()))
                     .and_then(|alvo| resolucao::caminho_do_import(&modulo, &alvo))
                     .ok_or_else(|| {
-                        recusa(Motivo::Estilos, "@import de folha sem caminho de import")
+                        recusa(Motivo::Estilos, "stylesheet @import without an import path")
                     })?;
                 cabeca.push_str(&format!("import '{caminho}' as import{k};\n"));
                 itens.push(format!("import{k}.styles"));
@@ -1901,7 +1930,7 @@ pub fn gerar_folha(pacote: &Pacote, css: &Path) -> Vec<(PathBuf, Result<String, 
                 css::shim(t).map_err(|_| {
                     recusa(
                         Motivo::Estilos,
-                        "CSS que o shim do ngdart recusa (o oficial lança)",
+                        "CSS the ngdart shim refuses (the official compiler throws)",
                     )
                 })
             }),
@@ -1910,12 +1939,12 @@ pub fn gerar_folha(pacote: &Pacote, css: &Path) -> Vec<(PathBuf, Result<String, 
     ]
 }
 
-/// `final List<Object> styles = [..];` como o emissor o escreve (o
-/// `.css.dart` não passa pelo `DartFormatter`): com um item, numa linha;
-/// com mais, `[` e os itens na linha seguinte, dois espaços para dentro,
-/// separados por `,` e quebrando quando a linha passa de 80
-/// (`visitAllObjects` com `keepOnSameLine`, `currentLineLength` = nível de
-/// indentação + caracteres), e `]` e `;` em linhas próprias.
+/// `final List<Object> styles = [..];` as the emitter writes it (the
+/// `.css.dart` does not go through `DartFormatter`): with one item, on one
+/// line; with more, `[` and the items on the next line, indented two spaces,
+/// separated by `,` and wrapping when the line goes past 80 (`visitAllObjects`
+/// with `keepOnSameLine`, `currentLineLength` = indentation level +
+/// characters), and `]` and `;` on their own lines.
 fn lista_de_estilos(itens: &[String]) -> String {
     if let [item] = itens {
         return format!("final List<Object> styles = [{item}];");
@@ -1925,8 +1954,8 @@ fn lista_de_estilos(itens: &[String]) -> String {
     for (k, item) in itens.iter().enumerate() {
         linha.push_str(item);
         if k + 1 < itens.len() {
-            // O teste vê a linha antes do separador (em unidades UTF-16,
-            // como o `String.length` do Dart); a vírgula vai de todo jeito.
+            // The test looks at the line before the separator (in UTF-16 code
+            // units, like Dart's `String.length`); the comma goes in anyway.
             let quebra = 1 + linha.encode_utf16().count() > 80;
             linha.push(',');
             if quebra {
@@ -1941,11 +1970,11 @@ fn lista_de_estilos(itens: &[String]) -> String {
     linhas.join("\n")
 }
 
-/// `extractStyleUrls`: cada `@import` (a `_cssImportRe` do oficial,
-/// `@import\s+(?:url\()?\s*(?:(?:['"]([^'"]*))|([^;\)\s]*))[^;]*;?`) com
-/// URL resolúvel — relativa, `package:` ou `asset:` — sai do texto, e a URL
-/// resolvida contra a da folha entra na lista; a de outro esquema ou
-/// absoluta fica.
+/// `extractStyleUrls`: each `@import` (the official `_cssImportRe`,
+/// `@import\s+(?:url\()?\s*(?:(?:['"]([^'"]*))|([^;\)\s]*))[^;]*;?`) with a
+/// resolvable URL — relative, `package:` or `asset:` — leaves the text, and the
+/// URL resolved against that of the stylesheet goes into the list; one with
+/// another scheme or absolute stays.
 fn extrair_imports(asset: &str, css: &str) -> (String, Vec<String>) {
     let mut saida = String::with_capacity(css.len());
     let mut urls = Vec::new();
@@ -2009,8 +2038,8 @@ fn resolvivel(url: &str) -> bool {
     }
 }
 
-/// `Uri.parse(base).resolve(url)` para as URLs de folha: com esquema, ela
-/// mesma; relativa, contra a pasta da base, sem `.` e `..`.
+/// `Uri.parse(base).resolve(url)` for stylesheet URLs: with a scheme, the URL
+/// itself; relative, against the base's folder, without `.` and `..`.
 fn resolver_url(base: &str, url: &str) -> String {
     if url.starts_with("package:") || url.starts_with("asset:") {
         return url.to_string();
@@ -2030,8 +2059,8 @@ fn resolver_url(base: &str, url: &str) -> String {
     format!("{esquema}:{}", partes.join("/"))
 }
 
-/// Conjunto de recusas de um arquivo pendente, para o placar: a primeira,
-/// e todas as que a emissão em modo de coleta encontra.
+/// Set of refusals of a pending file, for the scoreboard: the first one, and
+/// all those the emission in collection mode finds.
 fn motivos_do_arquivo(
     pacote: &Pacote,
     fonte: &Path,
@@ -2069,13 +2098,13 @@ fn motivos_do_arquivo(
     fora
 }
 
-/// Gera para um pacote inteiro (`lib/`, `web/`, `test/`), completando o que
-/// ainda não sabe gerar com uma geração de apoio — hoje, o que o
-/// `build_runner` deixou no disco.
+/// Generates for a whole package (`lib/`, `web/`, `test/`), completing what it
+/// cannot generate yet with a fallback generation — today, what `build_runner`
+/// left on disk.
 ///
-/// É esta mistura que deixa a migração acontecer em passos: a cada forma nova
-/// que o gerador aprende, um arquivo sai do apoio e entra no nosso, e a
-/// aplicação continua compilando o tempo todo.
+/// It is this mix that lets the migration happen in steps: with each new shape
+/// the generator learns, a file leaves the fallback and enters ours, and the
+/// application keeps compiling the whole time.
 pub fn gerar_com_apoio(
     pacote: &Pacote,
     interner: &mut Interner,
@@ -2091,8 +2120,8 @@ pub fn gerar_com_apoio(
         .collect();
     gerar_em(pacote, &dirs, interner, &mut c, &mut placar, programa);
     if let Some(apoio) = apoio {
-        // O apoio entra só onde não geramos: pendentes deste pacote e tudo o
-        // que é de fora dele.
+        // The fallback only enters where we do not generate: pending files of
+        // this package and everything outside it.
         for (caminho, f) in apoio.iter() {
             if c.contem(caminho) {
                 continue;
@@ -2118,12 +2147,12 @@ pub fn gerar_com_apoio(
 mod testes {
     use super::*;
 
-    /// Cada `.css` dá o `.css.shim.dart` e o `.css.dart` (o texto tal
-    /// qual); a folha da saída do `sass_builder` vale sobre o disco, e o
-    /// `@import` é recusado nas duas.
+    /// Each `.css` gives the `.css.shim.dart` and the `.css.dart` (the text as
+    /// is); the stylesheet from the `sass_builder` output wins over the disk,
+    /// and `@import` is refused in both.
     #[test]
     fn gerar_folha_da_as_duas_saidas() {
-        let dir = tempfile::tempdir().expect("temporário");
+        let dir = tempfile::tempdir().expect("temporary dir");
         let a = dir.path().join("a.css");
         std::fs::write(&a, ".a { content: '\\e939'; }\n").unwrap();
         let b = dir.path().join("b.css");
@@ -2188,8 +2217,8 @@ mod testes {
         assert_eq!(template_trivial("loading.dart"), esperado);
     }
 
-    /// O new_sali monta a injeção assim; se isto escapar, geramos um arquivo
-    /// vazio no lugar de um injetor inteiro.
+    /// new_sali sets up injection like this; if this slips, we generate an
+    /// empty file in place of a whole injector.
     #[test]
     fn acha_injetor_em_variavel_de_topo() {
         let a = achados_de(
@@ -2201,8 +2230,8 @@ final InjectorFactory injector = self.injector$Injector;
         assert!(!a.trivial());
     }
 
-    /// O índice do motor de build: um arquivo entra, é achado pelo seletor,
-    /// é trocado e sai, sem mexer no dos outros.
+    /// The build engine index: a file goes in, is found by its selector, is
+    /// replaced and goes out, without touching the others.
     #[test]
     fn indice_incremental() {
         let pacote = Pacote {

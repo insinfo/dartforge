@@ -100,7 +100,7 @@ pub(crate) struct CallableContentBlock {
     env: Environment,
 }
 
-/// O resultado de uma condição do `if()` do CSS: decidida ou texto do CSS.
+/// The result of a condition of the CSS `if()`: decided, or CSS text.
 pub(crate) enum CondIf {
     Bool(bool),
     Str(String),
@@ -113,9 +113,9 @@ pub struct Visitor<'a> {
     pub(crate) flags: ContextFlags,
     pub(crate) env: Environment,
     pub(crate) style_rule_ignoring_at_root: Option<ExtendedSelector>,
-    /// Os `span`s (seletor, regra) da regra de estilo corrente: a cópia que
-    /// o dart-sass faz dela (`copyWithoutChildren`) dentro de `@media` e
-    /// afins mantém os dela.
+    /// The `span`s (selector, rule) of the current style rule: the copy that
+    /// dart-sass makes of it (`copyWithoutChildren`) inside `@media` and the
+    /// like keeps its own.
     pub(crate) style_rule_spans: (Span, Span),
     // avoid emitting duplicate warnings for the same span
     pub(crate) warnings_emitted: HashSet<Span>,
@@ -932,8 +932,8 @@ impl<'a> Visitor<'a> {
             }?;
             self.flags
                 .set(ContextFlags::IS_USE_ALLOWED, old_is_use_allowed);
-            // O `ImportCache` do dart-sass guarda toda folha carregada pela
-            // URL canônica: a mesma folha não é relida nem reanalisada.
+            // dart-sass's `ImportCache` keeps every loaded stylesheet by its
+            // canonical URL: the same stylesheet is not read or parsed again.
             self.import_cache.insert(name, style_sheet.clone());
             return Ok(style_sheet);
         }
@@ -1707,16 +1707,16 @@ impl<'a> Visitor<'a> {
             // interstitial sibling.
             if self.css_tree.has_following_sibling(parent) {
                 let grandparent = self.css_tree.child_to_parent.get(&parent).copied().unwrap();
-                // Se já há uma cópia do pai como último filho do avô (e nada
-                // depois dela), o dart-sass a reaproveita
+                // If there already is a copy of the parent as the last child of
+                // the grandparent (and nothing after it), dart-sass reuses it
                 // (`equalsIgnoringChildren`).
-                let ultimo = self.css_tree.children_of(grandparent).last().copied();
-                let reaproveita = ultimo.filter(|&u| {
+                let last = self.css_tree.children_of(grandparent).last().copied();
+                let reusable = last.filter(|&u| {
                     let a = self.css_tree.get(parent);
                     let b = self.css_tree.get(u);
                     matches!((a.as_ref(), b.as_ref()), (Some(a), Some(b)) if a.equals_ignoring_children(b))
                 });
-                parent = match reaproveita {
+                parent = match reusable {
                     Some(u) => u,
                     None => {
                         let parent_node = self
@@ -1734,15 +1734,16 @@ impl<'a> Visitor<'a> {
         self.css_tree.add_child(node, parent)
     }
 
-    /// `_copyParentAfterSibling`: se o pai corrente não é o último filho do
-    /// avô (uma regra aninhada já saiu depois dele), o que vier agora vai
-    /// para uma cópia vazia do pai, posta depois — a ordem do dart-sass.
+    /// `_copyParentAfterSibling`: if the current parent is not the last child
+    /// of the grandparent (a nested rule already came out after it), what
+    /// comes now goes into an empty copy of the parent, placed after it — the
+    /// dart-sass order.
     ///
-    /// No modo 1.66 não há cópia: o dart-sass anterior ao 1.92.0 (mudança
-    /// "mixed-decls") põe o nó no próprio pai, antes das regras aninhadas
-    /// que já saíram — `visitDeclaration`, `visitLoudComment`,
-    /// `visitAtRule` sem corpo e `visitImportRule` do 1.66 chamam
-    /// `_parent.addChild` direto.
+    /// In the 1.66 mode there is no copy: dart-sass before 1.92.0 (the
+    /// "mixed-decls" change) puts the node in the parent itself, before the
+    /// nested rules that already came out — the 1.66 `visitDeclaration`,
+    /// `visitLoudComment`, body-less `visitAtRule` and `visitImportRule` call
+    /// `_parent.addChild` directly.
     fn copy_parent_after_sibling(&mut self) {
         if self.options.v166() {
             return;
@@ -1757,13 +1758,13 @@ impl<'a> Visitor<'a> {
         if self.css_tree.children_of(grandparent).last() == Some(&parent) {
             return;
         }
-        let copia = self
+        let copy = self
             .css_tree
             .get(parent)
             .as_ref()
             .map(CssStmt::copy_without_children);
-        if let Some(copia) = copia {
-            self.parent = Some(self.css_tree.add_child(copia, grandparent));
+        if let Some(copy) = copy {
+            self.parent = Some(self.css_tree.add_child(copy, grandparent));
         }
     }
 
@@ -2076,8 +2077,8 @@ impl<'a> Visitor<'a> {
         Ok(None)
     }
 
-    /// `_expressionNode`: o `span` que representa `expr` no mapa de fontes —
-    /// o nó da variável, se `expr` for uma variável com nó conhecido.
+    /// `_expressionNode`: the `span` that represents `expr` in the source map
+    /// — the variable's node, if `expr` is a variable with a known node.
     fn expression_node(&self, expr: &AstExpr, fallback: Span) -> Span {
         match expr {
             AstExpr::Variable { name, namespace } => self
@@ -2126,8 +2127,8 @@ impl<'a> Visitor<'a> {
             }
         }
 
-        // `_expressionNode(node.expression)`: com o valor vindo de outra
-        // variável, o nó é o dela.
+        // `_expressionNode(node.expression)`: with the value coming from
+        // another variable, the node is that variable's.
         let node = self.expression_node(&decl.value, decl.value_span);
         let value = self.visit_expr(decl.value)?;
         let value = self.without_slash(value);
@@ -2616,16 +2617,16 @@ impl<'a> Visitor<'a> {
         let func = match self.env.get_fn(name, func_call.namespace)? {
             Some(func) => func,
             None => {
-                // dart-sass `visitFunctionExpression`: sem função com o nome, as
-                // funções de cálculo do CSS viram cálculos (`min`, `max`,
-                // `round` e `abs` só com argumentos seguros).
+                // dart-sass `visitFunctionExpression`: with no function of that
+                // name, the CSS calculation functions become calculations
+                // (`min`, `max`, `round` and `abs` only with safe arguments).
                 if func_call.namespace.is_none() && !self.is_plain_css {
                     let lower = name.as_str().to_ascii_lowercase();
                     let args = &func_call.arguments;
-                    // O dart-sass 1.66 só conhece `calc()`, `clamp()`, `min()` e
-                    // `max()` como cálculos (as do CSS Values 4 vieram no
-                    // 1.67): `round()`/`abs()` são as funções do Sass e o resto,
-                    // funções CSS puras.
+                    // dart-sass 1.66 only knows `calc()`, `clamp()`, `min()` and
+                    // `max()` as calculations (the CSS Values 4 ones came in
+                    // 1.67): `round()`/`abs()` are the Sass functions and the
+                    // rest, plain CSS functions.
                     let v166 = self.options.v166();
                     match lower.as_str() {
                         "round" | "abs" | "hypot" | "sin" | "cos" | "tan" | "asin" | "acos"
@@ -2807,29 +2808,30 @@ impl<'a> Visitor<'a> {
         span: Span,
     ) -> SassResult<CalculationArg> {
         Ok(match expr {
-            // `_visitCalculationValue` do 1.66: o parêntese some do texto,
-            // exceto em `(var(...))`; a `CalculationInterpolation` sai crua
-            // (entre parênteses só como operando, abaixo).
+            // `_visitCalculationValue` of 1.66: the parenthesis disappears
+            // from the text, except in `(var(...))`; the
+            // `CalculationInterpolation` comes out raw (parenthesized only as
+            // an operand, below).
             AstExpr::CalcInterp166(text, _) => {
                 CalculationArg::String(self.perform_interpolation(text, false)?)
             }
             AstExpr::Paren(inner) if self.options.v166() => {
-                let e_var = matches!(&*inner, AstExpr::FunctionCall(f)
+                let is_var = matches!(&*inner, AstExpr::FunctionCall(f)
                     if f.namespace.is_none() && f.name.as_str().eq_ignore_ascii_case("var"));
                 let result = self.visit_calculation_value((*inner).clone(), in_legacy, span)?;
                 match result {
-                    CalculationArg::String(text) if e_var => {
+                    CalculationArg::String(text) if is_var => {
                         CalculationArg::String(format!("({text})"))
                     }
                     r => r,
                 }
             }
             AstExpr::List(ref list) if self.options.v166() && list.elems.len() > 1 => {
-                // A gramática de cálculo do 1.66 não tem listas: erro de análise.
+                // The 1.66 calculation grammar has no lists: a parse error.
                 return Err((
-                    "dartforge-sass (modo dart-sass 1.66): lista separada por espaço dentro \
-                     de cálculo; o dart-sass 1.66 a recusa (\"+\", \"-\", \"*\", \"/\" ou \")\" \
-                     esperado)",
+                    "dartforge-sass (dart-sass 1.66 mode): space-separated list inside a \
+                     calculation; dart-sass 1.66 refuses it (\"+\", \"-\", \"*\", \"/\" or \")\" \
+                     expected)",
                     span,
                 )
                     .into());
@@ -2876,10 +2878,12 @@ impl<'a> Visitor<'a> {
                 };
                 let mut lhs = self.visit_calculation_value(binop.lhs.clone(), in_legacy, span)?;
                 let mut rhs = self.visit_calculation_value(binop.rhs.clone(), in_legacy, span)?;
-                // `CalculationInterpolation` do 1.66 como operando: entre
-                // parênteses (`parenthesizeLeft`/`parenthesizeRight`).
-                for (no, arg) in [(&binop.lhs, &mut lhs), (&binop.rhs, &mut rhs)] {
-                    if let (AstExpr::CalcInterp166(..), CalculationArg::String(t)) = (no, &*arg) {
+                // `CalculationInterpolation` of 1.66 as an operand: in
+                // parentheses (`parenthesizeLeft`/`parenthesizeRight`).
+                for (operand, arg) in [(&binop.lhs, &mut lhs), (&binop.rhs, &mut rhs)] {
+                    if let (AstExpr::CalcInterp166(..), CalculationArg::String(t)) =
+                        (operand, &*arg)
+                    {
                         *arg = CalculationArg::String(format!("({t})"));
                     }
                 }
@@ -2931,10 +2935,10 @@ impl<'a> Visitor<'a> {
                     {
                         continue;
                     }
-                    let atual = &list.elems[i].node;
-                    let menos = matches!(atual, AstExpr::UnaryOp(UnaryOp::Neg | UnaryOp::Plus, ..))
-                        || matches!(atual, AstExpr::Number { n, .. } if n.0 < 0.0);
-                    return Err(if menos {
+                    let elem = &list.elems[i].node;
+                    let signed = matches!(elem, AstExpr::UnaryOp(UnaryOp::Neg | UnaryOp::Plus, ..))
+                        || matches!(elem, AstExpr::Number { n, .. } if n.0 < 0.0);
+                    return Err(if signed {
                         (
                             "\"+\" and \"-\" must be surrounded by whitespace in calculations.",
                             list.elems[i].span,
@@ -2948,26 +2952,26 @@ impl<'a> Visitor<'a> {
                             .into()
                     });
                 }
-                let mut partes = Vec::with_capacity(elements.len());
+                let mut parts = Vec::with_capacity(elements.len());
                 for (i, e) in elements.into_iter().enumerate() {
-                    let entre_parenteses = matches!(list.elems[i].node, AstExpr::Paren(..));
-                    let texto = self.calculation_arg_text(&e, span)?;
-                    partes.push(
-                        if entre_parenteses && matches!(e, CalculationArg::Operation { .. }) {
-                            format!("({texto})")
+                    let parenthesized = matches!(list.elems[i].node, AstExpr::Paren(..));
+                    let text = self.calculation_arg_text(&e, span)?;
+                    parts.push(
+                        if parenthesized && matches!(e, CalculationArg::Operation { .. }) {
+                            format!("({text})")
                         } else {
-                            texto
+                            text
                         },
                     );
                 }
-                CalculationArg::String(partes.join(" "))
+                CalculationArg::String(parts.join(" "))
             }
             _ => return Err(("This expression can't be used in a calculation.", span).into()),
         })
     }
 
-    /// O texto de um argumento de cálculo como o `toString` do dart-sass
-    /// (a serialização `inspect`).
+    /// The text of a calculation argument like dart-sass's `toString` (the
+    /// `inspect` serialization).
     fn calculation_arg_text(&self, arg: &CalculationArg, span: Span) -> SassResult<String> {
         Ok(match arg {
             CalculationArg::String(s) => s.clone(),
@@ -2990,14 +2994,14 @@ impl<'a> Visitor<'a> {
         if l.high() >= r.low() {
             return Ok(());
         }
-        let arquivo = self.map.find_file(l.high());
-        if !arquivo.span.contains(r) {
+        let file = self.map.find_file(l.high());
+        if !file.span.contains(r) {
             return Ok(());
         }
-        let base = arquivo.span.low();
-        let texto = arquivo.source_slice(arquivo.span.subspan(l.high() - base, r.low() - base));
+        let base = file.span.low();
+        let text = file.source_slice(file.span.subspan(l.high() - base, r.low() - base));
         let ok = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' | b'/');
-        let bytes = texto.as_bytes();
+        let bytes = text.as_bytes();
         if bytes.is_empty() || !ok(bytes[0]) || !ok(bytes[bytes.len() - 1]) {
             return Err((
                 "\"+\" and \"-\" must be surrounded by whitespace in calculations.",
@@ -3075,13 +3079,13 @@ impl<'a> Visitor<'a> {
             "round" => SassCalculation::round(a0, a1, a2, in_legacy, span),
             "clamp" => SassCalculation::clamp(a0, a1, a2, span),
             "calc-size" => SassCalculation::calc_size(a0, a1, span),
-            _ => unreachable!("cálculo desconhecido {name}"),
+            _ => unreachable!("unknown calculation {name}"),
         }
     }
 
-    /// `visitIfExpression`: o `if()` do CSS. Ramo com condição `sass()`
-    /// resolvida escolhe na compilação; condições do CSS viram o `if()` na
-    /// saída.
+    /// `visitIfExpression`: the CSS `if()`. A branch with a resolved `sass()`
+    /// condition chooses at compile time; CSS conditions become the `if()`
+    /// in the output.
     fn visit_css_if(&mut self, e: &CssIfExpr) -> SassResult<Value> {
         let mut results: Option<Vec<(String, Value)>> = None;
         for (condition, expr) in &e.branches {
@@ -3107,18 +3111,18 @@ impl<'a> Visitor<'a> {
         let Some(results) = results else {
             return Ok(Value::Null);
         };
-        let mut partes = Vec::with_capacity(results.len());
+        let mut parts = Vec::with_capacity(results.len());
         for (c, v) in results {
-            // Antes do 1.101.4, o valor pelo `toString` (o `inspect`).
-            let texto = if crate::options::versao_corrente() == crate::VersaoDartSass::V1_101 {
+            // Before 1.101.4, the value by its `toString` (the `inspect`).
+            let text = if crate::options::current_version() == crate::VersaoDartSass::V1_101 {
                 v.inspect(e.span)?
             } else {
                 v.to_css_string(e.span, false)?
             };
-            partes.push(format!("{c}: {texto}"));
+            parts.push(format!("{c}: {text}"));
         }
         Ok(Value::String(
-            format!("if({})", partes.join("; ")),
+            format!("if({})", parts.join("; ")),
             QuoteKind::None,
         ))
     }
@@ -3541,9 +3545,9 @@ impl<'a> Visitor<'a> {
         {
             // If the value is an empty list, preserve it, because converting it to CSS
             // will throw an error that we want the user to see.
-            // dart-sass `visitDeclaration`: propriedade customizada pode ter
-            // valor vazio ("per spec").
-            // Até o dart-sass 1.88.0 (modo 1.66), vazia é erro (abaixo).
+            // dart-sass `visitDeclaration`: a custom property may have an
+            // empty value ("per spec").
+            // Up to dart-sass 1.88.0 (the 1.66 mode), empty is an error (below).
             if !value.is_blank()
                 || value.is_empty_list()
                 || (name.starts_with("--") && !self.options.v166())

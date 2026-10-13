@@ -1,10 +1,10 @@
-//! Porte da `CssPrinter` de `csslib/src/css_printer.dart` (csslib 1.0.2),
-//! no modo compacto (`visitTree(tree, pretty: false)`), que é o que o shim
-//! usa. No compacto o `_isTesting` vale: cores viram nome
-//! (`hexToColorName`) e o `@import` sai com `url(…)`.
+//! Port of the `CssPrinter` of `csslib/src/css_printer.dart` (csslib 1.0.2), in
+//! compact mode (`visitTree(tree, pretty: false)`), which is what the shim
+//! uses. In compact mode `_isTesting` holds: colors become names
+//! (`hexToColorName`) and `@import` is written with `url(…)`.
 use std::rc::Rc;
 
-use super::Excecao;
+use super::Exception;
 use super::tree::*;
 use super::token_kind as tk;
 use super::tokenizer::dart_trim;
@@ -41,14 +41,14 @@ impl CssPrinter {
         }
     }
 
-    /// `toString`: o buffer sem espaço nas pontas.
-    pub fn texto(&self) -> String {
+    /// `toString`: the buffer without whitespace at the ends.
+    pub fn text(&self) -> String {
         dart_trim(&self.buff).to_string()
     }
 
     /// `emitMediaQueries`.
-    fn emit_media_queries(&mut self, consultas: &[ConsultaMedia]) -> R<()> {
-        for (i, q) in consultas.iter().enumerate() {
+    fn emit_media_queries(&mut self, queries: &[MediaQuery]) -> R<()> {
+        for (i, q) in queries.iter().enumerate() {
             if i > 0 {
                 self.emit(",");
             }
@@ -59,28 +59,28 @@ impl CssPrinter {
 
     /// `visitIncludeDirective(node, [topLevel])`.
     fn include(&mut self, i: &Include) {
-        // `_emitLf()` no topo: nada no compacto.
-        self.emit(&format!("@include {}", i.nome));
+        // `_emitLf()` at the top level: nothing in compact mode.
+        self.emit(&format!("@include {}", i.name));
         self.emit_semicolon(true);
     }
 
-    /// O `toString` dos seletores simples que a impressora emite inteiro.
-    fn seletor_como_texto(s: &SeletorSimples) -> R<String> {
-        Ok(match &s.tipo {
+    /// The `toString` of the simple selectors that the printer emits whole.
+    fn selector_as_text(s: &SimpleSelector) -> R<String> {
+        Ok(match &s.kind {
             // `ElementSelector.toString` => `name`.
-            TipoSimples::Elemento => s.nome().to_string(),
+            SimpleKind::Element => s.name().to_string(),
             // `'$namespace|${nameAsSimpleSelector!.name}'`.
-            TipoSimples::Namespace { namespace } => {
+            SimpleKind::Namespace { namespace } => {
                 let ns = match namespace {
                     None => "",
-                    Some(NomeSimples::Curinga) => "*",
-                    Some(n) => n.nome(),
+                    Some(SimpleName::Wildcard) => "*",
+                    Some(n) => n.name(),
                 };
-                format!("{ns}|{}", s.nome())
+                format!("{ns}|{}", s.name())
             }
             // `'[$name${matchOperator()}${valueToString()}]'`.
-            TipoSimples::Atributo { op, valor } => {
-                let operador = match *op {
+            SimpleKind::Attribute { op, value } => {
+                let operator = match *op {
                     tk::EQUALS => "=",
                     tk::INCLUDES => "~=",
                     tk::DASH_MATCH => "|=",
@@ -90,47 +90,47 @@ impl CssPrinter {
                     tk::NO_MATCH => "",
                     _ => "null",
                 };
-                let valor = match valor {
+                let value = match value {
                     None => String::new(),
-                    Some(ValorAtributo::Ident(i)) => i.como_texto().to_string(),
-                    Some(ValorAtributo::Texto(t)) => format!("\"{t}\""),
+                    Some(AttributeValue::Ident(i)) => i.as_text().to_string(),
+                    Some(AttributeValue::Str(t)) => format!("\"{t}\""),
                 };
-                format!("[{}{operador}{valor}]", s.nome())
+                format!("[{}{operator}{value}]", s.name())
             }
-            // `'#$_name'`, `'.$_name'`: o `Identifier.toString`.
-            TipoSimples::Id => format!("#{}", nome_como_texto(&s.nome)),
-            TipoSimples::Classe => format!(".{}", nome_como_texto(&s.nome)),
-            TipoSimples::PseudoClasse => format!(":{}", s.nome()),
-            TipoSimples::PseudoElemento { legado } => {
-                format!("{}{}", if *legado { ":" } else { "::" }, s.nome())
+            // `'#$_name'`, `'.$_name'`: the `Identifier.toString`.
+            SimpleKind::Id => format!("#{}", name_as_text(&s.name)),
+            SimpleKind::Class => format!(".{}", name_as_text(&s.name)),
+            SimpleKind::PseudoClass => format!(":{}", s.name()),
+            SimpleKind::PseudoElement { legacy } => {
+                format!("{}{}", if *legacy { ":" } else { "::" }, s.name())
             }
-            _ => return Err(Excecao("seletor sem toString")),
+            _ => return Err(Exception("seletor sem toString")),
         })
     }
 }
 
-/// `_name.toString()` de `IdSelector`/`ClassSelector` (um `Identifier`).
-fn nome_como_texto(n: &NomeSimples) -> &str {
+/// `_name.toString()` of `IdSelector`/`ClassSelector` (an `Identifier`).
+fn name_as_text(n: &SimpleName) -> &str {
     match n {
-        NomeSimples::Ident(i) => i.como_texto(),
-        outro => outro.nome(),
+        SimpleName::Ident(i) => i.as_text(),
+        other => other.name(),
     }
 }
 
 impl Visitor for CssPrinter {
-    fn visit_calc_term(&mut self, t: &Termo) -> R<()> {
-        self.emit(&format!("{}(", t.texto));
-        if let TipoTermo::Calc(expr) = &t.tipo {
-            self.visit_termo(expr)?;
+    fn visit_calc_term(&mut self, t: &Term) -> R<()> {
+        self.emit(&format!("{}(", t.text));
+        if let TermKind::Calc(expr) = &t.kind {
+            self.visit_term(expr)?;
         }
         self.emit(")");
         Ok(())
     }
 
-    fn visit_media_expression(&mut self, e: &ExprMedia) -> R<()> {
-        self.emit(if e.e { " AND " } else { " " });
-        self.emit(&format!("({}", e.recurso.nome));
-        if !e.exprs.expressoes.is_empty() {
+    fn visit_media_expression(&mut self, e: &MediaExpr) -> R<()> {
+        self.emit(if e.and_operator { " AND " } else { " " });
+        self.emit(&format!("({}", e.feature.name));
+        if !e.exprs.expressions.is_empty() {
             self.emit(":");
             self.visit_expressions(&e.exprs)?;
         }
@@ -138,50 +138,50 @@ impl Visitor for CssPrinter {
         Ok(())
     }
 
-    fn visit_media_query(&mut self, q: &ConsultaMedia) -> R<()> {
-        let unario = if q.unario != -1 {
-            let v = tk::id_to_value(tk::MEDIA_OPERATORS, q.unario).ok_or(Excecao("TypeError"))?;
+    fn visit_media_query(&mut self, q: &MediaQuery) -> R<()> {
+        let unary = if q.unary != -1 {
+            let v = tk::id_to_value(tk::MEDIA_OPERATORS, q.unary).ok_or(Exception("TypeError"))?;
             format!(" {}", v.to_uppercase())
         } else {
             String::new()
         };
-        let tipo = match &q.tipo {
-            Some(t) => format!(" {}", t.nome),
+        let kind = match &q.kind {
+            Some(t) => format!(" {}", t.name),
             None => String::new(),
         };
-        self.emit(&format!("{unario}{tipo}"));
-        for e in &q.expressoes {
+        self.emit(&format!("{unary}{kind}"));
+        for e in &q.expressions {
             self.visit_media_expression(e)?;
         }
         Ok(())
     }
 
-    fn visit_document_directive(&mut self, no: &mut No) -> R<()> {
-        if let No::Documento { funcoes, corpo } = no {
+    fn visit_document_directive(&mut self, node: &mut Node) -> R<()> {
+        if let Node::Document { functions, body } = node {
             self.emit("@-moz-document ");
-            let primeira = funcoes.first().ok_or(Excecao("StateError"))?;
-            self.visit_termo(primeira)?;
-            for f in funcoes.iter().skip(1) {
+            let first = functions.first().ok_or(Exception("StateError"))?;
+            self.visit_term(first)?;
+            for f in functions.iter().skip(1) {
                 self.emit(",");
-                self.visit_termo(f)?;
+                self.visit_term(f)?;
             }
             self.emit_l_brace();
-            for r in corpo {
-                self.visit_no(r)?;
+            for r in body {
+                self.visit_node(r)?;
             }
             self.emit_r_brace();
         }
         Ok(())
     }
 
-    fn visit_supports_directive(&mut self, no: &mut No) -> R<()> {
-        if let No::Supports { condicao, corpo } = no {
+    fn visit_supports_directive(&mut self, node: &mut Node) -> R<()> {
+        if let Node::Supports { condition, body } = node {
             self.emit("@supports ");
-            let c = condicao.as_mut().ok_or(Excecao("TypeError"))?;
+            let c = condition.as_mut().ok_or(Exception("TypeError"))?;
             self.visit_supports_condition(c)?;
             self.emit_l_brace();
-            for r in corpo {
-                self.visit_no(r)?;
+            for r in body {
+                self.visit_node(r)?;
             }
             self.emit_r_brace();
         }
@@ -190,81 +190,81 @@ impl Visitor for CssPrinter {
 
     fn visit_supports_condition_in_parens(
         &mut self,
-        dentro: &mut Option<Box<DentroDeParenteses>>,
+        inside: &mut Option<Box<InsideParens>>,
     ) -> R<()> {
         self.emit("(");
-        match dentro.as_deref_mut().ok_or(Excecao("TypeError"))? {
-            DentroDeParenteses::Declaracao(d) => self.visit_declaracao(d)?,
-            DentroDeParenteses::Condicao(c) => self.visit_supports_condition(c)?,
+        match inside.as_deref_mut().ok_or(Exception("TypeError"))? {
+            InsideParens::Declaration(d) => self.visit_any_declaration(d)?,
+            InsideParens::Condition(c) => self.visit_supports_condition(c)?,
         }
         self.emit(")");
         Ok(())
     }
 
-    fn visit_supports_negation(&mut self, c: &mut CondSupports) -> R<()> {
+    fn visit_supports_negation(&mut self, c: &mut SupportsCondition) -> R<()> {
         self.emit("not");
         self.visit_supports_condition(c)
     }
 
-    fn visit_supports_conjunction(&mut self, cs: &mut [CondSupports]) -> R<()> {
-        let (primeira, resto) = cs.split_first_mut().ok_or(Excecao("StateError"))?;
-        self.visit_supports_condition(primeira)?;
-        for c in resto {
+    fn visit_supports_conjunction(&mut self, cs: &mut [SupportsCondition]) -> R<()> {
+        let (first, rest) = cs.split_first_mut().ok_or(Exception("StateError"))?;
+        self.visit_supports_condition(first)?;
+        for c in rest {
             self.emit("and");
             self.visit_supports_condition(c)?;
         }
         Ok(())
     }
 
-    fn visit_supports_disjunction(&mut self, cs: &mut [CondSupports]) -> R<()> {
-        let (primeira, resto) = cs.split_first_mut().ok_or(Excecao("StateError"))?;
-        self.visit_supports_condition(primeira)?;
-        for c in resto {
+    fn visit_supports_disjunction(&mut self, cs: &mut [SupportsCondition]) -> R<()> {
+        let (first, rest) = cs.split_first_mut().ok_or(Exception("StateError"))?;
+        self.visit_supports_condition(first)?;
+        for c in rest {
             self.emit("or");
             self.visit_supports_condition(c)?;
         }
         Ok(())
     }
 
-    fn visit_viewport_directive(&mut self, no: &mut No) -> R<()> {
-        if let No::Viewport { nome, declaracoes } = no {
-            self.emit(&format!("@{nome}"));
+    fn visit_viewport_directive(&mut self, node: &mut Node) -> R<()> {
+        if let Node::Viewport { name, declarations } = node {
+            self.emit(&format!("@{name}"));
             self.emit_l_brace();
-            self.visit_declaration_group(declaracoes)?;
+            self.visit_declaration_group(declarations)?;
             self.emit_r_brace();
         }
         Ok(())
     }
 
-    fn visit_media_directive(&mut self, no: &mut No) -> R<()> {
-        if let No::Media { consultas, regras } = no {
+    fn visit_media_directive(&mut self, node: &mut Node) -> R<()> {
+        if let Node::Media { queries, rules } = node {
             self.emit("@media");
-            self.emit_media_queries(consultas)?;
+            self.emit_media_queries(queries)?;
             self.emit_l_brace();
-            for r in regras {
-                self.visit_no(r)?;
+            for r in rules {
+                self.visit_node(r)?;
             }
             self.emit_r_brace();
         }
         Ok(())
     }
 
-    fn visit_host_directive(&mut self, regras: &mut [No]) -> R<()> {
+    fn visit_host_directive(&mut self, rules: &mut [Node]) -> R<()> {
         self.emit("@host");
         self.emit_l_brace();
-        for r in regras {
-            self.visit_no(r)?;
+        for r in rules {
+            self.visit_node(r)?;
         }
         self.emit_r_brace();
         Ok(())
     }
 
-    fn visit_page_directive(&mut self, no: &mut No) -> R<()> {
-        if let No::Pagina {
+    fn visit_page_directive(&mut self, node: &mut Node) -> R<()> {
+        if let Node::Page {
             ident,
             pseudo,
-            grupos,
-        } = no
+            groups,
+        } = node
         {
             self.emit("@page");
             if !ident.is_empty() || !pseudo.is_empty() {
@@ -279,8 +279,8 @@ impl Visitor for CssPrinter {
                 }
             }
             self.emit_l_brace();
-            for g in grupos {
-                if g.margem.is_some() {
+            for g in groups {
+                if g.margin.is_some() {
                     self.visit_margin_group(g)?;
                 } else {
                     self.visit_declaration_group(g)?;
@@ -291,38 +291,38 @@ impl Visitor for CssPrinter {
         Ok(())
     }
 
-    fn visit_charset_directive(&mut self, codificacao: &str) -> R<()> {
-        self.emit(&format!("@charset \"{codificacao}\""));
+    fn visit_charset_directive(&mut self, encoding: &str) -> R<()> {
+        self.emit(&format!("@charset \"{encoding}\""));
         self.emit_semicolon(true);
         Ok(())
     }
 
-    fn visit_import_directive(&mut self, no: &mut No) -> R<()> {
-        if let No::Import { import, medias } = no {
-            // `_isTesting`: sempre como `url(…)`.
+    fn visit_import_directive(&mut self, node: &mut Node) -> R<()> {
+        if let Node::Import { import, media_queries } = node {
+            // `_isTesting`: always as `url(…)`.
             self.emit(&format!("@import url({import})"));
-            self.emit_media_queries(medias)?;
+            self.emit_media_queries(media_queries)?;
             self.emit_semicolon(true);
         }
         Ok(())
     }
 
-    fn visit_key_frame_directive(&mut self, no: &mut No) -> R<()> {
-        if let No::Keyframes { tipo, nome, blocos } = no {
+    fn visit_key_frame_directive(&mut self, node: &mut Node) -> R<()> {
+        if let Node::Keyframes { kind, name, blocks } = node {
             // `keyFrameName`.
-            let nome_diretiva = match *tipo {
+            let directive_name = match *kind {
                 tk::DIRECTIVE_KEYFRAMES | tk::DIRECTIVE_MS_KEYFRAMES => "@keyframes",
                 tk::DIRECTIVE_WEB_KIT_KEYFRAMES => "@-webkit-keyframes",
                 tk::DIRECTIVE_MOZ_KEYFRAMES => "@-moz-keyframes",
                 tk::DIRECTIVE_O_KEYFRAMES => "@-o-keyframes",
                 _ => "null",
             };
-            self.emit(&format!("{nome_diretiva} "));
-            let nome = nome.as_ref().ok_or(Excecao("TypeError"))?;
-            self.visit_identifier(nome)?;
+            self.emit(&format!("{directive_name} "));
+            let name = name.as_ref().ok_or(Exception("TypeError"))?;
+            self.visit_identifier(name)?;
             self.emit_l_brace();
             self.is_in_keyframes = true;
-            for b in blocos {
+            for b in blocks {
                 self.visit_key_frame_block(b)?;
             }
             self.is_in_keyframes = false;
@@ -331,7 +331,7 @@ impl Visitor for CssPrinter {
         Ok(())
     }
 
-    fn visit_font_face_directive(&mut self, g: &mut GrupoDeclaracoes) -> R<()> {
+    fn visit_font_face_directive(&mut self, g: &mut DeclarationGroup) -> R<()> {
         self.emit("@font-face");
         self.emit_l_brace();
         self.visit_declaration_group(g)?;
@@ -339,28 +339,28 @@ impl Visitor for CssPrinter {
         Ok(())
     }
 
-    fn visit_key_frame_block(&mut self, b: &mut BlocoKeyframe) -> R<()> {
-        self.visit_expressions(&b.seletores)?;
+    fn visit_key_frame_block(&mut self, b: &mut KeyframeBlock) -> R<()> {
+        self.visit_expressions(&b.selectors)?;
         self.emit_l_brace();
-        self.visit_declaration_group(&mut b.declaracoes)?;
+        self.visit_declaration_group(&mut b.declarations)?;
         self.emit_r_brace();
         Ok(())
     }
 
-    fn visit_namespace_directive(&mut self, no: &mut No) -> R<()> {
-        if let No::Namespace { prefixo, uri } = no {
-            let uri = uri.as_deref().ok_or(Excecao("TypeError"))?;
-            // `prefix`: com espaço depois, se houver.
-            let prefixo = if prefixo.is_empty() {
+    fn visit_namespace_directive(&mut self, node: &mut Node) -> R<()> {
+        if let Node::Namespace { prefix, uri } = node {
+            let uri = uri.as_deref().ok_or(Exception("TypeError"))?;
+            // `prefix`: followed by a space, if present.
+            let prefix = if prefix.is_empty() {
                 String::new()
             } else {
-                format!("{prefixo} ")
+                format!("{prefix} ")
             };
             // `isStartingQuote(_uri!)`: `'\'"'.contains(uri)`.
             if "'\"".contains(uri) {
-                self.emit(&format!("@namespace {prefixo}\"{uri}\""));
+                self.emit(&format!("@namespace {prefix}\"{uri}\""));
             } else {
-                self.emit(&format!("@namespace {prefixo}url({uri})"));
+                self.emit(&format!("@namespace {prefix}url({uri})"));
             }
             self.emit_semicolon(true);
         }
@@ -373,23 +373,23 @@ impl Visitor for CssPrinter {
         Ok(())
     }
 
-    fn visit_mixin_ruleset_directive(&mut self, no: &mut No) -> R<()> {
-        if let No::MixinRegras { nome, regras } = no {
-            self.emit(&format!("@mixin {nome} "));
+    fn visit_mixin_ruleset_directive(&mut self, node: &mut Node) -> R<()> {
+        if let Node::MixinRules { name, rules } = node {
+            self.emit(&format!("@mixin {name} "));
             self.emit_l_brace();
-            for r in regras {
-                self.visit_no(r)?;
+            for r in rules {
+                self.visit_node(r)?;
             }
             self.emit_r_brace();
         }
         Ok(())
     }
 
-    fn visit_mixin_declaration_directive(&mut self, no: &mut No) -> R<()> {
-        if let No::MixinDeclaracoes { nome, declaracoes } = no {
-            self.emit(&format!("@mixin {nome}"));
+    fn visit_mixin_declaration_directive(&mut self, node: &mut Node) -> R<()> {
+        if let Node::MixinDeclarations { name, declarations } = node {
+            self.emit(&format!("@mixin {name}"));
             self.emit_l_brace();
-            self.visit_declaration_group(declaracoes)?;
+            self.visit_declaration_group(declarations)?;
             self.emit_r_brace();
         }
         Ok(())
@@ -401,18 +401,18 @@ impl Visitor for CssPrinter {
     }
 
     fn visit_rule_set(&mut self, r: &mut RuleSet) -> R<()> {
-        self.visit_selector_group(&mut r.grupo)?;
+        self.visit_selector_group(&mut r.group)?;
         self.emit_l_brace();
-        self.visit_declaration_group(&mut r.declaracoes)?;
+        self.visit_declaration_group(&mut r.declarations)?;
         self.emit_r_brace();
         Ok(())
     }
 
-    fn visit_declaration_group(&mut self, g: &mut GrupoDeclaracoes) -> R<()> {
-        let n = g.declaracoes.len();
-        for (i, d) in g.declaracoes.iter_mut().enumerate() {
-            self.visit_no(d)?;
-            // Sem o último `;` no compacto.
+    fn visit_declaration_group(&mut self, g: &mut DeclarationGroup) -> R<()> {
+        let n = g.declarations.len();
+        for (i, d) in g.declarations.iter_mut().enumerate() {
+            self.visit_node(d)?;
+            // No final `;` in compact mode.
             if i + 1 < n {
                 self.emit_semicolon(false);
             }
@@ -420,35 +420,35 @@ impl Visitor for CssPrinter {
         Ok(())
     }
 
-    fn visit_margin_group(&mut self, g: &mut GrupoDeclaracoes) -> R<()> {
-        let nome = g
-            .margem
+    fn visit_margin_group(&mut self, g: &mut DeclarationGroup) -> R<()> {
+        let name = g
+            .margin
             .and_then(|m| tk::id_to_value(tk::MARGIN_DIRECTIVES, m))
             .unwrap_or("null");
-        self.emit(&format!("@{nome}"));
+        self.emit(&format!("@{name}"));
         self.emit_l_brace();
         self.visit_declaration_group(g)?;
         self.emit_r_brace();
         Ok(())
     }
 
-    fn visit_declaration(&mut self, d: &mut Declaracao) -> R<()> {
-        if let Declaracao::Comum {
-            propriedade,
-            expressao,
-            importante,
+    fn visit_declaration(&mut self, d: &mut Declaration) -> R<()> {
+        if let Declaration::Plain {
+            property,
+            expression,
+            important,
             ie7,
         } = d
         {
-            // `property`: com `*` no hack do IE7.
+            // `property`: with `*` for the IE7 hack.
             let prop = if *ie7 {
-                format!("*{}", propriedade.nome)
+                format!("*{}", property.name)
             } else {
-                propriedade.nome.clone()
+                property.name.clone()
             };
             self.emit(&format!("{prop}:"));
-            self.visit_expressions(expressao)?;
-            if *importante {
+            self.visit_expressions(expression)?;
+            if *important {
                 self.emit("!important");
             }
         }
@@ -456,28 +456,28 @@ impl Visitor for CssPrinter {
     }
 
     fn visit_var_definition(&mut self, d: &mut VarDef) -> R<()> {
-        let nome = d.nome.as_ref().ok_or(Excecao("TypeError"))?;
-        self.emit(&format!("var-{}: ", nome.nome));
-        let e = d.expressao.as_ref().ok_or(Excecao("TypeError"))?;
+        let name = d.name.as_ref().ok_or(Exception("TypeError"))?;
+        self.emit(&format!("var-{}: ", name.name));
+        let e = d.expression.as_ref().ok_or(Exception("TypeError"))?;
         self.visit_expressions(e)
     }
 
     fn visit_include_mixin_at_declaration(&mut self, i: &mut Include) -> R<()> {
-        // Sem quebra de linha: está num grupo de declarações.
+        // No line break: it is inside a declaration group.
         self.include(i);
         Ok(())
     }
 
-    fn visit_extend_declaration(&mut self, seletores: &mut [Rc<SeletorSimples>]) -> R<()> {
+    fn visit_extend_declaration(&mut self, selectors: &mut [Rc<SimpleSelector>]) -> R<()> {
         self.emit("@extend ");
-        for s in seletores.iter() {
+        for s in selectors.iter() {
             self.visit_simple(s)?;
         }
         Ok(())
     }
 
-    fn visit_selector_group(&mut self, g: &mut GrupoSeletores) -> R<()> {
-        for (i, s) in g.seletores.iter().enumerate() {
+    fn visit_selector_group(&mut self, g: &mut SelectorGroup) -> R<()> {
+        for (i, s) in g.selectors.iter().enumerate() {
             if i > 0 {
                 self.emit(",");
             }
@@ -486,83 +486,83 @@ impl Visitor for CssPrinter {
         Ok(())
     }
 
-    fn visit_simple_selector_sequence(&mut self, seq: &Sequencia) -> R<()> {
-        self.emit(seq.combinador_como_texto());
-        self.visit_simple(&seq.seletor)
+    fn visit_simple_selector_sequence(&mut self, seq: &Sequence) -> R<()> {
+        self.emit(seq.combinator_as_str());
+        self.visit_simple(&seq.selector)
     }
 
-    fn visit_simple_selector(&mut self, s: &SeletorSimples) -> R<()> {
-        self.emit(s.nome());
+    fn visit_simple_selector(&mut self, s: &SimpleSelector) -> R<()> {
+        self.emit(s.name());
         Ok(())
     }
 
-    fn visit_namespace_selector(&mut self, s: &SeletorSimples) -> R<()> {
-        let t = Self::seletor_como_texto(s)?;
+    fn visit_namespace_selector(&mut self, s: &SimpleSelector) -> R<()> {
+        let t = Self::selector_as_text(s)?;
         self.emit(&t);
         Ok(())
     }
 
-    fn visit_element_selector(&mut self, s: &SeletorSimples) -> R<()> {
-        let t = Self::seletor_como_texto(s)?;
+    fn visit_element_selector(&mut self, s: &SimpleSelector) -> R<()> {
+        let t = Self::selector_as_text(s)?;
         self.emit(&t);
         Ok(())
     }
 
-    fn visit_attribute_selector(&mut self, s: &SeletorSimples) -> R<()> {
-        let t = Self::seletor_como_texto(s)?;
+    fn visit_attribute_selector(&mut self, s: &SimpleSelector) -> R<()> {
+        let t = Self::selector_as_text(s)?;
         self.emit(&t);
         Ok(())
     }
 
-    fn visit_id_selector(&mut self, s: &SeletorSimples) -> R<()> {
-        let t = Self::seletor_como_texto(s)?;
+    fn visit_id_selector(&mut self, s: &SimpleSelector) -> R<()> {
+        let t = Self::selector_as_text(s)?;
         self.emit(&t);
         Ok(())
     }
 
-    fn visit_class_selector(&mut self, s: &SeletorSimples) -> R<()> {
-        let t = Self::seletor_como_texto(s)?;
+    fn visit_class_selector(&mut self, s: &SimpleSelector) -> R<()> {
+        let t = Self::selector_as_text(s)?;
         self.emit(&t);
         Ok(())
     }
 
-    fn visit_pseudo_class_selector(&mut self, s: &SeletorSimples) -> R<()> {
-        let t = Self::seletor_como_texto(s)?;
+    fn visit_pseudo_class_selector(&mut self, s: &SimpleSelector) -> R<()> {
+        let t = Self::selector_as_text(s)?;
         self.emit(&t);
         Ok(())
     }
 
-    fn visit_pseudo_element_selector(&mut self, s: &SeletorSimples) -> R<()> {
-        let t = Self::seletor_como_texto(s)?;
+    fn visit_pseudo_element_selector(&mut self, s: &SimpleSelector) -> R<()> {
+        let t = Self::selector_as_text(s)?;
         self.emit(&t);
         Ok(())
     }
 
-    fn visit_pseudo_class_function_selector(&mut self, s: &SeletorSimples) -> R<()> {
-        if let TipoSimples::PseudoClasseFuncao(arg) = &s.tipo {
-            self.emit(&format!(":{}(", s.nome()));
+    fn visit_pseudo_class_function_selector(&mut self, s: &SimpleSelector) -> R<()> {
+        if let SimpleKind::PseudoClassFunction(arg) = &s.kind {
+            self.emit(&format!(":{}(", s.name()));
             match arg {
-                ArgumentoPseudo::Seletor(sel) => self.visit_selector(sel)?,
-                ArgumentoPseudo::Expressao(e) => self.visit_selector_expression(e)?,
+                PseudoArgument::Selector(sel) => self.visit_selector(sel)?,
+                PseudoArgument::Expression(e) => self.visit_selector_expression(e)?,
             }
             self.emit(")");
         }
         Ok(())
     }
 
-    fn visit_pseudo_element_function_selector(&mut self, s: &SeletorSimples) -> R<()> {
-        if let TipoSimples::PseudoElementoFuncao(e) = &s.tipo {
-            self.emit(&format!("::{}(", s.nome()));
+    fn visit_pseudo_element_function_selector(&mut self, s: &SimpleSelector) -> R<()> {
+        if let SimpleKind::PseudoElementFunction(e) = &s.kind {
+            self.emit(&format!("::{}(", s.name()));
             self.visit_selector_expression(e)?;
             self.emit(")");
         }
         Ok(())
     }
 
-    fn visit_negation_selector(&mut self, s: &SeletorSimples) -> R<()> {
-        if let TipoSimples::Negacao(arg) = &s.tipo {
+    fn visit_negation_selector(&mut self, s: &SimpleSelector) -> R<()> {
+        if let SimpleKind::Negation(arg) = &s.kind {
             self.emit(":not(");
-            let arg = arg.as_ref().ok_or(Excecao("TypeError"))?;
+            let arg = arg.as_ref().ok_or(Exception("TypeError"))?;
             self.visit_simple(arg)?;
             self.emit(")");
         }
@@ -585,84 +585,84 @@ impl Visitor for CssPrinter {
         Ok(())
     }
 
-    fn visit_literal_term(&mut self, t: &Termo) -> R<()> {
-        self.emit(&t.texto);
+    fn visit_literal_term(&mut self, t: &Term) -> R<()> {
+        self.emit(&t.text);
         Ok(())
     }
 
-    fn visit_hex_color_term(&mut self, t: &Termo) -> R<()> {
-        let nome = match t.valor {
-            Valor::Int(v) => tk::hex_to_color_name(v),
+    fn visit_hex_color_term(&mut self, t: &Term) -> R<()> {
+        let name = match t.value {
+            Value::Int(v) => tk::hex_to_color_name(v),
             _ => None,
         };
-        match nome {
+        match name {
             Some(n) => self.emit(n),
-            None => self.emit(&format!("#{}", t.texto)),
+            None => self.emit(&format!("#{}", t.text)),
         }
         Ok(())
     }
 
-    fn visit_number_term(&mut self, t: &Termo) -> R<()> {
+    fn visit_number_term(&mut self, t: &Term) -> R<()> {
         self.visit_literal_term(t)
     }
 
-    fn visit_unit_term(&mut self, t: &Termo) -> R<()> {
+    fn visit_unit_term(&mut self, t: &Term) -> R<()> {
         // `UnitTerm.toString`: `'$text${unitToString()}'`.
-        if let TipoTermo::Unidade { unidade, .. } = t.tipo {
-            self.emit(&format!("{}{}", t.texto, tk::unit_to_string(unidade)));
+        if let TermKind::Unit { unit, .. } = t.kind {
+            self.emit(&format!("{}{}", t.text, tk::unit_to_string(unit)));
         }
         Ok(())
     }
 
-    fn visit_percentage_term(&mut self, t: &Termo) -> R<()> {
-        self.emit(&format!("{}%", t.texto));
+    fn visit_percentage_term(&mut self, t: &Term) -> R<()> {
+        self.emit(&format!("{}%", t.text));
         Ok(())
     }
 
-    fn visit_em_term(&mut self, t: &Termo) -> R<()> {
-        self.emit(&format!("{}em", t.texto));
+    fn visit_em_term(&mut self, t: &Term) -> R<()> {
+        self.emit(&format!("{}em", t.text));
         Ok(())
     }
 
-    fn visit_ex_term(&mut self, t: &Termo) -> R<()> {
-        self.emit(&format!("{}ex", t.texto));
+    fn visit_ex_term(&mut self, t: &Term) -> R<()> {
+        self.emit(&format!("{}ex", t.text));
         Ok(())
     }
 
-    fn visit_fraction_term(&mut self, t: &Termo) -> R<()> {
-        self.emit(&format!("{}fr", t.texto));
+    fn visit_fraction_term(&mut self, t: &Term) -> R<()> {
+        self.emit(&format!("{}fr", t.text));
         Ok(())
     }
 
-    fn visit_uri_term(&mut self, t: &Termo) -> R<()> {
-        self.emit(&format!("url(\"{}\")", t.texto));
+    fn visit_uri_term(&mut self, t: &Term) -> R<()> {
+        self.emit(&format!("url(\"{}\")", t.text));
         Ok(())
     }
 
-    fn visit_function_term(&mut self, t: &Termo) -> R<()> {
-        self.emit(&format!("{}(", t.texto));
-        if let TipoTermo::Funcao(params) = &t.tipo {
+    fn visit_function_term(&mut self, t: &Term) -> R<()> {
+        self.emit(&format!("{}(", t.text));
+        if let TermKind::Function(params) = &t.kind {
             self.visit_expressions(params)?;
         }
         self.emit(")");
         Ok(())
     }
 
-    fn visit_group_term(&mut self, termos: &[Termo]) -> R<()> {
+    fn visit_group_term(&mut self, terms: &[Term]) -> R<()> {
         self.emit("(");
-        for t in termos {
-            self.visit_termo(t)?;
+        for t in terms {
+            self.visit_term(t)?;
         }
         self.emit(")");
         Ok(())
     }
 
-    fn visit_item_term(&mut self, t: &Termo) -> R<()> {
-        self.emit(&format!("[{}]", t.texto));
+    fn visit_item_term(&mut self, t: &Term) -> R<()> {
+        self.emit(&format!("[{}]", t.text));
         Ok(())
     }
 
-    fn visit_ie8_term(&mut self, t: &Termo) -> R<()> {
+    fn visit_ie8_term(&mut self, t: &Term) -> R<()> {
         self.visit_literal_term(t)
     }
 
@@ -686,11 +686,11 @@ impl Visitor for CssPrinter {
         Ok(())
     }
 
-    fn visit_var_usage(&mut self, nome: &str, padroes: &[Expr]) -> R<()> {
-        self.emit(&format!("var({nome}"));
-        if !padroes.is_empty() {
+    fn visit_var_usage(&mut self, name: &str, defaults: &[Expr]) -> R<()> {
+        self.emit(&format!("var({name}"));
+        if !defaults.is_empty() {
             self.emit(",");
-            for p in padroes {
+            for p in defaults {
                 self.emit(" ");
                 self.visit_expr(p)?;
             }
@@ -699,24 +699,24 @@ impl Visitor for CssPrinter {
         Ok(())
     }
 
-    fn visit_expressions(&mut self, e: &Expressoes) -> R<()> {
-        let operador = |x: &Expr| matches!(x, Expr::Virgula | Expr::Barra);
-        let porcentagem = |x: &Expr| {
+    fn visit_expressions(&mut self, e: &Expressions) -> R<()> {
+        let operator = |x: &Expr| matches!(x, Expr::Comma | Expr::Slash);
+        let percentage = |x: &Expr| {
             matches!(
                 x,
-                Expr::Termo(Termo {
-                    tipo: TipoTermo::Porcentagem,
+                Expr::Term(Term {
+                    kind: TermKind::Percentage,
                     ..
                 })
             )
         };
-        for (i, x) in e.expressoes.iter().enumerate() {
-            // Espaço entre termos sem operador.
-            if i > 0 && !operador(x) {
-                let anterior = &e.expressoes[i - 1];
-                if operador(anterior) {
-                    // `_sp`: nada no compacto.
-                } else if porcentagem(anterior) && porcentagem(x) && self.is_in_keyframes {
+        for (i, x) in e.expressions.iter().enumerate() {
+            // Space between terms without an operator.
+            if i > 0 && !operator(x) {
+                let previous = &e.expressions[i - 1];
+                if operator(previous) {
+                    // `_sp`: nothing in compact mode.
+                } else if percentage(previous) && percentage(x) && self.is_in_keyframes {
                     self.emit(",");
                 } else {
                     self.emit(" ");
@@ -727,8 +727,8 @@ impl Visitor for CssPrinter {
         Ok(())
     }
 
-    fn visit_identifier(&mut self, i: &Identificador) -> R<()> {
-        self.emit(&i.nome);
+    fn visit_identifier(&mut self, i: &Identifier) -> R<()> {
+        self.emit(&i.name);
         Ok(())
     }
 }

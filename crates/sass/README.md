@@ -1,79 +1,81 @@
 # dartforge-sass
 
-Compilador Sass do DartForge. É o [`grass_compiler`](https://github.com/connorskees/grass)
-**0.13.4** (MIT, © 2020 Connor Skees — ver `LICENSE`), trazido para o repositório
-(`src/` era o `src/` do pacote publicado no crates.io) e mantido aqui para sair
-**byte a byte igual ao dart-sass 1.102.0**, a versão que o `sass_builder` 2.2.1 usa nos
-projetos. O grass segue a estrutura do dart-sass (parser, avaliador, serializador), então
-cada correção aponta a regra do dart-sass que ela reproduz, em comentário no código.
+The DartForge Sass compiler. It is [`grass_compiler`](https://github.com/connorskees/grass)
+**0.13.4** (MIT, © 2020 Connor Skees — see `LICENSE`), brought into the repository
+(`src/` was the `src/` of the package published on crates.io) and maintained here to come
+out **byte for byte equal to dart-sass 1.102.0**, the version that `sass_builder` 2.2.1 uses
+in the projects. grass follows the structure of dart-sass (parser, evaluator, serializer),
+so each fix points, in a comment in the code, to the dart-sass rule it reproduces.
 
-## O que mudou em relação ao grass 0.13.4
+## What changed relative to grass 0.13.4
 
-* **Importador do `sass_builder`** (`src/sass_builder.rs`, `src/importer.rs`): entrada
-  como ativo do `build_runner` (`package:`/`asset:`), resolução pelo `BuildImporter`
-  (parcial `_x`, `.sass`/`.scss`, `index`, ambiguidade é erro, `package:` pelo
-  `package_config.json`), cache de folhas por URL canônica como o `ImportCache`.
-* **Serializador** (`src/serializer.rs`): porte do `_SerializeVisitor` — disposição das
-  regras, comentários à direita, `isGroupEnd`, indentação de seletores em várias linhas,
-  números (`_writeNumber`/`_writeRounded`), strings (escapes, caracteres de uso
-  privado), valores crus de propriedades customizadas, `@media`/`@supports`/`@import`.
-* **Mapa de fontes** (`src/source_map.rs`): porte do `SourceMapBuffer` e do `SingleMapping`
-  (`source_maps` 0.10), com os `span`s dos nós CSS e os nós de variáveis
-  (`valueSpanForMap`) do avaliador; `sources` reescritas como o `sass_builder` faz.
-* **Cores** (`src/color/`, `src/builtin/functions/color/`): porte do modelo de cor do
-  dart-sass 1.79+ (espaços do CSS Color 4, canais ausentes, sem arredondar) e de
+* **`sass_builder` importer** (`src/sass_builder.rs`, `src/importer.rs`): the input as a
+  `build_runner` asset (`package:`/`asset:`), resolution by the `BuildImporter` (partial
+  `_x`, `.sass`/`.scss`, `index`, ambiguity is an error, `package:` through
+  `package_config.json`), a stylesheet cache by canonical URL like `ImportCache`.
+* **Serializer** (`src/serializer.rs`): port of `_SerializeVisitor` — layout of the rules,
+  trailing comments, `isGroupEnd`, indentation of multi-line selectors, numbers
+  (`_writeNumber`/`_writeRounded`), strings (escapes, private-use characters), raw values of
+  custom properties, `@media`/`@supports`/`@import`.
+* **Source map** (`src/source_map.rs`): port of `SourceMapBuffer` and `SingleMapping`
+  (`source_maps` 0.10), with the `span`s of the CSS nodes and the variable nodes
+  (`valueSpanForMap`) from the evaluator; `sources` rewritten as `sass_builder` does.
+* **Colors** (`src/color/`, `src/builtin/functions/color/`): port of the dart-sass 1.79+
+  color model (CSS Color 4 spaces, missing channels, no rounding) and of
   `functions/color.dart`.
-* **Avaliador**: `_copyParentAfterSibling`, `hasFollowingSibling` só com irmãos visíveis,
-  valores de função CSS sempre serializados no estilo `expanded`, e outras — cada uma
-  comentada no lugar.
-* Sem `unsafe` (o workspace o nega): o internador de nomes vaza os textos em vez de usar
-  ponteiro cru.
+* **Evaluator**: `_copyParentAfterSibling`, `hasFollowingSibling` with visible siblings
+  only, CSS function values always serialized in the `expanded` style, and others — each
+  one commented in place.
+* No `unsafe` (the workspace denies it): the name interner leaks the strings instead of
+  using a raw pointer.
 
-## Conferência
+## Checking
 
-`examples/check.rs` compila uma lista de `.scss` e compara, byte a byte, o `.css` e o
-`.css.map` com as saídas de um oráculo — o `SassBuilder` reproduzido num programa Dart com
-o pacote `sass` 1.102.0 (mesmas opções: `compileStringToResult` com o `BuildImporter`,
-`url: inputId.uri`, `sourceMap`, os dois estilos).
+`examples/check.rs` compiles a list of `.scss` files and compares, byte for byte, the
+`.css` and the `.css.map` with the outputs of an oracle — `SassBuilder` reproduced in a Dart
+program with the `sass` 1.102.0 package (same options: `compileStringToResult` with the
+`BuildImporter`, `url: inputId.uri`, `sourceMap`, both styles).
 
-## Modo de compatibilidade com o dart-sass 1.66.0
+## Compatibility mode with dart-sass 1.66.0
 
-`Options::versao(VersaoDartSass::V1_66_0)` imita o dart-sass **1.66.0** — o `sass` do lock
-de pacotes que não resolvem com o 1.102 (o ngcomponents 3.0.0-dev.1). O motor escolhe o modo
-pela versão do `sass` no `pubspec.lock` (`descritor::imita` aceita 1.102.0 e 1.66.0). As
-diferenças portadas, lidas do código das duas versões e do `CHANGELOG`:
+`Options::version(VersaoDartSass::V1_66_0)` imitates dart-sass **1.66.0** — the `sass` in
+the lock of packages that do not resolve with 1.102 (ngcomponents 3.0.0-dev.1). The engine
+chooses the mode by the version of `sass` in `pubspec.lock` (`descritor::imita` accepts
+1.102.0 and 1.66.0). The ported differences, read from the code of both versions and from
+the `CHANGELOG`:
 
-* **"mixed-decls"** (1.92.0): o 1.66 não tem o `_copyParentAfterSibling` — declaração,
-  comentário, `@import` e at-rule sem corpo depois de uma regra aninhada (inclusive vindos
-  de `@include`) vão para o bloco do seletor pai, antes da regra aninhada.
-* **Cores** (1.79.0 e 1.101.4): o modelo do 1.66 (`src/color/v166.rs`) — RGB inteiro de
-  0 a 255 ou HSL com o RGB arredondado (`fuzzyRound`), formatos `rgbFunction`,
-  `hslFunction` e o texto original —, as funções de cor do 1.66
-  (`src/builtin/functions/color/v166.rs`: `mix` arredonda, `darken` e afins guardam o HSL,
-  `rgb()` corta os canais, `adjust/scale/change-color` do `_updateComponents` antigo…) e o
-  `visitColor` do 1.66 no serializador (`rgba(r, g, b, a)` com inteiros, `hsl()` só para o
-  que saiu de `hsl()`).
-* **Cálculos** (1.67.0): só `calc()`, `clamp()`, `min()` e `max()` são cálculos; `round()`
-  e `abs()` são as funções do Sass e `sin()`, `mod()`… funções CSS puras. Interpolação no
-  nível de cima de um argumento ou de um `(…)` dentro dele vira o texto cru
-  (`CalculationInterpolation`, `AstExpr::CalcInterp166`), entre parênteses como operando;
-  `(x)` perde os parênteses (exceto `(var(…))`); lista separada por espaço é erro.
-* **`@extend`/`selector.unify`** (1.79.5): `unifyCompound` antigo (os simples do primeiro
-  entram no segundo). O modo padrão passou a usar o do 1.102 (pseudo-classes depois de um
-  pseudo-elemento ficam depois dele).
-* Números: sem precisão total no `inspect` (1.91.0) e unidade complexa é erro fora do
-  `inspect` (1.96.0); string: U+007F sem escape (1.69.6); propriedade customizada vazia é
-  erro (1.88.0); `//` fica no valor cru de funções especiais (1.77.7 — o modo padrão agora
-  o trata como comentário silencioso).
+* **"mixed-decls"** (1.92.0): 1.66 does not have `_copyParentAfterSibling` — a
+  declaration, comment, `@import` or body-less at-rule after a nested rule (including those
+  coming from `@include`) goes into the parent selector's block, before the nested rule.
+* **Colors** (1.79.0 and 1.101.4): the 1.66 model (`src/color/v166.rs`) — integer RGB from
+  0 to 255, or HSL with the rounded RGB (`fuzzyRound`), the `rgbFunction` and
+  `hslFunction` formats and the original text —, the 1.66 color functions
+  (`src/builtin/functions/color/v166.rs`: `mix` rounds, `darken` and the like keep the HSL,
+  `rgb()` clamps the channels, `adjust/scale/change-color` from the old
+  `_updateComponents`…) and the 1.66 `visitColor` in the serializer (`rgba(r, g, b, a)`
+  with integers, `hsl()` only for what came out of `hsl()`).
+* **Calculations** (1.67.0): only `calc()`, `clamp()`, `min()` and `max()` are
+  calculations; `round()` and `abs()` are the Sass functions and `sin()`, `mod()`… plain
+  CSS functions. Interpolation at the top level of an argument or of a `(…)` inside it
+  becomes the raw text (`CalculationInterpolation`, `AstExpr::CalcInterp166`), in
+  parentheses as an operand; `(x)` loses the parentheses (except `(var(…))`); a
+  space-separated list is an error.
+* **`@extend`/`selector.unify`** (1.79.5): the old `unifyCompound` (the simple selectors of
+  the first go into the second). The default mode now uses the 1.102 one (pseudo-classes
+  after a pseudo-element stay after it).
+* Numbers: no full precision in `inspect` (1.91.0) and a complex unit is an error outside
+  `inspect` (1.96.0); strings: U+007F unescaped (1.69.6); an empty custom property is an
+  error (1.88.0); `//` stays in the raw value of special functions (1.77.7 — the default
+  mode now treats it as a silent comment).
 
-Recusado com erro que o diz (a saída do 1.66 não é garantida): cor fora do modelo do 1.66
-(espaços do CSS Color 4, canais ausentes, RGB fracionário) e as funções que o 1.66 não tinha
-(`lab()`, `oklch()`, `color()`, `hwb()` global, `color.channel()`, `color.to-space()`…).
-Ficam de fora (não observados; ver o `CHANGELOG`): a gramática de cálculo inteira do 1.66
-além da interpolação, `meta.apply`/`get-mixin` (1.69) e sintaxe que o 1.66 recusava e o port
-aceita (vírgula final, `%` solto, aninhamento em CSS puro).
+Refused with an error that says so (the 1.66 output is not guaranteed): a color outside the
+1.66 model (CSS Color 4 spaces, missing channels, fractional RGB) and the functions that
+1.66 did not have (`lab()`, `oklch()`, `color()`, global `hwb()`, `color.channel()`,
+`color.to-space()`…). Left out (not observed; see the `CHANGELOG`): the whole 1.66
+calculation grammar beyond interpolation, `meta.apply`/`get-mixin` (1.69) and syntax that
+1.66 refused and the port accepts (trailing comma, lone `%`, nesting in plain CSS).
 
-Conferência: `tests/formas_166.rs` compara cada forma de `tests/formas_166/fontes` com o
-dart-sass 1.66.0 e 1.102.0 de verdade (`scripts/sass-formas-166.sh` grava os oráculos em
-`esperado/` e `esperado_102/`). No ngcomponents 3.0.0-dev.1, as 70 `.scss.css` saem iguais
-às do `build_runner` com o sass 1.66.0.
+Checking: `tests/formas_166.rs` compares each shape in `tests/formas_166/fontes` with the
+real dart-sass 1.66.0 and 1.102.0 (`scripts/sass-formas-166.sh` records the oracles in
+`esperado/` and `esperado_102/`). In ngcomponents 3.0.0-dev.1, the 70 `.scss.css` files come
+out equal to those of `build_runner` with sass 1.66.0.

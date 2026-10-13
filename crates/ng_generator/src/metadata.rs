@@ -1,25 +1,26 @@
-//! Os metadados de uma `@Directive`/`@Component`, lidos do programa
-//! carregado — o que o `_ComponentVisitor` do oficial
-//! (`source_gen/template_compiler/find_components.dart`) tira do analyzer:
+//! The metadata of a `@Directive`/`@Component`, read from the loaded program —
+//! what the official `_ComponentVisitor`
+//! (`source_gen/template_compiler/find_components.dart`) takes from the
+//! analyzer:
 //!
-//! * a anotação avaliada como constante: `selector`, `exportAs`,
-//!   `visibility`, `providers` (listas e constantes de topo achatadas, como o
+//! * the annotation evaluated as a constant: `selector`, `exportAs`,
+//!   `visibility`, `providers` (lists and top-level constants flattened, like
 //!   `ModuleReader.extractProviderObjects`);
-//! * `@Input`/`@Output` da classe **e dos supertipos**
-//!   (`_collectInheritableMetadata`: `allSupertypes` ao contrário, depois a
-//!   própria classe; em cada uma os campos antes dos setters nas entradas, os
-//!   acessores antes dos campos nas saídas);
-//! * `@HostListener`/`@HostBinding` pela mesma ordem (`DirectiveVisitor`:
-//!   acessores, métodos, campos);
-//! * os ganchos de ciclo de vida (`extractLifecycleHooks`: qualquer supertipo
-//!   que seja a interface do `lifecycle_hooks.dart`);
-//! * as dependências do construtor (`_getCompileDiDependencyMetadata`), com
+//! * `@Input`/`@Output` of the class **and of its supertypes**
+//!   (`_collectInheritableMetadata`: `allSupertypes` reversed, then the class
+//!   itself; in each one the fields before the setters for inputs, the
+//!   accessors before the fields for outputs);
+//! * `@HostListener`/`@HostBinding` in the same order (`DirectiveVisitor`:
+//!   accessors, methods, fields);
+//! * the lifecycle hooks (`extractLifecycleHooks`: any supertype that is the
+//!   interface from `lifecycle_hooks.dart`);
+//! * the constructor dependencies (`_getCompileDiDependencyMetadata`), with
 //!   `@Inject`, `@Optional`, `@Self`, `@Host`, `@SkipSelf`.
 //!
-//! As anotações são reconhecidas pela classe que designam
-//! (`TypeChecker.fromUrl('package:ngdart/src/meta/...')`), não pelo nome
-//! escrito. O que não se consegue ler vai para `Diretiva::fora`, e quem usa
-//! a diretiva recusa.
+//! Annotations are recognized by the class they designate
+//! (`TypeChecker.fromUrl('package:ngdart/src/meta/...')`), not by the written
+//! name. What cannot be read goes to `Diretiva::fora`, and whoever uses the
+//! directive refuses.
 use crate::component::Ganchos;
 use crate::directives::{
     DI_TOKENS, Dependencia, Diretiva, Entrada, Fornece, Ouvinte, Provedor, TipoDeToken, Token,
@@ -37,10 +38,10 @@ const DI_PROVIDERS: &str = "package:ngdart/src/meta/di_providers.dart";
 const LIFECYCLE_HOOKS: &str = "package:ngdart/src/meta/lifecycle_hooks.dart";
 const VISIBILITY: &str = "package:ngdart/src/meta/visibility.dart";
 
-/// Profundidade máxima de constantes que citam constantes.
+/// Maximum depth of constants that cite constants.
 const PROFUNDIDADE: u32 = 16;
 
-/// Uma classe já resolvida.
+/// An already resolved class.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Classe {
     uri: String,
@@ -54,29 +55,29 @@ impl Classe {
     }
 }
 
-/// Um tipo escrito, resolvido: a classe e os argumentos; `None` na classe é
-/// `dynamic`.
+/// A written type, resolved: the class and the arguments; `None` for the class
+/// is `dynamic`.
 #[derive(Debug, Clone)]
 struct Tipo {
     classe: Option<Classe>,
     args: Vec<Tipo>,
 }
 
-/// O valor constante de uma expressão, na parte que os metadados usam.
+/// The constant value of an expression, in the part the metadata uses.
 #[derive(Debug, Clone)]
 enum Valor {
     Texto(String),
     Inteiro(i64),
     Booleano(bool),
     Nulo,
-    /// Uma função de topo (`useFactory:`), pela biblioteca que a declara.
+    /// A top-level function (`useFactory:`), by the library that declares it.
     Funcao {
         uri: String,
         nome: String,
         id: FunctionElementId,
     },
     Lista(Vec<Valor>),
-    /// Um literal de tipo (`NgModel` numa lista de provedores).
+    /// A type literal (`NgModel` in a provider list).
     Tipo(Classe),
     /// `C<T>.ctor(a, b, nome: c)`.
     Objeto {
@@ -86,14 +87,14 @@ enum Valor {
         posicionais: Vec<Valor>,
         nomeados: Vec<(String, Valor)>,
     },
-    /// `C.nome`: constante de enum ou campo estático.
+    /// `C.name`: enum constant or static field.
     Membro {
         classe: Classe,
         nome: String,
     },
 }
 
-/// Lê os metadados da classe `id`, se ela tem `@Directive` ou `@Component`.
+/// Reads the metadata of class `id`, if it has `@Directive` or `@Component`.
 pub fn ler(r: &Resolvedor, id: ClassId) -> Option<Diretiva> {
     Leitor { r }.diretiva(id)
 }
@@ -102,10 +103,10 @@ struct Leitor<'r, 'a> {
     r: &'r Resolvedor<'a>,
 }
 
-/// Onde uma classe está declarada: a unidade, a biblioteca, os membros e os
-/// nomes dos parâmetros de tipo.
+/// Where a class is declared: the unit, the library, the members and the names
+/// of the type parameters.
 struct Declaracao<'a> {
-    /// A classe declarada (`None` na função de `useFactory:`).
+    /// The declared class (`None` for the `useFactory:` function).
     id: Option<ClassId>,
     unidade: UnitId,
     lib: LibraryId,
@@ -156,9 +157,9 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// `allSupertypes` do analyzer (`ClassHierarchy._getHierarchy`): para o
-    /// supertipo, as restrições `on`, as interfaces e os mixins, nessa ordem,
-    /// o próprio tipo e depois os supertipos dele, sem repetir.
+    /// The analyzer's `allSupertypes` (`ClassHierarchy._getHierarchy`): for the
+    /// supertype, the `on` constraints, the interfaces and the mixins, in that
+    /// order, the type itself and then its supertypes, without repetition.
     fn supertipos(&self, id: ClassId, profundidade: u32) -> Vec<ClassId> {
         let mut saida: Vec<ClassId> = Vec::new();
         if profundidade > 64 {
@@ -185,7 +186,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         saida
     }
 
-    /// A classe que o nome de uma anotação designa (`Input`, `ng.Input`).
+    /// The class an annotation name designates (`Input`, `ng.Input`).
     fn classe_da_anotacao(&self, lib: LibraryId, a: &ast::Annotation) -> Option<Classe> {
         let partes: Vec<&str> = a.name.iter().map(|n| self.nome(n)).collect();
         let el = match partes.as_slice() {
@@ -200,10 +201,10 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// Se a anotação é uma das do `directives.dart` do ngdart, o nome dela.
-    /// Uma anotação com um desses nomes que não se resolve para lá é
-    /// registrada em `fora`: o analyzer a teria resolvido, e perdê-la em
-    /// silêncio daria metadados errados.
+    /// If the annotation is one of those of ngdart's `directives.dart`, its
+    /// name. An annotation with one of those names that does not resolve there
+    /// is recorded in `fora`: the analyzer would have resolved it, and silently
+    /// losing it would give wrong metadata.
     fn anotacao_do_ngdart(
         &self,
         lib: LibraryId,
@@ -227,7 +228,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             Some(_) => None,
             None => {
                 if let Some(n) = conhecido {
-                    fora.push(format!("@{n} não resolvida"));
+                    fora.push(format!("@{n} not resolved"));
                 }
                 None
             }
@@ -275,20 +276,20 @@ impl<'r, 'a> Leitor<'r, 'a> {
             self.membros(&dc, c == id, &mut d, &mut entradas);
         }
         d.entradas = entradas.into_iter().map(|(_, e)| e).collect();
-        // Diretiva genérica com `@HostBinding`: o `XNgCd<T>` leva argumentos
-        // de tipo (`lookupTypeArgumentsOf`) — ainda sem caso.
+        // Generic directive with `@HostBinding`: the `XNgCd<T>` takes type
+        // arguments (`lookupTypeArgumentsOf`) — no case yet.
         if !d.ligacoes_do_hospedeiro.is_empty()
             && !decl.parametros_de_tipo.is_empty()
             && !e_componente
         {
-            d.fora.push("diretiva genérica com @HostBinding".into());
+            d.fora.push("generic directive with @HostBinding".into());
         }
         d.ganchos = self.ganchos(&ordem);
         self.dependencias(&decl, &mut d);
         Some(d)
     }
 
-    /// Os argumentos da anotação.
+    /// The arguments of the annotation.
     fn argumentos(&self, decl: &Declaracao, a: &ast::Annotation, d: &mut Diretiva) {
         let Some(args) = &a.arguments else {
             return;
@@ -301,24 +302,24 @@ impl<'r, 'a> Leitor<'r, 'a> {
             match nome {
                 "selector" => match valor() {
                     Ok(Valor::Texto(s)) => d.seletor = s,
-                    _ => d.fora.push("selector: que não é texto constante".into()),
+                    _ => d.fora.push("selector: that is not a constant string".into()),
                 },
                 "exportAs" => match valor() {
                     Ok(Valor::Texto(s)) => d.export_as = Some(s),
                     Ok(Valor::Nulo) => {}
-                    _ => d.fora.push("exportAs: que não é texto constante".into()),
+                    _ => d.fora.push("exportAs: that is not a constant string".into()),
                 },
                 "visibility" => match valor() {
                     Ok(Valor::Membro { classe, nome }) if classe.e(VISIBILITY, "Visibility") => {
                         d.visivel = nome == "all";
                     }
-                    _ => d.fora.push("visibility: ilegível".into()),
+                    _ => d.fora.push("unreadable visibility:".into()),
                 },
                 "providers" => match valor() {
                     Ok(v) => self.provedores(v, d),
                     Err(f) => d.fora.push(format!("providers: {f}")),
                 },
-                // Lidos como os `providers:` e guardados à parte (privados).
+                // Read like the `providers:` and kept apart (private).
                 "viewProviders" => match valor() {
                     Ok(v) => {
                         let publicos = std::mem::take(&mut d.provedores);
@@ -332,8 +333,8 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// `ModuleReader.extractProviderObjects`: listas achatadas; cada item um
-    /// provedor (`createProviderMetadata`). O que não se lê vai para `fora`.
+    /// `ModuleReader.extractProviderObjects`: lists flattened; each item a
+    /// provider (`createProviderMetadata`). What cannot be read goes to `fora`.
     fn provedores(&self, v: Valor, d: &mut Diretiva) {
         match v {
             Valor::Lista(itens) => {
@@ -349,9 +350,9 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// Um provedor: um literal de tipo (`useClass` do próprio tipo) ou um
+    /// A provider: a type literal (`useClass` of the type itself) or a
     /// `Provider`/`ClassProvider`/`ExistingProvider`/`FactoryProvider`/
-    /// `ValueProvider` (e o `.forToken` de cada).
+    /// `ValueProvider` (and the `.forToken` of each).
     fn provedor(&self, v: Valor) -> Result<Provedor, String> {
         let (classe, construtor, tipos, posicionais, nomeados) = match v {
             Valor::Tipo(c) => {
@@ -373,7 +374,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 nomeados,
             } if classe.uri == DI_PROVIDERS => (classe, construtor, tipos, posicionais, nomeados),
             Valor::Objeto { classe, .. } => return Err(format!("provedor {}", classe.nome)),
-            _ => return Err("provedor ilegível".into()),
+            _ => return Err("unreadable provider".into()),
         };
         let tipo_do_provedor = classe.nome.as_str();
         let por_token = match construtor.as_deref() {
@@ -381,7 +382,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             Some("forToken") if tipo_do_provedor != "Provider" => true,
             Some(c) => return Err(format!("{tipo_do_provedor}.{c}")),
         };
-        // Os campos do `Provider`, pelo construtor usado.
+        // The fields of the `Provider`, through the constructor used.
         let mut pos = posicionais.into_iter();
         let token_v = pos.next().ok_or("provedor sem token")?;
         let mut use_class = None;
@@ -412,7 +413,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
         let token = self.token_do_valor(&token_v)?;
         let multi = matches!(token, Token::Multi { .. });
-        // `useValue: null` não se distingue da falta dele daqui.
+        // `useValue: null` cannot be told from its absence from here.
         if matches!(use_value, Some(Valor::Nulo)) {
             return Err("useValue: null".into());
         }
@@ -421,7 +422,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             .filter(|x| x.is_some())
             .count();
         if quantos > 1 {
-            return Err("provedor com mais de um use*".into());
+            return Err("provider with more than one use*".into());
         }
         if deps.is_some() && use_factory.is_none() {
             return Err("deps: sem useFactory".into());
@@ -435,18 +436,18 @@ impl<'r, 'a> Leitor<'r, 'a> {
         } else {
             let c = match use_class.unwrap_or(token_v) {
                 Valor::Tipo(c) => c,
-                _ => return Err("useClass de algo que não é classe".into()),
+                _ => return Err("useClass of something that is not a class".into()),
             };
             self.fonte_de_classe(&c)?
         };
-        // `inferProviderType`: o `T` do `MultiToken`; senão o `T` do
-        // provedor (escrito ou inferido pelo analyzer), a não ser `dynamic`
-        // ou `Object`.
+        // `inferProviderType`: the `T` of the `MultiToken`; otherwise the `T`
+        // of the provider (written or inferred by the analyzer), unless it is
+        // `dynamic` or `Object`.
         let tipo = if let Token::Multi { tipo, .. } = &token {
             Some(tipo.clone())
         } else if let Some(t) = tipos.first() {
             let Some(c) = &t.classe else {
-                return Err("provedor com argumento de tipo dynamic".into());
+                return Err("provider with a dynamic type argument".into());
             };
             if c.e("dart:core", "Object") {
                 None
@@ -470,7 +471,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     genericos: 0,
                     args: Vec::new(),
                 }),
-                _ => return Err("ValueProvider de valor sem tipo conhecido".into()),
+                _ => return Err("ValueProvider of a value without a known type".into()),
             }
         } else {
             None
@@ -483,19 +484,19 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
-    /// O `T` de um token como o `fromDartType` o escreve: a classe e os
-    /// argumentos, recursivamente; argumentos todos `dynamic` ficam na forma
-    /// curta (`args` vazio).
+    /// The `T` of a token as `fromDartType` writes it: the class and the
+    /// arguments, recursively; arguments that are all `dynamic` stay in the
+    /// short form (empty `args`).
     fn tipo_de_token(&self, t: &Tipo, profundidade: u32) -> Result<TipoDeToken, String> {
         let Some(c) = &t.classe else {
             return Ok(TipoDeToken::dinamico());
         };
         if profundidade > 16 {
-            return Err("tipo de token aninhado demais".into());
+            return Err("token type nested too deeply".into());
         }
         let parametros = self.r.programa().class(c.id).type_params.len();
         if t.args.len() != parametros {
-            return Err("tipo de token sem todos os argumentos".into());
+            return Err("token type without all the arguments".into());
         }
         let args: Vec<TipoDeToken> = t
             .args
@@ -523,14 +524,14 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// Um tipo sem argumentos (ou só com `dynamic`), como o `fromDartType`
-    /// o escreve.
+    /// A type without arguments (or only with `dynamic`), as `fromDartType`
+    /// writes it.
     fn tipo_sem_argumentos(&self, c: &Classe, t: &Tipo) -> Result<TipoDeToken, String> {
         let parametros = self.r.programa().class(c.id).type_params.len();
         if !t.args.is_empty()
             && (t.args.len() != parametros || t.args.iter().any(|a| a.classe.is_some()))
         {
-            return Err("tipo de provedor com argumentos".into());
+            return Err("provider type with arguments".into());
         }
         Ok(TipoDeToken {
             uri: c.uri.clone(),
@@ -540,14 +541,14 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
-    /// `useClass:` (`_getUseClass`, `enforceClassCanBeCreated`): a classe e
-    /// as dependências do construtor sem nome.
+    /// `useClass:` (`_getUseClass`, `enforceClassCanBeCreated`): the class and
+    /// the dependencies of the unnamed constructor.
     fn fonte_de_classe(&self, c: &Classe) -> Result<Fornece, String> {
         let decl = self
             .declaracao(c.id)
-            .ok_or_else(|| format!("classe de provedor sem declaração ({})", c.nome))?;
+            .ok_or_else(|| format!("provider class without a declaration ({})", c.nome))?;
         if !decl.parametros_de_tipo.is_empty() {
-            return Err("provedor de classe genérica".into());
+            return Err("provider of a generic class".into());
         }
         if decl.abstrata {
             return Err("provedor de classe abstrata".into());
@@ -564,16 +565,16 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
-    /// `useFactory:` de uma função de topo, com `deps:` (se não vazio) ou os
-    /// parâmetros dela (`_factoryForFunction`).
+    /// `useFactory:` of a top-level function, with `deps:` (if not empty) or
+    /// its parameters (`_factoryForFunction`).
     fn fonte_de_fabrica(&self, f: Valor, deps: Option<Valor>) -> Result<Fornece, String> {
         let Valor::Funcao { uri, nome, id } = f else {
-            return Err("useFactory que não é função de topo".into());
+            return Err("useFactory that is not a top-level function".into());
         };
         let lista = match deps {
             None | Some(Valor::Nulo) => Vec::new(),
             Some(Valor::Lista(l)) => l,
-            Some(_) => return Err("deps: ilegível".into()),
+            Some(_) => return Err("unreadable deps:".into()),
         };
         let mut saida = Vec::new();
         if !lista.is_empty() {
@@ -585,7 +586,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             let fe = p.function(id);
             let dartforge_elements::model::FunctionRef::Function { unit, function } = fe.node
             else {
-                return Err("useFactory sem declaração".into());
+                return Err("useFactory without a declaration".into());
             };
             let u = p.unit(unit);
             let decl = Declaracao {
@@ -600,7 +601,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             };
             let funcao = u.ast.function(function);
             if !funcao.type_params.is_empty() {
-                return Err("useFactory genérica".into());
+                return Err("generic useFactory".into());
             }
             for par in funcao.parameters.iter().flat_map(|ps| ps.iter()) {
                 if matches!(par.kind, ast::ParameterKind::Named) {
@@ -616,7 +617,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
-    /// Um item de `deps:` (`_factoryDiDep`): um tipo, um token, ou a lista
+    /// An item of `deps:` (`_factoryDiDep`): a type, a token, or the list
     /// `[token, Optional(), ..]`.
     fn dependencia_de_deps(&self, v: Valor) -> Result<Dependencia, String> {
         let mut dep = Dependencia {
@@ -630,7 +631,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         match v {
             Valor::Lista(itens) => {
                 let mut it = itens.into_iter();
-                let primeiro = it.next().ok_or("deps: com lista vazia")?;
+                let primeiro = it.next().ok_or("deps: with an empty list")?;
                 dep.token = self.token_de_dependencia(&primeiro)?;
                 for m in it {
                     match m {
@@ -652,8 +653,8 @@ impl<'r, 'a> Leitor<'r, 'a> {
         Ok(dep)
     }
 
-    /// O token de uma dependência escrita como valor: `HtmlElement` e
-    /// `ChangeDetectorRef` viram os embutidos, como no parâmetro.
+    /// The token of a dependency written as a value: `HtmlElement` and
+    /// `ChangeDetectorRef` become the built-ins, as in the parameter.
     fn token_de_dependencia(&self, v: &Valor) -> Result<Token, String> {
         match v {
             Valor::Tipo(c)
@@ -670,9 +671,9 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// O `_useValueExpression` na parte que o emissor escreve: texto,
-    /// inteiro, booleano e objeto constante de classe não genérica com
-    /// argumentos desses.
+    /// The `_useValueExpression` in the part the emitter writes: string,
+    /// integer, boolean and constant object of a non-generic class with
+    /// arguments of those kinds.
     fn valor_const(&self, v: Valor, profundidade: u32) -> Result<ValorConst, String> {
         Ok(match v {
             Valor::Texto(s) => ValorConst::Texto(s),
@@ -686,10 +687,10 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 nomeados,
             } if profundidade == 0 => {
                 if !tipos.is_empty() || !self.r.programa().class(classe.id).type_params.is_empty() {
-                    return Err("useValue de classe genérica".into());
+                    return Err("useValue of a generic class".into());
                 }
                 if construtor.as_deref().is_some_and(|c| c.starts_with('_')) {
-                    return Err("useValue com construtor privado".into());
+                    return Err("useValue with a private constructor".into());
                 }
                 ValorConst::Objeto {
                     uri: classe.uri.clone(),
@@ -705,19 +706,19 @@ impl<'r, 'a> Leitor<'r, 'a> {
                         .collect::<Result<_, String>>()?,
                 }
             }
-            _ => return Err("useValue fora de texto, inteiro, booleano ou objeto simples".into()),
+            _ => return Err("useValue other than a string, integer, boolean or simple object".into()),
         })
     }
 
-    /// O token de um valor constante: uma classe, um `MultiToken` ou um
+    /// The token of a constant value: a class, a `MultiToken` or an
     /// `OpaqueToken`.
     fn token_do_valor(&self, v: &Valor) -> Result<Token, String> {
         self.token_lido(v, false)
     }
 
-    /// O token de um valor; `sem_nome`: `const OpaqueToken<T>()` vale (no
-    /// injetor gerado ele vira `const OpaqueToken<T>()`; nas visões ainda
-    /// não tem caso).
+    /// The token of a value; `sem_nome`: `const OpaqueToken<T>()` is accepted
+    /// (in the generated injector it becomes `const OpaqueToken<T>()`; in the
+    /// views there is no case yet).
     fn token_lido(&self, v: &Valor, sem_nome: bool) -> Result<Token, String> {
         match v {
             Valor::Tipo(c) => Ok(Token::Classe {
@@ -735,11 +736,12 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 let nome = match posicionais.first() {
                     Some(Valor::Texto(s)) => s.clone(),
                     None if multi || sem_nome => String::new(),
-                    None => return Err("OpaqueToken sem nome".into()),
-                    _ => return Err("token de nome ilegível".into()),
+                    None => return Err("OpaqueToken without a name".into()),
+                    _ => return Err("token with an unreadable name".into()),
                 };
-                // Sem argumento de tipo escrito nem do contexto, a inferência
-                // dá o limite do `T` (`T extends Object`): `OpaqueToken<Object>`.
+                // Without a type argument, written or from the context,
+                // inference gives the bound of `T` (`T extends Object`):
+                // `OpaqueToken<Object>`.
                 let objeto;
                 let t = match tipos.as_slice() {
                     [t] => t,
@@ -747,14 +749,14 @@ impl<'r, 'a> Leitor<'r, 'a> {
                         let id = self
                             .r
                             .classe_por_uri("dart:core", "Object")
-                            .ok_or("Object do dart:core não achado")?;
+                            .ok_or("Object of dart:core not found")?;
                         objeto = Tipo {
                             classe: Some(self.classe(id)),
                             args: Vec::new(),
                         };
                         &objeto
                     }
-                    _ => return Err(format!("{} com argumentos de tipo demais", classe.nome)),
+                    _ => return Err(format!("{} with too many type arguments", classe.nome)),
                 };
                 if t.classe.is_none() {
                     return Err(format!("{}<dynamic>", classe.nome));
@@ -767,12 +769,12 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 })
             }
             Valor::Objeto { classe, .. } => Err(format!("token {}", classe.nome)),
-            _ => Err("token ilegível".into()),
+            _ => Err("unreadable token".into()),
         }
     }
 
-    /// Os membros anotados de uma classe da hierarquia; `propria` quando é a
-    /// classe da diretiva (e não um supertipo).
+    /// The annotated members of a class of the hierarchy; `propria` when it is
+    /// the directive's class (and not a supertype).
     fn membros(
         &self,
         dc: &Declaracao,
@@ -876,21 +878,22 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     ("HostListener", ast::MemberKind::Method(f)) => {
                         match self.ouvinte(dc, *f, a) {
                             Ok(o) => match d.ouvintes.iter_mut().find(|x| x.evento == o.evento) {
-                                // O mapa do oficial: o último vence, na
-                                // posição do primeiro.
+                                // The official map: the last one wins, in the
+                                // position of the first.
                                 Some(x) => *x = o,
                                 None => d.ouvintes.push(o),
                             },
                             Err(e) => d.fora.push(e),
                         }
                     }
-                    ("HostListener", _) => d.fora.push("@HostListener fora de método".into()),
+                    ("HostListener", _) => d.fora.push("@HostListener outside a method".into()),
                     ("HostBinding", k) => {
-                        // Membro estático (`_addHostBinding`): o de um
-                        // supertipo não é herdado; o da própria classe é lido
-                        // dela (`StaticRead`) e o oficial o escreve uma vez,
-                        // no construtor da visão (caso j96). Numa diretiva
-                        // ainda não se escreve (`hospedeiro_estatico`).
+                        // Static member (`_addHostBinding`): a supertype's one
+                        // is not inherited; the class's own is read from it
+                        // (`StaticRead`) and the official compiler writes it
+                        // once, in the view constructor (case j96). In a
+                        // directive it is not written yet
+                        // (`hospedeiro_estatico`).
                         let estatico = match k {
                             ast::MemberKind::Field(l) => l.static_,
                             ast::MemberKind::Method(f) => dc.ast.function(*f).static_,
@@ -914,12 +917,13 @@ impl<'r, 'a> Leitor<'r, 'a> {
                             membro_nome,
                         );
                         // `_computeHostBindingImmutability`
-                        // (`compile_metadata.dart:570-600`): o estático
-                        // imutável fora de `class.x`/`style.x` é
-                        // `hostAttribute` — não entra na `XNgCd` de uma
-                        // diretiva; quem a usa o escreve no elemento
-                        // (`mergeHtmlAndDirectiveAttributes`, ainda recusado
-                        // lá). No componente fica na lista (caso j96).
+                        // (`compile_metadata.dart:570-600`): an immutable
+                        // static outside `class.x`/`style.x` is a
+                        // `hostAttribute` — it does not go into a directive's
+                        // `XNgCd`; its user writes it on the element
+                        // (`mergeHtmlAndDirectiveAttributes`, still refused
+                        // there). In a component it stays in the list (case
+                        // j96).
                         let imutavel =
                             matches!(k, ast::MemberKind::Field(l) if l.final_ || l.const_);
                         let de_classe_ou_estilo =
@@ -964,7 +968,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                             _ => None,
                         };
                         let Some((campo, setter)) = nome else {
-                            d.fora.push("@ContentChild fora de campo ou setter".into());
+                            d.fora.push("@ContentChild outside a field or setter".into());
                             continue;
                         };
                         match self.consulta_de_conteudo(dc, a, qual == "ContentChildren", campo) {
@@ -980,13 +984,14 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 }
             }
         }
-        // Como o `_queries` do oficial: setters, depois campos, somados em
-        // cada classe da hierarquia (supertipos primeiro) — a lista cresce,
-        // não é trocada (`find_components.dart:374`).
+        // Like the official `_queries`: setters, then fields, accumulated over
+        // each class of the hierarchy (supertypes first) — the list grows, it
+        // is not replaced (`find_components.dart:374`).
         d.consultas_de_conteudo.extend(consultas_setter);
         d.consultas_de_conteudo.extend(consultas_campo);
-        // `_inputs..addAll(_fieldInputs)..addAll(_setterInputs)`: a chave é o
-        // membro; repetir a chave troca o valor e mantém a posição.
+        // `_inputs..addAll(_fieldInputs)..addAll(_setterInputs)`: the key is
+        // the member; repeating the key replaces the value and keeps the
+        // position.
         for (chave, e) in de_campo.into_iter().chain(de_setter) {
             match entradas.iter_mut().find(|(k, _)| *k == chave) {
                 Some(x) => x.1 = e,
@@ -1015,9 +1020,10 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// Um `@ContentChild`/`@ContentChildren`: o alvo (`#ref` em texto ou
-    /// tipo, resolvido na biblioteca da diretiva), `descendants:` (a lista
-    /// é `true` por omissão no ngdart 8; a única, sempre) e `read:`.
+    /// A `@ContentChild`/`@ContentChildren`: the target (`#ref` as a string or
+    /// a type, resolved in the directive's library), `descendants:` (the list
+    /// one is `true` by default in ngdart 8; the single one, always) and
+    /// `read:`.
     fn consulta_de_conteudo(
         &self,
         dc: &Declaracao,
@@ -1037,7 +1043,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         let alvo = match self.valor(dc.unidade, primeiro.value, 0)? {
             Valor::Texto(r) => AlvoDeConsulta::Referencia(r),
             Valor::Tipo(c) if do_pacote(&c) => AlvoDeConsulta::Classe(c.uri, c.nome),
-            _ => return Err("@ContentChild de tipo do ngdart ou de forma desconhecida".into()),
+            _ => return Err("@ContentChild of an ngdart type or of unknown shape".into()),
         };
         let mut descendentes = true;
         let mut leitura = None;
@@ -1046,7 +1052,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 None => {}
                 Some("descendants") if lista => match self.valor(dc.unidade, x.value, 0)? {
                     Valor::Booleano(b) => descendentes = b,
-                    _ => return Err("@ContentChildren(descendants:) que não é literal".into()),
+                    _ => return Err("@ContentChildren(descendants:) that is not a literal".into()),
                 },
                 Some("read") => {
                     leitura = Some(match self.valor(dc.unidade, x.value, 0)? {
@@ -1056,7 +1062,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                             LeituraDaConsulta::Elemento
                         }
                         Valor::Tipo(c) if do_pacote(&c) => LeituraDaConsulta::Classe(c.uri, c.nome),
-                        _ => return Err("@ContentChild(.., read:) de tipo do ngdart".into()),
+                        _ => return Err("@ContentChild(.., read:) of an ngdart type".into()),
                     })
                 }
                 _ => return Err("@ContentChild com argumento desconhecido".into()),
@@ -1071,7 +1077,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
-    /// O primeiro argumento posicional de uma anotação, se é texto.
+    /// The first positional argument of an annotation, if it is a string.
     fn primeiro_texto(&self, dc: &Declaracao, a: &ast::Annotation) -> Option<String> {
         let args = a.arguments.as_ref()?;
         let x = args.args.iter().find(|x| x.name.is_none())?;
@@ -1081,9 +1087,9 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// O tipo de uma entrada é `bool`? (`_isBoolType` do nome do tipo, que
-    /// ignora o `?`). Parâmetro de tipo da classe: `None` (o oficial usa o
-    /// limite, que daqui não se lê).
+    /// Is the type of an input `bool`? (`_isBoolType` of the type name, which
+    /// ignores the `?`). A type parameter of the class: `None` (the official
+    /// compiler uses the bound, which cannot be read from here).
     fn booleana(&self, dc: &Declaracao, t: ast::TypeId) -> Option<bool> {
         match &dc.ast.ty(t).kind {
             ast::TypeKind::Named { name, .. } => {
@@ -1102,7 +1108,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// Um `@HostListener`, como o `_addHostListener` o monta.
+    /// A `@HostListener`, as `_addHostListener` builds it.
     fn ouvinte(
         &self,
         dc: &Declaracao,
@@ -1111,12 +1117,12 @@ impl<'r, 'a> Leitor<'r, 'a> {
     ) -> Result<Ouvinte, String> {
         let funcao = dc.ast.function(f);
         if funcao.static_ || !matches!(funcao.kind, ast::FunctionKind::Function) {
-            return Err("@HostListener fora de método de instância".into());
+            return Err("@HostListener outside an instance method".into());
         }
         let metodo = funcao
             .name
             .map(|n| self.nome(&n).to_string())
-            .ok_or("@HostListener sem nome")?;
+            .ok_or("@HostListener without a name")?;
         let args = a.arguments.as_ref().ok_or("@HostListener sem argumentos")?;
         let mut evento = None;
         let mut lista = None;
@@ -1136,16 +1142,16 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     let mut textos = Vec::new();
                     for i in itens {
                         let Valor::Texto(s) = i else {
-                            return Err("@HostListener com args que não são texto".into());
+                            return Err("@HostListener with args that are not strings".into());
                         };
                         textos.push(s);
                     }
                     lista = Some(textos);
                 }
-                _ => return Err("@HostListener ilegível".into()),
+                _ => return Err("unreadable @HostListener".into()),
             }
         }
-        let evento = evento.ok_or("@HostListener sem evento")?;
+        let evento = evento.ok_or("@HostListener without an event")?;
         let mut argumentos = lista.unwrap_or_default();
         let parametros = funcao.parameters.as_ref().map_or(0, |p| p.len());
         if argumentos.is_empty() && parametros == 1 {
@@ -1158,7 +1164,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
-    /// `extractLifecycleHooks`: a classe é atribuível à interface.
+    /// `extractLifecycleHooks`: the class is assignable to the interface.
     fn ganchos(&self, classes: &[ClassId]) -> Ganchos {
         let mut g = Ganchos::default();
         for &c in classes {
@@ -1181,7 +1187,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         g
     }
 
-    /// As dependências do construtor sem nome (ou o primeiro), como o
+    /// The dependencies of the unnamed constructor (or the first one), like
     /// `CompileTypeMetadataVisitor.unnamedConstructor`.
     fn dependencias(&self, decl: &Declaracao<'a>, d: &mut Diretiva) {
         if decl.abstrata {
@@ -1208,7 +1214,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             if matches!(p.kind, ast::ParameterKind::Named) {
                 continue;
             }
-            // `super.x` sem tipo: o do parâmetro que ele repassa.
+            // `super.x` without a type: that of the parameter it forwards to.
             let tipo_super = (p.super_ && p.ty.is_none())
                 .then(|| self.tipo_do_super(decl, ctor, p, 0))
                 .flatten();
@@ -1254,22 +1260,22 @@ impl<'r, 'a> Leitor<'r, 'a> {
                         let v = self.valor(decl.unidade, x.value, 0)?;
                         injetado = Some(self.token_do_valor(&v)?);
                     }
-                    outro => return Err(format!("@{outro} no construtor da diretiva")),
+                    outro => return Err(format!("@{outro} in the directive constructor")),
                 },
                 Some(c) if c.uri == DIRECTIVES && c.nome == "Attribute" => {
                     let x = a
                         .arguments
                         .as_ref()
                         .and_then(|args| args.args.first())
-                        .ok_or("@Attribute sem nome")?;
+                        .ok_or("@Attribute without a name")?;
                     match self.valor(decl.unidade, x.value, 0)? {
                         Valor::Texto(nome) => dep.atributo = Some(nome),
-                        _ => return Err("@Attribute com nome que não é texto".into()),
+                        _ => return Err("@Attribute with a name that is not a string".into()),
                     }
                 }
                 Some(_) => {}
                 None => {
-                    // Um token usado como anotação (`@ngValidators`).
+                    // A token used as an annotation (`@ngValidators`).
                     let partes: Vec<&str> = a.name.iter().map(|n| self.nome(n)).collect();
                     if let [n] = partes.as_slice()
                         && let Some(Element::Variable(v)) = self.r.elemento_em(decl.lib, None, n)
@@ -1277,7 +1283,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                         let v = self.variavel(v, 0)?;
                         injetado = Some(self.token_do_valor(&v)?);
                     } else {
-                        return Err("anotação não resolvida no construtor da diretiva".into());
+                        return Err("unresolved annotation in the directive constructor".into());
                     }
                 }
             }
@@ -1291,13 +1297,14 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     None if p.super_ => tipo_super,
                     None => None,
                 }
-                .ok_or("parâmetro sem tipo no construtor da diretiva")?;
-                // O token é a classe (`_idFor`): os argumentos de tipo não
-                // entram, e um `T` da diretiva genérica não impede.
+                .ok_or("untyped parameter in the directive constructor")?;
+                // The token is the class (`_idFor`): the type arguments do not
+                // count, and a `T` of the generic directive does not get in the
+                // way.
                 let c = self
                     .classe_do_tipo(t.2, t.0, t.1)
-                    .ok_or("tipo não resolvido no construtor da diretiva")?
-                    .ok_or("parâmetro dynamic no construtor da diretiva")?;
+                    .ok_or("unresolved type in the directive constructor")?
+                    .ok_or("dynamic parameter in the directive constructor")?;
                 if crate::dialect::no_embutido(&c.uri, &c.nome).is_some() {
                     Token::Elemento
                 } else if c.uri.starts_with("package:ngdart/") && c.nome == "ChangeDetectorRef" {
@@ -1313,13 +1320,13 @@ impl<'r, 'a> Leitor<'r, 'a> {
         Ok(dep)
     }
 
-    /// O tipo de um parâmetro `super.x` sem tipo escrito
-    /// (`SuperFormalParameterElement`): o do parâmetro que ele repassa no
-    /// construtor da superclasse chamado — o do `super.nome(..)` do
-    /// inicializador, ou o sem nome —, pela posição entre os `super.`
-    /// posicionais ou pelo nome; lá, o tipo escrito, o do campo (`this.x`)
-    /// ou, outro `super.x`, o da superclasse seguinte. Com a biblioteca em
-    /// que o tipo está escrito.
+    /// The type of a `super.x` parameter without a written type
+    /// (`SuperFormalParameterElement`): that of the parameter it forwards to in
+    /// the superclass constructor called — that of the initializer's
+    /// `super.name(..)`, or the unnamed one —, by position among the positional
+    /// `super.` parameters or by name; there, the written type, that of the
+    /// field (`this.x`) or, for another `super.x`, that of the next superclass.
+    /// With the library where the type is written.
     fn tipo_do_super(
         &self,
         decl: &Declaracao<'a>,
@@ -1375,7 +1382,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// O tipo escrito do campo de um parâmetro `this.x`.
+    /// The written type of the field of a `this.x` parameter.
     fn tipo_do_campo(
         &self,
         decl: &Declaracao<'a>,
@@ -1392,9 +1399,9 @@ impl<'r, 'a> Leitor<'r, 'a> {
         None
     }
 
-    /// Resolve um tipo escrito no escopo de `lib`.
-    /// A classe de um tipo escrito, sem olhar os argumentos; `Some(None)`
-    /// para `dynamic`.
+    /// Resolves a written type in the scope of `lib`.
+    /// The class of a written type, without looking at the arguments;
+    /// `Some(None)` for `dynamic`.
     fn classe_do_tipo(
         &self,
         lib: LibraryId,
@@ -1446,7 +1453,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
-    /// O valor de uma variável de topo ou de um campo estático `const`.
+    /// The value of a top-level variable or of a `const` static field.
     fn variavel(
         &self,
         v: dartforge_elements::model::VariableId,
@@ -1455,12 +1462,12 @@ impl<'r, 'a> Leitor<'r, 'a> {
         let p = self.r.programa();
         let var = p.variable(v);
         if !var.const_ {
-            return Err("variável que não é const".into());
+            return Err("variable that is not const".into());
         }
         let (unit, l, index) = match var.node {
             VariableRef::TopLevel { unit, decl, index } => {
                 let ast::DeclKind::Variables(l) = &p.unit(unit).ast.decl(decl).kind else {
-                    return Err("constante ilegível".into());
+                    return Err("unreadable constant".into());
                 };
                 (unit, l, index)
             }
@@ -1471,11 +1478,11 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 index,
             } if var.static_ => {
                 let ast::MemberKind::Field(l) = &p.unit(unit).ast.member(member).kind else {
-                    return Err("constante ilegível".into());
+                    return Err("unreadable constant".into());
                 };
                 (unit, l, index)
             }
-            _ => return Err("constante que não é de topo".into()),
+            _ => return Err("constant that is not top-level".into()),
         };
         let e = l
             .variables
@@ -1483,8 +1490,8 @@ impl<'r, 'a> Leitor<'r, 'a> {
             .and_then(|x| x.initializer)
             .ok_or("constante sem valor")?;
         let mut v = self.valor(unit, e, profundidade + 1)?;
-        // `const OpaqueToken<T> t = OpaqueToken('x')`: sem argumento de tipo
-        // escrito, a inferência os tira do tipo declarado.
+        // `const OpaqueToken<T> t = OpaqueToken('x')`: without a written type
+        // argument, inference takes them from the declared type.
         if let (Some(ty), Valor::Objeto { classe, tipos, .. }) = (l.ty, &mut v)
             && tipos.is_empty()
         {
@@ -1498,7 +1505,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         Ok(v)
     }
 
-    /// Avalia uma expressão constante escrita na unidade `unidade`.
+    /// Evaluates a constant expression written in unit `unidade`.
     fn valor(&self, unidade: UnitId, e: ast::ExprId, profundidade: u32) -> Result<Valor, String> {
         if profundidade > PROFUNDIDADE {
             return Err("constante profunda demais".into());
@@ -1520,7 +1527,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                             dartforge_elements::model::FunctionRef::Function { .. }
                         )
                     {
-                        return Err("função que não é de topo".into());
+                        return Err("function that is not top-level".into());
                     }
                     Ok(Valor::Funcao {
                         uri: crate::dialect::canonica_string(p.library(fe.library).uri.clone()),
@@ -1528,14 +1535,14 @@ impl<'r, 'a> Leitor<'r, 'a> {
                         id: f,
                     })
                 }
-                _ => Err("nome que não é classe nem constante".into()),
+                _ => Err("name that is neither a class nor a constant".into()),
             }
         };
         match &arvore.expr(e).kind {
             ast::ExprKind::String(s) => s
                 .constant_value()
                 .map(|t| Valor::Texto(t.to_string_lossy()))
-                .ok_or_else(|| "texto com interpolação".into()),
+                .ok_or_else(|| "string with interpolation".into()),
             ast::ExprKind::Null => Ok(Valor::Nulo),
             ast::ExprKind::Bool(b) => Ok(Valor::Booleano(*b)),
             ast::ExprKind::Int(span) => {
@@ -1552,14 +1559,14 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     None => texto.parse::<i64>().ok(),
                 };
                 n.map(Valor::Inteiro)
-                    .ok_or_else(|| "inteiro ilegível".into())
+                    .ok_or_else(|| "unreadable integer".into())
             }
             ast::ExprKind::Parenthesized(x) => self.valor(unidade, *x, profundidade),
             ast::ExprKind::List { elements, .. } => {
                 let mut itens = Vec::new();
                 for el in elements.iter() {
                     let ast::CollectionElement::Expression(x) = el else {
-                        return Err("lista com espalhamento ou `if`".into());
+                        return Err("list with a spread or `if`".into());
                     };
                     itens.push(self.valor(unidade, *x, profundidade + 1)?);
                 }
@@ -1569,7 +1576,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 let el = self
                     .r
                     .elemento_em(lib, None, self.nome(n))
-                    .ok_or("nome não resolvido")?;
+                    .ok_or("unresolved name")?;
                 elemento(el)
             }
             ast::ExprKind::Property {
@@ -1578,14 +1585,14 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 null_aware: false,
             } => {
                 let ast::ExprKind::Identifier(alvo) = &arvore.expr(*target).kind else {
-                    return Err("propriedade de expressão".into());
+                    return Err("property of an expression".into());
                 };
                 let alvo = self.nome(alvo);
                 if self.r.e_prefixo(lib, alvo) {
                     let el = self
                         .r
                         .elemento_em(lib, Some(alvo), self.nome(name))
-                        .ok_or("nome não resolvido")?;
+                        .ok_or("unresolved name")?;
                     return elemento(el);
                 }
                 match self.r.elemento_em(lib, None, alvo) {
@@ -1593,7 +1600,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                         classe: self.classe(id),
                         nome: self.nome(name).to_string(),
                     }),
-                    _ => Err("propriedade que não é de classe".into()),
+                    _ => Err("property that is not of a class".into()),
                 }
             }
             ast::ExprKind::Call { target, arguments } => {
@@ -1601,7 +1608,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 let tipos = arguments
                     .type_args
                     .iter()
-                    .map(|t| self.tipo(lib, *t, arvore).ok_or("tipo não resolvido"))
+                    .map(|t| self.tipo(lib, *t, arvore).ok_or("unresolved type"))
                     .collect::<Result<Vec<_>, _>>()?;
                 self.objeto(unidade, classe, construtor, tipos, arguments, profundidade)
             }
@@ -1611,8 +1618,8 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 arguments,
                 ..
             } => {
-                let t = self.tipo(lib, *ty, arvore).ok_or("tipo não resolvido")?;
-                let classe = t.classe.ok_or("instância de dynamic")?;
+                let t = self.tipo(lib, *ty, arvore).ok_or("unresolved type")?;
+                let classe = t.classe.ok_or("instance of dynamic")?;
                 self.objeto(
                     unidade,
                     classe,
@@ -1622,7 +1629,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     profundidade,
                 )
             }
-            _ => Err("expressão que não é constante conhecida".into()),
+            _ => Err("expression that is not a known constant".into()),
         }
     }
 
@@ -1636,7 +1643,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
     ) -> Result<(Classe, Option<String>), String> {
         let classe = |el: Option<Element>| match el {
             Some(Element::Class(id)) => Ok(self.classe(id)),
-            _ => Err("chamada que não é construtor".to_string()),
+            _ => Err("call that is not a constructor".to_string()),
         };
         match &arvore.expr(alvo).kind {
             ast::ExprKind::Identifier(n) => {
@@ -1666,11 +1673,11 @@ impl<'r, 'a> Leitor<'r, 'a> {
                             Some(self.nome(name).to_string()),
                         ))
                     }
-                    _ => Err("chamada que não é construtor".into()),
+                    _ => Err("call that is not a constructor".into()),
                 },
-                _ => Err("chamada que não é construtor".into()),
+                _ => Err("call that is not a constructor".into()),
             },
-            _ => Err("chamada que não é construtor".into()),
+            _ => Err("call that is not a constructor".into()),
         }
     }
 
@@ -1709,8 +1716,8 @@ impl<'r, 'a> Leitor<'r, 'a> {
 const DI_MODULES: &str = "package:ngdart/src/meta/di_modules.dart";
 const DI_GENERATE_INJECTOR: &str = "package:ngdart/src/meta/di_generate_injector.dart";
 
-/// Um tipo como o `linkTypeOf` o escreve: a classe, pela biblioteca que a
-/// declara, e os argumentos. `uri` vazio é `dynamic`.
+/// A type as `linkTypeOf` writes it: the class, by the library that declares
+/// it, and the arguments. An empty `uri` is `dynamic`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TipoEscrito {
     pub uri: String,
@@ -1732,8 +1739,8 @@ impl TipoEscrito {
     }
 }
 
-/// Um valor de `useValue:` como o `_reviveAny` do `InjectorReader` o
-/// reconstrói (`ConstantReader.revive`).
+/// A `useValue:` value as the `_reviveAny` of `InjectorReader` rebuilds it
+/// (`ConstantReader.revive`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Revivido {
     Nulo,
@@ -1741,7 +1748,7 @@ pub enum Revivido {
     Inteiro(i64),
     Booleano(bool),
     Lista(Vec<Revivido>),
-    /// `C.campo`, `Enum.valor` ou uma constante de topo, pela biblioteca.
+    /// `C.field`, `Enum.value` or a top-level constant, by library.
     Acesso {
         uri: String,
         nome: String,
@@ -1756,11 +1763,11 @@ pub enum Revivido {
     },
 }
 
-/// De onde um provedor do injetor gerado tira o valor.
+/// Where a provider of the generated injector takes its value from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FonteDoInjetor {
-    /// A classe, o construtor (`findConstructor`: `None` é o sem nome) e as
-    /// dependências dele.
+    /// The class, the constructor (`findConstructor`: `None` is the unnamed
+    /// one) and its dependencies.
     Classe {
         uri: String,
         classe: String,
@@ -1776,8 +1783,8 @@ pub enum FonteDoInjetor {
     Valor(Revivido),
 }
 
-/// Um provedor do injetor (`ProviderElement`), com o tipo que o emissor
-/// escreve (`providerType`, ou a classe do `useClass`).
+/// A provider of the injector (`ProviderElement`), with the type the emitter
+/// writes (`providerType`, or the `useClass` class).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProvedorDoInjetor {
     pub token: Token,
@@ -1786,25 +1793,25 @@ pub struct ProvedorDoInjetor {
     pub fonte: FonteDoInjetor,
 }
 
-/// Um `@GenerateInjector` lido (`InjectorReader`): o nome da variável e os
-/// provedores já achatados e sem repetição (`deduplicateProviders`).
+/// A `@GenerateInjector` read (`InjectorReader`): the variable name and the
+/// providers already flattened and without repetition (`deduplicateProviders`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Injetor {
     pub nome: String,
     pub provedores: Vec<ProvedorDoInjetor>,
 }
 
-/// Os argumentos posicionais e nomeados de uma chamada `const`.
+/// The positional and named arguments of a `const` call.
 type ArgumentosConst = (Vec<Valor>, Vec<(String, Valor)>);
 
-/// Um módulo (`ModuleElement`): os provedores diretos e os incluídos.
+/// A module (`ModuleElement`): the direct providers and the included ones.
 struct Modulo {
     provide: Vec<ProvedorDoInjetor>,
     include: Vec<Modulo>,
 }
 
 impl Modulo {
-    /// `ModuleElement.flatten`: os incluídos antes dos diretos.
+    /// `ModuleElement.flatten`: the included ones before the direct ones.
     fn achatar(self, saida: &mut Vec<ProvedorDoInjetor>) {
         for m in self.include {
             m.achatar(saida);
@@ -1813,8 +1820,8 @@ impl Modulo {
     }
 }
 
-/// Os `@GenerateInjector` da unidade principal da biblioteca `uri`
-/// (`InjectorReader.findInjectors`), na ordem das variáveis de topo.
+/// The `@GenerateInjector`s of the main unit of library `uri`
+/// (`InjectorReader.findInjectors`), in the order of the top-level variables.
 pub fn ler_injetores(r: &Resolvedor, uri: &str) -> Vec<(String, Result<Injetor, String>)> {
     let p = r.programa();
     let Some(i) = p
@@ -1857,8 +1864,8 @@ pub fn ler_injetores(r: &Resolvedor, uri: &str) -> Vec<(String, Result<Injetor, 
 }
 
 impl<'r, 'a> Leitor<'r, 'a> {
-    /// `_computeProviders`: o argumento da anotação como módulo, achatado,
-    /// sem os serviços globais e sem repetição.
+    /// `_computeProviders`: the annotation argument as a module, flattened,
+    /// without the global services and without repetition.
     fn injetor(
         &self,
         unidade: UnitId,
@@ -1880,11 +1887,11 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     "ApplicationRef" | "AppViewUtils" | "NgZone" | "Testability"
                 )
             {
-                return Err(format!("serviço global {classe} no injetor"));
+                return Err(format!("global service {classe} in the injector"));
             }
         }
-        // `deduplicateProviders`: dos não-multi, o último de cada token, na
-        // ordem inversa; depois os multi, na ordem.
+        // `deduplicateProviders`: of the non-multi ones, the last of each
+        // token, in reverse order; then the multi ones, in order.
         let mut unicos: Vec<ProvedorDoInjetor> = Vec::new();
         for p in todos.iter().rev().filter(|p| !p.multi) {
             if !unicos.iter().any(|u| u.token == p.token) {
@@ -1898,10 +1905,10 @@ impl<'r, 'a> Leitor<'r, 'a> {
     /// `ModuleReader.parseModule`.
     fn modulo(&self, v: Valor, profundidade: u32) -> Result<Modulo, String> {
         if profundidade > PROFUNDIDADE {
-            return Err("módulo profundo demais".into());
+            return Err("module nested too deeply".into());
         }
         match v {
-            // `_parseList`: listas e `Module` incluídos, o resto provedores.
+            // `_parseList`: lists and included `Module`s, the rest providers.
             Valor::Lista(itens) => {
                 let mut include = Vec::new();
                 let mut provide = Vec::new();
@@ -1925,7 +1932,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 let mut provide = Vec::new();
                 for (n, x) in nomeados {
                     let Valor::Lista(itens) = x else {
-                        return Err(format!("Module({n}:) que não é lista"));
+                        return Err(format!("Module({n}:) that is not a list"));
                     };
                     match n.as_str() {
                         "include" => {
@@ -1943,7 +1950,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 }
                 Ok(Modulo { provide, include })
             }
-            _ => Err("módulo que não é lista nem Module".into()),
+            _ => Err("module that is neither a list nor a Module".into()),
         }
     }
 
@@ -1955,11 +1962,12 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// `ProviderReader.parseProvider`, com os campos do `Provider` tirados
-    /// do construtor escrito.
+    /// `ProviderReader.parseProvider`, with the fields of the `Provider` taken
+    /// from the written constructor.
     fn provedor_do_injetor(&self, v: Valor) -> Result<ProvedorDoInjetor, String> {
         let (classe, construtor, tipos, posicionais, nomeados) = match v {
-            // `Foo` é `ClassProvider(Foo)` (`_parseTypeAsImplicitClassProvider`).
+            // `Foo` is `ClassProvider(Foo)`
+            // (`_parseTypeAsImplicitClassProvider`).
             Valor::Tipo(c) => {
                 return Ok(ProvedorDoInjetor {
                     token: Token::Classe {
@@ -1981,7 +1989,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             Valor::Objeto { classe, .. } => {
                 return Err(format!("provedor {} no injetor", classe.nome));
             }
-            _ => return Err("provedor ilegível no injetor".into()),
+            _ => return Err("unreadable provider in the injector".into()),
         };
         let exato = classe.nome == "Provider";
         match construtor.as_deref() {
@@ -2020,9 +2028,10 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
         let token = self.token_lido(&token_v, true)?;
         let multi = matches!(token, Token::Multi { .. });
-        // `_actualProviderType`: fora do `Provider` exato, o `T` do token
-        // opaco; senão o `T` do provedor — escrito, ou inferido (o do valor
-        // no `ValueProvider`; `Object`, o limite, no resto).
+        // `_actualProviderType`: outside the exact `Provider`, the `T` of the
+        // opaque token; otherwise the `T` of the provider — written, or
+        // inferred (that of the value in `ValueProvider`; `Object`, the bound,
+        // in the rest).
         let tipo_do_provedor = |use_value: Option<&Valor>| -> Result<TipoEscrito, String> {
             if !exato && let Token::Multi { tipo, .. } | Token::Opaco { tipo, .. } = &token {
                 return Ok(Self::tipo_do_token(tipo));
@@ -2037,7 +2046,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         };
         if let Some(c) = use_class {
             let Valor::Tipo(c) = c else {
-                return Err("useClass de algo que não é classe".into());
+                return Err("useClass of something that is not a class".into());
             };
             return Ok(ProvedorDoInjetor {
                 tipo: TipoEscrito::da_classe(&c.uri, &c.nome),
@@ -2089,7 +2098,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         tipo_escrito_do_token(t)
     }
 
-    /// Um argumento de tipo escrito, como o `linkTypeOf` o escreve.
+    /// A written type argument, as `linkTypeOf` writes it.
     fn tipo_escrito(&self, t: &Tipo) -> Result<TipoEscrito, String> {
         let Some(c) = &t.classe else {
             return Ok(TipoEscrito::da_classe("", "dynamic"));
@@ -2112,8 +2121,8 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
-    /// O tipo estático de um valor de `ValueProvider(Tipo, valor)`, que
-    /// infere o `T`.
+    /// The static type of a `ValueProvider(Type, value)` value, which infers
+    /// the `T`.
     fn tipo_do_valor(&self, v: &Valor) -> Result<TipoEscrito, String> {
         Ok(match v {
             Valor::Texto(_) => TipoEscrito::da_classe("dart:core", "String"),
@@ -2130,19 +2139,19 @@ impl<'r, 'a> Leitor<'r, 'a> {
             {
                 TipoEscrito::da_classe(&classe.uri, &classe.nome)
             }
-            _ => return Err("ValueProvider de valor sem tipo conhecido".into()),
+            _ => return Err("ValueProvider of a value without a known type".into()),
         })
     }
 
-    /// `DependencyReader.findConstructor` e `_parseDependencies` de uma
-    /// classe: o construtor sem nome (se a classe não é abstrata), senão o
-    /// primeiro público de classe concreta ou `factory`.
+    /// `DependencyReader.findConstructor` and `_parseDependencies` of a class:
+    /// the unnamed constructor (if the class is not abstract), otherwise the
+    /// first public one of a concrete class or a `factory`.
     fn classe_do_injetor(&self, c: &Classe) -> Result<FonteDoInjetor, String> {
         let decl = self
             .declaracao(c.id)
-            .ok_or_else(|| format!("classe de provedor sem declaração ({})", c.nome))?;
+            .ok_or_else(|| format!("provider class without a declaration ({})", c.nome))?;
         if !decl.parametros_de_tipo.is_empty() {
-            return Err("provedor de classe genérica no injetor".into());
+            return Err("provider of a generic class in the injector".into());
         }
         let mut construtores = Vec::new();
         for &m in decl.membros {
@@ -2159,7 +2168,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 publico && !decl.abstrata || k.factory
             }) {
                 Some(k) => Some(*k),
-                None => return Err(format!("{} sem construtor para o injetor", c.nome)),
+                None => return Err(format!("{} without a constructor for the injector", c.nome)),
             }
         };
         let mut deps = Vec::new();
@@ -2178,9 +2187,9 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
-    /// Um parâmetro como dependência do injetor (`_parseDependencies`): o
-    /// nomeado opcional e o posicional opcional sem `@Optional` nem token
-    /// ficam de fora; opcional é só o `@Optional()`.
+    /// A parameter as an injector dependency (`_parseDependencies`): the
+    /// optional named and the optional positional ones without `@Optional` or a
+    /// token are left out; optional is only `@Optional()`.
     fn dependencia_do_injetor(
         &self,
         decl: &Declaracao<'a>,
@@ -2199,7 +2208,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         match p.kind {
             ast::ParameterKind::Named if !p.required => return Ok(None),
             ast::ParameterKind::Named => {
-                return Err("parâmetro nomeado obrigatório no injetor".into());
+                return Err("required named parameter in the injector".into());
             }
             ast::ParameterKind::Optional if !optional && !com_token => return Ok(None),
             _ => {}
@@ -2231,11 +2240,11 @@ impl<'r, 'a> Leitor<'r, 'a> {
         Ok(Some(d))
     }
 
-    /// `useFactory:` com `deps:` escrito (`parseDependenciesList`) ou os
-    /// parâmetros da função.
+    /// `useFactory:` with `deps:` written (`parseDependenciesList`) or the
+    /// function's parameters.
     fn fabrica_do_injetor(&self, f: Valor, deps: Option<Valor>) -> Result<FonteDoInjetor, String> {
         let Valor::Funcao { uri, nome, id } = f else {
-            return Err("useFactory que não é função de topo".into());
+            return Err("useFactory that is not a top-level function".into());
         };
         let mut saida = Vec::new();
         match deps {
@@ -2253,7 +2262,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 let dartforge_elements::model::FunctionRef::Function { unit, function } =
                     p.function(id).node
                 else {
-                    return Err("useFactory sem declaração".into());
+                    return Err("useFactory without a declaration".into());
                 };
                 let u = p.unit(unit);
                 let decl = Declaracao {
@@ -2268,7 +2277,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 };
                 let funcao = u.ast.function(function);
                 if !funcao.type_params.is_empty() {
-                    return Err("useFactory genérica".into());
+                    return Err("generic useFactory".into());
                 }
                 for par in funcao.parameters.iter().flat_map(|ps| ps.iter()) {
                     if let Some(d) = self.dependencia_do_injetor(&decl, par)? {
@@ -2276,7 +2285,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     }
                 }
             }
-            Some(_) => return Err("deps: ilegível".into()),
+            Some(_) => return Err("unreadable deps:".into()),
         }
         Ok(FonteDoInjetor::Fabrica {
             uri,
@@ -2285,8 +2294,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
-    /// `_reviveAny`: o valor constante como o `ConstantReader.revive` o
-    /// reconstrói.
+    /// `_reviveAny`: the constant value as `ConstantReader.revive` rebuilds it.
     fn reviver(&self, v: Valor, profundidade: u32) -> Result<Revivido, String> {
         if profundidade > PROFUNDIDADE {
             return Err("valor profundo demais".into());
@@ -2304,7 +2312,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             ),
             Valor::Membro { classe, nome } => {
                 if self.r.programa().class(classe.id).kind != ClassKind::Enum {
-                    // O valor do campo estático, revivido pela classe dele.
+                    // The value of the static field, revived through its class.
                     let v = self.campo_estatico(classe.id, &nome, profundidade)?;
                     return self.reviver(v, profundidade + 1);
                 }
@@ -2314,15 +2322,15 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 }
             }
             objeto @ Valor::Objeto { .. } => self.reviver_objeto(objeto, profundidade)?,
-            Valor::Tipo(_) => return Err("valor de tipo no injetor (Type)".into()),
-            Valor::Funcao { .. } => return Err("valor de função no injetor".into()),
+            Valor::Tipo(_) => return Err("type value in the injector (Type)".into()),
+            Valor::Funcao { .. } => return Err("function value in the injector".into()),
         })
     }
 
-    /// `reviveInstance`: um campo `const` público da própria classe com o
-    /// mesmo valor; senão um campo `const` de uma classe da biblioteca dela;
-    /// senão a chamada do construtor; senão uma constante de topo da
-    /// biblioteca.
+    /// `reviveInstance`: a public `const` field of the class itself with the
+    /// same value; otherwise a `const` field of a class of its library;
+    /// otherwise the constructor call; otherwise a top-level constant of the
+    /// library.
     fn reviver_objeto(&self, v: Valor, profundidade: u32) -> Result<Revivido, String> {
         let Valor::Objeto {
             classe,
@@ -2335,11 +2343,11 @@ impl<'r, 'a> Leitor<'r, 'a> {
             unreachable!()
         };
         if !tipos.is_empty() || !self.r.programa().class(classe.id).type_params.is_empty() {
-            return Err("valor constante de classe genérica no injetor".into());
+            return Err("constant value of a generic class in the injector".into());
         }
         let p = self.r.programa();
         let publico = |n: &str| !n.starts_with('_');
-        // 1. Os campos `const` públicos da própria classe.
+        // 1. The public `const` fields of the class itself.
         for &f in &p.class(classe.id).fields {
             let var = p.variable(f);
             let nome = self.r.interner().resolve(var.name);
@@ -2355,7 +2363,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 });
             }
         }
-        // 2. Os campos `const` das classes da unidade principal da biblioteca.
+        // 2. The `const` fields of the classes of the library's main unit.
         let lib = p.class(classe.id).library;
         let mut candidatos: Vec<Revivido> = Vec::new();
         let unidade = *p
@@ -2434,10 +2442,10 @@ impl<'r, 'a> Leitor<'r, 'a> {
         candidatos
             .into_iter()
             .next()
-            .ok_or_else(|| format!("valor de {} sem acesso público", classe.nome))
+            .ok_or_else(|| format!("value of {} without public access", classe.nome))
     }
 
-    /// O valor de um campo estático `const` da classe.
+    /// The value of a `const` static field of the class.
     fn campo_estatico(&self, c: ClassId, nome: &str, profundidade: u32) -> Result<Valor, String> {
         let p = self.r.programa();
         for &f in &p.class(c).fields {
@@ -2446,12 +2454,12 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 return self.variavel(f, profundidade);
             }
         }
-        Err(format!("campo estático {nome} não achado"))
+        Err(format!("static field {nome} not found"))
     }
 
-    /// Dois valores constantes são o mesmo objeto (o `==` do `DartObject`):
-    /// primitivos pelo valor; objetos pela classe, pelo construtor e pelos
-    /// argumentos com os padrões preenchidos.
+    /// Two constant values are the same object (`DartObject`'s `==`):
+    /// primitives by value; objects by class, constructor and arguments with
+    /// the defaults filled in.
     fn mesmo_objeto(&self, a: &Valor, b: &Valor) -> bool {
         match (a, b) {
             (Valor::Nulo, Valor::Nulo) => true,
@@ -2500,13 +2508,13 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     _ => false,
                 }
             }
-            // Um campo estático de enum contra o mesmo campo lido.
+            // An enum static field against the same field read.
             _ => false,
         }
     }
 
-    /// Os argumentos de uma chamada `const` com os padrões do construtor
-    /// preenchidos (o que falta e não tem padrão é `null`).
+    /// The arguments of a `const` call with the constructor's defaults filled
+    /// in (what is missing and has no default is `null`).
     fn com_padroes(&self, v: &Valor) -> Option<ArgumentosConst> {
         let Valor::Objeto {
             classe,
@@ -2563,8 +2571,8 @@ impl<'r, 'a> Leitor<'r, 'a> {
     }
 }
 
-/// O [`TipoEscrito`] do `T` de um token, com os argumentos concretos ou,
-/// sem eles, `dynamic` em cada parâmetro.
+/// The [`TipoEscrito`] of the `T` of a token, with the concrete arguments or,
+/// without them, `dynamic` for each parameter.
 pub(crate) fn tipo_escrito_do_token(t: &TipoDeToken) -> TipoEscrito {
     if t.e_dinamico() {
         return TipoEscrito::da_classe("", "dynamic");

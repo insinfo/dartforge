@@ -1,32 +1,33 @@
-//! Importadores: quem transforma a URL de um `@use`/`@forward`/`@import` na
-//! URL canônica de uma folha e a carrega — o `Importer` do dart-sass
+//! Importers: what turns the URL of a `@use`/`@forward`/`@import` into the
+//! canonical URL of a stylesheet and loads it — dart-sass's `Importer`
 //! (`lib/src/importer.dart`).
 //!
-//! O grass original só procurava no disco a partir do caminho do arquivo
-//! corrente e dos `load_paths`. Com um [`Importer`] nas [`crate::Options`],
-//! a busca inteira passa por ele, como no `ImportCache.canonicalize` do
-//! dart-sass: as URLs canônicas são textos (`package:pkg/a.scss`,
-//! `asset:pkg/web/b.scss`), que o visitante guarda como `PathBuf` onde o
-//! grass guardava caminhos.
+//! The original grass only searched the disk from the path of the current
+//! file and from the `load_paths`. With an [`Importer`] in the
+//! [`crate::Options`], the whole lookup goes through it, as in dart-sass's
+//! `ImportCache.canonicalize`: the canonical URLs are strings
+//! (`package:pkg/a.scss`, `asset:pkg/web/b.scss`), which the visitor stores
+//! as `PathBuf` where grass stored paths.
 use std::fmt::Debug;
 
 use crate::InputSyntax;
 
-/// Uma folha carregada por um [`Importer`].
+/// A stylesheet loaded by an [`Importer`].
 #[derive(Debug, Clone)]
 pub struct ImporterResult {
-    /// O texto da folha.
+    /// The text of the stylesheet.
     pub contents: String,
-    /// A sintaxe (`Syntax.forPath` do caminho canônico, no `sass_builder`).
+    /// The syntax (`Syntax.forPath` of the canonical path, in
+    /// `sass_builder`).
     pub syntax: InputSyntax,
 }
 
-/// Resolve e carrega folhas, como o `Importer` do dart-sass.
+/// Resolves and loads stylesheets, like dart-sass's `Importer`.
 pub trait Importer: Debug {
-    /// A URL canônica de `url`, escrita em `@use`/`@forward`/`@import` na
-    /// folha de URL canônica `base`, ou `None` se não houver folha. `Err`
-    /// é um erro de compilação (por exemplo, ambiguidade entre `_a.scss` e
-    /// `a.scss`).
+    /// The canonical URL of `url`, written in `@use`/`@forward`/`@import` in
+    /// the stylesheet with canonical URL `base`, or `None` if there is no
+    /// stylesheet. `Err` is a compilation error (for example, ambiguity
+    /// between `_a.scss` and `a.scss`).
     fn canonicalize(
         &self,
         url: &str,
@@ -34,6 +35,6 @@ pub trait Importer: Debug {
         for_import: bool,
     ) -> Result<Option<String>, String>;
 
-    /// Carrega a folha de URL canônica `canonical`.
+    /// Loads the stylesheet with canonical URL `canonical`.
     fn load(&self, canonical: &str) -> Result<ImporterResult, String>;
 }

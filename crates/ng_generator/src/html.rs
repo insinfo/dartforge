@@ -1,13 +1,13 @@
-//! Parser dos templates HTML do ngdart.
+//! Parser of ngdart HTML templates.
 //!
-//! Equivale ao `package:ngast` (o parser que o `ngcompiler` usa), na parte que
-//! o gerador precisa: elementos, texto, interpolação, comentários, as formas
-//! de ligação (`[x]`, `(x)`, `[(x)]`, `#ref`, `*ngIf`) e `<ng-content>`.
+//! Equivalent to `package:ngast` (the parser `ngcompiler` uses), in the part
+//! the generator needs: elements, text, interpolation, comments, the binding
+//! forms (`[x]`, `(x)`, `[(x)]`, `#ref`, `*ngIf`) and `<ng-content>`.
 //!
-//! A redução de espaço em branco (`preserveWhitespace: false`, que é o padrão)
-//! segue as regras do `MinimizeWhitespaceVisitor` do `ngast`, porque elas
-//! decidem quais nós de texto existem — e, portanto, o código gerado. Foram
-//! lidas do próprio pacote, não adivinhadas.
+//! The whitespace reduction (`preserveWhitespace: false`, which is the default)
+//! follows the rules of ngast's `MinimizeWhitespaceVisitor`, because they
+//! decide which text nodes exist — and therefore the generated code. They were
+//! read from the package itself, not guessed.
 
 /// Elementos que o HTML fecha sozinho.
 pub(crate) const VAZIOS: &[&str] = &[
@@ -15,16 +15,16 @@ pub(crate) const VAZIOS: &[&str] = &[
     "track", "wbr",
 ];
 
-/// Elementos normalmente `display: inline` — a lista do `ngast`, que decide
-/// onde o espaço em branco é significativo.
+/// Elements that are normally `display: inline` — ngast's list, which decides
+/// where whitespace is significant.
 const EM_LINHA: &[&str] = &[
     "a", "abbr", "acronym", "b", "bdo", "big", "br", "button", "cite", "code", "dfn", "em", "i",
     "img", "input", "kbd", "label", "map", "object", "q", "samp", "script", "select", "small",
     "span", "strong", "sub", "sup", "textarea", "time", "tt", "var",
 ];
 
-/// `&ngsp;` vira este caractere no scanner do ngast e volta a ser espaço no
-/// fim, escapando da redução.
+/// `&ngsp;` becomes this character in the ngast scanner and turns back into a
+/// space at the end, escaping the reduction.
 pub(crate) const NGSP: char = '\u{E500}';
 const NBSP: char = '\u{00A0}';
 
@@ -32,9 +32,9 @@ const NBSP: char = '\u{00A0}';
 pub enum No {
     Elemento(Elemento),
     Texto(String),
-    /// `{{ expressão }}`, com o intervalo em bytes da forma inteira
-    /// (`{{` a `}}`) no arquivo do template — é o que vai no comentário
-    /// `/* REF:url:inicio:fim */` que o oficial escreve.
+    /// `{{ expression }}`, with the byte range of the whole form (`{{` to `}}`)
+    /// in the template file — it is what goes in the `/* REF:url:start:end */`
+    /// comment the official compiler writes.
     Interpolacao {
         expr: String,
         inicio: usize,
@@ -47,27 +47,28 @@ pub enum No {
     },
 }
 
-/// Uma ligação escrita no elemento.
+/// A binding written on the element.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Ligacao {
     /// `hidden` em `[hidden]`, `click` em `(click)`.
     pub nome: String,
-    /// Expressão Dart entre aspas, como escrita.
+    /// Dart expression between quotes, as written.
     pub valor: String,
-    /// Intervalo em bytes do atributo inteiro no template (do nome ao fim do
-    /// valor), que é o que vai no comentário `/* REF:url:inicio:fim */`.
+    /// Byte range of the whole attribute in the template (from the name to the
+    /// end of the value), which is what goes in the `/* REF:url:start:end */`
+    /// comment.
     pub inicio: usize,
     pub fim: usize,
-    /// Escrito sem `=` (`<input required>`, e o `dir` que o desaçúcar de
-    /// `*dir="chave: x"` gera): `EmptyExpr`, que numa entrada `bool` vale
-    /// `true`. `x=""` não é isto.
+    /// Written without `=` (`<input required>`, and the `dir` that desugaring
+    /// `*dir="key: x"` generates): `EmptyExpr`, which for a `bool` input is
+    /// `true`. `x=""` is not this.
     pub sem_valor: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Elemento {
     pub nome: String,
-    /// `class="x"` — valor literal, que pode conter interpolação.
+    /// `class="x"` — a literal value, which may contain interpolation.
     pub atributos: Vec<Ligacao>,
     /// `[x]="e"`.
     pub propriedades: Vec<Ligacao>,
@@ -79,23 +80,23 @@ pub struct Elemento {
     pub referencias: Vec<Ligacao>,
     /// `*ngIf="e"` — a forma abreviada do `<template>`.
     pub estrela: Option<Ligacao>,
-    /// `@i18n="descrição"`, `@i18n:title="…"`: as anotações (`AnnotationAst`
-    /// do ngast), com o nome sem o `@`.
+    /// `@i18n="description"`, `@i18n:title="…"`: the annotations (ngast's
+    /// `AnnotationAst`), with the name without the `@`.
     pub anotacoes: Vec<Ligacao>,
     pub filhos: Vec<No>,
-    /// As ligações `[dirX]="e"` de um `<template dir let-x [dirX]="e">`
-    /// escrito à mão, depois de ele ser reescrito como `*dir` (ver
-    /// `template_como_container` em `view.rs`): o `REF` de cada entrada é o
-    /// intervalo da ligação escrita, não o da `estrela` inteira. Vazio no
-    /// resto.
+    /// The `[dirX]="e"` bindings of a hand-written `<template dir let-x
+    /// [dirX]="e">`, after it is rewritten as `*dir` (see
+    /// `template_como_container` in `view.rs`): the `REF` of each input is the
+    /// range of the written binding, not that of the whole `estrela`. Empty for
+    /// the rest.
     pub ligacoes_do_molde: Vec<Ligacao>,
-    /// A microssintaxe já decomposta desse `<template>` reescrito: as
-    /// ligações e os `let-` escritos à parte, sem voltar ao texto (que o
-    /// `isMicroExpression` nem sempre reconheceria, caso j75).
+    /// The already decomposed microsyntax of that rewritten `<template>`: the
+    /// bindings and the `let-`s written separately, without going back to the
+    /// text (which `isMicroExpression` would not always recognize, case j75).
     pub micro_do_molde: Option<crate::micro::Micro>,
-    /// Posição do `<` que abre o elemento no template (em bytes): identifica
-    /// o nó, como o início da `estrela` identifica o `*` (a âncora de um
-    /// `<template>` escrito nas consultas de visão).
+    /// Position of the `<` that opens the element in the template (in bytes):
+    /// it identifies the node, as the start of the `estrela` identifies the `*`
+    /// (the anchor of a written `<template>` in view queries).
     pub inicio: usize,
 }
 
@@ -110,8 +111,8 @@ impl Elemento {
         })
     }
 
-    /// Tem ligação de propriedade: `[x]` ou atributo com `{{ }}` — o que
-    /// faz o elemento virar campo da visão.
+    /// Has a property binding: `[x]` or an attribute with `{{ }}` — what makes
+    /// the element become a field of the view.
     pub fn liga_propriedade(&self) -> bool {
         !self.propriedades.is_empty() || self.atributos.iter().any(|a| a.valor.contains("{{"))
     }
@@ -121,9 +122,9 @@ impl Elemento {
     }
 }
 
-/// O template projeta conteúdo (`<ng-content>`)? Quem usa o componente
-/// precisa saber: com projeção a visão-filha é criada por
-/// `createAndProject`, sem ela por `create`.
+/// Does the template project content (`<ng-content>`)? The component's user
+/// needs to know: with projection the child view is created by
+/// `createAndProject`, without it by `create`.
 pub fn tem_projecao(nos: &[No]) -> bool {
     nos.iter().any(|n| match n {
         No::Conteudo { .. } => true,
@@ -132,8 +133,8 @@ pub fn tem_projecao(nos: &[No]) -> bool {
     })
 }
 
-/// Os `<ng-content>` do template, em ordem de documento, com o `select` de
-/// cada um — os `ngContentSelectors` do componente.
+/// The `<ng-content>`s of the template, in document order, with the `select` of
+/// each one — the component's `ngContentSelectors`.
 pub fn projecoes(nos: &[No]) -> Vec<Option<String>> {
     let mut saida = Vec::new();
     fn andar(nos: &[No], saida: &mut Vec<Option<String>>) {
@@ -149,23 +150,23 @@ pub fn projecoes(nos: &[No]) -> Vec<Option<String>> {
     saida
 }
 
-/// Analisa um template. Erros de forma não interrompem: o parser recupera e
-/// segue, como o do ngast, para que um template quebrado não derrube a
-/// geração inteira.
+/// Parses a template. Shape errors do not stop it: the parser recovers and goes
+/// on, like ngast's, so that a broken template does not bring down the whole
+/// generation.
 pub fn analisar(fonte: &str) -> Vec<No> {
     analisar_com_erro(fonte).0
 }
 
-/// Como [`analisar`], com o primeiro erro de forma que o ngast rejeita:
-/// com ele, o oficial falha ao compilar o template.
+/// Like [`analisar`], with the first shape error that ngast rejects: with it,
+/// the official compiler fails to compile the template.
 pub fn analisar_com_erro(fonte: &str) -> (Vec<No>, Option<String>) {
     analisar_no_modo(fonte, false)
 }
 
-/// `preservar`: o `_PreserveWhitespaceVisitor` do oficial
-/// (`ast_template_parser.dart:1610-1657`) no lugar do
-/// `MinimizeWhitespaceVisitor` — nenhum texto some nem é aparado; só o
-/// `&ngsp;` vira espaço, em todo texto.
+/// `preservar`: the official `_PreserveWhitespaceVisitor`
+/// (`ast_template_parser.dart:1610-1657`) in place of the
+/// `MinimizeWhitespaceVisitor` — no text disappears or is trimmed; only
+/// `&ngsp;` becomes a space, in all text.
 pub fn analisar_no_modo(fonte: &str, preservar: bool) -> (Vec<No>, Option<String>) {
     let mut p = Parser {
         b: fonte.as_bytes(),
@@ -185,7 +186,7 @@ pub fn analisar_no_modo(fonte: &str, preservar: bool) -> (Vec<No>, Option<String
     (nos, p.erro)
 }
 
-/// O `&ngsp;` vira espaço em todo texto da árvore.
+/// `&ngsp;` becomes a space in all text of the tree.
 fn trocar_ngsp(nos: Vec<No>) -> Vec<No> {
     nos.into_iter()
         .map(|n| match n {
@@ -199,9 +200,9 @@ fn trocar_ngsp(nos: Vec<No>) -> Vec<No> {
         .collect()
 }
 
-/// Soma `k` às posições de todas as ligações e interpolações: o template
-/// escrito na anotação, cujas posições no `REF` são as do `.dart` (o
-/// oficial soma o `templateOffset`).
+/// Adds `k` to the positions of all bindings and interpolations: the template
+/// written in the annotation, whose `REF` positions are those of the `.dart`
+/// (the official compiler adds the `templateOffset`).
 pub fn deslocar(nos: &mut [No], k: usize) {
     for no in nos {
         match no {
@@ -229,9 +230,9 @@ pub fn deslocar(nos: &mut [No], k: usize) {
     }
 }
 
-/// O parser anda em bytes, mas o `REF:url:inicio:fim` do oficial conta em
-/// unidades UTF-16: o `ngast` abre o template com `SourceFile.fromString`,
-/// que usa `text.codeUnits`. Um `©` antes da ligação é 2 bytes e 1 unidade.
+/// The parser walks in bytes, but the official `REF:url:start:end` counts in
+/// UTF-16 code units: `ngast` opens the template with `SourceFile.fromString`,
+/// which uses `text.codeUnits`. A `©` before the binding is 2 bytes and 1 unit.
 fn em_utf16(nos: &mut [No], fonte: &str) {
     let conv = |b: usize| fonte.get(..b).map_or(b, |s| s.encode_utf16().count());
     for no in nos {
@@ -264,7 +265,8 @@ struct Parser<'a> {
     b: &'a [u8],
     i: usize,
     fonte: &'a str,
-    /// Erro de forma que o ngast não recupera (o oficial falha e não gera).
+    /// A shape error ngast does not recover from (the official compiler fails
+    /// and generates nothing).
     erro: Option<String>,
 }
 
@@ -277,13 +279,13 @@ impl<'a> Parser<'a> {
         *self.b.get(self.i + k).unwrap_or(&0)
     }
 
-    /// Comparação em bytes: o cursor anda byte a byte e pode parar no meio de
-    /// um caractere multibyte, onde fatiar a string entraria em pânico.
+    /// Comparison in bytes: the cursor walks byte by byte and may stop in the
+    /// middle of a multibyte character, where slicing the string would panic.
     fn comeca_com(&self, s: &str) -> bool {
         self.b[self.i.min(self.b.len())..].starts_with(s.as_bytes())
     }
 
-    /// Lê nós até o fim ou até o fechamento de `pai`.
+    /// Reads nodes up to the end or up to the closing of `pai`.
     fn nos(&mut self, pai: Option<&str>) -> Vec<No> {
         let mut saida = Vec::new();
         while !self.fim() {
@@ -355,14 +357,15 @@ impl<'a> Parser<'a> {
         nome
     }
 
-    /// Texto e interpolações até o próximo `<`.
+    /// Text and interpolations up to the next `<`.
     fn ler_texto(&mut self, saida: &mut Vec<No>) {
         let inicio = self.i;
-        // `_allTextMatches` (`simple_tokenizer.dart:30`): o texto vai até o
-        // próximo `<`, mas dentro de `{{ }}` o estado é o de interpolação,
-        // onde `<` é só o operador (`a < b`). Fora dela, um `<` que não abre
-        // tag nem comentário é `openTagStart` sem nome: erro no ngast, e o
-        // oficial não gera nada; aqui ele é consumido (sem travar) e anotado.
+        // `_allTextMatches` (`simple_tokenizer.dart:30`): the text goes up to
+        // the next `<`, but inside `{{ }}` the state is interpolation, where
+        // `<` is just the operator (`a < b`). Outside it, a `<` that opens
+        // neither a tag nor a comment is an `openTagStart` without a name: an
+        // error in ngast, and the official compiler generates nothing; here it
+        // is consumed (without hanging) and recorded.
         while !self.fim() {
             if self.comeca_com("{{") {
                 match self.fonte[self.i + 2..].find("}}") {
@@ -378,7 +381,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 self.erro
-                    .get_or_insert_with(|| "`<` que não abre tag no texto".into());
+                    .get_or_insert_with(|| "`<` that does not open a tag in the text".into());
             }
             self.i += 1;
         }
@@ -392,9 +395,9 @@ impl<'a> Parser<'a> {
             match resto.find("}}") {
                 Some(f) => {
                     let ini = resto.as_ptr() as usize - self.fonte.as_ptr() as usize - 2;
-                    // O valor da interpolação de texto passa pelo
-                    // `_unEscapeText` como o texto (R1.5: `{{ a &amp;&amp; b }}`
-                    // é `a && b`).
+                    // The value of a text interpolation goes through
+                    // `_unEscapeText` like the text (R1.5: `{{ a &amp;&amp; b
+                    // }}` is `a && b`).
                     saida.push(No::Interpolacao {
                         expr: decodificar(&resto[..f]).trim().to_string(),
                         inicio: ini,
@@ -403,7 +406,7 @@ impl<'a> Parser<'a> {
                     resto = &resto[f + 2..];
                 }
                 None => {
-                    // `{{` sem fechar: vira texto, como qualquer outro caractere.
+                    // An unclosed `{{`: becomes text, like any other character.
                     saida.push(No::Texto(decodificar(resto)));
                     return;
                 }
@@ -488,7 +491,8 @@ impl<'a> Parser<'a> {
             self.i += 1;
         }
         if self.i == inicio {
-            // Caractere que não abre nome de atributo: anda para não travar.
+            // A character that does not start an attribute name: advance so as
+            // not to hang.
             self.i += 1;
             return None;
         }
@@ -496,8 +500,8 @@ impl<'a> Parser<'a> {
         let fim_do_nome = self.i;
         self.pular_espacos();
         if self.fim() || self.olhar(0) != b'=' {
-            // Sem valor, o intervalo do atributo (o do `REF`) é só o nome:
-            // o espaço até o próximo fica fora.
+            // Without a value, the attribute range (that of the `REF`) is just
+            // the name: the whitespace up to the next one is left out.
             self.i = fim_do_nome;
             return Some((nome, String::new(), true));
         }
@@ -528,7 +532,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// Põe o atributo lido na lista certa do elemento.
+/// Puts the attribute read into the right list of the element.
 fn classificar(
     el: &mut Elemento,
     conteudo: &mut Option<String>,
@@ -575,8 +579,8 @@ fn classificar(
             ..l
         });
     } else if let Some(interno) = nome.strip_prefix("on-").filter(|n| !n.is_empty()) {
-        // As formas longas que o `RecursiveAstParser` do ngast reconhece:
-        // `on-x` é `(x)` e `bind-x` é `[x]` (não há `bindon-` nem `ref-`).
+        // The long forms that ngast's `RecursiveAstParser` recognizes: `on-x`
+        // is `(x)` and `bind-x` is `[x]` (there is no `bindon-` or `ref-`).
         el.eventos.push(Ligacao {
             nome: interno.to_string(),
             ..l
@@ -600,14 +604,14 @@ fn classificar(
     }
 }
 
-/// O `_unEscapeText` do tokenizador do ngast (`simple_tokenizer.dart`),
-/// aplicado só ao texto (valor de atributo fica cru): cada casamento de
-/// `&#([0-9]{2,4});|&#x([0-9A-Fa-f]{2,4});|&([a-zA-Z]+);`, da esquerda para
-/// a direita, vira o caractere do código (`String.fromCharCode`) ou o da
-/// tabela [`crate::entities::ENTIDADES`] — e o nome que não está nela, o
-/// próprio nome. Um código na faixa dos substitutos (`&#xD800;`) seria um
-/// substituto solto na string do Dart, que o arquivo gravado em UTF-8 leva
-/// como U+FFFD.
+/// The `_unEscapeText` of the ngast tokenizer (`simple_tokenizer.dart`),
+/// applied only to text (attribute values stay raw): each match of
+/// `&#([0-9]{2,4});|&#x([0-9A-Fa-f]{2,4});|&([a-zA-Z]+);`, from left to right,
+/// becomes the character of the code (`String.fromCharCode`) or that of the
+/// table [`crate::entities::ENTIDADES`] — and a name that is not in it, the
+/// name itself. A code in the surrogate range (`&#xD800;`) would be a lone
+/// surrogate in the Dart string, which the file written in UTF-8 carries as
+/// U+FFFD.
 fn decodificar(t: &str) -> String {
     if !t.contains('&') {
         return t.to_string();
@@ -634,13 +638,13 @@ fn decodificar(t: &str) -> String {
     saida
 }
 
-/// A referência de caractere que começa em `i` (no `&`): onde ela termina
-/// (depois do `;`) e o texto que a substitui.
+/// The character reference that starts at `i` (at the `&`): where it ends
+/// (after the `;`) and the text that replaces it.
 fn entidade_em(t: &str, i: usize) -> Option<(usize, String)> {
     let b = t.as_bytes();
     let codigo =
         |n: u32| -> String { char::from_u32(n).map_or('\u{FFFD}'.to_string(), |c| c.to_string()) };
-    // `&#` + 2 a 4 dígitos + `;`
+    // `&#` + 2 to 4 digits + `;`
     if b.get(i + 1) == Some(&b'#') {
         let inicio = i + 2;
         let n = b[inicio..]
@@ -683,13 +687,14 @@ fn entidade_em(t: &str, i: usize) -> Option<(usize, String)> {
     None
 }
 
-/// `MinimizeWhitespaceVisitor` do ngast: some com o nó de texto só de espaços
-/// entre nós que não são de linha, e colapsa o resto num espaço só.
-/// O `MinimizeWhitespaceVisitor` do ngast (`preserveWhitespace: false`), de
-/// cima para baixo como ele: cada lista de filhos é reduzida olhando os
-/// vizinhos **crus** (os filhos deles ainda sem redução) e só depois cada
-/// filho é visitado. `<pre>` e o que tem `@preserveWhitespace` ficam como
-/// estão, com tudo o que há dentro (`_bailOutToPreserveWhitespace`).
+/// ngast's `MinimizeWhitespaceVisitor`: drops a whitespace-only text node
+/// between nodes that are not inline, and collapses the rest into a single
+/// space.
+/// ngast's `MinimizeWhitespaceVisitor` (`preserveWhitespace: false`), top-down
+/// like it: each list of children is reduced looking at the **raw** neighbors
+/// (their children not yet reduced) and only then is each child visited.
+/// `<pre>` and whatever has `@preserveWhitespace` stay as they are, with
+/// everything inside (`_bailOutToPreserveWhitespace`).
 fn minimizar_espacos(nos: Vec<No>) -> Vec<No> {
     reduzir_espacos(nos)
         .into_iter()
@@ -709,9 +714,10 @@ fn minimizar_espacos(nos: Vec<No>) -> Vec<No> {
 
 fn reduzir_espacos(nos: Vec<No>) -> Vec<No> {
     let mut saida: Vec<No> = Vec::with_capacity(nos.len());
-    // `anterior` é o nó *já processado* — se o texto anterior sumiu, o vizinho
-    // à esquerda é o que sobrou antes dele. `seguinte` é o nó original de
-    // índice i+1, ainda não processado. É assim no `ngast`.
+    // `anterior` is the *already processed* node — if the previous text
+    // disappeared, the left neighbor is what remained before it. `seguinte` is
+    // the original node at index i+1, not yet processed. That is how `ngast`
+    // does it.
     let mut anterior_e_colapsavel = true;
     for (i, no) in nos.iter().enumerate() {
         let No::Texto(texto) = no else {
@@ -722,29 +728,29 @@ fn reduzir_espacos(nos: Vec<No>) -> Vec<No> {
         let colapsa_esq = anterior_e_colapsavel;
         let colapsa_dir = colapsa_ao_lado(nos.get(i + 1), false);
         if colapsa_esq && colapsa_dir && texto.trim().is_empty() && !texto.contains(NBSP) {
-            // Texto só de espaços entre dois nós de bloco: some.
+            // Whitespace-only text between two block nodes: dropped.
             anterior_e_colapsavel = true;
             continue;
         }
         match colapsar(texto, colapsa_esq, colapsa_dir) {
             Some(t) => {
-                // Nó de texto é `StandaloneTemplateAst`: segura o espaço do
-                // vizinho, como qualquer outro nó que não seja elemento de
-                // bloco.
+                // A text node is a `StandaloneTemplateAst`: it holds the
+                // neighbor's whitespace, like any other node that is not a
+                // block element.
                 anterior_e_colapsavel = false;
                 saida.push(No::Texto(t));
             }
-            // Texto removido: para o vizinho seguinte é como se não houvesse
-            // nada à esquerda (`prevNode = null` no ngast).
+            // Text removed: for the next neighbor it is as if there were
+            // nothing to the left (`prevNode = null` in ngast).
             None => anterior_e_colapsavel = true,
         }
     }
     saida
 }
 
-/// Colapsa espaços de um texto: todo bloco de dois ou mais vira um espaço
-/// (`RegExp(r'\s\s+')` — um caractere sozinho, `\n` inclusive, fica como
-/// está), e as pontas são aparadas conforme os vizinhos.
+/// Collapses the whitespace of a text: every run of two or more becomes one
+/// space (`RegExp(r'\s\s+')` — a single character, `\n` included, stays as is),
+/// and the ends are trimmed according to the neighbors.
 fn colapsar(texto: &str, apara_esq: bool, apara_dir: bool) -> Option<String> {
     let mut v = String::with_capacity(texto.len());
     let mut bloco = String::new();
@@ -765,11 +771,10 @@ fn colapsar(texto: &str, apara_esq: bool, apara_dir: bool) -> Option<String> {
         v.push(c);
     }
     fechar(&mut bloco, &mut v);
-    // O `&ngsp;` só vira espaço depois de aparar as pontas (o `visitText`
-    // do `MinimizeWhitespaceVisitor` roda sobre o texto já colapsado): um
-    // `\n  &ngsp;` depois de elemento de bloco fica `' '`.
-    // O `&nbsp;` é protegido antes de aparar (`preserveNbsp`, `\uE501`):
-    // o `trim` do Rust o levaria junto.
+    // `&ngsp;` only becomes a space after trimming the ends (the `visitText` of
+    // `MinimizeWhitespaceVisitor` runs over the already collapsed text): a `\n
+    // &ngsp;` after a block element becomes `' '`. `&nbsp;` is protected before
+    // trimming (`preserveNbsp`, ``): Rust's `trim` would take it along.
     let branco = |c: char| c.is_whitespace() && c != NBSP;
     let mut v = v;
     if apara_esq {
@@ -782,11 +787,11 @@ fn colapsar(texto: &str, apara_esq: bool, apara_dir: bool) -> Option<String> {
     if v.is_empty() { None } else { Some(v) }
 }
 
-/// Regra do `_shouldCollapseAdjacentTo`: texto, interpolação e comentário não
-/// seguram espaço; elemento segura se for de linha; `<template>`,
-/// `<ng-container>` e o elemento de um `*` (o `EmbeddedTemplateAst` que o
-/// envolve) decidem pelo filho da ponta que encosta no texto
-/// (`_shouldCollapseWrapperNode`; `ultimo`: o vizinho está à esquerda).
+/// The rule of `_shouldCollapseAdjacentTo`: text, interpolation and comments do
+/// not hold whitespace; an element holds it if it is inline; `<template>`,
+/// `<ng-container>` and the element of a `*` (the `EmbeddedTemplateAst` that
+/// wraps it) decide by the child at the end touching the text
+/// (`_shouldCollapseWrapperNode`; `ultimo`: the neighbor is on the left).
 fn colapsa_ao_lado(no: Option<&No>, ultimo: bool) -> bool {
     match no {
         None => true,
@@ -801,17 +806,18 @@ fn colapsa_ao_lado(no: Option<&No>, ultimo: bool) -> bool {
         Some(No::Elemento(e)) => !e.em_linha(),
         Some(No::Interpolacao { .. }) => false,
         Some(No::Conteudo { .. }) => false,
-        // Texto e comentário são nós do template como qualquer outro
-        // (`StandaloneTemplateAst`): o espaço ao lado deles é significativo.
+        // Text and comments are template nodes like any other
+        // (`StandaloneTemplateAst`): the whitespace next to them is
+        // significant.
         Some(No::Texto(_)) => false,
         Some(No::Comentario(_)) => false,
     }
 }
 
-/// `_shouldCollapseWrapperNode`: sem filhos, pode vir conteúdo em linha (não
-/// colapsa); o filho da ponta só de espaços cede a vez ao vizinho dele,
-/// exceto quando é o único. O filho é julgado com `lastNode` falso, como no
-/// ngast.
+/// `_shouldCollapseWrapperNode`: without children, inline content may come
+/// (does not collapse); a whitespace-only child at the end gives way to its
+/// neighbor, except when it is the only one. The child is judged with
+/// `lastNode` false, as in ngast.
 fn colapsa_envolvido(filhos: &[No], ultimo: bool) -> bool {
     let (Some(primeiro), Some(fim)) = (filhos.first(), filhos.last()) else {
         return false;
@@ -835,8 +841,8 @@ fn colapsa_envolvido(filhos: &[No], ultimo: bool) -> bool {
 #[cfg(test)]
 mod testes {
 
-    /// `<` solto no texto não trava o parser e é erro de forma (o ngast o
-    /// lê como `openTagStart`); dentro de `{{ }}` é o operador.
+    /// A stray `<` in the text does not hang the parser and is a shape error
+    /// (ngast reads it as `openTagStart`); inside `{{ }}` it is the operator.
     #[test]
     fn menor_que_no_texto_e_na_interpolacao() {
         let (nos, erro) = analisar_com_erro("<div>a < b</div><i><3</i>");
@@ -859,13 +865,13 @@ mod testes {
         );
     }
 
-    /// `bind-x`/`on-x` são ligação e evento, `@x` é anotação: nenhum dos
-    /// três é atributo do DOM (caso i36 e i20 do corpus).
+    /// `bind-x`/`on-x` are a binding and an event, `@x` is an annotation: none
+    /// of the three is a DOM attribute (corpus cases i36 and i20).
     #[test]
     fn formas_longas_e_anotacoes() {
         let nos = analisar(r#"<p bind-title="t" on-click="f()" @i18n="d">x</p>"#);
         let [No::Elemento(e)] = nos.as_slice() else {
-            panic!("não é um elemento só: {nos:?}");
+            panic!("not a single element: {nos:?}");
         };
         assert!(e.atributos.is_empty());
         assert_eq!(e.propriedades[0].nome, "title");
@@ -932,8 +938,8 @@ mod testes {
         );
     }
 
-    /// Caso do footer do new_sali: o `©` antes da interpolação conta uma
-    /// unidade, não dois bytes.
+    /// The new_sali footer case: the `©` before the interpolation counts one
+    /// unit, not two bytes.
     #[test]
     fn posicao_em_unidades_utf16() {
         assert_eq!(
@@ -963,9 +969,10 @@ mod testes {
         assert!(br.filhos.is_empty());
     }
 
-    /// Template real do `NoDataComponent`: entre `<img>` (elemento de linha) e
-    /// o comentário sobra um espaço, e todo o resto do espaço em branco some.
-    /// O compilador oficial emite ali exatamente um `appendText(_el_0, ' ')`.
+    /// Real template of `NoDataComponent`: between `<img>` (an inline element)
+    /// and the comment one space remains, and all the rest of the whitespace
+    /// disappears. The official compiler emits exactly one `appendText(_el_0, '
+    /// ')` there.
     #[test]
     fn espaco_do_no_data_igual_ao_oficial() {
         let n = analisar(

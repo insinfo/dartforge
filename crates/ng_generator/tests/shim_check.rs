@@ -1,188 +1,191 @@
-//! Conferência do shim de CSS (`css::shim`, o porte do `shimShadowCss`)
-//! contra o compilador oficial, byte a byte. Os dois testes dependem de
-//! arquivos de fora do repositório e ficam `#[ignore]`:
+//! Check of the CSS shim (`css::shim`, the port of `shimShadowCss`) against
+//! the official compiler, byte for byte. Both tests depend on files from
+//! outside the repository and are `#[ignore]`:
 //!
-//! - `folhas_de_um_projeto_iguais_ao_oficial`: percorre a saída de uma build
-//!   oficial (`DARTFORGE_SHIM_GERADO`, o `.dart_tool/build/generated`) e, para
-//!   cada `X.css.shim.dart`, gera o nosso com [`gerar_folha`] a partir do
-//!   `X.css` ao lado (saída do `sass_builder`) ou, se não houver, do `X.css`
-//!   no pacote (`DARTFORGE_SHIM_RAIZES`, `pacote=dir` separados por `,`).
+//! - `project_stylesheets_equal_to_official`: walks the output of an official
+//!   build (`DARTFORGE_SHIM_GERADO`, the `.dart_tool/build/generated`) and, for
+//!   each `X.css.shim.dart`, generates ours with [`gerar_folha`] from the
+//!   `X.css` next to it (output of `sass_builder`) or, if there is none, from
+//!   the `X.css` in the package (`DARTFORGE_SHIM_RAIZES`, `package=dir`
+//!   separated by `,`).
 //!
 //!   ```text
 //!   DARTFORGE_SHIM_GERADO=…/example/.dart_tool/build/generated \
 //!   DARTFORGE_SHIM_RAIZES=limitless_ui=…/limitless_ui,limitless_ui_example=…/example \
-//!   cargo test --release -p dartforge-ng-generator --test shim_conferencia -- --ignored --nocapture
+//!   cargo test --release -p dartforge-ng-generator --test shim_check -- --ignored --nocapture
 //!   ```
 //!
-//! - `shim_igual_ao_oraculo_dart`: lê a saída de um programa Dart que chama o
-//!   `shimShadowCss` oficial numa lista de `.css` (`DARTFORGE_SHIM_ORACULO`;
-//!   registros `=== caminho`, `OK`/`ERR`, o texto e `\0`) e compara: saída
-//!   igual, ou recusa onde o oficial lança.
+//! - `shim_equal_to_dart_oracle`: reads the output of a Dart program that calls
+//!   the official `shimShadowCss` on a list of `.css` files
+//!   (`DARTFORGE_SHIM_ORACULO`; records `=== path`, `OK`/`ERR`, the text and
+//!   `\0`) and compares: equal output, or a refusal where the official one
+//!   throws.
 use std::path::{Path, PathBuf};
 
 use dartforge_ng_generator::{Pacote, css, gerar_folha, shadow_css};
 
-fn arquivos(dir: &Path, sufixo: &str, saida: &mut Vec<PathBuf>) {
-    let Ok(entradas) = std::fs::read_dir(dir) else {
+fn files(dir: &Path, suffix: &str, output: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
-    for e in entradas.flatten() {
+    for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
-            arquivos(&p, sufixo, saida);
-        } else if p.to_string_lossy().ends_with(sufixo) {
-            saida.push(p);
+            files(&p, suffix, output);
+        } else if p.to_string_lossy().ends_with(suffix) {
+            output.push(p);
         }
     }
 }
 
-/// A primeira posição em que `a` e `b` diferem, com um trecho de cada.
-fn diferenca(a: &str, b: &str) -> String {
+/// The first position where `a` and `b` differ, with an excerpt of each.
+fn difference(a: &str, b: &str) -> String {
     let i = a
         .char_indices()
         .zip(b.chars())
         .find(|((_, x), y)| x != y)
         .map(|((i, _), _)| i)
         .unwrap_or(a.len().min(b.len()));
-    let trecho = |s: &str| {
-        let ini = s.floor_char_boundary(i.saturating_sub(60));
-        let fim = s.ceil_char_boundary((i + 80).min(s.len()));
-        s[ini..fim].to_string()
+    let excerpt = |s: &str| {
+        let start = s.floor_char_boundary(i.saturating_sub(60));
+        let end = s.ceil_char_boundary((i + 80).min(s.len()));
+        s[start..end].to_string()
     };
     format!(
-        "byte {i}\n  oficial: {}\n  nosso:   {}",
-        trecho(a),
-        trecho(b)
+        "byte {i}\n  official: {}\n  ours:     {}",
+        excerpt(a),
+        excerpt(b)
     )
 }
 
 #[test]
 #[ignore]
-fn folhas_de_um_projeto_iguais_ao_oficial() {
-    let Ok(gerado) = std::env::var("DARTFORGE_SHIM_GERADO") else {
-        eprintln!("defina DARTFORGE_SHIM_GERADO");
+fn project_stylesheets_equal_to_official() {
+    let Ok(generated) = std::env::var("DARTFORGE_SHIM_GERADO") else {
+        eprintln!("set DARTFORGE_SHIM_GERADO");
         return;
     };
-    let gerado = PathBuf::from(gerado);
-    let raizes: Vec<(String, PathBuf)> = std::env::var("DARTFORGE_SHIM_RAIZES")
+    let generated = PathBuf::from(generated);
+    let roots: Vec<(String, PathBuf)> = std::env::var("DARTFORGE_SHIM_RAIZES")
         .unwrap_or_default()
         .split(',')
-        .filter_map(|par| {
-            let (n, d) = par.split_once('=')?;
+        .filter_map(|pair| {
+            let (n, d) = pair.split_once('=')?;
             Some((n.to_string(), PathBuf::from(d)))
         })
         .collect();
     let mut shims = Vec::new();
-    arquivos(&gerado, ".css.shim.dart", &mut shims);
+    files(&generated, ".css.shim.dart", &mut shims);
     shims.sort();
-    let (mut iguais, mut diferentes, mut recusados) = (0, Vec::new(), Vec::new());
+    let (mut equal, mut different, mut refused) = (0, Vec::new(), Vec::new());
     for shim in &shims {
-        let oficial = std::fs::read_to_string(shim)
+        let official = std::fs::read_to_string(shim)
             .unwrap_or_default()
             .replace("\r\n", "\n");
-        let texto = shim.to_string_lossy();
-        let mut css = PathBuf::from(texto.trim_end_matches(".shim.dart"));
+        let text = shim.to_string_lossy();
+        let mut css = PathBuf::from(text.trim_end_matches(".shim.dart"));
         if !css.is_file() {
-            // Folha do próprio pacote: `generated/<pacote>/<caminho>`.
-            let relativo = css.strip_prefix(&gerado).map(Path::to_path_buf);
-            if let Ok(rel) = relativo {
-                let mut partes = rel.components();
-                let pacote = partes
+            // A stylesheet of the package itself: `generated/<package>/<path>`.
+            let relative = css.strip_prefix(&generated).map(Path::to_path_buf);
+            if let Ok(rel) = relative {
+                let mut parts = rel.components();
+                let package = parts
                     .next()
                     .map(|c| c.as_os_str().to_string_lossy().to_string());
-                if let Some((_, raiz)) = raizes.iter().find(|(n, _)| Some(n) == pacote.as_ref()) {
-                    css = raiz.join(partes.as_path());
+                if let Some((_, root)) = roots.iter().find(|(n, _)| Some(n) == package.as_ref()) {
+                    css = root.join(parts.as_path());
                 }
             }
         }
-        let pacote = Pacote::default();
-        let saidas = gerar_folha(&pacote, &css);
-        let nossa = saidas
+        let package = Pacote::default();
+        let outputs = gerar_folha(&package, &css);
+        let ours = outputs
             .into_iter()
             .find(|(p, _)| p.to_string_lossy().ends_with(".shim.dart"))
             .map(|(_, r)| r);
-        match nossa {
-            Some(Ok(t)) if t == oficial => iguais += 1,
-            Some(Ok(t)) => diferentes.push((shim.clone(), diferenca(&oficial, &t))),
-            Some(Err(r)) => recusados.push((shim.clone(), format!("{r:?}"))),
-            None => recusados.push((shim.clone(), "sem saída".into())),
+        match ours {
+            Some(Ok(t)) if t == official => equal += 1,
+            Some(Ok(t)) => different.push((shim.clone(), difference(&official, &t))),
+            Some(Err(r)) => refused.push((shim.clone(), format!("{r:?}"))),
+            None => refused.push((shim.clone(), "no output".into())),
         }
     }
-    for (p, d) in &diferentes {
-        eprintln!("DIFERENTE {}\n{d}", p.display());
+    for (p, d) in &different {
+        eprintln!("DIFFERENT {}\n{d}", p.display());
     }
-    for (p, r) in &recusados {
-        eprintln!("RECUSADO {}: {r}", p.display());
+    for (p, r) in &refused {
+        eprintln!("REFUSED {}: {r}", p.display());
     }
     println!(
-        "shim do projeto: {} folhas, {iguais} iguais, {} diferentes, {} recusadas",
+        "project shim: {} stylesheets, {equal} equal, {} different, {} refused",
         shims.len(),
-        diferentes.len(),
-        recusados.len()
+        different.len(),
+        refused.len()
     );
-    assert!(diferentes.is_empty() && recusados.is_empty());
+    assert!(different.is_empty() && refused.is_empty());
 }
 
 #[test]
 #[ignore]
-fn shim_igual_ao_oraculo_dart() {
-    let Ok(oraculo) = std::env::var("DARTFORGE_SHIM_ORACULO") else {
-        eprintln!("defina DARTFORGE_SHIM_ORACULO");
+fn shim_equal_to_dart_oracle() {
+    let Ok(oracle) = std::env::var("DARTFORGE_SHIM_ORACULO") else {
+        eprintln!("set DARTFORGE_SHIM_ORACULO");
         return;
     };
-    let texto = std::fs::read_to_string(&oraculo).expect("oráculo");
-    let (mut total, mut iguais, mut erros_iguais) = (0, 0, 0);
-    let mut diferentes = Vec::new();
-    let mut motivos = std::collections::BTreeMap::new();
-    for registro in texto.split("\0\n") {
-        let Some(resto) = registro.strip_prefix("=== ") else {
+    let text = std::fs::read_to_string(&oracle).expect("oracle");
+    let (mut total, mut equal, mut equal_errors) = (0, 0, 0);
+    let mut different = Vec::new();
+    let mut reasons = std::collections::BTreeMap::new();
+    for record in text.split("\0\n") {
+        let Some(rest) = record.strip_prefix("=== ") else {
             continue;
         };
-        let Some((caminho, resto)) = resto.split_once('\n') else {
+        let Some((path, rest)) = rest.split_once('\n') else {
             continue;
         };
-        let Ok(css) = std::fs::read_to_string(caminho) else {
+        let Ok(css) = std::fs::read_to_string(path) else {
             continue;
         };
-        // O `readAsStringSync` do oráculo (o `utf8.decode`, como o
-        // `readAsString` do builder) tira o BOM do início.
+        // The oracle's `readAsStringSync` (`utf8.decode`, like the builder's
+        // `readAsString`) strips the leading BOM.
         let css = css.strip_prefix('\u{FEFF}').unwrap_or(&css);
         total += 1;
-        let nossa = css::shim(css);
-        if let Some(esperado) = resto.strip_prefix("OK\n") {
-            let esperado = esperado.strip_suffix('\n').unwrap_or(esperado);
-            match nossa {
-                Ok(t) if t == esperado => iguais += 1,
-                Ok(t) => diferentes.push(format!("{caminho}\n{}", diferenca(esperado, &t))),
-                Err(_) => diferentes.push(format!("{caminho}\n  oficial gera, nós recusamos")),
+        let ours = css::shim(css);
+        if let Some(expected) = rest.strip_prefix("OK\n") {
+            let expected = expected.strip_suffix('\n').unwrap_or(expected);
+            match ours {
+                Ok(t) if t == expected => equal += 1,
+                Ok(t) => different.push(format!("{path}\n{}", difference(expected, &t))),
+                Err(_) => different.push(format!("{path}\n  official generates, we refuse")),
             }
         } else {
-            match nossa {
+            match ours {
                 Err(_) => {
-                    erros_iguais += 1;
-                    let nosso = shadow_css::shim_shadow_css(css, "_ngcontent-%ID%", "_nghost-%ID%")
-                        .err()
-                        .map(|e| e.to_string())
-                        .unwrap_or_default();
-                    let oficial = resto.lines().nth(1).unwrap_or("").to_string();
-                    *motivos.entry((oficial, nosso)).or_insert(0usize) += 1;
+                    equal_errors += 1;
+                    let our_reason =
+                        shadow_css::shim_shadow_css(css, "_ngcontent-%ID%", "_nghost-%ID%")
+                            .err()
+                            .map(|e| e.to_string())
+                            .unwrap_or_default();
+                    let official = rest.lines().nth(1).unwrap_or("").to_string();
+                    *reasons.entry((official, our_reason)).or_insert(0usize) += 1;
                 }
-                Ok(_) => diferentes.push(format!(
-                    "{caminho}\n  oficial lança ({}), nós geramos",
-                    resto.trim()
+                Ok(_) => different.push(format!(
+                    "{path}\n  official throws ({}), we generate",
+                    rest.trim()
                 )),
             }
         }
     }
-    for d in &diferentes {
-        eprintln!("DIFERENTE {d}");
+    for d in &different {
+        eprintln!("DIFFERENT {d}");
     }
-    for ((oficial, nosso), n) in &motivos {
-        println!("  exceção oficial {oficial:<20} nossa {nosso:<45} {n}");
+    for ((official, ours), n) in &reasons {
+        println!("  official exception {official:<20} ours {ours:<45} {n}");
     }
     println!(
-        "oráculo dart: {total} folhas, {iguais} iguais, {erros_iguais} recusadas como no oficial, {} diferentes",
-        diferentes.len()
+        "dart oracle: {total} stylesheets, {equal} equal, {equal_errors} refused as in the official one, {} different",
+        different.len()
     );
-    assert!(diferentes.is_empty());
+    assert!(different.is_empty());
 }

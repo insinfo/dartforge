@@ -128,7 +128,7 @@ impl CssTree {
 
         let parent_children = self.parent_to_child.get(parent_idx).unwrap();
 
-        // dart-sass `hasFollowingSibling`: algum irmão **visível** depois.
+        // dart-sass `hasFollowingSibling`: some **visible** sibling after it.
         let pos = parent_children.iter().position(|&c| c == child);
         match pos {
             Some(i) => parent_children[i + 1..]
@@ -138,22 +138,22 @@ impl CssTree {
         }
     }
 
-    /// Os filhos (índices) de `idx`, na ordem.
+    /// The children (indices) of `idx`, in order.
     pub fn children_of(&self, idx: CssTreeIdx) -> &[CssTreeIdx] {
         self.parent_to_child.get(&idx).map_or(&[], Vec::as_slice)
     }
 
-    /// `CssNode.isInvisible` do dart-sass (os comentários contam como
-    /// visíveis) para um nó da árvore em construção.
+    /// dart-sass's `CssNode.isInvisible` (comments count as visible) for a
+    /// node of the tree under construction.
     pub fn is_invisible(&self, idx: CssTreeIdx) -> bool {
-        let filhos_invisiveis = || self.children_of(idx).iter().all(|&c| self.is_invisible(c));
+        let children_invisible = || self.children_of(idx).iter().all(|&c| self.is_invisible(c));
         match &*self.get(idx) {
             None => true,
             Some(CssStmt::RuleSet { selector, .. }) => {
-                selector.is_invisible() || filhos_invisiveis()
+                selector.is_invisible() || children_invisible()
             }
             Some(CssStmt::Media(..) | CssStmt::Supports(..) | CssStmt::KeyframesRuleSet(..)) => {
-                filhos_invisiveis()
+                children_invisible()
             }
             Some(
                 CssStmt::Style(..)

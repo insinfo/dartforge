@@ -57,12 +57,12 @@ grass input.scss
 
     unknown_lints,
 
-    // Estilo de assinaturas herdado do grass 0.13.4 (anterior a este lint).
+    // Signature style inherited from grass 0.13.4 (older than this lint).
     mismatched_lifetime_syntaxes,
 
-    // Lints de estilo do clippy mais novos que o grass 0.13.4; o código
-    // trazido (e o portado do dart-sass, que segue a forma do original) não
-    // é reescrito por estilo.
+    // Clippy style lints newer than grass 0.13.4; the vendored code (and the
+    // code ported from dart-sass, which follows the shape of the original) is
+    // not rewritten for style.
     clippy::cloned_ref_to_slice_refs,
     clippy::derivable_impls,
     clippy::empty_line_after_outer_attr,
@@ -188,9 +188,9 @@ fn from_string_with_file_name<P: AsRef<Path>>(
     file_name: P,
     options: &Options,
 ) -> Result<String> {
-    // O `compileResult.css` do dart-sass não termina em `\n`; a API do
-    // grass terminava em `\n` no `expanded`.
-    compilar_com_mapa(input, &file_name.as_ref().to_string_lossy(), options, false).map(
+    // dart-sass's `compileResult.css` does not end in `\n`; the grass API
+    // ended in `\n` in `expanded`.
+    compile_with_source_map(input, &file_name.as_ref().to_string_lossy(), options, false).map(
         |(mut css, _)| {
             if !css.is_empty() && !options.is_compressed() {
                 css.push('\n');
@@ -200,15 +200,15 @@ fn from_string_with_file_name<P: AsRef<Path>>(
     )
 }
 
-/// Compila `input` (de URL/caminho `file_name`) e, se `mapa`, gera o mapa
-/// de fontes como o `SourceMapBuffer` do dart-sass.
-pub(crate) fn compilar_com_mapa(
+/// Compiles `input` (from URL/path `file_name`) and, if `with_source_map`,
+/// generates the source map like dart-sass's `SourceMapBuffer`.
+pub(crate) fn compile_with_source_map(
     input: String,
     file_name: &str,
     options: &Options,
-    mapa: bool,
-) -> Result<(String, Option<source_map::Mapa>)> {
-    let _versao = options::fixar_versao(options.versao);
+    with_source_map: bool,
+) -> Result<(String, Option<source_map::SourceMap>)> {
+    let _version_guard = options::set_version(options.version);
     let mut map = CodeMap::new();
     let path = Path::new(file_name);
     let file = map.add_file(file_name.to_owned(), input);
@@ -238,15 +238,15 @@ pub(crate) fn compilar_com_mapa(
     let stmts = visitor.finish();
 
     let mut serializer = Serializer::new(options, &map, false, empty_span);
-    if mapa {
-        serializer.ligar_mapa();
+    if with_source_map {
+        serializer.enable_source_map();
     }
 
     serializer
         .visit_stylesheet(stmts)
         .map_err(|e| raw_to_parse_error(&map, *e, options.unicode_error_messages))?;
 
-    Ok(serializer.finish_com_mapa())
+    Ok(serializer.finish_with_source_map())
 }
 
 /// Compile CSS from a path

@@ -486,7 +486,7 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
             Some(Token { kind: '+', .. }) => self.parse_plus_expr(parser),
             Some(Token { kind: '-', .. }) => self.parse_minus_expr(parser),
             Some(Token { kind: '!', .. }) => Self::parse_important_expr(parser),
-            // `_percentExpression`: um `%` solto é o texto `%`.
+            // `_percentExpression`: a lone `%` is the text `%`.
             Some(Token { kind: '%', .. }) => {
                 parser.toks_mut().next();
                 let span = parser.toks_mut().span_from(start);
@@ -722,16 +722,16 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
                 .into());
         }
 
-        // `_calculationValue` do 1.66: `(` com interpolação no nível de cima
-        // é o texto cru (`CalculationInterpolation`).
+        // `_calculationValue` of 1.66: `(` with interpolation at the top level
+        // is the raw text (`CalculationInterpolation`).
         if parser.flags().in_calc_166() {
             parser.expect_char('(')?;
             if Self::contains_calculation_interpolation_166(parser)? {
-                let texto = parser.parse_interpolated_declaration_value(false, false, true)?;
+                let text = parser.parse_interpolated_declaration_value(false, false, true)?;
                 parser.whitespace()?;
                 parser.expect_char(')')?;
                 let span = parser.toks_mut().span_from(start);
-                return Ok(AstExpr::CalcInterp166(texto, span).span(span));
+                return Ok(AstExpr::CalcInterp166(text, span).span(span));
             }
             parser.toks_mut().set_cursor(start);
         }
@@ -768,7 +768,8 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
             parser
                 .flags_mut()
                 .set(ContextFlags::IN_PARENS, was_in_parentheses);
-            // `ParenthesizedExpression(..., spanFrom(start))`: com os parênteses.
+            // `ParenthesizedExpression(..., spanFrom(start))`: with the
+            // parentheses.
             return Ok(
                 AstExpr::Paren(Arc::new(first.node)).span(parser.toks_mut().span_from(start))
             );
@@ -952,8 +953,8 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
             Some(f64::from(blue)),
             Some(alpha),
             // dart-sass `_hexColorContents`: `alpha == null ?
-            // SpanColorFormat(...) : null` — hex de 4 ou 8 dígitos não guarda
-            // o texto original (sai como `rgba(...)`).
+            // SpanColorFormat(...) : null` — a 4- or 8-digit hex does not keep
+            // the original text (it comes out as `rgba(...)`).
             if has_alpha {
                 ColorFormat::Infer
             } else {
@@ -1193,14 +1194,14 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
 
         if let Some(plain) = plain {
             if plain == "if" && parser.toks().next_char_is('(') {
-                // dart-sass 1.102 `identifierLike`: tenta o `if()` antigo do Sass
-                // (argumentos) e, se não analisar, é o `if()` do CSS.
-                let antes = parser.toks().cursor();
+                // dart-sass 1.102 `identifierLike`: tries the old Sass `if()`
+                // (arguments) and, if that does not parse, it is the CSS `if()`.
+                let before = parser.toks().cursor();
                 if let Ok(call_args) = parser.parse_argument_invocation(false, false) {
                     let span = call_args.span;
                     return Ok(AstExpr::If(Arc::new(Ternary(call_args))).span(span));
                 }
-                parser.toks_mut().set_cursor(antes);
+                parser.toks_mut().set_cursor(before);
                 return Self::parse_css_if(parser, start);
             } else if lower.as_deref() == Some("if") && parser.toks().next_char_is('(') {
                 return Self::parse_css_if(parser, start);
@@ -1268,14 +1269,14 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
                 if let Some(plain) = plain {
                     let calc_166 = parser.options().v166()
                         && matches!(lower.as_deref(), Some("calc" | "clamp" | "min" | "max"));
-                    let dentro = parser.flags().in_calc_166();
+                    let was_in_calc = parser.flags().in_calc_166();
                     parser.flags_mut().set(ContextFlags::IN_CALC_166, calc_166);
                     let arguments = if calc_166 {
                         Self::calculation_arguments_166(parser)
                     } else {
                         parser.parse_argument_invocation(false, lower.as_deref() == Some("var"))
                     };
-                    parser.flags_mut().set(ContextFlags::IN_CALC_166, dentro);
+                    parser.flags_mut().set(ContextFlags::IN_CALC_166, was_in_calc);
                     let arguments = arguments?;
 
                     Ok(AstExpr::FunctionCall(FunctionCallExpr {
@@ -1286,10 +1287,10 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
                     })
                     .span(parser.toks_mut().span_from(start)))
                 } else {
-                    let dentro = parser.flags().in_calc_166();
+                    let was_in_calc = parser.flags().in_calc_166();
                     parser.flags_mut().set(ContextFlags::IN_CALC_166, false);
                     let arguments = parser.parse_argument_invocation(false, false);
-                    parser.flags_mut().set(ContextFlags::IN_CALC_166, dentro);
+                    parser.flags_mut().set(ContextFlags::IN_CALC_166, was_in_calc);
                     let arguments = arguments?;
                     Ok(
                         AstExpr::InterpolatedFunction(Arc::new(InterpolatedFunction {
@@ -1309,20 +1310,20 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
         }
     }
 
-    /// Os argumentos de `calc()`/`clamp()`/`min()`/`max()` no modo 1.66
-    /// (`_calculationArguments`): com interpolação no nível de cima, um só
-    /// argumento com o texto cru; senão, os argumentos comuns (com
-    /// [`ContextFlags::IN_CALC_166`] ligado pelo chamador).
+    /// The arguments of `calc()`/`clamp()`/`min()`/`max()` in the 1.66 mode
+    /// (`_calculationArguments`): with interpolation at the top level, a
+    /// single argument with the raw text; otherwise, the usual arguments
+    /// (with [`ContextFlags::IN_CALC_166`] set by the caller).
     fn calculation_arguments_166(parser: &mut P) -> SassResult<ArgumentInvocation> {
         let start = parser.toks().cursor();
         parser.expect_char('(')?;
         if Self::contains_calculation_interpolation_166(parser)? {
             let arg_start = parser.toks().cursor();
-            let texto = parser.parse_interpolated_declaration_value(false, false, true)?;
+            let text = parser.parse_interpolated_declaration_value(false, false, true)?;
             let arg_span = parser.toks_mut().span_from(arg_start);
             parser.expect_char(')')?;
             return Ok(ArgumentInvocation {
-                positional: vec![AstExpr::CalcInterp166(texto, arg_span)],
+                positional: vec![AstExpr::CalcInterp166(text, arg_span)],
                 named: Default::default(),
                 rest: None,
                 keyword_rest: None,
@@ -1335,14 +1336,14 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
         parser.parse_argument_invocation(false, false)
     }
 
-    /// `_containsCalculationInterpolation` do 1.66: o texto até o próximo
-    /// `)`, `]` ou `}` sem par tem `#{` fora de parênteses internos (e fora
-    /// de strings e comentários)? Não consome nada.
+    /// `_containsCalculationInterpolation` of 1.66: does the text up to the
+    /// next unmatched `)`, `]` or `}` have `#{` outside inner parentheses (and
+    /// outside strings and comments)? Consumes nothing.
     fn contains_calculation_interpolation_166(parser: &mut P) -> SassResult<bool> {
         let start = parser.toks().cursor();
         let mut parens = 0i32;
         let mut brackets: Vec<char> = Vec::new();
-        let resultado = loop {
+        let result = loop {
             let Some(next) = parser.toks().peek().map(|t| t.kind) else {
                 break false;
             };
@@ -1391,7 +1392,7 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
             }
         };
         parser.toks_mut().set_cursor(start);
-        Ok(resultado)
+        Ok(result)
     }
 
     fn namespaced_expression(
@@ -1520,10 +1521,10 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
         name: &str,
         start: usize,
     ) -> SassResult<Option<Spanned<AstExpr>>> {
-        // dart-sass 1.102 `trySpecialFunction`: `calc()` e as outras funções
-        // de cálculo são chamadas comuns (o avaliador decide); só `type(`,
-        // `calc` com prefixo de fornecedor, `expression`, `element`,
-        // `progid:` e `url` têm análise crua.
+        // dart-sass 1.102 `trySpecialFunction`: `calc()` and the other
+        // calculation functions are ordinary calls (the evaluator decides);
+        // only `type(`, vendor-prefixed `calc`, `expression`, `element`,
+        // `progid:` and `url` are parsed raw.
         let normalized = unvendor(name);
         let vendored = normalized.len() != name.len();
 
@@ -1590,7 +1591,7 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
         ))
     }
 
-    /// `ifExpression`: o `if()` do CSS.
+    /// `ifExpression`: the CSS `if()`.
     fn parse_css_if(parser: &mut P, start: usize) -> SassResult<Spanned<AstExpr>> {
         parser.expect_char('(')?;
         parser.whitespace()?;
@@ -1704,10 +1705,10 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
         preceding: IfCondition,
         next: IfCondition,
     ) -> SassResult<IfCondition> {
-        let valido = preceding.is_arbitrary_substitution()
+        let valid = preceding.is_arbitrary_substitution()
             || matches!(&preceding, IfCondition::Op(es, _) if es.last().is_some_and(IfCondition::is_arbitrary_substitution))
             || next.is_arbitrary_substitution();
-        if !valido {
+        if !valid {
             return Err((
                 "Expected an arbitrary substitution.",
                 parser.toks().current_span(),
@@ -1735,8 +1736,8 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
                 }
                 parser.whitespace()?;
                 op.get_or_insert(true);
-                // No dart-sass este `lastGroup` é uma variável nova (não
-                // atualiza o último grupo); o mesmo aqui.
+                // In dart-sass this `lastGroup` is a new variable (it does not
+                // update the last group); the same here.
                 let g = Self::if_group(parser)?;
                 buffer.add_string(" and ".to_owned());
                 buffer.add_interpolation(Self::if_interpolation(&g)?);

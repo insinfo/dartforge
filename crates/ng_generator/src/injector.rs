@@ -1,14 +1,14 @@
-//! O código de um `@GenerateInjector`: o que o `InjectorEmitter` do oficial
-//! (`angular_compiler/emitter/injector.dart`) monta com o `code_builder`, e o
-//! `DartFormatter(pageWidth: 1000000)` do `Compiler` formata.
+//! The code of a `@GenerateInjector`: what the official `InjectorEmitter`
+//! (`angular_compiler/emitter/injector.dart`) builds with `code_builder`, and
+//! the `Compiler`'s `DartFormatter(pageWidth: 1000000)` formats.
 //!
-//! Com a página "infinita", o formatador só quebra onde o `code_builder`
-//! põe vírgula no fim — em chamada, lista ou mapa com mais de um item. Aí
-//! cada item vai numa linha, dois espaços para dentro da linha em que a
-//! chamada começa; o corpo de um `=>` já começa quatro para dentro do
-//! membro. Os imports são os do `Allocator.simplePrefixing` (`_i1`, `_i2`…,
-//! na ordem em que cada biblioteca aparece no texto; `dart:core` sem
-//! prefixo), e a unidade inteira do arquivo divide a mesma tabela.
+//! With an "infinite" page, the formatter only breaks where `code_builder` puts
+//! a trailing comma — in a call, list or map with more than one item. There
+//! each item goes on its own line, two spaces in from the line where the call
+//! starts; the body of a `=>` already starts four in from the member. The
+//! imports are those of `Allocator.simplePrefixing` (`_i1`, `_i2`…, in the
+//! order each library appears in the text; `dart:core` without a prefix), and
+//! the whole unit of the file shares the same table.
 use crate::directives::{DI_TOKENS, Dependencia, Token};
 use crate::metadata::{FonteDoInjetor, Injetor, Revivido, TipoEscrito};
 
@@ -22,8 +22,8 @@ struct Alocador {
 }
 
 impl Alocador {
-    /// `simbolo` de `uri`, com o prefixo da biblioteca (alocado agora se
-    /// ainda não estava).
+    /// `simbolo` from `uri`, with the library prefix (allocated now if it was
+    /// not yet).
     fn r(&mut self, uri: &str, simbolo: &str) -> String {
         if uri.is_empty() || uri == "dart:core" {
             return simbolo.to_string();
@@ -48,15 +48,15 @@ impl Alocador {
     }
 }
 
-/// Uma expressão do `code_builder`, antes da formatação.
+/// A `code_builder` expression, before formatting.
 enum Ex {
     Atomo(String),
-    /// `alvo(args)`: com mais de um argumento, vírgula no fim.
+    /// `target(args)`: with more than one argument, a trailing comma.
     Chamada {
         alvo: String,
         args: Vec<(Option<String>, Ex)>,
     },
-    /// `[..]`, com `const ` ou não em `prefixo`.
+    /// `[..]`, with `const ` or not in `prefixo`.
     Lista {
         prefixo: String,
         itens: Vec<Ex>,
@@ -64,7 +64,8 @@ enum Ex {
 }
 
 impl Ex {
-    /// O texto formatado, com `recuo` o da linha em que a expressão começa.
+    /// The formatted text, with `recuo` being the indentation of the line where
+    /// the expression starts.
     fn texto(&self, recuo: usize) -> String {
         let (abre, fecha, itens): (String, &str, Vec<(Option<&str>, &Ex)>) = match self {
             Ex::Atomo(s) => return s.clone(),
@@ -97,13 +98,13 @@ impl Ex {
     }
 }
 
-/// `literalString`: aspas simples, com `'` e quebra de linha escapados.
+/// `literalString`: single quotes, with `'` and line breaks escaped.
 fn literal_de_texto(s: &str) -> String {
     format!("'{}'", s.replace('\'', "\\'").replace('\n', "\\n"))
 }
 
-/// `_reviveString`: `\` dobrada, `$` escapado (menos depois de `\`), quebra
-/// de linha como `\n` e o que sai do ASCII visível como `\u{..}`.
+/// `_reviveString`: `\` doubled, `$` escaped (except after `\`), line breaks as
+/// `\n` and whatever is outside visible ASCII as `\u{..}`.
 fn texto_revivido(s: &str) -> String {
     let s = s.replace('\\', "\\\\");
     let cs: Vec<char> = s.chars().collect();
@@ -214,8 +215,8 @@ impl Emissor<'_> {
             .collect()
     }
 
-    /// Um valor revivido; `em_const`: já dentro de uma expressão `const`
-    /// (o `const` dos de dentro sai).
+    /// A revived value; `em_const`: already inside a `const` expression (the
+    /// `const` of the inner ones is dropped).
     fn valor(&mut self, v: &Revivido, em_const: bool) -> Ex {
         let konst = if em_const { "" } else { "const " };
         match v {
@@ -252,11 +253,11 @@ impl Emissor<'_> {
     }
 }
 
-/// O recuo do corpo de um `=>` num membro de classe.
+/// The indentation of the body of a `=>` in a class member.
 const RECUO_DO_CORPO: usize = 6;
 
-/// O texto dos injetores do arquivo: os imports (na ordem da tabela) e o
-/// corpo (a partir do `// ignore_for_file`).
+/// The text of the file's injectors: the imports (in table order) and the body
+/// (from the `// ignore_for_file` on).
 pub fn emitir(injetores: &[&Injetor]) -> Result<(String, String), String> {
     let mut al = Alocador::default();
     let mut blocos = Vec::new();
@@ -286,8 +287,8 @@ fn emitir_um(al: &mut Alocador, inj: &Injetor) -> Result<String, String> {
     let hierarquico = al.r(INJECTOR, "HierarchicalInjector");
     s += &format!("class {classe} extends {hierarquico} implements {injector} {{\n");
     s += &format!("  {classe}._({injector} parent) : super(parent);\n\n");
-    // Os campos vêm antes dos métodos no texto (`visitClass`), e é nessa
-    // ordem que os imports são alocados.
+    // The fields come before the methods in the text (`visitClass`), and it is
+    // in that order that the imports are allocated.
     let mut em = Emissor { al };
     let mut campos = Vec::new();
     for (i, p) in inj.provedores.iter().enumerate() {
@@ -373,8 +374,8 @@ fn emitir_um(al: &mut Alocador, inj: &Injetor) -> Result<String, String> {
     }
     let n = inj.provedores.len();
     metodos.push(format!("  {injector} _getInjector${n}() => this;\n\n"));
-    // O `injectFromSelfOptional`: os tokens entram no texto (e na tabela)
-    // aqui, depois de todos os métodos.
+    // The `injectFromSelfOptional`: the tokens enter the text (and the table)
+    // here, after all the methods.
     let nao_achado = em.al.r(INJECTOR, "throwIfNotFound");
     let mut corpo = String::new();
     let mut k = 0;

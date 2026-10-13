@@ -20,11 +20,11 @@ pub struct Options<'a> {
     pub(crate) quiet: bool,
     pub(crate) input_syntax: Option<InputSyntax>,
     pub(crate) custom_fns: HashMap<String, Builtin>,
-    /// Quando presente, toda busca de folha passa por ele (ver
-    /// [`crate::importer`]); `fs` e `load_paths` deixam de ser usados.
+    /// When present, every stylesheet lookup goes through it (see
+    /// [`crate::importer`]); `fs` and `load_paths` are no longer used.
     pub(crate) importer: Option<&'a dyn Importer>,
-    /// A versão do dart-sass imitada (ver [`VersaoDartSass`]).
-    pub(crate) versao: VersaoDartSass,
+    /// The dart-sass version being imitated (see [`VersaoDartSass`]).
+    pub(crate) version: VersaoDartSass,
 }
 
 impl Default for Options<'_> {
@@ -41,7 +41,7 @@ impl Default for Options<'_> {
             input_syntax: None,
             custom_fns: HashMap::new(),
             importer: None,
-            versao: VersaoDartSass::V1_102_0,
+            version: VersaoDartSass::V1_102_0,
         }
     }
 }
@@ -58,7 +58,7 @@ impl<'a> Options<'a> {
         self
     }
 
-    /// Define o [`Importer`] que resolve e carrega as folhas.
+    /// Sets the [`Importer`] that resolves and loads the stylesheets.
     #[must_use]
     #[inline]
     pub fn importer(mut self, importer: &'a dyn Importer) -> Self {
@@ -190,37 +190,37 @@ impl<'a> Options<'a> {
         self
     }
 
-    /// Escolhe a versão do dart-sass cuja saída a compilação imita (padrão:
-    /// [`VersaoDartSass::V1_102_0`]).
+    /// Chooses the dart-sass version whose output the compilation imitates
+    /// (default: [`VersaoDartSass::V1_102_0`]).
     ///
     /// ```
     /// use dartforge_sass::{Options, VersaoDartSass};
-    /// let fonte = ".a {\n  .b { x: y; }\n  color: red;\n}\n";
-    /// let v166 = Options::default().versao(VersaoDartSass::V1_66_0);
+    /// let source = ".a {\n  .b { x: y; }\n  color: red;\n}\n";
+    /// let v166 = Options::default().version(VersaoDartSass::V1_66_0);
     /// assert_eq!(
-    ///     dartforge_sass::from_string(fonte, &v166).unwrap(),
+    ///     dartforge_sass::from_string(source, &v166).unwrap(),
     ///     ".a {\n  color: red;\n}\n.a .b {\n  x: y;\n}\n"
     /// );
     /// assert_eq!(
-    ///     dartforge_sass::from_string(fonte, &Options::default()).unwrap(),
+    ///     dartforge_sass::from_string(source, &Options::default()).unwrap(),
     ///     ".a .b {\n  x: y;\n}\n.a {\n  color: red;\n}\n"
     /// );
     /// ```
     #[must_use]
     #[inline]
-    pub const fn versao(mut self, versao: VersaoDartSass) -> Self {
-        self.versao = versao;
+    pub const fn version(mut self, version: VersaoDartSass) -> Self {
+        self.version = version;
         self
     }
 
-    /// Imita o dart-sass anterior ao 1.77.7 (o modo 1.66)?
+    /// Does it imitate dart-sass before 1.77.7 (the 1.66 mode)?
     pub(crate) fn v166(&self) -> bool {
-        matches!(self.versao, VersaoDartSass::V1_66_0)
+        matches!(self.version, VersaoDartSass::V1_66_0)
     }
 
-    /// Imita o dart-sass 1.101.0–1.101.3?
+    /// Does it imitate dart-sass 1.101.0–1.101.3?
     pub(crate) fn v1101(&self) -> bool {
-        matches!(self.versao, VersaoDartSass::V1_101)
+        matches!(self.version, VersaoDartSass::V1_101)
     }
 
     pub(crate) fn is_compressed(&self) -> bool {
@@ -246,8 +246,8 @@ pub enum InputSyntax {
 
 impl InputSyntax {
     pub(crate) fn for_path(path: &Path) -> Self {
-        // dart-sass `Syntax.forPath`: `switch (p.extension(path))`, que
-        // distingue maiúsculas (`a.SASS` é SCSS).
+        // dart-sass `Syntax.forPath`: `switch (p.extension(path))`, which is
+        // case-sensitive (`a.SASS` is SCSS).
         match path.extension().and_then(|ext| ext.to_str()) {
             Some("css") => Self::Css,
             Some("sass") => Self::Sass,
@@ -269,43 +269,44 @@ pub enum OutputStyle {
     Compressed,
 }
 
-/// A versão do dart-sass cuja saída o compilador imita.
+/// The dart-sass version whose output the compiler imitates.
 ///
-/// O port segue o dart-sass 1.102.0. [`VersaoDartSass::V1_66_0`] liga o modo
-/// de compatibilidade com o dart-sass 1.66.0 (o do `pubspec.lock` de pacotes
-/// que não resolvem com o `sass` novo, como o ngcomponents 3.0.0-dev.1):
+/// The port follows dart-sass 1.102.0. [`VersaoDartSass::V1_66_0`] turns on
+/// the compatibility mode with dart-sass 1.66.0 (the one in the
+/// `pubspec.lock` of packages that do not resolve with the new `sass`, such
+/// as ngcomponents 3.0.0-dev.1):
 ///
-/// * declarações, comentários, `@import` e at-rules sem corpo que vêm
-///   **depois** de uma regra aninhada vão para o bloco do seletor pai, antes
-///   da regra aninhada (sem o `_copyParentAfterSibling` que o dart-sass
-///   1.92.0 introduziu — a mudança "mixed-decls");
-/// * cores com o modelo antigo (canais RGB inteiros, `rgba(r, g, b, a)`,
-///   `hsl()` só para o que saiu da função `hsl()`), U+007F sem escape,
-///   propriedade customizada vazia e números com unidades complexas como
-///   erro, `//` preservado no valor de at-rules desconhecidas;
-/// * o que o modo não consegue garantir (espaços de cor do CSS Color 4,
-///   canais fora do intervalo, funções de cálculo do CSS Values 4 que o
-///   1.66 não conhecia...) é recusado com erro que o diz.
+/// * declarations, comments, `@import` and at-rules without a body that come
+///   **after** a nested rule go into the parent selector's block, before the
+///   nested rule (without the `_copyParentAfterSibling` that dart-sass
+///   1.92.0 introduced — the "mixed-decls" change);
+/// * colors with the old model (integer RGB channels, `rgba(r, g, b, a)`,
+///   `hsl()` only for what came out of the `hsl()` function), U+007F
+///   unescaped, empty custom property and numbers with complex units as an
+///   error, `//` preserved in the value of unknown at-rules;
+/// * what the mode cannot guarantee (CSS Color 4 color spaces, out-of-range
+///   channels, CSS Values 4 calculation functions that 1.66 did not
+///   know...) is refused with an error that says so.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum VersaoDartSass {
-    /// dart-sass 1.102.0 (o port).
+    /// dart-sass 1.102.0 (the port).
     #[default]
     V1_102_0,
-    /// dart-sass 1.66.0 (modo de compatibilidade).
+    /// dart-sass 1.66.0 (compatibility mode).
     V1_66_0,
-    /// dart-sass 1.101.0 a 1.101.3 (a mesma saída CSS): antes do 1.101.4, a
-    /// cor legada no `compressed` escolhe entre `rgb` e `hsl` pelo tamanho só
-    /// dos canais, o `rgb()` escreve canal não inteiro como número (sem `%`),
-    /// o inteiro é o aproximado fora do `inspect`, o `if()` do CSS leva o valor
-    /// como o `toString` (inspect); e, antes do 1.102.0, a gama do rec2020 é a
-    /// da ITU-R BT.2020.
+    /// dart-sass 1.101.0 to 1.101.3 (the same CSS output): before 1.101.4, a
+    /// legacy color in `compressed` chooses between `rgb` and `hsl` by the
+    /// length of the channels alone, `rgb()` writes a non-integer channel as
+    /// a number (without `%`), the integer is the approximate one outside
+    /// `inspect`, the CSS `if()` takes the value as its `toString` (inspect);
+    /// and, before 1.102.0, the rec2020 gamma is the ITU-R BT.2020 one.
     V1_101,
 }
 
 impl VersaoDartSass {
-    /// A versão para o texto de uma versão do pacote `sass` (do
-    /// `pubspec.lock`), ou `None` quando não há modo que a imite byte a byte.
+    /// The version for the text of a `sass` package version (from
+    /// `pubspec.lock`), or `None` when no mode imitates it byte for byte.
     ///
     /// ```
     /// use dartforge_sass::VersaoDartSass;
@@ -313,8 +314,8 @@ impl VersaoDartSass {
     /// assert_eq!(VersaoDartSass::do_lock("1.102.0"), Some(VersaoDartSass::V1_102_0));
     /// assert_eq!(VersaoDartSass::do_lock("1.80.0"), None);
     /// ```
-    pub fn do_lock(versao: &str) -> Option<Self> {
-        match versao {
+    pub fn do_lock(version: &str) -> Option<Self> {
+        match version {
             "1.102.0" => Some(Self::V1_102_0),
             "1.66.0" => Some(Self::V1_66_0),
             "1.101.0" | "1.101.1" | "1.101.2" | "1.101.3" => Some(Self::V1_101),
@@ -324,28 +325,30 @@ impl VersaoDartSass {
 }
 
 thread_local! {
-    /// A versão da compilação em curso nesta thread: `Value::to_css_string`
-    /// e `Value::inspect` serializam sem as [`Options`] da compilação.
-    static VERSAO_CORRENTE: std::cell::Cell<VersaoDartSass> =
+    /// The version of the compilation running on this thread:
+    /// `Value::to_css_string` and `Value::inspect` serialize without the
+    /// compilation's [`Options`].
+    static CURRENT_VERSION: std::cell::Cell<VersaoDartSass> =
         const { std::cell::Cell::new(VersaoDartSass::V1_102_0) };
 }
 
-/// Restaura a versão anterior ao sair de escopo (ver [`fixar_versao`]).
-pub(crate) struct GuardaVersao(VersaoDartSass);
+/// Restores the previous version when it goes out of scope (see
+/// [`set_version`]).
+pub(crate) struct VersionGuard(VersaoDartSass);
 
-impl Drop for GuardaVersao {
+impl Drop for VersionGuard {
     fn drop(&mut self) {
-        VERSAO_CORRENTE.with(|v| v.set(self.0));
+        CURRENT_VERSION.with(|v| v.set(self.0));
     }
 }
 
-/// Fixa `versao` como a da compilação em curso nesta thread até a guarda
-/// devolvida sair de escopo.
-pub(crate) fn fixar_versao(versao: VersaoDartSass) -> GuardaVersao {
-    GuardaVersao(VERSAO_CORRENTE.with(|v| v.replace(versao)))
+/// Sets `version` as the version of the compilation running on this thread
+/// until the returned guard goes out of scope.
+pub(crate) fn set_version(version: VersaoDartSass) -> VersionGuard {
+    VersionGuard(CURRENT_VERSION.with(|v| v.replace(version)))
 }
 
-/// A versão da compilação em curso nesta thread.
-pub(crate) fn versao_corrente() -> VersaoDartSass {
-    VERSAO_CORRENTE.with(std::cell::Cell::get)
+/// The version of the compilation running on this thread.
+pub(crate) fn current_version() -> VersaoDartSass {
+    CURRENT_VERSION.with(std::cell::Cell::get)
 }

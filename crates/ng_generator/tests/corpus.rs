@@ -1,12 +1,12 @@
-//! O corpus do ngdart: uma forma por arquivo, com o `.template.dart` do
-//! compilador oficial ao lado, em `corpus/ngdart/oraculo/`.
+//! The ngdart corpus: one shape per file, with the `.template.dart` of the
+//! official compiler next to it, in `corpus/ngdart/oraculo/`.
 //!
-//! O contrato é o mesmo do corpus do backend JS: o que geramos **tem** de sair
-//! byte a byte igual ao oficial. Forma que ainda não sabemos gerar não é
-//! falha; forma que geramos errado, sim.
+//! The contract is the same as the JS backend corpus: what we generate **must**
+//! come out byte for byte equal to the official output. A shape we cannot
+//! generate yet is not a failure; a shape we generate wrong is.
 //!
-//! O oráculo se regenera com `scripts/corpus-ngdart.ps1` (roda o
-//! `build_runner` oficial uma vez).
+//! The oracle is regenerated with `scripts/corpus-ngdart.ps1` (runs the
+//! official `build_runner` once).
 use dartforge_elements::config::PackageConfig;
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::sdk::SdkLayout;
@@ -15,220 +15,224 @@ use dartforge_ng_generator::{Pacote, Placar, caminho_do_template, gerar_em};
 use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
 
-/// Os nomes em `dependencies:` do `pubspec.yaml` do corpus (o bloco de
-/// primeiro nível, um pacote por linha com dois espaços).
-fn dependencias_do_pubspec(raiz: &Path) -> Vec<String> {
-    let texto = std::fs::read_to_string(raiz.join("pubspec.yaml")).expect("pubspec.yaml do corpus");
-    let mut dentro = false;
-    let mut saida = Vec::new();
-    for linha in texto.lines() {
-        if linha.trim().is_empty() {
+/// The names under `dependencies:` in the corpus `pubspec.yaml` (the
+/// top-level block, one package per line indented by two spaces).
+fn pubspec_dependencies(root: &Path) -> Vec<String> {
+    let text =
+        std::fs::read_to_string(root.join("pubspec.yaml")).expect("pubspec.yaml of the corpus");
+    let mut inside = false;
+    let mut output = Vec::new();
+    for line in text.lines() {
+        if line.trim().is_empty() {
             continue;
         }
-        if !linha.starts_with(char::is_whitespace) {
-            dentro = linha.trim_end() == "dependencies:";
+        if !line.starts_with(char::is_whitespace) {
+            inside = line.trim_end() == "dependencies:";
             continue;
         }
-        if dentro
-            && linha.starts_with("  ")
-            && !linha.starts_with("   ")
-            && let Some((nome, _)) = linha.trim().split_once(':')
+        if inside
+            && line.starts_with("  ")
+            && !line.starts_with("   ")
+            && let Some((name, _)) = line.trim().split_once(':')
         {
-            saida.push(nome.trim().to_string());
+            output.push(name.trim().to_string());
         }
     }
     assert!(
-        !saida.is_empty(),
-        "pubspec.yaml do corpus sem dependencies:"
+        !output.is_empty(),
+        "pubspec.yaml of the corpus without dependencies:"
     );
-    saida
+    output
 }
 
-fn raiz_do_corpus() -> PathBuf {
-    // O diretório do crate é `crates/ng_generator`.
+fn corpus_root() -> PathBuf {
+    // The crate directory is `crates/ng_generator`.
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/ngdart")
 }
 
-/// Casos do corpus que o gerador tem de recusar, com a sub-forma da recusa.
-/// (O g02, `<select>` com `<option>`, saiu daqui na rodada 3: o
-/// `NgSelectOption` é instanciado com o `@Host` do acessor do `<select>`.
-/// O b02, o h02 e o i19 — `providers:` no componente — e o d09 e o h01 —
-/// `@ContentChild(ren)` no componente — saíram quando a hospedeira passou a
-/// escrever os provedores e o resultado vazio das consultas. O b06
-/// — `encapsulation:` —, o i24 — vários componentes no arquivo —, o i30 —
-/// `<template #t>` e `*ngTemplateOutlet` —, o i72 — filho com `providers:`
-/// — e o i73 — `@ContentChild(.., read:)` de filho — saíram na rodada
-/// seguinte; as recusas de agora são sondas que guardam a saída oficial.
-/// O i84 — `<template>` com diretiva — e o i85 — `@ViewChild` de
-/// `<template>` — saíram na rodada dos itens NG04–NG10; o i77 — filho que
-/// injeta um provedor do próprio nó — com a sonda j61; o i78 — provedor
-/// com dependência de fora do nó — com a j71; o i76 — provedor do filho
-/// pedido por um nó do conteúdo — com o `eager` do `_getDependency`.)
-/// São as formas ainda sem tradução (docs/GERADOR-NG.md §9): gerar
-/// qualquer uma ignorando o que falta daria saída errada.
-const RECUSADOS: &[(&str, &str)] = &[];
+/// Corpus cases that the generator must refuse, with the sub-shape of the
+/// refusal. (g02, `<select>` with `<option>`, left this list in round 3: the
+/// `NgSelectOption` is instantiated with the `@Host` of the `<select>`
+/// accessor. b02, h02 and i19 — `providers:` on the component — and d09 and
+/// h01 — `@ContentChild(ren)` on the component — left when the host view
+/// started writing the providers and the empty result of the queries. b06
+/// — `encapsulation:` —, i24 — several components in the file —, i30 —
+/// `<template #t>` and `*ngTemplateOutlet` —, i72 — child with `providers:`
+/// — and i73 — `@ContentChild(.., read:)` of a child — left in the following
+/// round; the current refusals are probes that keep the official output.
+/// i84 — `<template>` with a directive — and i85 — `@ViewChild` of a
+/// `<template>` — left in the round of items NG04–NG10; i77 — a child that
+/// injects a provider of its own node — with probe j61; i78 — a provider
+/// with a dependency from outside the node — with j71; i76 — a provider of
+/// the child requested by a content node — with the `eager` of
+/// `_getDependency`.) These are the shapes still without a translation
+/// (docs/GERADOR-NG.md §9): generating any of them while ignoring what is
+/// missing would give wrong output.
+const REFUSED: &[(&str, &str)] = &[];
 
 #[test]
-fn o_que_geramos_e_igual_ao_oficial() {
-    let raiz = raiz_do_corpus();
-    let oraculo = raiz.join("oraculo");
-    if !oraculo.is_dir() {
+fn what_we_generate_equals_the_official_output() {
+    let root = corpus_root();
+    let oracle = root.join("oraculo");
+    if !oracle.is_dir() {
         eprintln!(
-            "sem oráculo em {}; rode scripts/corpus-ngdart.ps1",
-            oraculo.display()
+            "no oracle in {}; run scripts/corpus-ngdart.ps1",
+            oracle.display()
         );
         return;
     }
-    let pacote = Pacote {
+    let package = Pacote {
         nome: "corpus_ngdart".into(),
-        raiz: raiz.clone(),
+        raiz: root.clone(),
         ..Default::default()
     };
-    // O teste roda o mesmo caminho da produção: carrega o projeto e gera com
-    // banco semântico. Sem ele, casos como `{{ item.nome }}` — que precisam do
-    // tipo de um membro noutra classe — ficariam fora da verificação.
-    let entrada = raiz.join("lib").join("corpus_ngdart.dart");
-    let cfg = raiz.join(".dart_tool").join("package_config.json");
-    // Sem o `package_config.json` (fora do git) ou com um velho, a carga é
-    // tolerante e segue: `ngdart`/`ngforms` não se resolvem, quase tudo é
-    // recusado e o teste conferiria em silêncio bem menos do que diz. Por
-    // isso a falta de qualquer dependência do `pubspec.yaml` é erro aqui.
+    // The test runs the same path as production: it loads the project and
+    // generates with the semantic database. Without it, cases like
+    // `{{ item.nome }}` — which need the type of a member in another class —
+    // would be left out of the check.
+    let entry = root.join("lib").join("corpus_ngdart.dart");
+    let cfg = root.join(".dart_tool").join("package_config.json");
+    // Without the `package_config.json` (not in git), or with a stale one, the
+    // load is lenient and goes on: `ngdart`/`ngforms` do not resolve, almost
+    // everything is refused and the test would silently check much less than
+    // it claims. That is why any dependency of `pubspec.yaml` missing is an
+    // error here.
     let config = PackageConfig::load(&cfg).unwrap_or_else(|e| {
         panic!(
-            "{e}: rode `dart pub get` em corpus/ngdart (o CI roda no passo \
+            "{e}: run `dart pub get` in corpus/ngdart (CI runs it in the step \
              \"pub get do corpus do ngdart\")"
         )
     });
-    for dep in dependencias_do_pubspec(&raiz) {
+    for dep in pubspec_dependencies(&root) {
         assert!(
             config.packages.contains_key(&dep),
-            "`{dep}` falta em {}: rode `dart pub get` em corpus/ngdart",
+            "`{dep}` missing from {}: run `dart pub get` in corpus/ngdart",
             cfg.display()
         );
     }
     let sdk_dir =
         SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
     let Ok(sdk) = SdkLayout::load(&sdk_dir, "dartdevc") else {
-        eprintln!("SDK indisponível; o corpus não foi verificado");
+        eprintln!("SDK unavailable; the corpus was not checked");
         return;
     };
-    let mut nomes = Interner::new();
-    let (programa, _) = load_lenient(&entrada, &sdk, Some(&cfg), &mut nomes);
-    let resolvedor = Resolvedor::novo(&programa, &nomes);
+    let mut names = Interner::new();
+    let (program, _) = load_lenient(&entry, &sdk, Some(&cfg), &mut names);
+    let resolver = Resolvedor::novo(&program, &names);
     let mut interner = Interner::new();
     let mut c = dartforge_elements::gerado::Construtor::nova();
-    let mut placar = Placar::default();
+    let mut scoreboard = Placar::default();
     gerar_em(
-        &pacote,
-        &[raiz.join("lib")],
+        &package,
+        &[root.join("lib")],
         &mut interner,
         &mut c,
-        &mut placar,
-        Some(&resolvedor),
+        &mut scoreboard,
+        Some(&resolver),
     );
-    let nossa = c.concluir(1).expect("geração");
+    let ours = c.concluir(1).expect("generation");
 
-    let mut conferidos = 0usize;
-    let mut diferentes = Vec::new();
-    for (caminho, f) in nossa.iter() {
-        let nome = caminho.file_name().unwrap_or_default();
-        let oficial = oraculo.join(nome);
-        let Ok(esperado) = std::fs::read_to_string(&oficial) else {
+    let mut checked = 0usize;
+    let mut different = Vec::new();
+    for (path, f) in ours.iter() {
+        let name = path.file_name().unwrap_or_default();
+        let official = oracle.join(name);
+        let Ok(expected) = std::fs::read_to_string(&official) else {
             continue;
         };
-        conferidos += 1;
-        if esperado.replace("\r\n", "\n") != f.conteudo.as_ref() {
-            diferentes.push((
-                caminho.clone(),
-                esperado.replace("\r\n", "\n"),
+        checked += 1;
+        if expected.replace("\r\n", "\n") != f.conteudo.as_ref() {
+            different.push((
+                path.clone(),
+                expected.replace("\r\n", "\n"),
                 f.conteudo.to_string(),
             ));
         }
     }
-    for (caminho, esperado, obtido) in &diferentes {
-        eprintln!("=== {} ===", caminho.display());
-        for (i, (a, b)) in esperado.lines().zip(obtido.lines()).enumerate() {
+    for (path, expected, actual) in &different {
+        eprintln!("=== {} ===", path.display());
+        for (i, (a, b)) in expected.lines().zip(actual.lines()).enumerate() {
             if a != b {
-                eprintln!("linha {}\n  oficial: {a}\n  nosso:   {b}", i + 1);
+                eprintln!("line {}\n  official: {a}\n  ours:     {b}", i + 1);
             }
         }
-        if esperado.lines().count() != obtido.lines().count() {
+        if expected.lines().count() != actual.lines().count() {
             eprintln!(
-                "  linhas: oficial {}, nosso {}",
-                esperado.lines().count(),
-                obtido.lines().count()
+                "  lines: official {}, ours {}",
+                expected.lines().count(),
+                actual.lines().count()
             );
         }
     }
     assert!(
-        diferentes.is_empty(),
-        "{} arquivo(s) diferentes do oficial",
-        diferentes.len()
+        different.is_empty(),
+        "{} file(s) different from the official output",
+        different.len()
     );
     println!(
-        "corpus ngdart: {conferidos} conferidos, {} pendentes",
-        placar.pendentes.len()
+        "ngdart corpus: {checked} checked, {} pending",
+        scoreboard.pendentes.len()
     );
-    for (p, c) in placar.pendentes.iter().zip(&placar.conjuntos) {
-        let recusas: Vec<String> = c.iter().map(|r| r.texto()).collect();
+    for (p, c) in scoreboard.pendentes.iter().zip(&scoreboard.conjuntos) {
+        let refusals: Vec<String> = c.iter().map(|r| r.texto()).collect();
         println!(
-            "  pendente {}: {}",
+            "  pending {}: {}",
             p.file_name().unwrap_or_default().to_string_lossy(),
-            recusas.join("; ")
+            refusals.join("; ")
         );
     }
-    // Os casos que existem para ser recusados: gerar qualquer um deles daria
-    // saída errada, e a recusa tem de vir pelo motivo certo.
-    for (arquivo, forma) in RECUSADOS {
-        let achado = placar
+    // The cases that exist to be refused: generating any of them would give
+    // wrong output, and the refusal must come for the right reason.
+    for (file, shape) in REFUSED {
+        let found = scoreboard
             .pendentes
             .iter()
-            .zip(&placar.conjuntos)
-            .find(|(p, _)| p.file_name().is_some_and(|n| n == *arquivo));
-        let Some((_, conjunto)) = achado else {
-            panic!("{arquivo} devia ser recusado ({forma}) e foi gerado");
+            .zip(&scoreboard.conjuntos)
+            .find(|(p, _)| p.file_name().is_some_and(|n| n == *file));
+        let Some((_, set)) = found else {
+            panic!("{file} should be refused ({shape}) and was generated");
         };
         assert!(
-            conjunto.iter().any(|r| r.forma == *forma),
-            "{arquivo} recusado por outro motivo: {conjunto:?}"
+            set.iter().any(|r| r.forma == *shape),
+            "{file} refused for another reason: {set:?}"
         );
     }
-    // Não deixar o corpus virar decoração: pelo menos as formas que já
-    // declaramos cobertas têm de estar aqui.
+    // Do not let the corpus become decoration: at least the shapes we already
+    // declared covered must be here.
     assert!(
-        conferidos >= 2,
-        "o corpus tem de conferir pelo menos as formas cobertas"
+        checked >= 2,
+        "the corpus must check at least the covered shapes"
     );
 }
 
-/// Todo `.dart` do corpus tem o seu oficial: sem isso o corpus silenciosamente
-/// para de cobrir o que diz cobrir.
+/// Every `.dart` of the corpus has its official output: without it the corpus
+/// silently stops covering what it claims to cover.
 #[test]
-fn todo_arquivo_do_corpus_tem_oraculo() {
-    let raiz = raiz_do_corpus();
-    let src = raiz.join("lib").join("src");
-    let oraculo = raiz.join("oraculo");
-    if !src.is_dir() || !oraculo.is_dir() {
+fn every_corpus_file_has_an_oracle() {
+    let root = corpus_root();
+    let src = root.join("lib").join("src");
+    let oracle = root.join("oraculo");
+    if !src.is_dir() || !oracle.is_dir() {
         return;
     }
-    let mut faltando = Vec::new();
+    let mut missing = Vec::new();
     for e in std::fs::read_dir(&src).expect("lib/src").flatten() {
         let p = e.path();
-        let nome = p
+        let name = p
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        if !nome.ends_with(".dart") || nome.ends_with(".template.dart") {
+        if !name.ends_with(".dart") || name.ends_with(".template.dart") {
             continue;
         }
-        let esperado = oraculo.join(caminho_do_template(&p).file_name().unwrap_or_default());
-        if !esperado.is_file() {
-            faltando.push(nome);
+        let expected = oracle.join(caminho_do_template(&p).file_name().unwrap_or_default());
+        if !expected.is_file() {
+            missing.push(name);
         }
     }
     assert!(
-        faltando.is_empty(),
-        "sem oráculo: {faltando:?} — rode scripts/corpus-ngdart.ps1"
+        missing.is_empty(),
+        "no oracle: {missing:?} — run scripts/corpus-ngdart.ps1"
     );
 }

@@ -1,9 +1,9 @@
-//! As matrizes de conversão entre espaços de cor, copiadas de
-//! `lib/src/value/color/conversions.dart` do dart-sass 1.102.0 (os
-//! mesmos valores, na mesma ordem: linha a linha, 3×3).
+//! The conversion matrices between color spaces, copied from
+//! `lib/src/value/color/conversions.dart` of dart-sass 1.102.0 (the same
+//! values, in the same order: row by row, 3×3).
 #![allow(clippy::excessive_precision, clippy::unreadable_literal)]
 
-/// O ponto branco D50.
+/// The D50 white point.
 pub(crate) const D50: [f64; 3] = [0.3457 / 0.3585, 1.00000, (1.0 - 0.3457 - 0.3585) / 0.3585];
 
 pub(crate) const LMS_TO_OKLAB: [f64; 9] = [

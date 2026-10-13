@@ -1,25 +1,27 @@
-//! Conversão das expressões do template para Dart.
+//! Conversion of template expressions to Dart.
 //!
-//! O `ngcompiler` tem um parser de expressões só dele (1.620 linhas em
-//! `compiler/expression_parser`). Nós não precisamos: expressão de template é
-//! expressão Dart, e o parser da trilha nova já a analisa. O trabalho aqui é
-//! só reescrever a árvore com o receptor certo — `nome` vira `_ctx.nome` — e
-//! nos parênteses que o emissor oficial põe.
+//! `ngcompiler` has an expression parser of its own (1,620 lines in
+//! `compiler/expression_parser`). We do not need it: a template expression is a
+//! Dart expression, and the new track's parser already parses it. The work here
+//! is only to rewrite the tree with the right receiver — `name` becomes
+//! `_ctx.name` — and with the parentheses the official emitter adds.
 //!
-//! O que o `expression_converter.dart` escreve e este módulo reproduz:
+//! What `expression_converter.dart` writes and this module reproduces:
 //! `_ctx.item.nome`, `_ctx.titulo()`, `(!_ctx.item.ativo)`, `'fixo'`.
 //!
-//! Três propriedades da expressão decidem a forma do código gerado, e cada
-//! uma segue a regra do oficial (`analyzed_class.dart`):
-//! - `isImmutable`: só literal, `a ?? b` e binário de imutáveis, e o campo
-//!   `final`/`const` lido com receptor implícito. Getter explícito é
-//!   **mutável** (a `variable` dele é sintética); `a.b`, `!x`, chamada e
-//!   ternário também.
-//! - `canBeNull`: só o literal não é nulo (e `a ?? b` quando um lado não é).
-//! - o tipo (`_TypeResolver`): do membro ou do getter; o resto é `dynamic`.
+//! Three properties of the expression decide the shape of the generated code,
+//! and each one follows the official rule (`analyzed_class.dart`):
+//! - `isImmutable`: only a literal, `a ?? b` and a binary of immutables, and a
+//!   `final`/`const` field read with the implicit receiver. An explicit getter
+//!   is **mutable** (its `variable` is synthetic); `a.b`, `!x`, a call and a
+//!   ternary too.
+//! - `canBeNull`: only a literal is not null (and `a ?? b` when one side is
+//!   not).
+//! - the type (`_TypeResolver`): of the member or of the getter; the rest is
+//!   `dynamic`.
 //!
-//! Os handlers de evento (`parseAction`) são a mesma linguagem com duas
-//! formas a mais: `$event` e a atribuição (`x = y`, `a.b = y`).
+//! Event handlers (`parseAction`) are the same language with two more shapes:
+//! `$event` and assignment (`x = y`, `a.b = y`).
 use crate::component::Membro;
 use crate::resolucao::Resolucao;
 use crate::view::{Motivo, Recusa, recusa};
@@ -28,59 +30,58 @@ use dartforge_intern::Interner;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Início e fim da marca de uma chamada de pipe no texto convertido:
-/// `\u{3}nome/argumentos\u{4}`. Quem converte não sabe a visão nem a ordem
-/// das chamadas; a visão troca a marca pelo proxy.
+/// Start and end of the mark of a pipe call in the converted text:
+/// `\u{3}name/arguments\u{4}`. The converter knows neither the view nor the
+/// order of the calls; the view replaces the mark with the proxy.
 pub const MARCA_DE_PIPE: char = '\u{3}';
 
-/// Prefixo de [`Convertida::estatica`] para o receptor de `exports:` sem
+/// Prefix of [`Convertida::estatica`] for an `exports:` receiver without an
 /// `AnalyzedClass` ([`crate::resolucao::Exportado::TipoSemClasse`]).
 const SEM_CLASSE: char = '\u{7}';
 pub const FIM_DE_PIPE: char = '\u{4}';
 
-/// Um local de visão embutida: o nome em Dart e o tipo.
+/// A local of an embedded view: the name in Dart and the type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Local {
-    /// Como sai no código gerado: `local_item`.
+    /// How it comes out in the generated code: `local_item`.
     pub dart: String,
-    /// Tipo estático, para a escolha da forma de interpolação.
+    /// Static type, for choosing the interpolation shape.
     pub tipo: String,
-    /// Arquivo em cujo escopo o texto do tipo foi escrito (o tipo de um
-    /// membro de outra classe é escrito na biblioteca dela). `None`: o do
-    /// próprio componente.
+    /// File in whose scope the type text was written (the type of a member of
+    /// another class is written in that class's library). `None`: the
+    /// component's own.
     pub escopo: Option<PathBuf>,
 }
 
-/// Uma expressão de template já convertida.
+/// A template expression already converted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Convertida {
-    /// O Dart que sai no arquivo gerado.
+    /// The Dart that goes into the generated file.
     pub texto: String,
-    /// `isImmutable` do ngcompiler: valor que não muda dispensa
-    /// `checkBinding` e é escrito uma vez, na primeira checagem.
+    /// ngcompiler's `isImmutable`: a value that does not change needs no
+    /// `checkBinding` and is written once, on the first check.
     pub imutavel: bool,
-    /// `canBeNull` do ngcompiler: decide o `if (x != null)` em volta da
-    /// ligação constante e o `setAttribute` × `updateAttribute`.
+    /// ngcompiler's `canBeNull`: decides the `if (x != null)` around the
+    /// constant binding and `setAttribute` × `updateAttribute`.
     pub pode_ser_nulo: bool,
-    /// Tipo estático, quando dá para saber sem sair da classe do componente.
-    /// É o que escolhe entre `interpolateString`, `interpolate` e
-    /// `updateTextWithPrimitive`. `None`: não se sabe.
+    /// Static type, when it can be known without leaving the component class.
+    /// It is what chooses between `interpolateString`, `interpolate` and
+    /// `updateTextWithPrimitive`. `None`: unknown.
     pub tipo: Option<String>,
-    /// Arquivo em cujo escopo `tipo` foi escrito, quando não é o do
-    /// componente.
+    /// File in whose scope `tipo` was written, when it is not the component's.
     pub escopo: Option<PathBuf>,
-    /// A forma da expressão (`chamada`, `ternário`…), para o placar dizer
-    /// o que falta quando ela é recusada no contexto.
+    /// The shape of the expression (`call`, `ternary`…), so the scoreboard says
+    /// what is missing when it is refused in context.
     pub forma: &'static str,
-    /// É um literal primitivo (`'x'`, `1`, `true`, `null`): o valor é o
-    /// próprio texto.
+    /// It is a primitive literal (`'x'`, `1`, `true`, `null`): the value is the
+    /// text itself.
     pub literal: bool,
-    /// Os locais da visão que a expressão lê, na ordem em que o conversor
-    /// oficial os pede ao `ViewNameResolver` — é a ordem em que as
-    /// declarações `final local_x = …` saem no método.
+    /// The view locals the expression reads, in the order the official
+    /// converter asks the `ViewNameResolver` for them — the order in which the
+    /// `final local_x = …` declarations come out in the method.
     pub locais: Vec<String>,
-    /// Uma classe de `exports:` (o nome simples): só vale como receptor de
-    /// membro estático (`Classe.nome`).
+    /// A class of `exports:` (the simple name): only valid as the receiver of a
+    /// static member (`Class.name`).
     pub estatica: Option<String>,
 }
 
@@ -100,25 +101,24 @@ impl Convertida {
     }
 }
 
-/// Quebra de linha do `DartFormatter` (dart_style 2.3.8, página de
-/// 1.000.000 colunas) que o builder do ngdart roda sobre a saída: com a
-/// página infinita, só a vírgula final de uma lista de argumentos a quebra,
-/// e o emissor escreve vírgula depois de cada argumento nomeado
-/// (`visitAllNamedExpressions`). A marca é [`QUEBRA`] seguida de um
-/// [`RECUO`] por espaço além da indentação da linha onde a expressão está,
-/// que só se conhece quando o arquivo está montado
-/// ([`resolver_quebras`]).
+/// Line break of the `DartFormatter` (dart_style 2.3.8, page of 1,000,000
+/// columns) that the ngdart builder runs over the output: with an infinite
+/// page, only the trailing comma of an argument list breaks it, and the emitter
+/// writes a comma after each named argument (`visitAllNamedExpressions`). The
+/// mark is [`QUEBRA`] followed by one [`RECUO`] per space beyond the
+/// indentation of the line where the expression is, which is only known when
+/// the file is assembled ([`resolver_quebras`]).
 pub const QUEBRA: char = '\u{10}';
 pub const RECUO: char = '\u{11}';
 
-/// Soma `n` espaços a cada [`QUEBRA`] de `t`.
+/// Adds `n` spaces to each [`QUEBRA`] of `t`.
 pub fn recuar(t: &str, n: usize) -> String {
     let mais: String = std::iter::repeat_n(RECUO, n).collect();
     t.replace(QUEBRA, &format!("{QUEBRA}{mais}"))
 }
 
-/// Troca cada [`QUEBRA`] pela quebra de linha com a indentação da linha
-/// em que está mais os [`RECUO`]s dela.
+/// Replaces each [`QUEBRA`] with the line break with the indentation of the
+/// line it is on plus its [`RECUO`]s.
 pub fn resolver_quebras(texto: &str) -> String {
     if !texto.contains(QUEBRA) {
         return texto.to_string();
@@ -146,7 +146,7 @@ pub fn resolver_quebras(texto: &str) -> String {
     saida
 }
 
-/// Junta listas de locais mantendo a primeira ocorrência de cada um.
+/// Joins lists of locals keeping the first occurrence of each.
 fn juntar(partes: &[&[String]]) -> Vec<String> {
     let mut saida: Vec<String> = Vec::new();
     for p in partes {
@@ -159,32 +159,32 @@ fn juntar(partes: &[&[String]]) -> Vec<String> {
     saida
 }
 
-/// O que as expressões de um componente enxergam: membros, métodos, os
-/// locais da visão e o banco semântico.
+/// What a component's expressions see: members, methods, the view locals and
+/// the semantic database.
 #[derive(Clone, Copy)]
 pub struct Escopo<'a> {
     pub membros: &'a HashMap<String, Membro>,
     pub metodos: &'a HashMap<String, String>,
-    /// Parâmetros posicionais de cada método (`rewriteTearOff`).
+    /// Positional parameters of each method (`rewriteTearOff`).
     pub aridades: &'a HashMap<String, usize>,
     pub locais: &'a HashMap<String, Local>,
     pub tipos: Option<(&'a dyn Resolucao, &'a Path)>,
-    /// A classe do componente como o arquivo gerado a escreve
-    /// (`import1.Classe`), para os membros estáticos; `None` quando não se
-    /// sabe, e o estático é recusado.
+    /// The component class as the generated file writes it (`import1.Class`),
+    /// for static members; `None` when unknown, and the static is refused.
     pub classe: Option<&'a str>,
-    /// Os nomes de `exports:` (`_matchExport`), com o qualificador tardio.
+    /// The names of `exports:` (`_matchExport`), with the deferred qualifier.
     pub exportados: Option<&'a crate::view::Exportados>,
-    /// Os parâmetros de tipo do componente (`T` de `Classe<T>`): em escopo em
-    /// toda visão dele, entram como estão na substituição dos tipos herdados.
+    /// The component's type parameters (`T` of `Class<T>`): in scope in all its
+    /// views, they go in as they are when substituting the inherited types.
     pub genericos: &'a [String],
 }
 
-/// Converte uma expressão escrita no template.
+/// Converts an expression written in the template.
 ///
-/// `membros` são os campos e getters do componente: um nome que não está lá
-/// não é do `_ctx` e a expressão é recusada, porque traduzi-la errado daria
-/// um arquivo que compila e faz outra coisa.
+/// `membros` are the fields and getters of the component: a name that is not
+/// there does not belong to `_ctx` and the expression is refused, because
+/// translating it wrong would give a file that compiles and does something
+/// else.
 pub fn converter(
     expressao: &str,
     membros: &HashMap<String, Membro>,
@@ -193,8 +193,8 @@ pub fn converter(
     converter_com_metodos(expressao, membros, &HashMap::new(), interner, None)
 }
 
-/// Como [`converter`], sabendo também os métodos da classe — que só valem
-/// como alvo de chamada.
+/// Like [`converter`], also knowing the class's methods — which are only valid
+/// as call targets.
 pub fn converter_com_metodos(
     expressao: &str,
     membros: &HashMap<String, Membro>,
@@ -212,9 +212,9 @@ pub fn converter_com_metodos(
     )
 }
 
-/// Como [`converter_com_metodos`], com os locais de uma visão embutida
-/// (`let item of itens` põe `item` no escopo). Um local vence o membro do
-/// componente, como manda o escopo do template.
+/// Like [`converter_com_metodos`], with the locals of an embedded view (`let
+/// item of itens` puts `item` in scope). A local wins over the component
+/// member, as the template scope dictates.
 pub fn converter_com_locais(
     expressao: &str,
     membros: &HashMap<String, Membro>,
@@ -237,7 +237,7 @@ pub fn converter_com_locais(
     converter_no_escopo(expressao, &escopo, interner)
 }
 
-/// Converte uma expressão de ligação (`parseBinding`/`parseInterpolation`).
+/// Converts a binding expression (`parseBinding`/`parseInterpolation`).
 pub fn converter_no_escopo(
     expressao: &str,
     escopo: &Escopo,
@@ -254,25 +254,25 @@ pub fn converter_no_escopo(
     c.expr(raiz, true)
 }
 
-/// Um handler de evento convertido: `parseAction` seguido de
+/// A converted event handler: `parseAction` followed by
 /// `handlerTypeFromExpression` (`parse_utils.dart`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Acao {
-    /// `m()` ou `m($event)` com receptor implícito (ou o tear-off `m`
-    /// reescrito para uma dessas por `rewriteTearOff`): sai como tear-off,
-    /// `this.eventHandlerN(_ctx.m)`.
+    /// `m()` or `m($event)` with the implicit receiver (or the tear-off `m`
+    /// rewritten into one of these by `rewriteTearOff`): comes out as a
+    /// tear-off, `this.eventHandlerN(_ctx.m)`.
     Simples {
         metodo: String,
         aridade: u8,
-        /// A mesma chamada como instrução (`_ctx.m($event)`), para quando
-        /// este handler é fundido com outro do mesmo evento.
+        /// The same call as a statement (`_ctx.m($event)`), for when this
+        /// handler is merged with another one of the same event.
         instrucao: String,
     },
-    /// Qualquer outra forma: uma instrução do método `_handleEvent_N`.
+    /// Any other shape: a statement of the `_handleEvent_N` method.
     Complexa(Convertida),
 }
 
-/// Converte o texto de um `(evento)="..."`.
+/// Converts the text of an `(event)="..."`.
 pub fn converter_acao(
     expressao: &str,
     escopo: &Escopo,
@@ -289,15 +289,15 @@ pub fn converter_acao(
     c.acao(raiz)
 }
 
-/// Analisa o texto como expressão Dart: um `var` de topo é o menor contexto
-/// em que o parser aceita uma expressão qualquer.
+/// Parses the text as a Dart expression: a top-level `var` is the smallest
+/// context in which the parser accepts any expression.
 fn analisar(
     expressao: &str,
     interner: &mut Interner,
 ) -> Result<(dartforge_frontend::parser::Parsed, String, ast::ExprId), Recusa> {
     let fonte = format!("var _e = {expressao};");
     let analisada = dartforge_frontend::parser::parse(&fonte, interner);
-    let invalida = || recusa(Motivo::Expressao, "expressão que o parser Dart não aceita");
+    let invalida = || recusa(Motivo::Expressao, "expression the Dart parser does not accept");
     if !analisada.diagnostics.is_empty() {
         return Err(invalida());
     }
@@ -321,7 +321,7 @@ struct Conversor<'a> {
     fonte: &'a str,
     interner: &'a Interner,
     escopo: &'a Escopo<'a>,
-    /// Handler de evento: `$event` e atribuição valem.
+    /// Event handler: `$event` and assignment are allowed.
     acao: bool,
 }
 
@@ -330,11 +330,12 @@ fn fora(forma: &'static str) -> Recusa {
 }
 
 impl Conversor<'_> {
-    /// Um campo ou getter de instância que a classe do componente herda
-    /// (`lookUpGetter` do analyzer sobe a hierarquia): o tipo e o escopo
-    /// vêm de quem o declara, e a imutabilidade é a do campo de lá. Sem
-    /// tipo escrito, com tipo que cita parâmetro de tipo ou privado de outra
-    /// biblioteca: `None`, e o nome é recusado.
+    /// An instance field or getter that the component class inherits (the
+    /// analyzer's `lookUpGetter` walks up the hierarchy): the type and the
+    /// scope come from whoever declares it, and the immutability is that of the
+    /// field there. Without a written type, or with a type that mentions a type
+    /// parameter or a private of another library: `None`, and the name is
+    /// refused.
     fn membro_herdado(&self, nome: &str) -> Option<Convertida> {
         if nome.starts_with('_') {
             return None;
@@ -352,8 +353,8 @@ impl Conversor<'_> {
         })
     }
 
-    /// Um setter de instância (`set nome(..)`) da classe ou de cima dela:
-    /// alvo de escrita que não é campo nem getter ([`Resolucao::tem_setter`]).
+    /// An instance setter (`set name(..)`) of the class or above it: a write
+    /// target that is neither a field nor a getter ([`Resolucao::tem_setter`]).
     fn setter(&self, nome: &str) -> bool {
         if nome.starts_with('_') {
             return false;
@@ -364,8 +365,8 @@ impl Conversor<'_> {
         r.tem_setter(arquivo, classe.rsplit('.').next().unwrap_or(classe), nome)
     }
 
-    /// Um método de instância herdado ([`Resolucao::metodo`]), procurado só
-    /// quando o nome não é da própria classe nem privado.
+    /// An inherited instance method ([`Resolucao::metodo`]), looked up only
+    /// when the name is neither the class's own nor private.
     fn metodo_herdado(&self, nome: &str) -> Option<crate::resolucao::Metodo> {
         if nome.starts_with('_') {
             return None;
@@ -375,8 +376,8 @@ impl Conversor<'_> {
         r.metodo_livre(arquivo, &self.receptor(classe), nome, self.escopo.genericos)
     }
 
-    /// O receptor implícito como tipo: a classe com os próprios parâmetros
-    /// (`Classe<T>`), que a busca pela hierarquia substitui como livres.
+    /// The implicit receiver as a type: the class with its own parameters
+    /// (`Class<T>`), which the hierarchy lookup substitutes as free.
     fn receptor(&self, classe: &str) -> String {
         if self.escopo.genericos.is_empty() {
             classe.to_string()
@@ -389,8 +390,8 @@ impl Conversor<'_> {
     fn acao(&self, id: ast::ExprId) -> Result<Acao, Recusa> {
         let id = self.sem_parenteses(id);
         let e = self.ast.expr(id);
-        // Tear-off (`(click)="m"`): `rewriteTearOff` troca por `m()` ou
-        // `m($event)`, pelos parâmetros posicionais do método.
+        // Tear-off (`(click)="m"`): `rewriteTearOff` replaces it with `m()` or
+        // `m($event)`, according to the method's positional parameters.
         if let ast::ExprKind::Identifier(n) = &e.kind {
             let nome = self.interner.resolve(n.sym);
             if !self.escopo.locais.contains_key(nome) && nome != "$event" {
@@ -399,7 +400,7 @@ impl Conversor<'_> {
                     return self.simples(nome, aridade);
                 }
                 if self.escopo.metodos.contains_key(nome) {
-                    return Err(fora("tear-off de método sem aridade conhecida"));
+                    return Err(fora("tear-off of a method without a known arity"));
                 }
                 if !self.escopo.membros.contains_key(nome)
                     && let Some(m) = self.metodo_herdado(nome)
@@ -408,8 +409,8 @@ impl Conversor<'_> {
                 }
             }
         }
-        // `handlerTypeFromExpression`: `m()` ou `m($event)`, receptor
-        // implícito, sem argumento nomeado.
+        // `handlerTypeFromExpression`: `m()` or `m($event)`, implicit receiver,
+        // no named argument.
         if let ast::ExprKind::Call { target, arguments } = &e.kind
             && let ast::ExprKind::Identifier(n) = &self.ast.expr(*target).kind
             && arguments.type_args.is_empty()
@@ -422,35 +423,36 @@ impl Conversor<'_> {
                 _ => None,
             };
             if let Some(aridade) = aridade {
-                // Local com o nome do método: o oficial chama a função do
-                // local (`InvokeFunctionExpr`) e recusa o tear-off.
+                // A local with the method's name: the official compiler calls
+                // the local's function (`InvokeFunctionExpr`) and refuses the
+                // tear-off.
                 if self.escopo.locais.contains_key(nome) {
-                    return Err(fora("handler que chama um local"));
+                    return Err(fora("handler that calls a local"));
                 }
                 return self.simples(nome, aridade);
             }
         }
         let c = match &e.kind {
-            // Atribuição no topo da instrução sai sem parênteses
-            // (`lineWasEmpty` em `visitWritePropExpr`).
+            // An assignment at the top of the statement comes out without
+            // parentheses (`lineWasEmpty` in `visitWritePropExpr`).
             ast::ExprKind::Assign { .. } => self.atribuicao(id)?,
             _ => self.expr(id, true)?,
         };
         Ok(Acao::Complexa(c))
     }
 
-    /// Um handler simples: o método tem de ser do componente (ou um campo,
-    /// que o tear-off lê do mesmo jeito).
+    /// A simple handler: the method must belong to the component (or be a
+    /// field, which the tear-off reads the same way).
     fn simples(&self, nome: &str, aridade: u8) -> Result<Acao, Recusa> {
         if !self.escopo.metodos.contains_key(nome)
             && !self.escopo.membros.contains_key(nome)
             && self.metodo_herdado(nome).is_none()
             && self.membro_herdado(nome).is_none()
         {
-            return Err(fora("handler que não é membro do componente"));
+            return Err(fora("handler that is not a member of the component"));
         }
         if self.escopo.membros.get(nome).is_some_and(|m| m.estatico) {
-            return Err(fora("handler em membro estático"));
+            return Err(fora("handler on a static member"));
         }
         let arg = if aridade == 1 { "$event" } else { "" };
         Ok(Acao::Simples {
@@ -460,14 +462,14 @@ impl Conversor<'_> {
         })
     }
 
-    /// `$pipe.nome(entrada, args)`: o `BindingPipe` do parser oficial
-    /// (`_createPipeOrThrow`). A chamada sai como `MARCA(entrada, args)`, e
-    /// quem conhece a visão troca a [`MARCA_DE_PIPE`] pelo `pureProxyN`
-    /// daquele ponto (`CompilePipe._call`). Tipo `dynamic` (`visitPipe` do
-    /// `_TypeResolver`), mutável e pode ser nulo.
+    /// `$pipe.name(input, args)`: the official parser's `BindingPipe`
+    /// (`_createPipeOrThrow`). The call comes out as `MARK(input, args)`, and
+    /// whoever knows the view replaces the [`MARCA_DE_PIPE`] with the
+    /// `pureProxyN` of that point (`CompilePipe._call`). Type `dynamic`
+    /// (`visitPipe` of `_TypeResolver`), mutable and possibly null.
     fn pipe(&self, nome: &str, arguments: &ast::Arguments) -> Result<Convertida, Recusa> {
         if self.acao {
-            return Err(recusa(Motivo::PipesUsados, "pipe em evento"));
+            return Err(recusa(Motivo::PipesUsados, "pipe in an event"));
         }
         if arguments.args.iter().any(|a| a.name.is_some()) {
             return Err(recusa(Motivo::PipesUsados, "pipe com argumento nomeado"));
@@ -475,13 +477,13 @@ impl Conversor<'_> {
         if arguments.args.is_empty() {
             return Err(recusa(Motivo::PipesUsados, "pipe sem argumento"));
         }
-        // `visitPipe` converte a entrada e depois os argumentos: é a ordem
-        // em que os locais são pedidos.
+        // `visitPipe` converts the input and then the arguments: that is the
+        // order in which the locals are requested.
         let mut args = Vec::new();
         let mut locais = Vec::new();
-        // O pipe de dentro ganha o proxy primeiro (é convertido antes), mas
-        // a marca de fora vem antes no texto: quem troca as marcas as ordena
-        // pelo fim da chamada.
+        // The inner pipe gets its proxy first (it is converted earlier), but
+        // the outer mark comes first in the text: whoever replaces the marks
+        // sorts them by the end of the call.
         for a in arguments.args.iter() {
             let v = self.expr(a.value, true)?;
             locais.extend(v.locais);
@@ -513,36 +515,37 @@ impl Conversor<'_> {
         id
     }
 
-    /// `x = y`, `a.b = y`, `a[i] = y` (`PropertyWrite`/`KeyedWrite`), sem os
-    /// parênteses — quem está dentro de outra expressão os põe.
+    /// `x = y`, `a.b = y`, `a[i] = y` (`PropertyWrite`/`KeyedWrite`), without
+    /// the parentheses — whoever is inside another expression adds them.
     fn atribuicao(&self, id: ast::ExprId) -> Result<Convertida, Recusa> {
         let ast::ExprKind::Assign { op, target, value } = &self.ast.expr(id).kind else {
-            return Err(fora("atribuição"));
+            return Err(fora("assignment"));
         };
         if !self.acao {
-            return Err(fora("atribuição fora de evento"));
+            return Err(fora("assignment outside an event"));
         }
-        // O oficial ignora o operador de uma atribuição composta e escreve
-        // `x = y`: forma que não se reproduz de propósito.
+        // The official compiler ignores the operator of a compound assignment
+        // and writes `x = y`: a shape deliberately not reproduced.
         if *op != ast::AssignOp::Assign {
-            return Err(fora("atribuição composta (`+=`)"));
+            return Err(fora("compound assignment (`+=`)"));
         }
         let (alvo, locais_alvo) = match &self.ast.expr(*target).kind {
             ast::ExprKind::Identifier(n) => {
                 let nome = self.interner.resolve(n.sym);
                 if self.escopo.locais.contains_key(nome) || nome == "$event" {
-                    return Err(fora("atribuição a local"));
+                    return Err(fora("assignment to a local"));
                 }
                 match self.escopo.membros.get(nome) {
-                    // Campo herdado: a escrita também sobe a hierarquia
-                    // (`PropertyWrite` com receptor implícito vira `_ctx.x`).
+                    // Inherited field: the write also walks up the hierarchy
+                    // (`PropertyWrite` with the implicit receiver becomes
+                    // `_ctx.x`).
                     None if self.membro_herdado(nome).is_some() || self.setter(nome) => {
                         (format!("_ctx.{nome}"), Vec::new())
                     }
-                    None => return Err(fora("atribuição a nome fora do componente")),
+                    None => return Err(fora("assignment to a name outside the component")),
                     Some(m) if m.estatico => match self.escopo.classe {
                         Some(classe) => (format!("{classe}.{nome}"), Vec::new()),
-                        None => return Err(fora("membro estático sem a classe qualificada")),
+                        None => return Err(fora("static member without the qualified class")),
                     },
                     Some(_) => (format!("_ctx.{nome}"), Vec::new()),
                 }
@@ -558,26 +561,26 @@ impl Conversor<'_> {
                     r.locais,
                 )
             }
-            ast::ExprKind::Index { .. } => return Err(fora("atribuição a índice `a[i] = x`")),
-            _ => return Err(fora("atribuição a alvo desconhecido")),
+            ast::ExprKind::Index { .. } => return Err(fora("assignment to an index `a[i] = x`")),
+            _ => return Err(fora("assignment to an unknown target")),
         };
         let v = self.expr(*value, true)?;
         Ok(Convertida {
             locais: juntar(&[&locais_alvo, &v.locais]),
-            ..Convertida::nova(format!("{alvo} = {}", v.texto), "atribuição")
+            ..Convertida::nova(format!("{alvo} = {}", v.texto), "assignment")
         })
     }
 
-    /// `raiz` diz se este nó é o receptor implícito — só aí um identificador
-    /// vira `_ctx.nome`; em `a.b`, o `b` é membro de `a`.
+    /// `raiz` says whether this node is the implicit receiver — only then does
+    /// an identifier become `_ctx.name`; in `a.b`, `b` is a member of `a`.
     fn expr(&self, id: ast::ExprId, raiz: bool) -> Result<Convertida, Recusa> {
         let v = self.expr_do_no(id, raiz)?;
-        // A chamada que quebra ([`QUEBRA`]) só como a expressão inteira ou
-        // argumento de outra chamada: dentro de operador, acesso ou
-        // condicional o formatador a indenta de outro jeito, sem caso.
+        // A call that breaks ([`QUEBRA`]) only as the whole expression or as an
+        // argument of another call: inside an operator, an access or a
+        // conditional the formatter indents it differently, no case.
         if v.texto.contains(QUEBRA) && !matches!(self.ast.expr(id).kind, ast::ExprKind::Call { .. })
         {
-            return Err(fora("chamada com argumento nomeado dentro de expressão"));
+            return Err(fora("call with a named argument inside an expression"));
         }
         Ok(v)
     }
@@ -585,14 +588,14 @@ impl Conversor<'_> {
     fn expr_do_no(&self, id: ast::ExprId, raiz: bool) -> Result<Convertida, Recusa> {
         let e = self.ast.expr(id);
         match &e.kind {
-            // `LiteralPrimitive`: imutável e nunca nulo (`canBeNull`). O tipo
-            // é `String` para texto e `dynamic` para o resto
-            // (`visitLiteralPrimitive` do `_TypeResolver`). O texto é o que
-            // `o.literal(valor)` escreve, não o que o template escreveu.
+            // `LiteralPrimitive`: immutable and never null (`canBeNull`). The
+            // type is `String` for a string and `dynamic` for the rest
+            // (`visitLiteralPrimitive` of `_TypeResolver`). The text is what
+            // `o.literal(value)` writes, not what the template wrote.
             ast::ExprKind::Int(_) => {
                 let t = self.texto(id);
                 let Ok(v) = t.parse::<u64>() else {
-                    return Err(fora("literal inteiro fora da forma decimal"));
+                    return Err(fora("integer literal outside the decimal form"));
                 };
                 Ok(Convertida {
                     imutavel: true,
@@ -604,8 +607,8 @@ impl Conversor<'_> {
             }
             ast::ExprKind::Double(_) => {
                 let t = self.texto(id);
-                // `double.toString()` do Dart e o `{:?}` do Rust concordam
-                // na forma curta (`1.5`, `2.0`); expoente, não.
+                // Dart's `double.toString()` and Rust's `{:?}` agree on the
+                // short form (`1.5`, `2.0`); on exponents, they do not.
                 match t.parse::<f64>() {
                     Ok(v) if format!("{v:?}") == t && !t.contains(['e', 'E']) => Ok(Convertida {
                         imutavel: true,
@@ -614,7 +617,7 @@ impl Conversor<'_> {
                         literal: true,
                         ..Convertida::nova(t, "literal")
                     }),
-                    _ => Err(fora("literal double fora da forma canônica")),
+                    _ => Err(fora("double literal outside the canonical form")),
                 }
             }
             ast::ExprKind::Bool(b) => Ok(Convertida {
@@ -632,10 +635,11 @@ impl Conversor<'_> {
                 ..Convertida::nova("null".into(), "literal nulo")
             }),
             ast::ExprKind::String(lit) => {
-                // Só literal sem interpolação: `'a$b'` dentro do template é
-                // outra coisa e não aparece nos projetos do proprietário.
+                // Only a literal without interpolation: `'a$b'` inside the
+                // template is something else and does not appear in the owner's
+                // projects.
                 let Some(valor) = lit.constant_value() else {
-                    return Err(fora("texto com interpolação Dart"));
+                    return Err(fora("string with Dart interpolation"));
                 };
                 Ok(Convertida {
                     imutavel: true,
@@ -648,23 +652,24 @@ impl Conversor<'_> {
             ast::ExprKind::Identifier(n) => {
                 let nome = self.interner.resolve(n.sym);
                 if !raiz {
-                    return Ok(Convertida::nova(nome.to_string(), "nome"));
+                    return Ok(Convertida::nova(nome.to_string(), "name"));
                 }
-                // `getLocal('$event')` devolve a variável do handler.
+                // `getLocal('$event')` returns the handler's variable.
                 if nome == "$event" {
                     if !self.acao {
-                        return Err(fora("`$event` fora de evento"));
+                        return Err(fora("`$event` outside an event"));
                     }
                     return Ok(Convertida {
                         tipo: Some("dynamic".into()),
                         ..Convertida::nova("$event".into(), "`$event`")
                     });
                 }
-                // Nome de `exports:` (`_matchExport`, no parse: antes dos
-                // locais e dos membros, `analyzer_parser.dart:435-455`): pelo
-                // import da biblioteca que o declara, tipo `dynamic`. Um
-                // `StaticRead` é sempre imutável (`analyzed_class.dart:116`),
-                // mesmo de variável mutável ou getter.
+                // An `exports:` name (`_matchExport`, at parse time: before the
+                // locals and the members, `analyzer_parser.dart:435-455`):
+                // through the import of the library that declares it, type
+                // `dynamic`. A `StaticRead` is always immutable
+                // (`analyzed_class.dart:116`), even of a mutable variable or a
+                // getter.
                 if let Some((q, o_que)) = self.escopo.exportados.and_then(|e| e.get(nome)) {
                     use crate::resolucao::Exportado;
                     let texto = format!("{q}{nome}");
@@ -674,30 +679,31 @@ impl Conversor<'_> {
                             estatica: Some(nome.to_string()),
                             ..Convertida::nova(texto, "classe de exports:")
                         }),
-                        // Sem `AnalyzedClass` (enum, mixin): `X.y` é um
-                        // `PropertyRead` comum, mutável e `dynamic`.
+                        // Without an `AnalyzedClass` (enum, mixin): `X.y` is a
+                        // plain `PropertyRead`, mutable and `dynamic`.
                         Exportado::TipoSemClasse => Ok(Convertida {
                             tipo: Some("dynamic".into()),
                             estatica: Some(format!("{SEM_CLASSE}{nome}")),
-                            ..Convertida::nova(texto, "enum ou mixin de exports:")
+                            ..Convertida::nova(texto, "enum or mixin from exports:")
                         }),
                         Exportado::Variavel { .. } => Ok(Convertida {
                             imutavel: true,
                             tipo: Some("dynamic".into()),
-                            ..Convertida::nova(texto, "variável de exports:")
+                            ..Convertida::nova(texto, "variable from exports:")
                         }),
                         Exportado::Getter => Ok(Convertida {
                             imutavel: true,
                             tipo: Some("dynamic".into()),
                             ..Convertida::nova(texto, "getter de exports:")
                         }),
-                        Exportado::Funcao => Err(fora("função de exports: como valor")),
+                        Exportado::Funcao => Err(fora("function from exports: as a value")),
                     };
                 }
-                // O local do laço sombreia o membro do componente (mas não o
-                // export, resolvido antes, no parse). O `isImmutable` não
-                // conhece locais: vale o campo do componente de mesmo nome
-                // (`lookUpGetter`), ou o método ("methods are immutable").
+                // The loop local shadows the component member (but not the
+                // export, resolved earlier, at parse time). `isImmutable` does
+                // not know about locals: the component field with the same name
+                // counts (`lookUpGetter`), or the method ("methods are
+                // immutable").
                 if let Some(l) = self.escopo.locais.get(nome) {
                     let imutavel = match self.escopo.membros.get(nome) {
                         Some(m) => m.imutavel,
@@ -715,42 +721,42 @@ impl Conversor<'_> {
                         ..Convertida::nova(l.dart.clone(), "local")
                     });
                 }
-                // Método lido como valor (o `trackBy: rastrear` do `*ngFor`,
-                // um callback passado a um filho): `isImmutable` diz que
-                // "methods are immutable"; `canBeNull` não o isenta; e o
-                // `_TypeResolver` procura um *getter* com o nome — não há,
-                // então é `dynamic`.
+                // A method read as a value (the `trackBy: rastrear` of
+                // `*ngFor`, a callback passed to a child): `isImmutable` says
+                // "methods are immutable"; `canBeNull` does not exempt it; and
+                // the `_TypeResolver` looks for a *getter* with the name —
+                // there is none, so it is `dynamic`.
                 if !self.escopo.membros.contains_key(nome) && self.escopo.metodos.contains_key(nome)
                 {
                     return Ok(Convertida {
                         imutavel: true,
                         tipo: Some("dynamic".into()),
-                        ..Convertida::nova(format!("_ctx.{nome}"), "método como valor")
+                        ..Convertida::nova(format!("_ctx.{nome}"), "method as a value")
                     });
                 }
                 let Some(m) = self.escopo.membros.get(nome) else {
                     return self
                         .membro_herdado(nome)
-                        .ok_or_else(|| fora("nome fora do componente"));
+                        .ok_or_else(|| fora("name outside the component"));
                 };
-                // Estático: `importExpr` da classe e o nome; `isImmutable`
-                // pelo campo (`final`/`const`), tipo `dynamic` e, fora do
-                // literal, pode ser nulo (caso j25).
+                // Static: the class's `importExpr` and the name; `isImmutable`
+                // by the field (`final`/`const`), type `dynamic` and, outside a
+                // literal, possibly null (case j25).
                 if m.estatico {
                     let Some(classe) = self.escopo.classe else {
-                        return Err(fora("membro estático sem a classe qualificada"));
+                        return Err(fora("static member without the qualified class"));
                     };
                     return Ok(Convertida {
                         imutavel: m.imutavel,
                         tipo: Some("dynamic".into()),
-                        ..Convertida::nova(format!("{classe}.{nome}"), "membro estático")
+                        ..Convertida::nova(format!("{classe}.{nome}"), "static member")
                     });
                 }
-                // `isImmutable` de `PropertyRead` com receptor implícito:
-                // campo `final`/`const` (o getter já chega aqui mutável).
-                // Sem tipo escrito, o que o banco semântico infere da
-                // declaração (`Enum.values`, `Classe<A>.nomeado()`…), com o
-                // escopo dela.
+                // `isImmutable` of a `PropertyRead` with the implicit receiver:
+                // a `final`/`const` field (a getter already arrives here
+                // mutable). Without a written type, what the semantic database
+                // infers from the declaration (`Enum.values`,
+                // `Class<A>.named()`…), with its scope.
                 let (tipo, escopo) = if m.tipo.is_empty() {
                     match self.membro_herdado(nome) {
                         Some(c) => (c.tipo, c.escopo),
@@ -763,7 +769,7 @@ impl Conversor<'_> {
                     imutavel: m.imutavel,
                     tipo,
                     escopo,
-                    ..Convertida::nova(format!("_ctx.{nome}"), "membro")
+                    ..Convertida::nova(format!("_ctx.{nome}"), "member")
                 })
             }
             ast::ExprKind::Property {
@@ -774,10 +780,10 @@ impl Conversor<'_> {
                 let alvo = self.expr(*target, raiz)?;
                 let nome = self.interner.resolve(name.sym);
                 let ponto = if *null_aware { "?." } else { "." };
-                // `Classe.nome` de uma classe de `exports:`: o campo
-                // `const`/`final` (e o valor de enum) é imutável, o getter
-                // não, e o método é ("methods are immutable",
-                // `analyzed_class.dart:140-150`). Tipo `dynamic` (caso j51).
+                // `Class.name` of an `exports:` class: a `const`/`final` field
+                // (and an enum value) is immutable, a getter is not, and a
+                // method is ("methods are immutable",
+                // `analyzed_class.dart:140-150`). Type `dynamic` (case j51).
                 if alvo
                     .estatica
                     .as_deref()
@@ -788,20 +794,20 @@ impl Conversor<'_> {
                         locais: alvo.locais,
                         ..Convertida::nova(
                             format!("{}{ponto}{nome}", alvo.texto),
-                            "membro de enum ou mixin",
+                            "member of an enum or mixin",
                         )
                     });
                 }
                 if let Some(classe) = &alvo.estatica {
                     use crate::resolucao::Estatico;
                     let Some((r, arquivo)) = self.escopo.tipos else {
-                        return Err(fora("membro estático de exports: sem o banco semântico"));
+                        return Err(fora("static member from exports: without the semantic database"));
                     };
                     let imutavel = match r.membro_estatico(arquivo, classe, nome) {
                         Some(Estatico::Campo { imutavel }) => imutavel,
                         Some(Estatico::Getter) => false,
                         Some(Estatico::Metodo) => true,
-                        None => return Err(fora("membro estático de exports: desconhecido")),
+                        None => return Err(fora("unknown static member from exports:")),
                     };
                     return Ok(Convertida {
                         imutavel,
@@ -809,15 +815,15 @@ impl Conversor<'_> {
                         locais: alvo.locais,
                         ..Convertida::nova(
                             format!("{}{ponto}{nome}", alvo.texto),
-                            "membro estático",
+                            "static member",
                         )
                     });
                 }
-                // O tipo do fim da cadeia está noutra classe: é o banco
-                // semântico que responde, como o analyzer responde ao oficial.
-                // Receptor `dynamic` (o `#ref`, `$event`): o
-                // `_lookupGetterReturnType` só olha `InterfaceType`, e o
-                // resto dá `dynamic`.
+                // The type at the end of the chain is in another class: the
+                // semantic database answers, as the analyzer answers the
+                // official compiler. A `dynamic` receiver (the `#ref`,
+                // `$event`): `_lookupGetterReturnType` only looks at
+                // `InterfaceType`, and the rest gives `dynamic`.
                 let achado = match (&alvo.tipo, self.escopo.tipos) {
                     (Some(t), Some((r, arquivo))) if t != "dynamic" => r.tipo_do_membro_livre(
                         alvo.escopo.as_deref().unwrap_or(arquivo),
@@ -827,9 +833,9 @@ impl Conversor<'_> {
                     ),
                     _ => None,
                 };
-                // Receptor de tipo que não existe no escopo (`InvalidType`:
-                // a classe de um arquivo que a fase do ngdart ainda não vê)
-                // também dá `dynamic`.
+                // A receiver of a type that does not exist in scope
+                // (`InvalidType`: the class of a file the ngdart phase does not
+                // see yet) also gives `dynamic`.
                 let inexistente = match (&alvo.tipo, self.escopo.tipos) {
                     (Some(t), Some((r, arquivo))) => {
                         r.tipo_inexistente(alvo.escopo.as_deref().unwrap_or(arquivo), t)
@@ -843,7 +849,7 @@ impl Conversor<'_> {
                     }
                     None => (None, None),
                 };
-                // O receptor não é implícito: `a.b` é sempre mutável.
+                // The receiver is not implicit: `a.b` is always mutable.
                 Ok(Convertida {
                     tipo,
                     escopo,
@@ -856,7 +862,7 @@ impl Conversor<'_> {
             }
             ast::ExprKind::Call { target, arguments } => {
                 if !arguments.type_args.is_empty() {
-                    return Err(fora("chamada com argumento de tipo"));
+                    return Err(fora("call with a type argument"));
                 }
                 if let ast::ExprKind::Property {
                     target: t,
@@ -869,8 +875,9 @@ impl Conversor<'_> {
                 {
                     return self.pipe(self.interner.resolve(name.sym), arguments);
                 }
-                // `visitMethodCall` converte os argumentos **antes** do
-                // receptor: é a ordem em que os locais são pedidos.
+                // `visitMethodCall` converts the arguments **before** the
+                // receiver: that is the order in which the locals are
+                // requested.
                 let mut args = Vec::new();
                 let mut locais_args = Vec::new();
                 for a in arguments.args.iter() {
@@ -883,14 +890,15 @@ impl Conversor<'_> {
                         None => args.push(v.texto),
                     }
                 }
-                // Com argumento nomeado a lista termina em vírgula e o
-                // formatador põe um argumento por linha, dois espaços para
-                // dentro (e o que já quebrava dentro deles, junto). Numa
-                // lista sem nomeado, um argumento que quebra ganharia a
-                // indentação de continuação — forma sem caso no corpus.
+                // With a named argument the list ends in a comma and the
+                // formatter puts one argument per line, two spaces in (and
+                // whatever already broke inside them, along with it). In a list
+                // without a named argument, an argument that breaks would get
+                // the continuation indentation — a shape without a case in the
+                // corpus.
                 let nomeado = arguments.args.iter().any(|a| a.name.is_some());
                 if !nomeado && args.iter().any(|a| a.contains(QUEBRA)) {
-                    return Err(fora("chamada com argumento nomeado dentro de argumento"));
+                    return Err(fora("call with a named argument inside an argument"));
                 }
                 let lista = if nomeado {
                     let mut l: String = args
@@ -902,10 +910,10 @@ impl Conversor<'_> {
                 } else {
                     args.join(", ")
                 };
-                // O alvo de uma chamada pode ser um método da classe, que não
-                // vale como valor solto. O tipo é o do `_TypeResolver`: o
-                // retorno do método (`visitMethodCall`); campo ou local
-                // chamado como função não é método, e dá `dynamic`.
+                // The target of a call may be a class method, which is not
+                // valid as a bare value. The type is that of `_TypeResolver`:
+                // the method's return (`visitMethodCall`); a field or local
+                // called as a function is not a method, and gives `dynamic`.
                 let mut escopo_do_retorno = None;
                 let (alvo, retorno, locais_alvo) = match &self.ast.expr(*target).kind {
                     ast::ExprKind::Identifier(n)
@@ -922,7 +930,8 @@ impl Conversor<'_> {
                             .and_then(|e| e.get(nome))
                             .filter(|(_, o)| *o == crate::resolucao::Exportado::Funcao);
                         match self.escopo.metodos.get(nome) {
-                            // Função de `exports:`: pelo import, `dynamic`.
+                            // An `exports:` function: through the import,
+                            // `dynamic`.
                             _ if exportada.is_some() => (
                                 format!(
                                     "{}{nome}",
@@ -932,8 +941,9 @@ impl Conversor<'_> {
                                 Vec::new(),
                             ),
                             Some(t) => (format!("_ctx.{nome}"), Some(t.clone()), Vec::new()),
-                            // Método herdado: o retorno no escopo de quem o
-                            // declara; sem tipo escrito, não se sabe.
+                            // Inherited method: the return type in the scope of
+                            // whoever declares it; without a written type,
+                            // unknown.
                             None if !self.escopo.membros.contains_key(nome)
                                 && let Some(m) = self.metodo_herdado(nome) =>
                             {
@@ -947,8 +957,8 @@ impl Conversor<'_> {
                             }
                         }
                     }
-                    // Local chamado como função: o tipo ainda é procurado
-                    // como método da classe (`visitMethodCall` olha o nome).
+                    // A local called as a function: the type is still looked up
+                    // as a class method (`visitMethodCall` looks at the name).
                     ast::ExprKind::Identifier(n) => {
                         let t = self.expr(*target, raiz)?;
                         let tipo = self
@@ -959,8 +969,8 @@ impl Conversor<'_> {
                             .unwrap_or_else(|| "dynamic".to_string());
                         (t.texto, Some(tipo), t.locais)
                     }
-                    // `a.m()`: o banco semântico responde o membro `m` do tipo
-                    // de `a` — o retorno, quando é método.
+                    // `a.m()`: the semantic database answers the member `m` of
+                    // the type of `a` — the return type, when it is a method.
                     _ => {
                         let t = self.expr(*target, raiz)?;
                         (t.texto, t.tipo, t.locais)
@@ -970,15 +980,15 @@ impl Conversor<'_> {
                     tipo: retorno,
                     escopo: escopo_do_retorno,
                     locais: juntar(&[&locais_args, &locais_alvo]),
-                    ..Convertida::nova(format!("{alvo}({lista})"), "chamada")
+                    ..Convertida::nova(format!("{alvo}({lista})"), "call")
                 })
             }
             ast::ExprKind::Unary { op, operand } => {
-                // `!`, `-x` e `x!`. O parser de expressões do ngcompiler lê
-                // `-x` como `0 - x` (sai `(0 - _ctx.x)`) e `x!` como `(x!)`;
-                // `~` nem existe lá.
-                // `x!` é `PostfixNotNull`: `.notNull()`, que o emissor escreve
-                // `(x!)`; tipo `dynamic`, mutável.
+                // `!`, `-x` and `x!`. ngcompiler's expression parser reads `-x`
+                // as `0 - x` (output `(0 - _ctx.x)`) and `x!` as `(x!)`; `~`
+                // does not even exist there.
+                // `x!` is `PostfixNotNull`: `.notNull()`, which the emitter
+                // writes as `(x!)`; type `dynamic`, mutable.
                 if *op == ast::UnaryOp::NullAssert {
                     let v = self.expr(*operand, raiz)?;
                     return Ok(Convertida {
@@ -987,9 +997,9 @@ impl Conversor<'_> {
                         ..Convertida::nova(format!("({}!)", v.texto), "`x!`")
                     });
                 }
-                // `-x` é `Binary('-', 0, x)` (`analyzer_parser.dart:607-609`):
-                // sai `(0 - x)`, imutável se `x` é, "pode ser nulo" e
-                // `dynamic`, como qualquer binário.
+                // `-x` is `Binary('-', 0, x)` (`analyzer_parser.dart:607-609`):
+                // output `(0 - x)`, immutable if `x` is, "may be null" and
+                // `dynamic`, like any binary.
                 if *op == ast::UnaryOp::Neg {
                     let v = self.expr(*operand, raiz)?;
                     return Ok(Convertida {
@@ -1000,11 +1010,11 @@ impl Conversor<'_> {
                     });
                 }
                 if *op != ast::UnaryOp::Not {
-                    return Err(fora("operador unário fora do template"));
+                    return Err(fora("unary operator outside the template"));
                 }
                 let v = self.expr(*operand, raiz)?;
                 let op = self.operador_unario(id);
-                // `PrefixNot` não entra no `isImmutable`: é mutável.
+                // `PrefixNot` is not part of `isImmutable`: it is mutable.
                 Ok(Convertida {
                     tipo: Some("dynamic".into()),
                     locais: v.locais,
@@ -1012,14 +1022,14 @@ impl Conversor<'_> {
                 })
             }
             ast::ExprKind::Binary { op, .. } if !operador_do_template(*op) => {
-                // `a | b` no template é pipe, não OU bit a bit: traduzir
-                // como Dart daria `(_ctx.a | _ctx.b)`, que compila e faz
-                // outra coisa. Os demais (`&`, `^`, `<<`, `~/`…) não existem
-                // na linguagem de expressões do ngdart.
+                // `a | b` in the template is a pipe, not a bitwise OR:
+                // translating it as Dart would give `(_ctx.a | _ctx.b)`, which
+                // compiles and does something else. The others (`&`, `^`, `<<`,
+                // `~/`…) do not exist in ngdart's expression language.
                 Err(if *op == ast::BinaryOp::BitOr {
                     recusa(Motivo::PipesUsados, "pipe `x | nome`")
                 } else {
-                    fora("operador binário fora do template")
+                    fora("binary operator outside the template")
                 })
             }
             ast::ExprKind::Binary { op, left, right } => {
@@ -1027,16 +1037,16 @@ impl Conversor<'_> {
                 let b = self.expr(*right, raiz)?;
                 let texto_op = self.operador_binario(id);
                 let se_nulo = *op == ast::BinaryOp::IfNull;
-                // `canBeNull(IfNull)`: não nulo se o da esquerda não for;
-                // senão, o da direita decide. Binário comum é sempre
-                // "pode ser nulo" para o oficial.
+                // `canBeNull(IfNull)`: not null if the left one is not;
+                // otherwise, the right one decides. A plain binary is always
+                // "may be null" for the official compiler.
                 let pode_ser_nulo = if se_nulo {
                     a.pode_ser_nulo && b.pode_ser_nulo
                 } else {
                     true
                 };
-                // `visitBinary`: `String + String` é `String`; o resto,
-                // `dynamic`. `??` é `dynamic`.
+                // `visitBinary`: `String + String` is `String`; the rest,
+                // `dynamic`. `??` is `dynamic`.
                 let tipo = if *op == ast::BinaryOp::Add
                     && a.tipo.as_deref() == Some("String")
                     && b.tipo.as_deref() == Some("String")
@@ -1046,14 +1056,14 @@ impl Conversor<'_> {
                     "dynamic"
                 };
                 Ok(Convertida {
-                    // `isImmutable` de `Binary` e `IfNull`: os dois lados.
+                    // `isImmutable` of `Binary` and `IfNull`: both sides.
                     imutavel: a.imutavel && b.imutavel,
                     pode_ser_nulo,
                     tipo: Some(tipo.into()),
                     locais: juntar(&[&a.locais, &b.locais]),
                     ..Convertida::nova(
                         format!("({} {texto_op} {})", a.texto, b.texto),
-                        if se_nulo { "`??`" } else { "binário" },
+                        if se_nulo { "`??`" } else { "binary" },
                     )
                 })
             }
@@ -1070,12 +1080,12 @@ impl Conversor<'_> {
                     locais: juntar(&[&c.locais, &t.locais, &f.locais]),
                     ..Convertida::nova(
                         format!("({} ? {} : {})", c.texto, t.texto, f.texto),
-                        "ternário",
+                        "ternary",
                     )
                 })
             }
             ast::ExprKind::Parenthesized(inner) => self.expr(*inner, raiz),
-            // Dentro de outra expressão a atribuição ganha parênteses.
+            // Inside another expression the assignment gets parentheses.
             ast::ExprKind::Assign { .. } => {
                 let a = self.atribuicao(id)?;
                 Ok(Convertida {
@@ -1083,7 +1093,7 @@ impl Conversor<'_> {
                     ..a
                 })
             }
-            // `KeyedRead`: `receiver.key(key)`, sem parênteses; `dynamic`.
+            // `KeyedRead`: `receiver.key(key)`, without parentheses; `dynamic`.
             ast::ExprKind::Index {
                 target,
                 index,
@@ -1094,16 +1104,16 @@ impl Conversor<'_> {
                 Ok(Convertida {
                     tipo: Some("dynamic".into()),
                     locais: juntar(&[&r.locais, &k.locais]),
-                    ..Convertida::nova(format!("{}[{}]", r.texto, k.texto), "índice")
+                    ..Convertida::nova(format!("{}[{}]", r.texto, k.texto), "index")
                 })
             }
-            ast::ExprKind::Index { .. } => Err(fora("índice `a?[i]`")),
+            ast::ExprKind::Index { .. } => Err(fora("index `a?[i]`")),
             ast::ExprKind::List { .. } | ast::ExprKind::SetOrMap { .. } => {
-                Err(fora("literal de coleção"))
+                Err(fora("collection literal"))
             }
-            ast::ExprKind::FunctionExpression(_) => Err(fora("função anônima")),
+            ast::ExprKind::FunctionExpression(_) => Err(fora("anonymous function")),
             ast::ExprKind::Is { .. } | ast::ExprKind::As { .. } => Err(fora("`is`/`as`")),
-            _ => Err(fora("forma de expressão fora do template")),
+            _ => Err(fora("expression shape outside the template")),
         }
     }
 
@@ -1123,7 +1133,7 @@ impl Conversor<'_> {
         }
     }
 
-    /// O operador binário como escrito, extraído entre os dois operandos.
+    /// The binary operator as written, extracted from between the two operands.
     fn operador_binario(&self, id: ast::ExprId) -> String {
         let ast::ExprKind::Binary { left, right, .. } = &self.ast.expr(id).kind else {
             return String::new();
@@ -1138,9 +1148,9 @@ impl Conversor<'_> {
     }
 }
 
-/// Operadores binários da linguagem de expressões do ngdart
-/// (`expression_parser/parser.dart`): aritméticos, comparação, lógicos e
-/// `??`. O que o Dart tem a mais não passa.
+/// Binary operators of ngdart's expression language
+/// (`expression_parser/parser.dart`): arithmetic, comparison, logical and `??`.
+/// What Dart has in addition does not pass.
 fn operador_do_template(op: ast::BinaryOp) -> bool {
     use ast::BinaryOp as B;
     matches!(
@@ -1207,7 +1217,8 @@ mod testes {
         converter(e, &membros(), &mut Interner::new()).expect("converte")
     }
 
-    /// As formas que o caso c05 do corpus mostrou saindo do oficial.
+    /// The shapes that corpus case c05 showed coming out of the official
+    /// compiler.
     #[test]
     fn formas_do_oficial() {
         assert_eq!(conv("item.nome").texto, "_ctx.item.nome");
@@ -1224,8 +1235,8 @@ mod testes {
         assert!(conv("fixo").imutavel);
     }
 
-    /// `isImmutable` do oficial: `a.b`, `!x` e ternário são mutáveis mesmo
-    /// com tudo `final`; `a ?? b` e binário de imutáveis, não.
+    /// The official `isImmutable`: `a.b`, `!x` and a ternary are mutable even
+    /// with everything `final`; `a ?? b` and a binary of immutables are not.
     #[test]
     fn imutabilidade_como_no_oficial() {
         assert!(!conv("titulo.length").imutavel);
@@ -1235,7 +1246,7 @@ mod testes {
         assert!(conv("fixo + 1").imutavel);
     }
 
-    /// `canBeNull`: só o literal escapa, e `a ?? b` com um lado não nulo.
+    /// `canBeNull`: only a literal escapes, and `a ?? b` with a non-null side.
     #[test]
     fn nulidade_como_no_oficial() {
         assert!(!conv("'x'").pode_ser_nulo);
@@ -1254,8 +1265,8 @@ mod testes {
         );
     }
 
-    /// `|` no template é pipe: recusado em qualquer profundidade, e o `||`
-    /// continua sendo OU lógico.
+    /// `|` in the template is a pipe: refused at any depth, and `||` is still
+    /// the logical OR.
     #[test]
     fn pipe_e_recusado_e_ou_logico_passa() {
         let m = &membros();
@@ -1274,9 +1285,9 @@ mod testes {
         );
     }
 
-    /// `$pipe.nome(entrada, args)` vira a marca com o nome e o número de
-    /// argumentos, tipo `dynamic`, também dentro de outro pipe; com
-    /// argumento nomeado, recusa.
+    /// `$pipe.name(input, args)` becomes the mark with the name and the number
+    /// of arguments, type `dynamic`, also inside another pipe; with a named
+    /// argument, it refuses.
     #[test]
     fn pipe_vira_marca() {
         let c = conv("$pipe.date(fixo, 'dd/MM')");
@@ -1295,8 +1306,9 @@ mod testes {
         );
     }
 
-    /// O que o parser do ngdart lê diferente do Dart: `-x` é `0 - x` lá,
-    /// `&` não existe. `x!` sai `(x!)` e o índice sem parênteses.
+    /// What ngdart's parser reads differently from Dart: `-x` is `0 - x` there,
+    /// `&` does not exist. `x!` comes out as `(x!)` and the index without
+    /// parentheses.
     #[test]
     fn operadores_fora_do_template_sao_recusados() {
         let m = &membros();
@@ -1307,7 +1319,8 @@ mod testes {
         assert_eq!(conv("item[fixo]").texto, "_ctx.item[_ctx.fixo]");
     }
 
-    /// Nome que não é do componente não vira `_ctx.nome` por engano.
+    /// A name that does not belong to the component does not become `_ctx.name`
+    /// by mistake.
     #[test]
     fn nome_desconhecido_e_recusado() {
         assert!(converter("outro", &membros(), &mut Interner::new()).is_err());
@@ -1353,8 +1366,9 @@ mod testes {
         assert!(matches!(acao("ir"), Acao::Simples { aridade: 1, .. }));
     }
 
-    /// Complexos: atribuição no topo sem parênteses, argumentos, locais na
-    /// ordem em que o oficial os pede (argumentos antes do receptor).
+    /// Complex ones: top-level assignment without parentheses, arguments,
+    /// locals in the order the official compiler asks for them (arguments
+    /// before the receiver).
     #[test]
     fn handlers_complexos() {
         let Acao::Complexa(c) = acao("nome = $event") else {

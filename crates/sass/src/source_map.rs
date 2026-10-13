@@ -1,186 +1,186 @@
-//! Mapa de fontes (source map v3), como o `SourceMapBuffer` do dart-sass
-//! (`lib/src/util/source_map_buffer.dart`) o monta e o `SingleMapping` do
-//! pacote `source_maps` 0.10 o escreve.
+//! Source map (source map v3), as dart-sass's `SourceMapBuffer`
+//! (`lib/src/util/source_map_buffer.dart`) builds it and the `SingleMapping`
+//! of the `source_maps` 0.10 package writes it.
 //!
-//! O serializador escreve num `Vec<u8>`; o [`BufferMapa`] acompanha esse
-//! texto por trás (`sincronizar`), contando linhas e colunas em unidades
-//! UTF-16 — as de uma `String` do Dart —, e guarda as entradas nos mesmos
-//! pontos em que o `SourceMapBuffer` as guarda: no começo de cada `forSpan`
-//! e no começo de cada linha escrita dentro de um.
+//! The serializer writes into a `Vec<u8>`; the [`SourceMapBuffer`] follows
+//! that text from behind (`sync`), counting lines and columns in UTF-16
+//! units — those of a Dart `String` —, and stores the entries at the same
+//! points where `SourceMapBuffer` stores them: at the start of each
+//! `forSpan` and at the start of each line written inside one.
 use std::collections::HashMap;
 
 use codemap::{CodeMap, Span};
 
-use crate::sass_builder::{fonte_do_mapa, Ativo};
+use crate::sass_builder::{map_source, Ativo};
 
-/// Um ponto do mapa: fonte (URL, linha, coluna) → alvo (linha, coluna,
-/// deslocamento). Linhas e colunas começam em 0; colunas contam unidades
-/// UTF-16. O deslocamento do alvo é em bytes (só serve para comparar).
+/// A point of the map: source (URL, line, column) → target (line, column,
+/// offset). Lines and columns start at 0; columns count UTF-16 units. The
+/// target offset is in bytes (it only serves for comparisons).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Entrada {
-    pub fonte: usize,
-    pub fonte_linha: usize,
-    pub fonte_coluna: usize,
-    pub alvo_linha: usize,
-    pub alvo_coluna: usize,
-    pub alvo_offset: usize,
+pub(crate) struct Entry {
+    pub source: usize,
+    pub source_line: usize,
+    pub source_column: usize,
+    pub target_line: usize,
+    pub target_column: usize,
+    pub target_offset: usize,
 }
 
-/// O acompanhamento do texto escrito e as entradas.
+/// The tracking of the written text, and the entries.
 #[derive(Debug, Default)]
-pub(crate) struct BufferMapa {
-    entradas: Vec<Entrada>,
+pub(crate) struct SourceMapBuffer {
+    entries: Vec<Entry>,
     urls: Vec<String>,
     indices: HashMap<String, usize>,
-    linha: usize,
-    coluna: usize,
-    varrido: usize,
-    em_span: bool,
+    line: usize,
+    column: usize,
+    scanned: usize,
+    in_span: bool,
 }
 
-impl BufferMapa {
-    /// Processa o que o serializador escreveu desde a última vez: cada
-    /// `\n` é o `_writeLine` do `SourceMapBuffer`.
-    pub fn sincronizar(&mut self, buffer: &[u8]) {
-        while self.varrido < buffer.len() {
-            let b = buffer[self.varrido];
-            self.varrido += 1;
+impl SourceMapBuffer {
+    /// Processes what the serializer wrote since the last time: each `\n`
+    /// is the `_writeLine` of `SourceMapBuffer`.
+    pub fn sync(&mut self, buffer: &[u8]) {
+        while self.scanned < buffer.len() {
+            let b = buffer[self.scanned];
+            self.scanned += 1;
             if b == b'\n' {
-                self.escrever_linha();
+                self.write_line();
             } else if b & 0xC0 != 0x80 {
-                // Início de caractere UTF-8: 4 bytes são um par substituto
-                // no UTF-16.
-                self.coluna += if b >= 0xF0 { 2 } else { 1 };
+                // Start of a UTF-8 character: 4 bytes are a surrogate pair
+                // in UTF-16.
+                self.column += if b >= 0xF0 { 2 } else { 1 };
             }
         }
     }
 
-    /// `_writeLine`: descarta a entrada que ficou no fim da linha e, dentro
-    /// de um `span`, abre a linha nova apontando para a mesma fonte.
-    fn escrever_linha(&mut self) {
-        if let Some(u) = self.entradas.last() {
-            if u.alvo_linha == self.linha && u.alvo_coluna == self.coluna {
-                self.entradas.pop();
+    /// `_writeLine`: drops the entry left at the end of the line and, inside
+    /// a `span`, opens the new line pointing to the same source.
+    fn write_line(&mut self) {
+        if let Some(u) = self.entries.last() {
+            if u.target_line == self.line && u.target_column == self.column {
+                self.entries.pop();
             }
         }
-        self.linha += 1;
-        self.coluna = 0;
-        if self.em_span {
-            if let Some(u) = self.entradas.last().copied() {
-                self.entradas.push(Entrada {
-                    alvo_linha: self.linha,
-                    alvo_coluna: 0,
-                    alvo_offset: self.varrido,
+        self.line += 1;
+        self.column = 0;
+        if self.in_span {
+            if let Some(u) = self.entries.last().copied() {
+                self.entries.push(Entry {
+                    target_line: self.line,
+                    target_column: 0,
+                    target_offset: self.scanned,
                     ..u
                 });
             }
         }
     }
 
-    /// Começo de um `forSpan(span, …)`: `_addEntry(span.start, alvo)`.
-    /// Devolve o `_inSpan` anterior, para [`BufferMapa::fim`].
-    pub fn inicio(&mut self, buffer: &[u8], mapa: &CodeMap, span: Span) -> bool {
-        self.sincronizar(buffer);
-        let (fonte, fonte_linha, fonte_coluna) = self.local(mapa, span);
-        let nova = Entrada {
-            fonte,
-            fonte_linha,
-            fonte_coluna,
-            alvo_linha: self.linha,
-            alvo_coluna: self.coluna,
-            alvo_offset: self.varrido,
+    /// Start of a `forSpan(span, …)`: `_addEntry(span.start, target)`.
+    /// Returns the previous `_inSpan`, for [`SourceMapBuffer::end_span`].
+    pub fn start_span(&mut self, buffer: &[u8], map: &CodeMap, span: Span) -> bool {
+        self.sync(buffer);
+        let (source, source_line, source_column) = self.location(map, span);
+        let new = Entry {
+            source,
+            source_line,
+            source_column,
+            target_line: self.line,
+            target_column: self.column,
+            target_offset: self.scanned,
         };
-        let redundante = self.entradas.last().is_some_and(|u| {
-            // Mesma linha de fonte e de alvo (o arquivo não entra na
-            // comparação do dart-sass), ou o mesmo ponto do alvo.
-            (u.fonte_linha == nova.fonte_linha && u.alvo_linha == nova.alvo_linha)
-                || u.alvo_offset == nova.alvo_offset
+        let redundant = self.entries.last().is_some_and(|u| {
+            // Same source line and same target line (the file does not take
+            // part in dart-sass's comparison), or the same target point.
+            (u.source_line == new.source_line && u.target_line == new.target_line)
+                || u.target_offset == new.target_offset
         });
-        if !redundante {
-            self.entradas.push(nova);
+        if !redundant {
+            self.entries.push(new);
         }
-        std::mem::replace(&mut self.em_span, true)
+        std::mem::replace(&mut self.in_span, true)
     }
 
-    /// Fim do `forSpan`: o texto escrito dentro dele é processado com
-    /// `_inSpan` ligado, e o estado anterior volta.
-    pub fn fim(&mut self, buffer: &[u8], anterior: bool) {
-        self.sincronizar(buffer);
-        self.em_span = anterior;
+    /// End of the `forSpan`: the text written inside it is processed with
+    /// `_inSpan` on, and the previous state comes back.
+    pub fn end_span(&mut self, buffer: &[u8], previous: bool) {
+        self.sync(buffer);
+        self.in_span = previous;
     }
 
-    /// A URL, a linha e a coluna (UTF-16) do começo de `span`.
-    fn local(&mut self, mapa: &CodeMap, span: Span) -> (usize, usize, usize) {
-        let arquivo = mapa.find_file(span.low());
-        let linha = arquivo.find_line(span.low());
-        let inicio_linha = arquivo.line_span(linha).low();
-        let texto = arquivo.source_slice(arquivo.span.subspan(
-            inicio_linha - arquivo.span.low(),
-            span.low() - arquivo.span.low(),
-        ));
-        let coluna = texto.encode_utf16().count();
-        let nome = arquivo.name().to_owned();
+    /// The URL, the line and the column (UTF-16) of the start of `span`.
+    fn location(&mut self, map: &CodeMap, span: Span) -> (usize, usize, usize) {
+        let file = map.find_file(span.low());
+        let line = file.find_line(span.low());
+        let line_start = file.line_span(line).low();
+        let text = file.source_slice(
+            file.span
+                .subspan(line_start - file.span.low(), span.low() - file.span.low()),
+        );
+        let column = text.encode_utf16().count();
+        let name = file.name().to_owned();
         let n = self.urls.len();
-        let i = *self.indices.entry(nome.clone()).or_insert(n);
+        let i = *self.indices.entry(name.clone()).or_insert(n);
         if i == n {
-            self.urls.push(nome);
+            self.urls.push(name);
         }
-        (i, linha, coluna)
+        (i, line, column)
     }
 
-    /// O mapa com o prefixo (`@charset` ou BOM) aplicado, como o
+    /// The map with the prefix (`@charset` or BOM) applied, like
     /// `buildSourceMap(prefix:)`.
-    pub fn construir(mut self, buffer: &[u8], prefixo: &str) -> Mapa {
-        self.sincronizar(buffer);
-        let linhas = prefixo.matches('\n').count();
-        let coluna = match prefixo.rfind('\n') {
-            Some(i) => prefixo[i + 1..].encode_utf16().count(),
-            None => prefixo.encode_utf16().count(),
+    pub fn build(mut self, buffer: &[u8], prefix: &str) -> SourceMap {
+        self.sync(buffer);
+        let lines = prefix.matches('\n').count();
+        let column = match prefix.rfind('\n') {
+            Some(i) => prefix[i + 1..].encode_utf16().count(),
+            None => prefix.encode_utf16().count(),
         };
-        let mut entradas = self.entradas;
-        for e in &mut entradas {
-            if e.alvo_linha == 0 {
-                e.alvo_coluna += coluna;
+        let mut entries = self.entries;
+        for e in &mut entries {
+            if e.target_line == 0 {
+                e.target_column += column;
             }
-            e.alvo_linha += linhas;
+            e.target_line += lines;
         }
-        Mapa {
+        SourceMap {
             urls: self.urls,
-            entradas,
+            entries,
         }
     }
 }
 
-/// O mapa pronto: as URLs canônicas das fontes e os pontos.
+/// The finished map: the canonical URLs of the sources and the points.
 #[derive(Debug, Clone, Default)]
-pub struct Mapa {
+pub struct SourceMap {
     pub(crate) urls: Vec<String>,
-    pub(crate) entradas: Vec<Entrada>,
+    pub(crate) entries: Vec<Entry>,
 }
 
 const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-fn vlq(saida: &mut String, valor: i64) {
-    let mut v = if valor < 0 {
-        ((-valor) << 1) | 1
+fn vlq(output: &mut String, value: i64) {
+    let mut v = if value < 0 {
+        ((-value) << 1) | 1
     } else {
-        valor << 1
+        value << 1
     };
     loop {
-        let mut digito = (v & 31) as usize;
+        let mut digit = (v & 31) as usize;
         v >>= 5;
         if v > 0 {
-            digito |= 32;
+            digit |= 32;
         }
-        saida.push(BASE64[digito] as char);
+        output.push(BASE64[digit] as char);
         if v == 0 {
             break;
         }
     }
 }
 
-/// `json.encode` de uma `String` do Dart.
-fn json_texto(s: &str) -> String {
+/// `json.encode` of a Dart `String`.
+fn json_string(s: &str) -> String {
     let mut o = String::from("\"");
     for c in s.chars() {
         match c {
@@ -199,61 +199,61 @@ fn json_texto(s: &str) -> String {
     o
 }
 
-impl Mapa {
-    /// O JSON do mapa (`SingleMapping.fromEntries(...).toJson()`), com cada
-    /// URL de fonte passada por `fonte`.
-    pub fn json(&self, fonte: impl Fn(&str) -> String) -> String {
-        // `fromEntries`: as entradas em ordem de alvo; as URLs na ordem em
-        // que aparecem.
-        let mut entradas = self.entradas.clone();
-        entradas.sort_by_key(|e| e.alvo_offset);
-        let mut ordem: Vec<usize> = Vec::new();
-        let mut novo_indice: HashMap<usize, usize> = HashMap::new();
-        for e in &entradas {
-            if !novo_indice.contains_key(&e.fonte) {
-                novo_indice.insert(e.fonte, ordem.len());
-                ordem.push(e.fonte);
+impl SourceMap {
+    /// The JSON of the map (`SingleMapping.fromEntries(...).toJson()`), with
+    /// each source URL passed through `source`.
+    pub fn json(&self, source: impl Fn(&str) -> String) -> String {
+        // `fromEntries`: the entries in target order; the URLs in the order
+        // they appear.
+        let mut entries = self.entries.clone();
+        entries.sort_by_key(|e| e.target_offset);
+        let mut order: Vec<usize> = Vec::new();
+        let mut new_index: HashMap<usize, usize> = HashMap::new();
+        for e in &entries {
+            if !new_index.contains_key(&e.source) {
+                new_index.insert(e.source, order.len());
+                order.push(e.source);
             }
         }
         let mut m = String::new();
-        let (mut linha, mut coluna, mut fl, mut fc, mut fu) = (0usize, 0i64, 0i64, 0i64, 0i64);
-        let mut primeiro = true;
-        for e in &entradas {
-            if e.alvo_linha > linha {
-                for _ in linha..e.alvo_linha {
+        let (mut line, mut column, mut fl, mut fc, mut fu) = (0usize, 0i64, 0i64, 0i64, 0i64);
+        let mut first = true;
+        for e in &entries {
+            if e.target_line > line {
+                for _ in line..e.target_line {
                     m.push(';');
                 }
-                linha = e.alvo_linha;
-                coluna = 0;
-                primeiro = true;
+                line = e.target_line;
+                column = 0;
+                first = true;
             }
-            if !primeiro {
+            if !first {
                 m.push(',');
             }
-            primeiro = false;
-            vlq(&mut m, e.alvo_coluna as i64 - coluna);
-            coluna = e.alvo_coluna as i64;
-            let u = novo_indice[&e.fonte] as i64;
+            first = false;
+            vlq(&mut m, e.target_column as i64 - column);
+            column = e.target_column as i64;
+            let u = new_index[&e.source] as i64;
             vlq(&mut m, u - fu);
             fu = u;
-            vlq(&mut m, e.fonte_linha as i64 - fl);
-            fl = e.fonte_linha as i64;
-            vlq(&mut m, e.fonte_coluna as i64 - fc);
-            fc = e.fonte_coluna as i64;
+            vlq(&mut m, e.source_line as i64 - fl);
+            fl = e.source_line as i64;
+            vlq(&mut m, e.source_column as i64 - fc);
+            fc = e.source_column as i64;
         }
-        let fontes: Vec<String> = ordem
+        let sources: Vec<String> = order
             .iter()
-            .map(|&i| json_texto(&fonte(&self.urls[i])))
+            .map(|&i| json_string(&source(&self.urls[i])))
             .collect();
         format!(
             "{{\"version\":3,\"sourceRoot\":\"\",\"sources\":[{}],\"names\":[],\"mappings\":{}}}",
-            fontes.join(","),
-            json_texto(&m)
+            sources.join(","),
+            json_string(&m)
         )
     }
 
-    /// O JSON do `.css.map` que o `sass_builder` grava.
-    pub fn json_sass_builder(&self, entrada: &Ativo) -> String {
-        self.json(|u| fonte_do_mapa(u, entrada))
+    /// The JSON of the `.css.map` that `sass_builder` writes.
+    pub fn json_sass_builder(&self, input: &Ativo) -> String {
+        self.json(|u| map_source(u, input))
     }
 }

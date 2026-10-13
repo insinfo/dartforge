@@ -1,203 +1,205 @@
-//! Porte da árvore do csslib 1.0.2 (`src/tree.dart`, `src/tree_base.dart`):
-//! os nós que o parser constrói, o visitante e a impressora percorrem.
+//! Port of the csslib 1.0.2 tree (`src/tree.dart`, `src/tree_base.dart`): the
+//! nodes that the parser builds and that the visitor and the printer walk.
 //!
-//! As hierarquias de classes do Dart viram enums; os testes `is` do oficial
-//! viram os métodos `e_*`. O que o Dart compartilha por referência e o shim
-//! modifica — a `SimpleSelectorSequence`, cujo combinador o `_CompoundSelector`
-//! reescreve — é `Rc` com `Cell`, para que a mesma sequência vista de dois
-//! lugares mude nos dois, como no oficial. Os seletores simples são imutáveis
-//! e também compartilhados (`SimpleSelectorSequence.clone` não os copia).
+//! Dart's class hierarchies become enums; the official `is` tests become the
+//! `is_*` methods. What Dart shares by reference and the shim modifies — the
+//! `SimpleSelectorSequence`, whose combinator the `_CompoundSelector` rewrites
+//! — is `Rc` with `Cell`, so that the same sequence seen from two places
+//! changes in both, as in the official code. Simple selectors are immutable and
+//! shared as well (`SimpleSelectorSequence.clone` does not copy them).
 //!
-//! Das posições (`span`) só se guarda o que muda a saída: o texto do
-//! `Identifier` (o `toString` dele devolve o lexema original, com escapes) e
-//! se um seletor simples tem posição (o shim lê `span!` ao avisar).
+//! Of the positions (`span`), only what changes the output is kept: the text of
+//! the `Identifier` (its `toString` returns the original lexeme, with escapes)
+//! and whether a simple selector has a position (the shim reads `span!` when it
+//! warns).
 use std::cell::Cell;
 use std::rc::Rc;
 
 use super::token_kind as tk;
 
-/// `Identifier`: o nome (sem escapes) e o texto do trecho de onde veio.
+/// `Identifier`: the name (without escapes) and the text of the span it came
+/// from.
 #[derive(Clone, Debug)]
-pub struct Identificador {
-    pub nome: String,
-    /// `span?.text`; `None` nos criados pelo shim.
-    pub texto: Option<String>,
+pub struct Identifier {
+    pub name: String,
+    /// `span?.text`; `None` for the ones created by the shim.
+    pub text: Option<String>,
 }
 
-impl Identificador {
+impl Identifier {
     /// `Identifier(name, null)`.
-    pub fn sem_span(nome: &str) -> Self {
-        Identificador {
-            nome: nome.to_string(),
-            texto: None,
+    pub fn without_span(name: &str) -> Self {
+        Identifier {
+            name: name.to_string(),
+            text: None,
         }
     }
 
-    /// `Identifier.toString`: o lexema, ou o nome.
-    pub fn como_texto(&self) -> &str {
-        self.texto.as_deref().unwrap_or(&self.nome)
+    /// `Identifier.toString`: the lexeme, or the name.
+    pub fn as_text(&self) -> &str {
+        self.text.as_deref().unwrap_or(&self.name)
     }
 }
 
-/// O `_name` dinâmico de um `SimpleSelector`: `Identifier`, `Wildcard`,
-/// `ThisOperator`, `Negation` ou, no `NamespaceSelector`, o
+/// The dynamic `_name` of a `SimpleSelector`: `Identifier`, `Wildcard`,
+/// `ThisOperator`, `Negation` or, in the `NamespaceSelector`, the
 /// `ElementSelector`.
 #[derive(Debug)]
-pub enum NomeSimples {
-    Ident(Identificador),
+pub enum SimpleName {
+    Ident(Identifier),
     /// `Wildcard`.
-    Curinga,
+    Wildcard,
     /// `ThisOperator`.
-    Este,
+    This,
     /// `Negation`.
-    Negacao,
-    Seletor(Rc<SeletorSimples>),
+    Negation,
+    Selector(Rc<SimpleSelector>),
 }
 
-impl NomeSimples {
+impl SimpleName {
     /// `_name.name`.
-    pub fn nome(&self) -> &str {
+    pub fn name(&self) -> &str {
         match self {
-            NomeSimples::Ident(i) => &i.nome,
-            NomeSimples::Curinga => "*",
-            NomeSimples::Este => "&",
-            NomeSimples::Negacao => "not",
-            NomeSimples::Seletor(s) => s.nome(),
+            SimpleName::Ident(i) => &i.name,
+            SimpleName::Wildcard => "*",
+            SimpleName::This => "&",
+            SimpleName::Negation => "not",
+            SimpleName::Selector(s) => s.name(),
         }
     }
 }
 
-/// O valor de um `AttributeSelector`: `Identifier` ou `String`.
+/// The value of an `AttributeSelector`: `Identifier` or `String`.
 #[derive(Debug)]
-pub enum ValorAtributo {
-    Ident(Identificador),
-    Texto(String),
+pub enum AttributeValue {
+    Ident(Identifier),
+    Str(String),
 }
 
-/// O argumento de `PseudoClassFunctionSelector`: `Selector` ou
+/// The argument of `PseudoClassFunctionSelector`: `Selector` or
 /// `SelectorExpression`.
 #[derive(Debug)]
-pub enum ArgumentoPseudo {
-    Seletor(Rc<Seletor>),
-    Expressao(Vec<Expr>),
+pub enum PseudoArgument {
+    Selector(Rc<Selector>),
+    Expression(Vec<Expr>),
 }
 
-/// As subclasses de `SimpleSelector`.
+/// The subclasses of `SimpleSelector`.
 #[derive(Debug)]
-pub enum TipoSimples {
+pub enum SimpleKind {
     /// `ElementSelector`.
-    Elemento,
-    /// `NamespaceSelector`: `_namespace` (`null`, `Wildcard` ou
-    /// `Identifier`); o elemento vai no `_name`.
-    Namespace { namespace: Option<NomeSimples> },
+    Element,
+    /// `NamespaceSelector`: `_namespace` (`null`, `Wildcard` or `Identifier`);
+    /// the element goes in `_name`.
+    Namespace { namespace: Option<SimpleName> },
     /// `AttributeSelector`.
-    Atributo {
+    Attribute {
         op: i32,
-        valor: Option<ValorAtributo>,
+        value: Option<AttributeValue>,
     },
     /// `IdSelector`.
     Id,
     /// `ClassSelector`.
-    Classe,
+    Class,
     /// `PseudoClassSelector`.
-    PseudoClasse,
+    PseudoClass,
     /// `PseudoElementSelector`.
-    PseudoElemento { legado: bool },
+    PseudoElement { legacy: bool },
     /// `PseudoClassFunctionSelector`.
-    PseudoClasseFuncao(ArgumentoPseudo),
+    PseudoClassFunction(PseudoArgument),
     /// `PseudoElementFunctionSelector`.
-    PseudoElementoFuncao(Vec<Expr>),
+    PseudoElementFunction(Vec<Expr>),
     /// `NegationSelector`.
-    Negacao(Option<Rc<SeletorSimples>>),
+    Negation(Option<Rc<SimpleSelector>>),
 }
 
 /// `SimpleSelector`.
 #[derive(Debug)]
-pub struct SeletorSimples {
-    pub tipo: TipoSimples,
-    pub nome: NomeSimples,
+pub struct SimpleSelector {
+    pub kind: SimpleKind,
+    pub name: SimpleName,
     /// `span != null`.
-    pub tem_span: bool,
+    pub has_span: bool,
 }
 
-impl SeletorSimples {
+impl SimpleSelector {
     /// `SimpleSelector.name`.
-    pub fn nome(&self) -> &str {
-        self.nome.nome()
+    pub fn name(&self) -> &str {
+        self.name.name()
     }
 
     /// `is ElementSelector`.
-    pub fn e_elemento(&self) -> bool {
-        matches!(self.tipo, TipoSimples::Elemento)
+    pub fn is_element(&self) -> bool {
+        matches!(self.kind, SimpleKind::Element)
     }
 
     /// `is NamespaceSelector`.
-    pub fn e_namespace(&self) -> bool {
-        matches!(self.tipo, TipoSimples::Namespace { .. })
+    pub fn is_namespace(&self) -> bool {
+        matches!(self.kind, SimpleKind::Namespace { .. })
     }
 
-    /// `is PseudoClassSelector` (inclui a forma com função).
-    pub fn e_pseudo_classe(&self) -> bool {
+    /// `is PseudoClassSelector` (includes the function form).
+    pub fn is_pseudo_class(&self) -> bool {
         matches!(
-            self.tipo,
-            TipoSimples::PseudoClasse | TipoSimples::PseudoClasseFuncao(_)
+            self.kind,
+            SimpleKind::PseudoClass | SimpleKind::PseudoClassFunction(_)
         )
     }
 
     /// `is PseudoClassFunctionSelector`.
-    pub fn e_pseudo_classe_funcao(&self) -> bool {
-        matches!(self.tipo, TipoSimples::PseudoClasseFuncao(_))
+    pub fn is_pseudo_class_function(&self) -> bool {
+        matches!(self.kind, SimpleKind::PseudoClassFunction(_))
     }
 
-    /// `is PseudoElementSelector` (inclui a forma com função).
-    pub fn e_pseudo_elemento(&self) -> bool {
+    /// `is PseudoElementSelector` (includes the function form).
+    pub fn is_pseudo_element(&self) -> bool {
         matches!(
-            self.tipo,
-            TipoSimples::PseudoElemento { .. } | TipoSimples::PseudoElementoFuncao(_)
+            self.kind,
+            SimpleKind::PseudoElement { .. } | SimpleKind::PseudoElementFunction(_)
         )
     }
 
-    /// `ElementSelector(Identifier(nome, null), null)` e afins: um seletor
-    /// criado pelo shim, sem posição.
-    pub fn criado(tipo: TipoSimples, nome: &str) -> Rc<SeletorSimples> {
-        Rc::new(SeletorSimples {
-            tipo,
-            nome: NomeSimples::Ident(Identificador::sem_span(nome)),
-            tem_span: false,
+    /// `ElementSelector(Identifier(name, null), null)` and the like: a selector
+    /// created by the shim, without a position.
+    pub fn created(kind: SimpleKind, name: &str) -> Rc<SimpleSelector> {
+        Rc::new(SimpleSelector {
+            kind,
+            name: SimpleName::Ident(Identifier::without_span(name)),
+            has_span: false,
         })
     }
 }
 
-/// `SimpleSelectorSequence`: o combinador é mutável e a sequência é
-/// compartilhada.
+/// `SimpleSelectorSequence`: the combinator is mutable and the sequence is
+/// shared.
 #[derive(Debug)]
-pub struct Sequencia {
-    pub combinador: Cell<i32>,
-    pub seletor: Rc<SeletorSimples>,
+pub struct Sequence {
+    pub combinator: Cell<i32>,
+    pub selector: Rc<SimpleSelector>,
 }
 
-impl Sequencia {
+impl Sequence {
     /// `SimpleSelectorSequence(simpleSelector, span, combinator)`.
-    pub fn nova(seletor: Rc<SeletorSimples>, combinador: i32) -> Rc<Sequencia> {
-        Rc::new(Sequencia {
-            combinador: Cell::new(combinador),
-            seletor,
+    pub fn new(selector: Rc<SimpleSelector>, combinator: i32) -> Rc<Sequence> {
+        Rc::new(Sequence {
+            combinator: Cell::new(combinator),
+            selector,
         })
     }
 
-    /// `SimpleSelectorSequence.clone`: outra sequência, o mesmo seletor.
-    pub fn clonar(&self) -> Rc<Sequencia> {
-        Sequencia::nova(Rc::clone(&self.seletor), self.combinador.get())
+    /// `SimpleSelectorSequence.clone`: another sequence, the same selector.
+    pub fn duplicate(&self) -> Rc<Sequence> {
+        Sequence::new(Rc::clone(&self.selector), self.combinator.get())
     }
 
     /// `isCombinatorNone`.
-    pub fn sem_combinador(&self) -> bool {
-        self.combinador.get() == tk::COMBINATOR_NONE
+    pub fn is_combinator_none(&self) -> bool {
+        self.combinator.get() == tk::COMBINATOR_NONE
     }
 
     /// `_combinatorToString`.
-    pub fn combinador_como_texto(&self) -> &'static str {
-        match self.combinador.get() {
+    pub fn combinator_as_str(&self) -> &'static str {
+        match self.combinator.get() {
             tk::COMBINATOR_DESCENDANT => " ",
             tk::COMBINATOR_GREATER => " > ",
             tk::COMBINATOR_PLUS => " + ",
@@ -209,48 +211,48 @@ impl Sequencia {
 
 /// `Selector`.
 #[derive(Debug, Default)]
-pub struct Seletor {
-    pub sequencias: Vec<Rc<Sequencia>>,
+pub struct Selector {
+    pub sequences: Vec<Rc<Sequence>>,
 }
 
 /// `SelectorGroup`.
 #[derive(Debug)]
-pub struct GrupoSeletores {
-    pub seletores: Vec<Seletor>,
+pub struct SelectorGroup {
+    pub selectors: Vec<Selector>,
 }
 
-/// O valor (`Object value`) de um `LiteralTerm`.
+/// The value (`Object value`) of a `LiteralTerm`.
 #[derive(Clone, Debug)]
-pub enum Valor {
+pub enum Value {
     Int(i64),
     Double(f64),
-    Ident(Identificador),
-    Texto(String),
+    Ident(Identifier),
+    Str(String),
     /// `BAD_HEX_VALUE`.
-    HexInvalido,
+    BadHex,
 }
 
-/// As subclasses de `LiteralTerm`.
+/// The subclasses of `LiteralTerm`.
 #[derive(Clone, Debug)]
-pub enum TipoTermo {
+pub enum TermKind {
     /// `LiteralTerm`.
     Literal,
     /// `NumberTerm`.
-    Numero,
-    /// `ItemTerm` (um `NumberTerm`).
+    Number,
+    /// `ItemTerm` (a `NumberTerm`).
     Item,
-    /// `UnitTerm` e subclasses: `LengthTerm` (`comprimento`), `AngleTerm`,
+    /// `UnitTerm` and subclasses: `LengthTerm` (`length`), `AngleTerm`,
     /// `TimeTerm`, `FreqTerm`, `ResolutionTerm`, `ChTerm`, `RemTerm`,
     /// `ViewportTerm`, `LineHeightTerm`.
-    Unidade { unidade: i32, comprimento: bool },
+    Unit { unit: i32, is_length: bool },
     /// `PercentageTerm`.
-    Porcentagem,
+    Percentage,
     /// `EmTerm`.
     Em,
     /// `ExTerm`.
     Ex,
     /// `FractionTerm`.
-    Fracao,
+    Fraction,
     /// `UriTerm`.
     Uri,
     /// `HexColorTerm`.
@@ -258,84 +260,85 @@ pub enum TipoTermo {
     /// `IE8Term`.
     Ie8,
     /// `FunctionTerm`.
-    Funcao(Expressoes),
+    Function(Expressions),
     /// `CalcTerm`.
-    Calc(Box<Termo>),
+    Calc(Box<Term>),
 }
 
-/// `LiteralTerm` (e subclasses).
+/// `LiteralTerm` (and subclasses).
 #[derive(Clone, Debug)]
-pub struct Termo {
-    pub tipo: TipoTermo,
-    pub valor: Valor,
-    pub texto: String,
+pub struct Term {
+    pub kind: TermKind,
+    pub value: Value,
+    pub text: String,
 }
 
-impl Termo {
-    pub fn novo(tipo: TipoTermo, valor: Valor, texto: String) -> Self {
-        Termo { tipo, valor, texto }
+impl Term {
+    pub fn new(kind: TermKind, value: Value, text: String) -> Self {
+        Term { kind, value, text }
     }
 
     /// `is NumberTerm`.
-    pub fn e_numero(&self) -> bool {
-        matches!(self.tipo, TipoTermo::Numero | TipoTermo::Item)
+    pub fn is_number(&self) -> bool {
+        matches!(self.kind, TermKind::Number | TermKind::Item)
     }
 }
 
-/// `Expression` (fora `KeyFrameBlock`, que fica no `KeyFrameDirective`).
+/// `Expression` (except `KeyFrameBlock`, which lives in the
+/// `KeyFrameDirective`).
 #[derive(Clone, Debug)]
 pub enum Expr {
-    Termo(Termo),
+    Term(Term),
     /// `UnicodeRangeTerm`.
     UnicodeRange {
-        primeiro: Option<String>,
-        segundo: Option<String>,
+        first: Option<String>,
+        second: Option<String>,
     },
     /// `VarUsage`.
     VarUsage {
-        nome: String,
-        padroes: Vec<Expr>,
+        name: String,
+        defaults: Vec<Expr>,
     },
     /// `OperatorSlash`.
-    Barra,
+    Slash,
     /// `OperatorComma`.
-    Virgula,
+    Comma,
     /// `OperatorPlus`.
-    Mais,
+    Plus,
     /// `OperatorMinus`.
-    Menos,
+    Minus,
     /// `GroupTerm`.
-    Grupo(Vec<Termo>),
+    Group(Vec<Term>),
 }
 
 /// `Expressions`.
 #[derive(Clone, Debug, Default)]
-pub struct Expressoes {
-    pub expressoes: Vec<Expr>,
+pub struct Expressions {
+    pub expressions: Vec<Expr>,
 }
 
 /// `VarDefinition`.
 #[derive(Debug)]
 pub struct VarDef {
-    pub nome: Option<Identificador>,
-    pub expressao: Option<Expressoes>,
+    pub name: Option<Identifier>,
+    pub expression: Option<Expressions>,
 }
 
 /// `IncludeDirective`.
 #[derive(Debug)]
 pub struct Include {
-    pub nome: String,
+    pub name: String,
     pub args: Vec<Vec<Expr>>,
 }
 
-/// `Declaration` e subclasses.
+/// `Declaration` and subclasses.
 #[derive(Debug)]
-pub enum Declaracao {
+pub enum Declaration {
     /// `Declaration`.
-    Comum {
-        propriedade: Identificador,
-        expressao: Expressoes,
-        importante: bool,
+    Plain {
+        property: Identifier,
+        expression: Expressions,
+        important: bool,
         ie7: bool,
     },
     /// `VarDefinition`.
@@ -343,139 +346,139 @@ pub enum Declaracao {
     /// `IncludeMixinAtDeclaration`.
     Include(Include),
     /// `ExtendDeclaration`.
-    Extend(Vec<Rc<SeletorSimples>>),
+    Extend(Vec<Rc<SimpleSelector>>),
 }
 
-/// `DeclarationGroup`; com `margem`, o `MarginGroup` de um `@page`.
+/// `DeclarationGroup`; with `margin`, the `MarginGroup` of a `@page`.
 #[derive(Debug, Default)]
-pub struct GrupoDeclaracoes {
-    pub declaracoes: Vec<No>,
-    pub margem: Option<i32>,
+pub struct DeclarationGroup {
+    pub declarations: Vec<Node>,
+    pub margin: Option<i32>,
 }
 
 /// `RuleSet`.
 #[derive(Debug)]
 pub struct RuleSet {
-    pub grupo: GrupoSeletores,
-    pub declaracoes: GrupoDeclaracoes,
+    pub group: SelectorGroup,
+    pub declarations: DeclarationGroup,
 }
 
 /// `MediaExpression`.
 #[derive(Debug)]
-pub struct ExprMedia {
-    pub e: bool,
-    pub recurso: Identificador,
-    pub exprs: Expressoes,
+pub struct MediaExpr {
+    pub and_operator: bool,
+    pub feature: Identifier,
+    pub exprs: Expressions,
 }
 
 /// `MediaQuery`.
 #[derive(Debug)]
-pub struct ConsultaMedia {
-    pub unario: i32,
-    pub tipo: Option<Identificador>,
-    pub expressoes: Vec<ExprMedia>,
+pub struct MediaQuery {
+    pub unary: i32,
+    pub kind: Option<Identifier>,
+    pub expressions: Vec<MediaExpr>,
 }
 
 /// `KeyFrameBlock`.
 #[derive(Debug)]
-pub struct BlocoKeyframe {
-    pub seletores: Expressoes,
-    pub declaracoes: GrupoDeclaracoes,
+pub struct KeyframeBlock {
+    pub selectors: Expressions,
+    pub declarations: DeclarationGroup,
 }
 
-/// `SupportsCondition` e subclasses.
+/// `SupportsCondition` and subclasses.
 #[derive(Debug)]
-pub enum CondSupports {
-    /// `SupportsConditionInParens`: uma `Declaration` ou uma condição.
-    EmParenteses(Option<Box<DentroDeParenteses>>),
+pub enum SupportsCondition {
+    /// `SupportsConditionInParens`: a `Declaration` or a condition.
+    InParens(Option<Box<InsideParens>>),
     /// `SupportsNegation`.
-    Negacao(Box<CondSupports>),
+    Negation(Box<SupportsCondition>),
     /// `SupportsConjunction`.
-    Conjuncao(Vec<CondSupports>),
+    Conjunction(Vec<SupportsCondition>),
     /// `SupportsDisjunction`.
-    Disjuncao(Vec<CondSupports>),
+    Disjunction(Vec<SupportsCondition>),
 }
 
-/// O `condition` de `SupportsConditionInParens`.
+/// The `condition` of `SupportsConditionInParens`.
 #[derive(Debug)]
-pub enum DentroDeParenteses {
-    Declaracao(Declaracao),
-    Condicao(CondSupports),
+pub enum InsideParens {
+    Declaration(Declaration),
+    Condition(SupportsCondition),
 }
 
-/// Os `TreeNode` que vivem em listas: regras, diretivas e declarações.
+/// The `TreeNode`s that live in lists: rules, directives and declarations.
 #[derive(Debug)]
-pub enum No {
-    Regra(RuleSet),
-    Declaracao(Declaracao),
+pub enum Node {
+    Rule(RuleSet),
+    Declaration(Declaration),
     /// `ImportDirective`.
     Import {
         import: String,
-        medias: Vec<ConsultaMedia>,
+        media_queries: Vec<MediaQuery>,
     },
     /// `MediaDirective`.
     Media {
-        consultas: Vec<ConsultaMedia>,
-        regras: Vec<No>,
+        queries: Vec<MediaQuery>,
+        rules: Vec<Node>,
     },
     /// `HostDirective`.
     Host {
-        regras: Vec<No>,
+        rules: Vec<Node>,
     },
     /// `PageDirective`.
-    Pagina {
+    Page {
         ident: String,
         pseudo: String,
-        grupos: Vec<GrupoDeclaracoes>,
+        groups: Vec<DeclarationGroup>,
     },
     /// `CharsetDirective`.
     Charset(String),
     /// `KeyFrameDirective`.
     Keyframes {
-        tipo: i32,
-        nome: Option<Identificador>,
-        blocos: Vec<BlocoKeyframe>,
+        kind: i32,
+        name: Option<Identifier>,
+        blocks: Vec<KeyframeBlock>,
     },
     /// `FontFaceDirective`.
-    FontFace(GrupoDeclaracoes),
+    FontFace(DeclarationGroup),
     /// `NamespaceDirective`.
     Namespace {
-        prefixo: String,
+        prefix: String,
         uri: Option<String>,
     },
     /// `VarDefinitionDirective`.
-    VarDefDiretiva(VarDef),
+    VarDefDirective(VarDef),
     /// `MixinRulesetDirective`.
-    MixinRegras {
-        nome: String,
-        regras: Vec<No>,
+    MixinRules {
+        name: String,
+        rules: Vec<Node>,
     },
     /// `MixinDeclarationDirective`.
-    MixinDeclaracoes {
-        nome: String,
-        declaracoes: GrupoDeclaracoes,
+    MixinDeclarations {
+        name: String,
+        declarations: DeclarationGroup,
     },
     /// `IncludeDirective`.
     Include(Include),
     /// `DocumentDirective`.
-    Documento {
-        funcoes: Vec<Termo>,
-        corpo: Vec<No>,
+    Document {
+        functions: Vec<Term>,
+        body: Vec<Node>,
     },
     /// `SupportsDirective`.
     Supports {
-        condicao: Option<CondSupports>,
-        corpo: Vec<No>,
+        condition: Option<SupportsCondition>,
+        body: Vec<Node>,
     },
     /// `ViewportDirective`.
     Viewport {
-        nome: String,
-        declaracoes: GrupoDeclaracoes,
+        name: String,
+        declarations: DeclarationGroup,
     },
 }
 
 /// `StyleSheet`.
 #[derive(Debug, Default)]
-pub struct Folha {
-    pub topo: Vec<No>,
+pub struct StyleSheet {
+    pub top_level: Vec<Node>,
 }

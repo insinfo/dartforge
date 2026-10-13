@@ -1,33 +1,33 @@
-//! Diretivas de atributo que o gerador instancia no nó: o modelo do que o
-//! oficial sabe de cada uma (o `CompileDirectiveMetadata` na parte que o
-//! emissor usa) e a resolução dos provedores de um nó.
+//! Attribute directives that the generator instantiates on the node: the model
+//! of what the official compiler knows about each one (the
+//! `CompileDirectiveMetadata`, in the part the emitter uses) and the resolution
+//! of a node's providers.
 //!
-//! Os metadados **não** são escritos aqui: `metadata.rs` os lê do programa
-//! carregado, como o `find_components.dart` os lê do analyzer — seletor,
-//! `@Input`/`@Output`/`@HostListener` também herdados de superclasses,
-//! interfaces e mixins, provedores, visibilidade e as dependências do
-//! construtor. Uma diretiva cuja leitura não fecha, ou que tem algo que o
-//! emissor ainda não escreve, é recusada com o motivo
+//! The metadata is **not** written here: `metadata.rs` reads it from the loaded
+//! program, as `find_components.dart` reads it from the analyzer — selector,
+//! `@Input`/`@Output`/`@HostListener` also inherited from superclasses,
+//! interfaces and mixins, providers, visibility and the constructor
+//! dependencies. A directive whose reading does not close, or that has
+//! something the emitter does not write yet, is refused with the reason
 //! ([`Diretiva::pendencia`]).
 //!
-//! A resolução de provedores do nó segue o `provider_parser.dart`
-//! (`_ProviderResolver.resolve`, `_getOrCreateLocalProvider`) e o
-//! `ProviderResolver.addDirectiveProviders`: a ordem dos provedores é a da
-//! busca em profundidade pelas dependências, o `uniqueId` do campo é o
-//! tamanho da tabela de instâncias no momento (cinco embutidas do elemento
-//! antes de tudo), e um `ExistingProvider` de um provedor do próprio nó vira
-//! apelido, sem campo.
+//! The resolution of the node's providers follows `provider_parser.dart`
+//! (`_ProviderResolver.resolve`, `_getOrCreateLocalProvider`) and
+//! `ProviderResolver.addDirectiveProviders`: the order of the providers is that
+//! of the depth-first search through the dependencies, the field's `uniqueId`
+//! is the size of the instance table at that moment (five element built-ins
+//! before everything), and an `ExistingProvider` of a provider of the node
+//! itself becomes an alias, without a field.
 use crate::component::Ganchos;
 use std::sync::Arc;
 
-/// `package:ngdart/src/meta/di_tokens.dart`, onde está o `MultiToken`.
+/// `package:ngdart/src/meta/di_tokens.dart`, where `MultiToken` is.
 pub const DI_TOKENS: &str = "package:ngdart/src/meta/di_tokens.dart";
 
-/// O `T` de um `MultiToken<T>`/`OpaqueToken<T>`: a classe e quantos
-/// argumentos de tipo ela tem. Com `args` vazio, todos `dynamic`, como o
-/// `fromDartType` os escreve; senão, os argumentos concretos
-/// (`List<RelativePosition>`), cada um com a mesma forma (`dynamic` é a
-/// classe `dynamic` sem URI).
+/// The `T` of a `MultiToken<T>`/`OpaqueToken<T>`: the class and how many type
+/// arguments it has. With empty `args`, all `dynamic`, as `fromDartType` writes
+/// them; otherwise, the concrete arguments (`List<RelativePosition>`), each
+/// with the same shape (`dynamic` is the `dynamic` class without a URI).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct TipoDeToken {
     pub uri: String,
@@ -42,7 +42,7 @@ impl TipoDeToken {
         self.uri == "dart:core" && self.classe == "Object" && self.genericos == 0
     }
 
-    /// `dynamic` como argumento de tipo.
+    /// `dynamic` as a type argument.
     pub fn dinamico() -> Self {
         TipoDeToken {
             classe: "dynamic".into(),
@@ -58,25 +58,25 @@ impl TipoDeToken {
 /// A biblioteca do `Injector` do ngdart.
 const INJECTOR: &str = "package:ngdart/src/di/injector.dart";
 
-/// Um token de injeção.
+/// An injection token.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Token {
-    /// Uma classe, pela biblioteca que a declara.
+    /// A class, by the library that declares it.
     Classe { uri: String, classe: String },
     /// `const MultiToken<T>('nome')`.
     Multi { nome: String, tipo: TipoDeToken },
     /// `const OpaqueToken<T>('nome')`.
     Opaco { nome: String, tipo: TipoDeToken },
-    /// `HtmlElement`/`Element`: o próprio nó (embutido do elemento).
+    /// `HtmlElement`/`Element`: the node itself (element built-in).
     Elemento,
-    /// `ChangeDetectorRef`: numa diretiva, a própria visão (`o.thisExpr`).
+    /// `ChangeDetectorRef`: in a directive, the view itself (`o.thisExpr`).
     Detector,
 }
 
 impl Token {
-    /// O nome que vai no campo (`_NgModel_3_9`, `_NgValidators_3_6`): o
-    /// `CompileTokenMetadata.name`, que num token de texto troca por `_` o
-    /// que não é letra, dígito ou `_`.
+    /// The name that goes in the field (`_NgModel_3_9`, `_NgValidators_3_6`):
+    /// the `CompileTokenMetadata.name`, which for a string token replaces with
+    /// `_` whatever is not a letter, digit or `_`.
     pub fn nome(&self) -> String {
         match self {
             Token::Classe { classe, .. } => classe.clone(),
@@ -95,8 +95,8 @@ impl Token {
         }
     }
 
-    /// Um dos embutidos do elemento (`ElementRef`, `Injector`,
-    /// `ViewContainerRef`…), que um serviço não recebe como os outros.
+    /// One of the element built-ins (`ElementRef`, `Injector`,
+    /// `ViewContainerRef`…), which a service does not receive like the others.
     pub fn embutido(&self) -> bool {
         match self {
             Token::Elemento | Token::Detector => true,
@@ -118,15 +118,15 @@ impl Token {
     }
 }
 
-/// Um valor constante de `useValue:` na parte que o emissor escreve
-/// (`_useValueExpression`): texto, inteiro, booleano, e objeto constante com
-/// argumentos desses.
+/// A constant `useValue:` value in the part the emitter writes
+/// (`_useValueExpression`): string, integer, boolean, and constant object with
+/// arguments of those kinds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValorConst {
     Texto(String),
     Inteiro(i64),
     Booleano(bool),
-    /// `const C(..)`/`const C.nome(..)`, de classe sem parâmetro de tipo.
+    /// `const C(..)`/`const C.name(..)`, of a class without type parameters.
     Objeto {
         uri: String,
         classe: String,
@@ -136,12 +136,12 @@ pub enum ValorConst {
     },
 }
 
-/// De onde vem o valor de um provedor.
+/// Where the value of a provider comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Fornece {
     /// `useExisting:` — outro token.
     Existente(Token),
-    /// `useClass:` (ou o próprio token), com as dependências do construtor.
+    /// `useClass:` (or the token itself), with the constructor dependencies.
     Classe {
         uri: String,
         classe: String,
@@ -149,7 +149,7 @@ pub enum Fornece {
     },
     /// `useValue:`.
     Valor(ValorConst),
-    /// `useFactory:` de uma função de topo, com `deps:` (ou os parâmetros).
+    /// `useFactory:` of a top-level function, with `deps:` (or the parameters).
     Fabrica {
         uri: String,
         nome: String,
@@ -157,22 +157,22 @@ pub enum Fornece {
     },
 }
 
-/// Um item de `providers:`, já achatado (`ModuleReader`,
+/// An item of `providers:`, already flattened (`ModuleReader`,
 /// `_normalizeProviders`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Provedor {
     pub token: Token,
     pub fonte: Fornece,
     pub multi: bool,
-    /// O `T` do `Provider<T>` (`inferProviderType`): o tipo do campo quando
-    /// não é o da própria expressão. `None` quando a inferência não acha (e
-    /// o campo leva o tipo do valor, ou `dynamic`).
+    /// The `T` of `Provider<T>` (`inferProviderType`): the field type when it
+    /// is not that of the expression itself. `None` when inference finds
+    /// nothing (and the field takes the type of the value, or `dynamic`).
     pub tipo: Option<TipoDeToken>,
 }
 
 impl Provedor {
-    /// `ExistingProvider(token, alvo)` sem tipo inferido — a única forma que
-    /// um nó de template sabe criar.
+    /// `ExistingProvider(token, target)` without an inferred type — the only
+    /// shape a template node knows how to create.
     pub fn apelido(token: Token, alvo: Token, multi: bool) -> Self {
         Provedor {
             token,
@@ -183,12 +183,12 @@ impl Provedor {
     }
 }
 
-/// Um parâmetro posicional do construtor (`_getCompileDiDependencyMetadata`
-/// pula os nomeados).
+/// A positional constructor parameter (`_getCompileDiDependencyMetadata` skips
+/// the named ones).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dependencia {
     pub token: Token,
-    /// `@Optional()` ou parâmetro posicional opcional.
+    /// `@Optional()` or an optional positional parameter.
     pub opcional: bool,
     /// `@Self()`.
     pub proprio: bool,
@@ -196,14 +196,14 @@ pub struct Dependencia {
     pub hospedeiro: bool,
     /// `@SkipSelf()`.
     pub pular: bool,
-    /// `@Attribute('nome')`: o valor do atributo estático do elemento, ou
+    /// `@Attribute('name')`: the value of the element's static attribute, or
     /// `null` (`_getLocalDependency`).
     pub atributo: Option<String>,
 }
 
-/// Um `@Input`: nome no template, membro, e se o tipo é `bool` (atributo
-/// sem valor vira `true`, `visitEmptyExpr`); `None` quando o tipo não se
-/// sabe daqui.
+/// An `@Input`: name in the template, member, and whether the type is `bool`
+/// (an attribute without a value becomes `true`, `visitEmptyExpr`); `None` when
+/// the type is not known from here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entrada {
     pub nome: String,
@@ -211,9 +211,9 @@ pub struct Entrada {
     pub booleana: Option<bool>,
 }
 
-/// Um `@HostListener`: o evento, o método e os argumentos como o
-/// `_addHostListener` os escreve. `args` vazio: método sem parâmetro;
-/// `$event`: um parâmetro; outro texto: handler complexo.
+/// A `@HostListener`: the event, the method and the arguments as
+/// `_addHostListener` writes them. Empty `args`: a method without parameters;
+/// `$event`: one parameter; other text: a complex handler.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ouvinte {
     pub evento: String,
@@ -221,8 +221,8 @@ pub struct Ouvinte {
     pub args: String,
 }
 
-/// O que o gerador sabe de uma `@Directive` (ou `@Component`), lido do
-/// programa.
+/// What the generator knows about a `@Directive` (or `@Component`), read from
+/// the program.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Diretiva {
     pub classe: String,
@@ -230,7 +230,7 @@ pub struct Diretiva {
     pub seletor: String,
     pub e_componente: bool,
     pub export_as: Option<String>,
-    /// `visibility: Visibility.all`: injetável por quem está abaixo.
+    /// `visibility: Visibility.all`: injectable by whoever is below.
     pub visivel: bool,
     pub provedores: Vec<Provedor>,
     pub dependencias: Vec<Dependencia>,
@@ -240,34 +240,35 @@ pub struct Diretiva {
     pub saidas: Vec<(String, String)>,
     /// Na ordem do mapa `hostListeners`.
     pub ouvintes: Vec<Ouvinte>,
-    /// `@HostBinding`: (nome da ligação, membro).
+    /// `@HostBinding`: (binding name, member).
     pub ligacoes_do_hospedeiro: Vec<(String, String)>,
-    /// Algum `@HostBinding` num membro estático (fora de
-    /// `ligacoes_do_hospedeiro`): o oficial o escreve uma vez, no construtor
-    /// da visão — no componente, pelo leitor dele (caso j96); aqui, sem caso.
+    /// Some `@HostBinding` on a static member (outside
+    /// `ligacoes_do_hospedeiro`): the official compiler writes it once, in the
+    /// view constructor — for a component, through its reader (case j96); here,
+    /// no case.
     pub hospedeiro_estatico: bool,
-    /// Os membros estáticos entre as `ligacoes_do_hospedeiro` (`StaticRead`,
-    /// imutável, `dynamic` para o `_TypeResolver`).
+    /// The static members among the `ligacoes_do_hospedeiro` (`StaticRead`,
+    /// immutable, `dynamic` for the `_TypeResolver`).
     pub estaticos_do_hospedeiro: Vec<String>,
-    /// `hostAttributes` de uma diretiva: `@HostBinding` em estático
-    /// imutável fora de `class.x`/`style.x` (nome sem `attr.`, membro). Fora
-    /// da `XNgCd`; quem usa a diretiva os escreve no elemento.
+    /// `hostAttributes` of a directive: `@HostBinding` on an immutable static
+    /// outside `class.x`/`style.x` (name without `attr.`, member). Outside the
+    /// `XNgCd`; the directive's user writes them on the element.
     pub atributos_do_hospedeiro: Vec<(String, String)>,
     pub ganchos: Ganchos,
-    /// Algum `@ViewChild(ren)` (uma diretiva não tem visão).
+    /// Some `@ViewChild(ren)` (a directive has no view).
     pub consultas: bool,
-    /// Os `@ContentChild(ren)`, com os tipos resolvidos na biblioteca da
-    /// diretiva: setters, depois campos, cada grupo em ordem de declaração.
+    /// The `@ContentChild(ren)`, with the types resolved in the directive's
+    /// library: setters, then fields, each group in declaration order.
     pub consultas_de_conteudo: Vec<crate::view::ConsultaDoFilho>,
-    /// O que a leitura não conseguiu entender: com qualquer coisa aqui, os
-    /// metadados estão incompletos e a diretiva não é usada.
+    /// What the reading could not understand: with anything here, the metadata
+    /// is incomplete and the directive is not used.
     pub fora: Vec<String>,
-    /// Os `viewProviders:` de um componente (`ProviderAstType.privateService`
-    /// no elemento dele), na ordem.
+    /// The `viewProviders:` of a component (`ProviderAstType.privateService` on
+    /// its element), in order.
     pub provedores_de_visao: Vec<Provedor>,
-    /// As dependências do construtor foram lidas por inteiro (o `fora` pode
-    /// ter outra coisa, como um `viewProviders:` ilegível, que não mexe
-    /// nelas).
+    /// The constructor dependencies were read completely (`fora` may have
+    /// something else, like an unreadable `viewProviders:`, which does not
+    /// affect them).
     pub dependencias_lidas: bool,
 }
 
@@ -279,9 +280,9 @@ impl Diretiva {
         }
     }
 
-    /// Todos os `providers:` são `ExistingProvider` de token de classe ou
-    /// `MultiToken` — o que um nó de template sabe criar. (Os outros só a
-    /// visão-hospedeira do próprio componente escreve.)
+    /// All `providers:` are `ExistingProvider`s of a class token or
+    /// `MultiToken` — what a template node knows how to create. (The others are
+    /// only written by the component's own host view.)
     pub fn so_apelidos(&self) -> bool {
         self.provedores.iter().all(|p| {
             matches!(&p.fonte, Fornece::Existente(Token::Classe { .. }))
@@ -300,120 +301,121 @@ impl Diretiva {
             .map(|(_, m)| m.as_str())
     }
 
-    /// Por que o emissor ainda não instancia esta diretiva num elemento
-    /// HTML, ou `None` se instancia. Cada item é uma forma sem caso no
-    /// corpus: gerar ignorando-a daria saída errada.
+    /// Why the emitter does not instantiate this directive on an HTML element
+    /// yet, or `None` if it does. Each item is a shape without a case in the
+    /// corpus: generating while ignoring it would give wrong output.
     pub fn pendencia(&self) -> Option<String> {
         if let Some(f) = self.fora.first() {
             return Some(f.clone());
         }
         if !self.atributos_do_hospedeiro.is_empty() {
-            return Some("hostAttributes de diretiva (mescla no elemento)".into());
+            return Some("directive hostAttributes (merged into the element)".into());
         }
         if self.e_componente {
-            return Some("componente como diretiva".into());
+            return Some("component as a directive".into());
         }
 
         if self.consultas {
-            return Some("consulta de conteúdo ou de visão".into());
+            return Some("content or view query".into());
         }
         if self
             .ouvintes
             .iter()
             .any(|o| !crate::view::evento_nativo(&o.evento))
         {
-            return Some("@HostListener de evento não nativo".into());
+            return Some("@HostListener of a non-native event".into());
         }
         for d in &self.dependencias {
             if let Token::Multi { tipo, .. } = &d.token
                 && !tipo.e_object()
                 && tipo.genericos == 0
             {
-                return Some("MultiToken de tipo não genérico".into());
+                return Some("MultiToken of a non-generic type".into());
             }
         }
-        // `OpaqueToken<T>` com `T` genérico: a forma do `T` na expressão do
-        // token (`createDiTokenExpression`) ainda não tem caso.
+        // `OpaqueToken<T>` with a generic `T`: the shape of `T` in the token
+        // expression (`createDiTokenExpression`) has no case yet.
         if self
             .dependencias
             .iter()
             .any(|d| matches!(&d.token, Token::Opaco { tipo, .. } if tipo.genericos > 0))
         {
-            return Some("dependência de OpaqueToken de tipo genérico".into());
+            return Some("dependency on an OpaqueToken of a generic type".into());
         }
         for p in &self.provedores {
             if let Token::Multi { tipo, .. } = &p.token
                 && !tipo.e_object()
                 && tipo.genericos == 0
             {
-                return Some("MultiToken de tipo não genérico".into());
+                return Some("MultiToken of a non-generic type".into());
             }
         }
         None
     }
 }
 
-/// Um argumento do construtor de uma diretiva, já resolvido no nó.
+/// An argument of a directive's constructor, already resolved on the node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Argumento {
-    /// O nó (`_el_3` ou `this._el_3`).
+    /// The node (`_el_3` or `this._el_3`).
     Elemento,
-    /// A visão (`this`).
+    /// The view (`this`).
     Detector,
-    /// `@Optional() @Self()` sem provedor no nó.
+    /// `@Optional() @Self()` without a provider on the node.
     Nulo,
-    /// O campo de outro provedor do nó.
+    /// The field of another provider of the node.
     Campo(String),
-    /// Um provedor de um elemento acima (`_getDependency` sobe pelos
-    /// pais): a expressão que o lê desta visão.
+    /// A provider of an element above (`_getDependency` walks up through the
+    /// parents): the expression that reads it from this view.
     Acima(String),
-    /// `ViewContainerRef`: o `ViewContainer` do nó (`this._appEl_n`).
+    /// `ViewContainerRef`: the node's `ViewContainer` (`this._appEl_n`).
     Container,
-    /// `@Attribute('nome')`: o literal do atributo estático do elemento, ou
+    /// `@Attribute('name')`: the literal of the element's static attribute, or
     /// `null`.
     Atributo(String),
-    /// `Injector`: o injetor do próprio elemento, `this.injector(n)` (um
-    /// dos embutidos do `CompileElement`, como o `ElementRef`).
+    /// `Injector`: the element's own injector, `this.injector(n)` (one of the
+    /// built-ins of `CompileElement`, like `ElementRef`).
     Injetor(u32),
-    /// Nenhum elemento da cadeia provê: o injetor de fora da visão
-    /// (`injectFromViewParentInjector`), `injectorGetOptional` com
+    /// No element of the chain provides it: the injector from outside the view
+    /// (`injectFromViewParentInjector`), `injectorGetOptional` with
     /// `@Optional()`.
     DeFora { token: Token, opcional: bool },
 }
 
-/// Um provedor injetável de um elemento acima do nó, na visão dele ou numa
-/// visão ancestral (a cadeia de `parentView` até ela).
+/// An injectable provider of an element above the node, in its view or in an
+/// ancestor view (the `parentView` chain up to it).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProvedorAcima {
     pub token: Token,
-    /// A expressão que o lê da visão em que o nó está.
+    /// The expression that reads it from the view the node is in.
     pub leitura: String,
-    /// Provedor preguiçoso do elemento dono: pedido de um nó abaixo, o
-    /// oficial o transforma durante a visita do filho, antes do
-    /// `afterElement` do dono (`provider_parser.dart:318-366`), o que muda o
-    /// índice e a forma dele lá — ainda não modelado (lacuna L1).
+    /// A lazy provider of the owning element: requested by a node below, the
+    /// official compiler transforms it during the child's visit, before the
+    /// owner's `afterElement` (`provider_parser.dart:318-366`), which changes
+    /// its index and shape there — not modeled yet (gap L1).
     pub preguicoso: bool,
-    /// Visto de outra visão (atravessou `<template>`): o `_getDependency`
-    /// pede com `eager: false` (`_isViewRoot`), o provedor segue preguiçoso
-    /// e é lido pelo campo — quando o dono modelou esse pedido
+    /// Seen from another view (it crossed a `<template>`): `_getDependency`
+    /// asks with `eager: false` (`_isViewRoot`), the provider stays lazy and is
+    /// read through the field — when the owner modeled that request
     /// ([`resolver_no_do_filho`]).
     pub leitura_preguicosa: bool,
 }
 
-/// O que há acima do nó para as dependências que ele não satisfaz.
+/// What there is above the node for the dependencies it does not satisfy.
 #[derive(Debug, Clone, Copy)]
 pub struct Acima<'a> {
-    /// Do mais próximo para o mais longe.
+    /// From the closest to the farthest.
     pub provedores: &'a [ProvedorAcima],
-    /// Algum elemento acima tem provedor que o emissor não modela (um
-    /// componente): não achar não prova que não há.
+    /// Some element above has a provider the emitter does not model (a
+    /// component): not finding it does not prove there is none.
     pub incerto: bool,
-    /// Os tokens dos `viewProviders:` do componente desta visão: o `@Host()`
-    /// que pede um deles vai ao injetor de fora (`provider_parser.dart:347-351`).
+    /// The tokens of the `viewProviders:` of this view's component: an
+    /// `@Host()` that asks for one of them goes to the outside injector
+    /// (`provider_parser.dart:347-351`).
     pub de_visao: &'a [Token],
 }
 
-/// Como um campo de provedor é criado no `build()`.
+/// How a provider field is created in `build()`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Criacao {
     /// `Classe(args)`.
@@ -421,28 +423,28 @@ pub enum Criacao {
         diretiva: Arc<Diretiva>,
         args: Vec<Argumento>,
     },
-    /// `[a, b]`: os campos que o multi-provedor junta.
+    /// `[a, b]`: the fields the multi-provider joins.
     Lista(Vec<String>),
-    /// Só na visão-hospedeira: um provedor de `providers:` que não é
-    /// diretiva nem apelido local (`ClassProviderSource`,
-    /// `FactoryProviderSource`, `ExpressionProviderSource` e o
-    /// `injectorGet` de um apelido de fora).
+    /// Only in the host view: a `providers:` provider that is neither a
+    /// directive nor a local alias (`ClassProviderSource`,
+    /// `FactoryProviderSource`, `ExpressionProviderSource` and the
+    /// `injectorGet` of an outside alias).
     Expressao(Expr),
-    /// Só na visão-hospedeira: o multi-provedor com itens de qualquer forma.
+    /// Only in the host view: the multi-provider with items of any shape.
     Multi(Vec<Expr>),
 }
 
-/// O valor de um provedor da visão-hospedeira, como o `ProviderSource.build`
-/// o escreve.
+/// The value of a host view provider, as `ProviderSource.build` writes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
-    /// `this.campo` — outro provedor do nó (`component` é o componente).
+    /// `this.field` — another provider of the node (`component` is the
+    /// component).
     Campo(String),
-    /// Um provedor de um elemento acima, num nó de template: a expressão
-    /// que o lê desta visão (`_getDependency`).
+    /// A provider of an element above, in a template node: the expression that
+    /// reads it from this view (`_getDependency`).
     Leitura(String),
-    /// `this.injectorGet(token, this.parentIndex)` (ou `injectorGetOptional`):
-    /// o que o nó não provê vem do injetor de fora.
+    /// `this.injectorGet(token, this.parentIndex)` (or `injectorGetOptional`):
+    /// what the node does not provide comes from the outside injector.
     Injetor {
         token: Token,
         opcional: bool,
@@ -463,8 +465,8 @@ pub enum Expr {
 }
 
 impl Expr {
-    /// Alguma dependência vem do injetor (`hasDynamicDependencies`): a
-    /// criação sai embrulhada em `debugInjectorWrap`.
+    /// Some dependency comes from the injector (`hasDynamicDependencies`): the
+    /// creation comes out wrapped in `debugInjectorWrap`.
     pub fn dinamica(&self) -> bool {
         match self {
             Expr::Classe { args, .. } | Expr::Fabrica { args, .. } => {
@@ -475,41 +477,41 @@ impl Expr {
     }
 }
 
-/// Um provedor do nó que vira campo da visão.
+/// A provider of the node that becomes a field of the view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instancia {
     pub token: Token,
     pub campo: String,
     pub criacao: Criacao,
-    /// Os tokens pelos quais ele é injetável abaixo (`injectorGetInternal`):
-    /// o próprio, se visível, e os apelidos.
+    /// The tokens through which it is injectable below (`injectorGetInternal`):
+    /// its own, if visible, and the aliases.
     pub injetavel_por: Vec<Token>,
-    /// Os `ExistingProvider` do nó que apontam para esta instância, visíveis
-    /// ou não: também por eles uma consulta a acha.
+    /// The node's `ExistingProvider`s that point to this instance, visible or
+    /// not: a query also finds it through them.
     pub apelidos: Vec<Token>,
-    /// Nenhum provedor ansioso (diretiva, componente) depende dele: o
-    /// oficial o cria no `afterElement` com `eager: false`, como campo
-    /// `late` com inicializador (`late List<T> _X_n_m = [..];`), e não no
+    /// No eager provider (directive, component) depends on it: the official
+    /// compiler creates it in `afterElement` with `eager: false`, as a `late`
+    /// field with an initializer (`late List<T> _X_n_m = [..];`), and not in
     /// `build()`.
     pub preguicosa: bool,
-    /// Como a instância é lida: o campo, ou `campo.instance` quando a
-    /// diretiva tem `@HostBinding` e o campo guarda o `XNgCd` dela.
+    /// How the instance is read: the field, or `field.instance` when the
+    /// directive has `@HostBinding` and the field holds its `XNgCd`.
     pub leitura: String,
     /// O `T` inferido do provedor (o `typeArgument`), que tipa o campo.
     pub tipo: Option<TipoDeToken>,
 }
 
-/// Os provedores de diretivas de um nó, resolvidos.
+/// The directive providers of a node, resolved.
 #[derive(Debug, Clone, Default)]
 pub struct NoResolvido {
-    /// Os campos, na ordem de criação.
+    /// The fields, in creation order.
     pub instancias: Vec<Instancia>,
-    /// As diretivas, na ordem em que o oficial as liga
-    /// (`transformedDirectiveAsts`: a dos provedores), com a leitura da
-    /// instância de cada (o campo, ou `campo.instance` com `XNgCd`).
+    /// The directives, in the order the official compiler binds them
+    /// (`transformedDirectiveAsts`: that of the providers), with how each
+    /// instance is read (the field, or `field.instance` with `XNgCd`).
     pub diretivas: Vec<(Arc<Diretiva>, String)>,
-    /// O nó tem `ViewContainer` (`requiresViewContainer`): uma diretiva ou
-    /// o componente dele injeta `ViewContainerRef` (casos j47–j49).
+    /// The node has a `ViewContainer` (`requiresViewContainer`): a directive or
+    /// its component injects `ViewContainerRef` (cases j47–j49).
     pub container: bool,
 }
 
@@ -529,17 +531,17 @@ struct Resolvido {
     eager: bool,
     visivel: bool,
     tipo: Option<TipoDeToken>,
-    /// Veio de `viewProviders:` (`ProviderAstType.privateService`): só o
-    /// componente e outro provedor privado do nó o acham localmente
-    /// (`_getOrCreateLocalProvider`); diretivas e serviços públicos, do nó
-    /// ou de baixo, sobem para o injetor.
+    /// It came from `viewProviders:` (`ProviderAstType.privateService`): only
+    /// the component and another private provider of the node find it locally
+    /// (`_getOrCreateLocalProvider`); directives and public services, of the
+    /// node or from below, go up to the injector.
     privado: bool,
 }
 
-/// Resolve os provedores das diretivas `casadas` (na ordem de
-/// `directives:`) no nó `n`. Uma dependência que o próprio nó não satisfaz
-/// e não é `@Optional() @Self()` é recusada: ela viria de outro nó ou do
-/// injetor, formas ainda sem caso.
+/// Resolves the providers of the `casadas` directives (in `directives:` order)
+/// on node `n`. A dependency the node itself does not satisfy and that is not
+/// `@Optional() @Self()` is refused: it would come from another node or from
+/// the injector, shapes without a case yet.
 pub fn resolver(
     casadas: &[Arc<Diretiva>],
     n: u32,
@@ -548,8 +550,8 @@ pub fn resolver(
     resolver_em(casadas, n, acima, false)
 }
 
-/// [`resolver`] com os tokens que as consultas de visão leem do nó
-/// (`read:`), que o oficial cria ansiosos (`queriedTokens`).
+/// [`resolver`] with the tokens that the view queries read from the node
+/// (`read:`), which the official compiler creates eagerly (`queriedTokens`).
 pub fn resolver_consultado(
     casadas: &[Arc<Diretiva>],
     n: u32,
@@ -569,18 +571,18 @@ pub fn resolver_consultado(
     )
 }
 
-/// Os provedores de um `<template>` escrito (`EmbeddedTemplateAst`): os
-/// embutidos (`ElementRef`, `Element`, `HtmlElement`, `Injector`,
-/// `ViewContainer`; `ViewContainerRef` se alguma diretiva o pede;
-/// `ChangeDetectorRef`, `ComponentLoader`), o `TemplateRef` — o primeiro
-/// dos resolvidos (`setEmbeddedView`), no índice seguinte — e as diretivas
-/// depois dele. `template_ref` dá a leitura do `TemplateRef` do nó pelo
-/// índice dele, que volta junto (caso j85).
+/// The providers of a written `<template>` (`EmbeddedTemplateAst`): the
+/// built-ins (`ElementRef`, `Element`, `HtmlElement`, `Injector`,
+/// `ViewContainer`; `ViewContainerRef` if some directive asks for it;
+/// `ChangeDetectorRef`, `ComponentLoader`), the `TemplateRef` — the first of
+/// the resolved ones (`setEmbeddedView`), at the next index — and the
+/// directives after it. `template_ref` gives how the node's `TemplateRef` is
+/// read through its index, which is returned too (case j85).
 pub fn resolver_de_molde(
     casadas: &[Arc<Diretiva>],
     n: u32,
     acima: Option<Acima>,
-    // Uma consulta lê um `#ref` do nó como `ViewContainerRef`
+    // A query reads a `#ref` of the node as `ViewContainerRef`
     // (`_requiresViewContainer`, `provider_parser.dart:95-104`).
     forcar_container: bool,
     template_ref: &dyn Fn(u32) -> String,
@@ -608,30 +610,31 @@ pub fn e_template_ref(t: &Token) -> bool {
         if uri == "package:ngdart/src/core/linker/template_ref.dart" && classe == "TemplateRef")
 }
 
-/// Os provedores do nó da visão-hospedeira (`_ViewXHost0`, nó 0): o
-/// componente e os `providers:` dele. O que o nó não provê vem do injetor
-/// de fora (`injectFromViewParentInjector`), e a instância do componente é
-/// o campo `component` do `HostView` (`hostViewComponentFieldName`).
+/// The providers of the host view's node (`_ViewXHost0`, node 0): the component
+/// and its `providers:`. What the node does not provide comes from the outside
+/// injector (`injectFromViewParentInjector`), and the component instance is the
+/// `component` field of the `HostView` (`hostViewComponentFieldName`).
 pub fn resolver_hospedeira(componente: Arc<Diretiva>) -> Result<NoResolvido, &'static str> {
     resolver_em(&[componente], 0, None, true)
 }
 
-/// Os provedores do nó de um componente filho num template: o filho
-/// (`casadas[0]`, sem as dependências do construtor, que se resolvem à
-/// parte) com os `providers:` dele de qualquer forma, e as diretivas do nó
-/// (`casadas[1..]`), que continuam só com `ExistingProvider`. Os provedores
-/// do filho são escritos como na hospedeira (`ProviderSource.build`), mas
-/// uma dependência que o nó não satisfaz iria para os elementos acima ou
-/// para o injetor de fora (`parentView.injectorGet`): ainda sem caso, é
-/// recusada.
+/// The providers of the node of a child component in a template: the child
+/// (`casadas[0]`, without the constructor dependencies, which are resolved
+/// separately) with its `providers:` of any shape, and the node's directives
+/// (`casadas[1..]`), which still only have `ExistingProvider`. The child's
+/// providers are written as in the host view (`ProviderSource.build`), but a
+/// dependency the node does not satisfy would go to the elements above or to
+/// the outside injector (`parentView.injectorGet`): with no case yet, it is
+/// refused.
 ///
-/// `container`: o filho injeta `ViewContainerRef` e o nó ganha um
-/// `ViewContainer`, com mais três embutidos (`ViewContainer`,
-/// `ViewContainerRef`, `ComponentLoader`) antes dos provedores (caso j47).
+/// `container`: the child injects `ViewContainerRef` and the node gets a
+/// `ViewContainer`, with three more built-ins (`ViewContainer`,
+/// `ViewContainerRef`, `ComponentLoader`) before the providers (case j47).
 ///
-/// `pedidos`: os tokens que os nós do conteúdo pedem a este nó durante a
-/// visita deles (`_getDependency` sobe e acha aqui), na ordem, que o oficial
-/// transforma ansiosos antes do `afterElement` deste nó (caso i76).
+/// `pedidos`: the tokens the content nodes request from this node during their
+/// visit (`_getDependency` walks up and finds them here), in order, which the
+/// official compiler transforms eagerly before this node's `afterElement` (case
+/// i76).
 pub fn resolver_no_do_filho(
     casadas: &[Arc<Diretiva>],
     filho: usize,
@@ -662,9 +665,9 @@ fn resolver_em(
     resolver_com(casadas, n, acima, hospedeira, None, false, None, &[], &[])
 }
 
-/// `componente`: o índice do componente filho em `casadas` (no nó de um
-/// filho), que tem os `providers:` de qualquer forma escritos, como todas
-/// na hospedeira; as outras só com `ExistingProvider`.
+/// `componente`: the index of the child component in `casadas` (on a child's
+/// node), which has its `providers:` of any shape written, like all of them in
+/// the host view; the others only with `ExistingProvider`.
 #[allow(clippy::too_many_arguments)]
 fn resolver_com(
     casadas: &[Arc<Diretiva>],
@@ -678,12 +681,12 @@ fn resolver_com(
     pedidos: &[(Token, bool)],
 ) -> Result<NoResolvido, &'static str> {
     let completa = |k: usize| hospedeira || componente == Some(k);
-    // `requiresViewContainer`: com `ViewContainer` o nó ganha três embutidos
-    // (`ViewContainer`, `ViewContainerRef`, `ComponentLoader`) antes dos
-    // provedores, e os campos começam no 8.
+    // `requiresViewContainer`: with a `ViewContainer` the node gets three
+    // built-ins (`ViewContainer`, `ViewContainerRef`, `ComponentLoader`) before
+    // the providers, and the fields start at 8.
     let container = container || casadas.iter().any(|d| pede_container(d));
-    // `_ProviderResolver.resolve`: as diretivas (ansiosas), depois os
-    // `providers:` de cada uma; o mesmo token multi acumula.
+    // `_ProviderResolver.resolve`: the directives (eager), then the
+    // `providers:` of each; the same multi token accumulates.
     let mut todos: Vec<Resolvido> = Vec::new();
     for d in casadas {
         todos.push(Resolvido {
@@ -696,17 +699,18 @@ fn resolver_com(
             privado: false,
         });
     }
-    // Os `providers:` com o componente antes das diretivas ("directives
+    // The `providers:` with the component before the directives ("directives
     // are able to overwrite providers of a component").
     let em_ordem = componente
         .into_iter()
         .chain((0..casadas.len()).filter(|k| Some(*k) != componente));
     for k in em_ordem {
         let d = &casadas[k];
-        // `viewProviders:` só de componente (o nó de um filho com nós
-        // filhos, que os poria num `ProviderNode` à parte, é recusado antes).
+        // `viewProviders:` only for a component (the node of a child with child
+        // nodes, which would put them in a separate `ProviderNode`, is refused
+        // earlier).
         if !d.provedores_de_visao.is_empty() && !completa(k) {
-            return Err("viewProviders de diretiva");
+            return Err("directive viewProviders");
         }
         let publicos = d.provedores.iter().map(|p| (p, false));
         let privados = d.provedores_de_visao.iter().map(|p| (p, true));
@@ -718,16 +722,17 @@ fn resolver_com(
             match todos.iter_mut().find(|r| r.token == p.token) {
                 Some(r) => {
                     if r.privado != privado {
-                        // O `providerType` de quem fica: ainda sem caso.
-                        return Err("provedor público e privado no mesmo token");
+                        // The `providerType` of the one that stays: no case
+                        // yet.
+                        return Err("public and private provider on the same token");
                     }
                     if r.multi != p.multi {
-                        return Err("provedor multi e não multi no mesmo token");
+                        return Err("multi and non-multi provider on the same token");
                     }
                     if r.eager && (completa(k) || matches!(fonte, Fonte::Provedor(_))) {
-                        // O token do componente sobrescrito por `providers:`:
-                        // ainda sem caso.
-                        return Err("provedor com o token do componente");
+                        // The component's token overwritten by `providers:`: no
+                        // case yet.
+                        return Err("provider with the component's token");
                     }
                     if !p.multi {
                         r.fontes.clear();
@@ -747,23 +752,24 @@ fn resolver_com(
             }
         }
     }
-    // O que uma consulta lê do nó (`queriedTokens`: o `read:` de cada
-    // consulta que casa com ele) também é ansioso.
+    // What a query reads from the node (`queriedTokens`: the `read:` of each
+    // query that matches it) is eager too.
     for r in &mut todos {
         if consultados.contains(&r.token) {
             r.eager = true;
         }
     }
-    // `_getOrCreateLocalProvider`: em profundidade, as dependências antes.
-    // Só as dependências que o `_getDependency` procura no próprio nó viram
-    // aresta: `@SkipSelf` pula o nó (`provider_parser.dart:325`), e o
-    // `_getLocalDependency` devolve `@Attribute`, `Injector` e os embutidos
-    // do elemento sem criar provedor (`:270-301`). Sem isso, o
-    // `@Optional() @SkipSelf()` do token do próprio nó parecia ciclo.
+    // `_getOrCreateLocalProvider`: depth-first, the dependencies first. Only
+    // the dependencies that `_getDependency` looks for on the node itself
+    // become edges: `@SkipSelf` skips the node (`provider_parser.dart:325`),
+    // and `_getLocalDependency` returns `@Attribute`, `Injector` and the
+    // element built-ins without creating a provider (`:270-301`). Without this,
+    // the `@Optional() @SkipSelf()` of the node's own token looked like a
+    // cycle.
     fn local(dep: &Dependencia) -> bool {
         !dep.pular && dep.atributo.is_none() && !dep.token.embutido()
     }
-    /// Quem pede como `component` ou `privateService` acha os privados.
+    /// Whoever asks as `component` or `privateService` finds the private ones.
     fn ve_privados(r: &Resolvido) -> bool {
         r.privado || matches!(r.fontes.as_slice(), [Fonte::Diretiva(d)] if d.e_componente)
     }
@@ -778,7 +784,7 @@ fn resolver_com(
             return Ok(());
         }
         if vistos.contains(&i) {
-            return Err("dependência cíclica entre diretivas");
+            return Err("cyclic dependency between directives");
         }
         vistos.push(i);
         let privado = ve_privados(&todos[i]);
@@ -792,8 +798,9 @@ fn resolver_com(
         for f in &todos[i].fontes {
             match f {
                 Fonte::Existente(t) => {
-                    // O apelido de fora do nó lê o injetor (hospedeira) ou o
-                    // elemento acima / o injetor de fora (nó de template).
+                    // An alias from outside the node reads the injector (host
+                    // view) or the element above / the outside injector
+                    // (template node).
                     if let Some(j) = todos
                         .iter()
                         .position(|r| r.token == *t && (privado || !r.privado))
@@ -824,13 +831,13 @@ fn resolver_com(
             criar(&todos, i, &mut ordem, &mut vistos, hospedeira)?;
         }
     }
-    // Os ansiosos até aqui; os pedidos seguintes marcam os que criam.
+    // The eager ones so far; the following requests mark those they create.
     let mut ansiosos_idx: Vec<usize> = ordem.clone();
-    // Os pedidos dos nós de baixo, na visita deles (antes do `afterElement`
-    // deste): cada um transformado na hora, com as dependências antes
-    // (`_getLocalDependency` com o `eager` de quem pede); o que atravessou
-    // `<template>` pede com `eager: false` e fica preguiçoso, mas na posição
-    // da visita. Já transformado, fica como está.
+    // The requests of the nodes below, during their visit (before this one's
+    // `afterElement`): each one transformed right away, with the dependencies
+    // first (`_getLocalDependency` with the `eager` of the requester); one that
+    // crossed a `<template>` asks with `eager: false` and stays lazy, but in
+    // the position of the visit. Once transformed, it stays as it is.
     for (t, ansioso) in pedidos {
         if let Some(i) = todos.iter().position(|r| r.token == *t) {
             let antes = ordem.len();
@@ -840,14 +847,14 @@ fn resolver_com(
             }
         }
     }
-    // `afterElement`: o que sobrou (os apelidos, em geral).
+    // `afterElement`: what is left (the aliases, in general).
     for i in 0..todos.len() {
         criar(&todos, i, &mut ordem, &mut vistos, hospedeira)?;
     }
 
-    // `addDirectiveProviders`: o `uniqueId` é o tamanho da tabela, que já
-    // tem as cinco embutidas do elemento.
-    // No `<template>`, as diretivas vêm depois do `TemplateRef`.
+    // `addDirectiveProviders`: the `uniqueId` is the size of the table, which
+    // already has the five element built-ins. In a `<template>`, the directives
+    // come after the `TemplateRef`.
     let mut tamanho = match molde {
         Some((_, indice)) => indice + 1,
         None if container => 8 + crate::dialect::embutidos_extra(),
@@ -886,10 +893,10 @@ fn resolver_com(
         } else {
             format!("_{}_{n}_{tamanho}", r.token.nome())
         };
-        // Diretiva com `@HostBinding`: o campo é o `XNgCd` que a embrulha
-        // (`createProvider`, `providerHasChangeDetector`). Componente não:
-        // o `@HostBinding` dele é o `detectHostChanges` da visão dele, e o
-        // campo é a instância (caso j30).
+        // Directive with `@HostBinding`: the field is the `XNgCd` that wraps it
+        // (`createProvider`, `providerHasChangeDetector`). Not for a component:
+        // its `@HostBinding` is the `detectHostChanges` of its view, and the
+        // field is the instance (case j30).
         let leitura = match r.fontes.as_slice() {
             [Fonte::Diretiva(d)]
                 if !d.ligacoes_do_hospedeiro.is_empty()
@@ -901,7 +908,7 @@ fn resolver_com(
             _ => campo.clone(),
         };
         let campo_de = |t: &Token| -> Option<String> {
-            // Um provedor privado só é visto por outro privado.
+            // A private provider is only seen by another private one.
             if !ve_privados(r) && todos.iter().any(|x| x.privado && x.token == *t) {
                 return None;
             }
@@ -912,21 +919,21 @@ fn resolver_com(
                 .unwrap_or(t);
             campos.iter().find(|(x, _)| x == t).map(|(_, c)| c.clone())
         };
-        // Uma dependência de serviço (`_getDependency` na hospedeira): o
-        // campo local, ou o injetor de fora.
-        // O que o nó não provê: na hospedeira, o injetor; num nó de
-        // template, o elemento acima que provê (`_getDependency`) ou, sem
-        // ele, o injetor de fora da visão (caso j71).
+        // A service dependency (`_getDependency` in the host view): the local
+        // field, or the outside injector.
+        // What the node does not provide: in the host view, the injector; in a
+        // template node, the element above that provides it (`_getDependency`)
+        // or, without one, the injector from outside the view (case j71).
         let de_fora = |t: &Token, opcional: bool| -> Result<Expr, &'static str> {
             if !hospedeira && let Some(a) = acima {
                 if let Some(p) = a.provedores.iter().find(|p| p.token == *t) {
                     if p.preguicoso {
-                        return Err("provedor preguiçoso de um elemento acima pedido abaixo (L1)");
+                        return Err("lazy provider of an element above requested below (L1)");
                     }
                     return Ok(Expr::Leitura(p.leitura.clone()));
                 }
                 if a.incerto {
-                    return Err("dependência de provedor sob componente sem metadados");
+                    return Err("provider dependency under a component without metadata");
                 }
             }
             Ok(Expr::Injetor {
@@ -936,16 +943,17 @@ fn resolver_com(
         };
         let dependencia = |dep: &Dependencia| -> Result<Expr, &'static str> {
             if dep.proprio || dep.hospedeiro {
-                return Err("dependência @Self/@Host de provedor");
+                return Err("@Self/@Host dependency of a provider");
             }
             if dep.atributo.is_some() {
-                return Err("dependência @Attribute de provedor");
+                return Err("@Attribute dependency of a provider");
             }
             if dep.token.embutido() {
-                return Err("provedor que depende de embutido do elemento");
+                return Err("provider that depends on an element built-in");
             }
-            // `@SkipSelf`: o nó não é consultado (`provider_resolver.dart:189`);
-            // sobe pelos elementos acima e, sem eles, o injetor de fora.
+            // `@SkipSelf`: the node is not consulted
+            // (`provider_resolver.dart:189`); it walks up through the elements
+            // above and, without them, the outside injector.
             if dep.pular {
                 return de_fora(&dep.token, dep.opcional);
             }
@@ -958,7 +966,7 @@ fn resolver_com(
             Ok(match f {
                 Fornece::Existente(t) => match campo_de(t) {
                     Some(c) => Expr::Campo(c),
-                    None if t.embutido() => return Err("apelido de embutido do elemento"),
+                    None if t.embutido() => return Err("alias of an element built-in"),
                     None => de_fora(t, false)?,
                 },
                 Fornece::Classe { uri, classe, deps } => Expr::Classe {
@@ -984,28 +992,28 @@ fn resolver_com(
                     }
                     args.push(match &dep.token {
                         Token::Elemento | Token::Detector if dep.pular => {
-                            return Err("dependência @SkipSelf de embutido do elemento");
+                            return Err("@SkipSelf dependency on an element built-in");
                         }
                         Token::Elemento => Argumento::Elemento,
                         Token::Detector => Argumento::Detector,
                         t if e_view_container_ref(t) && !dep.pular => Argumento::Container,
-                        // O `TemplateRef` do próprio `<template>`.
+                        // The `TemplateRef` of the `<template>` itself.
                         t if e_template_ref(t) && !dep.pular && molde.is_some() => {
                             Argumento::Acima(molde.map(|(l, _)| l.to_string()).unwrap_or_default())
                         }
                         Token::Classe { uri, classe }
                             if uri == INJECTOR && classe == "Injector" =>
                         {
-                            // `@SkipSelf()` leria o injetor do elemento de
-                            // cima (`injector(pai)`): ainda sem caso.
+                            // `@SkipSelf()` would read the injector of the
+                            // element above (`injector(parent)`): no case yet.
                             if dep.pular {
-                                return Err("dependência @SkipSelf de Injector");
+                                return Err("@SkipSelf dependency on Injector");
                             }
                             Argumento::Injetor(n)
                         }
-                        // `@SkipSelf()`: o `_getDependency` começa no pai
-                        // (o `ControlContainer` do `NgControlName` é o
-                        // `NgForm` do `<form>` de cima).
+                        // `@SkipSelf()`: `_getDependency` starts at the parent
+                        // (the `ControlContainer` of `NgControlName` is the
+                        // `NgForm` of the `<form>` above).
                         t => match campo_de(t).filter(|_| !dep.pular) {
                             Some(c) => Argumento::Campo(c),
                             None => fora_do_no(dep, acima)?,
@@ -1029,7 +1037,7 @@ fn resolver_com(
                     itens.push(match f {
                         Fonte::Existente(t) => expr_de(&Fornece::Existente(t.clone()))?,
                         Fonte::Provedor(p) => expr_de(p)?,
-                        Fonte::Diretiva(_) => return Err("multi-provedor de diretiva"),
+                        Fonte::Diretiva(_) => return Err("directive multi-provider"),
                     });
                 }
                 Criacao::Multi(itens)
@@ -1038,17 +1046,18 @@ fn resolver_com(
                 let mut itens = Vec::new();
                 for f in fontes {
                     let Fonte::Existente(t) = f else {
-                        return Err("multi-provedor que não é apelido");
+                        return Err("multi-provider that is not an alias");
                     };
-                    itens.push(campo_de(t).ok_or("multi-provedor de token de fora do nó")?);
+                    itens.push(campo_de(t).ok_or("multi-provider of a token from outside the node")?);
                 }
                 Criacao::Lista(itens)
             }
-            // Apelido de um token que o nó não provê: o injetor (hospedeira)
-            // ou o elemento acima / o injetor de fora (nó de template).
+            // An alias of a token the node does not provide: the injector (host
+            // view) or the element above / the outside injector (template
+            // node).
             [Fonte::Existente(t)] => Criacao::Expressao(expr_de(&Fornece::Existente(t.clone()))?),
             [Fonte::Provedor(p)] => Criacao::Expressao(expr_de(p)?),
-            _ => return Err("provedor apelido de token de fora do nó"),
+            _ => return Err("alias provider of a token from outside the node"),
         };
         saida.instancias.push(Instancia {
             token: r.token.clone(),
@@ -1076,8 +1085,8 @@ fn resolver_com(
     Ok(saida)
 }
 
-/// O `ViewContainerRef` do ngdart, ou o `ComponentLoader`, que é apelido do
-/// mesmo `ViewContainer` e também liga o `_requiresViewContainer`
+/// ngdart's `ViewContainerRef`, or `ComponentLoader`, which is an alias of the
+/// same `ViewContainer` and also turns on `_requiresViewContainer`
 /// (`provider_parser.dart:290-295`, `compile_element.dart:204-206`).
 pub fn e_view_container_ref(t: &Token) -> bool {
     matches!(t, Token::Classe { uri, classe }
@@ -1085,18 +1094,18 @@ pub fn e_view_container_ref(t: &Token) -> bool {
             && matches!(classe.as_str(), "ViewContainerRef" | "ComponentLoader"))
 }
 
-/// A diretiva injeta `ViewContainerRef` e o nó dela ganha um
-/// `ViewContainer` (`_requiresViewContainer`, em `provider_parser.dart`).
+/// The directive injects `ViewContainerRef` and its node gets a `ViewContainer`
+/// (`_requiresViewContainer`, in `provider_parser.dart`).
 pub fn pede_container(d: &Diretiva) -> bool {
     d.dependencias
         .iter()
         .any(|dep| e_view_container_ref(&dep.token))
 }
 
-/// Os provedores embutidos de um elemento além de `Element`/`HtmlElement`,
-/// `Injector` e `ChangeDetectorRef` (`CompileElement`): `ElementRef`, e com
-/// `ViewContainer` também `ViewContainer`, `ViewContainerRef`,
-/// `ComponentLoader` e `TemplateRef`.
+/// The built-in providers of an element besides `Element`/`HtmlElement`,
+/// `Injector` and `ChangeDetectorRef` (`CompileElement`): `ElementRef`, and
+/// with a `ViewContainer` also `ViewContainer`, `ViewContainerRef`,
+/// `ComponentLoader` and `TemplateRef`.
 pub fn embutido_do_elemento(t: &Token) -> bool {
     matches!(t, Token::Classe { uri, classe }
     if uri.starts_with("package:ngdart/")
@@ -1106,14 +1115,15 @@ pub fn embutido_do_elemento(t: &Token) -> bool {
         ))
 }
 
-/// Uma dependência que o próprio nó não satisfaz (`_getDependency`):
-/// `@Self` para no nó; senão sobe pelos elementos acima (`@Host` até o
-/// hospedeiro, que aqui é a raiz da visão do componente). Sem resultado e
-/// `@Optional`, `null` — a não ser que haja acima algo que o emissor não
-/// modela. Sem `@Self` nem `@Host`, depois dos elementos vem o injetor de
-/// fora da visão (caso j40).
+/// A dependency the node itself does not satisfy (`_getDependency`): `@Self`
+/// stops at the node; otherwise it walks up through the elements above (`@Host`
+/// up to the host, which here is the root of the component's view). Without a
+/// result and with `@Optional`, `null` — unless there is something above that
+/// the emitter does not model. Without `@Self` or `@Host`, after the elements
+/// comes the injector from outside the view (case j40).
 fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'static str> {
-    // Sem contexto (só a ordem dos imports interessa): o valor não importa.
+    // Without context (only the order of the imports matters): the value does
+    // not matter.
     let Some(acima) = acima else {
         return Ok(Argumento::Nulo);
     };
@@ -1121,17 +1131,17 @@ fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'st
         && let Some(p) = acima.provedores.iter().find(|p| p.token == dep.token)
     {
         if p.preguicoso && !p.leitura_preguicosa {
-            return Err("provedor preguiçoso de um elemento acima pedido abaixo (L1)");
+            return Err("lazy provider of an element above requested below (L1)");
         }
         return Ok(Argumento::Acima(p.leitura.clone()));
     }
-    // Um embutido do elemento (`ElementRef`, `ViewContainerRef`,
-    // `TemplateRef`…) nunca é nulo nem vem do injetor de fora: o oficial o
-    // acha no próprio nó ou num de cima (`CompileElement`), forma ainda sem
-    // caso.
+    // An element built-in (`ElementRef`, `ViewContainerRef`, `TemplateRef`…) is
+    // never null and never comes from the outside injector: the official
+    // compiler finds it on the node itself or on one above (`CompileElement`),
+    // a shape without a case yet.
     if embutido_do_elemento(&dep.token) {
         return Err(
-            "dependência de embutido do elemento (ElementRef/ViewContainerRef/TemplateRef)",
+            "dependency on an element built-in (ElementRef/ViewContainerRef/TemplateRef)",
         );
     }
     match (dep.opcional, dep.proprio, dep.hospedeiro) {
@@ -1143,14 +1153,15 @@ fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'st
             })
         }
         (true, false, true) if !acima.incerto => Ok(Argumento::Nulo),
-        (_, false, true) => Err("dependência @Host de diretiva sem provedor acima"),
-        // Algum elemento acima tem provedor que o emissor não modela: ele
-        // poderia ser o que o oficial acha antes do injetor de fora.
+        (_, false, true) => Err("@Host dependency of a directive without a provider above"),
+        // Some element above has a provider the emitter does not model: it
+        // could be what the official compiler finds before the outside
+        // injector.
         (_, false, false) if !acima.incerto => Ok(Argumento::DeFora {
             token: dep.token.clone(),
             opcional: dep.opcional,
         }),
-        _ => Err("dependência de diretiva de fora do nó"),
+        _ => Err("dependency on a directive from outside the node"),
     }
 }
 
@@ -1200,7 +1211,7 @@ mod testes {
         }
     }
 
-    /// Diretivas de teste com a forma que `metadata.rs` lê do `ngforms`.
+    /// Test directives with the shape that `metadata.rs` reads from `ngforms`.
     fn ng_model() -> Arc<Diretiva> {
         Arc::new(Diretiva {
             classe: "NgModel".into(),
@@ -1243,9 +1254,9 @@ mod testes {
         })
     }
 
-    /// A ordem e a numeração de `alterar_senha_page.template.dart`: o
-    /// `RequiredValidator` antes do multi que o junta, o acessor antes do
-    /// seu multi, o `NgModel` por último; `NgControl` é apelido.
+    /// The order and numbering of `alterar_senha_page.template.dart`: the
+    /// `RequiredValidator` before the multi that joins it, the accessor before
+    /// its multi, `NgModel` last; `NgControl` is an alias.
     #[test]
     fn input_com_ng_model_e_required() {
         let modelo = ng_model();
@@ -1324,9 +1335,9 @@ mod testes {
         }
     }
 
-    /// A numeração do `i66_provider_dependencias.template.dart`: o que o
-    /// componente pede (e o que isso pede) sai antes dele, ansioso; o resto
-    /// fica preguiçoso, depois, na ordem de `providers:`.
+    /// The numbering of `i66_provider_dependencias.template.dart`: what the
+    /// component asks for (and what that asks for) comes before it, eager; the
+    /// rest stays lazy, afterwards, in `providers:` order.
     #[test]
     fn hospedeira_com_provedores_ansiosos_e_preguicosos() {
         let comp = Arc::new(Diretiva {
@@ -1359,7 +1370,8 @@ mod testes {
                 ("_Solto_0_9", true),
             ]
         );
-        // O apelido do componente: sem campo, injetável por `this.component`.
+        // The component's alias: without a field, injectable through
+        // `this.component`.
         assert_eq!(r.instancias[2].injetavel_por, vec![classe("s", "Base")]);
         assert_eq!(
             r.instancias[3].criacao,
@@ -1372,10 +1384,10 @@ mod testes {
         assert!(r.diretivas.is_empty());
     }
 
-    /// Num nó de template, os `providers:` de uma diretiva de qualquer
-    /// forma (caso j71): o que ela injeta sai antes dela, ansioso; o resto
-    /// fica preguiçoso; a dependência que o nó não provê vem de um elemento
-    /// acima ou, sem ele, do injetor de fora.
+    /// In a template node, the `providers:` of a directive of any shape (case
+    /// j71): what it injects comes before it, eager; the rest stays lazy; the
+    /// dependency the node does not provide comes from an element above or,
+    /// without one, from the outside injector.
     #[test]
     fn no_de_template_com_provedores_de_classe() {
         let dir = Arc::new(Diretiva {
@@ -1418,7 +1430,7 @@ mod testes {
             ]
         );
         let Criacao::Expressao(Expr::Classe { args, .. }) = &r.instancias[0].criacao else {
-            panic!("serviço sem criação por classe");
+            panic!("service without creation by class");
         };
         assert_eq!(
             args,
@@ -1430,7 +1442,7 @@ mod testes {
                 }
             ]
         );
-        // Com componente sem metadados acima, não achar não prova nada.
+        // With a component without metadata above, not finding proves nothing.
         let dir = Arc::new(Diretiva {
             classe: "Espiao".into(),
             uri: "s".into(),

@@ -1,10 +1,11 @@
-//! Cálculos do CSS (`calc()`, `min()`, `round()`, `sin()`…) — porte de
-//! `lib/src/value/calculation.dart` do dart-sass 1.102.0.
+//! CSS calculations (`calc()`, `min()`, `round()`, `sin()`…) — port of
+//! `lib/src/value/calculation.dart` of dart-sass 1.102.0.
 //!
-//! O grass 0.13 só conhecia `calc`, `min`, `max` e `clamp`, e os analisava
-//! com uma gramática própria; o dart-sass 1.102 os analisa como chamadas de
-//! função comuns e decide na avaliação (ver `visit_function_call_expr`), com
-//! todas as funções de cálculo do CSS Values 4 e as simplificações abaixo.
+//! grass 0.13 only knew `calc`, `min`, `max` and `clamp`, and parsed them
+//! with a grammar of its own; dart-sass 1.102 parses them as ordinary
+//! function calls and decides during evaluation (see
+//! `visit_function_call_expr`), with all the CSS Values 4 calculation
+//! functions and the simplifications below.
 use codemap::Span;
 
 use crate::{
@@ -18,7 +19,7 @@ use crate::{
 
 use super::Number;
 
-/// Um argumento de cálculo: número, cálculo, texto sem aspas ou operação.
+/// A calculation argument: number, calculation, unquoted text or operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CalculationArg {
     Number(SassNumber),
@@ -32,7 +33,7 @@ pub enum CalculationArg {
 }
 
 impl CalculationArg {
-    /// `_parenthesizeCalculationRhs` do serializador.
+    /// The serializer's `_parenthesizeCalculationRhs`.
     pub fn parenthesize_calculation_rhs(outer: BinaryOp, right: BinaryOp) -> bool {
         if outer == BinaryOp::Div {
             true
@@ -44,8 +45,8 @@ impl CalculationArg {
     }
 }
 
-/// Um cálculo (`SassCalculation`): o nome como o dart-sass o guarda e os
-/// argumentos.
+/// A calculation (`SassCalculation`): the name as dart-sass stores it and
+/// the arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SassCalculation {
     pub name: String,
@@ -64,22 +65,22 @@ fn num(n: f64, unit: Unit) -> SassNumber {
     }
 }
 
-fn inspecionar(n: &SassNumber, span: Span) -> String {
+fn inspect_str(n: &SassNumber, span: Span) -> String {
     inspect_number(n, &Options::default(), span).unwrap_or_default()
 }
 
-/// `hasCompatibleUnits` do dart-sass.
+/// dart-sass's `hasCompatibleUnits`.
 pub(crate) fn has_compatible_units(a: &SassNumber, b: &SassNumber) -> bool {
     a.has_compatible_units(&b.unit)
 }
 
-/// `convertValueToMatch`: o valor de `n` nas unidades de `alvo` (sem
-/// unidade de um lado e com do outro: o valor como está).
-fn convert_value_to_match(n: &SassNumber, alvo: &SassNumber) -> f64 {
-    if n.unit == alvo.unit || n.unit == Unit::None || alvo.unit == Unit::None {
+/// `convertValueToMatch`: the value of `n` in the units of `target`
+/// (unitless on one side and with units on the other: the value as is).
+fn convert_value_to_match(n: &SassNumber, target: &SassNumber) -> f64 {
+    if n.unit == target.unit || n.unit == Unit::None || target.unit == Unit::None {
         return n.num.0;
     }
-    n.num.convert(&n.unit, &alvo.unit).0
+    n.num.convert(&n.unit, &target.unit).0
 }
 
 /// `_matchUnits`.
@@ -87,7 +88,7 @@ fn match_units(v: f64, n: &SassNumber) -> SassNumber {
     num(v, n.unit.clone())
 }
 
-/// `double.sign` do Dart.
+/// Dart's `double.sign`.
 fn sign(x: f64) -> f64 {
     if x > 0.0 {
         1.0
@@ -137,7 +138,7 @@ pub(crate) fn modulo_like_sass(num1: f64, num2: f64) -> f64 {
     }
 }
 
-/// `SassNumber.modulo`: unidades como na soma.
+/// `SassNumber.modulo`: units as in addition.
 fn modulo(a: &SassNumber, b: &SassNumber) -> SassNumber {
     let v = convert_value_to_match(b, a);
     let unit = if a.unit == Unit::None {
@@ -181,13 +182,13 @@ impl SassCalculation {
 
     fn min_max(args: Vec<CalculationArg>, span: Span, is_min: bool) -> SassResult<Value> {
         let args = Self::simplify_arguments(args);
-        let mut melhor: Option<SassNumber> = None;
+        let mut best: Option<SassNumber> = None;
         for arg in &args {
             match arg {
                 CalculationArg::Number(n) => {
-                    if let Some(m) = &melhor {
+                    if let Some(m) = &best {
                         if !m.is_comparable_to(n) {
-                            melhor = None;
+                            best = None;
                             break;
                         }
                         let v = convert_value_to_match(n, m);
@@ -197,19 +198,19 @@ impl SassCalculation {
                             m.num.0 < v && !fuzzy_equals(m.num.0, v)
                         };
                         if troca {
-                            melhor = Some(n.clone());
+                            best = Some(n.clone());
                         }
                     } else {
-                        melhor = Some(n.clone());
+                        best = Some(n.clone());
                     }
                 }
                 _ => {
-                    melhor = None;
+                    best = None;
                     break;
                 }
             }
         }
-        if let Some(m) = melhor {
+        if let Some(m) = best {
             return Ok(Value::Dimension(m));
         }
         Self::verify_compatible_numbers(&args, span)?;
@@ -254,8 +255,8 @@ impl SassCalculation {
         }
     }
 
-    /// Valor em radianos (`coerceValueToUnit("rad")`).
-    fn radianos(n: &SassNumber, span: Span) -> SassResult<f64> {
+    /// Value in radians (`coerceValueToUnit("rad")`).
+    fn to_radians(n: &SassNumber, span: Span) -> SassResult<f64> {
         if n.unit == Unit::None {
             return Ok(n.num.0);
         }
@@ -264,14 +265,14 @@ impl SassCalculation {
             None => err(
                 format!(
                     "$number: Expected {} to have an angle unit (deg, grad, rad, turn).",
-                    inspecionar(n, span)
+                    inspect_str(n, span)
                 ),
                 span,
             ),
         }
     }
 
-    fn graus(r: f64) -> SassNumber {
+    fn to_degrees(r: f64) -> SassNumber {
         num(r * (180.0 / std::f64::consts::PI), Unit::Deg)
     }
 
@@ -288,26 +289,26 @@ impl SassCalculation {
                 name,
                 arg,
                 false,
-                |n| Ok(num(Self::radianos(n, span)?.sin(), Unit::None)),
+                |n| Ok(num(Self::to_radians(n, span)?.sin(), Unit::None)),
                 span,
             ),
             "cos" => Self::single(
                 name,
                 arg,
                 false,
-                |n| Ok(num(Self::radianos(n, span)?.cos(), Unit::None)),
+                |n| Ok(num(Self::to_radians(n, span)?.cos(), Unit::None)),
                 span,
             ),
             "tan" => Self::single(
                 name,
                 arg,
                 false,
-                |n| Ok(num(Self::radianos(n, span)?.tan(), Unit::None)),
+                |n| Ok(num(Self::to_radians(n, span)?.tan(), Unit::None)),
                 span,
             ),
-            "atan" => Self::single(name, arg, true, |n| Ok(Self::graus(n.num.0.atan())), span),
-            "asin" => Self::single(name, arg, true, |n| Ok(Self::graus(n.num.0.asin())), span),
-            "acos" => Self::single(name, arg, true, |n| Ok(Self::graus(n.num.0.acos())), span),
+            "atan" => Self::single(name, arg, true, |n| Ok(Self::to_degrees(n.num.0.atan())), span),
+            "asin" => Self::single(name, arg, true, |n| Ok(Self::to_degrees(n.num.0.asin())), span),
+            "acos" => Self::single(name, arg, true, |n| Ok(Self::to_degrees(n.num.0.acos())), span),
             "abs" => match Self::simplify(arg) {
                 CalculationArg::Number(n) => {
                     Ok(Value::Dimension(num(n.num.0.abs(), n.unit.clone())))
@@ -333,7 +334,7 @@ impl SassCalculation {
                 }
                 other => Ok(Self::new("sign", vec![other])),
             },
-            _ => unreachable!("cálculo de um argumento {name}"),
+            _ => unreachable!("single-argument calculation {name}"),
         }
     }
 
@@ -438,7 +439,7 @@ impl SassCalculation {
                     && x.unit != Unit::Percent
                     && has_compatible_units(y, x) =>
             {
-                Ok(Value::Dimension(Self::graus(
+                Ok(Value::Dimension(Self::to_degrees(
                     y.num.0.atan2(convert_value_to_match(x, y)),
                 )))
             }
@@ -502,7 +503,7 @@ impl SassCalculation {
         }
     }
 
-    fn eh_estrategia(a: &CalculationArg) -> Option<&str> {
+    fn strategy(a: &CalculationArg) -> Option<&str> {
         match a {
             CalculationArg::String(s)
                 if matches!(s.as_str(), "nearest" | "up" | "down" | "to-zero") =>
@@ -540,7 +541,7 @@ impl SassCalculation {
                 Self::verify_compatible_numbers(&[a.clone(), b.clone().unwrap()], span)?;
                 Ok(Value::Dimension(Self::round_with_step("nearest", n, step)))
             }
-            (s, Some(A::Number(n)), Some(A::Number(step))) if Self::eh_estrategia(s).is_some() => {
+            (s, Some(A::Number(n)), Some(A::Number(step))) if Self::strategy(s).is_some() => {
                 Self::verify_compatible_numbers(&[b.clone().unwrap(), c.clone().unwrap()], span)?;
                 if !has_compatible_units(n, step) {
                     return Ok(Self::new(
@@ -549,24 +550,24 @@ impl SassCalculation {
                     ));
                 }
                 Ok(Value::Dimension(Self::round_with_step(
-                    Self::eh_estrategia(s).unwrap(),
+                    Self::strategy(s).unwrap(),
                     n,
                     step,
                 )))
             }
-            (s, Some(A::String(_)), None) if Self::eh_estrategia(s).is_some() => {
+            (s, Some(A::String(_)), None) if Self::strategy(s).is_some() => {
                 Ok(Self::new("round", vec![a.clone(), b.clone().unwrap()]))
             }
-            (s, Some(_), None) if Self::eh_estrategia(s).is_some() => {
+            (s, Some(_), None) if Self::strategy(s).is_some() => {
                 err("If strategy is not null, step is required.", span)
             }
-            (s, None, None) if Self::eh_estrategia(s).is_some() => {
+            (s, None, None) if Self::strategy(s).is_some() => {
                 err("Number to round and step arguments are required.", span)
             }
             (_, None, None) => Ok(Self::new("round", vec![a.clone()])),
             (_, Some(_), None) => Ok(Self::new("round", vec![a.clone(), b.clone().unwrap()])),
             (s, Some(_), Some(_))
-                if Self::eh_estrategia(s).is_some()
+                if Self::strategy(s).is_some()
                     || matches!(s, A::String(t) if is_special_variable_text(t)) =>
             {
                 Ok(Self::new(
@@ -577,7 +578,7 @@ impl SassCalculation {
             (_, Some(_), Some(_)) => err(
                 format!(
                     "{} must be either nearest, up, down or to-zero.",
-                    Self::texto_arg(&a, span)
+                    Self::arg_text(&a, span)
                 ),
                 span,
             ),
@@ -585,10 +586,10 @@ impl SassCalculation {
         }
     }
 
-    fn texto_arg(a: &CalculationArg, span: Span) -> String {
+    fn arg_text(a: &CalculationArg, span: Span) -> String {
         match a {
             CalculationArg::String(s) => s.clone(),
-            CalculationArg::Number(n) => inspecionar(n, span),
+            CalculationArg::Number(n) => inspect_str(n, span),
             other => Value::Calculation(SassCalculation::unsimplified("calc", vec![other.clone()]))
                 .inspect(span)
                 .unwrap_or_default(),
@@ -743,7 +744,7 @@ impl SassCalculation {
                     return err(
                         format!(
                             "Number {} isn't compatible with CSS calculations.",
-                            inspecionar(n, span)
+                            inspect_str(n, span)
                         ),
                         span,
                     );
@@ -764,8 +765,8 @@ impl SassCalculation {
                 return err(
                     format!(
                         "{} and {} are incompatible.",
-                        inspecionar(a, span),
-                        inspecionar(b, span)
+                        inspect_str(a, span),
+                        inspect_str(b, span)
                     ),
                     span,
                 );
@@ -775,7 +776,7 @@ impl SassCalculation {
     }
 }
 
-/// `isSpecialVariable` de um texto sem aspas.
+/// `isSpecialVariable` of an unquoted text.
 pub(crate) fn is_special_variable_text(t: &str) -> bool {
     let b = t.as_bytes();
     if b.len() < "var(_)".len() {
@@ -793,26 +794,26 @@ pub(crate) fn is_special_variable_text(t: &str) -> bool {
 /// `_needsParentheses`.
 fn needs_parentheses(text: &str) -> bool {
     let b = text.as_bytes();
-    let precisa = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' | b'/' | b'*');
+    let needs = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' | b'/' | b'*');
     if b.is_empty() {
         return false;
     }
     let first = b[0];
-    if precisa(first) {
+    if needs(first) {
         return true;
     }
     let mut could_be_var = b.len() >= 4 && first.eq_ignore_ascii_case(&b'v');
     if b.len() < 2 {
         return false;
     }
-    if precisa(b[1]) {
+    if needs(b[1]) {
         return true;
     }
     could_be_var = could_be_var && b[1].eq_ignore_ascii_case(&b'a');
     if b.len() < 3 {
         return false;
     }
-    if precisa(b[2]) {
+    if needs(b[2]) {
         return true;
     }
     could_be_var = could_be_var && b[2].eq_ignore_ascii_case(&b'r');
@@ -822,5 +823,5 @@ fn needs_parentheses(text: &str) -> bool {
     if could_be_var && b[3] == b'(' {
         return true;
     }
-    b[3..].iter().any(|&c| precisa(c))
+    b[3..].iter().any(|&c| needs(c))
 }

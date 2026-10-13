@@ -1,109 +1,109 @@
-//! Porte do `_Parser` de `csslib/parser.dart` (csslib 1.0.2), com o
-//! `ExpressionsProcessor` e o `_escapeString`.
+//! Port of the `_Parser` of `csslib/parser.dart` (csslib 1.0.2), with the
+//! `ExpressionsProcessor` and `_escapeString`.
 //!
-//! Cada função cita a oficial. O parser não para em erro: o oficial registra
-//! a mensagem em `messages` e segue, e o shim só as mostra como aviso. As
-//! mensagens em si não mudam a saída; o que muda é a contagem, que a
-//! leitura antecipada de seletor aninhado (`_nestedSelector`) consulta — por
-//! isso aqui se conta, sem guardar texto.
+//! Each function cites the official one. The parser does not stop on errors:
+//! the official one records the message in `messages` and goes on, and the shim
+//! only shows them as warnings. The messages themselves do not change the
+//! output; what changes it is the count, which the lookahead for nested
+//! selectors (`_nestedSelector`) checks — so here they are counted, without
+//! keeping the text.
 //!
-//! O que no Dart lança exceção (`!` em nulo, `as` de tipo errado, índice
-//! fora da lista, `int.parse` fora do intervalo) devolve [`Excecao`]: o
-//! builder oficial falharia ali.
+//! What throws in Dart (`!` on null, `as` with the wrong type, index out of the
+//! list, `int.parse` out of range) returns [`Exception`]: the official builder
+//! would fail there.
 //!
-//! Os estilos para Dart (`_styleForDart`, `DartStyleExpression`) nunca são
-//! impressos nem visitados; deles só se reproduzem as exceções que a
-//! construção lança (`exprs.expressions[0]` em lista vazia, `value as int?`,
+//! The styles for Dart (`_styleForDart`, `DartStyleExpression`) are never
+//! printed or visited; of them, only the exceptions their construction throws
+//! are reproduced (`exprs.expressions[0]` on an empty list, `value as int?`,
 //! `value as num`).
-use super::Excecao;
+use super::Exception;
 use super::tree::*;
 use super::token_kind as tk;
 use super::tokenizer::{Token, Tokenizer, TokenizerState};
 
-type R<T> = Result<T, Excecao>;
+type R<T> = Result<T, Exception>;
 
 /// `_legacyPseudoElements`.
-const PSEUDO_ELEMENTOS_LEGADOS: [&str; 4] = ["after", "before", "first-letter", "first-line"];
+const LEGACY_PSEUDO_ELEMENTS: [&str; 4] = ["after", "before", "first-letter", "first-line"];
 
-/// O aninhamento (produções recursivas abertas: regra, termo, seletor,
-/// seletor simples, condição do `@supports`) além do qual se devolve o
-/// `StackOverflowError` do oficial. O parser do csslib é recursivo e a pilha
-/// da VM acaba num ponto que depende da VM (isolate principal ou não, código
-/// já compilado ou não). Medido com o `shimShadowCss` no isolate principal:
-/// até 1500 níveis de qualquer forma passa; `:host(` aninhado (duas
-/// produções por nível) estoura a partir de 2000, `:not(` a partir de 4000,
-/// e parênteses, blocos, `@media` e `@supports` entre 4000 e 8000. Com 4000
-/// produções o porte concorda em todos esses pontos, exceto 4000–6000 níveis
-/// das formas de uma produção por nível. O que importa sempre é a recursão
-/// sem consumo — `@supports` no fim do arquivo recorre sem fim e o oficial
-/// sempre estoura.
-const LIMITE: usize = 4000;
+/// The nesting depth (open recursive productions: rule, term, selector, simple
+/// selector, `@supports` condition) beyond which the official
+/// `StackOverflowError` is returned. The csslib parser is recursive and the VM
+/// stack runs out at a point that depends on the VM (main isolate or not, code
+/// already compiled or not). Measured with `shimShadowCss` on the main isolate:
+/// up to 1500 levels of any shape pass; nested `:host(` (two productions per
+/// level) overflows from 2000 on, `:not(` from 4000 on, and parentheses,
+/// blocks, `@media` and `@supports` between 4000 and 8000. With 4000
+/// productions the port agrees at all those points, except for 4000–6000 levels
+/// of the shapes with one production per level. What always matters is
+/// recursion without consuming input — `@supports` at the end of the file
+/// recurses forever and the official one always overflows.
+const LIMIT: usize = 4000;
 
 /// `_Parser.MAX_UNICODE`.
 const MAX_UNICODE: i64 = 0x10FFFF;
 
-/// O `processTerm` devolve uma expressão ou, no `@nome` do Less, a lista
-/// de expressões (`List<Expression>`).
-enum TermoOuLista {
-    Um(Expr),
-    Lista(Vec<Expr>),
+/// `processTerm` returns an expression or, for the Less `@name`, the list of
+/// expressions (`List<Expression>`).
+enum TermOrList {
+    One(Expr),
+    List(Vec<Expr>),
 }
 
-/// O `processVariableOrDirective` devolve uma definição ou o tipo da
-/// diretiva.
-enum VarOuDiretiva {
+/// `processVariableOrDirective` returns a definition or the directive kind.
+enum VarOrDirective {
     VarDefinitionDirective(VarDef),
     VarDefinition,
-    Tipo(i32),
+    Kind(i32),
 }
 
 /// `ParserState`.
 struct ParserState {
-    espiado: Token,
-    anterior: Option<Token>,
+    peeked: Token,
+    previous: Option<Token>,
     tokenizer: TokenizerState,
 }
 
 /// `_Parser`.
 pub(crate) struct Parser<'a> {
-    fonte: &'a [u16],
+    source: &'a [u16],
     tokenizer: Tokenizer<'a>,
     /// `_previousToken`.
-    anterior: Option<Token>,
+    previous: Option<Token>,
     /// `_peekToken`.
-    espiado: Token,
-    /// `messages.messages.length` do `Messages` corrente.
-    pub mensagens: usize,
-    /// Quantas produções recursivas estão abertas (ver [`LIMITE`]).
-    profundidade: usize,
+    peeked: Token,
+    /// `messages.messages.length` of the current `Messages`.
+    pub messages: usize,
+    /// How many recursive productions are open (see [`LIMIT`]).
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
     /// `_Parser(file, text)`.
-    pub fn novo(fonte: &'a [u16]) -> R<Self> {
-        let mut tokenizer = Tokenizer::new(fonte, true);
-        let espiado = tokenizer.next(false)?;
+    pub fn new(source: &'a [u16]) -> R<Self> {
+        let mut tokenizer = Tokenizer::new(source, true);
+        let peeked = tokenizer.next(false)?;
         Ok(Parser {
-            fonte,
+            source,
             tokenizer,
-            anterior: None,
-            espiado,
-            mensagens: 0,
-            profundidade: 0,
+            previous: None,
+            peeked,
+            messages: 0,
+            depth: 0,
         })
     }
 
     /// `parse`.
-    pub fn parse(&mut self) -> R<Folha> {
-        let mut producoes = Vec::new();
+    pub fn parse(&mut self) -> R<StyleSheet> {
+        let mut productions = Vec::new();
         while !self.maybe_eat(tk::END_OF_FILE)? && !self.peek_kind(tk::RBRACE) {
             match self.process_rule(None)? {
-                Some(regra) => producoes.push(regra),
+                Some(rule) => productions.push(rule),
                 None => break,
             }
         }
         self.check_end_of_file();
-        Ok(Folha { topo: producoes })
+        Ok(StyleSheet { top_level: productions })
     }
 
     /// `checkEndOfFile`.
@@ -124,22 +124,22 @@ impl<'a> Parser<'a> {
     }
 
     // ---------------------------------------------------------------
-    // Suporte básico
+    // Basic support
     // ---------------------------------------------------------------
 
-    /// Entra numa produção recursiva: além de [`LIMITE`], o oficial já
-    /// teria estourado a pilha.
-    fn entrar(&mut self) -> R<()> {
-        self.profundidade += 1;
-        if self.profundidade > LIMITE {
-            return Err(Excecao("StackOverflowError"));
+    /// Enters a recursive production: beyond [`LIMIT`], the official one would
+    /// already have overflowed the stack.
+    fn enter(&mut self) -> R<()> {
+        self.depth += 1;
+        if self.depth > LIMIT {
+            return Err(Exception("StackOverflowError"));
         }
         Ok(())
     }
 
     /// `_peek`.
     fn peek(&self) -> i32 {
-        self.espiado.kind
+        self.peeked.kind
     }
 
     /// `_next`.
@@ -149,27 +149,27 @@ impl<'a> Parser<'a> {
 
     /// `_next(unicodeRange: …)`.
     fn next_ur(&mut self, unicode_range: bool) -> R<Token> {
-        let novo = self.tokenizer.next(unicode_range)?;
-        let proximo = std::mem::replace(&mut self.espiado, novo);
-        self.anterior = Some(proximo.clone());
-        Ok(proximo)
+        let new = self.tokenizer.next(unicode_range)?;
+        let next_token = std::mem::replace(&mut self.peeked, new);
+        self.previous = Some(next_token.clone());
+        Ok(next_token)
     }
 
     /// `_peekKind`.
     fn peek_kind(&self, kind: i32) -> bool {
-        self.espiado.kind == kind
+        self.peeked.kind == kind
     }
 
     /// `_peekIdentifier`.
     fn peek_identifier(&self) -> bool {
-        tk::is_identifier(self.espiado.kind)
+        tk::is_identifier(self.peeked.kind)
     }
 
     /// `_mark`.
     fn mark(&self) -> ParserState {
         ParserState {
-            espiado: self.espiado.clone(),
-            anterior: self.anterior.clone(),
+            peeked: self.peeked.clone(),
+            previous: self.previous.clone(),
             tokenizer: self.tokenizer.mark(),
         }
     }
@@ -177,8 +177,8 @@ impl<'a> Parser<'a> {
     /// `_restore`.
     fn restore(&mut self, m: ParserState) {
         self.tokenizer.restore(m.tokenizer);
-        self.espiado = m.espiado;
-        self.anterior = m.anterior;
+        self.peeked = m.peeked;
+        self.previous = m.previous;
     }
 
     /// `_maybeEat`.
@@ -188,9 +188,9 @@ impl<'a> Parser<'a> {
 
     /// `_maybeEat(kind, unicodeRange: …)`.
     fn maybe_eat_ur(&mut self, kind: i32, unicode_range: bool) -> R<bool> {
-        if self.espiado.kind == kind {
-            let novo = self.tokenizer.next(unicode_range)?;
-            self.anterior = Some(std::mem::replace(&mut self.espiado, novo));
+        if self.peeked.kind == kind {
+            let new = self.tokenizer.next(unicode_range)?;
+            self.previous = Some(std::mem::replace(&mut self.peeked, new));
             Ok(true)
         } else {
             Ok(false)
@@ -210,8 +210,8 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// `_errorExpected`: consome o token e registra o erro (a montagem da
-    /// mensagem, que pode falhar no `kindToString`, fica num `try`).
+    /// `_errorExpected`: consumes the token and records the error (building the
+    /// message, which may fail in `kindToString`, is inside a `try`).
     fn error_expected(&mut self) -> R<()> {
         self.next()?;
         self.error();
@@ -220,57 +220,57 @@ impl<'a> Parser<'a> {
 
     /// `_error`.
     fn error(&mut self) {
-        self.mensagens += 1;
+        self.messages += 1;
     }
 
-    /// `_warning` (sem `warningsAsErrors`, o aviso também entra em
+    /// `_warning` (without `warningsAsErrors`, the warning also goes into
     /// `messages.messages`).
     fn warning(&mut self) {
-        self.mensagens += 1;
+        self.messages += 1;
     }
 
     /// `_peekToken.text`.
-    fn texto_espiado(&self) -> String {
-        self.espiado.texto(self.fonte)
+    fn peeked_text(&self) -> String {
+        self.peeked.text(self.source)
     }
 
-    /// `_previousToken!.end != _peekToken.start` e afins.
-    fn anterior_fim(&self) -> Option<usize> {
-        self.anterior.as_ref().map(|t| t.fim)
+    /// `_previousToken!.end != _peekToken.start` and the like.
+    fn previous_end(&self) -> Option<usize> {
+        self.previous.as_ref().map(|t| t.end)
     }
 
     // ---------------------------------------------------------------
-    // Produções do topo
+    // Top-level productions
     // ---------------------------------------------------------------
 
     /// `processMediaQueryList`.
-    fn process_media_query_list(&mut self) -> R<Vec<ConsultaMedia>> {
-        let mut consultas = Vec::new();
+    fn process_media_query_list(&mut self) -> R<Vec<MediaQuery>> {
+        let mut queries = Vec::new();
         while let Some(c) = self.process_media_query()? {
-            consultas.push(c);
+            queries.push(c);
             if !self.maybe_eat(tk::COMMA)? {
                 break;
             }
         }
-        Ok(consultas)
+        Ok(queries)
     }
 
     /// `processMediaQuery`.
-    fn process_media_query(&mut self) -> R<Option<ConsultaMedia>> {
-        let op: Vec<u16> = self.texto_espiado().encode_utf16().collect();
+    fn process_media_query(&mut self) -> R<Option<MediaQuery>> {
+        let op: Vec<u16> = self.peeked_text().encode_utf16().collect();
         let unary_op = tk::match_media_operator(&op);
         if unary_op != -1 {
             self.next()?;
         }
-        let mut tipo = None;
+        let mut kind = None;
         if self.peek_identifier() {
-            tipo = Some(self.identifier()?);
+            kind = Some(self.identifier()?);
         }
         let mut exprs = Vec::new();
         loop {
-            let and_op = !exprs.is_empty() || tipo.is_some();
+            let and_op = !exprs.is_empty() || kind.is_some();
             if and_op {
-                let op: Vec<u16> = self.texto_espiado().encode_utf16().collect();
+                let op: Vec<u16> = self.peeked_text().encode_utf16().collect();
                 if tk::match_media_operator(&op) != tk::MEDIA_OP_AND {
                     break;
                 }
@@ -281,29 +281,29 @@ impl<'a> Parser<'a> {
                 None => break,
             }
         }
-        if unary_op != -1 || tipo.is_some() || !exprs.is_empty() {
-            return Ok(Some(ConsultaMedia {
-                unario: unary_op,
-                tipo,
-                expressoes: exprs,
+        if unary_op != -1 || kind.is_some() || !exprs.is_empty() {
+            return Ok(Some(MediaQuery {
+                unary: unary_op,
+                kind,
+                expressions: exprs,
             }));
         }
         Ok(None)
     }
 
     /// `processMediaExpression`.
-    fn process_media_expression(&mut self, and_operator: bool) -> R<Option<ExprMedia>> {
+    fn process_media_expression(&mut self, and_operator: bool) -> R<Option<MediaExpr>> {
         if self.maybe_eat(tk::LPAREN)? && self.peek_identifier() {
-            let recurso = self.identifier()?;
+            let feature = self.identifier()?;
             let exprs = if self.maybe_eat(tk::COLON)? {
                 self.process_expr(false)?
             } else {
-                Expressoes::default()
+                Expressions::default()
             };
             if self.maybe_eat(tk::RPAREN)? {
-                return Ok(Some(ExprMedia {
-                    e: and_operator,
-                    recurso,
+                return Ok(Some(MediaExpr {
+                    and_operator,
+                    feature,
                     exprs,
                 }));
             }
@@ -312,49 +312,49 @@ impl<'a> Parser<'a> {
     }
 
     /// `processDirective`.
-    fn process_directive(&mut self) -> R<Option<No>> {
+    fn process_directive(&mut self) -> R<Option<Node>> {
         let tok_id = match self.process_variable_or_directive(false)? {
-            VarOuDiretiva::VarDefinitionDirective(d) => return Ok(Some(No::VarDefDiretiva(d))),
-            // Só com `mixinParameter`.
-            VarOuDiretiva::VarDefinition => return Err(Excecao("TypeError")),
-            VarOuDiretiva::Tipo(t) => t,
+            VarOrDirective::VarDefinitionDirective(d) => return Ok(Some(Node::VarDefDirective(d))),
+            // Only with `mixinParameter`.
+            VarOrDirective::VarDefinition => return Err(Exception("TypeError")),
+            VarOrDirective::Kind(t) => t,
         };
         match tok_id {
             tk::DIRECTIVE_IMPORT => {
                 self.next()?;
-                // `@import "uri"` ou `@import url("uri")`.
+                // `@import "uri"` or `@import url("uri")`.
                 let mut import_str = None;
                 if self.peek_identifier() {
-                    let nome = self.identifier()?;
-                    if let Expr::Termo(Termo {
-                        tipo: TipoTermo::Uri,
-                        texto,
+                    let name = self.identifier()?;
+                    if let Expr::Term(Term {
+                        kind: TermKind::Uri,
+                        text,
                         ..
-                    }) = self.process_function(nome)?
+                    }) = self.process_function(name)?
                     {
-                        import_str = Some(texto);
+                        import_str = Some(text);
                     }
                 } else {
                     import_str = Some(self.process_quoted_string(false)?);
                 }
-                let medias = self.process_media_query_list()?;
+                let media_queries = self.process_media_query_list()?;
                 if import_str.is_none() {
                     self.error();
                 }
-                let import = import_str.ok_or(Excecao("TypeError"))?;
-                Ok(Some(No::Import {
+                let import = import_str.ok_or(Exception("TypeError"))?;
+                Ok(Some(Node::Import {
                     import: super::tokenizer::dart_trim(&import).to_string(),
-                    medias,
+                    media_queries,
                 }))
             }
             tk::DIRECTIVE_MEDIA => {
                 self.next()?;
-                let consultas = self.process_media_query_list()?;
-                let mut regras = Vec::new();
+                let queries = self.process_media_query_list()?;
+                let mut rules = Vec::new();
                 if self.maybe_eat(tk::LBRACE)? {
                     while !self.maybe_eat(tk::END_OF_FILE)? {
                         match self.process_rule(None)? {
-                            Some(r) => regras.push(r),
+                            Some(r) => rules.push(r),
                             None => break,
                         }
                     }
@@ -364,15 +364,15 @@ impl<'a> Parser<'a> {
                 } else {
                     self.error();
                 }
-                Ok(Some(No::Media { consultas, regras }))
+                Ok(Some(Node::Media { queries, rules }))
             }
             tk::DIRECTIVE_HOST => {
                 self.next()?;
-                let mut regras = Vec::new();
+                let mut rules = Vec::new();
                 if self.maybe_eat(tk::LBRACE)? {
                     while !self.maybe_eat(tk::END_OF_FILE)? {
                         match self.process_rule(None)? {
-                            Some(r) => regras.push(r),
+                            Some(r) => rules.push(r),
                             None => break,
                         }
                     }
@@ -382,33 +382,33 @@ impl<'a> Parser<'a> {
                 } else {
                     self.error();
                 }
-                Ok(Some(No::Host { regras }))
+                Ok(Some(Node::Host { rules }))
             }
             tk::DIRECTIVE_PAGE => {
                 // @page S* IDENT? pseudo_page? S* '{' … '}'
                 self.next()?;
-                let mut nome = None;
+                let mut name = None;
                 if self.peek_identifier() {
-                    nome = Some(self.identifier()?);
+                    name = Some(self.identifier()?);
                 }
                 let mut pseudo_page = None;
                 if self.maybe_eat(tk::COLON)? && self.peek_identifier() {
                     pseudo_page = Some(self.identifier()?);
                 }
-                let pseudo = pseudo_page.map(|p| p.nome).unwrap_or_default();
-                let ident = nome.map(|n| n.nome).unwrap_or_default();
-                let grupos = self.process_margins_declarations()?;
-                Ok(Some(No::Pagina {
+                let pseudo = pseudo_page.map(|p| p.name).unwrap_or_default();
+                let ident = name.map(|n| n.name).unwrap_or_default();
+                let groups = self.process_margins_declarations()?;
+                Ok(Some(Node::Page {
                     ident,
                     pseudo,
-                    grupos,
+                    groups,
                 }))
             }
             tk::DIRECTIVE_CHARSET => {
                 // @charset S* STRING S* ';'
                 self.next()?;
-                let codificacao = self.process_quoted_string(false)?;
-                Ok(Some(No::Charset(codificacao)))
+                let encoding = self.process_quoted_string(false)?;
+                Ok(Some(Node::Charset(encoding)))
             }
             tk::DIRECTIVE_KEYFRAMES
             | tk::DIRECTIVE_WEB_KIT_KEYFRAMES
@@ -417,42 +417,42 @@ impl<'a> Parser<'a> {
             | tk::DIRECTIVE_MS_KEYFRAMES => {
                 // @[browser]? keyframes [IDENT|STRING] '{' keyframes-blocks '}'
                 self.next()?;
-                let mut nome = None;
+                let mut name = None;
                 if self.peek_identifier() {
-                    nome = Some(self.identifier()?);
+                    name = Some(self.identifier()?);
                 }
                 self.eat(tk::LBRACE)?;
-                let mut blocos = Vec::new();
+                let mut blocks = Vec::new();
                 loop {
-                    let mut seletores = Expressoes::default();
+                    let mut selectors = Expressions::default();
                     loop {
-                        // `processTerm() as Expression`: nulo ou lista lança.
+                        // `processTerm() as Expression`: null or a list throws.
                         match self.process_term(false)? {
-                            Some(TermoOuLista::Um(e)) => seletores.expressoes.push(e),
-                            _ => return Err(Excecao("TypeError")),
+                            Some(TermOrList::One(e)) => selectors.expressions.push(e),
+                            _ => return Err(Exception("TypeError")),
                         }
                         if !self.maybe_eat(tk::COMMA)? {
                             break;
                         }
                     }
-                    let declaracoes = self.process_declarations(true)?;
-                    blocos.push(BlocoKeyframe {
-                        seletores,
-                        declaracoes,
+                    let declarations = self.process_declarations(true)?;
+                    blocks.push(KeyframeBlock {
+                        selectors,
+                        declarations,
                     });
                     if self.maybe_eat(tk::RBRACE)? || self.is_premature_end_of_file()? {
                         break;
                     }
                 }
-                Ok(Some(No::Keyframes {
-                    tipo: tok_id,
-                    nome,
-                    blocos,
+                Ok(Some(Node::Keyframes {
+                    kind: tok_id,
+                    name,
+                    blocks,
                 }))
             }
             tk::DIRECTIVE_FONTFACE => {
                 self.next()?;
-                Ok(Some(No::FontFace(self.process_declarations(true)?)))
+                Ok(Some(Node::FontFace(self.process_declarations(true)?)))
             }
             tk::DIRECTIVE_STYLET => {
                 // @stylet IDENT '{' ruleset '}'
@@ -467,50 +467,50 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.eat(tk::RBRACE)?;
-                // `StyletDirective(name as String, …)`: o nome é
-                // `Identifier` ou nulo, e o `as String` sempre lança.
-                Err(Excecao("TypeError"))
+                // `StyletDirective(name as String, …)`: the name is an
+                // `Identifier` or null, and the `as String` always throws.
+                Err(Exception("TypeError"))
             }
             tk::DIRECTIVE_NAMESPACE => {
                 // @namespace S* [namespace_prefix S*]? [STRING|URI] S* ';' S*
                 self.next()?;
-                let mut prefixo = None;
+                let mut prefix = None;
                 if self.peek_identifier() {
-                    prefixo = Some(self.identifier()?);
+                    prefix = Some(self.identifier()?);
                 }
                 let mut uri = None;
                 if self.peek_identifier() {
-                    let nome = self.identifier()?;
-                    if let Expr::Termo(Termo {
-                        tipo: TipoTermo::Uri,
-                        texto,
+                    let name = self.identifier()?;
+                    if let Expr::Term(Term {
+                        kind: TermKind::Uri,
+                        text,
                         ..
-                    }) = self.process_function(nome)?
+                    }) = self.process_function(name)?
                     {
-                        uri = Some(texto);
+                        uri = Some(text);
                     }
-                } else if prefixo.as_ref().is_some_and(|p| p.nome == "url") {
-                    let nome = prefixo.clone().ok_or(Excecao("TypeError"))?;
-                    if let Expr::Termo(Termo {
-                        tipo: TipoTermo::Uri,
-                        texto,
+                } else if prefix.as_ref().is_some_and(|p| p.name == "url") {
+                    let name = prefix.clone().ok_or(Exception("TypeError"))?;
+                    if let Expr::Term(Term {
+                        kind: TermKind::Uri,
+                        text,
                         ..
-                    }) = self.process_function(nome)?
+                    }) = self.process_function(name)?
                     {
                         // @namespace url("");
-                        uri = Some(texto);
-                        prefixo = None;
+                        uri = Some(text);
+                        prefix = None;
                     }
                 } else {
                     uri = Some(self.process_quoted_string(false)?);
                 }
-                Ok(Some(No::Namespace {
-                    prefixo: prefixo.map(|p| p.nome).unwrap_or_default(),
+                Ok(Some(Node::Namespace {
+                    prefix: prefix.map(|p| p.name).unwrap_or_default(),
                     uri,
                 }))
             }
             tk::DIRECTIVE_MIXIN => self.process_mixin(),
-            tk::DIRECTIVE_INCLUDE => Ok(Some(No::Include(self.process_include(true)?))),
+            tk::DIRECTIVE_INCLUDE => Ok(Some(Node::Include(self.process_include(true)?))),
             tk::DIRECTIVE_CONTENT => {
                 // `@content not implemented.`
                 self.warning();
@@ -526,26 +526,26 @@ impl<'a> Parser<'a> {
     }
 
     /// `processMixin`.
-    fn process_mixin(&mut self) -> R<Option<No>> {
+    fn process_mixin(&mut self) -> R<Option<Node>> {
         self.next()?;
-        let nome = self.identifier()?;
-        // Os parâmetros (`definedArgs`) nem o visitante nem a impressora
-        // leem; o que importa é o que o laço consome.
+        let name = self.identifier()?;
+        // Neither the visitor nor the printer reads the parameters
+        // (`definedArgs`); what matters is what the loop consumes.
         if self.maybe_eat(tk::LPAREN)? {
             let mut must_have_param = false;
             let mut keep_going = true;
             while keep_going {
                 let antes = (
-                    self.espiado.ini,
-                    self.espiado.kind,
-                    self.tokenizer.posicao(),
+                    self.peeked.start,
+                    self.peeked.kind,
+                    self.tokenizer.position(),
                 );
                 let var_def = self.process_variable_or_directive(true)?;
-                let e_param = matches!(
+                let is_param = matches!(
                     var_def,
-                    VarOuDiretiva::VarDefinitionDirective(_) | VarOuDiretiva::VarDefinition
+                    VarOrDirective::VarDefinitionDirective(_) | VarOrDirective::VarDefinition
                 );
-                if !e_param && must_have_param {
+                if !is_param && must_have_param {
                     self.warning();
                     keep_going = false;
                 }
@@ -554,86 +554,88 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 keep_going = !self.maybe_eat(tk::RPAREN)?;
-                // O oficial não termina quando nada mais é consumido (por
-                // exemplo `@mixin m(` no fim do arquivo): o builder trava.
+                // The official one does not terminate when nothing more is
+                // consumed (for example `@mixin m(` at the end of the file):
+                // the builder hangs.
                 if keep_going
                     && antes
                         == (
-                            self.espiado.ini,
-                            self.espiado.kind,
-                            self.tokenizer.posicao(),
+                            self.peeked.start,
+                            self.peeked.kind,
+                            self.tokenizer.position(),
                         )
                 {
-                    return Err(Excecao("laço sem fim no processMixin"));
+                    return Err(Exception("endless loop in processMixin"));
                 }
             }
         }
         self.eat(tk::LBRACE)?;
 
-        let mut producoes: Vec<No> = Vec::new();
-        // `mixinDirective`; `regras` quando o laço sai guardando o
-        // `MixinRulesetDirective(productions)` — a mesma lista que a
-        // conferência depois do laço usa.
-        let mut mixin: Option<No> = None;
-        let mut regras = false;
+        let mut productions: Vec<Node> = Vec::new();
+        // `mixinDirective`; `rules` when the loop exits holding the
+        // `MixinRulesetDirective(productions)` — the same list that the check
+        // after the loop uses.
+        let mut mixin: Option<Node> = None;
+        let mut rules = false;
         while !self.maybe_eat(tk::END_OF_FILE)? {
-            if let Some(diretiva) = self.process_directive()? {
-                producoes.push(diretiva);
+            if let Some(directive) = self.process_directive()? {
+                productions.push(directive);
                 continue;
             }
-            let mut grupo = self.process_declarations(false)?;
-            let alguma_declaracao = grupo.declaracoes.iter().any(|d| {
+            let mut group = self.process_declarations(false)?;
+            let any_declaration = group.declarations.iter().any(|d| {
                 matches!(
                     d,
-                    No::Declaracao(
-                        Declaracao::Comum { .. } | Declaracao::VarDef(_) | Declaracao::Extend(_)
+                    Node::Declaration(
+                        Declaration::Plain { .. } | Declaration::VarDef(_) | Declaration::Extend(_)
                     )
                 )
             });
-            if alguma_declaracao {
-                // Com declarações, o mixin é de declarações: os `@include`
-                // de antes entram nelas, o resto se perde com aviso.
-                let mut novas = Vec::new();
-                for include in std::mem::take(&mut producoes) {
+            if any_declaration {
+                // With declarations, the mixin is a declaration mixin: the
+                // `@include`s before them go into them, the rest is lost with a
+                // warning.
+                let mut new_declarations = Vec::new();
+                for include in std::mem::take(&mut productions) {
                     match include {
-                        No::Include(i) => novas.push(No::Declaracao(Declaracao::Include(i))),
+                        Node::Include(i) => new_declarations.push(Node::Declaration(Declaration::Include(i))),
                         _ => self.warning(),
                     }
                 }
-                novas.append(&mut grupo.declaracoes);
-                grupo.declaracoes = novas;
+                new_declarations.append(&mut group.declarations);
+                group.declarations = new_declarations;
             } else {
-                // Só `@include`: vira lista de produções.
-                for d in std::mem::take(&mut grupo.declaracoes) {
-                    producoes.push(match d {
-                        No::Declaracao(Declaracao::Include(i)) => No::Include(i),
-                        outro => outro,
+                // Only `@include`: becomes a list of productions.
+                for d in std::mem::take(&mut group.declarations) {
+                    productions.push(match d {
+                        Node::Declaration(Declaration::Include(i)) => Node::Include(i),
+                        other => other,
                     });
                 }
             }
-            if !grupo.declaracoes.is_empty() {
-                if producoes.is_empty() {
-                    mixin = Some(No::MixinDeclaracoes {
-                        nome: nome.nome.clone(),
-                        declaracoes: grupo,
+            if !group.declarations.is_empty() {
+                if productions.is_empty() {
+                    mixin = Some(Node::MixinDeclarations {
+                        name: name.name.clone(),
+                        declarations: group,
                     });
                     break;
                 }
-                for d in std::mem::take(&mut grupo.declaracoes) {
-                    producoes.push(match d {
-                        No::Declaracao(Declaracao::Include(i)) => No::Include(i),
-                        outro => outro,
+                for d in std::mem::take(&mut group.declarations) {
+                    productions.push(match d {
+                        Node::Declaration(Declaration::Include(i)) => Node::Include(i),
+                        other => other,
                     });
                 }
             } else {
-                regras = true;
+                rules = true;
                 break;
             }
         }
-        if regras || !producoes.is_empty() {
-            mixin = Some(No::MixinRegras {
-                nome: nome.nome.clone(),
-                regras: producoes,
+        if rules || !productions.is_empty() {
+            mixin = Some(Node::MixinRules {
+                name: name.name.clone(),
+                rules: productions,
             });
         }
         self.eat(tk::RBRACE)?;
@@ -641,25 +643,25 @@ impl<'a> Parser<'a> {
     }
 
     /// `processVariableOrDirective`.
-    fn process_variable_or_directive(&mut self, mixin_parameter: bool) -> R<VarOuDiretiva> {
+    fn process_variable_or_directive(&mut self, mixin_parameter: bool) -> R<VarOrDirective> {
         let mut tok_id = self.peek();
-        // `@ nome`, com espaço entre a arroba e o nome.
+        // `@ name`, with whitespace between the at sign and the name.
         if tok_id == tk::AT {
             self.next()?;
             tok_id = self.peek();
             if self.peek_identifier() {
-                let diretiva: Vec<u16> = self.texto_espiado().encode_utf16().collect();
-                tok_id = tk::match_directives(&diretiva);
+                let directive: Vec<u16> = self.peeked_text().encode_utf16().collect();
+                tok_id = tk::match_directives(&directive);
                 if tok_id == -1 {
-                    tok_id = tk::match_margin_directives(&diretiva);
+                    tok_id = tk::match_margin_directives(&directive);
                 }
             }
             if tok_id == -1 {
-                // Less (`lessSupport` vale por omissão):
+                // Less (`lessSupport` holds by default):
                 //    @name: value;  =>  var-name: value;  (VarDefinition)
-                let mut nome = None;
+                let mut name = None;
                 if self.peek_identifier() {
-                    nome = Some(self.identifier()?);
+                    name = Some(self.identifier()?);
                 }
                 let mut exprs = None;
                 if mixin_parameter && self.maybe_eat(tk::COLON)? {
@@ -668,12 +670,12 @@ impl<'a> Parser<'a> {
                     self.eat(tk::COLON)?;
                     exprs = Some(self.process_expr(false)?);
                 }
-                return Ok(VarOuDiretiva::VarDefinitionDirective(VarDef {
-                    nome,
-                    expressao: exprs,
+                return Ok(VarOrDirective::VarDefinitionDirective(VarDef {
+                    name,
+                    expression: exprs,
                 }));
             }
-        } else if mixin_parameter && self.espiado.kind == tk::VAR_DEFINITION {
+        } else if mixin_parameter && self.peeked.kind == tk::VAR_DEFINITION {
             self.next()?;
             if self.peek_identifier() {
                 self.identifier()?;
@@ -681,261 +683,262 @@ impl<'a> Parser<'a> {
             if self.maybe_eat(tk::COLON)? {
                 self.process_expr(false)?;
             }
-            return Ok(VarOuDiretiva::VarDefinition);
+            return Ok(VarOrDirective::VarDefinition);
         }
-        Ok(VarOuDiretiva::Tipo(tok_id))
+        Ok(VarOrDirective::Kind(tok_id))
     }
 
     /// `processInclude`.
     fn process_include(&mut self, eat_semi_colon: bool) -> R<Include> {
         // @include IDENT [(args,...)];
         self.next()?;
-        let mut nome = None;
+        let mut name = None;
         if self.peek_identifier() {
-            nome = Some(self.identifier()?);
+            name = Some(self.identifier()?);
         }
         let mut params: Vec<Vec<Expr>> = Vec::new();
         if self.maybe_eat(tk::LPAREN)? {
-            let mut termos: Vec<Expr> = Vec::new();
+            let mut terms: Vec<Expr> = Vec::new();
             let mut keep_going = true;
             while keep_going {
                 let Some(expr) = self.process_term(false)? else {
                     break;
                 };
                 // `(expr is List ? expr[0] : expr) as Expression`.
-                termos.push(match expr {
-                    TermoOuLista::Um(e) => e,
-                    TermoOuLista::Lista(mut l) => {
+                terms.push(match expr {
+                    TermOrList::One(e) => e,
+                    TermOrList::List(mut l) => {
                         if l.is_empty() {
-                            return Err(Excecao("RangeError"));
+                            return Err(Exception("RangeError"));
                         }
                         l.swap_remove(0)
                     }
                 });
                 keep_going = !self.peek_kind(tk::RPAREN);
                 if keep_going && self.maybe_eat(tk::COMMA)? {
-                    params.push(std::mem::take(&mut termos));
+                    params.push(std::mem::take(&mut terms));
                 }
             }
-            params.push(termos);
+            params.push(terms);
             self.maybe_eat(tk::RPAREN)?;
         }
         if eat_semi_colon {
             self.eat(tk::SEMICOLON)?;
         }
-        let nome = nome.ok_or(Excecao("TypeError"))?;
+        let name = name.ok_or(Exception("TypeError"))?;
         Ok(Include {
-            nome: nome.nome,
+            name: name.name,
             args: params,
         })
     }
 
     /// `processDocumentDirective`.
-    fn process_document_directive(&mut self) -> R<No> {
+    fn process_document_directive(&mut self) -> R<Node> {
         self.next()?; // '@-moz-document'
-        let mut funcoes = Vec::new();
+        let mut functions = Vec::new();
         loop {
             // IDENT '('
             let ident = self.identifier()?;
             self.eat(tk::LPAREN)?;
-            let funcao = if ident.nome == "url-prefix" || ident.nome == "domain" {
-                // Aceita o argumento sem aspas e as repõe na saída.
-                let valor = self.process_quoted_string(true)?;
-                let argumento = if valor.is_empty() {
+            let function = if ident.name == "url-prefix" || ident.name == "domain" {
+                // Accepts the argument without quotes and puts them back in the
+                // output.
+                let value = self.process_quoted_string(true)?;
+                let argument = if value.is_empty() {
                     String::new()
                 } else {
-                    format!("\"{valor}\"")
+                    format!("\"{value}\"")
                 };
                 self.eat(tk::RPAREN)?;
-                let argumentos = Expressoes {
-                    expressoes: vec![Expr::Termo(Termo::novo(
-                        TipoTermo::Literal,
-                        Valor::Texto(argumento.clone()),
-                        argumento,
+                let arguments = Expressions {
+                    expressions: vec![Expr::Term(Term::new(
+                        TermKind::Literal,
+                        Value::Str(argument.clone()),
+                        argument,
                     ))],
                 };
-                Termo::novo(
-                    TipoTermo::Funcao(argumentos),
-                    Valor::Texto(ident.nome.clone()),
-                    ident.nome.clone(),
+                Term::new(
+                    TermKind::Function(arguments),
+                    Value::Str(ident.name.clone()),
+                    ident.name.clone(),
                 )
             } else {
                 // `processFunction(ident) as LiteralTerm`.
                 match self.process_function(ident)? {
-                    Expr::Termo(t) => t,
-                    _ => return Err(Excecao("TypeError")),
+                    Expr::Term(t) => t,
+                    _ => return Err(Exception("TypeError")),
                 }
             };
-            funcoes.push(funcao);
+            functions.push(function);
             if !self.maybe_eat(tk::COMMA)? {
                 break;
             }
         }
         self.eat(tk::LBRACE)?;
-        let corpo = self.process_group_rule_body()?;
+        let body = self.process_group_rule_body()?;
         self.eat(tk::RBRACE)?;
-        Ok(No::Documento { funcoes, corpo })
+        Ok(Node::Document { functions, body })
     }
 
     /// `processSupportsDirective`.
-    fn process_supports_directive(&mut self) -> R<No> {
+    fn process_supports_directive(&mut self) -> R<Node> {
         self.next()?; // '@supports'
-        let condicao = self.process_supports_condition()?;
+        let condition = self.process_supports_condition()?;
         self.eat(tk::LBRACE)?;
-        let corpo = self.process_group_rule_body()?;
+        let body = self.process_group_rule_body()?;
         self.eat(tk::RBRACE)?;
-        Ok(No::Supports { condicao, corpo })
+        Ok(Node::Supports { condition, body })
     }
 
     /// `processSupportsCondition`.
-    fn process_supports_condition(&mut self) -> R<Option<CondSupports>> {
-        self.entrar()?;
+    fn process_supports_condition(&mut self) -> R<Option<SupportsCondition>> {
+        self.enter()?;
         let r = self.process_supports_condition_();
-        self.profundidade -= 1;
+        self.depth -= 1;
         r
     }
 
-    /// O corpo de [`Self::process_supports_condition`].
-    fn process_supports_condition_(&mut self) -> R<Option<CondSupports>> {
+    /// The body of [`Self::process_supports_condition`].
+    fn process_supports_condition_(&mut self) -> R<Option<SupportsCondition>> {
         if self.peek_kind(tk::IDENTIFIER) {
             return self.process_supports_negation();
         }
-        // 0: nenhuma; 1: conjunção; 2: disjunção.
+        // 0: none; 1: conjunction; 2: disjunction.
         let mut conditions = Vec::new();
         let mut clause_type = 0;
         loop {
             conditions.push(self.process_supports_condition_in_parens()?);
-            let texto = self.texto_espiado().to_lowercase();
-            let tipo = if texto == "and" {
+            let text = self.peeked_text().to_lowercase();
+            let kind = if text == "and" {
                 1
-            } else if texto == "or" {
+            } else if text == "or" {
                 2
             } else {
                 break;
             };
             if clause_type == 0 {
-                clause_type = tipo;
-            } else if clause_type != tipo {
+                clause_type = kind;
+            } else if clause_type != kind {
                 self.error();
                 break;
             }
             self.next()?;
         }
         Ok(Some(match clause_type {
-            1 => CondSupports::Conjuncao(conditions),
-            2 => CondSupports::Disjuncao(conditions),
+            1 => SupportsCondition::Conjunction(conditions),
+            2 => SupportsCondition::Disjunction(conditions),
             _ => conditions.swap_remove(0),
         }))
     }
 
     /// `processSupportsNegation`.
-    fn process_supports_negation(&mut self) -> R<Option<CondSupports>> {
-        if self.texto_espiado().to_lowercase() != "not" {
+    fn process_supports_negation(&mut self) -> R<Option<SupportsCondition>> {
+        if self.peeked_text().to_lowercase() != "not" {
             return Ok(None);
         }
         self.next()?; // 'not'
-        let condicao = self.process_supports_condition_in_parens()?;
-        Ok(Some(CondSupports::Negacao(Box::new(condicao))))
+        let condition = self.process_supports_condition_in_parens()?;
+        Ok(Some(SupportsCondition::Negation(Box::new(condition))))
     }
 
     /// `processSupportsConditionInParens`.
-    fn process_supports_condition_in_parens(&mut self) -> R<CondSupports> {
+    fn process_supports_condition_in_parens(&mut self) -> R<SupportsCondition> {
         self.eat(tk::LPAREN)?;
-        if let Some(condicao) = self.process_supports_condition()? {
+        if let Some(condition) = self.process_supports_condition()? {
             self.eat(tk::RPAREN)?;
-            return Ok(CondSupports::EmParenteses(Some(Box::new(
-                DentroDeParenteses::Condicao(condicao),
+            return Ok(SupportsCondition::InParens(Some(Box::new(
+                InsideParens::Condition(condition),
             ))));
         }
-        let declaracao = self.process_declaration()?;
+        let declaration = self.process_declaration()?;
         self.eat(tk::RPAREN)?;
-        Ok(CondSupports::EmParenteses(
-            declaracao.map(|d| Box::new(DentroDeParenteses::Declaracao(d))),
+        Ok(SupportsCondition::InParens(
+            declaration.map(|d| Box::new(InsideParens::Declaration(d))),
         ))
     }
 
     /// `processViewportDirective`.
-    fn process_viewport_directive(&mut self) -> R<No> {
-        let nome = self.next()?.texto(self.fonte);
-        let declaracoes = self.process_declarations(true)?;
-        Ok(No::Viewport { nome, declaracoes })
+    fn process_viewport_directive(&mut self) -> R<Node> {
+        let name = self.next()?.text(self.source);
+        let declarations = self.process_declarations(true)?;
+        Ok(Node::Viewport { name, declarations })
     }
 
     /// `processRule`.
-    fn process_rule(&mut self, grupo: Option<GrupoSeletores>) -> R<Option<No>> {
-        self.entrar()?;
-        let r = self.process_rule_(grupo);
-        self.profundidade -= 1;
+    fn process_rule(&mut self, group: Option<SelectorGroup>) -> R<Option<Node>> {
+        self.enter()?;
+        let r = self.process_rule_(group);
+        self.depth -= 1;
         r
     }
 
-    /// O corpo de [`Self::process_rule`].
-    fn process_rule_(&mut self, grupo: Option<GrupoSeletores>) -> R<Option<No>> {
-        let grupo = match grupo {
+    /// The body of [`Self::process_rule`].
+    fn process_rule_(&mut self, group: Option<SelectorGroup>) -> R<Option<Node>> {
+        let group = match group {
             Some(g) => Some(g),
             None => {
-                if let Some(diretiva) = self.process_directive()? {
+                if let Some(directive) = self.process_directive()? {
                     self.maybe_eat(tk::SEMICOLON)?;
-                    return Ok(Some(diretiva));
+                    return Ok(Some(directive));
                 }
                 self.process_selector_group()?
             }
         };
-        match grupo {
-            Some(grupo) => {
-                let declaracoes = self.process_declarations(true)?;
-                Ok(Some(No::Regra(RuleSet { grupo, declaracoes })))
+        match group {
+            Some(group) => {
+                let declarations = self.process_declarations(true)?;
+                Ok(Some(Node::Rule(RuleSet { group, declarations })))
             }
             None => Ok(None),
         }
     }
 
     /// `processGroupRuleBody`.
-    fn process_group_rule_body(&mut self) -> R<Vec<No>> {
-        let mut nos = Vec::new();
+    fn process_group_rule_body(&mut self) -> R<Vec<Node>> {
+        let mut nodes = Vec::new();
         while !(self.peek_kind(tk::RBRACE) || self.peek_kind(tk::END_OF_FILE)) {
             match self.process_rule(None)? {
-                Some(r) => nos.push(r),
+                Some(r) => nodes.push(r),
                 None => break,
             }
         }
-        Ok(nos)
+        Ok(nodes)
     }
 
-    /// `_nestedSelector`: lê um grupo de seletores adiante; se não é seletor
-    /// aninhado (sem `{` depois, ou com alguma mensagem), volta atrás.
-    fn nested_selector(&mut self) -> R<Option<GrupoSeletores>> {
-        let antigas = self.mensagens;
-        self.mensagens = 0;
-        let marca = self.mark();
-        let grupo = self.process_selector_group()?;
-        let aninhado = grupo.is_some() && self.peek_kind(tk::LBRACE) && self.mensagens == 0;
-        if !aninhado {
-            self.restore(marca);
-            self.mensagens = antigas;
+    /// `_nestedSelector`: reads a selector group ahead; if it is not a nested
+    /// selector (no `{` after it, or with some message), it backtracks.
+    fn nested_selector(&mut self) -> R<Option<SelectorGroup>> {
+        let old_count = self.messages;
+        self.messages = 0;
+        let mark_state = self.mark();
+        let group = self.process_selector_group()?;
+        let nested = group.is_some() && self.peek_kind(tk::LBRACE) && self.messages == 0;
+        if !nested {
+            self.restore(mark_state);
+            self.messages = old_count;
             Ok(None)
         } else {
-            self.mensagens += antigas;
-            Ok(grupo)
+            self.messages += old_count;
+            Ok(group)
         }
     }
 
     /// `processDeclarations`.
-    fn process_declarations(&mut self, check_brace: bool) -> R<GrupoDeclaracoes> {
+    fn process_declarations(&mut self, check_brace: bool) -> R<DeclarationGroup> {
         if check_brace {
             self.eat(tk::LBRACE)?;
         }
         let mut decls = Vec::new();
         loop {
-            let mut grupo = self.nested_selector()?;
-            while let Some(g) = grupo {
-                // Seletor aninhado: uma regra.
-                let regra = self.process_rule(Some(g))?.ok_or(Excecao("TypeError"))?;
-                decls.push(regra);
-                grupo = self.nested_selector()?;
+            let mut group = self.nested_selector()?;
+            while let Some(g) = group {
+                // Nested selector: a rule.
+                let rule = self.process_rule(Some(g))?.ok_or(Exception("TypeError"))?;
+                decls.push(rule);
+                group = self.nested_selector()?;
             }
             if let Some(decl) = self.process_declaration()? {
-                decls.push(No::Declaracao(decl));
+                decls.push(Node::Declaration(decl));
             }
             if !self.maybe_eat(tk::SEMICOLON)? {
                 break;
@@ -944,22 +947,22 @@ impl<'a> Parser<'a> {
         if check_brace {
             self.eat(tk::RBRACE)?;
         }
-        Ok(GrupoDeclaracoes {
-            declaracoes: decls,
-            margem: None,
+        Ok(DeclarationGroup {
+            declarations: decls,
+            margin: None,
         })
     }
 
     /// `processMarginsDeclarations`.
-    fn process_margins_declarations(&mut self) -> R<Vec<GrupoDeclaracoes>> {
-        let mut grupos = Vec::new();
+    fn process_margins_declarations(&mut self) -> R<Vec<DeclarationGroup>> {
+        let mut groups = Vec::new();
         self.eat(tk::LBRACE)?;
         let mut decls = Vec::new();
         loop {
             let antes = (
-                self.espiado.ini,
-                self.espiado.kind,
-                self.tokenizer.posicao(),
+                self.peeked.start,
+                self.peeked.kind,
+                self.tokenizer.position(),
             );
             match self.peek() {
                 tk::MARGIN_DIRECTIVE_TOPLEFTCORNER
@@ -979,17 +982,17 @@ impl<'a> Parser<'a> {
                 | tk::MARGIN_DIRECTIVE_RIGHTMIDDLE
                 | tk::MARGIN_DIRECTIVE_RIGHTBOTTOM => {
                     // margin_sym S* '{' declaration [ ';' S* declaration? ]* '}' S*
-                    let margem = self.peek();
+                    let margin = self.peek();
                     self.next()?;
-                    let grupo = self.process_declarations(true)?;
-                    grupos.push(GrupoDeclaracoes {
-                        declaracoes: grupo.declaracoes,
-                        margem: Some(margem),
+                    let group = self.process_declarations(true)?;
+                    groups.push(DeclarationGroup {
+                        declarations: group.declarations,
+                        margin: Some(margin),
                     });
                 }
                 _ => {
                     if let Some(decl) = self.process_declaration()? {
-                        decls.push(No::Declaracao(decl));
+                        decls.push(Node::Declaration(decl));
                     }
                     self.maybe_eat(tk::SEMICOLON)?;
                 }
@@ -997,98 +1000,98 @@ impl<'a> Parser<'a> {
             if self.maybe_eat(tk::RBRACE)? || self.is_premature_end_of_file()? {
                 break;
             }
-            // O oficial não termina quando nada é consumido (por exemplo um
-            // `.x` dentro de `@page { }`): o builder trava.
+            // The official one does not terminate when nothing is consumed (for
+            // example a `.x` inside `@page { }`): the builder hangs.
             if antes
                 == (
-                    self.espiado.ini,
-                    self.espiado.kind,
-                    self.tokenizer.posicao(),
+                    self.peeked.start,
+                    self.peeked.kind,
+                    self.tokenizer.position(),
                 )
             {
-                return Err(Excecao("laço sem fim no processMarginsDeclarations"));
+                return Err(Exception("endless loop in processMarginsDeclarations"));
             }
         }
         if !decls.is_empty() {
-            grupos.push(GrupoDeclaracoes {
-                declaracoes: decls,
-                margem: None,
+            groups.push(DeclarationGroup {
+                declarations: decls,
+                margin: None,
             });
         }
-        Ok(grupos)
+        Ok(groups)
     }
 
     /// `processSelectorGroup`.
-    pub fn process_selector_group(&mut self) -> R<Option<GrupoSeletores>> {
-        let mut seletores = Vec::new();
+    pub fn process_selector_group(&mut self) -> R<Option<SelectorGroup>> {
+        let mut selectors = Vec::new();
         self.tokenizer.in_selector = true;
         loop {
             if let Some(s) = self.process_selector()? {
-                seletores.push(s);
+                selectors.push(s);
             }
             if !self.maybe_eat(tk::COMMA)? {
                 break;
             }
         }
         self.tokenizer.in_selector = false;
-        if !seletores.is_empty() {
-            return Ok(Some(GrupoSeletores { seletores }));
+        if !selectors.is_empty() {
+            return Ok(Some(SelectorGroup { selectors }));
         }
         Ok(None)
     }
 
     /// `processSelector`.
-    fn process_selector(&mut self) -> R<Option<Seletor>> {
-        self.entrar()?;
+    fn process_selector(&mut self) -> R<Option<Selector>> {
+        self.enter()?;
         let r = self.process_selector_();
-        self.profundidade -= 1;
+        self.depth -= 1;
         r
     }
 
-    /// O corpo de [`Self::process_selector`].
-    fn process_selector_(&mut self) -> R<Option<Seletor>> {
-        let mut sequencias = Vec::new();
-        while let Some(s) = self.simple_selector_sequence(sequencias.is_empty())? {
-            sequencias.push(s);
+    /// The body of [`Self::process_selector`].
+    fn process_selector_(&mut self) -> R<Option<Selector>> {
+        let mut sequences = Vec::new();
+        while let Some(s) = self.simple_selector_sequence(sequences.is_empty())? {
+            sequences.push(s);
         }
-        if sequencias.is_empty() {
+        if sequences.is_empty() {
             return Ok(None);
         }
-        Ok(Some(Seletor { sequencias }))
+        Ok(Some(Selector { sequences }))
     }
 
-    /// `processCompoundSelector`: um erro para cada combinador.
-    fn process_compound_selector(&mut self) -> R<Option<Seletor>> {
-        let seletor = self.process_selector()?;
-        if let Some(s) = &seletor {
-            for seq in &s.sequencias {
-                if !seq.sem_combinador() {
+    /// `processCompoundSelector`: one error for each combinator.
+    fn process_compound_selector(&mut self) -> R<Option<Selector>> {
+        let selector = self.process_selector()?;
+        if let Some(s) = &selector {
+            for seq in &s.sequences {
+                if !seq.is_combinator_none() {
                     self.error();
                 }
             }
         }
-        Ok(seletor)
+        Ok(selector)
     }
 
     /// `simpleSelectorSequence`.
     fn simple_selector_sequence(
         &mut self,
         force_combinator_none: bool,
-    ) -> R<Option<std::rc::Rc<Sequencia>>> {
-        let mut combinador = tk::COMBINATOR_NONE;
+    ) -> R<Option<std::rc::Rc<Sequence>>> {
+        let mut combinator = tk::COMBINATOR_NONE;
         let mut this_operator = false;
         match self.peek() {
             tk::PLUS => {
                 self.eat(tk::PLUS)?;
-                combinador = tk::COMBINATOR_PLUS;
+                combinator = tk::COMBINATOR_PLUS;
             }
             tk::GREATER => {
                 self.eat(tk::GREATER)?;
-                combinador = tk::COMBINATOR_GREATER;
+                combinator = tk::COMBINATOR_GREATER;
             }
             tk::TILDE => {
                 self.eat(tk::TILDE)?;
-                combinador = tk::COMBINATOR_TILDE;
+                combinator = tk::COMBINATOR_TILDE;
             }
             tk::AMPERSAND => {
                 self.eat(tk::AMPERSAND)?;
@@ -1096,101 +1099,101 @@ impl<'a> Parser<'a> {
             }
             _ => {}
         }
-        // Espaço entre os tokens: descendente.
-        if combinador == tk::COMBINATOR_NONE
+        // Whitespace between the tokens: descendant.
+        if combinator == tk::COMBINATOR_NONE
             && !force_combinator_none
-            && self.anterior_fim().is_some_and(|f| f != self.espiado.ini)
+            && self.previous_end().is_some_and(|f| f != self.peeked.start)
         {
-            combinador = tk::COMBINATOR_DESCENDANT;
+            combinator = tk::COMBINATOR_DESCENDANT;
         }
-        let mut seletor = if this_operator {
-            Some(std::rc::Rc::new(SeletorSimples {
-                tipo: TipoSimples::Elemento,
-                nome: NomeSimples::Este,
-                tem_span: true,
+        let mut selector = if this_operator {
+            Some(std::rc::Rc::new(SimpleSelector {
+                kind: SimpleKind::Element,
+                name: SimpleName::This,
+                has_span: true,
             }))
         } else {
             self.simple_selector()?
         };
-        if seletor.is_none()
-            && (combinador == tk::COMBINATOR_PLUS
-                || combinador == tk::COMBINATOR_GREATER
-                || combinador == tk::COMBINATOR_TILDE)
+        if selector.is_none()
+            && (combinator == tk::COMBINATOR_PLUS
+                || combinator == tk::COMBINATOR_GREATER
+                || combinator == tk::COMBINATOR_TILDE)
         {
-            // `+ &`, `~ &`, `> &`: uma sequência sem nome para guardar o
-            // combinador.
-            seletor = Some(std::rc::Rc::new(SeletorSimples {
-                tipo: TipoSimples::Elemento,
-                nome: NomeSimples::Ident(Identificador {
-                    nome: String::new(),
-                    texto: None,
+            // `+ &`, `~ &`, `> &`: a sequence without a name to hold the
+            // combinator.
+            selector = Some(std::rc::Rc::new(SimpleSelector {
+                kind: SimpleKind::Element,
+                name: SimpleName::Ident(Identifier {
+                    name: String::new(),
+                    text: None,
                 }),
-                tem_span: true,
+                has_span: true,
             }));
         }
-        Ok(seletor.map(|s| Sequencia::nova(s, combinador)))
+        Ok(selector.map(|s| Sequence::new(s, combinator)))
     }
 
     /// `simpleSelector`.
-    fn simple_selector(&mut self) -> R<Option<std::rc::Rc<SeletorSimples>>> {
-        self.entrar()?;
+    fn simple_selector(&mut self) -> R<Option<std::rc::Rc<SimpleSelector>>> {
+        self.enter()?;
         let r = self.simple_selector_();
-        self.profundidade -= 1;
+        self.depth -= 1;
         r
     }
 
-    /// O corpo de [`Self::simple_selector`].
-    fn simple_selector_(&mut self) -> R<Option<std::rc::Rc<SeletorSimples>>> {
-        let mut first: Option<NomeSimples> = None;
+    /// The body of [`Self::simple_selector`].
+    fn simple_selector_(&mut self) -> R<Option<std::rc::Rc<SimpleSelector>>> {
+        let mut first: Option<SimpleName> = None;
         match self.peek() {
             tk::ASTERISK => {
                 self.next()?;
-                first = Some(NomeSimples::Curinga);
+                first = Some(SimpleName::Wildcard);
             }
-            tk::IDENTIFIER => first = Some(NomeSimples::Ident(self.identifier()?)),
+            tk::IDENTIFIER => first = Some(SimpleName::Ident(self.identifier()?)),
             _ => {
                 if tk::is_kind_identifier(self.peek()) {
-                    first = Some(NomeSimples::Ident(self.identifier()?));
+                    first = Some(SimpleName::Ident(self.identifier()?));
                 } else if self.peek_kind(tk::SEMICOLON) {
-                    // Não é seletor se achou `;`.
+                    // It is not a selector if it found `;`.
                     return Ok(None);
                 }
             }
         }
         if self.maybe_eat(tk::NAMESPACE)? {
-            let elemento = match self.peek() {
+            let element = match self.peek() {
                 tk::ASTERISK => {
                     self.next()?;
-                    NomeSimples::Curinga
+                    SimpleName::Wildcard
                 }
-                tk::IDENTIFIER => NomeSimples::Ident(self.identifier()?),
-                // O erro monta a mensagem com `$_peekToken`, cujo
-                // `kindToString` lança `StateError` num tipo sem nome; se
-                // não, o `element!.span!` lança com o elemento nulo.
+                tk::IDENTIFIER => SimpleName::Ident(self.identifier()?),
+                // The error builds the message with `$_peekToken`, whose
+                // `kindToString` throws `StateError` for a kind without a name;
+                // otherwise, `element!.span!` throws with a null element.
                 k => {
-                    return Err(Excecao(if tk::kind_to_string(k).is_none() {
+                    return Err(Exception(if tk::kind_to_string(k).is_none() {
                         "StateError"
                     } else {
                         "TypeError"
                     }));
                 }
             };
-            let elemento = std::rc::Rc::new(SeletorSimples {
-                tipo: TipoSimples::Elemento,
-                nome: elemento,
-                tem_span: true,
+            let element = std::rc::Rc::new(SimpleSelector {
+                kind: SimpleKind::Element,
+                name: element,
+                has_span: true,
             });
-            return Ok(Some(std::rc::Rc::new(SeletorSimples {
-                tipo: TipoSimples::Namespace { namespace: first },
-                nome: NomeSimples::Seletor(elemento),
-                tem_span: true,
+            return Ok(Some(std::rc::Rc::new(SimpleSelector {
+                kind: SimpleKind::Namespace { namespace: first },
+                name: SimpleName::Selector(element),
+                has_span: true,
             })));
         }
         if let Some(first) = first {
-            return Ok(Some(std::rc::Rc::new(SeletorSimples {
-                tipo: TipoSimples::Elemento,
-                nome: first,
-                tem_span: true,
+            return Ok(Some(std::rc::Rc::new(SimpleSelector {
+                kind: SimpleKind::Element,
+                name: first,
+                has_span: true,
             })));
         }
         // HASH | class | attrib | pseudo | negation
@@ -1199,14 +1202,14 @@ impl<'a> Parser<'a> {
 
     /// `_anyWhiteSpaceBeforePeekToken`.
     fn any_white_space_before_peek_token(&self, kind: i32) -> bool {
-        match &self.anterior {
-            Some(t) if t.kind == kind => t.fim != self.espiado.ini,
+        match &self.previous {
+            Some(t) if t.kind == kind => t.end != self.peeked.start,
             _ => false,
         }
     }
 
     /// `simpleSelectorTail`.
-    fn simple_selector_tail(&mut self) -> R<Option<std::rc::Rc<SeletorSimples>>> {
+    fn simple_selector_tail(&mut self) -> R<Option<std::rc::Rc<SimpleSelector>>> {
         match self.peek() {
             tk::HASH => {
                 self.eat(tk::HASH)?;
@@ -1215,7 +1218,7 @@ impl<'a> Parser<'a> {
                     return Ok(None);
                 }
                 let id = self.identifier()?;
-                Ok(Some(simples(TipoSimples::Id, id)))
+                Ok(Some(simple(SimpleKind::Id, id)))
             }
             tk::DOT => {
                 self.eat(tk::DOT)?;
@@ -1223,8 +1226,8 @@ impl<'a> Parser<'a> {
                     self.error();
                     return Ok(None);
                 }
-                let classe = self.identifier()?;
-                Ok(Some(simples(TipoSimples::Classe, classe)))
+                let class = self.identifier()?;
+                Ok(Some(simple(SimpleKind::Class, class)))
             }
             tk::COLON => self.process_pseudo_selector(),
             tk::LBRACK => self.process_attribute(),
@@ -1238,48 +1241,49 @@ impl<'a> Parser<'a> {
     }
 
     /// `processPseudoSelector`.
-    fn process_pseudo_selector(&mut self) -> R<Option<std::rc::Rc<SeletorSimples>>> {
+    fn process_pseudo_selector(&mut self) -> R<Option<std::rc::Rc<SimpleSelector>>> {
         self.eat(tk::COLON)?;
         let pseudo_element = self.maybe_eat(tk::COLON)?;
         if !self.peek_identifier() {
             return Ok(None);
         }
         let pseudo_name = self.identifier()?;
-        let nome = pseudo_name.nome.to_lowercase();
+        let name = pseudo_name.name.to_lowercase();
 
-        // Pseudo com função?
-        if self.espiado.kind == tk::LPAREN {
-            if !pseudo_element && nome == "not" {
+        // Pseudo with a function?
+        if self.peeked.kind == tk::LPAREN {
+            if !pseudo_element && name == "not" {
                 self.eat(tk::LPAREN)?;
                 // Negation: ':NOT(' S* negation_arg S* ')'
                 let neg_arg = self.simple_selector()?;
                 self.eat(tk::RPAREN)?;
-                return Ok(Some(std::rc::Rc::new(SeletorSimples {
-                    tipo: TipoSimples::Negacao(neg_arg),
-                    nome: NomeSimples::Negacao,
-                    tem_span: true,
+                return Ok(Some(std::rc::Rc::new(SimpleSelector {
+                    kind: SimpleKind::Negation(neg_arg),
+                    name: SimpleName::Negation,
+                    has_span: true,
                 })));
             } else if !pseudo_element
-                && (nome == "host"
-                    || nome == "host-context"
-                    || nome == "global-context"
-                    || nome == "-acx-global-context")
+                && (name == "host"
+                    || name == "host-context"
+                    || name == "global-context"
+                    || name == "-acx-global-context")
             {
                 self.eat(tk::LPAREN)?;
-                let Some(seletor) = self.process_compound_selector()? else {
+                let Some(selector) = self.process_compound_selector()? else {
                     self.error_expected()?;
                     return Ok(None);
                 };
                 self.eat(tk::RPAREN)?;
-                return Ok(Some(simples(
-                    TipoSimples::PseudoClasseFuncao(ArgumentoPseudo::Seletor(std::rc::Rc::new(
-                        seletor,
+                return Ok(Some(simple(
+                    SimpleKind::PseudoClassFunction(PseudoArgument::Selector(std::rc::Rc::new(
+                        selector,
                     ))),
                     pseudo_name,
                 )));
             } else {
-                // Em expressão de pseudo o `-` é operador; o modo muda antes
-                // de comer o `(`, que já busca o token seguinte.
+                // In a pseudo expression the `-` is an operator; the mode
+                // changes before eating the `(`, which already fetches the next
+                // token.
                 self.tokenizer.in_selector_expression = true;
                 self.eat(tk::LPAREN)?;
                 let expr = self.process_selector_expression()?;
@@ -1288,10 +1292,10 @@ impl<'a> Parser<'a> {
                     Some(expr) => {
                         self.eat(tk::RPAREN)?;
                         Ok(Some(if pseudo_element {
-                            simples(TipoSimples::PseudoElementoFuncao(expr), pseudo_name)
+                            simple(SimpleKind::PseudoElementFunction(expr), pseudo_name)
                         } else {
-                            simples(
-                                TipoSimples::PseudoClasseFuncao(ArgumentoPseudo::Expressao(expr)),
+                            simple(
+                                SimpleKind::PseudoClassFunction(PseudoArgument::Expression(expr)),
                                 pseudo_name,
                             )
                         }))
@@ -1303,44 +1307,44 @@ impl<'a> Parser<'a> {
                 };
             }
         }
-        // Os pseudoelementos do CSS2.1 com `:` só.
-        if pseudo_element || PSEUDO_ELEMENTOS_LEGADOS.contains(&nome.as_str()) {
-            Ok(Some(simples(
-                TipoSimples::PseudoElemento {
-                    legado: !pseudo_element,
+        // The CSS2.1 pseudo-elements with a single `:`.
+        if pseudo_element || LEGACY_PSEUDO_ELEMENTS.contains(&name.as_str()) {
+            Ok(Some(simple(
+                SimpleKind::PseudoElement {
+                    legacy: !pseudo_element,
                 },
                 pseudo_name,
             )))
         } else {
-            Ok(Some(simples(TipoSimples::PseudoClasse, pseudo_name)))
+            Ok(Some(simple(SimpleKind::PseudoClass, pseudo_name)))
         }
     }
 
-    /// `processSelectorExpression`: a `SelectorExpression`, ou `None` onde o
-    /// oficial devolve um `LiteralTerm` (argumento entre aspas).
+    /// `processSelectorExpression`: the `SelectorExpression`, or `None` where
+    /// the official one returns a `LiteralTerm` (quoted argument).
     fn process_selector_expression(&mut self) -> R<Option<Vec<Expr>>> {
-        let mut expressoes = Vec::new();
+        let mut expressions = Vec::new();
         let mut term_token: Option<Token> = None;
-        let mut valor: Option<Valor> = None;
+        let mut value: Option<Value> = None;
         let mut keep_parsing = true;
         while keep_parsing {
             match self.peek() {
                 tk::PLUS => {
                     term_token = Some(self.next()?);
-                    expressoes.push(Expr::Mais);
+                    expressions.push(Expr::Plus);
                 }
                 tk::MINUS => {
                     term_token = Some(self.next()?);
-                    expressoes.push(Expr::Menos);
+                    expressions.push(Expr::Minus);
                 }
                 tk::INTEGER => {
                     let t = self.next()?;
-                    valor = Some(Valor::Int(int_parse(&t.texto(self.fonte))?));
+                    value = Some(Value::Int(int_parse(&t.text(self.source))?));
                     term_token = Some(t);
                 }
                 tk::DOUBLE => {
                     let t = self.next()?;
-                    valor = Some(Valor::Double(double_parse(&t.texto(self.fonte))?));
+                    value = Some(Value::Double(double_parse(&t.text(self.source))?));
                     term_token = Some(t);
                 }
                 tk::SINGLE_QUOTE | tk::DOUBLE_QUOTE => {
@@ -1348,20 +1352,20 @@ impl<'a> Parser<'a> {
                     return Ok(None);
                 }
                 tk::IDENTIFIER => {
-                    valor = Some(Valor::Ident(self.identifier()?));
+                    value = Some(Value::Ident(self.identifier()?));
                 }
                 _ => keep_parsing = false,
             }
-            if keep_parsing && let Some(v) = valor.take() {
-                let termo = self.process_dimension(term_token.as_ref(), v)?;
-                expressoes.push(Expr::Termo(termo));
+            if keep_parsing && let Some(v) = value.take() {
+                let term = self.process_dimension(term_token.as_ref(), v)?;
+                expressions.push(Expr::Term(term));
             }
         }
-        Ok(Some(expressoes))
+        Ok(Some(expressions))
     }
 
     /// `processAttribute`.
-    fn process_attribute(&mut self) -> R<Option<std::rc::Rc<SeletorSimples>>> {
+    fn process_attribute(&mut self) -> R<Option<std::rc::Rc<SimpleSelector>>> {
         if !self.maybe_eat(tk::LBRACK)? {
             return Ok(None);
         }
@@ -1379,80 +1383,80 @@ impl<'a> Parser<'a> {
             }
             _ => tk::NO_MATCH,
         };
-        let mut valor = None;
+        let mut value = None;
         if op != tk::NO_MATCH {
-            // Com operador, exige valor.
-            valor = Some(if self.peek_identifier() {
-                ValorAtributo::Ident(self.identifier()?)
+            // With an operator, a value is required.
+            value = Some(if self.peek_identifier() {
+                AttributeValue::Ident(self.identifier()?)
             } else {
-                ValorAtributo::Texto(self.process_quoted_string(false)?)
+                AttributeValue::Str(self.process_quoted_string(false)?)
             });
         }
         self.eat(tk::RBRACK)?;
-        Ok(Some(simples(
-            TipoSimples::Atributo { op, valor },
+        Ok(Some(simple(
+            SimpleKind::Attribute { op, value },
             attr_name,
         )))
     }
 
     /// `processDeclaration`.
-    fn process_declaration(&mut self) -> R<Option<Declaracao>> {
-        // `*IDENT`: hack do IE7.
+    fn process_declaration(&mut self) -> R<Option<Declaration>> {
+        // `*IDENT`: the IE7 hack.
         let ie7 = self.peek_kind(tk::ASTERISK);
         if ie7 {
             self.next()?;
         }
-        if tk::is_identifier(self.espiado.kind) {
+        if tk::is_identifier(self.peeked.kind) {
             // IDENT ':' expr '!important'?
-            let propriedade = self.identifier()?;
-            let ie_filter_property = propriedade.nome.to_lowercase() == "filter";
+            let property = self.identifier()?;
+            let ie_filter_property = property.name.to_lowercase() == "filter";
             self.eat(tk::COLON)?;
             let exprs = self.process_expr(ie_filter_property)?;
-            style_for_dart(&propriedade, &exprs)?;
-            let importante = self.maybe_eat(tk::IMPORTANT)?;
-            return Ok(Some(Declaracao::Comum {
-                propriedade,
-                expressao: exprs,
-                importante,
+            style_for_dart(&property, &exprs)?;
+            let important = self.maybe_eat(tk::IMPORTANT)?;
+            return Ok(Some(Declaration::Plain {
+                property,
+                expression: exprs,
+                important,
                 ie7,
             }));
-        } else if self.espiado.kind == tk::VAR_DEFINITION {
+        } else if self.peeked.kind == tk::VAR_DEFINITION {
             self.next()?;
-            let mut nome = None;
+            let mut name = None;
             if self.peek_identifier() {
-                nome = Some(self.identifier()?);
+                name = Some(self.identifier()?);
             }
             self.eat(tk::COLON)?;
             let exprs = self.process_expr(false)?;
-            return Ok(Some(Declaracao::VarDef(VarDef {
-                nome,
-                expressao: Some(exprs),
+            return Ok(Some(Declaration::VarDef(VarDef {
+                name,
+                expression: Some(exprs),
             })));
-        } else if self.espiado.kind == tk::DIRECTIVE_INCLUDE {
-            // @include no meio das declarações.
+        } else if self.peeked.kind == tk::DIRECTIVE_INCLUDE {
+            // @include in the middle of the declarations.
             let include = self.process_include(false)?;
-            return Ok(Some(Declaracao::Include(include)));
-        } else if self.espiado.kind == tk::DIRECTIVE_EXTEND {
-            let mut seletores = Vec::new();
+            return Ok(Some(Declaration::Include(include)));
+        } else if self.peeked.kind == tk::DIRECTIVE_EXTEND {
+            let mut selectors = Vec::new();
             self.next()?;
             match self.simple_selector()? {
                 None => self.warning(),
-                Some(s) => seletores.push(s),
+                Some(s) => selectors.push(s),
             }
             if self.peek_kind(tk::COLON) {
                 match self.process_pseudo_selector()? {
-                    Some(p) if p.e_pseudo_elemento() || p.e_pseudo_classe() => seletores.push(p),
+                    Some(p) if p.is_pseudo_element() || p.is_pseudo_class() => selectors.push(p),
                     _ => self.warning(),
                 }
             }
-            return Ok(Some(Declaracao::Extend(seletores)));
+            return Ok(Some(Declaration::Extend(selectors)));
         }
         Ok(None)
     }
 
     /// `processExpr`.
-    fn process_expr(&mut self, ie_filter: bool) -> R<Expressoes> {
-        let mut expressoes = Expressoes::default();
+    fn process_expr(&mut self, ie_filter: bool) -> R<Expressions> {
+        let mut expressions = Expressions::default();
         let mut keep_going = true;
         while keep_going {
             let Some(expr) = self.process_term(ie_filter)? else {
@@ -1461,18 +1465,18 @@ impl<'a> Parser<'a> {
             let mut op: Option<Expr> = None;
             let mut ie8 = false;
             match self.peek() {
-                tk::SLASH => op = Some(Expr::Barra),
-                tk::COMMA => op = Some(Expr::Virgula),
+                tk::SLASH => op = Some(Expr::Slash),
+                tk::COMMA => op = Some(Expr::Comma),
                 tk::BACKSLASH => {
-                    // `\9` no fim da expressão: IE8 ou anterior.
+                    // `\9` at the end of the expression: IE8 or earlier.
                     self.next()?;
                     if self.peek_kind(tk::INTEGER) {
                         let num = self.next()?;
-                        let valor = int_parse(&num.texto(self.fonte))?;
-                        if valor == 9 {
-                            op = Some(Expr::Termo(Termo::novo(
-                                TipoTermo::Ie8,
-                                Valor::Texto("\\9".into()),
+                        let value = int_parse(&num.text(self.source))?;
+                        if value == 9 {
+                            op = Some(Expr::Term(Term::new(
+                                TermKind::Ie8,
+                                Value::Str("\\9".into()),
                                 "\\9".into(),
                             )));
                             ie8 = true;
@@ -1482,11 +1486,11 @@ impl<'a> Parser<'a> {
                 _ => {}
             }
             match expr {
-                TermoOuLista::Lista(l) => expressoes.expressoes.extend(l),
-                TermoOuLista::Um(e) => expressoes.expressoes.push(e),
+                TermOrList::List(l) => expressions.expressions.extend(l),
+                TermOrList::One(e) => expressions.expressions.push(e),
             }
             if let Some(op) = op {
-                expressoes.expressoes.push(op);
+                expressions.expressions.push(op);
                 if ie8 {
                     keep_going = false;
                 } else {
@@ -1494,105 +1498,105 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        Ok(expressoes)
+        Ok(expressions)
     }
 
     /// `processTerm`.
-    fn process_term(&mut self, ie_filter: bool) -> R<Option<TermoOuLista>> {
-        self.entrar()?;
+    fn process_term(&mut self, ie_filter: bool) -> R<Option<TermOrList>> {
+        self.enter()?;
         let r = self.process_term_(ie_filter);
-        self.profundidade -= 1;
+        self.depth -= 1;
         r
     }
 
-    /// O corpo de [`Self::process_term`].
-    fn process_term_(&mut self, ie_filter: bool) -> R<Option<TermoOuLista>> {
-        let start = self.espiado.ini;
-        let um = |t: Termo| Ok(Some(TermoOuLista::Um(Expr::Termo(t))));
+    /// The body of [`Self::process_term`].
+    fn process_term_(&mut self, ie_filter: bool) -> R<Option<TermOrList>> {
+        let start = self.peeked.start;
+        let one = |t: Term| Ok(Some(TermOrList::One(Expr::Term(t))));
         match self.peek() {
             tk::HASH => {
                 self.eat(tk::HASH)?;
                 if !self.any_white_space_before_peek_token(tk::HASH) {
                     let mut hex_text = None;
                     if self.peek_kind(tk::INTEGER) {
-                        let hex_text1 = self.texto_espiado();
+                        let hex_text1 = self.peeked_text();
                         self.next()?;
-                        // Junta o identificador só se não houver espaço.
-                        if self.peek_identifier() && self.anterior_fim() == Some(self.espiado.ini) {
-                            let resto = self.identifier()?.nome;
-                            hex_text = Some(format!("{hex_text1}{resto}"));
+                        // Joins the identifier only if there is no whitespace.
+                        if self.peek_identifier() && self.previous_end() == Some(self.peeked.start) {
+                            let rest = self.identifier()?.name;
+                            hex_text = Some(format!("{hex_text1}{rest}"));
                         } else {
                             hex_text = Some(hex_text1);
                         }
                     } else if self.peek_identifier() {
-                        hex_text = Some(self.identifier()?.nome);
+                        hex_text = Some(self.identifier()?.name);
                     }
                     if let Some(h) = hex_text {
-                        return um(self.parse_hex(h));
+                        return one(self.parse_hex(h));
                     }
                 }
-                // `#<espaço>número`: `(processTerm() as LiteralTerm).text`.
-                let texto = match self.process_term(false)? {
-                    Some(TermoOuLista::Um(Expr::Termo(t))) => t.texto,
-                    _ => return Err(Excecao("TypeError")),
+                // `#<space>number`: `(processTerm() as LiteralTerm).text`.
+                let text = match self.process_term(false)? {
+                    Some(TermOrList::One(Expr::Term(t))) => t.text,
+                    _ => return Err(Exception("TypeError")),
                 };
-                um(self.parse_hex(format!(" {texto}")))
+                one(self.parse_hex(format!(" {text}")))
             }
             tk::INTEGER => {
                 let t = self.next()?;
-                let valor = int_parse(&t.texto(self.fonte))?;
-                um(self.process_dimension(Some(&t), Valor::Int(valor))?)
+                let value = int_parse(&t.text(self.source))?;
+                one(self.process_dimension(Some(&t), Value::Int(value))?)
             }
             tk::DOUBLE => {
                 let t = self.next()?;
-                let valor = double_parse(&t.texto(self.fonte))?;
-                um(self.process_dimension(Some(&t), Valor::Double(valor))?)
+                let value = double_parse(&t.text(self.source))?;
+                one(self.process_dimension(Some(&t), Value::Double(value))?)
             }
             tk::SINGLE_QUOTE => {
-                let valor = self.process_quoted_string(false)?;
-                let valor = format!("'{}'", escape_string(&valor, true));
-                um(Termo::novo(
-                    TipoTermo::Literal,
-                    Valor::Texto(valor.clone()),
-                    valor,
+                let value = self.process_quoted_string(false)?;
+                let value = format!("'{}'", escape_string(&value, true));
+                one(Term::new(
+                    TermKind::Literal,
+                    Value::Str(value.clone()),
+                    value,
                 ))
             }
             tk::DOUBLE_QUOTE => {
-                let valor = self.process_quoted_string(false)?;
-                let valor = format!("\"{}\"", escape_string(&valor, false));
-                um(Termo::novo(
-                    TipoTermo::Literal,
-                    Valor::Texto(valor.clone()),
-                    valor,
+                let value = self.process_quoted_string(false)?;
+                let value = format!("\"{}\"", escape_string(&value, false));
+                one(Term::new(
+                    TermKind::Literal,
+                    Value::Str(value.clone()),
+                    value,
                 ))
             }
             tk::LPAREN => {
                 self.next()?;
-                let mut grupo = Vec::new();
+                let mut group = Vec::new();
                 loop {
-                    let termo = self.process_term(false)?;
-                    let nulo = termo.is_none();
-                    if let Some(TermoOuLista::Um(Expr::Termo(t))) = termo {
-                        grupo.push(t);
+                    let term = self.process_term(false)?;
+                    let null = term.is_none();
+                    if let Some(TermOrList::One(Expr::Term(t))) = term {
+                        group.push(t);
                     }
-                    if nulo || self.maybe_eat(tk::RPAREN)? || self.is_premature_end_of_file()? {
+                    if null || self.maybe_eat(tk::RPAREN)? || self.is_premature_end_of_file()? {
                         break;
                     }
                 }
-                Ok(Some(TermoOuLista::Um(Expr::Grupo(grupo))))
+                Ok(Some(TermOrList::One(Expr::Group(group))))
             }
             tk::LBRACK => {
                 self.next()?;
                 // `processTerm() as LiteralTerm`.
-                let termo = match self.process_term(false)? {
-                    Some(TermoOuLista::Um(Expr::Termo(t))) => t,
-                    _ => return Err(Excecao("TypeError")),
+                let term = match self.process_term(false)? {
+                    Some(TermOrList::One(Expr::Term(t))) => t,
+                    _ => return Err(Exception("TypeError")),
                 };
-                if !termo.e_numero() {
+                if !term.is_number() {
                     self.error();
                 }
                 self.eat(tk::RBRACK)?;
-                um(Termo::novo(TipoTermo::Item, termo.valor, termo.texto))
+                one(Term::new(TermKind::Item, term.value, term.text))
             }
             tk::IDENTIFIER => self.process_identifier(ie_filter, start),
             tk::UNICODE_RANGE => {
@@ -1600,7 +1604,7 @@ impl<'a> Parser<'a> {
                 let mut second = None;
                 self.eat_ur(tk::UNICODE_RANGE, true)?;
                 if self.maybe_eat_ur(tk::HEX_INTEGER, true)? {
-                    let f = self.anterior_texto();
+                    let f = self.previous_text();
                     let first_number = hex_parse(&f)?;
                     if first_number > MAX_UNICODE {
                         self.error();
@@ -1609,7 +1613,7 @@ impl<'a> Parser<'a> {
                     if self.maybe_eat_ur(tk::MINUS, true)?
                         && self.maybe_eat_ur(tk::HEX_INTEGER, true)?
                     {
-                        let s = self.anterior_texto();
+                        let s = self.previous_text();
                         let second_number = hex_parse(&s)?;
                         if second_number > MAX_UNICODE {
                             self.error();
@@ -1620,32 +1624,32 @@ impl<'a> Parser<'a> {
                         second = Some(s);
                     }
                 } else if self.maybe_eat_ur(tk::HEX_RANGE, true)? {
-                    first = Some(self.anterior_texto());
+                    first = Some(self.previous_text());
                 }
-                Ok(Some(TermoOuLista::Um(Expr::UnicodeRange {
-                    primeiro: first,
-                    segundo: second,
+                Ok(Some(TermOrList::One(Expr::UnicodeRange {
+                    first,
+                    second,
                 })))
             }
             tk::AT => {
                 // Less (`lessSupport`): `property: @name` => `var(name)`.
                 self.next()?;
                 let mut expr = self.process_expr(false)?;
-                let Some(param) = expr.expressoes.first() else {
-                    return Err(Excecao("RangeError"));
+                let Some(param) = expr.expressions.first() else {
+                    return Err(Exception("RangeError"));
                 };
-                let Expr::Termo(param) = param else {
-                    return Err(Excecao("TypeError"));
+                let Expr::Term(param) = param else {
+                    return Err(Exception("TypeError"));
                 };
-                let nome = param.texto.clone();
-                expr.expressoes[0] = Expr::VarUsage {
-                    nome,
-                    padroes: Vec::new(),
+                let name = param.text.clone();
+                expr.expressions[0] = Expr::VarUsage {
+                    name,
+                    defaults: Vec::new(),
                 };
-                Ok(Some(TermoOuLista::Lista(expr.expressoes)))
+                Ok(Some(TermOrList::List(expr.expressions)))
             }
             _ => {
-                // Tokens de identificador sintetizados (`PT`, `PX`…).
+                // Synthesized identifier tokens (`PT`, `PX`…).
                 if tk::is_kind_identifier(self.peek()) {
                     self.process_identifier(ie_filter, start)
                 } else {
@@ -1656,71 +1660,71 @@ impl<'a> Parser<'a> {
     }
 
     /// `_previousToken!.text`.
-    fn anterior_texto(&self) -> String {
-        self.anterior
+    fn previous_text(&self) -> String {
+        self.previous
             .as_ref()
-            .map(|t| t.texto(self.fonte))
+            .map(|t| t.text(self.source))
             .unwrap_or_default()
     }
 
-    /// O `processIdentifier` local do `processTerm`.
-    fn process_identifier(&mut self, ie_filter: bool, start: usize) -> R<Option<TermoOuLista>> {
-        let nome = self.identifier()?;
+    /// The local `processIdentifier` of `processTerm`.
+    fn process_identifier(&mut self, ie_filter: bool, start: usize) -> R<Option<TermOrList>> {
+        let name = self.identifier()?;
         if !ie_filter && self.maybe_eat(tk::LPAREN)? {
-            if let Some(calc) = self.process_calc(&nome)? {
-                return Ok(Some(TermoOuLista::Um(Expr::Termo(calc))));
+            if let Some(calc) = self.process_calc(&name)? {
+                return Ok(Some(TermOrList::One(Expr::Term(calc))));
             }
             // FUNCTION
-            return Ok(Some(TermoOuLista::Um(self.process_function(nome)?)));
+            return Ok(Some(TermOrList::One(self.process_function(name)?)));
         }
         if ie_filter {
-            // `filter:progid:…` ou `filter:<nome>`: os dois caminhos do
-            // oficial dão no mesmo `processIEFilter` (o `_maybeEat(COLON)`
-            // vem antes do `&&`).
+            // `filter:progid:…` or `filter:<name>`: both official paths end up
+            // in the same `processIEFilter` (the `_maybeEat(COLON)` comes
+            // before the `&&`).
             self.maybe_eat(tk::COLON)?;
             return Ok(self
                 .process_ie_filter(start)?
-                .map(|t| TermoOuLista::Um(Expr::Termo(t))));
+                .map(|t| TermOrList::One(Expr::Term(t))));
         }
-        let texto = nome.nome.clone();
-        if texto == "from" {
-            return Ok(Some(TermoOuLista::Um(Expr::Termo(Termo::novo(
-                TipoTermo::Literal,
-                Valor::Ident(nome),
-                texto,
+        let text = name.name.clone();
+        if text == "from" {
+            return Ok(Some(TermOrList::One(Expr::Term(Term::new(
+                TermKind::Literal,
+                Value::Ident(name),
+                text,
             )))));
         }
-        // Nome de cor?
-        match tk::match_color_name(&texto) {
-            None => Ok(Some(TermoOuLista::Um(Expr::Termo(Termo::novo(
-                TipoTermo::Literal,
-                Valor::Ident(nome),
-                texto,
+        // Color name?
+        match tk::match_color_name(&text) {
+            None => Ok(Some(TermOrList::One(Expr::Term(Term::new(
+                TermKind::Literal,
+                Value::Ident(name),
+                text,
             ))))),
-            Some(valor) => {
-                // A cor como valor RGB.
-                let rgb = tk::decimal_to_hex(valor, 6);
-                Ok(Some(TermoOuLista::Um(Expr::Termo(self.parse_hex(rgb)))))
+            Some(value) => {
+                // The color as an RGB value.
+                let rgb = tk::decimal_to_hex(value, 6);
+                Ok(Some(TermOrList::One(Expr::Term(self.parse_hex(rgb)))))
             }
         }
     }
 
     /// `processDimension`.
-    fn process_dimension(&mut self, t: Option<&Token>, valor: Valor) -> R<Termo> {
-        let unidade = self.peek();
-        let texto_t =
-            |p: &Self| -> R<String> { t.map(|t| t.texto(p.fonte)).ok_or(Excecao("TypeError")) };
-        let tipo = match unidade {
-            tk::UNIT_EM => TipoTermo::Em,
-            tk::UNIT_EX => TipoTermo::Ex,
+    fn process_dimension(&mut self, t: Option<&Token>, value: Value) -> R<Term> {
+        let unit = self.peek();
+        let token_text =
+            |p: &Self| -> R<String> { t.map(|t| t.text(p.source)).ok_or(Exception("TypeError")) };
+        let kind = match unit {
+            tk::UNIT_EM => TermKind::Em,
+            tk::UNIT_EX => TermKind::Ex,
             tk::UNIT_LENGTH_PX
             | tk::UNIT_LENGTH_CM
             | tk::UNIT_LENGTH_MM
             | tk::UNIT_LENGTH_IN
             | tk::UNIT_LENGTH_PT
-            | tk::UNIT_LENGTH_PC => TipoTermo::Unidade {
-                unidade,
-                comprimento: true,
+            | tk::UNIT_LENGTH_PC => TermKind::Unit {
+                unit,
+                is_length: true,
             },
             tk::UNIT_ANGLE_DEG
             | tk::UNIT_ANGLE_RAD
@@ -1740,32 +1744,32 @@ impl<'a> Parser<'a> {
             | tk::UNIT_VIEWPORT_VMIN
             | tk::UNIT_VIEWPORT_VMAX
             | tk::UNIT_LH
-            | tk::UNIT_RLH => TipoTermo::Unidade {
-                unidade,
-                comprimento: false,
+            | tk::UNIT_RLH => TermKind::Unit {
+                unit,
+                is_length: false,
             },
-            tk::PERCENT => TipoTermo::Porcentagem,
-            tk::UNIT_FRACTION => TipoTermo::Fracao,
+            tk::PERCENT => TermKind::Percentage,
+            tk::UNIT_FRACTION => TermKind::Fraction,
             _ => {
-                return match valor {
-                    Valor::Ident(i) => {
-                        let texto = i.nome.clone();
-                        Ok(Termo::novo(TipoTermo::Literal, Valor::Ident(i), texto))
+                return match value {
+                    Value::Ident(i) => {
+                        let text = i.name.clone();
+                        Ok(Term::new(TermKind::Literal, Value::Ident(i), text))
                     }
-                    v => Ok(Termo::novo(TipoTermo::Numero, v, texto_t(self)?)),
+                    v => Ok(Term::new(TermKind::Number, v, token_text(self)?)),
                 };
             }
         };
-        // `span.expand(_next().span)`, depois o `t!.text`.
+        // `span.expand(_next().span)`, then `t!.text`.
         self.next()?;
-        Ok(Termo::novo(tipo, valor, texto_t(self)?))
+        Ok(Term::new(kind, value, token_text(self)?))
     }
 
     /// `processQuotedString`.
     fn process_quoted_string(&mut self, url_string: bool) -> R<String> {
-        // O URI engole tudo entre aspas ou entre parênteses.
+        // The URI swallows everything between quotes or between parentheses.
         let mut stop_token = if url_string { tk::RPAREN } else { -1 };
-        // Sem pular espaço dentro da string.
+        // Without skipping whitespace inside the string.
         let in_string = self.tokenizer.in_string;
         self.tokenizer.in_string = false;
         match self.peek() {
@@ -1788,25 +1792,26 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        // Tudo até o token de parada.
-        let mut valor = String::new();
+        // Everything up to the stop token.
+        let mut value = String::new();
         while self.peek() != stop_token && self.peek() != tk::END_OF_FILE {
             let t = self.next()?;
-            valor.push_str(&t.texto(self.fonte));
+            value.push_str(&t.text(self.source));
         }
         self.tokenizer.in_string = in_string;
         if stop_token != tk::RPAREN {
-            self.next()?; // a aspa
+            self.next()?; // the quote
         }
-        Ok(valor)
+        Ok(value)
     }
 
-    /// `processIEFilter`: o texto cru do filtro, do início do termo até o
-    /// `;`/`}` ou até fechar o parêntese; nulo no fim do arquivo.
-    fn process_ie_filter(&mut self, start: usize) -> R<Option<Termo>> {
+    /// `processIEFilter`: the raw text of the filter, from the start of the
+    /// term up to `;`/`}` or until the parenthesis closes; null at the end of
+    /// the file.
+    fn process_ie_filter(&mut self, start: usize) -> R<Option<Term>> {
         let literal = |p: &Self| {
-            let texto = p.tokenizer.texto_entre(start, p.espiado.ini);
-            Termo::novo(TipoTermo::Literal, Valor::Texto(texto.clone()), texto)
+            let text = p.tokenizer.text_between(start, p.peeked.start);
+            Term::new(TermKind::Literal, Value::Str(text.clone()), text)
         };
         let kind = self.peek();
         if kind == tk::SEMICOLON || kind == tk::RBRACE {
@@ -1832,11 +1837,11 @@ impl<'a> Parser<'a> {
         Ok(None)
     }
 
-    /// `processCalcExpression`: o texto cru até o `)` que fecha.
+    /// `processCalcExpression`: the raw text up to the closing `)`.
     fn process_calc_expression(&mut self) -> R<String> {
         let in_string = self.tokenizer.in_string;
         self.tokenizer.in_string = false;
-        let mut valor = String::new();
+        let mut value = String::new();
         let mut left = 1;
         let mut matching_parens = false;
         while self.peek() != tk::END_OF_FILE && !matching_parens {
@@ -1849,42 +1854,42 @@ impl<'a> Parser<'a> {
             matching_parens = left == 0;
             if !matching_parens {
                 let t = self.next()?;
-                valor.push_str(&t.texto(self.fonte));
+                value.push_str(&t.text(self.source));
             }
         }
         if !matching_parens {
             self.error();
         }
         self.tokenizer.in_string = in_string;
-        Ok(valor)
+        Ok(value)
     }
 
     /// `processCalc`.
-    fn process_calc(&mut self, func: &Identificador) -> R<Option<Termo>> {
-        let nome = func.nome.as_str();
-        if ["calc", "-webkit-calc", "-moz-calc", "min", "max", "clamp"].contains(&nome) {
-            let expressao = self.process_calc_expression()?;
-            let calc_expr = Termo::novo(
-                TipoTermo::Literal,
-                Valor::Texto(expressao.clone()),
-                expressao,
+    fn process_calc(&mut self, func: &Identifier) -> R<Option<Term>> {
+        let name = func.name.as_str();
+        if ["calc", "-webkit-calc", "-moz-calc", "min", "max", "clamp"].contains(&name) {
+            let expression = self.process_calc_expression()?;
+            let calc_expr = Term::new(
+                TermKind::Literal,
+                Value::Str(expression.clone()),
+                expression,
             );
             if !self.maybe_eat(tk::RPAREN)? {
                 self.error();
             }
-            return Ok(Some(Termo::novo(
-                TipoTermo::Calc(Box::new(calc_expr)),
-                Valor::Texto(nome.to_string()),
-                nome.to_string(),
+            return Ok(Some(Term::new(
+                TermKind::Calc(Box::new(calc_expr)),
+                Value::Str(name.to_string()),
+                name.to_string(),
             )));
         }
         Ok(None)
     }
 
-    /// `processFunction`: `UriTerm`, `VarUsage` ou `FunctionTerm`.
-    fn process_function(&mut self, func: Identificador) -> R<Expr> {
-        let nome = func.nome;
-        match nome.as_str() {
+    /// `processFunction`: `UriTerm`, `VarUsage` or `FunctionTerm`.
+    fn process_function(&mut self, func: Identifier) -> R<Expr> {
+        let name = func.name;
+        match name.as_str() {
             "url" => {
                 let url_param = self.process_quoted_string(true)?;
                 if self.peek() == tk::END_OF_FILE {
@@ -1893,9 +1898,9 @@ impl<'a> Parser<'a> {
                 if self.peek() == tk::RPAREN {
                     self.next()?;
                 }
-                Ok(Expr::Termo(Termo::novo(
-                    TipoTermo::Uri,
-                    Valor::Texto(url_param.clone()),
+                Ok(Expr::Term(Term::new(
+                    TermKind::Uri,
+                    Value::Str(url_param.clone()),
                     url_param,
                 )))
             }
@@ -1905,20 +1910,20 @@ impl<'a> Parser<'a> {
                     self.error();
                 }
                 // `(expr.expressions[0] as LiteralTerm).text`.
-                let param_name = match expr.expressoes.first() {
-                    None => return Err(Excecao("RangeError")),
-                    Some(Expr::Termo(t)) => t.texto.clone(),
-                    Some(_) => return Err(Excecao("TypeError")),
+                let param_name = match expr.expressions.first() {
+                    None => return Err(Exception("RangeError")),
+                    Some(Expr::Term(t)) => t.text.clone(),
+                    Some(_) => return Err(Exception("TypeError")),
                 };
-                // [0] - nome, [1] - vírgula, [2..] - valor padrão.
-                let padroes = if expr.expressoes.len() >= 3 {
-                    expr.expressoes.split_off(2)
+                // [0] - name, [1] - comma, [2..] - default value.
+                let defaults = if expr.expressions.len() >= 3 {
+                    expr.expressions.split_off(2)
                 } else {
                     Vec::new()
                 };
                 Ok(Expr::VarUsage {
-                    nome: param_name,
-                    padroes,
+                    name: param_name,
+                    defaults,
                 })
             }
             _ => {
@@ -1926,46 +1931,46 @@ impl<'a> Parser<'a> {
                 if !self.maybe_eat(tk::RPAREN)? {
                     self.error();
                 }
-                Ok(Expr::Termo(Termo::novo(
-                    TipoTermo::Funcao(expr),
-                    Valor::Texto(nome.clone()),
-                    nome,
+                Ok(Expr::Term(Term::new(
+                    TermKind::Function(expr),
+                    Value::Str(name.clone()),
+                    name,
                 )))
             }
         }
     }
 
-    /// `identifier`: o token seguinte como identificador (vazio se não é
-    /// identificador; o texto é sempre o do token).
-    fn identifier(&mut self) -> R<Identificador> {
+    /// `identifier`: the next token as an identifier (empty if it is not an
+    /// identifier; the text is always the token's).
+    fn identifier(&mut self) -> R<Identifier> {
         let tok = self.next()?;
-        let texto = Some(String::from_utf16_lossy(&self.fonte[tok.ini..tok.fim]));
+        let text = Some(String::from_utf16_lossy(&self.source[tok.start..tok.end]));
         if !tk::is_identifier(tok.kind) && !tk::is_kind_identifier(tok.kind) {
-            return Ok(Identificador {
-                nome: String::new(),
-                texto,
+            return Ok(Identifier {
+                name: String::new(),
+                text,
             });
         }
-        Ok(Identificador {
-            nome: tok.texto(self.fonte),
-            texto,
+        Ok(Identifier {
+            name: tok.text(self.source),
+            text,
         })
     }
 
     /// `_parseHex`.
-    fn parse_hex(&mut self, hex_text: String) -> Termo {
+    fn parse_hex(&mut self, hex_text: String) -> Term {
         let mut hex_value: i64 = 0;
         for c in hex_text.encode_utf16() {
-            let digito = hex_digit(c);
-            if digito < 0 {
+            let digit = hex_digit(c);
+            if digit < 0 {
                 self.warning();
-                return Termo::novo(TipoTermo::Hex, Valor::HexInvalido, hex_text);
+                return Term::new(TermKind::Hex, Value::BadHex, hex_text);
             }
-            hex_value = hex_value.wrapping_shl(4).wrapping_add(digito);
+            hex_value = hex_value.wrapping_shl(4).wrapping_add(digit);
         }
-        // #RRGGBB => #RGB quando cada par repete o dígito.
+        // #RRGGBB => #RGB when each pair repeats the digit.
         let b = hex_text.as_bytes();
-        let texto = if b.len() == 6 && b[0] == b[1] && b[2] == b[3] && b[4] == b[5] {
+        let text = if b.len() == 6 && b[0] == b[1] && b[2] == b[3] && b[4] == b[5] {
             format!("{}{}{}", b[0] as char, b[2] as char, b[4] as char)
         } else if b.len() == 4 && b[0] == b[1] && b[2] == b[3] {
             format!("{}{}", b[0] as char, b[2] as char)
@@ -1974,16 +1979,16 @@ impl<'a> Parser<'a> {
         } else {
             hex_text
         };
-        Termo::novo(TipoTermo::Hex, Valor::Int(hex_value), texto)
+        Term::new(TermKind::Hex, Value::Int(hex_value), text)
     }
 }
 
-/// Um seletor simples de nome `Identifier`, com posição.
-fn simples(tipo: TipoSimples, nome: Identificador) -> std::rc::Rc<SeletorSimples> {
-    std::rc::Rc::new(SeletorSimples {
-        tipo,
-        nome: NomeSimples::Ident(nome),
-        tem_span: true,
+/// A simple selector named by an `Identifier`, with a position.
+fn simple(kind: SimpleKind, name: Identifier) -> std::rc::Rc<SimpleSelector> {
+    std::rc::Rc::new(SimpleSelector {
+        kind,
+        name: SimpleName::Ident(name),
+        has_span: true,
     })
 }
 
@@ -1997,68 +2002,68 @@ fn hex_digit(c: u16) -> i64 {
     }
 }
 
-/// `int.parse` de um texto de token numérico (sinal e dígitos): fora do
-/// intervalo de 64 bits o Dart lança `FormatException`.
-fn int_parse(texto: &str) -> R<i64> {
-    texto.parse::<i64>().map_err(|_| Excecao("FormatException"))
+/// `int.parse` of the text of a numeric token (sign and digits): outside the
+/// 64-bit range Dart throws `FormatException`.
+fn int_parse(text: &str) -> R<i64> {
+    text.parse::<i64>().map_err(|_| Exception("FormatException"))
 }
 
-/// `double.parse` de um texto de token numérico.
-fn double_parse(texto: &str) -> R<f64> {
-    texto.parse::<f64>().map_err(|_| Excecao("FormatException"))
+/// `double.parse` of the text of a numeric token.
+fn double_parse(text: &str) -> R<f64> {
+    text.parse::<f64>().map_err(|_| Exception("FormatException"))
 }
 
-/// `int.parse('0x…')`: até 64 bits (com o bit de sinal, como o Dart).
-fn hex_parse(texto: &str) -> R<i64> {
-    u64::from_str_radix(texto, 16)
+/// `int.parse('0x…')`: up to 64 bits (with the sign bit, as in Dart).
+fn hex_parse(text: &str) -> R<i64> {
+    u64::from_str_radix(text, 16)
         .map(|v| v as i64)
-        .map_err(|_| Excecao("FormatException"))
+        .map_err(|_| Exception("FormatException"))
 }
 
-/// `_escapeString`: escapa a aspa que delimita a string.
-pub(crate) fn escape_string(texto: &str, single: bool) -> String {
-    let mut saida = String::with_capacity(texto.len());
-    for c in texto.chars() {
+/// `_escapeString`: escapes the quote that delimits the string.
+pub(crate) fn escape_string(text: &str, single: bool) -> String {
+    let mut output = String::with_capacity(text.len());
+    for c in text.chars() {
         match c {
-            '"' if !single => saida.push_str("\\\""),
-            '\'' if single => saida.push_str("\\'"),
-            _ => saida.push(c),
+            '"' if !single => output.push_str("\\\""),
+            '\'' if single => output.push_str("\\'"),
+            _ => output.push(c),
         }
     }
-    saida
+    output
 }
 
-/// `_styleForDart` e `buildDartStyleNode`, só no que lança: os estilos que
-/// constroem não são lidos por ninguém.
-fn style_for_dart(propriedade: &Identificador, exprs: &Expressoes) -> R<()> {
-    let e = &exprs.expressoes;
-    let primeiro = || e.first().ok_or(Excecao("RangeError"));
-    match propriedade.nome.to_lowercase().as_str() {
-        // `font`, `font-family`, `font-size`: o `ExpressionsProcessor` só lê
-        // `LengthTerm`, cujo valor é sempre número.
+/// `_styleForDart` and `buildDartStyleNode`, only where they throw: the styles
+/// they build are read by nobody.
+fn style_for_dart(property: &Identifier, exprs: &Expressions) -> R<()> {
+    let e = &exprs.expressions;
+    let first = || e.first().ok_or(Exception("RangeError"));
+    match property.name.to_lowercase().as_str() {
+        // `font`, `font-family`, `font-size`: the `ExpressionsProcessor` only
+        // reads `LengthTerm`, whose value is always a number.
         "font" | "font-family" | "font-size" | "font-style" | "font-variant" => {}
         "font-weight" => {
-            // `expr.value as int?` num `NumberTerm`.
-            if let Expr::Termo(t) = primeiro()?
-                && t.e_numero()
-                && !matches!(t.valor, Valor::Int(_))
+            // `expr.value as int?` on a `NumberTerm`.
+            if let Expr::Term(t) = first()?
+                && t.is_number()
+                && !matches!(t.value, Value::Int(_))
             {
-                return Err(Excecao("TypeError"));
+                return Err(Exception("TypeError"));
             }
         }
         "line-height" => {
             if e.len() == 1
-                && let Expr::Termo(t) = &e[0]
+                && let Expr::Term(t) = &e[0]
             {
                 let px_ou_pt = matches!(
-                    t.tipo,
-                    TipoTermo::Unidade {
-                        unidade: tk::UNIT_LENGTH_PX | tk::UNIT_LENGTH_PT,
+                    t.kind,
+                    TermKind::Unit {
+                        unit: tk::UNIT_LENGTH_PX | tk::UNIT_LENGTH_PT,
                         ..
                     }
                 );
-                if px_ou_pt || t.e_numero() {
-                    como_num(&t.valor)?;
+                if px_ou_pt || t.is_number() {
+                    as_num(&t.value)?;
                 }
             }
         }
@@ -2078,7 +2083,7 @@ fn style_for_dart(propriedade: &Identificador, exprs: &Expressoes) -> R<()> {
             }
         }
         "border-width" => {
-            margin_value(primeiro()?)?;
+            margin_value(first()?)?;
         }
         "margin-left"
         | "margin-right"
@@ -2108,18 +2113,18 @@ fn style_for_dart(propriedade: &Identificador, exprs: &Expressoes) -> R<()> {
 }
 
 /// `value as num`.
-fn como_num(valor: &Valor) -> R<()> {
-    match valor {
-        Valor::Int(_) | Valor::Double(_) => Ok(()),
-        _ => Err(Excecao("TypeError")),
+fn as_num(value: &Value) -> R<()> {
+    match value {
+        Value::Int(_) | Value::Double(_) => Ok(()),
+        _ => Err(Exception("TypeError")),
     }
 }
 
-/// `marginValue`: o número de um `UnitTerm` ou `NumberTerm`.
+/// `marginValue`: the number of a `UnitTerm` or `NumberTerm`.
 fn margin_value(expr: &Expr) -> R<Option<()>> {
     match expr {
-        Expr::Termo(t) if matches!(t.tipo, TipoTermo::Unidade { .. }) || t.e_numero() => {
-            como_num(&t.valor)?;
+        Expr::Term(t) if matches!(t.kind, TermKind::Unit { .. }) || t.is_number() => {
+            as_num(&t.value)?;
             Ok(Some(()))
         }
         _ => Ok(None),

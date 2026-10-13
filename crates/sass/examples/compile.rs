@@ -1,11 +1,13 @@
-//! Compila o SCSS da entrada padrão nos dois estilos e mostra o CSS e o
-//! mapa (como `asset:p/web/a.scss`), para comparar à mão com o dart-sass.
+//! Compiles the SCSS from standard input in both styles and shows the CSS
+//! and the source map (as `asset:p/web/a.scss`), to compare by hand with
+//! dart-sass.
 use dartforge_sass::sass_builder::{compilar, Ativo, Disco, Pacotes};
 use dartforge_sass::{OutputStyle, VersaoDartSass};
 
-/// A versão imitada: `SASS_VERSAO` (`1.66.0` ou `1.102.0`, o padrão).
-fn versao() -> VersaoDartSass {
-    std::env::var("SASS_VERSAO")
+/// The imitated version: `SASS_VERSION` (`1.66.0` or `1.102.0`, the
+/// default).
+fn version() -> VersaoDartSass {
+    std::env::var("SASS_VERSION")
         .ok()
         .and_then(|v| VersaoDartSass::do_lock(&v))
         .unwrap_or_default()
@@ -13,28 +15,28 @@ fn versao() -> VersaoDartSass {
 use std::io::Read;
 
 fn main() {
-    let mut fonte = String::new();
+    let mut source = String::new();
     std::io::stdin()
-        .read_to_string(&mut fonte)
-        .expect("entrada");
-    let entrada = Ativo {
+        .read_to_string(&mut source)
+        .expect("input");
+    let input = Ativo {
         pacote: "p".into(),
         caminho: "web/a.scss".into(),
     };
-    for (estilo, nome) in [
+    for (style, name) in [
         (OutputStyle::Expanded, "expanded"),
         (OutputStyle::Compressed, "compressed"),
     ] {
         match compilar(
-            &fonte,
-            &entrada,
+            &source,
+            &input,
             &Pacotes::new(),
             &Disco,
-            estilo,
+            style,
             true,
-            versao(),
+            version(),
         ) {
-            Ok(c) => println!("--- {nome}\n{}\nMAP {}", c.css, c.mapa.unwrap_or_default()),
+            Ok(c) => println!("--- {name}\n{}\nMAP {}", c.css, c.mapa.unwrap_or_default()),
             Err(e) => println!("ERR {e}"),
         }
     }

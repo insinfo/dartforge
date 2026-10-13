@@ -1,15 +1,15 @@
-//! O shim de estilo do ngdart: o `shimShadowCss` do ngcompiler, com o
-//! encapsulamento emulado.
+//! The ngdart style shim: ngcompiler's `shimShadowCss`, with emulated
+//! encapsulation.
 //!
-//! Sem Shadow DOM, o isolamento de estilo é por atributo: cada elemento da
-//! visão recebe `_ngcontent-<id>` e cada seletor da folha ganha
-//! `._ngcontent-%ID%` — o `%ID%` é trocado pelo id do componente em tempo de
-//! execução. O seletor `:host` vira `._nghost-%ID%`.
+//! Without Shadow DOM, style isolation is done by attribute: each element of
+//! the view gets `_ngcontent-<id>` and each selector of the stylesheet gets
+//! `._ngcontent-%ID%` — `%ID%` is replaced by the component id at run time. The
+//! `:host` selector becomes `._nghost-%ID%`.
 //!
-//! O trabalho é do porte fiel do oficial em [`crate::shadow_css`] (que lê e
-//! imprime com o porte do csslib, [`crate::csslib`]): o `StyleCompiler`
-//! chama `shimShadowCss(style, '_ngcontent-%ID%', '_nghost-%ID%')`
-//! (`style_compiler.dart`).
+//! The work is done by the faithful port of the official code in
+//! [`crate::shadow_css`] (which reads and prints with the csslib port,
+//! [`crate::csslib`]): the `StyleCompiler` calls `shimShadowCss(style,
+//! '_ngcontent-%ID%', '_nghost-%ID%')` (`style_compiler.dart`).
 use crate::view::Motivo;
 
 /// `_viewClass` do `style_compiler.dart`.
@@ -17,9 +17,10 @@ const CONTEUDO: &str = "_ngcontent-%ID%";
 /// `_hostClass` do `style_compiler.dart`.
 const HOSPEDEIRO: &str = "_nghost-%ID%";
 
-/// Transforma a folha no texto que vai dentro de `styles` no
-/// `<nome>.css.shim.dart`. `Err` onde o compilador oficial lança (e a build
-/// falha); erro de parse não é falha — o oficial avisa e gera assim mesmo.
+/// Turns the stylesheet into the text that goes inside `styles` in
+/// `<name>.css.shim.dart`. `Err` where the official compiler throws (and the
+/// build fails); a parse error is not a failure — the official one warns and
+/// generates anyway.
 pub fn shim(css: &str) -> Result<String, Motivo> {
     crate::shadow_css::shim_shadow_css(css, CONTEUDO, HOSPEDEIRO).map_err(|_| Motivo::Estilos)
 }
@@ -28,7 +29,7 @@ pub fn shim(css: &str) -> Result<String, Motivo> {
 mod testes {
     use super::*;
 
-    /// A saída exata do compilador oficial para o CSS do caso b15.
+    /// The exact output of the official compiler for the CSS of case b15.
     #[test]
     fn folha_rica_igual_ao_oficial() {
         let css = "/* um comentário */\n:host {\n  display: block;\n}\n\n.a .b {\n  color: red;\n}\n\n.c, .d {\n  margin: 0 auto;\n}\n\na:hover {\n  text-decoration: underline;\n}\n\n@media (max-width: 600px) {\n  .a {\n    display: none;\n  }\n}\n";
@@ -46,7 +47,7 @@ mod testes {
         );
     }
 
-    /// As formas do caso b16, uma a uma, contra a saída do oficial.
+    /// The shapes of case b16, one by one, against the official output.
     #[test]
     fn formas_do_b16_iguais_ao_oficial() {
         let css = ".a::before {
@@ -86,10 +87,10 @@ input[type=\"text\"] {
         assert_eq!(shim(css).unwrap(), esperado);
     }
 
-    /// Formas que o csslib aceita e o shim oficial gera (saídas do
-    /// `shimShadowCss` do ngcompiler 3.0.0-dev.3): aninhamento de regra fica
-    /// aninhado, `@font-face` sai como está, `#ffffff` vira `white`, `10 px`
-    /// vira `10px`, os operadores de mídia saem em maiúsculas.
+    /// Shapes that csslib accepts and the official shim generates (outputs of
+    /// the `shimShadowCss` of ngcompiler 3.0.0-dev.3): a nested rule stays
+    /// nested, `@font-face` comes out as is, `#ffffff` becomes `white`, `10 px`
+    /// becomes `10px`, the media operators come out in uppercase.
     #[test]
     fn formas_do_csslib_iguais_ao_oficial() {
         let casos = [
@@ -115,9 +116,10 @@ input[type=\"text\"] {
         }
     }
 
-    /// Onde o oficial lança (e a build falha), o shim recusa: `@keyframes`
-    /// sem bloco (`processTerm() as Expression` em nulo) e o laço sem fim do
-    /// `processMarginsDeclarations` num `@page` com seletor.
+    /// Where the official one throws (and the build fails), the shim refuses:
+    /// `@keyframes` without a block (`processTerm() as Expression` on null) and
+    /// the endless loop of `processMarginsDeclarations` in a `@page` with a
+    /// selector.
     #[test]
     fn recusa_onde_o_oficial_falha() {
         assert!(shim("@keyframes k{}").is_err());

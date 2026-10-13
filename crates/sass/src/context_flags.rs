@@ -20,9 +20,9 @@ impl ContextFlags {
     pub const AT_ROOT_EXCLUDING_STYLE_RULE: ContextFlag = ContextFlag(1 << 10);
     pub const IN_SUPPORTS_DECLARATION: ContextFlag = ContextFlag(1 << 11);
     pub const IN_SEMI_GLOBAL_SCOPE: ContextFlag = ContextFlag(1 << 12);
-    /// Modo dart-sass 1.66: dentro dos argumentos de `calc()`, `clamp()`,
-    /// `min()` ou `max()`, onde o `(` com interpolação vira
-    /// `CalculationInterpolation` (`_calculationValue` do 1.66).
+    /// dart-sass 1.66 mode: inside the arguments of `calc()`, `clamp()`,
+    /// `min()` or `max()`, where `(` with interpolation becomes a
+    /// `CalculationInterpolation` (`_calculationValue` of 1.66).
     pub const IN_CALC_166: ContextFlag = ContextFlag(1 << 13);
 
     pub const fn empty() -> Self {

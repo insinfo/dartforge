@@ -116,9 +116,10 @@ pub(crate) struct Serializer<'a> {
     _quote: bool,
     buffer: Vec<u8>,
     map: &'a CodeMap,
-    /// O mapa de fontes em construção, quando pedido.
-    mapa: Option<crate::source_map::BufferMapa>,
-    /// O `span` dos erros sem nó próprio (o do valor ou da folha).
+    /// The source map being built, when requested.
+    source_map: Option<crate::source_map::SourceMapBuffer>,
+    /// The `span` of errors without a node of their own (that of the value or
+    /// of the stylesheet).
     span: Span,
 }
 
@@ -132,7 +133,7 @@ impl<'a> Serializer<'a> {
             options,
             buffer: Vec::new(),
             map,
-            mapa: None,
+            source_map: None,
             span,
         }
     }
@@ -277,7 +278,7 @@ impl<'a> Serializer<'a> {
                 self.buffer.push(b',');
                 if complex.line_break {
                     // dart-sass `visitSelectorList`: `_writeLineFeed();
-                    // _writeIndentation();` — o grass esquecia a indentação.
+                    // _writeIndentation();` — grass forgot the indentation.
                     self.write_newline();
                     self.write_indentation();
                 } else {
@@ -406,7 +407,7 @@ impl<'a> Serializer<'a> {
     }
 
     fn finish_for_expr(self) -> String {
-        String::from_utf8(self.buffer).expect("o serializador só escreve UTF-8")
+        String::from_utf8(self.buffer).expect("the serializer only writes UTF-8")
     }
 
     fn write_indentation(&mut self) {
@@ -629,28 +630,28 @@ impl<'a> Serializer<'a> {
         }
     }
 
-    // ## Porte do `_SerializeVisitor` do dart-sass 1.102.0
+    // ## Port of the `_SerializeVisitor` of dart-sass 1.102.0
     //
-    // Tudo daqui para baixo segue `lib/src/visitor/serialize.dart`: a
-    // disposição das regras (`visitCssStylesheet`, `_visitChildren`,
-    // comentários à direita, `isGroupEnd`), a escrita de números, cores e
-    // strings, e os pontos do mapa de fontes (`_for`). O grass tinha a sua
-    // própria disposição, que divergia em indentação, espaços e números.
+    // Everything from here down follows `lib/src/visitor/serialize.dart`: the
+    // layout of the rules (`visitCssStylesheet`, `_visitChildren`, trailing
+    // comments, `isGroupEnd`), the writing of numbers, colors and strings,
+    // and the source map points (`_for`). grass had its own layout, which
+    // diverged in indentation, spaces and numbers.
 
-    /// Liga o mapa de fontes.
-    pub fn ligar_mapa(&mut self) {
-        self.mapa = Some(crate::source_map::BufferMapa::default());
+    /// Turns on the source map.
+    pub fn enable_source_map(&mut self) {
+        self.source_map = Some(crate::source_map::SourceMapBuffer::default());
     }
 
-    /// `_for`/`_buffer.forSpan`: associa o que `f` escreve a `span`.
+    /// `_for`/`_buffer.forSpan`: associates what `f` writes with `span`.
     fn for_span<T>(&mut self, span: Span, f: impl FnOnce(&mut Self) -> T) -> T {
-        let anterior = match self.mapa.as_mut() {
-            Some(m) => Some(m.inicio(&self.buffer, self.map, span)),
+        let preceding = match self.source_map.as_mut() {
+            Some(m) => Some(m.start_span(&self.buffer, self.map, span)),
             None => None,
         };
         let r = f(self);
-        if let (Some(m), Some(a)) = (self.mapa.as_mut(), anterior) {
-            m.fim(&self.buffer, a);
+        if let (Some(m), Some(a)) = (self.source_map.as_mut(), preceding) {
+            m.end_span(&self.buffer, a);
         }
         r
     }
@@ -669,24 +670,24 @@ impl<'a> Serializer<'a> {
         }
     }
 
-    /// `_isInvisible` (fora do `inspect`): no `compressed`, também os
-    /// comentários não preservados (`isInvisibleHidingComments`).
+    /// `_isInvisible` (outside `inspect`): in `compressed`, also the
+    /// non-preserved comments (`isInvisibleHidingComments`).
     fn is_invisible_node(&self, node: &CssStmt) -> bool {
-        let comprimido = self.options.is_compressed();
+        let compressed = self.options.is_compressed();
         match node {
             CssStmt::RuleSet { selector, body, .. } => {
                 selector.is_invisible() || body.iter().all(|c| self.is_invisible_node(c))
             }
             CssStmt::Style(_) | CssStmt::Import(..) | CssStmt::UnknownAtRule(..) => false,
-            CssStmt::Comment(text, _) => comprimido && !text.starts_with("/*!"),
+            CssStmt::Comment(text, _) => compressed && !text.starts_with("/*!"),
             CssStmt::Media(m, _) => m.body.iter().all(|c| self.is_invisible_node(c)),
             CssStmt::Supports(s, _) => s.body.iter().all(|c| self.is_invisible_node(c)),
             CssStmt::KeyframesRuleSet(k) => k.body.iter().all(|c| self.is_invisible_node(c)),
         }
     }
 
-    /// `_requiresSemicolon`: nó pai só quando não tem bloco; comentário
-    /// nunca; o resto sempre.
+    /// `_requiresSemicolon`: a parent node only when it has no block; a
+    /// comment never; the rest always.
     pub fn requires_semicolon(stmt: &CssStmt) -> bool {
         match stmt {
             CssStmt::Style(_) | CssStmt::Import(..) => true,
@@ -696,14 +697,14 @@ impl<'a> Serializer<'a> {
         }
     }
 
-    /// A linha (0-based) de uma posição.
+    /// The line (0-based) of a position.
     fn line_of(&self, pos: codemap::Pos) -> usize {
         self.map.find_file(pos).find_line(pos)
     }
 
-    /// `_isTrailingComment(node, previous)`: um comentário na mesma linha
-    /// em que o nó anterior termina (ou, se o anterior é o pai, na linha da
-    /// `{` que abre o bloco) fica na mesma linha.
+    /// `_isTrailingComment(node, previous)`: a comment on the same line where
+    /// the previous node ends (or, if the previous one is the parent, on the
+    /// line of the `{` that opens the block) stays on the same line.
     fn is_trailing_comment(&self, node: &CssStmt, previous: Span) -> bool {
         if self.options.is_compressed() {
             return false;
@@ -712,8 +713,8 @@ impl<'a> Serializer<'a> {
             return false;
         };
         let span = *span;
-        let arquivo = self.map.find_file(span.low());
-        if !arquivo.span.contains(previous) {
+        let file = self.map.find_file(span.low());
+        if !file.span.contains(previous) {
             return false;
         }
         if !previous.contains(span) {
@@ -723,14 +724,14 @@ impl<'a> Serializer<'a> {
         if search_from == 0 {
             return false;
         }
-        let texto = arquivo.source_slice(previous).as_bytes();
-        let limite = (search_from as usize - 1).min(texto.len().saturating_sub(1));
-        let end_offset = texto[..=limite]
+        let text = file.source_slice(previous).as_bytes();
+        let limit = (search_from as usize - 1).min(text.len().saturating_sub(1));
+        let end_offset = text[..=limit]
             .iter()
             .rposition(|&b| b == b'{')
             .unwrap_or(0);
-        let fim = previous.low() + end_offset as u64;
-        self.line_of(span.low()) == self.line_of(fim)
+        let end = previous.low() + end_offset as u64;
+        self.line_of(span.low()) == self.line_of(end)
     }
 
     /// `visitCssStylesheet`.
@@ -771,10 +772,10 @@ impl<'a> Serializer<'a> {
     /// `_visitChildren`.
     fn visit_children(&mut self, parent_span: Span, children: Vec<CssStmt>) -> SassResult<()> {
         self.buffer.push(b'{');
-        // (precisa de `;`, `span`, é comentário)
+        // (needs `;`, `span`, is a comment)
         let mut pre_previous: Option<(bool, Span, bool)> = None;
         let mut previous: Option<(bool, Span, bool)> = None;
-        let mut ultimo: Option<CssStmt> = None;
+        let mut last: Option<CssStmt> = None;
         for child in children {
             if self.is_invisible_node(&child) {
                 continue;
@@ -782,19 +783,19 @@ impl<'a> Serializer<'a> {
             if let Some((true, _, _)) = previous {
                 self.buffer.push(b';');
             }
-            let anterior = previous.map_or(parent_span, |p| p.1);
+            let preceding = previous.map_or(parent_span, |p| p.1);
             let info = (
                 Self::requires_semicolon(&child),
                 child.span(),
                 matches!(child, CssStmt::Comment(..)),
             );
-            let copia = if info.2 { Some(child.clone()) } else { None };
-            if self.is_trailing_comment(&child, anterior) {
+            let copy = if info.2 { Some(child.clone()) } else { None };
+            if self.is_trailing_comment(&child, preceding) {
                 self.write_optional_space();
-                let salvo = self.indentation;
+                let saved = self.indentation;
                 self.indentation = 0;
                 self.visit_stmt(child)?;
-                self.indentation = salvo;
+                self.indentation = saved;
             } else {
                 self.write_line_feed();
                 self.indentation += self.indent_width;
@@ -803,14 +804,14 @@ impl<'a> Serializer<'a> {
             }
             pre_previous = previous;
             previous = Some(info);
-            ultimo = copia;
+            last = copy;
         }
         if let Some((semicolon, _, _)) = previous {
             if semicolon && !self.options.is_compressed() {
                 self.buffer.push(b';');
             }
             let trailing = pre_previous.is_none()
-                && ultimo
+                && last
                     .as_ref()
                     .is_some_and(|u| self.is_trailing_comment(u, parent_span));
             if trailing {
@@ -857,13 +858,13 @@ impl<'a> Serializer<'a> {
                             s.buffer.push(b' ');
                         }
                     }
-                    let mut primeiro = true;
+                    let mut is_first = true;
                     for q in &media_rule.query {
-                        if !primeiro {
+                        if !is_first {
                             let sep = s.comma_separator();
                             s.buffer.extend_from_slice(sep);
                         }
-                        primeiro = false;
+                        is_first = false;
                         s.write_media_query(q);
                     }
                 });
@@ -893,13 +894,13 @@ impl<'a> Serializer<'a> {
                 // `visitCssKeyframeBlock`
                 self.write_indentation();
                 self.for_span(kf.selector_span, |s| {
-                    let mut primeiro = true;
+                    let mut is_first = true;
                     for sel in &kf.selector {
-                        if !primeiro {
+                        if !is_first {
                             let sep = s.comma_separator();
                             s.buffer.extend_from_slice(sep);
                         }
-                        primeiro = false;
+                        is_first = false;
                         s.buffer.extend_from_slice(sel.to_string().as_bytes());
                     }
                 });
@@ -962,9 +963,9 @@ impl<'a> Serializer<'a> {
             }
             match minimum_indentation(text) {
                 Some(min) => {
-                    let coluna = s.column_of(span.low()) as i64;
+                    let column = s.column_of(span.low()) as i64;
                     s.write_indentation();
-                    s.write_with_indent(text, min.min(coluna));
+                    s.write_with_indent(text, min.min(column));
                 }
                 None => {
                     s.write_indentation();
@@ -974,16 +975,16 @@ impl<'a> Serializer<'a> {
         });
     }
 
-    /// A coluna (em unidades UTF-16, como no Dart) de uma posição.
+    /// The column (in UTF-16 units, as in Dart) of a position.
     fn column_of(&self, pos: codemap::Pos) -> usize {
-        let arquivo = self.map.find_file(pos);
-        let linha = arquivo.find_line(pos);
-        let inicio = arquivo.line_span(linha).low();
-        arquivo
+        let file = self.map.find_file(pos);
+        let line = file.find_line(pos);
+        let start = file.line_span(line).low();
+        file
             .source_slice(
-                arquivo
+                file
                     .span
-                    .subspan(inicio - arquivo.span.low(), pos - arquivo.span.low()),
+                    .subspan(start - file.span.low(), pos - file.span.low()),
             )
             .encode_utf16()
             .count()
@@ -1027,10 +1028,10 @@ impl<'a> Serializer<'a> {
                 self.buffer.push(b'\n');
             }
             self.write_indentation();
-            let desde = (line_start as i64 + minimum_indentation).max(0) as usize;
-            // `scanner.substring(lineStart + minimumIndentation)`: até a
-            // posição atual (o primeiro caractere não branco já lido).
-            self.buffer.extend_from_slice(&b[desde.min(i)..i]);
+            let from = (line_start as i64 + minimum_indentation).max(0) as usize;
+            // `scanner.substring(lineStart + minimumIndentation)`: up to the
+            // current position (the first non-blank character already read).
+            self.buffer.extend_from_slice(&b[from.min(i)..i]);
             loop {
                 if i >= b.len() {
                     return;
@@ -1048,38 +1049,38 @@ impl<'a> Serializer<'a> {
     /// `visitCssDeclaration`.
     fn write_declaration(&mut self, style: Style) -> SassResult<()> {
         self.write_indentation();
-        let nome = style.property.resolve_ref();
+        let name = style.property.resolve_ref();
         self.for_span(style.name_span, |s| {
-            s.buffer.extend_from_slice(nome.as_bytes())
+            s.buffer.extend_from_slice(name.as_bytes())
         });
         self.buffer.push(b':');
         if style.declared_as_custom_property {
-            // Valor cru de propriedade customizada (`parsedAsSassScript`
-            // falso): o texto como veio, dobrado no `compressed` e
-            // reindentado no `expanded`.
-            let texto = match &style.value.node {
+            // Raw value of a custom property (`parsedAsSassScript` false):
+            // the text as it came, folded in `compressed` and reindented in
+            // `expanded`.
+            let text = match &style.value.node {
                 Value::String(t, _) => t.clone(),
                 v => serialize_value(v, self.options, style.value.span)?,
             };
-            let coluna_nome = self.column_of(style.name_span.low()) as i64;
+            let name_column = self.column_of(style.name_span.low()) as i64;
             self.for_span(style.value.span, |s| {
                 if s.options.is_compressed() {
-                    s.write_folded_value(&texto);
+                    s.write_folded_value(&text);
                 } else {
-                    s.write_reindented_value(&texto, coluna_nome);
+                    s.write_reindented_value(&text, name_column);
                 }
             });
             return Ok(());
         }
         self.write_optional_space();
-        let valor = style.value.node;
+        let value = style.value.node;
         let span = style.value.span;
-        self.for_span(style.value_span_for_map, |s| s.visit_value(&valor, span))
+        self.for_span(style.value_span_for_map, |s| s.visit_value(&value, span))
     }
 
     /// `_writeFoldedValue`.
-    fn write_folded_value(&mut self, texto: &str) {
-        let b = texto.as_bytes();
+    fn write_folded_value(&mut self, text: &str) {
+        let b = text.as_bytes();
         let mut i = 0;
         while i < b.len() {
             let c = b[i];
@@ -1096,22 +1097,22 @@ impl<'a> Serializer<'a> {
     }
 
     /// `_writeReindentedValue`.
-    fn write_reindented_value(&mut self, texto: &str, coluna_nome: i64) {
-        match minimum_indentation(texto) {
-            None => self.buffer.extend_from_slice(texto.as_bytes()),
+    fn write_reindented_value(&mut self, text: &str, name_column: i64) {
+        match minimum_indentation(text) {
+            None => self.buffer.extend_from_slice(text.as_bytes()),
             Some(-1) => {
                 self.buffer
-                    .extend_from_slice(trim_ascii_right_exclude_escape(texto).as_bytes());
+                    .extend_from_slice(trim_ascii_right_exclude_escape(text).as_bytes());
                 self.buffer.push(b' ');
             }
-            Some(min) => self.write_with_indent(texto, min.min(coluna_nome)),
+            Some(min) => self.write_with_indent(text, min.min(name_column)),
         }
     }
 
-    /// O CSS pronto e o mapa: `serialize` acrescenta o `@charset` (ou o
-    /// BOM, no `compressed`) quando há caractere fora do ASCII.
-    pub fn finish_com_mapa(mut self) -> (String, Option<crate::source_map::Mapa>) {
-        let prefixo = if self.options.allows_charset && self.buffer.iter().any(|&c| c > 0x7F) {
+    /// The finished CSS and the source map: `serialize` adds the `@charset`
+    /// (or the BOM, in `compressed`) when there is a non-ASCII character.
+    pub fn finish_with_source_map(mut self) -> (String, Option<crate::source_map::SourceMap>) {
+        let prefix = if self.options.allows_charset && self.buffer.iter().any(|&c| c > 0x7F) {
             if self.options.is_compressed() {
                 "\u{FEFF}"
             } else {
@@ -1121,20 +1122,20 @@ impl<'a> Serializer<'a> {
             ""
         };
         let buffer = std::mem::take(&mut self.buffer);
-        let mapa = self.mapa.take().map(|m| m.construir(&buffer, prefixo));
-        let css = String::from_utf8(buffer).expect("o serializador só escreve UTF-8");
-        (format!("{prefixo}{css}"), mapa)
+        let source_map = self.source_map.take().map(|m| m.build(&buffer, prefix));
+        let css = String::from_utf8(buffer).expect("the serializer only writes UTF-8");
+        (format!("{prefix}{css}"), source_map)
     }
 
-    // ### Números
+    // ### Numbers
 
     /// `_asInt`.
     ///
-    /// No modo 1.66, sempre o `fuzzyAsInt` (o `_writeNumber` do 1.66 não
-    /// distingue o `inspect`).
+    /// In the 1.66 mode, always `fuzzyAsInt` (the `_writeNumber` of 1.66 does
+    /// not single out `inspect`).
     fn as_int(&self, n: f64) -> Option<f64> {
-        // No 1.101 (antes do 1.101.4) o contrário do 1.102: o aproximado fora
-        // do `inspect`, e no `inspect` só o inteiro exato.
+        // In 1.101 (before 1.101.4) the opposite of 1.102: the approximate one
+        // outside `inspect`, and in `inspect` only the exact integer.
         if self.options.v1101() {
             let i = crate::value::fuzzy_as_int(n).map(|i| i as f64)?;
             return (!self.inspect || i == n).then_some(i);
@@ -1146,24 +1147,25 @@ impl<'a> Serializer<'a> {
         (r == n).then_some(r)
     }
 
-    /// `_writeNumber`: sem notação exponencial, com no máximo
-    /// `SassNumber.precision` (10) casas, e sem o `0` inicial no
-    /// `compressed` (só quando o texto começa por `0`: `-0.5` fica).
+    /// `_writeNumber`: without exponential notation, with at most
+    /// `SassNumber.precision` (10) decimal places, and without the leading
+    /// `0` in `compressed` (only when the text starts with `0`: `-0.5`
+    /// stays).
     fn write_number(&mut self, number: f64) {
         if !number.is_finite() {
             self.write_calculation_infinite(number, &[], &[]);
             return;
         }
         if let Some(i) = self.as_int(number) {
-            // `integer.toString()`; `-0.0` arredonda para o inteiro 0.
+            // `integer.toString()`; `-0.0` rounds to the integer 0.
             let t = dart_int_text(i);
             self.buffer.extend_from_slice(t.as_bytes());
             return;
         }
-        // O `{}` do Rust é o `_removeExponent(number.toString())` do Dart:
-        // os mesmos dígitos mínimos, em notação posicional.
+        // Rust's `{}` is Dart's `_removeExponent(number.toString())`: the
+        // same minimal digits, in positional notation.
         let mut text = format!("{number}");
-        // Precisão total no `inspect` só a partir do dart-sass 1.91.0.
+        // Full precision in `inspect` only from dart-sass 1.91.0 on.
         if self.inspect && !self.options.v166() {
             self.buffer.extend_from_slice(text.as_bytes());
             return;
@@ -1269,8 +1271,8 @@ impl<'a> Serializer<'a> {
         }
         let (numer, denom) = unit_lists(&number.unit);
         if !number.num.0.is_finite() && self.options.v166() {
-            // `_writeCalculationValue` do 1.66: só a primeira unidade do
-            // numerador; unidades complexas são erro fora do `inspect`.
+            // `_writeCalculationValue` of 1.66: only the first numerator
+            // unit; complex units are an error outside `inspect`.
             if (numer.len() > 1 || !denom.is_empty()) && !self.inspect {
                 return Err((
                     format!(
@@ -1293,8 +1295,8 @@ impl<'a> Serializer<'a> {
             return Ok(());
         }
         if (numer.len() > 1 || !denom.is_empty()) && self.options.v166() {
-            // `visitNumber` do 1.66: unidades complexas não são CSS; o
-            // `inspect` escreve o `unitString`.
+            // `visitNumber` of 1.66: complex units are not CSS; `inspect`
+            // writes the `unitString`.
             if !self.inspect {
                 return Err((
                     format!(
@@ -1306,17 +1308,17 @@ impl<'a> Serializer<'a> {
                     .into());
             }
             self.write_number(number.num.0);
-            let texto = match (numer.as_slice(), denom.as_slice()) {
+            let text = match (numer.as_slice(), denom.as_slice()) {
                 ([], [d]) => format!("{d}^-1"),
                 ([], _) => format!("({})^-1", denom.join("*")),
                 (_, []) => numer.join("*"),
                 _ => format!("{}/{}", numer.join("*"), denom.join("*")),
             };
-            self.buffer.extend_from_slice(texto.as_bytes());
+            self.buffer.extend_from_slice(text.as_bytes());
             return Ok(());
         }
         if numer.len() > 1 || !denom.is_empty() {
-            // `hasComplexUnits`: `calc()` sem simplificar.
+            // `hasComplexUnits`: `calc()` without simplifying.
             self.buffer.extend_from_slice(b"calc(");
             self.write_number(number.num.0);
             if let Some((first, rest)) = numer.split_first() {
@@ -1364,14 +1366,14 @@ impl<'a> Serializer<'a> {
         }
     }
 
-    // ### Cores
+    // ### Colors
 
     /// `visitColor`.
     pub fn visit_color(&mut self, color: &Color) {
         let space = color.space();
-        let legado_completo = matches!(space, ColorSpace::Rgb | ColorSpace::Hsl | ColorSpace::Hwb)
+        let full_legacy = matches!(space, ColorSpace::Rgb | ColorSpace::Hsl | ColorSpace::Hwb)
             && !color.has_missing_channel();
-        if legado_completo {
+        if full_legacy {
             self.write_legacy_color(color);
             return;
         }
@@ -1408,7 +1410,7 @@ impl<'a> Serializer<'a> {
                 } else {
                     1.0
                 };
-                let fora = !self.inspect
+                let out_of_range = !self.inspect
                     && ((!crate::color::fuzzy_in_range(color.channel0(), 0.0, max0)
                         && !color.is_channel1_missing()
                         && !color.is_channel2_missing())
@@ -1416,9 +1418,9 @@ impl<'a> Serializer<'a> {
                             && crate::value::fuzzy_less_than(color.channel1(), 0.0)
                             && !color.is_channel0_missing()
                             && !color.is_channel1_missing()));
-                if fora {
-                    // `color-mix()` com o XYZ para representar a cor fora da
-                    // gama sem cortar os canais.
+                if out_of_range {
+                    // `color-mix()` with XYZ to represent the out-of-gamut
+                    // color without clipping the channels.
                     self.buffer.extend_from_slice(b"color-mix(in ");
                     self.buffer.extend_from_slice(space.name().as_bytes());
                     let sep = self.comma_separator();
@@ -1476,20 +1478,20 @@ impl<'a> Serializer<'a> {
         }
     }
 
-    /// `visitColor` do dart-sass 1.66.0 (modo de compatibilidade): o RGB
-    /// inteiro e os formatos do 1.66 (`rgbFunction`, `hslFunction` e o texto
-    /// original); sem formato, o nome, o hexadecimal ou `rgba()`. Cor que o
-    /// modelo do 1.66 não teria é recusada.
+    /// `visitColor` of dart-sass 1.66.0 (compatibility mode): the integer
+    /// RGB and the 1.66 formats (`rgbFunction`, `hslFunction` and the
+    /// original text); without a format, the name, the hexadecimal or
+    /// `rgba()`. A color that the 1.66 model would not have is refused.
     fn visit_color_166(&mut self, color: &Color, span: Span) -> SassResult<()> {
         use crate::color::v166;
         let Some([r, g, b]) = v166::rgb(color) else {
-            return Err((v166::nao_garantida(color), span).into());
+            return Err((v166::not_guaranteed(color), span).into());
         };
         let alpha = v166::alpha(color);
         let (ri, gi, bi) = (r as u32, g as u32, b as u32);
-        // `namesByColor[value]`: a igualdade do `SassColor` compara o alfa
-        // exato; os nomes (fora `transparent`) são opacos.
-        let nome = if alpha == 1.0 {
+        // `namesByColor[value]`: `SassColor` equality compares the exact
+        // alpha; the names (except `transparent`) are opaque.
+        let name = if alpha == 1.0 {
             NAMED_COLORS
                 .get_by_rgba([ri as u8, gi as u8, bi as u8])
                 .copied()
@@ -1501,12 +1503,12 @@ impl<'a> Serializer<'a> {
                 self.write_rgb_166(color, [r, g, b], alpha);
                 return Ok(());
             }
-            let curto = (ri & 0xF == ri >> 4) && (gi & 0xF == gi >> 4) && (bi & 0xF == bi >> 4);
-            match nome {
-                Some(n) if n.len() <= if curto { 4 } else { 7 } => {
+            let short = (ri & 0xF == ri >> 4) && (gi & 0xF == gi >> 4) && (bi & 0xF == bi >> 4);
+            match name {
+                Some(n) if n.len() <= if short { 4 } else { 7 } => {
                     self.buffer.extend_from_slice(n.as_bytes());
                 }
-                _ if curto => {
+                _ if short => {
                     self.buffer.push(b'#');
                     self.buffer.push(hex_char_for(ri & 0xF) as u8);
                     self.buffer.push(hex_char_for(gi & 0xF) as u8);
@@ -1525,7 +1527,7 @@ impl<'a> Serializer<'a> {
             ColorFormat::RgbFunction => self.write_rgb_166(color, [r, g, b], alpha),
             ColorFormat::HslFunction => {
                 let Some([h, s, l]) = v166::hsl(color) else {
-                    return Err((v166::nao_garantida(color), span).into());
+                    return Err((v166::not_guaranteed(color), span).into());
                 };
                 let opaque = fuzzy_equals(alpha, 1.0);
                 self.buffer
@@ -1546,7 +1548,7 @@ impl<'a> Serializer<'a> {
             }
             ColorFormat::Literal(text) => self.buffer.extend_from_slice(text.as_bytes()),
             ColorFormat::Infer => {
-                if let Some(n) = nome {
+                if let Some(n) = name {
                     self.buffer.extend_from_slice(n.as_bytes());
                 } else if fuzzy_equals(alpha, 1.0) {
                     self.buffer.push(b'#');
@@ -1561,7 +1563,7 @@ impl<'a> Serializer<'a> {
         Ok(())
     }
 
-    /// `_writeRgb` do 1.66: os inteiros, com vírgulas.
+    /// `_writeRgb` of 1.66: the integers, with commas.
     fn write_rgb_166(&mut self, _color: &Color, [r, g, b]: [f64; 3], alpha: f64) {
         let opaque = fuzzy_equals(alpha, 1.0);
         self.buffer
@@ -1586,8 +1588,8 @@ impl<'a> Serializer<'a> {
         self.buffer
             .extend_from_slice(color.space().name().as_bytes());
         self.buffer.push(b' ');
-        let canais = color.channels_or_null();
-        for (i, c) in canais.iter().enumerate() {
+        let channels = color.channels_or_null();
+        for (i, c) in channels.iter().enumerate() {
             if i > 0 {
                 self.buffer.push(b' ');
             }
@@ -1608,7 +1610,7 @@ impl<'a> Serializer<'a> {
         self.write_channel_opt(color.alpha_or_null(), None);
     }
 
-    /// `_writeChannel` com canal que pode faltar (`none`).
+    /// `_writeChannel` with a channel that may be missing (`none`).
     fn write_channel_opt(&mut self, channel: Option<f64>, unit: Option<&str>) {
         match channel {
             None => self.buffer.extend_from_slice(b"none"),
@@ -1632,16 +1634,16 @@ impl<'a> Serializer<'a> {
                 self.write_legacy_color_1101(color, &rgb, opaque);
                 return;
             }
-            let inicio = self.buffer.len();
+            let start = self.buffer.len();
             self.write_rgb(&rgb);
-            let rgb_texto = self.buffer.split_off(inicio);
+            let rgb_text = self.buffer.split_off(start);
             self.write_hsl(&rgb.to_space(ColorSpace::Hsl, true));
-            let hsl_texto = self.buffer.split_off(inicio);
-            // Mais dois caracteres para o HSL, pelos `%`.
-            if rgb_texto.len() <= hsl_texto.len() + 2 {
-                self.buffer.extend_from_slice(&rgb_texto);
+            let hsl_text = self.buffer.split_off(start);
+            // Two more characters for HSL, for the `%`s.
+            if rgb_text.len() <= hsl_text.len() + 2 {
+                self.buffer.extend_from_slice(&rgb_text);
             } else {
-                self.buffer.extend_from_slice(&hsl_texto);
+                self.buffer.extend_from_slice(&hsl_text);
             }
             return;
         }
@@ -1663,7 +1665,8 @@ impl<'a> Serializer<'a> {
             }
             ColorFormat::Infer | ColorFormat::HslFunction => {}
         }
-        // Cor transparente gerada sai sempre como `rgba` (sass/sass#1782).
+        // A generated transparent color always comes out as `rgba`
+        // (sass/sass#1782).
         if opaque {
             let rgb = color.to_space(ColorSpace::Rgb, true);
             if let Some(name) = Self::color_name(&rgb) {
@@ -1685,34 +1688,35 @@ impl<'a> Serializer<'a> {
         }
     }
 
-    /// A cor legada no `compressed` do dart-sass 1.101.0–1.101.3
-    /// (`_writeLegacyColor`, antes do 1.101.4): `rgb` ou `hsl` pelo tamanho só
-    /// dos textos dos canais (o HSL ganha dois pelos `%`), e o alfa depois.
+    /// The legacy color in `compressed` of dart-sass 1.101.0–1.101.3
+    /// (`_writeLegacyColor`, before 1.101.4): `rgb` or `hsl` by the length of
+    /// the channel texts alone (HSL gets two for the `%`s), and the alpha
+    /// after.
     fn write_legacy_color_1101(&mut self, color: &Color, rgb: &Color, opaque: bool) {
-        let texto = |s: &mut Self, n: f64| {
-            let inicio = s.buffer.len();
+        let text = |s: &mut Self, n: f64| {
+            let start = s.buffer.len();
             s.write_number(n);
-            String::from_utf8(s.buffer.split_off(inicio)).unwrap_or_default()
+            String::from_utf8(s.buffer.split_off(start)).unwrap_or_default()
         };
         let (r, g, b) = (
-            texto(self, rgb.channel0()),
-            texto(self, rgb.channel1()),
-            texto(self, rgb.channel2()),
+            text(self, rgb.channel0()),
+            text(self, rgb.channel1()),
+            text(self, rgb.channel2()),
         );
         let hsl = color.to_space(ColorSpace::Hsl, true);
         let (h, s, l) = (
-            texto(self, hsl.channel0()),
-            texto(self, hsl.channel1()),
-            texto(self, hsl.channel2()),
+            text(self, hsl.channel0()),
+            text(self, hsl.channel1()),
+            text(self, hsl.channel2()),
         );
         if r.len() + g.len() + b.len() <= h.len() + s.len() + l.len() + 2 {
-            let cabeca: &[u8] = if opaque { b"rgb(" } else { b"rgba(" };
-            self.buffer.extend_from_slice(cabeca);
+            let head: &[u8] = if opaque { b"rgb(" } else { b"rgba(" };
+            self.buffer.extend_from_slice(head);
             self.buffer
                 .extend_from_slice(format!("{r},{g},{b}").as_bytes());
         } else {
-            let cabeca: &[u8] = if opaque { b"hsl(" } else { b"hsla(" };
-            self.buffer.extend_from_slice(cabeca);
+            let head: &[u8] = if opaque { b"hsl(" } else { b"hsla(" };
+            self.buffer.extend_from_slice(head);
             self.buffer
                 .extend_from_slice(format!("{h},{s}%,{l}%").as_bytes());
         }
@@ -1723,25 +1727,26 @@ impl<'a> Serializer<'a> {
         self.buffer.push(b')');
     }
 
-    /// `_canUseHex`: os canais (de uma cor `rgb`), se todos cabem em hex.
+    /// `_canUseHex`: the channels (of an `rgb` color), if they all fit in
+    /// hex.
     fn hex_channels(rgb: &Color) -> Option<[u32; 3]> {
         let mut out = [0u32; 3];
         for (i, c) in [rgb.channel0(), rgb.channel1(), rgb.channel2()]
             .into_iter()
             .enumerate()
         {
-            let inteiro = crate::value::fuzzy_as_int(c)?;
+            let int = crate::value::fuzzy_as_int(c)?;
             if !(crate::color::fuzzy_greater_than_or_equals(c, 0.0)
                 && crate::value::fuzzy_less_than(c, 256.0))
             {
                 return None;
             }
-            out[i] = inteiro.clamp(0, 255) as u32;
+            out[i] = int.clamp(0, 255) as u32;
         }
         Some(out)
     }
 
-    /// `namesByColor[rgb]` (cor opaca).
+    /// `namesByColor[rgb]` (opaque color).
     fn color_name(rgb: &Color) -> Option<&'static str> {
         let [r, g, b] = Self::hex_channels(rgb)?;
         NAMED_COLORS
@@ -1802,10 +1807,11 @@ impl<'a> Serializer<'a> {
         self.buffer
             .extend_from_slice(if opaque { b"rgb(" } else { b"rgba(" });
         let sep = self.comma_separator();
-        let canais = [rgb.channel0(), rgb.channel1(), rgb.channel2()];
-        // No 1.101 cada canal é um número (`_writeNumber`), sem o `%`.
+        let channels = [rgb.channel0(), rgb.channel1(), rgb.channel2()];
+        // In 1.101 each channel is a number (`_writeNumber`), without the
+        // `%`.
         if self.options.v1101() {
-            for (i, c) in canais.iter().enumerate() {
+            for (i, c) in channels.iter().enumerate() {
                 if i > 0 {
                     self.buffer.extend_from_slice(sep);
                 }
@@ -1818,8 +1824,8 @@ impl<'a> Serializer<'a> {
             self.buffer.push(b')');
             return;
         }
-        let inteiros: Option<Vec<f64>> = canais.iter().map(|&c| self.as_int(c)).collect();
-        match inteiros {
+        let ints: Option<Vec<f64>> = channels.iter().map(|&c| self.as_int(c)).collect();
+        match ints {
             Some(v) => {
                 for (i, c) in v.iter().enumerate() {
                     if i > 0 {
@@ -1830,8 +1836,8 @@ impl<'a> Serializer<'a> {
                 }
             }
             None => {
-                // Os canais **da cor original** (`color.channel0`), como no
-                // dart-sass, divididos por 255.
+                // The channels **of the original color** (`color.channel0`),
+                // as in dart-sass, divided by 255.
                 let orig = [color.channel0(), color.channel1(), color.channel2()];
                 for (i, c) in orig.iter().enumerate() {
                     if i > 0 {
@@ -1867,7 +1873,7 @@ impl<'a> Serializer<'a> {
         self.buffer.push(b')');
     }
 
-    /// `_writeHwb` (só no `inspect`).
+    /// `_writeHwb` (only in `inspect`).
     fn write_hwb(&mut self, color: &Color) {
         self.buffer.extend_from_slice(b"hwb(");
         let hwb = color.to_space(ColorSpace::Hwb, true);
@@ -1914,8 +1920,8 @@ impl<'a> Serializer<'a> {
         }
     }
 
-    /// `_tryPrivateUseCharacter`: fora do `compressed`, caractere de uso
-    /// privado sai como escape.
+    /// `_tryPrivateUseCharacter`: outside `compressed`, a private-use
+    /// character comes out as an escape.
     fn try_private_use(&mut self, c: char, next: Option<char>) -> bool {
         if self.options.is_compressed() {
             return false;
@@ -1968,8 +1974,8 @@ impl<'a> Serializer<'a> {
                     includes_double = true;
                     buffer.push(b'"');
                 }
-                // Quebras de linha e ASCII não imprimível viram escape (a tabulação não).
-                // O U+007F só a partir do dart-sass 1.69.6.
+                // Line breaks and non-printable ASCII become escapes (the tab
+                // does not). U+007F only from dart-sass 1.69.6 on.
                 '\u{0}'..='\u{8}' | '\u{A}'..='\u{1F}' => {
                     Self::write_escape(&mut buffer, c as u32, chars.peek().copied());
                 }
@@ -2002,9 +2008,9 @@ impl<'a> Serializer<'a> {
     }
 }
 
-/// `_minimumIndentation`: a menor indentação das linhas não vazias depois
-/// da primeira; `None` sem quebra de linha, `-1` com quebras mas sem linha
-/// indentada.
+/// `_minimumIndentation`: the smallest indentation of the non-empty lines
+/// after the first; `None` without a line break, `-1` with breaks but no
+/// indented line.
 fn minimum_indentation(text: &str) -> Option<i64> {
     let b = text.as_bytes();
     let mut i = 0;
@@ -2024,7 +2030,7 @@ fn minimum_indentation(text: &str) -> Option<i64> {
     }
     let mut min: Option<i64> = None;
     while i < b.len() {
-        let inicio = i;
+        let start = i;
         while i < b.len() && (b[i] == b' ' || b[i] == b'\t') {
             i += 1;
         }
@@ -2035,8 +2041,8 @@ fn minimum_indentation(text: &str) -> Option<i64> {
             i += 1;
             continue;
         }
-        let coluna = (i - inicio) as i64;
-        min = Some(min.map_or(coluna, |m| m.min(coluna)));
+        let column = (i - start) as i64;
+        min = Some(min.map_or(column, |m| m.min(column)));
         while i < b.len() {
             let c = b[i];
             i += 1;
@@ -2048,13 +2054,13 @@ fn minimum_indentation(text: &str) -> Option<i64> {
     Some(min.unwrap_or(-1))
 }
 
-/// `trimAsciiRight(value, excludeEscape: true)` do dart-sass: se o último
-/// caractere não branco é uma `\\` (nem o primeiro nem o último), o
-/// branco que a segue fica (é parte de um escape).
+/// dart-sass's `trimAsciiRight(value, excludeEscape: true)`: if the last
+/// non-blank character is a `\\` (neither the first nor the last), the
+/// blank that follows it stays (it is part of an escape).
 fn trim_ascii_right_exclude_escape(s: &str) -> &str {
     let b = s.as_bytes();
-    let branco = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | b'\x0c');
-    let Some(i) = (0..b.len()).rev().find(|&i| !branco(b[i])) else {
+    let is_blank = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | b'\x0c');
+    let Some(i) = (0..b.len()).rev().find(|&i| !is_blank(b[i])) else {
         return "";
     };
     if b[i] == b'\\' && i != 0 && i != b.len() - 1 {
@@ -2064,7 +2070,7 @@ fn trim_ascii_right_exclude_escape(s: &str) -> &str {
     }
 }
 
-/// Os numeradores e denominadores de uma unidade, como textos.
+/// The numerators and denominators of a unit, as strings.
 fn unit_lists(unit: &crate::unit::Unit) -> (Vec<String>, Vec<String>) {
     match unit {
         crate::unit::Unit::None => (Vec::new(), Vec::new()),
@@ -2076,10 +2082,10 @@ fn unit_lists(unit: &crate::unit::Unit) -> (Vec<String>, Vec<String>) {
     }
 }
 
-/// `integer.toString()` de um `double` inteiro (`_asInt`): na faixa do
-/// `int` de 64 bits da VM, os dígitos exatos; fora dela o `round()` não
-/// devolve o mesmo valor e o dart-sass escreve `number.toString()` sem
-/// expoente — os dígitos mínimos com zeros, como o `{}` do Rust.
+/// `integer.toString()` of an integral `double` (`_asInt`): within the range
+/// of the VM's 64-bit `int`, the exact digits; outside it `round()` does not
+/// return the same value and dart-sass writes `number.toString()` without
+/// an exponent — the minimal digits with zeros, like Rust's `{}`.
 fn dart_int_text(i: f64) -> String {
     if i == 0.0 {
         "0".to_owned()

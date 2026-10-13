@@ -1,18 +1,18 @@
-//! O dialeto do compilador oficial que o arquivo gerado imita.
+//! The dialect of the official compiler that the generated file imitates.
 //!
-//! O `ngdart` 8.0.0-dev.4 (`ngcompiler` 3.0.0-dev.3) e o fork `ngx_dart`
-//! 9.0.0-dev.2 (`ngx_compiler` 9.0.0-dev.2), que troca `dart:html` por
-//! `package:web`, têm o mesmo compilador a menos de uma lista curta de
-//! diferenças (`docs/NGDART-COMPILADOR-DE-VISOES.md` parte B): os nomes dos
-//! pacotes, os identificadores de DOM, o provedor embutido `JSObject` e os
-//! eventos tipados.
+//! `ngdart` 8.0.0-dev.4 (`ngcompiler` 3.0.0-dev.3) and the `ngx_dart` fork
+//! 9.0.0-dev.2 (`ngx_compiler` 9.0.0-dev.2), which replaces `dart:html` with
+//! `package:web`, have the same compiler except for a short list of differences
+//! (`docs/NGDART-COMPILADOR-DE-VISOES.md` part B): the package names, the DOM
+//! identifiers, the built-in `JSObject` provider and the typed events.
 //!
-//! Por dentro o porte fala sempre o `ngdart` 8: toda URI lida do programa
-//! passa por [`canonica`] (`package:ngx_dart/…` vira `package:ngdart/…`), e a
-//! saída volta ao dialeto da geração por [`escrita`] (na tabela de imports).
-//! O dialeto de uma geração é o do programa carregado
-//! ([`Resolvedor::novo`](crate::resolucao::Resolvedor::novo) o fixa na
-//! thread): há `package:ngx_dart/…` nele, é o 9.
+//! Internally the port always speaks `ngdart` 8: every URI read from the
+//! program goes through [`canonica`] (`package:ngx_dart/…` becomes
+//! `package:ngdart/…`), and the output goes back to the generation's dialect
+//! through [`escrita`] (in the import table). The dialect of a generation is
+//! that of the loaded program
+//! ([`Resolvedor::novo`](crate::resolucao::Resolvedor::novo) sets it on the
+//! thread): if it contains `package:ngx_dart/…`, it is 9.
 use std::borrow::Cow;
 use std::cell::Cell;
 
@@ -29,7 +29,7 @@ thread_local! {
     static ATUAL: Cell<Dialeto> = const { Cell::new(Dialeto::Ngdart) };
 }
 
-/// O dialeto da geração em curso nesta thread.
+/// The dialect of the generation in progress on this thread.
 pub fn atual() -> Dialeto {
     ATUAL.with(Cell::get)
 }
@@ -39,8 +39,8 @@ pub fn fixar(d: Dialeto) {
     ATUAL.with(|a| a.set(d));
 }
 
-/// O dialeto de um programa: o do `ngx_dart` se ele carrega alguma
-/// biblioteca desse pacote.
+/// The dialect of a program: that of `ngx_dart` if it loads any library of that
+/// package.
 pub fn do_programa(p: &dartforge_elements::model::Program) -> Dialeto {
     if p
         .libraries
@@ -53,7 +53,7 @@ pub fn do_programa(p: &dartforge_elements::model::Program) -> Dialeto {
     }
 }
 
-/// Os pacotes renomeados pelo fork: (ngdart 8, ngx 9).
+/// The packages renamed by the fork: (ngdart 8, ngx 9).
 const PARES: &[(&str, &str)] = &[
     ("package:ngdart/", "package:ngx_dart/"),
     ("package:ngforms/", "package:ngx_forms/"),
@@ -72,7 +72,7 @@ pub fn canonica(uri: &str) -> Cow<'_, str> {
     Cow::Borrowed(uri)
 }
 
-/// [`canonica`] já com a posse.
+/// [`canonica`] taking ownership.
 pub fn canonica_string(uri: String) -> String {
     match canonica(&uri) {
         Cow::Borrowed(_) => uri,
@@ -80,8 +80,8 @@ pub fn canonica_string(uri: String) -> String {
     }
 }
 
-/// A URI canônica como ela está no programa e sai no arquivo gerado: no
-/// dialeto 9, `package:ngdart/x.dart` → `package:ngx_dart/x.dart`.
+/// The canonical URI as it is in the program and goes out in the generated
+/// file: in dialect 9, `package:ngdart/x.dart` → `package:ngx_dart/x.dart`.
 pub fn escrita(uri: &str) -> Cow<'_, str> {
     if atual() == Dialeto::Ngx {
         for (ng, ngx) in PARES {
@@ -93,8 +93,8 @@ pub fn escrita(uri: &str) -> Cow<'_, str> {
     Cow::Borrowed(uri)
 }
 
-/// Os dois nomes do mesmo pacote (`ngx_forms` e `ngforms`) contam como o
-/// mesmo pacote no cálculo do import relativo (`getImportModulePath`).
+/// The two names of the same package (`ngx_forms` and `ngforms`) count as the
+/// same package when computing the relative import (`getImportModulePath`).
 pub fn pacote_canonico(pacote: &str) -> &str {
     match pacote {
         "ngx_dart" => "ngdart",
@@ -105,10 +105,10 @@ pub fn pacote_canonico(pacote: &str) -> &str {
     }
 }
 
-/// Provedores embutidos do elemento a mais que no `ngdart` 8: o `JSObject`
-/// que o `ngx_compiler` põe logo depois do `ElementRef`
-/// (`NX:compiler/view_compiler/compile_element.dart:116`). Todo `uniqueId`
-/// de provedor de elemento sobe esse tanto.
+/// Built-in element providers in addition to those of `ngdart` 8: the
+/// `JSObject` that `ngx_compiler` puts right after `ElementRef`
+/// (`NX:compiler/view_compiler/compile_element.dart:116`). Every element
+/// provider `uniqueId` goes up by this much.
 pub fn embutidos_extra() -> u32 {
     match atual() {
         Dialeto::Ngdart => 0,
@@ -116,10 +116,10 @@ pub fn embutidos_extra() -> u32 {
     }
 }
 
-/// Os identificadores de DOM do compilador (`Identifiers` em
-/// `compiler/identifiers.dart`), pelo nome do `dart:html`: o módulo e o nome
-/// no dialeto da geração. No 9 cada um tem o seu módulo do `package:web`
-/// (`NX:compiler/identifiers.dart:295-389`).
+/// The compiler's DOM identifiers (`Identifiers` in
+/// `compiler/identifiers.dart`), by their `dart:html` name: the module and the
+/// name in the generation's dialect. In 9 each one has its own `package:web`
+/// module (`NX:compiler/identifiers.dart:295-389`).
 pub fn dom(nome: &str) -> (&'static str, Cow<'static, str>) {
     match atual() {
         Dialeto::Ngdart => {
@@ -152,13 +152,13 @@ fn dom_web(nome: &str) -> (&'static str, Cow<'static, str>) {
         "HtmlElement" => de(WEB_HTML, "HTMLElement"),
         "SvgSvgElement" => de(WEB_SVG, "SVGSVGElement"),
         "SvgElement" => de(WEB_SVG, "SVGElement"),
-        // Os elementos tipados de `_tagNameToIdentifier`: `HTML` + o nome.
+        // The typed elements of `_tagNameToIdentifier`: `HTML` + the name.
         "AnchorElement" | "AreaElement" | "AudioElement" | "ButtonElement" | "CanvasElement"
         | "DivElement" | "FormElement" | "IFrameElement" | "ImageElement" | "InputElement"
         | "TextAreaElement" | "MediaElement" | "MenuElement" | "OptionElement"
         | "OListElement" | "SelectElement" | "TableElement" | "TableRowElement"
         | "TableColElement" | "UListElement" => (WEB_HTML, Cow::Owned(format!("HTML{nome}"))),
-        // Os eventos novos (`html_events.dart`), no módulo de cada um.
+        // The new events (`html_events.dart`), each in its module.
         "MouseEvent" | "KeyboardEvent" | "FocusEvent" | "InputEvent" | "CompositionEvent"
         | "WheelEvent" => (WEB_UIEVENTS, Cow::Owned(nome.to_string())),
         "DragEvent" => (WEB_HTML, Cow::Borrowed("DragEvent")),
@@ -171,8 +171,8 @@ fn dom_web(nome: &str) -> (&'static str, Cow<'static, str>) {
     }
 }
 
-/// `nativeHtmlEventType` (`NX:compiler/html_events.dart:116-177`): o tipo
-/// (pelo nome de [`dom`]) do evento nativo `nome`; fora da tabela, `Event`.
+/// `nativeHtmlEventType` (`NX:compiler/html_events.dart:116-177`): the type (by
+/// the [`dom`] name) of the native event `nome`; outside the table, `Event`.
 pub fn tipo_do_evento_nativo(nome: &str) -> &'static str {
     match nome {
         "animationend" | "animationiteration" | "animationstart" => "AnimationEvent",
@@ -196,10 +196,10 @@ pub fn tipo_do_evento_nativo(nome: &str) -> &'static str {
     }
 }
 
-/// A classe `(uri, nome)` do programa é o nó embutido do elemento — o
-/// `Element` ou o `HtmlElement` do `dart:html` no 8, o `Element`
-/// (`dom.dart`) ou o `HTMLElement` (`html.dart`) do `package:web` no 9 —, e
-/// qual dos dois (pelo nome do 8).
+/// Whether the class `(uri, nome)` of the program is the element's built-in
+/// node — `Element` or `HtmlElement` of `dart:html` in 8, `Element`
+/// (`dom.dart`) or `HTMLElement` (`html.dart`) of `package:web` in 9 —, and
+/// which of the two (by the name in 8).
 pub fn no_embutido(uri: &str, nome: &str) -> Option<&'static str> {
     match (uri, nome) {
         ("dart:html", "Element") | (WEB_DOM, "Element") => Some("Element"),
@@ -208,10 +208,10 @@ pub fn no_embutido(uri: &str, nome: &str) -> Option<&'static str> {
     }
 }
 
-/// O tipo `(uri, nome)` é `Element` do DOM ou um subtipo dele (o
-/// `isElementType` das consultas). No 8, todo `…Element` do `dart:html` (menos
-/// o `NoncedElement`) e do `dart:svg`; no 9, todo `…Element` declarado em
-/// `package:web/src/dom/` (os *extension types* que `implements Element`).
+/// Whether the type `(uri, nome)` is the DOM `Element` or a subtype of it (the
+/// `isElementType` of queries). In 8, every `…Element` of `dart:html` (except
+/// `NoncedElement`) and of `dart:svg`; in 9, every `…Element` declared in
+/// `package:web/src/dom/` (the *extension types* that `implements Element`).
 pub fn e_elemento(uri: &str, nome: &str) -> bool {
     match uri {
         "dart:html" => nome.ends_with("Element") && nome != "NoncedElement",

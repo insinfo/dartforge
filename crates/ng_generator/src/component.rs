@@ -1,149 +1,155 @@
-//! Lê os argumentos de `@Component` e `@Directive` direto da árvore.
+//! Reads the arguments of `@Component` and `@Directive` directly from the tree.
 //!
-//! O compilador oficial faz isso pelo `package:analyzer`, resolvendo cada
-//! argumento como constante. Aqui os argumentos que interessam ao gerador são
-//! literais escritos na própria anotação (`selector: 'x'`, `templateUrl:
-//! 'x.html'`), e os que não são — a lista de `directives`, os `providers` —
-//! ficam guardados como texto da fonte, para as etapas que souberem usá-los.
+//! The official compiler does this through `package:analyzer`, resolving each
+//! argument as a constant. Here the arguments that matter to the generator are
+//! literals written in the annotation itself (`selector: 'x'`, `templateUrl:
+//! 'x.html'`), and those that are not — the `directives` list, the `providers`
+//! — are kept as source text, for the stages that know how to use them.
 use crate::view::{Motivo, Recusa, recusa};
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 
-/// `@Component(...)` ou `@Directive(...)` de uma classe, como está escrito —
-/// o `CompileDirectiveMetadata` do oficial, na parte que o gerador usa.
+/// `@Component(...)` or `@Directive(...)` of a class, as written — the official
+/// `CompileDirectiveMetadata`, in the part the generator uses.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Componente {
     pub classe: String,
     pub seletor: String,
-    /// `@Component` (e não `@Directive`).
+    /// `@Component` (and not `@Directive`).
     pub e_componente: bool,
-    /// A classe estende outra ou usa mixin: `@Input`, `@Output` e
-    /// `@HostBinding` herdados não se veem daqui.
+    /// The class extends another one or uses a mixin: inherited `@Input`,
+    /// `@Output` and `@HostBinding` cannot be seen from here.
     pub herda: bool,
-    /// Os parâmetros de tipo da classe (`class X<T extends num, U>`): o nome
-    /// e o limite como escrito. A visão do componente é genérica nos mesmos
-    /// parâmetros (`ViewX0<T> extends ComponentView<X<T>>`).
+    /// The type parameters of the class (`class X<T extends num, U>`): the name
+    /// and the bound as written. The component's view is generic over the same
+    /// parameters (`ViewX0<T> extends ComponentView<X<T>>`).
     pub parametros_de_tipo: Vec<(String, Option<String>)>,
-    /// `exportAs:` — o nome pelo qual `#ref="nome"` chega à diretiva.
+    /// `exportAs:` — the name through which `#ref="name"` reaches the
+    /// directive.
     pub export_as: Option<String>,
-    /// `@Output`s: nome no template -> membro (um getter de `Stream`), na
-    /// ordem em que o oficial os coleta.
+    /// `@Output`s: name in the template -> member (a `Stream` getter), in the
+    /// order the official compiler collects them.
     pub saidas: Vec<(String, String)>,
     /// Algum `@HostBinding`: quem usa a diretiva chama o `detectHostChanges`
     /// dela.
     pub liga_hospedeiro: bool,
-    /// `@ContentChild`/`@ContentChildren`: a consulta é atualizada pela visão
-    /// de quem projeta o conteúdo.
+    /// `@ContentChild`/`@ContentChildren`: the query is updated by the view of
+    /// whoever projects the content.
     pub consulta_conteudo: bool,
-    /// `providers:`/`viewProviders:` com provedores: entram no nó de quem usa
-    /// e mudam a numeração dos provedores dele.
+    /// `providers:`/`viewProviders:` with providers: they go into the node of
+    /// the user and change the numbering of its providers.
     pub com_provedores: bool,
-    /// Os nomes de `exports:`, na ordem escrita: entram no escopo das
-    /// expressões (`_matchExport`) antes dos membros.
+    /// The names of `exports:`, in written order: they enter the expression
+    /// scope (`_matchExport`) before the members.
     pub exportados: Vec<String>,
-    /// `visibility:` escrito: o valor vem dos metadados do programa
-    /// (`metadata.rs`), sem eles não se sabe a hospedeira.
+    /// `visibility:` written: the value comes from the program metadata
+    /// (`metadata.rs`); without it the host is unknown.
     pub visibilidade_escrita: bool,
-    /// `template: '...'` quando o template está na própria anotação.
+    /// `template: '...'` when the template is in the annotation itself.
     pub template: Option<String>,
-    /// Onde o conteúdo do `template:` começa no `.dart`, em unidades UTF-16
-    /// — o que o oficial soma às posições do comentário `REF`. Só quando o
-    /// literal é uma string simples, sem escape nem interpolação (o texto do
-    /// template é o do fonte, e as posições dentro dele valem nos dois).
+    /// Where the contents of `template:` start in the `.dart`, in UTF-16 code
+    /// units — what the official compiler adds to the positions of the `REF`
+    /// comment. Only when the literal is a simple string, without escapes or
+    /// interpolation (the template text is that of the source, and the
+    /// positions inside it hold in both).
     pub deslocamento_do_template: Option<usize>,
     /// `templateUrl: 'x.html'`.
     pub template_url: Option<String>,
     pub style_urls: Vec<String>,
-    /// `styles: ['...']` — folhas escritas na anotação.
+    /// `styles: ['...']` — stylesheets written in the annotation.
     pub styles: Vec<String>,
-    /// `styleUrls:`/`styles:` com item que não é texto literal (ou que não é
-    /// lista): o que o oficial lê não se vê daqui, e a visão recusa.
+    /// `styleUrls:`/`styles:` with an item that is not a literal string (or
+    /// that is not a list): what the official compiler reads cannot be seen
+    /// from here, and the view refuses.
     pub estilos_ilegiveis: bool,
     /// `changeDetection: ChangeDetectionStrategy.OnPush`.
     pub on_push: bool,
-    /// `directiveTypes: [Typed<X>.of([#T]), ..]`: os argumentos de tipo das
-    /// diretivas genéricas desta visão (`CompileTypedMetadata`).
+    /// `directiveTypes: [Typed<X>.of([#T]), ..]`: the type arguments of the
+    /// generic directives of this view (`CompileTypedMetadata`).
     pub tipos_de_diretiva: Vec<TipoDeDiretiva>,
-    /// `directiveTypes:` numa forma que não se lê daqui.
+    /// `directiveTypes:` in a shape that cannot be read from here.
     pub tipos_de_diretiva_ilegiveis: bool,
-    /// `@changeDetectionLink` (`package:ngdart/experimental.dart`): as
-    /// visões ganham `detectChangesInCheckAlwaysViews` (`view_builder.dart:522`).
+    /// `@changeDetectionLink` (`package:ngdart/experimental.dart`): the views
+    /// get `detectChangesInCheckAlwaysViews` (`view_builder.dart:522`).
     pub link_de_deteccao: bool,
-    /// `encapsulation: ViewEncapsulation.none`. Sem folha de estilo o
-    /// oficial já desliga o encapsulamento (`ast_directive_normalizer.dart`),
-    /// então só pesa com `styleUrls`/`styles` — forma ainda recusada pela
-    /// visão.
+    /// `encapsulation: ViewEncapsulation.none`. Without a stylesheet the
+    /// official compiler already turns encapsulation off
+    /// (`ast_directive_normalizer.dart`), so it only matters with
+    /// `styleUrls`/`styles` — a shape still refused by the view.
     pub sem_encapsulamento: bool,
-    /// `preserveWhitespace: true`: o template não passa pelo
-    /// `MinimizeWhitespaceVisitor` (só o `&ngsp;` vira espaço) e as pontas
-    /// das interpolações não são comprimidas (`ast_template_parser.dart:155-164`,
+    /// `preserveWhitespace: true`: the template does not go through the
+    /// `MinimizeWhitespaceVisitor` (only `&ngsp;` becomes a space) and the ends
+    /// of interpolations are not compressed
+    /// (`ast_template_parser.dart:155-164`,
     /// `expression_converter.dart:151,161`).
     pub preservar_espacos: bool,
-    /// Nomes escritos em `directives:`, na ordem, como escritos (`A`,
-    /// `li.B`). Listas constantes (`coreDirectives`) entram pelo nome e são
-    /// expandidas pelo banco semântico.
+    /// Names written in `directives:`, in order, as written (`A`, `li.B`).
+    /// Constant lists (`coreDirectives`) go in by name and are expanded by the
+    /// semantic database.
     pub diretivas: Vec<String>,
-    /// Algum item de `directives:` não é um nome (espalhamento, `if`,
-    /// expressão): a lista não é conhecida.
+    /// Some item of `directives:` is not a name (spread, `if`, expression): the
+    /// list is not known.
     pub diretivas_ilegiveis: bool,
-    /// Parâmetros do construtor, na ordem — o que a visão-hospedeira precisa
-    /// para instanciar o componente.
+    /// Constructor parameters, in order — what the host view needs to
+    /// instantiate the component.
     pub parametros: Vec<Parametro>,
-    /// Ganchos de ciclo de vida que a classe implementa.
+    /// Lifecycle hooks the class implements.
     pub ganchos: Ganchos,
-    /// Toda forma do componente que o gerador ainda não traduz — anotação de
-    /// membro (`@HostBinding`, `@ContentChild`…) ou argumento de
-    /// `@Component` fora do que ele entende —, com o texto que o placar
-    /// mostra. Todas, não só a primeira: é assim que o placar sabe quantos
-    /// arquivos uma forma nova destrava. Enquanto houver uma, o arquivo não é
-    /// nosso: gerar ignorando isso dá saída **errada**, não incompleta.
+    /// Every shape of the component the generator does not translate yet —
+    /// member annotation (`@HostBinding`, `@ContentChild`…) or `@Component`
+    /// argument outside what it understands —, with the text the scoreboard
+    /// shows. All of them, not only the first: that is how the scoreboard knows
+    /// how many files a new shape unlocks. While there is one, the file is not
+    /// ours: generating while ignoring it gives **wrong** output, not
+    /// incomplete output.
     pub nao_entendidos: Vec<Recusa>,
-    /// Nomes escritos em `pipes:`, na ordem, como escritos. Como em
-    /// `directives:`, uma lista constante (`commonPipes`) entra pelo nome e é
-    /// expandida pelo banco semântico. A lista em si não muda a visão; o que
-    /// muda é usar um pipe no template.
+    /// Names written in `pipes:`, in order, as written. As in `directives:`, a
+    /// constant list (`commonPipes`) goes in by name and is expanded by the
+    /// semantic database. The list itself does not change the view; using a
+    /// pipe in the template does.
     pub pipes: Vec<String>,
-    /// Algum item de `pipes:` não é um nome: a lista não é conhecida.
+    /// Some item of `pipes:` is not a name: the list is not known.
     pub pipes_ilegiveis: bool,
-    /// `@ViewChild('ref')` em campo, na ordem de declaração — que é a ordem
-    /// em que o oficial escreve as atribuições (`queryIndex`). Se a consulta
-    /// sai estática ou não depende de onde `#ref` está no template.
+    /// `@ViewChild('ref')` on a field, in declaration order — which is the
+    /// order in which the official compiler writes the assignments
+    /// (`queryIndex`). Whether the query is static or not depends on where
+    /// `#ref` is in the template.
     pub consultas: Vec<Consulta>,
-    /// `@HostListener` da classe, na forma simples, na ordem de declaração.
+    /// The class's `@HostListener`s, in the simple shape, in declaration order.
     pub ouvintes: Vec<Ouvinte>,
-    /// `@HostBinding` de um componente, na ordem em que o oficial os coleta
-    /// (acessores, depois campos, cada grupo em ordem de declaração): o
-    /// `detectHostChanges` da visão.
+    /// `@HostBinding`s of a component, in the order the official compiler
+    /// collects them (accessors, then fields, each group in declaration order):
+    /// the view's `detectHostChanges`.
     pub ligacoes_do_hospedeiro: Vec<LigacaoDoHospedeiro>,
-    /// `@ContentChild`/`@ContentChildren`, na ordem do `directive.queries`
-    /// (setters antes dos campos, como o visitante do oficial os visita).
-    /// `None`: alguma fora da forma conhecida.
+    /// `@ContentChild`/`@ContentChildren`, in the order of `directive.queries`
+    /// (setters before fields, as the official visitor visits them). `None`:
+    /// some outside the known shape.
     pub consultas_de_conteudo: Option<Vec<ConsultaDeConteudo>>,
-    /// Cada campo e getter de instância da classe. O emissor precisa disto
-    /// para escolher entre `interpolateString`, `interpolate` e
-    /// `updateTextWithPrimitive`, que o oficial decide pelo tipo estático da
-    /// expressão do template e por ela ser mutável ou não. Membro estático
-    /// fica de fora: o oficial o lê pela classe (`import1.X.nome`), forma que
-    /// o conversor não escreve.
+    /// Each instance field and getter of the class. The emitter needs this to
+    /// choose between `interpolateString`, `interpolate` and
+    /// `updateTextWithPrimitive`, which the official compiler decides by the
+    /// static type of the template expression and by whether it is mutable. A
+    /// static member is left out: the official compiler reads it through the
+    /// class (`import1.X.name`), a shape the converter does not write.
     pub membros: std::collections::HashMap<String, Membro>,
-    /// `@Input`s, na ordem do mapa `inputs` do oficial — é a ordem em que as
-    /// entradas de um nó são escritas (`_SortInputsVisitor`).
+    /// `@Input`s, in the order of the official `inputs` map — the order in
+    /// which the inputs of a node are written (`_SortInputsVisitor`).
     pub entradas: Vec<Entrada>,
-    /// Métodos da classe, separados dos campos: um método só pode aparecer
-    /// como alvo de chamada (`titulo()`), e o seu tipo é o do retorno. Se
-    /// entrassem no mesmo mapa, `{{ titulo }}` (tearoff) seria interpolado
-    /// como se fosse o valor de retorno.
+    /// Methods of the class, kept apart from the fields: a method can only
+    /// appear as a call target (`titulo()`), and its type is the return type.
+    /// If they were in the same map, `{{ titulo }}` (tear-off) would be
+    /// interpolated as if it were the return value.
     pub metodos: std::collections::HashMap<String, String>,
-    /// Parâmetros posicionais de cada método de instância: é o que decide,
-    /// num tear-off (`(click)="salvar"`), entre `salvar()` e
-    /// `salvar($event)` (`rewriteTearOff`).
+    /// Positional parameters of each instance method: that is what decides, in
+    /// a tear-off (`(click)="salvar"`), between `salvar()` and `salvar($event)`
+    /// (`rewriteTearOff`).
     pub aridades: std::collections::HashMap<String, usize>,
 }
 
 /// Um `@Input`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entrada {
-    /// Nome da ligação no template (o apelido, se houver).
+    /// Binding name in the template (the alias, if any).
     pub nome: String,
     /// Membro que recebe o valor.
     pub campo: String,
@@ -156,8 +162,8 @@ impl Componente {
     }
 }
 
-/// Ganchos de ciclo de vida do ngdart implementados pelo componente. Cada um
-/// tem o seu lugar fixo no `detectChangesInternal` da visão-hospedeira.
+/// ngdart lifecycle hooks implemented by the component. Each one has its fixed
+/// place in the host view's `detectChangesInternal`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Ganchos {
     pub on_init: bool,
@@ -167,13 +173,13 @@ pub struct Ganchos {
     pub after_content_checked: bool,
     pub after_view_init: bool,
     pub after_view_checked: bool,
-    /// `AfterChanges`: não aparece no arquivo do próprio componente, mas
-    /// muda a detecção de quem o usa com `@Input`.
+    /// `AfterChanges`: does not appear in the component's own file, but changes
+    /// the change detection of whoever uses it with `@Input`.
     pub after_changes: bool,
 }
 
 impl Ganchos {
-    /// Algum gancho põe código na visão-hospedeira?
+    /// Does any hook put code in the host view?
     pub fn algum(&self) -> bool {
         self.on_init
             || self.on_destroy
@@ -184,13 +190,13 @@ impl Ganchos {
             || self.after_view_checked
     }
 
-    /// `firstCheck` só é declarado quando algum gancho o usa.
+    /// `firstCheck` is only declared when some hook uses it.
     pub fn usa_primeira_checagem(&self) -> bool {
         self.on_init || self.after_content_init || self.after_view_init
     }
 
-    /// Há detecção de mudança na hospedeira? (`ngOnDestroy` sozinho só gera
-    /// `destroyInternal`.)
+    /// Is there change detection in the host view? (`ngOnDestroy` alone only
+    /// generates `destroyInternal`.)
     pub fn tem_deteccao(&self) -> bool {
         self.on_init
             || self.do_check
@@ -201,22 +207,23 @@ impl Ganchos {
     }
 }
 
-/// Um campo ou getter da classe do componente.
+/// A field or getter of the component class.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Membro {
-    /// Tipo como escrito, ou inferido do inicializador; vazio quando não se
-    /// sabe (`final x = A.b;`).
+    /// Type as written, or inferred from the initializer; empty when unknown
+    /// (`final x = A.b;`).
     pub tipo: String,
-    /// `final` (ou getter): conta como imutável na regra `isImmutable` do
-    /// ngcompiler, que decide se o valor primitivo vai pelo caminho rápido.
+    /// `final` (or getter): counts as immutable under ngcompiler's
+    /// `isImmutable` rule, which decides whether a primitive value takes the
+    /// fast path.
     pub imutavel: bool,
-    /// Membro `static`: o template o lê sem qualificação, e o oficial o
-    /// escreve pela classe (`import1.Classe.nome`), com tipo `dynamic` (o
-    /// `_TypeResolver` não resolve estático).
+    /// `static` member: the template reads it unqualified, and the official
+    /// compiler writes it through the class (`import1.Class.name`), with type
+    /// `dynamic` (the `_TypeResolver` does not resolve statics).
     pub estatico: bool,
 }
 
-/// Um `@HostBinding('class.x')`/`@HostBinding('attr.x')` de componente.
+/// A component's `@HostBinding('class.x')`/`@HostBinding('attr.x')`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LigacaoDoHospedeiro {
     /// `class.ativo`, `attr.role`.
@@ -225,7 +232,7 @@ pub struct LigacaoDoHospedeiro {
     pub membro: String,
     /// Campo `final`: escrito uma vez, na primeira checagem (`isImmutable`).
     pub imutavel: bool,
-    /// Membro estático: escrito uma vez, no construtor da visão (caso j96).
+    /// Static member: written once, in the view constructor (case j96).
     pub estatico: bool,
 }
 
@@ -234,98 +241,99 @@ pub struct LigacaoDoHospedeiro {
 pub struct Consulta {
     /// Campo que recebe o resultado.
     pub propriedade: String,
-    /// A referência procurada no template (`#ref`).
+    /// The reference looked up in the template (`#ref`).
     pub referencia: String,
-    /// Tipo do campo, como escrito (`html.DivElement?`). Decide o valor: um
-    /// `Element` recebe o próprio nó, qualquer outro tipo um `ElementRef`
-    /// (`isElementType` em `find_components.dart`). Em `@ViewChildren`, o
-    /// argumento de tipo da lista.
+    /// Field type, as written (`html.DivElement?`). It decides the value: an
+    /// `Element` receives the node itself, any other type an `ElementRef`
+    /// (`isElementType` in `find_components.dart`). In `@ViewChildren`, the
+    /// type argument of the list.
     pub tipo: String,
-    /// `@ViewChildren`: o campo recebe a lista de todos os resultados.
+    /// `@ViewChildren`: the field receives the list of all results.
     pub lista: bool,
-    /// `@ViewChild(Tipo)`: `referencia` é o nome do tipo procurado.
+    /// `@ViewChild(Type)`: `referencia` is the name of the type looked up.
     pub por_tipo: bool,
-    /// `read: T`, como escrito: o token do provedor do nó achado que vira o
-    /// valor (`queryWithRead.read` em `compile_element.dart`).
+    /// `read: T`, as written: the token of the provider of the found node that
+    /// becomes the value (`queryWithRead.read` in `compile_element.dart`).
     pub leitura: Option<String>,
 }
 
-/// Um `@ContentChild`/`@ContentChildren`, como quem usa o componente precisa
-/// dele: sem resultado no conteúdo, a lista recebe `[]` e o único não recebe
-/// nada (`_createUpdates`).
+/// A `@ContentChild`/`@ContentChildren`, as the user of the component needs it:
+/// with no result in the content, the list receives `[]` and the single one
+/// receives nothing (`_createUpdates`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsultaDeConteudo {
-    /// Campo ou setter que recebe o resultado.
+    /// Field or setter that receives the result.
     pub campo: String,
     /// `@ContentChildren`.
     pub lista: bool,
-    /// O tipo procurado, como escrito (`LiTabComponent`, `li.X`), ou a
-    /// referência (`'nome'`, com `nome` aqui e `referencia` ligado).
+    /// The type looked up, as written (`LiTabComponent`, `li.X`), or the
+    /// reference (`'name'`, with `nome` here and `referencia` set).
     pub alvo: String,
     pub referencia: bool,
-    /// `descendants:` — sem ele, só casa o conteúdo a uma diretiva de
-    /// distância (`_getQueriesFor`).
+    /// `descendants:` — without it, only content one directive away matches
+    /// (`_getQueriesFor`).
     pub descendentes: bool,
-    /// `read:` — o valor lido é outro token do nó achado: o nome do tipo,
-    /// como escrito.
+    /// `read:` — the value read is another token of the found node: the type
+    /// name, as written.
     pub leitura: Option<String>,
 }
 
-/// Um `@HostListener` do componente: o evento e o texto do handler que o
-/// oficial monta (`_addHostListener`: `metodo(args)`, com `$event`
-/// deduzido quando não há `args` e o método tem um parâmetro). O texto passa
-/// pelo mesmo conversor de handlers do template.
+/// A component's `@HostListener`: the event and the text of the handler the
+/// official compiler builds (`_addHostListener`: `method(args)`, with `$event`
+/// deduced when there are no `args` and the method has one parameter). The text
+/// goes through the same handler converter as the template.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ouvinte {
     pub evento: String,
     pub handler: String,
 }
 
-/// Um parâmetro do construtor do componente.
+/// A parameter of the component constructor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Parametro {
     /// Tipo como escrito (`Element`, `RestConfig`, `List<int>`).
     pub tipo: Option<String>,
     pub nome: String,
     pub nomeado: bool,
-    /// `@Optional`, `@Inject(...)`, `@Self`… mudam a injeção.
+    /// `@Optional`, `@Inject(...)`, `@Self`… change the injection.
     pub anotado: bool,
-    /// `@Optional()`: `injectorGetOptional`, ou `null` onde não há provedor.
+    /// `@Optional()`: `injectorGetOptional`, or `null` where there is no
+    /// provider.
     pub opcional: bool,
-    /// `@Self()`: só o próprio nó.
+    /// `@Self()`: only the node itself.
     pub proprio: bool,
-    /// `@Host()`: não sai da visão do componente (`_getDependency`).
+    /// `@Host()`: does not leave the component's view (`_getDependency`).
     pub hospedeiro: bool,
-    /// `@SkipSelf()`: começa no nó de cima.
+    /// `@SkipSelf()`: starts at the node above.
     pub pular: bool,
-    /// Outra anotação (`@Inject`, `@Attribute`, desconhecida): ainda sem
-    /// tradução.
+    /// Another annotation (`@Inject`, `@Attribute`, unknown): no translation
+    /// yet.
     pub outra_anotacao: bool,
 }
 
-/// Valor de um argumento nomeado, quando é uma string literal sem
-/// interpolação.
+/// Value of a named argument, when it is a string literal without
+/// interpolation.
 ///
-/// Numa string de várias linhas, cada fim de linha do fonte (`\r\n`, `\r`)
-/// vale `\n` no valor (especificação do Dart, *Strings*); é o valor que o
-/// analyzer entrega ao ngcompiler (`li_highlight_component.dart`, com CRLF).
+/// In a multi-line string, each source line ending (`\r\n`, `\r`) is `\n` in
+/// the value (Dart specification, *Strings*); it is the value the analyzer
+/// hands to ngcompiler (`li_highlight_component.dart`, with CRLF).
 fn texto_do_argumento(arvore: &ast::Ast, id: ast::ExprId) -> Option<String> {
     match &arvore.expr(id).kind {
         ast::ExprKind::String(lit) => lit
             .constant_value()
-            // Só o par CRLF: o valor já vem decodificado, e um `\r` sozinho
-            // pode ser o escape `\r` do fonte, que fica.
+            // Only the CRLF pair: the value is already decoded, and a lone `\r`
+            // may be the source's `\r` escape, which stays.
             .map(|s| s.to_string_lossy().replace("\r\n", "\n")),
         ast::ExprKind::Parenthesized(inner) => texto_do_argumento(arvore, *inner),
         _ => None,
     }
 }
 
-/// Onde começa, no fonte, o conteúdo de um `template:` (em unidades UTF-16,
-/// como o analyzer conta): as posições do `REF` são as do valor da string
-/// somadas a ele. Uma string só (simples, crua ou de aspas triplas, com
-/// escapes ou não) conta do conteúdo (`contentsOffset`); strings adjacentes
-/// contam do começo do nó (`offset`) — casos j53 e j63.
+/// Where the contents of a `template:` start in the source (in UTF-16 code
+/// units, as the analyzer counts): the `REF` positions are those of the string
+/// value plus this. A single string (simple, raw or triple-quoted, with escapes
+/// or not) counts from the contents (`contentsOffset`); adjacent strings count
+/// from the start of the node (`offset`) — cases j53 and j63.
 fn deslocamento_do_template(arvore: &ast::Ast, fonte: &str, id: ast::ExprId) -> Option<usize> {
     let span = arvore.expr(id).span;
     let bruto = fonte.get(span.start..span.end)?;
@@ -338,10 +346,10 @@ fn deslocamento_do_template(arvore: &ast::Ast, fonte: &str, id: ast::ExprId) -> 
     Some(fonte.get(..deslocamento)?.encode_utf16().count())
 }
 
-/// O primeiro literal de string de `bruto`: onde começa o conteúdo (depois
-/// do `r` e das aspas; nas aspas triplas, depois da primeira linha se ela
-/// só tem brancos — regra do Dart para string de várias linhas, caso j53) e
-/// onde o literal termina.
+/// The first string literal of `bruto`: where the contents start (after the `r`
+/// and the quotes; with triple quotes, after the first line if it only has
+/// whitespace — Dart's rule for multi-line strings, case j53) and where the
+/// literal ends.
 fn conteudo_do_literal(bruto: &str) -> Option<(usize, usize)> {
     let cru = bruto.starts_with(['r', 'R']);
     let depois_do_r = usize::from(cru);
@@ -351,8 +359,8 @@ fn conteudo_do_literal(bruto: &str) -> Option<(usize, usize)> {
         .find(|q| resto.starts_with(q))?;
     let mut inicio = depois_do_r + aspa.len();
     let corpo = &bruto[inicio..];
-    // O fim: a próxima aspa igual que não esteja escapada (na crua, a
-    // barra não escapa nada).
+    // The end: the next equal quote that is not escaped (in a raw string, the
+    // backslash escapes nothing).
     let mut i = 0;
     let bytes = corpo.as_bytes();
     let fim = loop {
@@ -394,8 +402,8 @@ fn lista_de_textos(arvore: &ast::Ast, id: ast::ExprId) -> Vec<String> {
         .collect()
 }
 
-/// Nomes escritos numa lista literal (`directives: [A, li.B]`), e se algum
-/// item não é um nome.
+/// Names written in a list literal (`directives: [A, li.B]`), and whether some
+/// item is not a name.
 fn nomes_da_lista(arvore: &ast::Ast, interner: &Interner, id: ast::ExprId) -> (Vec<String>, bool) {
     let ast::ExprKind::List { elements, .. } = &arvore.expr(id).kind else {
         return (Vec::new(), true);
@@ -404,8 +412,8 @@ fn nomes_da_lista(arvore: &ast::Ast, interner: &Interner, id: ast::ExprId) -> (V
     let mut ilegivel = false;
     for e in elements.iter() {
         match e {
-            // `...lista`: o valor constante do oficial é a lista achatada;
-            // o nome dela é expandido no lugar (`Designado::Lista`).
+            // `...list`: the official constant value is the flattened list; its
+            // name is expanded in place (`Designado::Lista`).
             ast::CollectionElement::Expression(x)
             | ast::CollectionElement::Spread { value: x, .. } => {
                 match crate::resolucao::nome_qualificado(arvore, interner, *x) {
@@ -419,8 +427,8 @@ fn nomes_da_lista(arvore: &ast::Ast, interner: &Interner, id: ast::ExprId) -> (V
     (nomes, ilegivel)
 }
 
-/// `ChangeDetectionStrategy.onPush` (o nome no ngdart 8) — o que muda o
-/// estado inicial da visão.
+/// `ChangeDetectionStrategy.onPush` (the name in ngdart 8) — what changes the
+/// initial state of the view.
 fn e_on_push(arvore: &ast::Ast, fonte: &str, id: ast::ExprId) -> bool {
     let span = arvore.expr(id).span;
     fonte
@@ -428,9 +436,9 @@ fn e_on_push(arvore: &ast::Ast, fonte: &str, id: ast::ExprId) -> bool {
         .is_some_and(|t| t.rsplit('.').next().map(str::trim) == Some("onPush"))
 }
 
-/// O valor de `encapsulation:` quando escrito como `ViewEncapsulation.x`
-/// (com ou sem prefixo de import): `emulated` ou `none`, os dois do ngdart 8.
-/// Qualquer outra forma (constante, expressão) dá `None`.
+/// The value of `encapsulation:` when written as `ViewEncapsulation.x` (with or
+/// without an import prefix): `emulated` or `none`, both from ngdart 8. Any
+/// other shape (constant, expression) gives `None`.
 fn valor_de_encapsulamento<'a>(
     arvore: &ast::Ast,
     fonte: &'a str,
@@ -444,7 +452,7 @@ fn valor_de_encapsulamento<'a>(
         .then(|| valor.trim())
 }
 
-/// Extrai o `@Component` de uma classe anotada.
+/// Extracts the `@Component` of an annotated class.
 pub fn ler_componente(
     arvore: &ast::Ast,
     fonte: &str,
@@ -455,8 +463,8 @@ pub fn ler_componente(
     ler(arvore, fonte, interner, classe, anotacao, true)
 }
 
-/// Extrai a `@Directive` de uma classe anotada: o que quem a usa precisa
-/// saber dela (seletor, entradas, saídas, construtor, ciclo de vida).
+/// Extracts the `@Directive` of an annotated class: what its users need to know
+/// about it (selector, inputs, outputs, constructor, lifecycle).
 pub fn ler_diretiva(
     arvore: &ast::Ast,
     fonte: &str,
@@ -467,9 +475,9 @@ pub fn ler_diretiva(
     ler(arvore, fonte, interner, classe, anotacao, false)
 }
 
-/// Um `@Pipe`, como o `PipeVisitor` do oficial o lê: o nome, se é puro e o
-/// tipo do `transform` (`fromFunctionType`) — é dele que sai o tipo do
-/// `pureProxyN` de cada chamada.
+/// A `@Pipe`, as the official `PipeVisitor` reads it: the name, whether it is
+/// pure and the type of `transform` (`fromFunctionType`) — it is where the type
+/// of each call's `pureProxyN` comes from.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Pipe {
     pub classe: String,
@@ -479,23 +487,24 @@ pub struct Pipe {
     pub puro: bool,
     /// Retorno do `transform`, como escrito (`String?`).
     pub retorno: String,
-    /// Tipo de cada parâmetro posicional do `transform`, na ordem; sem tipo
-    /// escrito, `None` (o tipo inferido de uma sobrescrita daqui não se vê).
+    /// Type of each positional parameter of `transform`, in order; without a
+    /// written type, `None` (the inferred type of an override cannot be seen
+    /// from here).
     pub parametros: Vec<Option<String>>,
-    /// Por que este pipe ainda não é instanciado pelo gerador: injeção no
-    /// construtor (`createPipeInstance` pede ao injetor), `OnDestroy`
-    /// (`bindPipeDestroyLifecycleCallbacks`), `transform` herdado, sem tipo
-    /// de retorno ou com parâmetro nomeado.
+    /// Why this pipe is not instantiated by the generator yet: constructor
+    /// injection (`createPipeInstance` asks the injector), `OnDestroy`
+    /// (`bindPipeDestroyLifecycleCallbacks`), inherited `transform`, no return
+    /// type or a named parameter.
     pub fora: Option<&'static str>,
-    /// O construtor recebe só o `ChangeDetectorRef`: a visão que o cria
-    /// passa a si mesma (`o.thisExpr` do `createPipeInstance`).
+    /// The constructor receives only the `ChangeDetectorRef`: the view that
+    /// creates it passes itself (`o.thisExpr` of `createPipeInstance`).
     pub detector: bool,
-    /// `OnDestroy`: a visão que o cria chama `ngOnDestroy()` ao ser
-    /// destruída.
+    /// `OnDestroy`: the view that creates it calls `ngOnDestroy()` when
+    /// destroyed.
     pub destroi: bool,
 }
 
-/// Extrai o `@Pipe` de uma classe anotada.
+/// Extracts the `@Pipe` of an annotated class.
 pub fn ler_pipe(
     arvore: &ast::Ast,
     fonte: &str,
@@ -516,21 +525,21 @@ pub fn ler_pipe(
                     nome_lido = true;
                     match texto_do_argumento(arvore, a.value) {
                         Some(n) => p.nome = n,
-                        None => p.fora = Some("nome do @Pipe que não é literal"),
+                        None => p.fora = Some("@Pipe name that is not a literal"),
                     }
                 }
                 Some("name") if !nome_lido => {
                     nome_lido = true;
                     match texto_do_argumento(arvore, a.value) {
                         Some(n) => p.nome = n,
-                        None => p.fora = Some("nome do @Pipe que não é literal"),
+                        None => p.fora = Some("@Pipe name that is not a literal"),
                     }
                 }
                 Some("pure") => match &arvore.expr(a.value).kind {
                     ast::ExprKind::Bool(b) => p.puro = *b,
-                    _ => p.fora = Some("pure: que não é literal"),
+                    _ => p.fora = Some("pure: that is not a literal"),
                 },
-                _ => p.fora = Some("argumento do @Pipe fora do conhecido"),
+                _ => p.fora = Some("@Pipe argument outside the known ones"),
             }
         }
     }
@@ -544,7 +553,7 @@ pub fn ler_pipe(
         {
             p.detector = true;
         }
-        _ => p.fora = Some("pipe com injeção no construtor"),
+        _ => p.fora = Some("pipe with constructor injection"),
     }
     p.destroi = ganchos_da_classe(arvore, fonte, classe).on_destroy;
     let mut achou = false;
@@ -562,11 +571,11 @@ pub fn ler_pipe(
         achou = true;
         match funcao.return_type {
             Some(t) => p.retorno = texto_do_tipo(arvore, fonte, t),
-            None => p.fora = Some("transform sem tipo de retorno"),
+            None => p.fora = Some("transform without a return type"),
         }
         for par in funcao.parameters.as_deref().unwrap_or(&[]) {
             if matches!(par.kind, ast::ParameterKind::Named) {
-                p.fora = Some("transform com parâmetro nomeado");
+                p.fora = Some("transform with a named parameter");
                 continue;
             }
             p.parametros
@@ -574,7 +583,7 @@ pub fn ler_pipe(
         }
     }
     if !achou {
-        p.fora = Some("transform herdado ou ausente");
+        p.fora = Some("inherited or missing transform");
     }
     p
 }
@@ -664,9 +673,10 @@ fn ler(
     c.membros = tipos_dos_membros(arvore, fonte, interner, classe);
     c.metodos = tipos_dos_metodos(arvore, fonte, interner, classe);
     c.aridades = aridades_dos_metodos(arvore, interner, classe);
-    // `exports:` põe nomes estáticos no escopo das expressões, e eles vencem
-    // o membro de mesmo nome (`_matchExport` antes do receptor implícito).
-    // Um membro sombreado assim sai do mapa, e usá-lo é recusado.
+    // `exports:` puts static names in the expression scope, and they win over
+    // the member with the same name (`_matchExport` before the implicit
+    // receiver). A member shadowed like this leaves the map, and using it is
+    // refused.
     for n in &exportados {
         let simples = n.split('.').next().unwrap_or(n);
         c.membros.remove(simples);
@@ -688,8 +698,9 @@ fn ler(
     );
     c.consultas = consultas_da_classe(arvore, fonte, interner, classe, &mut c.nao_entendidos);
     c.ouvintes = ouvintes_da_classe(arvore, interner, classe, &mut c.nao_entendidos);
-    // Os herdados entram na lista do oficial e não se veem daqui: a visão
-    // completa a lista pelos metadados lidos do programa, ou recusa.
+    // The inherited ones go into the official list and cannot be seen from
+    // here: the view completes the list from the metadata read from the
+    // program, or refuses.
     if e_componente && c.liga_hospedeiro {
         c.ligacoes_do_hospedeiro =
             ligacoes_do_hospedeiro(arvore, interner, classe, &mut c.nao_entendidos);
@@ -697,14 +708,14 @@ fn ler(
     c.consultas_de_conteudo = consultas_de_conteudo(arvore, interner, classe);
     if e_componente && c.consulta_conteudo && c.consultas_de_conteudo.is_none() {
         c.nao_entendidos
-            .push(recusa(Motivo::ContentChild, "@ContentChild fora da forma"));
+            .push(recusa(Motivo::ContentChild, "@ContentChild outside the shape"));
     }
     c
 }
 
-/// Os `@ContentChild`/`@ContentChildren` da classe: setters, depois campos,
-/// cada grupo em ordem de declaração. `None` se algum sai da forma
-/// `@ContentChild(Tipo)`/`@ContentChild('ref')` num campo ou setter.
+/// The class's `@ContentChild`/`@ContentChildren`: setters, then fields, each
+/// group in declaration order. `None` if any is outside the shape
+/// `@ContentChild(Type)`/`@ContentChild('ref')` on a field or setter.
 fn consultas_de_conteudo(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -731,8 +742,8 @@ fn consultas_de_conteudo(
                     false,
                 ),
             };
-            // `ContentChildren(descendants: true)` por omissão no ngdart 8;
-            // `ContentChild` sempre. `read:` troca o valor lido.
+            // `ContentChildren(descendants: true)` by default in ngdart 8;
+            // `ContentChild` always. `read:` changes the value read.
             let mut descendentes = true;
             let mut leitura = None;
             for x in a.arguments.as_ref().map(|g| &g.args[..]).unwrap_or(&[]) {
@@ -785,7 +796,7 @@ fn consultas_de_conteudo(
     Some(setters)
 }
 
-/// Algum membro da classe tem uma destas anotações?
+/// Does any member of the class have one of these annotations?
 fn tem_anotacao(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -801,14 +812,14 @@ fn tem_anotacao(
     })
 }
 
-/// Argumentos de `@Component` cujo efeito o gerador conhece. `pipes:` entra
-/// aqui porque a lista não muda a visão; usar um pipe no template, sim, e
-/// isso é conferido contra o template. `exports:` só põe nomes no escopo
-/// das expressões (ver [`ler`]).
+/// Arguments of `@Component` whose effect the generator knows. `pipes:` is here
+/// because the list does not change the view; using a pipe in the template
+/// does, and that is checked against the template. `exports:` only puts names
+/// in the expression scope (see [`ler`]).
 const ARGUMENTOS_CONHECIDOS: &[&str] = &[
     "selector",
-    // Só decide a que classe um `#ref="nome"` de quem usa aponta
-    // (`identifierForReference`); lido em [`Componente::export_as`].
+    // Only decides which class a user's `#ref="name"` points to
+    // (`identifierForReference`); read in [`Componente::export_as`].
     "exportAs",
     "template",
     "templateUrl",
@@ -819,21 +830,21 @@ const ARGUMENTOS_CONHECIDOS: &[&str] = &[
     "directiveTypes",
     "exports",
     "pipes",
-    // Só decide o `injectorGetInternal`; lida dos metadados do programa
-    // (`metadata.rs`), caso j41.
+    // Only decides `injectorGetInternal`; read from the program metadata
+    // (`metadata.rs`), case j41.
     "visibility",
-    // Provedores privados do elemento do componente: lidos dos metadados do
-    // programa (`metadata.rs`) e escritos na hospedeira; no nó de quem usa
-    // o filho, ainda recusados (`view.rs`).
+    // Private providers of the component's element: read from the program
+    // metadata (`metadata.rs`) and written in the host view; on the node of the
+    // child's user, still refused (`view.rs`).
     "viewProviders",
 ];
 
 /// Argumentos de `@Directive` cujo efeito o gerador conhece.
 const ARGUMENTOS_DE_DIRETIVA: &[&str] = &["selector", "exportAs"];
 
-/// Interfaces de ciclo de vida implementadas, pelas cláusulas `implements` e
-/// `with`. (As do ngrouter — `OnActivate`, `CanDeactivate` — não mexem na
-/// visão; `AfterChanges` tampouco aparece no arquivo do próprio componente.)
+/// Lifecycle interfaces implemented, through the `implements` and `with`
+/// clauses. (Those of ngrouter — `OnActivate`, `CanDeactivate` — do not touch
+/// the view; nor does `AfterChanges` appear in the component's own file.)
 fn ganchos_da_classe(arvore: &ast::Ast, fonte: &str, classe: &ast::ClassDecl) -> Ganchos {
     let mut g = Ganchos::default();
     for t in classe.implements.iter().chain(classe.with.iter()) {
@@ -854,13 +865,13 @@ fn ganchos_da_classe(arvore: &ast::Ast, fonte: &str, classe: &ast::ClassDecl) ->
     g
 }
 
-/// Tudo o que nesta classe o gerador ainda não sabe traduzir, sem parar no
-/// primeiro. Recusar é obrigatório: gerar sem isso produz um arquivo
-/// **errado**.
+/// Everything in this class the generator does not know how to translate yet,
+/// without stopping at the first. Refusing is mandatory: generating without it
+/// produces a **wrong** file.
 ///
-/// `@ViewChild` e `@HostListener` não entram aqui: cada um tem a sua
-/// leitura ([`consultas_da_classe`], [`ouvintes_da_classe`]), que recusa o
-/// que não souber.
+/// `@ViewChild` and `@HostListener` are not here: each has its own reading
+/// ([`consultas_da_classe`], [`ouvintes_da_classe`]), which refuses what it
+/// does not know.
 fn o_que_nao_entendemos(
     arvore: &ast::Ast,
     fonte: &str,
@@ -885,18 +896,18 @@ fn o_que_nao_entendemos(
                 continue;
             };
             match nome {
-                // A lista vazia não muda a visão (caso b18 do corpus) — e é
-                // 57 dos 70 `providers:` do new_sali.
+                // The empty list does not change the view (corpus case b18) —
+                // and it is 57 of the 70 `providers:` of new_sali.
                 "providers" if lista_vazia(arvore, a.value) => {}
-                // Os do componente vão para a visão-hospedeira, que os
-                // resolve pelos metadados lidos do programa (`view.rs`).
+                // Those of the component go to the host view, which resolves
+                // them through the metadata read from the program (`view.rs`).
                 "providers" if e_componente => {}
                 "providers" => fora.push(recusa(
                     Motivo::Providers,
                     format!("{anot}(.., providers: [..])"),
                 )),
-                // `ViewEncapsulation.emulated`/`.none` escritos: o efeito é
-                // conhecido (ver [`Componente::sem_encapsulamento`]).
+                // `ViewEncapsulation.emulated`/`.none` written: the effect is
+                // known (see [`Componente::sem_encapsulamento`]).
                 "encapsulation"
                     if e_componente
                         && valor_de_encapsulamento(arvore, fonte, a.value).is_some() => {}
@@ -904,7 +915,7 @@ fn o_que_nao_entendemos(
                     Motivo::Encapsulamento,
                     "@Component(.., encapsulation: ..)",
                 )),
-                // Literal `true`/`false`: o modo de espaços do template.
+                // Literal `true`/`false`: the whitespace mode of the template.
                 "preserveWhitespace"
                     if e_componente
                         && matches!(arvore.expr(a.value).kind, ast::ExprKind::Bool(_)) => {}
@@ -931,14 +942,14 @@ fn o_que_nao_entendemos(
     fora
 }
 
-/// `[]` literal, sem elemento nenhum (comentário dentro não conta).
+/// Literal `[]`, without any element (a comment inside does not count).
 fn lista_vazia(arvore: &ast::Ast, id: ast::ExprId) -> bool {
     matches!(&arvore.expr(id).kind, ast::ExprKind::List { elements, .. } if elements.is_empty())
 }
 
-/// Os `@ViewChild` da classe. Só entra como consulta a forma
-/// `@ViewChild('ref') T? campo;` — seletor de texto, sem `read:`, num campo
-/// com tipo escrito. O resto é recusado aqui mesmo, com o motivo.
+/// The class's `@ViewChild`s. Only the shape `@ViewChild('ref') T? field;` — a
+/// string selector, without `read:`, on a field with a written type — becomes a
+/// query. The rest is refused right here, with the reason.
 fn consultas_da_classe(
     arvore: &ast::Ast,
     fonte: &str,
@@ -946,8 +957,8 @@ fn consultas_da_classe(
     classe: &ast::ClassDecl,
     fora: &mut Vec<Recusa>,
 ) -> Vec<Consulta> {
-    // Como o `_queries` do oficial: os acessores (setters), depois os
-    // campos, cada grupo em ordem de declaração.
+    // Like the official `_queries`: the accessors (setters), then the fields,
+    // each group in declaration order.
     let mut setters = Vec::new();
     let mut campos = Vec::new();
     for &id in &classe.members {
@@ -969,12 +980,12 @@ fn consultas_da_classe(
     setters
 }
 
-/// Os `@HostBinding` declarados na própria classe de um componente, na
-/// ordem do `DirectiveVisitor`: acessores, depois campos. O nome é o texto
-/// literal do argumento ou, sem argumento, o do membro
-/// (`hostProperties[bindingName ?? memberName]`); getter ou campo, de
-/// instância ou estático. A forma de cada nome (`class.x`, `attr.x`, `style.x`,
-/// propriedade) é conferida pela visão, que também junta os herdados.
+/// The `@HostBinding`s declared in the component's own class, in the order of
+/// `DirectiveVisitor`: accessors, then fields. The name is the literal text of
+/// the argument or, without an argument, that of the member
+/// (`hostProperties[bindingName ?? memberName]`); getter or field, instance or
+/// static. The shape of each name (`class.x`, `attr.x`, `style.x`, property) is
+/// checked by the view, which also adds the inherited ones.
 fn ligacoes_do_hospedeiro(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -986,7 +997,7 @@ fn ligacoes_do_hospedeiro(
     let fora_da_forma = || {
         recusa(
             Motivo::HostBindingEmComponente,
-            "@HostBinding fora de campo ou getter, ou de nome ilegível",
+            "@HostBinding outside a field or getter, or with an unreadable name",
         )
     };
     for &id in &classe.members {
@@ -995,7 +1006,8 @@ fn ligacoes_do_hospedeiro(
             if crate::nome_da_anotacao(a, interner) != "HostBinding" {
                 continue;
             }
-            // `Some(None)`: sem argumento — o nome é o do membro.
+            // `Some(None)`: without an argument — the name is that of the
+            // member.
             let nome = match a.arguments.as_ref().map(|args| &args.args[..]) {
                 None | Some([]) => Some(None),
                 Some([x]) if x.name.is_none() => texto_do_argumento(arvore, x.value).map(Some),
@@ -1038,10 +1050,10 @@ fn ligacoes_do_hospedeiro(
     acessores
 }
 
-/// Os `@HostListener` da classe, na ordem de declaração dos métodos (o
-/// `DirectiveVisitor` visita os métodos em ordem). O handler é o texto de
-/// `_addHostListener` (`find_components.dart`): sem `args`, um método de um
-/// parâmetro recebe `$event`.
+/// The class's `@HostListener`s, in the declaration order of the methods
+/// (`DirectiveVisitor` visits the methods in order). The handler is the text of
+/// `_addHostListener` (`find_components.dart`): without `args`, a method with
+/// one parameter receives `$event`.
 fn ouvintes_da_classe(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -1057,15 +1069,15 @@ fn ouvintes_da_classe(
             }
             match ouvinte(arvore, interner, membro, a) {
                 Some(o) if !saida.iter().any(|x| x.evento == o.evento) => saida.push(o),
-                // Dois ouvintes do mesmo evento: o mapa do oficial fica com o
-                // último, no lugar do primeiro. Ainda não.
+                // Two listeners of the same event: the official map keeps the
+                // last one, in place of the first. Not yet.
                 Some(_) => fora.push(recusa(
                     Motivo::HostListenerEmComponente,
-                    "dois @HostListener do mesmo evento",
+                    "two @HostListeners of the same event",
                 )),
                 None => fora.push(recusa(
                     Motivo::HostListenerEmComponente,
-                    "@HostListener de evento não nativo ou fora da forma `m(args)`",
+                    "@HostListener of a non-native event or outside the shape `m(args)`",
                 )),
             }
         }
@@ -1073,7 +1085,7 @@ fn ouvintes_da_classe(
     saida
 }
 
-/// Lê um `@HostListener`, ou `None` se ele sai da forma conhecida.
+/// Reads a `@HostListener`, or `None` if it is outside the known shape.
 fn ouvinte(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -1097,8 +1109,9 @@ fn ouvinte(
         _ => return None,
     };
     let evento = texto_do_argumento(arvore, evento.value)?;
-    // Evento que não é do DOM (`document:click`, `keyup.enter`) vai pelo
-    // `eventManager` e, com `:`, nem é aceito pelo oficial; ainda não.
+    // An event that is not a DOM one (`document:click`, `keyup.enter`) goes
+    // through `eventManager` and, with `:`, is not even accepted by the
+    // official compiler; not yet.
     if !crate::view::evento_nativo(&evento) {
         return None;
     }
@@ -1124,7 +1137,7 @@ fn ouvinte(
     })
 }
 
-/// Lê um `@ViewChild` na forma que o gerador conhece, ou diz por que não.
+/// Reads a `@ViewChild` in the shape the generator knows, or says why not.
 fn consulta_simples(
     arvore: &ast::Ast,
     fonte: &str,
@@ -1137,9 +1150,10 @@ fn consulta_simples(
         .arguments
         .as_ref()
         .ok_or_else(|| recusa(Motivo::NaoEntendido, "@ViewChild sem argumento"))?;
-    // `read: T` troca o valor por um provedor do nó: guardado como o nome
-    // escrito, que a visão resolve (`ElementRef`, `Element`/`HtmlElement`).
-    // `first:`, `descendants:` e `read:` que não é nome simples ainda não.
+    // `read: T` replaces the value with a provider of the node: kept as the
+    // written name, which the view resolves (`ElementRef`,
+    // `Element`/`HtmlElement`). `first:`, `descendants:` and a `read:` that is
+    // not a simple name, not yet.
     let mut leitura = None;
     let mut posicionais = Vec::new();
     for x in args.args.iter() {
@@ -1151,17 +1165,17 @@ fn consulta_simples(
                 }
                 _ => return Err(recusa(Motivo::ViewChildEmFilho, "@ViewChild(.., read: T)")),
             },
-            Some(_) => return Err(recusa(Motivo::NaoEntendido, "@ViewChild com opções")),
+            Some(_) => return Err(recusa(Motivo::NaoEntendido, "@ViewChild with options")),
         }
     }
     let [unico] = posicionais[..] else {
         return Err(recusa(
             Motivo::NaoEntendido,
-            "@ViewChild só com argumento nomeado",
+            "@ViewChild with only a named argument",
         ));
     };
-    // Seletor de tipo (`@ViewChild(OutroComp)`) consulta um componente ou
-    // diretiva, não um elemento: só o nome simples, resolvido depois.
+    // A type selector (`@ViewChild(OtherComp)`) queries a component or
+    // directive, not an element: only the simple name, resolved later.
     let (referencia, por_tipo) = match texto_do_argumento(arvore, unico.value) {
         Some(r) => (r, false),
         None => match &arvore.expr(unico.value).kind {
@@ -1169,12 +1183,12 @@ fn consulta_simples(
             _ => return Err(recusa(Motivo::ViewChildEmFilho, "@ViewChild(prefixo.Tipo)")),
         },
     };
-    // `'a,b'` são dois seletores numa consulta só.
+    // `'a,b'` are two selectors in a single query.
     if referencia.contains(',') || referencia.trim() != referencia || referencia.is_empty() {
         return Err(recusa(Motivo::NaoEntendido, "@ViewChild('a,b')"));
     }
-    // Campo de instância com tipo escrito, ou setter de instância com o
-    // tipo escrito no parâmetro (o `_ctx.x = v` é o mesmo, caso j81).
+    // An instance field with a written type, or an instance setter with the
+    // type written on the parameter (the `_ctx.x = v` is the same, case j81).
     let (propriedade, t) = match &membro.kind {
         ast::MemberKind::Field(lista) => {
             if lista.static_
@@ -1185,11 +1199,11 @@ fn consulta_simples(
             {
                 return Err(recusa(
                     Motivo::NaoEntendido,
-                    "@ViewChild em campo final/late/estático",
+                    "@ViewChild on a final/late/static field",
                 ));
             }
             let Some(t) = lista.ty else {
-                return Err(recusa(Motivo::NaoEntendido, "@ViewChild em campo sem tipo"));
+                return Err(recusa(Motivo::NaoEntendido, "@ViewChild on an untyped field"));
             };
             (interner.resolve(lista.variables[0].name.sym).to_string(), t)
         }
@@ -1200,7 +1214,7 @@ fn consulta_simples(
             else {
                 return Err(recusa(
                     Motivo::NaoEntendido,
-                    "@ViewChild em método que não é setter",
+                    "@ViewChild on a method that is not a setter",
                 ));
             };
             let Some(t) = funcao
@@ -1211,7 +1225,7 @@ fn consulta_simples(
             else {
                 return Err(recusa(
                     Motivo::NaoEntendido,
-                    "@ViewChild em setter sem tipo",
+                    "@ViewChild on an untyped setter",
                 ));
             };
             (interner.resolve(nome.sym).to_string(), t)
@@ -1219,13 +1233,13 @@ fn consulta_simples(
         _ => {
             return Err(recusa(
                 Motivo::NaoEntendido,
-                "@ViewChild fora de campo ou setter",
+                "@ViewChild outside a field or setter",
             ));
         }
     };
     let tipo = texto_do_tipo(arvore, fonte, t);
-    // `@ViewChildren`: `List<T>` (ou `List<T>?`); o `isElementType` olha o
-    // `T`. Outra coleção ainda não.
+    // `@ViewChildren`: `List<T>` (or `List<T>?`); `isElementType` looks at `T`.
+    // Another collection, not yet.
     let tipo = if eh_lista {
         let t = tipo.trim().trim_end_matches('?');
         match t.strip_prefix("List<").and_then(|x| x.strip_suffix('>')) {
@@ -1233,7 +1247,7 @@ fn consulta_simples(
             _ => {
                 return Err(recusa(
                     Motivo::ViewChildDinamico,
-                    "@ViewChildren em campo que não é List<T>",
+                    "@ViewChildren on a field that is not List<T>",
                 ));
             }
         }
@@ -1250,8 +1264,9 @@ fn consulta_simples(
     })
 }
 
-/// Parâmetros do construtor gerador (o sem nome). Sem construtor declarado, a
-/// classe tem o construtor implícito sem parâmetros.
+/// Parameters of the generative constructor (the unnamed one). Without a
+/// declared constructor, the class has the implicit constructor without
+/// parameters.
 fn parametros_do_construtor(
     arvore: &ast::Ast,
     fonte: &str,
@@ -1264,10 +1279,10 @@ fn parametros_do_construtor(
             continue;
         };
         if ctor.name.is_some() {
-            continue; // construtor nomeado não é o que a visão usa
+            continue; // a named constructor is not the one the view uses
         }
         let campos = tipos_dos_campos(arvore, fonte, interner, classe);
-        // Parâmetro nomeado não entra na injeção
+        // A named parameter does not take part in injection
         // (`_getCompileDiDependencyMetadata`, `compile_metadata.dart:298-302`).
         return ctor
             .parameters
@@ -1278,9 +1293,10 @@ fn parametros_do_construtor(
                     .name
                     .map(|n| interner.resolve(n.sym).to_string())
                     .unwrap_or_default();
-                // `C(this.x)` não escreve tipo nenhum: o tipo do parâmetro é o
-                // do campo. É assim que quase todo componente ngdart recebe as
-                // suas dependências, e sem isto a injeção não sai.
+                // `C(this.x)` writes no type at all: the parameter type is that
+                // of the field. That is how almost every ngdart component
+                // receives its dependencies, and without this the injection
+                // does not come out.
                 let tipo = match p.ty {
                     Some(t) => Some(texto_do_tipo(arvore, fonte, t)),
                     None if p.this_ || p.super_ => campos.get(&nome).cloned(),
@@ -1311,19 +1327,19 @@ fn parametros_do_construtor(
     Vec::new()
 }
 
-/// Texto-fonte de um tipo, como escrito.
+/// Source text of a type, as written.
 fn texto_do_tipo(arvore: &ast::Ast, fonte: &str, t: ast::TypeId) -> String {
     let s = arvore.ty(t).span;
     fonte.get(s.start..s.end).unwrap_or("").to_string()
 }
 
-/// Tipo de cada campo e getter de instância da classe, para o emissor saber
-/// o tipo estático de `{{ nome }}`.
+/// Type of each instance field and getter of the class, so the emitter knows
+/// the static type of `{{ name }}`.
 ///
-/// A imutabilidade é a do `isImmutable` do oficial: o valor vem de
-/// `lookUpGetter(n).variable`, e só um campo de verdade (`!isSynthetic`)
-/// `final`/`const` é imutável. Num getter escrito à mão a `variable` é
-/// sintética: **mutável**.
+/// The immutability is that of the official `isImmutable`: the value comes from
+/// `lookUpGetter(n).variable`, and only a real field (`!isSynthetic`) that is
+/// `final`/`const` is immutable. In a hand-written getter the `variable` is
+/// synthetic: **mutable**.
 pub(crate) fn tipos_dos_membros(
     arvore: &ast::Ast,
     fonte: &str,
@@ -1336,13 +1352,13 @@ pub(crate) fn tipos_dos_membros(
             ast::MemberKind::Field(lista) => {
                 let imutavel = lista.final_ || lista.const_;
                 for v in lista.variables.iter() {
-                    // Sem tipo escrito (`var x = Foo()`), o tipo é o que o
-                    // analyzer infere do inicializador — só nas formas em que
-                    // ele é certo.
+                    // Without a written type (`var x = Foo()`), the type is
+                    // what the analyzer infers from the initializer — only in
+                    // the shapes where it is certain.
                     let tipo = match lista.ty {
                         Some(t) => texto_do_tipo(arvore, fonte, t),
-                        // Fora dessas formas o membro existe, mas sem tipo
-                        // (texto vazio): quem precisa do tipo recusa.
+                        // Outside those shapes the member exists, but without a
+                        // type (empty text): whoever needs the type refuses.
                         None => v
                             .initializer
                             .and_then(|e| tipo_inferido(arvore, fonte, interner, e))
@@ -1381,8 +1397,8 @@ pub(crate) fn tipos_dos_membros(
     saida
 }
 
-/// O nome de ligação de `@Input('apelido')`/`@Output('apelido')`, ou o do
-/// membro.
+/// The binding name of `@Input('alias')`/`@Output('alias')`, or that of the
+/// member.
 fn apelido(arvore: &ast::Ast, a: &ast::Annotation) -> Option<String> {
     a.arguments.as_ref().and_then(|args| {
         args.args
@@ -1394,10 +1410,10 @@ fn apelido(arvore: &ast::Ast, a: &ast::Annotation) -> Option<String> {
     })
 }
 
-/// `@Input()` de cada campo ou setter, na ordem do mapa `inputs` do oficial
-/// (`_collectInheritableMetadataOn`, em `find_components.dart`): os campos
-/// primeiro, em ordem de declaração, depois os setters. Herdados não entram
-/// — ligação a eles é recusada por não achar a entrada.
+/// `@Input()` of each field or setter, in the order of the official `inputs`
+/// map (`_collectInheritableMetadataOn`, in `find_components.dart`): the fields
+/// first, in declaration order, then the setters. Inherited ones are not
+/// included — a binding to them is refused because the input is not found.
 fn entradas_da_classe(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -1444,7 +1460,7 @@ fn entradas_da_classe(
     campos
 }
 
-/// `@Output()` de cada campo ou getter: nome no template -> membro.
+/// `@Output()` of each field or getter: name in the template -> member.
 fn saidas_da_classe(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -1481,14 +1497,13 @@ fn saidas_da_classe(
             _ => {}
         }
     }
-    // A ordem do mapa `outputs`: getters (os acessores são visitados antes
-    // dos campos pelo `visitChildren` da classe), depois campos.
+    // The order of the `outputs` map: getters (the accessors are visited before
+    // the fields by the class's `visitChildren`), then fields.
     getters.extend(campos);
     getters
 }
 
-/// Parâmetros posicionais (obrigatórios e opcionais) de cada método de
-/// instância.
+/// Positional parameters (required and optional) of each instance method.
 fn aridades_dos_metodos(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -1514,7 +1529,7 @@ fn aridades_dos_metodos(
     saida
 }
 
-/// Retorno de cada método de instância da classe.
+/// Return type of each instance method of the class.
 fn tipos_dos_metodos(
     arvore: &ast::Ast,
     fonte: &str,
@@ -1540,11 +1555,10 @@ fn tipos_dos_metodos(
     saida
 }
 
-/// O tipo que o analyzer infere para um inicializador, nas formas em que ele
-/// não depende de nada fora da expressão: literal primitivo sem
-/// interpolação, `Classe(..)`, `prefixo.Classe(..)` e `new`/`const T(..)`
-/// (com `T` como escrito). `Classe.nome(..)` pode ser método estático, e
-/// fica de fora.
+/// The type the analyzer infers for an initializer, in the shapes where it
+/// depends on nothing outside the expression: a primitive literal without
+/// interpolation, `Class(..)`, `prefix.Class(..)` and `new`/`const T(..)` (with
+/// `T` as written). `Class.name(..)` may be a static method, and is left out.
 pub(crate) fn tipo_inferido(
     arvore: &ast::Ast,
     fonte: &str,
@@ -1575,9 +1589,10 @@ pub(crate) fn tipo_inferido(
                     )),
                     _ => None,
                 },
-                // `Classe<A>.nomeado(..)`: com os argumentos de tipo da classe
-                // antes do `.nome(`, só pode ser construtor (método estático
-                // não recebe os da classe); o tipo é `Classe<A>` como escrito.
+                // `Class<A>.named(..)`: with the class's type arguments before
+                // `.name(`, it can only be a constructor (a static method does
+                // not take those of the class); the type is `Class<A>` as
+                // written.
                 ast::ExprKind::Property {
                     target: p,
                     null_aware: false,
@@ -1599,7 +1614,7 @@ pub(crate) fn tipo_inferido(
     }
 }
 
-/// Tipo de cada campo da classe, para resolver os parâmetros `this.x`.
+/// Type of each field of the class, to resolve the `this.x` parameters.
 fn tipos_dos_campos(
     arvore: &ast::Ast,
     fonte: &str,
@@ -1620,20 +1635,20 @@ fn tipos_dos_campos(
     saida
 }
 
-/// Um `Typed<X>.of([..], on: 'ref')` de `directiveTypes:`.
+/// A `Typed<X>.of([..], on: 'ref')` of `directiveTypes:`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TipoDeDiretiva {
     /// A classe como escrita (`MaterialSelectItemComponent`, `p.X`).
     pub classe: String,
-    /// Os argumentos: o texto de cada tipo, e `#T` como `T` (o parâmetro de
-    /// tipo do componente, `fromTypeLink`).
+    /// The arguments: the text of each type, and `#T` as `T` (the component's
+    /// type parameter, `fromTypeLink`).
     pub argumentos: Vec<String>,
-    /// `on:`: só no nó com esse `#ref`.
+    /// `on:`: only on the node with that `#ref`.
     pub em: Option<String>,
 }
 
-/// Lê `[Typed<X>.of([#T, String], on: 'a'), Typed<Y<int>>()]` pelo texto
-/// (`TypedReader`). `None` para o que não tem essa forma.
+/// Reads `[Typed<X>.of([#T, String], on: 'a'), Typed<Y<int>>()]` from the text
+/// (`TypedReader`). `None` for whatever does not have this shape.
 fn ler_tipos_de_diretiva(texto: &str) -> Option<Vec<TipoDeDiretiva>> {
     let t = texto.trim();
     let t = t.strip_prefix("const").unwrap_or(t).trim();
@@ -1647,7 +1662,7 @@ fn ler_tipos_de_diretiva(texto: &str) -> Option<Vec<TipoDeDiretiva>> {
         let item = item.strip_prefix("const").unwrap_or(item).trim();
         let resto = item.strip_prefix("Typed")?.trim_start();
         let resto = resto.strip_prefix('<')?;
-        // O argumento de `Typed<..>`, até o `>` que fecha.
+        // The argument of `Typed<..>`, up to the closing `>`.
         let mut nivel = 1i32;
         let mut fim = None;
         for (i, ch) in resto.char_indices() {
@@ -1706,7 +1721,7 @@ fn ler_tipos_de_diretiva(texto: &str) -> Option<Vec<TipoDeDiretiva>> {
                     }
                     argumentos.push(match a.strip_prefix('#') {
                         Some(simbolo) => simbolo.trim().to_string(),
-                        // `Typed<..>` aninhado como argumento: ainda não.
+                        // `Typed<..>` nested as an argument: not yet.
                         None if a.starts_with("Typed") => return None,
                         None => a.to_string(),
                     });

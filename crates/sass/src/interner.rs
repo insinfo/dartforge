@@ -1,21 +1,22 @@
-//! Internamento de nomes (variáveis, funções, mixins, propriedades).
+//! Interning of names (variables, functions, mixins, properties).
 //!
-//! O original usava `lasso::Rodeo` num `thread_local` e devolvia `&'a str`
-//! por um ponteiro cru (`unsafe`). Aqui cada texto novo é vazado uma vez
-//! (`Box::leak`) e o índice aponta para ele: o `Rodeo` também nunca libera
-//! o que internou, então o custo de memória é o mesmo, e o `&'static str`
-//! sai sem `unsafe` (o workspace nega `unsafe_code`).
+//! The original used `lasso::Rodeo` in a `thread_local` and returned
+//! `&'a str` through a raw pointer (`unsafe`). Here each new string is
+//! leaked once (`Box::leak`) and the index points to it: `Rodeo` also never
+//! frees what it interned, so the memory cost is the same, and the
+//! `&'static str` comes out without `unsafe` (the workspace denies
+//! `unsafe_code`).
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{self, Display};
 
 #[derive(Default)]
-struct Tabela {
+struct Table {
     indices: HashMap<&'static str, u32>,
-    textos: Vec<&'static str>,
+    strings: Vec<&'static str>,
 }
 
-thread_local!(static STRINGS: RefCell<Tabela> = RefCell::new(Tabela::default()));
+thread_local!(static STRINGS: RefCell<Table> = RefCell::new(Table::default()));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct InternedString(u32);
@@ -28,10 +29,10 @@ impl InternedString {
             if let Some(&i) = t.indices.get(s) {
                 return Self(i);
             }
-            let fixo: &'static str = Box::leak(s.to_owned().into_boxed_str());
-            let i = t.textos.len() as u32;
-            t.textos.push(fixo);
-            t.indices.insert(fixo, i);
+            let leaked: &'static str = Box::leak(s.to_owned().into_boxed_str());
+            let i = t.strings.len() as u32;
+            t.strings.push(leaked);
+            t.indices.insert(leaked, i);
             Self(i)
         })
     }
@@ -47,7 +48,7 @@ impl InternedString {
     }
 
     pub fn resolve_ref<'a>(self) -> &'a str {
-        STRINGS.with(|t| t.borrow().textos[self.0 as usize])
+        STRINGS.with(|t| t.borrow().strings[self.0 as usize])
     }
 }
 

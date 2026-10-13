@@ -1,113 +1,115 @@
-//! Porte de `shadow_css.dart` do ngcompiler 3.0.0-dev.3
-//! (`lib/v1/src/compiler/stylesheet_compiler/shadow_css.dart`): o shim do
-//! encapsulamento emulado de estilo.
+//! Port of `shadow_css.dart` from ngcompiler 3.0.0-dev.3
+//! (`lib/v1/src/compiler/stylesheet_compiler/shadow_css.dart`): the shim for
+//! emulated style encapsulation.
 //!
-//! O `shimShadowCss` lê a folha com o parser do csslib ([`crate::csslib`]),
-//! reescreve cada grupo de seletores (`_ShadowTransformer`) e imprime a
-//! árvore compacta (`CssPrinter`). Erro de parse vira só aviso no oficial
-//! (`logWarning`) e a saída sai assim mesmo; exceção lançada no caminho
-//! derruba o builder, e aqui vira [`Excecao`].
+//! `shimShadowCss` reads the stylesheet with the csslib parser
+//! ([`crate::csslib`]), rewrites each selector group (`_ShadowTransformer`) and
+//! prints the compact tree (`CssPrinter`). A parse error is only a warning in
+//! the official code (`logWarning`) and the output is produced anyway; an
+//! exception thrown along the way brings the builder down, and here becomes
+//! [`Exception`].
 //!
-//! O `_LegacyShadowTransformer` (opção `use_legacy_style_encapsulation`)
-//! não está portado: a opção é falsa por omissão e o gerador não a lê.
+//! The `_LegacyShadowTransformer` (option `use_legacy_style_encapsulation`) is
+//! not ported: the option is false by default and the generator does not read
+//! it.
 use std::rc::Rc;
 
 use crate::csslib::tree::*;
 use crate::csslib::printer::CssPrinter;
 use crate::csslib::token_kind as tk;
 use crate::csslib::visitor::{R, Visitor};
-use crate::csslib::{self, Excecao};
+use crate::csslib::{self, Exception};
 
-/// A pilha da linha que roda o shim: o parser, o visitante e a impressora
-/// são recursivos como os do oficial, e o aninhamento vai até o limite do
-/// parser (`csslib::parser`), bem além do que a pilha padrão de uma linha
-/// comporta. A memória só é usada na medida da profundidade.
-const PILHA: usize = 64 << 20;
+/// The stack of the thread that runs the shim: the parser, the visitor and the
+/// printer are recursive like the official ones, and the nesting goes up to the
+/// parser's limit (`csslib::parser`), well beyond what a thread's default stack
+/// holds. The memory is only used as deep as the nesting goes.
+const STACK_SIZE: usize = 64 << 20;
 
-/// `shimShadowCss(css, contentClass, hostClass)`, sem o encapsulamento
-/// legado.
+/// `shimShadowCss(css, contentClass, hostClass)`, without the legacy
+/// encapsulation.
 pub fn shim_shadow_css(
     css: &str,
     content_class: &str,
     host_class: &str,
-) -> Result<String, Excecao> {
-    std::thread::scope(|escopo| {
+) -> Result<String, Exception> {
+    std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("shim-css".into())
-            .stack_size(PILHA)
-            .spawn_scoped(escopo, || shim_na_linha(css, content_class, host_class))
-            .map_err(|_| Excecao("sem linha para o shim"))?
+            .stack_size(STACK_SIZE)
+            .spawn_scoped(scope, || shim_in_thread(css, content_class, host_class))
+            .map_err(|_| Exception("no thread for the shim"))?
             .join()
-            .map_err(|_| Excecao("pânico no shim"))?
+            .map_err(|_| Exception("panic in the shim"))?
     })
 }
 
-/// O corpo do `shimShadowCss`.
-fn shim_na_linha(css: &str, content_class: &str, host_class: &str) -> Result<String, Excecao> {
-    let mut folha = csslib::parse(css)?;
-    let mut transformador = ShadowTransformer {
+/// The body of `shimShadowCss`.
+fn shim_in_thread(css: &str, content_class: &str, host_class: &str) -> Result<String, Exception> {
+    let mut sheet = csslib::parse(css)?;
+    let mut transformer = ShadowTransformer {
         content_class,
         host_class,
     };
-    transformador.visit_tree(&mut folha)?;
-    let mut impressora = CssPrinter::default();
-    impressora.visit_tree(&mut folha)?;
-    Ok(impressora.texto())
+    transformer.visit_tree(&mut sheet)?;
+    let mut printer = CssPrinter::default();
+    printer.visit_tree(&mut sheet)?;
+    Ok(printer.text())
 }
 
 /// `_isHost`: `:host`.
-fn is_host(s: &SeletorSimples) -> bool {
-    s.e_pseudo_classe() && s.nome() == "host"
+fn is_host(s: &SimpleSelector) -> bool {
+    s.is_pseudo_class() && s.name() == "host"
 }
 
 /// `_isHostFunction`: `:host()`.
-fn is_host_function(s: &SeletorSimples) -> bool {
-    s.e_pseudo_classe_funcao() && s.nome() == "host"
+fn is_host_function(s: &SimpleSelector) -> bool {
+    s.is_pseudo_class_function() && s.name() == "host"
 }
 
 /// `_isHostContextFunction`: `:host-context()`.
-fn is_host_context_function(s: &SeletorSimples) -> bool {
-    s.e_pseudo_classe_funcao() && s.nome() == "host-context"
+fn is_host_context_function(s: &SimpleSelector) -> bool {
+    s.is_pseudo_class_function() && s.name() == "host-context"
 }
 
 /// `_isGlobalContextFunction`.
-fn is_global_context_function(s: &SeletorSimples) -> bool {
-    s.e_pseudo_classe_funcao() && s.nome() == "global-context"
+fn is_global_context_function(s: &SimpleSelector) -> bool {
+    s.is_pseudo_class_function() && s.name() == "global-context"
 }
 
 /// `PseudoClassFunctionSelector.selector` (`argument as Selector`).
-fn argumento_seletor(s: &SeletorSimples) -> R<Rc<Seletor>> {
-    match &s.tipo {
-        TipoSimples::PseudoClasseFuncao(ArgumentoPseudo::Seletor(sel)) => Ok(Rc::clone(sel)),
-        _ => Err(Excecao("TypeError")),
+fn selector_argument(s: &SimpleSelector) -> R<Rc<Selector>> {
+    match &s.kind {
+        SimpleKind::PseudoClassFunction(PseudoArgument::Selector(sel)) => Ok(Rc::clone(sel)),
+        _ => Err(Exception("TypeError")),
     }
 }
 
-/// `_clone`: cópia das sequências (os seletores simples são os mesmos).
-fn clone_all(it: &[Rc<Sequencia>]) -> Vec<Rc<Sequencia>> {
-    it.iter().map(|s| s.clonar()).collect()
+/// `_clone`: a copy of the sequences (the simple selectors are the same).
+fn clone_all(it: &[Rc<Sequence>]) -> Vec<Rc<Sequence>> {
+    it.iter().map(|s| s.duplicate()).collect()
 }
 
 /// `_createElementSelectorSequence`.
-fn create_element_selector_sequence(nome: &str) -> Rc<Sequencia> {
-    Sequencia::nova(
-        SeletorSimples::criado(TipoSimples::Elemento, nome),
+fn create_element_selector_sequence(name: &str) -> Rc<Sequence> {
+    Sequence::new(
+        SimpleSelector::created(SimpleKind::Element, name),
         tk::COMBINATOR_NONE,
     )
 }
 
 /// `_createClassSelectorSequence`.
-fn create_class_selector_sequence(nome: &str) -> Rc<Sequencia> {
-    Sequencia::nova(
-        SeletorSimples::criado(TipoSimples::Classe, nome),
+fn create_class_selector_sequence(name: &str) -> Rc<Sequence> {
+    Sequence::new(
+        SimpleSelector::created(SimpleKind::Class, name),
         tk::COMBINATOR_NONE,
     )
 }
 
 /// `_createPseudoClassSelectorSequence`.
-fn create_pseudo_class_selector_sequence(nome: &str) -> Rc<Sequencia> {
-    Sequencia::nova(
-        SeletorSimples::criado(TipoSimples::PseudoClasse, nome),
+fn create_pseudo_class_selector_sequence(name: &str) -> Rc<Sequence> {
+    Sequence::new(
+        SimpleSelector::created(SimpleKind::PseudoClass, name),
         tk::COMBINATOR_NONE,
     )
 }
@@ -119,13 +121,13 @@ struct ComplexSelector {
 
 impl ComplexSelector {
     /// `_ComplexSelector.from`.
-    fn from(seletor: &Seletor) -> R<Self> {
+    fn from(selector: &Selector) -> R<Self> {
         let mut compound_selectors = Vec::new();
-        let seqs = &seletor.sequencias;
+        let seqs = &selector.sequences;
         if !seqs.is_empty() {
             let mut start = 0;
             for i in 1..=seqs.len() {
-                if i == seqs.len() || !seqs[i].sem_combinador() {
+                if i == seqs.len() || !seqs[i].is_combinator_none() {
                     compound_selectors.push(CompoundSelector::from(&seqs[start..i])?);
                     start = i;
                 }
@@ -142,25 +144,25 @@ impl ComplexSelector {
     }
 
     /// `toSelector`.
-    fn para_seletor(&mut self) -> Seletor {
-        let mut sequencias = Vec::new();
+    fn to_selector(&mut self) -> Selector {
+        let mut sequences = Vec::new();
         for c in &mut self.compound_selectors {
-            sequencias.extend(c.para_sequencias().iter().cloned());
+            sequences.extend(c.to_sequences().iter().cloned());
         }
-        Seletor { sequencias }
+        Selector { sequences }
     }
 }
 
-/// `_CompoundSelector`: uma sequência de seletores simples, na ordem de um
-/// composto válido (tipo primeiro, pseudoelemento por último).
+/// `_CompoundSelector`: a sequence of simple selectors, in the order of a valid
+/// compound (type first, pseudo-element last).
 struct CompoundSelector {
     combinator: i32,
-    sequences: Vec<Rc<Sequencia>>,
+    sequences: Vec<Rc<Sequence>>,
 }
 
 impl CompoundSelector {
     /// `_CompoundSelector()`.
-    fn novo(combinator: i32) -> Self {
+    fn new(combinator: i32) -> Self {
         CompoundSelector {
             combinator,
             sequences: Vec::new(),
@@ -168,73 +170,73 @@ impl CompoundSelector {
     }
 
     /// `_CompoundSelector.from`.
-    fn from(sequencias: &[Rc<Sequencia>]) -> R<Self> {
-        let combinator = sequencias
+    fn from(sequences: &[Rc<Sequence>]) -> R<Self> {
+        let combinator = sequences
             .first()
-            .map(|s| s.combinador.get())
+            .map(|s| s.combinator.get())
             .unwrap_or(tk::COMBINATOR_NONE);
-        let mut c = CompoundSelector::novo(combinator);
-        c.add_all(sequencias.to_vec())?;
+        let mut c = CompoundSelector::new(combinator);
+        c.add_all(sequences.to_vec())?;
         Ok(c)
     }
 
     /// `containsHost`.
     fn contains_host(&self) -> bool {
-        self.sequences.iter().any(|s| is_host(&s.seletor))
+        self.sequences.iter().any(|s| is_host(&s.selector))
     }
 
     /// `containsHostContext`.
     fn contains_host_context(&self) -> bool {
         self.sequences
             .iter()
-            .any(|s| is_host_context_function(&s.seletor))
+            .any(|s| is_host_context_function(&s.selector))
     }
 
     /// `containsGlobalContext`.
     fn contains_global_context(&self) -> bool {
         self.sequences
             .iter()
-            .any(|s| is_global_context_function(&s.seletor))
+            .any(|s| is_global_context_function(&s.selector))
     }
 
-    /// `removeIfNgDeep`: `::ng-deep` vira um seletor de tipo vazio, que
-    /// guarda o combinador.
+    /// `removeIfNgDeep`: `::ng-deep` becomes an empty type selector, which
+    /// holds the combinator.
     fn remove_if_ng_deep(&mut self) -> bool {
-        let Some(primeiro) = self.sequences.first() else {
+        let Some(first) = self.sequences.first() else {
             return false;
         };
-        let s = &primeiro.seletor;
-        if s.e_pseudo_elemento() && s.nome() == "ng-deep" {
+        let s = &first.selector;
+        if s.is_pseudo_element() && s.name() == "ng-deep" {
             let seq = create_element_selector_sequence("");
-            seq.combinador.set(self.combinator);
+            seq.combinator.set(self.combinator);
             self.sequences = vec![seq];
             return true;
         }
         false
     }
 
-    /// `_compare`: negativo se `a` vem antes de `b`, positivo se depois.
-    /// O aviso de dois seletores de tipo lê `span!` — nulo nos criados pelo
-    /// shim.
-    fn compare(a: &Sequencia, b: &Sequencia) -> R<i32> {
-        let x = &a.seletor;
-        let y = &b.seletor;
+    /// `_compare`: negative if `a` comes before `b`, positive if after. The
+    /// warning about two type selectors reads `span!` — null for the ones
+    /// created by the shim.
+    fn compare(a: &Sequence, b: &Sequence) -> R<i32> {
+        let x = &a.selector;
+        let y = &b.selector;
         let aviso = || {
-            if x.tem_span && y.tem_span {
+            if x.has_span && y.has_span {
                 Ok(0)
             } else {
-                Err(Excecao("TypeError"))
+                Err(Exception("TypeError"))
             }
         };
-        if (x.e_elemento() && y.e_elemento()) || (x.e_namespace() && y.e_namespace()) {
+        if (x.is_element() && y.is_element()) || (x.is_namespace() && y.is_namespace()) {
             // "Compound selector contains multiple type selectors"
             aviso()
-        } else if x.e_pseudo_elemento() && y.e_pseudo_elemento() {
+        } else if x.is_pseudo_element() && y.is_pseudo_element() {
             // "Compound selector contains multiple pseudo element selectors"
             aviso()
-        } else if x.e_pseudo_elemento() || y.e_elemento() || y.e_namespace() {
+        } else if x.is_pseudo_element() || y.is_element() || y.is_namespace() {
             Ok(1)
-        } else if y.e_pseudo_elemento() || x.e_elemento() || x.e_namespace() {
+        } else if y.is_pseudo_element() || x.is_element() || x.is_namespace() {
             Ok(-1)
         } else {
             Ok(0)
@@ -242,12 +244,12 @@ impl CompoundSelector {
     }
 
     /// `append`.
-    fn append(&mut self, seq: Rc<Sequencia>) {
+    fn append(&mut self, seq: Rc<Sequence>) {
         self.sequences.push(seq);
     }
 
-    /// `add`: antes do primeiro que deve vir depois dele.
-    fn add(&mut self, seq: Rc<Sequencia>) -> R<()> {
+    /// `add`: before the first one that must come after it.
+    fn add(&mut self, seq: Rc<Sequence>) -> R<()> {
         let mut i = 0;
         while i < self.sequences.len() {
             if Self::compare(&seq, &self.sequences[i])? < 0 {
@@ -259,40 +261,40 @@ impl CompoundSelector {
         Ok(())
     }
 
-    /// `addAll`: intercala, mantendo a ordem de cada lado.
-    fn add_all(&mut self, adicoes: Vec<Rc<Sequencia>>) -> R<()> {
-        let mut novas = Vec::with_capacity(self.sequences.len() + adicoes.len());
-        let mut atuais = std::mem::take(&mut self.sequences).into_iter().peekable();
-        let mut adicoes = adicoes.into_iter().peekable();
-        while let (Some(atual), Some(adicao)) = (atuais.peek(), adicoes.peek()) {
-            if Self::compare(adicao, atual)? < 0 {
-                novas.extend(adicoes.next());
+    /// `addAll`: interleaves, keeping the order of each side.
+    fn add_all(&mut self, additions: Vec<Rc<Sequence>>) -> R<()> {
+        let mut new_declarations = Vec::with_capacity(self.sequences.len() + additions.len());
+        let mut current_ones = std::mem::take(&mut self.sequences).into_iter().peekable();
+        let mut additions = additions.into_iter().peekable();
+        while let (Some(current), Some(addition)) = (current_ones.peek(), additions.peek()) {
+            if Self::compare(addition, current)? < 0 {
+                new_declarations.extend(additions.next());
             } else {
-                novas.extend(atuais.next());
+                new_declarations.extend(current_ones.next());
             }
         }
-        novas.extend(atuais);
-        novas.extend(adicoes);
-        self.sequences = novas;
+        new_declarations.extend(current_ones);
+        new_declarations.extend(additions);
+        self.sequences = new_declarations;
         Ok(())
     }
 
     /// `clone`.
-    fn clonar(&self) -> Self {
+    fn duplicate(&self) -> Self {
         CompoundSelector {
             combinator: self.combinator,
             sequences: clone_all(&self.sequences),
         }
     }
 
-    /// `toSequences`: acerta os combinadores (o do composto no primeiro,
-    /// nenhum nos outros) e devolve a lista.
-    fn para_sequencias(&mut self) -> &[Rc<Sequencia>] {
+    /// `toSequences`: fixes the combinators (the compound's on the first, none
+    /// on the others) and returns the list.
+    fn to_sequences(&mut self) -> &[Rc<Sequence>] {
         if !self.sequences.is_empty() {
             for s in &self.sequences {
-                s.combinador.set(tk::COMBINATOR_NONE);
+                s.combinator.set(tk::COMBINATOR_NONE);
             }
-            self.sequences[0].combinador.set(self.combinator);
+            self.sequences[0].combinator.set(self.combinator);
         }
         &self.sequences
     }
@@ -300,9 +302,9 @@ impl CompoundSelector {
 
 /// `_Indices`.
 struct Indices {
-    /// Primeiro composto depois de um combinador que atravessa sombra.
+    /// First compound after a combinator that crosses the shadow boundary.
     deep_index: usize,
-    /// Último composto com seletor de hospedeiro (`-1`: nenhum).
+    /// Last compound with a host selector (`-1`: none).
     host_index: isize,
 }
 
@@ -313,47 +315,46 @@ struct ShadowTransformer<'a> {
 }
 
 impl ShadowTransformer<'_> {
-    /// `_createDescendantHostSelectorFor`: para `:host-context()`, o
-    /// seletor em que o hospedeiro é descendente do argumento.
+    /// `_createDescendantHostSelectorFor`: for `:host-context()`, the selector
+    /// in which the host is a descendant of the argument.
     ///
     ///   `:host-context(.x) > .y`  =>  `.x :host > .y`
     fn create_descendant_host_selector_for(
         &self,
-        seletor: &mut ComplexSelector,
+        selector: &mut ComplexSelector,
     ) -> R<ComplexSelector> {
-        let mut novo = ComplexSelector {
+        let mut new = ComplexSelector {
             compound_selectors: Vec::new(),
         };
-        for composto in &mut seletor.compound_selectors {
-            if composto.contains_host_context() {
-                let mut ancestral = CompoundSelector::novo(composto.combinator);
-                let mut descendente = CompoundSelector::novo(tk::COMBINATOR_DESCENDANT);
-                let sequencias = clone_all(composto.para_sequencias());
-                for seq in sequencias {
-                    if is_host_context_function(&seq.seletor) {
-                        // Sem cópia: as sequências do argumento entram como
-                        // estão.
-                        let arg = argumento_seletor(&seq.seletor)?;
-                        ancestral.add_all(arg.sequencias.clone())?;
+        for compound in &mut selector.compound_selectors {
+            if compound.contains_host_context() {
+                let mut ancestral = CompoundSelector::new(compound.combinator);
+                let mut descendant = CompoundSelector::new(tk::COMBINATOR_DESCENDANT);
+                let sequences = clone_all(compound.to_sequences());
+                for seq in sequences {
+                    if is_host_context_function(&seq.selector) {
+                        // No copy: the argument's sequences go in as they are.
+                        let arg = selector_argument(&seq.selector)?;
+                        ancestral.add_all(arg.sequences.clone())?;
                     } else {
-                        descendente.append(seq);
+                        descendant.append(seq);
                     }
                 }
-                descendente.add(create_pseudo_class_selector_sequence("host"))?;
-                novo.compound_selectors.push(ancestral);
-                novo.compound_selectors.push(descendente);
+                descendant.add(create_pseudo_class_selector_sequence("host"))?;
+                new.compound_selectors.push(ancestral);
+                new.compound_selectors.push(descendant);
             } else {
-                novo.compound_selectors.push(composto.clonar());
+                new.compound_selectors.push(compound.duplicate());
             }
         }
-        Ok(novo)
+        Ok(new)
     }
 
-    /// `shimDeepCombinators`: troca `::ng-deep` por descendente e anota o
-    /// índice.
-    fn shim_deep_combinators(&self, seletor: &mut ComplexSelector, indices: &mut Indices) {
-        for i in (0..seletor.compound_selectors.len()).rev() {
-            if seletor.compound_selectors[i].remove_if_ng_deep() {
+    /// `shimDeepCombinators`: replaces `::ng-deep` with a descendant combinator
+    /// and records the index.
+    fn shim_deep_combinators(&self, selector: &mut ComplexSelector, indices: &mut Indices) {
+        for i in (0..selector.compound_selectors.len()).rev() {
+            if selector.compound_selectors[i].remove_if_ng_deep() {
                 indices.deep_index = i;
             }
         }
@@ -362,49 +363,49 @@ impl ShadowTransformer<'_> {
     /// `shimSelectors`.
     ///
     ///   `:host(.x) > .y ::ng-deep .z`  =>  `.x.host > .y.content .z`
-    fn shim_selectors(&self, seletor: &mut ComplexSelector) -> R<()> {
+    fn shim_selectors(&self, selector: &mut ComplexSelector) -> R<()> {
         let mut indices = Indices {
-            deep_index: seletor.compound_selectors.len(),
+            deep_index: selector.compound_selectors.len(),
             host_index: -1,
         };
-        self.shim_deep_combinators(seletor, &mut indices);
+        self.shim_deep_combinators(selector, &mut indices);
 
-        // Escopo em tudo entre o último seletor de hospedeiro e o primeiro
+        // Scope everything between the last host selector and the first
         // `::ng-deep`.
         let mut i = indices.deep_index as isize - 1;
         while i > indices.host_index {
-            let composto = &mut seletor.compound_selectors[i as usize];
-            if composto.contains_host()
-                || composto.contains_host_context()
-                || composto.contains_global_context()
+            let compound = &mut selector.compound_selectors[i as usize];
+            if compound.contains_host()
+                || compound.contains_host_context()
+                || compound.contains_global_context()
             {
                 indices.host_index = i;
             } else {
-                composto.add(create_class_selector_sequence(self.content_class))?;
+                compound.add(create_class_selector_sequence(self.content_class))?;
             }
             i -= 1;
         }
 
-        // Os seletores de hospedeiro.
+        // The host selectors.
         let mut i = indices.host_index;
         while i >= 0 {
-            let composto = &mut seletor.compound_selectors[i as usize];
+            let compound = &mut selector.compound_selectors[i as usize];
             let mut j = 0;
-            while j < composto.sequences.len() {
-                let s = Rc::clone(&composto.sequences[j].seletor);
+            while j < compound.sequences.len() {
+                let s = Rc::clone(&compound.sequences[j].selector);
                 if is_host_function(&s) || is_host_context_function(&s) {
-                    // :host() ou :host-context() => a classe do hospedeiro,
-                    // e o argumento entra no composto.
-                    composto.sequences[j] = create_class_selector_sequence(self.host_class);
-                    let arg = argumento_seletor(&s)?;
-                    composto.add_all(clone_all(&arg.sequencias))?;
+                    // :host() or :host-context() => the host class, and the
+                    // argument goes into the compound.
+                    compound.sequences[j] = create_class_selector_sequence(self.host_class);
+                    let arg = selector_argument(&s)?;
+                    compound.add_all(clone_all(&arg.sequences))?;
                 } else if is_host(&s) {
-                    composto.sequences[j] = create_class_selector_sequence(self.host_class);
+                    compound.sequences[j] = create_class_selector_sequence(self.host_class);
                 } else if is_global_context_function(&s) {
-                    // Some o pseudo e fica o seletor de contexto.
-                    composto.sequences.remove(j);
-                    let arg = argumento_seletor(&s)?;
-                    composto.add_all(clone_all(&arg.sequencias))?;
+                    // The pseudo disappears and the context selector remains.
+                    compound.sequences.remove(j);
+                    let arg = selector_argument(&s)?;
+                    compound.add_all(clone_all(&arg.sequences))?;
                 }
                 j += 1;
             }
@@ -415,25 +416,25 @@ impl ShadowTransformer<'_> {
 }
 
 impl Visitor for ShadowTransformer<'_> {
-    /// `visitSelectorGroup`: cada seletor vira o seu shim; com
-    /// `:host-context()`, também o do hospedeiro descendente.
-    fn visit_selector_group(&mut self, g: &mut GrupoSeletores) -> R<()> {
-        let mut complexos = Vec::new();
-        for s in &g.seletores {
-            let mut complexo = ComplexSelector::from(s)?;
-            let tem_contexto = complexo.contains_host_context();
-            let descendente = if tem_contexto {
-                Some(self.create_descendant_host_selector_for(&mut complexo)?)
+    /// `visitSelectorGroup`: each selector becomes its shim; with
+    /// `:host-context()`, also the one of the descendant host.
+    fn visit_selector_group(&mut self, g: &mut SelectorGroup) -> R<()> {
+        let mut complexes = Vec::new();
+        for s in &g.selectors {
+            let mut complex = ComplexSelector::from(s)?;
+            let has_context = complex.contains_host_context();
+            let descendant = if has_context {
+                Some(self.create_descendant_host_selector_for(&mut complex)?)
             } else {
                 None
             };
-            complexos.push(complexo);
-            complexos.extend(descendente);
+            complexes.push(complex);
+            complexes.extend(descendant);
         }
-        g.seletores.clear();
-        for mut c in complexos {
+        g.selectors.clear();
+        for mut c in complexes {
             self.shim_selectors(&mut c)?;
-            g.seletores.push(c.para_seletor());
+            g.selectors.push(c.to_selector());
         }
         Ok(())
     }

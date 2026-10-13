@@ -1,16 +1,18 @@
-//! As cores do Sass como o dart-sass 1.102.0 as modela: um espaço de cor
-//! (`ColorSpace`), três canais que podem faltar (`none`) e o alfa — porte de
-//! `lib/src/value/color.dart` e `lib/src/value/color/**` do dart-sass.
+//! Sass colors as dart-sass 1.102.0 models them: a color space
+//! (`ColorSpace`), three channels that may be missing (`none`) and the alpha
+//! — port of dart-sass's `lib/src/value/color.dart` and
+//! `lib/src/value/color/**`.
 //!
-//! O grass guardava só RGB/HSL e arredondava os canais a cada operação
-//! (`darken(#36c, 10%)` virava `#2952a3`); o dart-sass 1.79+ não arredonda
-//! (`rgb(16%, 32%, 64%)`) e tem os espaços do CSS Color 4 (`lab`, `oklch`,
-//! `color(display-p3 …)`…). As contas seguem as do dart-sass passo a passo,
-//! com as mesmas funções da libm (`pow`, `atan2`…), para dar os mesmos bits.
+//! grass only stored RGB/HSL and rounded the channels on every operation
+//! (`darken(#36c, 10%)` became `#2952a3`); dart-sass 1.79+ does not round
+//! (`rgb(16%, 32%, 64%)`) and has the CSS Color 4 spaces (`lab`, `oklch`,
+//! `color(display-p3 …)`…). The computations follow dart-sass's step by
+//! step, with the same libm functions (`pow`, `atan2`…), to give the same
+//! bits.
 //!
-//! Semântica do Dart que importa aqui: `a % b` com `b > 0` é sempre não
-//! negativo (`rem_euclid`), `double.sign` de zero é zero e `round()`
-//! arredonda metades para longe do zero (como o `f64::round`).
+//! Dart semantics that matter here: `a % b` with `b > 0` is never negative
+//! (`rem_euclid`), `double.sign` of zero is zero and `round()` rounds halves
+//! away from zero (like `f64::round`).
 
 use std::fmt;
 
@@ -24,23 +26,23 @@ pub(crate) mod v166;
 
 use matrices::*;
 
-/// `% ` do Dart para `double`: o resto euclidiano.
+/// Dart's `% ` for `double`: the Euclidean remainder.
 pub(crate) fn dart_mod(a: f64, b: f64) -> f64 {
     let r = a % b;
     if r < 0.0 {
         r + b.abs()
     } else if r == 0.0 {
-        // O Dart devolve `0.0` (sem sinal) para resto zero.
+        // Dart returns `0.0` (unsigned) for a zero remainder.
         0.0
     } else {
         r
     }
 }
 
-/// `math.pow` do Dart para `double` (`_doublePow` da VM): os casos
-/// especiais dele e expoente `2`/`3` como multiplicação (medido contra o
-/// Dart 3.6.2: `pow(x, 3)` dá `x*x*x`, não o `pow` da libm); o resto é o
-/// `pow` da libm, como na VM.
+/// Dart's `math.pow` for `double` (the VM's `_doublePow`): its special
+/// cases and exponent `2`/`3` as multiplication (measured against Dart
+/// 3.6.2: `pow(x, 3)` gives `x*x*x`, not libm's `pow`); the rest is libm's
+/// `pow`, as in the VM.
 pub(crate) fn dart_pow(x: f64, y: f64) -> f64 {
     if y == 0.0 || x == 1.0 {
         return 1.0;
@@ -60,7 +62,7 @@ pub(crate) fn dart_pow(x: f64, y: f64) -> f64 {
     x.powf(y)
 }
 
-/// `math.max` do Dart: `NaN` se algum for `NaN` (o `f64::max` o ignora).
+/// Dart's `math.max`: `NaN` if either is `NaN` (`f64::max` ignores it).
 pub(crate) fn dart_max(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() {
         f64::NAN
@@ -69,7 +71,7 @@ pub(crate) fn dart_max(a: f64, b: f64) -> f64 {
     }
 }
 
-/// `math.min` do Dart: `NaN` se algum for `NaN`.
+/// Dart's `math.min`: `NaN` if either is `NaN`.
 pub(crate) fn dart_min(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() {
         f64::NAN
@@ -78,7 +80,7 @@ pub(crate) fn dart_min(a: f64, b: f64) -> f64 {
     }
 }
 
-/// `double.sign` do Dart: `-1`, `0` ou `1` (e `NaN` para `NaN`).
+/// Dart's `double.sign`: `-1`, `0` or `1` (and `NaN` for `NaN`).
 fn dart_sign(x: f64) -> f64 {
     if x > 0.0 {
         1.0
@@ -107,7 +109,7 @@ pub(crate) fn fuzzy_equals_nullable(a: Option<f64>, b: Option<f64>) -> bool {
     }
 }
 
-/// `clampLikeCss`: `NaN` vira o limite inferior.
+/// `clampLikeCss`: `NaN` becomes the lower bound.
 pub(crate) fn clamp_like_css(n: f64, lower: f64, upper: f64) -> f64 {
     if n.is_nan() {
         lower
@@ -116,7 +118,7 @@ pub(crate) fn clamp_like_css(n: f64, lower: f64, upper: f64) -> f64 {
     }
 }
 
-/// Um espaço de cor (`ColorSpace` do dart-sass). `Lms` é interno.
+/// A color space (dart-sass's `ColorSpace`). `Lms` is internal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ColorSpace {
     Rgb,
@@ -138,13 +140,14 @@ pub(crate) enum ColorSpace {
     Oklch,
 }
 
-/// Um canal de um espaço (`ColorChannel`/`LinearChannel`).
+/// A channel of a space (`ColorChannel`/`LinearChannel`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct ChannelInfo {
     pub name: &'static str,
     pub is_polar_angle: bool,
     pub associated_unit: Option<&'static str>,
-    /// `LinearChannel`: faixa e regras de corte; `false` no canal de matiz.
+    /// `LinearChannel`: range and clamping rules; `false` for the hue
+    /// channel.
     pub linear: bool,
     pub min: f64,
     pub max: f64,
@@ -205,7 +208,7 @@ impl ChannelInfo {
 
     /// `isAnalogous`.
     pub fn is_analogous(&self, other: &ChannelInfo) -> bool {
-        let grupo = |n: &str| match n {
+        let group = |n: &str| match n {
             "red" | "x" => 1,
             "green" | "y" => 2,
             "blue" | "z" => 3,
@@ -214,8 +217,8 @@ impl ChannelInfo {
             "hue" => 6,
             _ => 0,
         };
-        let a = grupo(self.name);
-        a != 0 && a == grupo(other.name)
+        let a = group(self.name);
+        a != 0 && a == group(other.name)
     }
 }
 
@@ -257,7 +260,7 @@ impl ColorSpace {
         }
     }
 
-    /// `ColorSpace.fromName` (sem distinguir maiúsculas).
+    /// `ColorSpace.fromName` (case-insensitive).
     pub fn from_name(name: &str) -> Option<ColorSpace> {
         Some(match name.to_ascii_lowercase().as_str() {
             "rgb" => ColorSpace::Rgb,
@@ -377,7 +380,7 @@ impl ColorSpace {
                 }
             }
             ColorSpace::Rec2020 if rec2020_bt2020() => {
-                // Antes do 1.102.0: a função de transferência da BT.2020.
+                // Before 1.102.0: the BT.2020 transfer function.
                 let abs = c.abs();
                 if abs < REC2020_BETA * 4.5 {
                     c / 4.5
@@ -416,7 +419,7 @@ impl ColorSpace {
         }
     }
 
-    /// `transformationMatrix(dest)` de cada espaço linear.
+    /// `transformationMatrix(dest)` of each linear space.
     fn transformation_matrix(self, dest: ColorSpace) -> &'static [f64; 9] {
         use ColorSpace::*;
         let srgb_like = matches!(dest, SrgbLinear | Srgb | Rgb);
@@ -430,7 +433,7 @@ impl ColorSpace {
                 XyzD65 => &LINEAR_SRGB_TO_XYZ_D65,
                 XyzD50 => &LINEAR_SRGB_TO_XYZ_D50,
                 Lms => &LINEAR_SRGB_TO_LMS,
-                _ => unreachable!("conversão de {self:?} para {dest:?}"),
+                _ => unreachable!("conversion from {self:?} to {dest:?}"),
             },
             DisplayP3 | DisplayP3Linear => match dest {
                 _ if srgb_like => &LINEAR_DISPLAY_P3_TO_LINEAR_SRGB,
@@ -440,7 +443,7 @@ impl ColorSpace {
                 XyzD65 => &LINEAR_DISPLAY_P3_TO_XYZ_D65,
                 XyzD50 => &LINEAR_DISPLAY_P3_TO_XYZ_D50,
                 Lms => &LINEAR_DISPLAY_P3_TO_LMS,
-                _ => unreachable!("conversão de {self:?} para {dest:?}"),
+                _ => unreachable!("conversion from {self:?} to {dest:?}"),
             },
             A98Rgb => match dest {
                 _ if srgb_like => &LINEAR_A98_RGB_TO_LINEAR_SRGB,
@@ -450,7 +453,7 @@ impl ColorSpace {
                 XyzD65 => &LINEAR_A98_RGB_TO_XYZ_D65,
                 XyzD50 => &LINEAR_A98_RGB_TO_XYZ_D50,
                 Lms => &LINEAR_A98_RGB_TO_LMS,
-                _ => unreachable!("conversão de {self:?} para {dest:?}"),
+                _ => unreachable!("conversion from {self:?} to {dest:?}"),
             },
             ProphotoRgb => match dest {
                 _ if srgb_like => &LINEAR_PROPHOTO_RGB_TO_LINEAR_SRGB,
@@ -460,7 +463,7 @@ impl ColorSpace {
                 XyzD65 => &LINEAR_PROPHOTO_RGB_TO_XYZ_D65,
                 XyzD50 => &LINEAR_PROPHOTO_RGB_TO_XYZ_D50,
                 Lms => &LINEAR_PROPHOTO_RGB_TO_LMS,
-                _ => unreachable!("conversão de {self:?} para {dest:?}"),
+                _ => unreachable!("conversion from {self:?} to {dest:?}"),
             },
             Rec2020 => match dest {
                 _ if srgb_like => &LINEAR_REC2020_TO_LINEAR_SRGB,
@@ -470,7 +473,7 @@ impl ColorSpace {
                 XyzD65 => &LINEAR_REC2020_TO_XYZ_D65,
                 XyzD50 => &LINEAR_REC2020_TO_XYZ_D50,
                 Lms => &LINEAR_REC2020_TO_LMS,
-                _ => unreachable!("conversão de {self:?} para {dest:?}"),
+                _ => unreachable!("conversion from {self:?} to {dest:?}"),
             },
             XyzD65 => match dest {
                 _ if srgb_like => &XYZ_D65_TO_LINEAR_SRGB,
@@ -480,7 +483,7 @@ impl ColorSpace {
                 Rec2020 => &XYZ_D65_TO_LINEAR_REC2020,
                 XyzD50 => &XYZ_D65_TO_XYZ_D50,
                 Lms => &XYZ_D65_TO_LMS,
-                _ => unreachable!("conversão de {self:?} para {dest:?}"),
+                _ => unreachable!("conversion from {self:?} to {dest:?}"),
             },
             XyzD50 => match dest {
                 _ if srgb_like => &XYZ_D50_TO_LINEAR_SRGB,
@@ -490,7 +493,7 @@ impl ColorSpace {
                 Rec2020 => &XYZ_D50_TO_LINEAR_REC2020,
                 XyzD65 => &XYZ_D50_TO_XYZ_D65,
                 Lms => &XYZ_D50_TO_LMS,
-                _ => unreachable!("conversão de {self:?} para {dest:?}"),
+                _ => unreachable!("conversion from {self:?} to {dest:?}"),
             },
             Lms => match dest {
                 _ if srgb_like => &LMS_TO_LINEAR_SRGB,
@@ -500,13 +503,13 @@ impl ColorSpace {
                 Rec2020 => &LMS_TO_LINEAR_REC2020,
                 XyzD65 => &LMS_TO_XYZ_D65,
                 XyzD50 => &LMS_TO_XYZ_D50,
-                _ => unreachable!("conversão de {self:?} para {dest:?}"),
+                _ => unreachable!("conversion from {self:?} to {dest:?}"),
             },
-            _ => unreachable!("conversão linear de {self:?}"),
+            _ => unreachable!("linear conversion of {self:?}"),
         }
     }
 
-    /// `ColorSpace.convert` (com o despacho de cada subclasse).
+    /// `ColorSpace.convert` (with the dispatch of each subclass).
     pub fn convert(
         self,
         dest: ColorSpace,
@@ -579,7 +582,7 @@ impl ColorSpace {
                         alpha,
                     )
                 }
-                _ => convert_linear(self, dest, c0, c1, c2, alpha, Faltas::default()),
+                _ => convert_linear(self, dest, c0, c1, c2, alpha, Missing::default()),
             },
             ColorSpace::DisplayP3 => {
                 if dest == ColorSpace::DisplayP3Linear {
@@ -591,7 +594,7 @@ impl ColorSpace {
                         alpha,
                     )
                 } else {
-                    convert_linear(self, dest, c0, c1, c2, alpha, Faltas::default())
+                    convert_linear(self, dest, c0, c1, c2, alpha, Missing::default())
                 }
             }
             ColorSpace::DisplayP3Linear => {
@@ -604,16 +607,16 @@ impl ColorSpace {
                         alpha,
                     )
                 } else {
-                    convert_linear(self, dest, c0, c1, c2, alpha, Faltas::default())
+                    convert_linear(self, dest, c0, c1, c2, alpha, Missing::default())
                 }
             }
             ColorSpace::A98Rgb
             | ColorSpace::ProphotoRgb
             | ColorSpace::Rec2020
             | ColorSpace::XyzD65 => {
-                convert_linear(self, dest, c0, c1, c2, alpha, Faltas::default())
+                convert_linear(self, dest, c0, c1, c2, alpha, Missing::default())
             }
-            ColorSpace::XyzD50 => xyz_d50_convert(dest, c0, c1, c2, alpha, Faltas::default()),
+            ColorSpace::XyzD50 => xyz_d50_convert(dest, c0, c1, c2, alpha, Missing::default()),
             ColorSpace::Lab => lab_convert(dest, c0, c1, c2, alpha, false, false),
             ColorSpace::Lch => {
                 let (lightness, chroma, hue) = (c0, c1, c2);
@@ -628,7 +631,7 @@ impl ColorSpace {
                     hue.is_none(),
                 )
             }
-            ColorSpace::Lms => lms_convert(dest, c0, c1, c2, alpha, Faltas::default()),
+            ColorSpace::Lms => lms_convert(dest, c0, c1, c2, alpha, Missing::default()),
             ColorSpace::Oklab => oklab_convert(dest, c0, c1, c2, alpha, false, false),
             ColorSpace::Oklch => {
                 let (lightness, chroma, hue) = (c0, c1, c2);
@@ -653,9 +656,10 @@ impl fmt::Display for ColorSpace {
     }
 }
 
-/// Os canais que faltavam na origem (`missingLightness` etc. do dart-sass).
+/// The channels that were missing in the origin (`missingLightness` etc. of
+/// dart-sass).
 #[derive(Debug, Clone, Copy, Default)]
-struct Faltas {
+struct Missing {
     lightness: bool,
     chroma: bool,
     hue: bool,
@@ -707,7 +711,7 @@ fn convert_linear(
     green: Option<f64>,
     blue: Option<f64>,
     alpha: Option<f64>,
-    faltas: Faltas,
+    missing: Missing,
 ) -> Color {
     let linear_dest = match dest {
         ColorSpace::Hsl | ColorSpace::Hwb => ColorSpace::Srgb,
@@ -735,12 +739,12 @@ fn convert_linear(
             tg,
             tb,
             alpha,
-            faltas.lightness,
-            faltas.chroma,
-            faltas.hue,
+            missing.lightness,
+            missing.chroma,
+            missing.hue,
         ),
-        ColorSpace::Lab | ColorSpace::Lch => xyz_d50_convert(dest, tr, tg, tb, alpha, faltas),
-        ColorSpace::Oklab | ColorSpace::Oklch => lms_convert(dest, tr, tg, tb, alpha, faltas),
+        ColorSpace::Lab | ColorSpace::Lch => xyz_d50_convert(dest, tr, tg, tb, alpha, missing),
+        ColorSpace::Oklab | ColorSpace::Oklch => lms_convert(dest, tr, tg, tb, alpha, missing),
         _ => Color::for_space_internal(dest, red.and(tr), green.and(tg), blue.and(tb), alpha),
     }
 }
@@ -842,7 +846,7 @@ fn srgb_convert(
             green,
             blue,
             alpha,
-            Faltas {
+            Missing {
                 lightness: missing_lightness,
                 chroma: missing_chroma,
                 hue: missing_hue,
@@ -860,7 +864,7 @@ fn xyz_d50_convert(
     y: Option<f64>,
     z: Option<f64>,
     alpha: Option<f64>,
-    faltas: Faltas,
+    missing: Missing,
 ) -> Color {
     match dest {
         ColorSpace::Lab | ColorSpace::Lch => {
@@ -874,7 +878,7 @@ fn xyz_d50_convert(
             let f0 = f(x.unwrap_or(0.0) / D50[0]);
             let f1 = f(y.unwrap_or(0.0) / D50[1]);
             let f2 = f(z.unwrap_or(0.0) / D50[2]);
-            let lightness = if faltas.lightness {
+            let lightness = if missing.lightness {
                 None
             } else {
                 Some((116.0 * f1) - 16.0)
@@ -885,8 +889,8 @@ fn xyz_d50_convert(
                 Color::new_raw(
                     ColorSpace::Lab,
                     lightness,
-                    if faltas.a { None } else { Some(a) },
-                    if faltas.b { None } else { Some(b) },
+                    if missing.a { None } else { Some(a) },
+                    if missing.b { None } else { Some(b) },
                     alpha,
                     ColorFormat::Infer,
                 )
@@ -897,12 +901,12 @@ fn xyz_d50_convert(
                     Some(a),
                     Some(b),
                     alpha,
-                    faltas.chroma,
-                    faltas.hue,
+                    missing.chroma,
+                    missing.hue,
                 )
             }
         }
-        _ => convert_linear(ColorSpace::XyzD50, dest, x, y, z, alpha, faltas),
+        _ => convert_linear(ColorSpace::XyzD50, dest, x, y, z, alpha, missing),
     }
 }
 
@@ -980,7 +984,7 @@ fn lab_convert(
                 Some(y * D50[1]),
                 Some(f_to_xz(f1 - b.unwrap_or(0.0) / 200.0) * D50[2]),
                 alpha,
-                Faltas {
+                Missing {
                     lightness: missing_lightness,
                     chroma: missing_chroma,
                     hue: missing_hue,
@@ -1003,7 +1007,7 @@ fn lms_convert(
     medium: Option<f64>,
     short: Option<f64>,
     alpha: Option<f64>,
-    faltas: Faltas,
+    missing: Missing,
 ) -> Color {
     match dest {
         ColorSpace::Oklab | ColorSpace::Oklch => {
@@ -1016,20 +1020,20 @@ fn lms_convert(
             if dest == ColorSpace::Oklab {
                 Color::new_raw(
                     ColorSpace::Oklab,
-                    if faltas.lightness {
+                    if missing.lightness {
                         None
                     } else {
                         Some(lightness)
                     },
-                    if faltas.a { None } else { Some(a) },
-                    if faltas.b { None } else { Some(b) },
+                    if missing.a { None } else { Some(a) },
+                    if missing.b { None } else { Some(b) },
                     alpha,
                     ColorFormat::Infer,
                 )
             } else {
                 lab_to_lch(
                     dest,
-                    if faltas.lightness {
+                    if missing.lightness {
                         None
                     } else {
                         Some(lightness)
@@ -1037,12 +1041,12 @@ fn lms_convert(
                     Some(a),
                     Some(b),
                     alpha,
-                    faltas.chroma,
-                    faltas.hue,
+                    missing.chroma,
+                    missing.hue,
                 )
             }
         }
-        _ => convert_linear(ColorSpace::Lms, dest, long, medium, short, alpha, faltas),
+        _ => convert_linear(ColorSpace::Lms, dest, long, medium, short, alpha, missing),
     }
 }
 
@@ -1059,7 +1063,7 @@ fn oklab_convert(
     if dest == ColorSpace::Oklch {
         return lab_to_lch(dest, lightness, a, b, alpha, missing_chroma, missing_hue);
     }
-    let faltas = Faltas {
+    let missing = Missing {
         lightness: lightness.is_none(),
         chroma: missing_chroma,
         hue: missing_hue,
@@ -1076,26 +1080,26 @@ fn oklab_convert(
         Some(dart_pow(m[3] * l + m[4] * a + m[5] * b, 3.0) + 0.0),
         Some(dart_pow(m[6] * l + m[7] * a + m[8] * b, 3.0) + 0.0),
         alpha,
-        faltas,
+        missing,
     )
 }
 
-/// Em que formato a cor foi escrita, para o `expanded` a reescrever igual
-/// (`ColorFormat` do dart-sass; só para cores `rgb`).
+/// The format the color was written in, so `expanded` rewrites it the same
+/// way (dart-sass's `ColorFormat`; only for `rgb` colors).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ColorFormat {
     /// `rgb()`/`rgba()` (`ColorFormat.rgbFunction`).
     RgbFunction,
-    /// O texto original (`SpanColorFormat`): nome ou hexadecimal.
+    /// The original text (`SpanColorFormat`): name or hexadecimal.
     Literal(String),
-    /// Nenhum.
+    /// None.
     Infer,
-    /// `hsl()`/`hsla()` do dart-sass 1.66 (`ColorFormat.hslFunction`), só
-    /// no modo 1.66: o 1.102 não tem este formato.
+    /// `hsl()`/`hsla()` of dart-sass 1.66 (`ColorFormat.hslFunction`), only
+    /// in the 1.66 mode: 1.102 does not have this format.
     HslFunction,
 }
 
-/// Uma cor (`SassColor`).
+/// A color (`SassColor`).
 #[derive(Debug, Clone)]
 pub struct Color {
     space: ColorSpace,
@@ -1104,12 +1108,12 @@ pub struct Color {
     c2: Option<f64>,
     alpha: Option<f64>,
     pub(crate) format: ColorFormat,
-    /// Criada por uma função de cor do modo 1.66 ([`v166`]): compara e
-    /// serializa pelo modelo do dart-sass 1.66.
-    pub(crate) modelo_166: bool,
+    /// Created by a color function of the 1.66 mode ([`v166`]): compares and
+    /// serializes by the dart-sass 1.66 model.
+    pub(crate) model_166: bool,
 }
 
-/// Métodos de interpolação de matiz.
+/// Hue interpolation methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HueInterpolation {
     Shorter,
@@ -1157,8 +1161,8 @@ pub(crate) enum GamutMapMethod {
 }
 
 impl Color {
-    /// `SassColor._forSpace`: sem normalizar nada (o alfa é conferido na
-    /// faixa `[0, 1]`, com a tolerância do dart-sass).
+    /// `SassColor._forSpace`: without normalizing anything (the alpha is
+    /// checked against the range `[0, 1]`, with dart-sass's tolerance).
     pub(crate) fn new_raw(
         space: ColorSpace,
         c0: Option<f64>,
@@ -1183,7 +1187,7 @@ impl Color {
             c2,
             alpha,
             format,
-            modelo_166: false,
+            model_166: false,
         }
     }
 
@@ -1198,8 +1202,8 @@ impl Color {
         Color::new_raw(ColorSpace::Rgb, r, g, b, alpha, format)
     }
 
-    /// `SassColor.forSpaceInternal`: normaliza a matiz e tira o sinal da
-    /// saturação/croma nos espaços polares.
+    /// `SassColor.forSpaceInternal`: normalizes the hue and drops the sign of
+    /// the saturation/chroma in the polar spaces.
     pub(crate) fn for_space_internal(
         space: ColorSpace,
         c0: Option<f64>,
@@ -1207,11 +1211,11 @@ impl Color {
         c2: Option<f64>,
         alpha: Option<f64>,
     ) -> Color {
-        let inverte = |c: Option<f64>| c.is_some_and(|c| fuzzy_less_than(c, 0.0));
+        let inverts = |c: Option<f64>| c.is_some_and(|c| fuzzy_less_than(c, 0.0));
         match space {
             ColorSpace::Hsl => Color::new_raw(
                 space,
-                normalize_hue(c0, inverte(c1)),
+                normalize_hue(c0, inverts(c1)),
                 c1.map(f64::abs),
                 c2,
                 alpha,
@@ -1229,7 +1233,7 @@ impl Color {
                 space,
                 c0,
                 c1.map(f64::abs),
-                normalize_hue(c2, inverte(c1)),
+                normalize_hue(c2, inverts(c1)),
                 alpha,
                 ColorFormat::Infer,
             ),
@@ -1273,7 +1277,7 @@ impl Color {
         self.alpha
     }
 
-    /// O alfa (`0` quando falta), como `Number` para o resto do grass.
+    /// The alpha (`0` when missing), as a `Number` for the rest of grass.
     pub fn alpha(&self) -> Number {
         Number(self.alpha.unwrap_or(0.0))
     }
@@ -1325,16 +1329,16 @@ impl Color {
             return true;
         }
         let ch = self.space.channels();
-        let dentro = |v: f64, c: &ChannelInfo| {
+        let within = |v: f64, c: &ChannelInfo| {
             !c.linear
                 || (fuzzy_less_than_or_equals(v, c.max) && fuzzy_greater_than_or_equals(v, c.min))
         };
-        dentro(self.channel0(), &ch[0])
-            && dentro(self.channel1(), &ch[1])
-            && dentro(self.channel2(), &ch[2])
+        within(self.channel0(), &ch[0])
+            && within(self.channel1(), &ch[1])
+            && within(self.channel2(), &ch[2])
     }
 
-    /// O índice do canal `name` no espaço (ou 3 para `alpha`).
+    /// The index of the channel `name` in the space (or 3 for `alpha`).
     fn channel_index(&self, name: &str) -> Option<usize> {
         if name == "alpha" {
             return Some(3);
@@ -1342,7 +1346,7 @@ impl Color {
         self.space.channels().iter().position(|c| c.name == name)
     }
 
-    /// `channel(name)`: `None` se o espaço não tem o canal.
+    /// `channel(name)`: `None` if the space does not have the channel.
     pub(crate) fn channel(&self, name: &str) -> Option<f64> {
         Some(match self.channel_index(name)? {
             0 => self.channel0(),
@@ -1372,7 +1376,7 @@ impl Color {
         })
     }
 
-    /// `_legacyChannel(space, name)` (quem chama garante cor legada).
+    /// `_legacyChannel(space, name)` (the caller guarantees a legacy color).
     pub(crate) fn legacy_channel(&self, space: ColorSpace, name: &str) -> f64 {
         self.to_space(space, true).channel(name).unwrap_or(0.0)
     }
@@ -1382,7 +1386,7 @@ impl Color {
         if self.space == space {
             return self.clone();
         }
-        // O `alpha` aqui é o getter do Dart: `0` quando falta.
+        // The `alpha` here is the Dart getter: `0` when missing.
         let converted =
             self.space
                 .convert(space, self.c0, self.c1, self.c2, Some(self.alpha_f64()));
@@ -1490,7 +1494,7 @@ impl Color {
         clipped
     }
 
-    /// `changeAlpha`: os canais que faltam viram `0`.
+    /// `changeAlpha`: the missing channels become `0`.
     pub(crate) fn change_alpha(&self, alpha: f64) -> Color {
         Color::for_space_internal(
             self.space,
@@ -1501,7 +1505,7 @@ impl Color {
         )
     }
 
-    /// `changeHsl` com os valores já decididos (legado).
+    /// `changeHsl` with the values already decided (legacy).
     pub(crate) fn change_hsl(
         &self,
         hue: Option<f64>,
@@ -1637,8 +1641,8 @@ fn analogous_missing(original: &Color, output: &Color, index: usize) -> bool {
         return true;
     }
     if std::ptr::eq(original, output) || (original.space == output.space) {
-        // `identical(original, output)`: `toSpace` devolve a própria cor
-        // quando o espaço é o mesmo.
+        // `identical(original, output)`: `toSpace` returns the color itself
+        // when the space is the same.
         return false;
     }
     let out_ch = output.space.channels()[index];
@@ -1688,10 +1692,11 @@ fn delta_eok(color1: &Color, color2: &Color) -> f64 {
 }
 
 impl PartialEq for Color {
-    /// `SassColor.==`: legadas comparam em RGB; as outras, espaço e canais.
+    /// `SassColor.==`: legacy colors compare in RGB; the others, space and
+    /// channels.
     fn eq(&self, other: &Self) -> bool {
-        if self.modelo_166 || other.modelo_166 {
-            return v166::iguais(self, other);
+        if self.model_166 || other.model_166 {
+            return v166::equals(self, other);
         }
         if self.is_legacy() {
             if !other.is_legacy() {
@@ -1718,7 +1723,7 @@ impl PartialEq for Color {
 impl Eq for Color {}
 
 impl std::hash::Hash for Color {
-    /// `SassColor.hashCode` (com o `fuzzyHashCode`).
+    /// `SassColor.hashCode` (with `fuzzyHashCode`).
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         if let Some(h) = v166::hash(self) {
             h.hash(state);
@@ -1747,8 +1752,8 @@ impl std::hash::Hash for Color {
 }
 
 impl Color {
-    /// Cor de um nome (`colorsByName`) ou de um hexadecimal, com o texto
-    /// original (`SpanColorFormat`).
+    /// Color from a name (`colorsByName`) or a hexadecimal, with the
+    /// original text (`SpanColorFormat`).
     pub fn new(red: u8, green: u8, blue: u8, alpha: u8, format: String) -> Self {
         Color::rgb_internal(
             Some(f64::from(red)),
@@ -1761,11 +1766,11 @@ impl Color {
 }
 
 #[cfg(test)]
-mod testes_conversao {
+mod conversion_tests {
     use super::*;
 
     #[test]
-    fn hsl_para_lab_como_o_dart() {
+    fn hsl_to_lab_like_dart() {
         let c = Color::for_space_internal(
             ColorSpace::Hsl,
             Some(20.0),
@@ -1787,12 +1792,12 @@ mod testes_conversao {
     }
 }
 
-/// Constantes da gama do rec2020 no dart-sass anterior ao 1.102.0
-/// (`rec2020.dart`, `_alpha` e `_beta`).
+/// Constants of the rec2020 gamma in dart-sass before 1.102.0
+/// (`rec2020.dart`, `_alpha` and `_beta`).
 const REC2020_ALPHA: f64 = 1.09929682680944;
 const REC2020_BETA: f64 = 0.018053968510807;
 
-/// A compilação em curso imita o dart-sass 1.101 (gama da BT.2020)?
+/// Does the running compilation imitate dart-sass 1.101 (BT.2020 gamma)?
 fn rec2020_bt2020() -> bool {
-    crate::options::versao_corrente() == crate::VersaoDartSass::V1_101
+    crate::options::current_version() == crate::VersaoDartSass::V1_101
 }

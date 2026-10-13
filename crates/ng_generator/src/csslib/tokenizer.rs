@@ -1,18 +1,18 @@
-//! Porte do tokenizador do csslib 1.0.2: `src/tokenizer_base.dart`
+//! Port of the csslib 1.0.2 tokenizer: `src/tokenizer_base.dart`
 //! (`TokenizerBase`, `TokenizerState`), `src/tokenizer.dart` (`Tokenizer`,
-//! `TokenizerHelpers`) e `src/token.dart` (`Token`, `IdentifierToken`).
+//! `TokenizerHelpers`) and `src/token.dart` (`Token`, `IdentifierToken`).
 //!
-//! O texto é lido como o Dart o vê: unidades UTF-16 (`codeUnitAt`), e a
-//! posição dos tokens é o deslocamento nessas unidades (`FileSpan`). Só o
-//! que o `Tokenizer` usa está aqui: o `TokenizerBase` tem também leitura de
-//! strings com escapes e de números com expoente que a subclasse sobrepõe ou
-//! nunca chama.
+//! The text is read as Dart sees it: UTF-16 code units (`codeUnitAt`), and the
+//! position of the tokens is the offset in those units (`FileSpan`). Only what
+//! the `Tokenizer` uses is here: `TokenizerBase` also reads strings with
+//! escapes and numbers with exponents, which the subclass overrides or never
+//! calls.
 use std::rc::Rc;
 
-use super::Excecao;
+use super::Exception;
 use super::token_kind as tk;
 
-/// `TokenChar`: os códigos dos caracteres que o tokenizador distingue.
+/// `TokenChar`: the codes of the characters the tokenizer distinguishes.
 mod ch {
     pub const END_OF_FILE: u16 = 0;
     pub const LPAREN: u16 = 0x28;
@@ -50,33 +50,34 @@ mod ch {
     pub const AMPERSAND: u16 = 0x26;
 }
 
-/// `Token` (e `IdentifierToken`, quando `ident` existe): o tipo, o trecho
-/// `[ini, fim)` do texto e, num identificador, o texto já sem escapes.
+/// `Token` (and `IdentifierToken`, when `ident` exists): the kind, the span
+/// `[start, end)` of the text and, for an identifier, the text with escapes
+/// already removed.
 #[derive(Clone, Debug)]
 pub(crate) struct Token {
     pub kind: i32,
-    pub ini: usize,
-    pub fim: usize,
+    pub start: usize,
+    pub end: usize,
     pub ident: Option<Rc<str>>,
 }
 
 impl Token {
-    /// `Token.text`: o do `IdentifierToken`, ou o trecho do arquivo.
-    pub fn texto(&self, fonte: &[u16]) -> String {
+    /// `Token.text`: the one of the `IdentifierToken`, or the span of the file.
+    pub fn text(&self, source: &[u16]) -> String {
         match &self.ident {
             Some(t) => t.to_string(),
-            None => String::from_utf16_lossy(&fonte[self.ini..self.fim]),
+            None => String::from_utf16_lossy(&source[self.start..self.end]),
         }
     }
 }
 
-/// `String.trim` do Dart: tira o espaço Unicode das pontas, incluindo o
-/// BOM (`U+FEFF`), que o `char::is_whitespace` do Rust não conta.
+/// Dart's `String.trim`: strips Unicode whitespace from both ends, including
+/// the BOM (`U+FEFF`), which Rust's `char::is_whitespace` does not count.
 pub(crate) fn dart_trim(s: &str) -> &str {
     s.trim_matches(|c: char| c.is_whitespace() || c == '\u{FEFF}')
 }
 
-/// `TokenizerState`: o que a leitura antecipada do parser guarda e restaura.
+/// `TokenizerState`: what the parser's lookahead saves and restores.
 #[derive(Clone, Copy)]
 pub(crate) struct TokenizerState {
     index: usize,
@@ -115,15 +116,15 @@ pub(crate) mod helpers {
 
 use helpers::*;
 
-/// `Tokenizer` (com o que ele herda de `TokenizerBase`).
+/// `Tokenizer` (with what it inherits from `TokenizerBase`).
 pub(crate) struct Tokenizer<'a> {
     text: &'a [u16],
-    /// `_inString`: apesar do nome, verdadeiro quando espaço e comentário
-    /// são pulados; o parser o desliga para ler o conteúdo de strings.
+    /// `_inString`: despite the name, true when whitespace and comments are
+    /// skipped; the parser turns it off to read the contents of strings.
     pub in_string: bool,
-    /// `inSelectorExpression`: dentro de `:pseudo(…)` o `-` é operador.
+    /// `inSelectorExpression`: inside `:pseudo(…)` the `-` is an operator.
     pub in_selector_expression: bool,
-    /// `inSelector`: em seletor não há unidades nem `\` solto.
+    /// `inSelector`: in a selector there are no units and no stray `\`.
     pub in_selector: bool,
     index: usize,
     start_index: usize,
@@ -160,7 +161,7 @@ impl<'a> Tokenizer<'a> {
         self.in_selector = m.in_selector;
     }
 
-    /// `_nextChar`: `0` no fim do texto.
+    /// `_nextChar`: `0` at the end of the text.
     fn next_char(&mut self) -> u16 {
         if self.index < self.text.len() {
             let c = self.text[self.index];
@@ -205,19 +206,19 @@ impl<'a> Tokenizer<'a> {
     fn finish_token(&self, kind: i32) -> Token {
         Token {
             kind,
-            ini: self.start_index,
-            fim: self.index,
+            start: self.start_index,
+            end: self.index,
             ident: None,
         }
     }
 
-    /// `Tokenizer._errorToken`: um token `ERROR`.
+    /// `Tokenizer._errorToken`: an `ERROR` token.
     fn error_token(&self) -> Token {
         self.finish_token(tk::ERROR)
     }
 
     /// `TokenizerBase.finishWhitespace`.
-    fn finish_whitespace(&mut self) -> Result<Option<Token>, Excecao> {
+    fn finish_whitespace(&mut self) -> Result<Option<Token>, Exception> {
         self.index -= 1;
         while self.index < self.text.len() {
             let c = self.text[self.index];
@@ -247,22 +248,22 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// `Tokenizer.next`. As chamadas `return next()` do oficial (depois de
-    /// espaço, comentário, `]]>` e `<![CDATA[`) são de cauda; aqui viram
-    /// laço, sem crescer a pilha numa sequência longa de comentários.
-    pub fn next(&mut self, unicode_range: bool) -> Result<Token, Excecao> {
+    /// `Tokenizer.next`. The official `return next()` calls (after whitespace,
+    /// a comment, `]]>` and `<![CDATA[`) are tail calls; here they become a
+    /// loop, so the stack does not grow on a long sequence of comments.
+    pub fn next(&mut self, unicode_range: bool) -> Result<Token, Exception> {
         let mut unicode_range = unicode_range;
         loop {
-            if let Some(t) = self.proximo(unicode_range)? {
+            if let Some(t) = self.next_token(unicode_range)? {
                 return Ok(t);
             }
             unicode_range = false;
         }
     }
 
-    /// Um passo do `Tokenizer.next`: `None` onde o oficial chama `next()`
-    /// de novo.
-    fn proximo(&mut self, unicode_range: bool) -> Result<Option<Token>, Excecao> {
+    /// One step of `Tokenizer.next`: `None` where the official code calls
+    /// `next()` again.
+    fn next_token(&mut self, unicode_range: bool) -> Result<Option<Token>, Exception> {
         self.start_index = self.index;
         let c = self.next_char();
         match c {
@@ -276,16 +277,16 @@ impl<'a> Tokenizer<'a> {
                     self.start_index = self.index;
                     self.next_char();
                     self.finish_identifier()?;
-                    // É uma diretiva?
-                    let trecho = &self.text[self.start_index..self.index];
-                    let mut tok_id = tk::match_directives(trecho);
+                    // Is it a directive?
+                    let span = &self.text[self.start_index..self.index];
+                    let mut tok_id = tk::match_directives(span);
                     if tok_id == -1 {
-                        tok_id = tk::match_margin_directives(trecho);
+                        tok_id = tk::match_margin_directives(span);
                     }
                     if tok_id != -1 {
                         return Ok(Some(self.finish_token(tok_id)));
                     }
-                    // Não: é o `@nome` das definições do Less.
+                    // No: it is the `@name` of Less definitions.
                     self.start_index = old_start_index;
                     self.index = old_index;
                 }
@@ -419,7 +420,7 @@ impl<'a> Tokenizer<'a> {
                     && (c == u16::from(b'U') || c == u16::from(b'u'))
                     && self.peek_char(0) == u16::from(b'+')
                 {
-                    // `U+número`: o token é o número, depois do `+`.
+                    // `U+number`: the token is the number, after the `+`.
                     self.next_char();
                     self.start_index = self.index;
                     Ok(Some(self.finish_token(tk::UNICODE_RANGE)))
@@ -438,7 +439,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// `varDef`: `var-` (consome o que casar, mesmo quando falha).
+    /// `varDef`: `var-` (consumes whatever matches, even when it fails).
     fn var_def(&mut self, c: u16) -> bool {
         c == u16::from(b'v')
             && self.maybe_eat_char(u16::from(b'a'))
@@ -454,17 +455,17 @@ impl<'a> Tokenizer<'a> {
             && self.peek_char(0) == u16::from(b'-')
     }
 
-    /// `getIdentifierKind`: unidade (fora de seletor), `!important` ou
-    /// identificador.
+    /// `getIdentifierKind`: unit (outside a selector), `!important` or
+    /// identifier.
     fn get_identifier_kind(&self) -> i32 {
-        let trecho = &self.text[self.start_index..self.index];
+        let span = &self.text[self.start_index..self.index];
         let mut tok_id = -1;
         if !self.in_selector_expression && !self.in_selector {
-            tok_id = tk::match_units(trecho);
+            tok_id = tk::match_units(span);
         }
         if tok_id == -1 {
             let important: Vec<u16> = "!important".encode_utf16().collect();
-            tok_id = if trecho == important.as_slice() {
+            tok_id = if span == important.as_slice() {
                 tk::IMPORTANT
             } else {
                 -1
@@ -473,9 +474,9 @@ impl<'a> Tokenizer<'a> {
         if tok_id >= 0 { tok_id } else { tk::IDENTIFIER }
     }
 
-    /// `finishIdentifier`: com os escapes `\hex` desfeitos no texto do
-    /// token (quando se pulam espaços) e o trecho cru como posição.
-    fn finish_identifier(&mut self) -> Result<Token, Excecao> {
+    /// `finishIdentifier`: with the `\hex` escapes undone in the token text
+    /// (when whitespace is skipped) and the raw span as the position.
+    fn finish_identifier(&mut self) -> Result<Token, Exception> {
         let mut chars: Vec<u32> = Vec::new();
         let validate_from = self.index;
         self.index = self.start_index;
@@ -517,12 +518,12 @@ impl<'a> Tokenizer<'a> {
                 break;
             }
         }
-        let texto = de_char_codes(&chars)?;
+        let text = from_char_codes(&chars)?;
         Ok(Token {
             kind: self.get_identifier_kind(),
-            ini: self.start_index,
-            fim: self.index,
-            ident: Some(Rc::from(texto)),
+            start: self.start_index,
+            end: self.index,
+            ident: Some(Rc::from(text)),
         })
     }
 
@@ -600,7 +601,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// `finishHtmlComment`.
-    fn finish_html_comment(&mut self) -> Result<Option<Token>, Excecao> {
+    fn finish_html_comment(&mut self) -> Result<Option<Token>, Exception> {
         loop {
             let c = self.next_char();
             if c == 0 {
@@ -619,7 +620,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// `Tokenizer.finishMultiLineComment`.
-    fn finish_multi_line_comment(&mut self) -> Result<Option<Token>, Excecao> {
+    fn finish_multi_line_comment(&mut self) -> Result<Option<Token>, Exception> {
         loop {
             let c = self.next_char();
             if c == 0 {
@@ -634,34 +635,34 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// A posição de leitura (`_index`), para o parser reconhecer um laço
-    /// que não consome nada.
-    pub fn posicao(&self) -> usize {
+    /// The read position (`_index`), so the parser can detect a loop that
+    /// consumes nothing.
+    pub fn position(&self) -> usize {
         self.index
     }
 
-    /// `makeIEFilter`: o trecho `[start, end)` como texto.
-    pub fn texto_entre(&self, start: usize, end: usize) -> String {
+    /// `makeIEFilter`: the span `[start, end)` as text.
+    pub fn text_between(&self, start: usize, end: usize) -> String {
         String::from_utf16_lossy(&self.text[start..end])
     }
 }
 
-/// `String.fromCharCodes`: códigos até `0xFFFF` são unidades UTF-16 (um par
-/// de substitutos se junta), acima disso viram um par; acima de `0x10FFFF` o
-/// Dart lança `RangeError`.
-fn de_char_codes(codigos: &[u32]) -> Result<String, Excecao> {
-    let mut unidades: Vec<u16> = Vec::with_capacity(codigos.len());
-    for &c in codigos {
+/// `String.fromCharCodes`: codes up to `0xFFFF` are UTF-16 code units (a
+/// surrogate pair is joined), above that they become a pair; above `0x10FFFF`
+/// Dart throws `RangeError`.
+fn from_char_codes(codes: &[u32]) -> Result<String, Exception> {
+    let mut units: Vec<u16> = Vec::with_capacity(codes.len());
+    for &c in codes {
         if c > 0x10FFFF {
-            return Err(Excecao("RangeError"));
+            return Err(Exception("RangeError"));
         }
         if c > 0xFFFF {
             let v = c - 0x10000;
-            unidades.push(0xD800 + (v >> 10) as u16);
-            unidades.push(0xDC00 + (v & 0x3FF) as u16);
+            units.push(0xD800 + (v >> 10) as u16);
+            units.push(0xDC00 + (v & 0x3FF) as u16);
         } else {
-            unidades.push(c as u16);
+            units.push(c as u16);
         }
     }
-    Ok(String::from_utf16_lossy(&unidades))
+    Ok(String::from_utf16_lossy(&units))
 }

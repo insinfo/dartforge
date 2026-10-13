@@ -10,8 +10,8 @@ pub(crate) enum CssStmt {
         selector: ExtendedSelector,
         body: Vec<Self>,
         is_group_end: bool,
-        /// O `span` do seletor (`CssStyleRule.selector.span`, que o mapa de
-        /// fontes usa) e o da regra inteira (`CssStyleRule.span`).
+        /// The `span` of the selector (`CssStyleRule.selector.span`, which the
+        /// source map uses) and that of the whole rule (`CssStyleRule.span`).
         selector_span: Span,
         span: Span,
     },
@@ -45,8 +45,8 @@ impl CssStmt {
         }
     }
 
-    /// O `span` do nó CSS no dart-sass (`CssNode.span`): a regra ou a
-    /// declaração inteira na fonte.
+    /// The `span` of the CSS node in dart-sass (`CssNode.span`): the whole
+    /// rule or declaration in the source.
     pub fn span(&self) -> Span {
         match self {
             CssStmt::RuleSet { span, .. } => *span,
@@ -70,7 +70,7 @@ impl CssStmt {
         }
     }
 
-    /// `equalsIgnoringChildren` do dart-sass.
+    /// dart-sass's `equalsIgnoringChildren`.
     pub fn equals_ignoring_children(&self, other: &Self) -> bool {
         match (self, other) {
             (CssStmt::RuleSet { selector: a, .. }, CssStmt::RuleSet { selector: b, .. }) => a == b,

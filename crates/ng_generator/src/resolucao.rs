@@ -1,45 +1,45 @@
-//! A ponte do gerador para o banco semântico.
+//! The generator's bridge to the semantic database.
 //!
-//! O compilador oficial pergunta ao `package:analyzer` onde um tipo é
-//! declarado; nós perguntamos ao nosso `Program`. É a mesma pergunta e a
-//! resposta tem de ser a mesma: para `OidcService` o import gerado é o da
-//! biblioteca que **declara** o tipo, não a que o reexporta — por isso sai
-//! `package:ngrouter/src/router/router.dart` e não
+//! The official compiler asks `package:analyzer` where a type is declared; we
+//! ask our `Program`. It is the same question and the answer must be the same:
+//! for `OidcService` the generated import is that of the library that
+//! **declares** the type, not the one that re-exports it — that is why it comes
+//! out as `package:ngrouter/src/router/router.dart` and not
 //! `package:ngrouter/ngrouter.dart`.
 //!
-//! O caminho do import é montado pela regra do `getImportModulePath` do
-//! `ngcompiler` (`output/path_util.dart`): mesmo pacote e mesma pasta de
-//! primeiro nível viram caminho relativo; o resto vira `package:`.
+//! The import path is built by the rule of `ngcompiler`'s `getImportModulePath`
+//! (`output/path_util.dart`): the same package and the same top-level folder
+//! become a relative path; the rest becomes `package:`.
 use dartforge_elements::model::{ClassId, Element, LibraryId, Program};
 use dartforge_intern::Interner;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// O que o emissor precisa perguntar sobre nomes. É um traço para que o
-/// teste possa responder sem carregar um programa inteiro.
-/// Um método de instância achado na hierarquia ([`Resolucao::metodo`]).
+/// What the emitter needs to ask about names. It is a trait so that tests can
+/// answer without loading a whole program.
+/// An instance method found in the hierarchy ([`Resolucao::metodo`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Metodo {
     pub posicionais: usize,
-    /// O retorno escrito e o arquivo do escopo dele; `None` sem tipo escrito
-    /// ou com [`Metodo::incerto`].
+    /// The written return type and the file of its scope; `None` without a
+    /// written type or with [`Metodo::incerto`].
     pub retorno: Option<(String, PathBuf)>,
-    /// O retorno cita um parâmetro de tipo que a substituição não resolveu:
-    /// o tipo existe, mas não se sabe escrever (nunca `dynamic`).
+    /// The return type mentions a type parameter that the substitution did not
+    /// resolve: the type exists, but it cannot be written (never `dynamic`).
     pub incerto: bool,
 }
 
 pub trait Resolucao {
-    /// URI da biblioteca que declara `nome` no escopo de `arquivo`.
+    /// URI of the library that declares `nome` in the scope of `arquivo`.
     fn uri_do_tipo(&self, arquivo: &Path, nome: &str) -> Option<String>;
 
-    /// Tipo declarado de `membro` na classe `tipo` (nomeada no escopo de
-    /// `arquivo`), com o arquivo em cujo escopo esse tipo foi escrito — o da
-    /// classe que declara o membro, não o do componente.
+    /// Declared type of `membro` in class `tipo` (named in the scope of
+    /// `arquivo`), with the file in whose scope that type was written — that of
+    /// the class that declares the member, not that of the component.
     ///
-    /// É o que permite interpolar `{{ item.nome }}`: sem saber que `nome` é
-    /// `String`, não dá para escolher entre `interpolateString`,
-    /// `interpolate` e `updateTextWithPrimitive`.
+    /// It is what allows interpolating `{{ item.nome }}`: without knowing that
+    /// `nome` is a `String`, one cannot choose between `interpolateString`,
+    /// `interpolate` and `updateTextWithPrimitive`.
     fn tipo_do_membro(
         &self,
         _arquivo: &Path,
@@ -49,18 +49,18 @@ pub trait Resolucao {
         None
     }
 
-    /// O método de instância `nome` da classe `tipo` (nomeada no escopo de
-    /// `arquivo`, subindo pelas superclasses): quantos parâmetros
-    /// posicionais ele tem (`rewriteTearOff`) e o retorno escrito, com o
-    /// arquivo em cujo escopo ele se resolve. `None` quando não é método
-    /// (campo, getter, estático) ou quando o retorno cita parâmetro de tipo.
+    /// The instance method `nome` of class `tipo` (named in the scope of
+    /// `arquivo`, walking up the superclasses): how many positional parameters
+    /// it has (`rewriteTearOff`) and the written return type, with the file in
+    /// whose scope it resolves. `None` when it is not a method (field, getter,
+    /// static) or when the return type mentions a type parameter.
     fn metodo(&self, _arquivo: &Path, _tipo: &str, _nome: &str) -> Option<Metodo> {
         None
     }
 
-    /// [`Self::tipo_do_membro`] com `livres`: os parâmetros de tipo do
-    /// componente, em escopo em toda visão dele (as visões são genéricas).
-    /// Um argumento do receptor que é um deles se substitui como está.
+    /// [`Self::tipo_do_membro`] with `livres`: the component's type parameters,
+    /// in scope in all its views (the views are generic). A receiver argument
+    /// that is one of them is substituted as is.
     fn tipo_do_membro_livre(
         &self,
         arquivo: &Path,
@@ -71,7 +71,7 @@ pub trait Resolucao {
         self.tipo_do_membro(arquivo, tipo, membro)
     }
 
-    /// [`Self::metodo`] com `livres` e os argumentos do receptor em `tipo`.
+    /// [`Self::metodo`] with `livres` and the receiver's arguments in `tipo`.
     fn metodo_livre(
         &self,
         arquivo: &Path,
@@ -82,93 +82,95 @@ pub trait Resolucao {
         self.metodo(arquivo, tipo, nome)
     }
 
-    /// O membro de instância `membro` da classe `tipo` (nomeada no escopo de
-    /// `arquivo`, subindo pelas superclasses) é um campo `final`/`const`?
-    /// `Some(false)` para campo mutável ou getter; `None` quando não se acha
-    /// a declaração. É o `isImmutable` do ngcompiler para um membro herdado.
+    /// Is the instance member `membro` of class `tipo` (named in the scope of
+    /// `arquivo`, walking up the superclasses) a `final`/`const` field?
+    /// `Some(false)` for a mutable field or a getter; `None` when the
+    /// declaration is not found. It is ngcompiler's `isImmutable` for an
+    /// inherited member.
     fn membro_final(&self, _arquivo: &Path, _tipo: &str, _membro: &str) -> Option<bool> {
         None
     }
 
-    /// A classe `tipo` (ou algo acima dela, na ordem do Dart) tem um setter
-    /// de instância `membro` — de um campo não final ou um `set membro(..)`?
-    /// É o que a escrita `membro = x` de um evento precisa: o `PropertyWrite`
-    /// de receptor implícito vira `_ctx.membro`. `false` quando não se sabe.
+    /// Does class `tipo` (or something above it, in Dart's order) have an
+    /// instance setter `membro` — of a non-final field or a `set membro(..)`?
+    /// It is what an event's `membro = x` write needs: the `PropertyWrite` with
+    /// the implicit receiver becomes `_ctx.membro`. `false` when unknown.
     fn tem_setter(&self, _arquivo: &Path, _tipo: &str, _membro: &str) -> bool {
         false
     }
 
-    /// Os parâmetros de tipo da classe `tipo` (no escopo de `arquivo`): para
-    /// cada um, se tem limite escrito. `None` quando não se acha a classe.
+    /// The type parameters of class `tipo` (in the scope of `arquivo`): for
+    /// each one, whether it has a written bound. `None` when the class is not
+    /// found.
     fn limites_de_tipo(&self, _arquivo: &Path, _tipo: &str) -> Option<Vec<bool>> {
         None
     }
 
-    /// O nome-base do tipo `tipo` (sem `?` e sem argumentos de tipo) não
-    /// está declarado no escopo de `arquivo` — nem importado, nem no
-    /// `dart:core`. Para o analyzer é um `InvalidType`, e o `_TypeResolver`
-    /// do oficial dá `dynamic` a qualquer membro lido dele (caso típico: a
-    /// classe vem de um arquivo gerado por uma fase posterior, que o
-    /// resolvedor do builder não enxerga). `false` quando não se sabe.
+    /// The base name of type `tipo` (without `?` and without type arguments) is
+    /// not declared in the scope of `arquivo` — neither imported, nor in
+    /// `dart:core`. For the analyzer it is an `InvalidType`, and the official
+    /// `_TypeResolver` gives `dynamic` to any member read from it (typical
+    /// case: the class comes from a file generated by a later phase, which the
+    /// builder's resolver does not see). `false` when unknown.
     fn tipo_inexistente(&self, _arquivo: &Path, _tipo: &str) -> bool {
         false
     }
 
-    /// O que um nome de `directives:` designa no escopo de `arquivo`: uma
-    /// classe ou uma lista constante de outros nomes.
+    /// What a `directives:` name designates in the scope of `arquivo`: a class
+    /// or a constant list of other names.
     fn designado(&self, arquivo: &Path, nome: &str) -> Option<Designado> {
         self.uri_do_tipo(arquivo, nome)
             .map(|uri| Designado::Classe { uri })
     }
 
-    /// Um nome de `exports:` no escopo de `arquivo`: a URI da biblioteca que
-    /// o declara e o que ele é.
+    /// An `exports:` name in the scope of `arquivo`: the URI of the library
+    /// that declares it and what it is.
     fn exportado(&self, _arquivo: &Path, _nome: &str) -> Option<(String, Exportado)> {
         None
     }
 
-    /// O membro estático `membro` da classe `tipo` (no escopo de
-    /// `arquivo`).
+    /// The static member `membro` of class `tipo` (in the scope of `arquivo`).
     fn membro_estatico(&self, _arquivo: &Path, _tipo: &str, _membro: &str) -> Option<Estatico> {
         None
     }
 
-    /// O tipo do evento de uma `@Output` (`_outputType`,
-    /// `NX:source_gen/template_compiler/find_components.dart:412-445`): o `T`
-    /// do `Stream<T>` declarado no membro `membro` da classe `classe` da
-    /// biblioteca `uri`, com o arquivo do escopo em que está escrito; o
-    /// parâmetro de tipo da classe que declara vira o limite dele (ou
-    /// `dynamic`), e `Stream<void>` ou `Stream` cru, `dynamic`. `None` quando
-    /// não se sabe (membro sem tipo escrito, tipo que não é `Stream<..>`).
+    /// The event type of an `@Output` (`_outputType`,
+    /// `NX:source_gen/template_compiler/find_components.dart:412-445`): the `T`
+    /// of the `Stream<T>` declared in member `membro` of class `classe` of
+    /// library `uri`, with the file of the scope in which it is written; a type
+    /// parameter of the declaring class becomes its bound (or `dynamic`), and
+    /// `Stream<void>` or a raw `Stream`, `dynamic`. `None` when unknown (member
+    /// without a written type, a type that is not `Stream<..>`).
     fn tipo_da_saida(&self, _uri: &str, _classe: &str, _membro: &str) -> Option<(String, PathBuf)> {
         None
     }
 }
 
-/// O que um nome de `exports:` designa no escopo do componente
-/// (`_matchExport`: o oficial o escreve pelo import da biblioteca que o
-/// declara, com tipo `dynamic`).
+/// What an `exports:` name designates in the component's scope (`_matchExport`:
+/// the official compiler writes it through the import of the library that
+/// declares it, with type `dynamic`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Exportado {
-    /// Classe: vale como receptor de membro estático.
+    /// Class: valid as the receiver of a static member.
     Classe,
-    /// `enum`, `mixin` ou *extension type*: no analyzer 6 não é
-    /// `ClassElement`, e o `_extractExports` não lhe dá `AnalyzedClass`
-    /// (`find_components.dart:891-893`). Vale como receptor, mas o membro
-    /// lido dele é mutável e `dynamic` (`analyzed_class.dart:134-137`).
+    /// `enum`, `mixin` or *extension type*: in analyzer 6 it is not a
+    /// `ClassElement`, and `_extractExports` does not give it an
+    /// `AnalyzedClass` (`find_components.dart:891-893`). Valid as a receiver,
+    /// but the member read from it is mutable and `dynamic`
+    /// (`analyzed_class.dart:134-137`).
     TipoSemClasse,
-    /// Variável de topo: imutável quando `const`/`final` (`isImmutable`).
+    /// Top-level variable: immutable when `const`/`final` (`isImmutable`).
     Variavel { imutavel: bool },
     /// Getter de topo.
     Getter,
-    /// Função de topo: vale como alvo de chamada.
+    /// Top-level function: valid as a call target.
     Funcao,
 }
 
-/// Um membro estático lido por `Classe.nome`.
+/// A static member read through `Class.name`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Estatico {
-    /// Campo (ou valor de enum): imutável quando `const`/`final`.
+    /// Field (or enum value): immutable when `const`/`final`.
     Campo {
         imutavel: bool,
     },
@@ -176,20 +178,21 @@ pub enum Estatico {
     Metodo,
 }
 
-/// Um item de `directives: [...]`.
+/// An item of `directives: [...]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Designado {
-    /// Uma classe, pela URI da biblioteca que a declara.
+    /// A class, by the URI of the library that declares it.
     Classe { uri: String },
-    /// Uma lista constante (`coreDirectives`, `li.limitlessFormDirectives`):
-    /// os nomes dos itens, a resolver no escopo do arquivo que a declara.
+    /// A constant list (`coreDirectives`, `li.limitlessFormDirectives`): the
+    /// names of the items, to be resolved in the scope of the file that
+    /// declares it.
     Lista { itens: Vec<String>, escopo: PathBuf },
 }
 
 pub struct Resolvedor<'a> {
     program: &'a Program,
     interner: &'a Interner,
-    /// Caminho de cada unidade principal para a sua biblioteca.
+    /// Path of each main unit to its library.
     por_caminho: HashMap<PathBuf, LibraryId>,
 }
 
@@ -204,7 +207,8 @@ impl<'a> Resolvedor<'a> {
                 .entry(dartforge_elements::gerado::chave(caminho))
                 .or_insert(unidade.library);
         }
-        // O dialeto da geração é o do programa (`ngdart` 8 ou `ngx_dart` 9).
+        // The generation's dialect is that of the program (`ngdart` 8 or
+        // `ngx_dart` 9).
         crate::dialect::fixar(crate::dialect::do_programa(program));
         Self {
             program,
@@ -213,10 +217,11 @@ impl<'a> Resolvedor<'a> {
         }
     }
 
-    /// Cada biblioteca carregada: URI, árvore, unidade, fonte e caminho.
+    /// Each loaded library: URI, tree, unit, source and path.
     ///
-    /// É daqui que sai o índice de componentes de **todos** os pacotes — sem
-    /// isto, um `<li-select>` do limitless_ui seria só uma tag desconhecida.
+    /// This is where the component index of **all** packages comes from —
+    /// without it, an `<li-select>` from limitless_ui would be just an unknown
+    /// tag.
     pub fn bibliotecas(
         &self,
     ) -> impl Iterator<
@@ -243,13 +248,13 @@ impl<'a> Resolvedor<'a> {
         })
     }
 
-    /// O interner da carga, para ler os nomes das árvores acima.
+    /// The interner of the load, to read the names of the trees above.
     pub fn interner(&self) -> &'a Interner {
         self.interner
     }
 
-    /// O programa carregado: é dele que saem os metadados das diretivas
-    /// (`metadata.rs`), como o oficial os tira do `analyzer`.
+    /// The loaded program: the directive metadata comes from it
+    /// (`metadata.rs`), as the official compiler takes it from the `analyzer`.
     pub fn programa(&self) -> &'a Program {
         self.program
     }
@@ -268,8 +273,8 @@ impl<'a> Resolvedor<'a> {
         }
     }
 
-    /// O que `nome` (sem prefixo) ou `prefixo.nome` designa no escopo da
-    /// biblioteca `lib`. Nome ambíguo não designa nada.
+    /// What `nome` (without a prefix) or `prefixo.nome` designates in the scope
+    /// of library `lib`. An ambiguous name designates nothing.
     pub fn elemento_em(
         &self,
         lib: LibraryId,
@@ -289,7 +294,7 @@ impl<'a> Resolvedor<'a> {
         ligacao.getter
     }
 
-    /// `nome` é um prefixo de import no escopo de `lib`?
+    /// Is `nome` an import prefix in the scope of `lib`?
     pub fn e_prefixo(&self, lib: LibraryId, nome: &str) -> bool {
         self.interner
             .lookup(nome)
@@ -303,8 +308,8 @@ impl<'a> Resolvedor<'a> {
             .copied()
     }
 
-    /// A classe ou o `typedef` de um nome ancorado (`NomeªN`): o nome
-    /// declarado na biblioteca `N`, de qualquer escopo.
+    /// The class or `typedef` of an anchored name (`NameªN`): the name declared
+    /// in library `N`, from any scope.
     fn ancorado(&self, nome: &str) -> Option<Element> {
         let (simples, lib) = separar_ancora(nome)?;
         let biblioteca = self.program.libraries.get(lib)?;
@@ -312,13 +317,13 @@ impl<'a> Resolvedor<'a> {
         biblioteca.declared.get(&sym)?.getter
     }
 
-    /// `texto` (um tipo escrito no escopo de `arquivo`) com cada nome
-    /// ancorado na biblioteca que o declara ([`ANCORA`]): assim ele pode ser
-    /// posto no lugar de um parâmetro de tipo escrito noutro escopo (o `E` de
-    /// `ListMixin<E>`) e continuar designando o mesmo tipo. Ficam como estão
-    /// os nomes que se escrevem igual em qualquer escopo (`dynamic`, os do
-    /// `dart:core` de [`escrito_igual_em_todo_escopo`]), os `livres` e os já
-    /// ancorados. `None` se algum nome não se acha.
+    /// `texto` (a type written in the scope of `arquivo`) with each name
+    /// anchored to the library that declares it ([`ANCORA`]): this way it can
+    /// be put in place of a type parameter written in another scope (the `E` of
+    /// `ListMixin<E>`) and keep designating the same type. Names that are
+    /// written the same in any scope (`dynamic`, the `dart:core` ones of
+    /// [`escrito_igual_em_todo_escopo`]), the `livres` and the already anchored
+    /// ones stay as they are. `None` if some name is not found.
     fn ancorar(&self, arquivo: &Path, texto: &str, livres: &[String]) -> Option<String> {
         let lib = self.biblioteca(arquivo)?;
         let mut saida = String::with_capacity(texto.len());
@@ -362,8 +367,9 @@ impl<'a> Resolvedor<'a> {
         Some(saida)
     }
 
-    /// Os argumentos escritos no receptor, ancorados no escopo de `arquivo`;
-    /// o que não se ancora fica como está (e a busca o dá por desconhecido).
+    /// The arguments written on the receiver, anchored in the scope of
+    /// `arquivo`; what cannot be anchored stays as it is (and the lookup treats
+    /// it as unknown).
     fn ancorar_argumentos(&self, arquivo: &Path, args: Vec<String>, livres: &[String]) -> Vec<String> {
         args.into_iter()
             .map(|a| self.ancorar(arquivo, &a, livres).unwrap_or(a))
@@ -417,49 +423,49 @@ impl<'a> Resolvedor<'a> {
     }
 }
 
-/// Marca de um nome **ancorado**: `NomeªN` é o nome declarado na biblioteca
-/// de índice `N` do programa, qualquer que seja o escopo em que o texto é
-/// lido (`docs/NGDART-COMPILADOR-DE-VISOES.md` §A3). `ª` é alfabético para
-/// `char::is_alphanumeric`, então todo leitor de palavras do porte trata
-/// `NomeªN` como um nome só.
+/// Mark of an **anchored** name: `NameªN` is the name declared in the library
+/// with index `N` of the program, whatever the scope in which the text is read
+/// (`docs/NGDART-COMPILADOR-DE-VISOES.md` §A3). `ª` is alphabetic for
+/// `char::is_alphanumeric`, so every word reader of the port treats `NameªN` as
+/// a single name.
 pub const ANCORA: char = 'ª';
 
-/// O nome sem a âncora (`Itemª12` → `Item`).
+/// The name without the anchor (`Itemª12` → `Item`).
 pub fn sem_ancora(nome: &str) -> &str {
     nome.split(ANCORA).next().unwrap_or(nome)
 }
 
-/// `(nome, biblioteca)` de um nome ancorado.
+/// `(name, library)` of an anchored name.
 fn separar_ancora(nome: &str) -> Option<(&str, usize)> {
     let (simples, lib) = nome.split_once(ANCORA)?;
     Some((simples, lib.parse().ok()?))
 }
 
-/// URI `asset:<pacote>/<pasta>/<resto>` de uma URI de biblioteca.
+/// URI `asset:<package>/<folder>/<rest>` of a library URI.
 ///
-/// O emissor oficial trabalha nesse espaço; `package:x/y` é
-/// `asset:x/lib/y`.
+/// The official emitter works in this space; `package:x/y` is `asset:x/lib/y`.
 pub fn asset_de_uri(uri: &str, pacote_do_projeto: &str, raiz: &Path) -> Option<String> {
     if let Some(resto) = uri.strip_prefix("package:") {
         let (pkg, caminho) = resto.split_once('/')?;
         return Some(format!("asset:{pkg}/lib/{caminho}"));
     }
-    // `file:///…/web/main.dart` do próprio projeto.
+    // `file:///…/web/main.dart` of the project itself.
     let caminho = uri.strip_prefix("file:///").map(|c| c.replace('/', "\\"))?;
     let rel = Path::new(&caminho).strip_prefix(raiz).ok()?;
     let rel = rel.to_string_lossy().replace('\\', "/");
     Some(format!("asset:{pacote_do_projeto}/{rel}"))
 }
 
-/// `getImportModulePath` do `ngcompiler`: como um arquivo gerado em
-/// `modulo` escreve o import de `importado`, ambos em URIs `asset:`.
+/// `ngcompiler`'s `getImportModulePath`: how a file generated in `modulo`
+/// writes the import of `importado`, both as `asset:` URIs.
 pub fn caminho_do_import(modulo: &str, importado: &str) -> Option<String> {
     let m = Asset::analisar(modulo)?;
     let i = Asset::analisar(importado)?;
     if modulo == importado {
         return i.caminho.rsplit('/').next().map(str::to_string);
     }
-    // O mesmo pacote nos dois dialetos (`ngx_forms` e o canônico `ngforms`).
+    // The same package in both dialects (`ngx_forms` and the canonical
+    // `ngforms`).
     let mesmo_pacote = crate::dialect::pacote_canonico(m.pacote)
         == crate::dialect::pacote_canonico(i.pacote);
     if m.pasta == i.pasta && mesmo_pacote {
@@ -475,7 +481,7 @@ struct Asset<'a> {
     pacote: &'a str,
     /// `lib`, `web`, `test`.
     pasta: &'a str,
-    /// O que vem depois da pasta.
+    /// What comes after the folder.
     caminho: &'a str,
 }
 
@@ -492,7 +498,7 @@ impl<'a> Asset<'a> {
     }
 }
 
-/// Caminho relativo de `modulo` para `importado`, contando segmentos.
+/// Relative path from `modulo` to `importado`, counting segments.
 fn relativo(modulo: &str, importado: &str) -> String {
     let m: Vec<&str> = modulo.split('/').collect();
     let i: Vec<&str> = importado.split('/').collect();
@@ -506,8 +512,8 @@ fn relativo(modulo: &str, importado: &str) -> String {
     partes.join("/")
 }
 
-/// Aceita `T` e `p.T`: o prefixo é procurado no namespace do próprio
-/// prefixo, como manda a resolução do Dart.
+/// Accepts `T` and `p.T`: the prefix is looked up in the prefix's own
+/// namespace, as Dart resolution requires.
 impl Resolucao for Resolvedor<'_> {
     fn uri_do_tipo(&self, arquivo: &Path, nome: &str) -> Option<String> {
         self.procurar(arquivo, nome)
@@ -565,8 +571,8 @@ impl Resolucao for Resolvedor<'_> {
         let classe = self.classe(arquivo, tipo)?;
         let (_, escritos) = separar_argumentos(tipo.trim().trim_end_matches('?'));
         let escritos = self.ancorar_argumentos(arquivo, escritos, livres);
-        // Sem argumentos escritos e sem livres, a busca sem substituição; com
-        // eles, pela hierarquia com os argumentos.
+        // Without written arguments and without free ones, the lookup without
+        // substitution; with them, through the hierarchy with the arguments.
         let (id, fid, args) = if escritos.is_empty() && livres.is_empty() {
             let (id, fid) = self.membro_de_instancia(classe, sym, 0)?;
             (id, fid, None)
@@ -612,8 +618,8 @@ impl Resolucao for Resolvedor<'_> {
                     .collect();
                 let cita_proprio = palavras.iter().any(|t| proprios.contains(t));
                 let cita_do_metodo = palavras.iter().any(|t| do_metodo.contains(t));
-                // Os parâmetros da classe que declara, trocados pelos
-                // argumentos que a busca trouxe; faltando algum, incerto.
+                // The parameters of the declaring class, replaced by the
+                // arguments the lookup brought; if any is missing, uncertain.
                 let troca: Option<Vec<(&str, String)>> = match (&args, cita_proprio) {
                     (_, false) => Some(Vec::new()),
                     (None, true) => None,
@@ -666,8 +672,8 @@ impl Resolucao for Resolvedor<'_> {
         if x == "void" {
             return Some(("dynamic".into(), escopo));
         }
-        // O `fromDartType` resolve o parâmetro de tipo de cima para o limite
-        // (`resolveToBound`), sem limite `dynamic`.
+        // `fromDartType` resolves the type parameter from above to its bound
+        // (`resolveToBound`), without a bound `dynamic`.
         let c = self.program.class(dona);
         if let Some(p) = c
             .type_params
@@ -697,7 +703,7 @@ impl Resolucao for Resolvedor<'_> {
         };
         let base = tipo.trim().trim_end_matches('?');
         let base = base.split('<').next().unwrap_or(base).trim();
-        // Tipo de função, registro ou palavra reservada: não é nome a achar.
+        // Function type, record or reserved word: not a name to find.
         if base.is_empty()
             || !base
                 .chars()
@@ -733,7 +739,7 @@ impl Resolucao for Resolvedor<'_> {
         let (_, fid) = self.membro_de_instancia(self.classe(arquivo, tipo)?, sym, 0)?;
         let f = self.program.function(fid);
         let Some(vid) = f.variable else {
-            // Getter escrito: nunca imutável.
+            // Written getter: never immutable.
             return matches!(
                 f.node,
                 dartforge_elements::model::FunctionRef::Function { .. }
@@ -799,8 +805,8 @@ impl Resolucao for Resolvedor<'_> {
         let id = self.classe(arquivo, tipo)?;
         let sym = self.interner.lookup(membro)?;
         let c = self.program.class(id);
-        // Valor de enum: constante (fica em `enum_constants`, não entre os
-        // membros estáticos).
+        // Enum value: constant (it is in `enum_constants`, not among the static
+        // members).
         if c.enum_constants
             .iter()
             .any(|&v| self.program.variable(v).name == sym)
@@ -852,7 +858,7 @@ impl Resolucao for Resolvedor<'_> {
 }
 
 impl<'a> Resolvedor<'a> {
-    /// A classe que o nome `tipo` designa no escopo de `arquivo`.
+    /// The class that the name `tipo` designates in the scope of `arquivo`.
     fn classe(&self, arquivo: &Path, tipo: &str) -> Option<ClassId> {
         let simples = separar_argumentos(tipo.trim().trim_end_matches('?')).0;
         if simples.contains(ANCORA) {
@@ -878,10 +884,10 @@ impl<'a> Resolvedor<'a> {
         }
     }
 
-    /// Os itens de uma variável de topo `const` cuja inicialização é uma
-    /// lista literal de nomes (`const coreDirectives = [NgClass, NgFor]`),
-    /// também espalhados (`...outra`). Qualquer outra forma (`if`, `for`,
-    /// expressão) fica sem resposta — e quem pergunta recusa.
+    /// The items of a top-level `const` variable whose initializer is a list
+    /// literal of names (`const coreDirectives = [NgClass, NgFor]`), also
+    /// spread ones (`...other`). Any other shape (`if`, `for`, expression) gets
+    /// no answer — and whoever asks refuses.
     fn lista_constante(&self, vid: dartforge_elements::model::VariableId) -> Option<Designado> {
         use dartforge_frontend::ast;
         let v = self.program.variable(vid);
@@ -901,8 +907,8 @@ impl<'a> Resolvedor<'a> {
         };
         let mut itens = Vec::new();
         for e in elements.iter() {
-            // `...outraLista`: o valor constante é a lista achatada, na
-            // ordem — o mesmo que o nome dela no lugar.
+            // `...otherList`: the constant value is the flattened list, in
+            // order — the same as its name in place.
             let (ast::CollectionElement::Expression(x)
             | ast::CollectionElement::Spread { value: x, .. }) = e
             else {
@@ -916,12 +922,13 @@ impl<'a> Resolvedor<'a> {
         })
     }
 
-    /// Tipo declarado de um membro de instância, subindo pela superclasse
-    /// quando a classe não o declara — que é onde ficam os campos herdados.
-    /// O membro de instância `sym` visto de `classe` e a classe que o
-    /// declara, na ordem de busca do Dart: a própria classe, os mixins do
-    /// último ao primeiro (`with A, B` põe `B` por cima de `A`) e, por fim,
-    /// a superclasse, recursivamente.
+    /// Declared type of an instance member, walking up through the superclass
+    /// when the class does not declare it — which is where the inherited fields
+    /// are.
+    /// The instance member `sym` seen from `classe` and the class that declares
+    /// it, in Dart's lookup order: the class itself, the mixins from last to
+    /// first (`with A, B` puts `B` on top of `A`) and, finally, the superclass,
+    /// recursively.
     fn membro_de_instancia(
         &self,
         classe: ClassId,
@@ -943,16 +950,16 @@ impl<'a> Resolvedor<'a> {
         self.membro_de_instancia(c.supertype_class?, sym, profundidade + 1)
     }
 
-    /// O tipo do membro `membro` de `classe` visto de um receptor com os
-    /// argumentos de tipo `args` (`Grupo<dynamic>` dá `["dynamic"]`; `Grupo`
-    /// cru, nenhum). O analyzer instancia o receptor e sobe pela hierarquia
-    /// substituindo os parâmetros de cada supertipo (`MenuItemGroup<T>` →
-    /// `LabeledList<T>` → `DelegatingList<T>`, onde mora o `single`), e o
-    /// `fromDartType` escreve o resultado. Aqui a troca é textual: um
-    /// argumento só é conhecido quando se escreve igual em qualquer escopo
-    /// (`dynamic` e os tipos do `dart:core`), e o tipo que precisa de um
-    /// desconhecido fica sem resposta. Sem `args` (receptor implícito, a
-    /// própria classe), tipo que cita parâmetro também fica sem resposta.
+    /// The type of member `membro` of `classe` seen from a receiver with type
+    /// arguments `args` (`Grupo<dynamic>` gives `["dynamic"]`; a raw `Grupo`,
+    /// none). The analyzer instantiates the receiver and walks up the hierarchy
+    /// substituting the parameters of each supertype (`MenuItemGroup<T>` →
+    /// `LabeledList<T>` → `DelegatingList<T>`, where `single` lives), and
+    /// `fromDartType` writes the result. Here the substitution is textual: an
+    /// argument is only known when it is written the same in any scope
+    /// (`dynamic` and the `dart:core` types), and a type that needs an unknown
+    /// one gets no answer. Without `args` (implicit receiver, the class
+    /// itself), a type that mentions a parameter also gets no answer.
     fn membro_da_classe_com(
         &self,
         classe: ClassId,
@@ -993,7 +1000,7 @@ impl<'a> Resolvedor<'a> {
         let palavras: Vec<&str> = tipo
             .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
             .collect();
-        // Parâmetro do método: o analyzer o infere na chamada; aqui não.
+        // A method parameter: the analyzer infers it at the call; here, no.
         if palavras.iter().any(|t| do_metodo.contains(t)) {
             return None;
         }
@@ -1006,7 +1013,7 @@ impl<'a> Resolvedor<'a> {
             .zip(&args)
             .filter_map(|(n, a)| a.clone().map(|a| (*n, a)))
             .collect();
-        // Um parâmetro citado cujo argumento não se conhece: sem resposta.
+        // A mentioned parameter whose argument is unknown: no answer.
         if palavras
             .iter()
             .any(|t| proprios.contains(t) && !troca.iter().any(|(n, _)| n == t))
@@ -1016,9 +1023,9 @@ impl<'a> Resolvedor<'a> {
         Some((substituir_palavras(&tipo, &troca), escopo))
     }
 
-    /// Os argumentos de `classe` a partir dos escritos no receptor: cada um
-    /// conhecido se se escreve igual em qualquer escopo; cru, a instanciação
-    /// pelos limites (sem limite, `dynamic`).
+    /// The arguments of `classe` from those written on the receiver: each one
+    /// known if it is written the same in any scope; for a raw one, the
+    /// instantiation to bounds (without a bound, `dynamic`).
     fn instanciar(
         &self,
         classe: ClassId,
@@ -1044,8 +1051,8 @@ impl<'a> Resolvedor<'a> {
         )
     }
 
-    /// Os argumentos de um supertipo escrito (`extends LabeledList<T>`),
-    /// com os parâmetros da classe de baixo trocados pelos argumentos dela.
+    /// The arguments of a written supertype (`extends LabeledList<T>`), with
+    /// the parameters of the class below replaced by its arguments.
     fn argumentos_do_supertipo(
         &self,
         escrito: (
@@ -1084,15 +1091,16 @@ impl<'a> Resolvedor<'a> {
                         pares.push((*n, v.clone()?));
                     }
                 }
-                // Um nome livre que o supertipo cita sem ser parâmetro desta
-                // classe é outro tipo (do escopo de quem escreveu): não vale.
+                // A free name that the supertype mentions without being a
+                // parameter of this class is another type (from the scope of
+                // whoever wrote it): not valid.
                 let so_parametros = palavras
                     .iter()
                     .all(|p| troca.iter().any(|(n, _)| n == p) || !livres.iter().any(|l| l == p));
                 let novo = substituir_palavras(a, &pares);
-                // O que o supertipo escreve além dos parâmetros é do escopo
-                // da unidade que o escreve: ancorado ali, vale em qualquer
-                // outro (§A3).
+                // What the supertype writes besides the parameters belongs to
+                // the scope of the unit that writes it: anchored there, it is
+                // valid in any other (§A3).
                 let novo = u
                     .path
                     .as_deref()
@@ -1103,11 +1111,10 @@ impl<'a> Resolvedor<'a> {
             .collect()
     }
 
-    /// O membro `sym` visto de `classe` com os argumentos `args`, na ordem
-    /// de busca do Dart (a classe, os mixins do último ao primeiro, a
-    /// superclasse e, por fim, as interfaces — o `lookUpGetter2` do
-    /// analyzer também acha membro abstrato), com os argumentos da classe
-    /// que o declara.
+    /// The member `sym` seen from `classe` with arguments `args`, in Dart's
+    /// lookup order (the class, the mixins from last to first, the superclass
+    /// and, finally, the interfaces — the analyzer's `lookUpGetter2` also finds
+    /// abstract members), with the arguments of the class that declares it.
     #[allow(clippy::type_complexity)]
     fn membro_com_argumentos(
         &self,
@@ -1134,8 +1141,8 @@ impl<'a> Resolvedor<'a> {
             .map(|p| self.interner.resolve(p.name))
             .zip(args.iter().cloned())
             .collect();
-        // Um supertipo escrito que não resolveu deixa as listas de tamanhos
-        // diferentes: sem o par, os argumentos ficam desconhecidos.
+        // A written supertype that did not resolve leaves the lists with
+        // different lengths: without the pair, the arguments stay unknown.
         let pareados = |classes: &[ClassId], escritos: &[_]| -> Vec<(ClassId, Option<_>)> {
             if classes.len() == escritos.len() {
                 classes
@@ -1175,10 +1182,11 @@ impl<'a> Resolvedor<'a> {
         None
     }
 
-    /// O tipo que um acessor devolve: de um campo, o tipo escrito no campo;
-    /// de um getter, o retorno declarado. Junto, o arquivo em que esse texto
-    /// foi escrito, que é o escopo em que ele se resolve.
-    /// Algum supertipo de `classe` (sem ela) declara o membro `nome`?
+    /// The type an accessor returns: for a field, the type written on the
+    /// field; for a getter, the declared return type. Along with it, the file
+    /// where that text was written, which is the scope in which it resolves.
+    /// Does some supertype of `classe` (excluding it) declare the member
+    /// `nome`?
     fn sobrescreve(&self, classe: ClassId, nome: dartforge_intern::SymbolId) -> bool {
         let c = self.program.class(classe);
         c.mixin_classes
@@ -1188,8 +1196,9 @@ impl<'a> Resolvedor<'a> {
             .any(|&k| self.membro_de_instancia(k, nome, 0).is_some())
     }
 
-    /// `E.values` (ou `p.E.values`) com `E` um `enum` no escopo de `arquivo`:
-    /// o `List<E>` que o analyzer infere (o `values` sintético do `enum`).
+    /// `E.values` (or `p.E.values`) with `E` an `enum` in the scope of
+    /// `arquivo`: the `List<E>` the analyzer infers (the synthetic `values` of
+    /// the `enum`).
     fn valores_de_enum(
         &self,
         ast: &dartforge_frontend::ast::Ast,
@@ -1228,11 +1237,11 @@ impl<'a> Resolvedor<'a> {
                     return None;
                 };
                 let Some(t) = lista.ty else {
-                    // Sem tipo escrito, o que o analyzer infere do
-                    // inicializador (`final itemsRole = 'menuitem';`), nas
-                    // formas certas ([`crate::component::tipo_inferido`]).
-                    // Sobrescrevendo um membro de cima, o tipo viria dele
-                    // (inferência pela sobrescrita): sem resposta.
+                    // Without a written type, what the analyzer infers from the
+                    // initializer (`final itemsRole = 'menuitem';`), in the
+                    // certain shapes ([`crate::component::tipo_inferido`]).
+                    // Overriding a member from above, the type would come from
+                    // it (inference through the override): no answer.
                     if self.sobrescreve(v.class?, v.name) {
                         return None;
                     }
@@ -1241,8 +1250,8 @@ impl<'a> Resolvedor<'a> {
                         .iter()
                         .find(|x| x.name.sym == v.name)?
                         .initializer?;
-                    // `Enum.values` (o `static const List<Enum> values` que
-                    // todo `enum` tem): `List<Enum>`.
+                    // `Enum.values` (the `static const List<Enum> values` every
+                    // `enum` has): `List<Enum>`.
                     if let Some(t) = self.valores_de_enum(&u.ast, u.path.as_deref(), inicial) {
                         return Some((t, u.path.clone()?));
                     }
@@ -1271,7 +1280,7 @@ impl<'a> Resolvedor<'a> {
     }
 }
 
-/// `A` ou `p.A`, como escrito numa lista de `directives:`.
+/// `A` or `p.A`, as written in a `directives:` list.
 pub(crate) fn nome_qualificado(
     arvore: &dartforge_frontend::ast::Ast,
     interner: &Interner,
@@ -1370,9 +1379,9 @@ pub(crate) fn separar_argumentos(tipo: &str) -> (&str, Vec<String>) {
     (tipo[..i].trim(), args)
 }
 
-/// Um argumento de tipo que se escreve igual em qualquer arquivo:
-/// `dynamic`, `void` e os tipos do `dart:core` sem prefixo (com `?` ou
-/// argumentos também assim).
+/// A type argument that is written the same in any file: `dynamic`, `void` and
+/// the `dart:core` types without a prefix (with `?` or arguments also like
+/// that).
 fn escrito_igual_em_todo_escopo(tipo: &str, livres: &[String]) -> bool {
     let t = tipo.trim().trim_end_matches('?');
     let (base, args) = separar_argumentos(t);
@@ -1393,13 +1402,14 @@ fn escrito_igual_em_todo_escopo(tipo: &str, livres: &[String]) -> bool {
             | "Null"
             | "Never"
     );
-    // Um nome ancorado designa o mesmo tipo em qualquer escopo (§A3).
+    // An anchored name designates the same type in any scope (§A3).
     let ancorado = base.contains(ANCORA);
     (do_core || ancorado || (args.is_empty() && livres.iter().any(|l| l == base)))
         && args.iter().all(|a| escrito_igual_em_todo_escopo(a, livres))
 }
 
-/// Troca cada palavra de `texto` que é um dos nomes de `troca` pelo valor.
+/// Replaces each word of `texto` that is one of the names of `troca` with the
+/// value.
 fn substituir_palavras(texto: &str, troca: &[(&str, String)]) -> String {
     let mut saida = String::with_capacity(texto.len());
     let mut palavra = String::new();
