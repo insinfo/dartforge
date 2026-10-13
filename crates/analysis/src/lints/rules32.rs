@@ -1,25 +1,25 @@
-//! O trigésimo segundo lote de regras de lint
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
+//! The thirty-second batch of lint rules
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the 3.6.2
+//! emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
 //!
-//! * `unsafe_html`: a atribuição a `href` (de `AnchorElement`), `src` (de
-//!   `EmbedElement`, `IFrameElement`, `ScriptElement`) e `srcdoc` (de
-//!   `IFrameElement`), a chamada de `createFragment`/`setInnerHtml` (de
-//!   `Element`) e de `open` (de `Window`), com o alvo `dynamic` também, e o
-//!   construtor `html` de `DocumentFragment`/`Element`, pela cadeia de
-//!   superclasses (`extendsClass(…, 'dart.dom.html')`). Os códigos são os
-//!   `SecurityLintCode` do próprio emissor (mensagens diferentes das do
+//! * `unsafe_html`: the assignment to `href` (of `AnchorElement`), `src` (of
+//!   `EmbedElement`, `IFrameElement`, `ScriptElement`) and `srcdoc` (of
+//!   `IFrameElement`), the call of `createFragment`/`setInnerHtml` (of
+//!   `Element`) and of `open` (of `Window`), also with a `dynamic` target,
+//!   and the `html` constructor of `DocumentFragment`/`Element`, along the
+//!   superclass chain (`extendsClass(…, 'dart.dom.html')`). The codes are the
+//!   emitter's own `SecurityLintCode`s (messages different from those of
 //!   `messages.yaml`).
-//! * `analyzer_use_new_elements` (interna): só no pacote com o
-//!   `analyzer_use_new_elements.txt` na raiz e na biblioteca cujo arquivo
-//!   começa por um dos prefixos dele; o tipo nomeado cujo elemento é uma
-//!   declaração do `package:analyzer/dart/element/element.dart` (menos
-//!   `DirectiveUri`, `DirectiveUriWithRelativeUri`, `ElementAnnotation` e
-//!   `ElementKind`), e o identificador (fora do nome de método invocado) ou
-//!   a chamada de método cujo tipo estático contém um tipo de interface
-//!   desses.
+//! * `analyzer_use_new_elements` (internal): only in the package with
+//!   `analyzer_use_new_elements.txt` at the root and in the library whose
+//!   file starts with one of its prefixes; the named type whose element is a
+//!   declaration of `package:analyzer/dart/element/element.dart` (except
+//!   `DirectiveUri`, `DirectiveUriWithRelativeUri`, `ElementAnnotation` and
+//!   `ElementKind`), and the identifier (outside the name of an invoked
+//!   method) or the method call whose static type contains such an interface
+//!   type.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::rules::LintReport;
 use super::rules16::is_method_invocation;
@@ -67,42 +67,42 @@ pub static ANALYZER_USE_NEW_ELEMENTS: CodigoLint = CodigoLint {
     documentado: false,
 };
 
-/// O tipo de um alvo: `Some(None)` para `dynamic`, `Some(Some(classe))` para
-/// um tipo de interface.
+/// The type of a target: `Some(None)` for `dynamic`, `Some(Some(class))` for
+/// an interface type.
 #[derive(Clone, Copy)]
-enum Alvo {
-    Dinamico,
-    Classe(ClassId),
+enum TargetType {
+    Dynamic,
+    Class(ClassId),
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
-    if ligada("analyzer_use_new_elements") {
-        out.extend(novos_elementos(u, interner, s));
+    if enabled("analyzer_use_new_elements") {
+        out.extend(new_elements_rule(u, interner, s));
     }
-    if !ligada("unsafe_html") {
+    if !enabled("unsafe_html") {
         return out;
     }
     let a = u.ast;
     let program = s.program;
     let table = s.table;
-    let corpo = s.body;
-    // `extendsDartHtmlClass`: a classe ou uma superclasse é `nome` da
-    // biblioteca `dart.dom.html`.
-    let nome_da_biblioteca = |c: ClassId| -> Option<String> {
+    let body = s.body;
+    // `extendsDartHtmlClass`: the class or a superclass is `name` of the
+    // `dart.dom.html` library.
+    let library_name = |c: ClassId| -> Option<String> {
         program.library(program.class(c).library).name.as_ref().map(|n| n.iter().map(|x| interner.resolve(*x)).collect::<Vec<_>>().join("."))
     };
-    let estende = |alvo: Alvo, nome: &str| -> bool {
-        let Alvo::Classe(mut c) = alvo else { return false };
-        let mut vistos: Vec<ClassId> = Vec::new();
+    let extends_html = |recv_ty: TargetType, name: &str| -> bool {
+        let TargetType::Class(mut c) = recv_ty else { return false };
+        let mut seen: Vec<ClassId> = Vec::new();
         loop {
-            if vistos.contains(&c) {
+            if seen.contains(&c) {
                 return false;
             }
-            vistos.push(c);
-            if interner.resolve(program.class(c).name) == nome && nome_da_biblioteca(c).as_deref() == Some("dart.dom.html") {
+            seen.push(c);
+            if interner.resolve(program.class(c).name) == name && library_name(c).as_deref() == Some("dart.dom.html") {
                 return true;
             }
             match program.class(c).supertype_class {
@@ -111,16 +111,16 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             }
         }
     };
-    let dinamico_ou = |alvo: Alvo, nome: &str| matches!(alvo, Alvo::Dinamico) || estende(alvo, nome);
-    let de_tipo = |t: TypeId| -> Option<Alvo> {
+    let dynamic_or = |recv_ty: TargetType, name: &str| matches!(recv_ty, TargetType::Dynamic) || extends_html(recv_ty, name);
+    let target_type_of = |t: TypeId| -> Option<TargetType> {
         match table.get(t) {
-            Type::Dynamic => Some(Alvo::Dinamico),
-            Type::Interface { class, .. } => Some(Alvo::Classe(*class)),
+            Type::Dynamic => Some(TargetType::Dynamic),
+            Type::Interface { class, .. } => Some(TargetType::Class(*class)),
             _ => None,
         }
     };
-    // As cascatas: o `realTarget` de uma seção é o alvo da cascata.
-    let mut cascatas: std::collections::HashMap<ExprId, ExprId> = std::collections::HashMap::new();
+    // The cascades: the `realTarget` of a section is the cascade's target.
+    let mut cascades: std::collections::HashMap<ExprId, ExprId> = std::collections::HashMap::new();
     for e in a.exprs.iter() {
         if let ExprKind::Cascade { target, sections, .. } = &e.kind {
             for sec in sections.iter() {
@@ -128,7 +128,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 loop {
                     match &a.expr(x).kind {
                         ExprKind::CascadeTarget => {
-                            cascatas.insert(x, *target);
+                            cascades.insert(x, *target);
                             break;
                         }
                         ExprKind::Property { target, .. } | ExprKind::Index { target, .. } | ExprKind::Call { target, .. } | ExprKind::TypeArguments { target, .. } => x = *target,
@@ -139,63 +139,63 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             }
         }
     }
-    let tipo_real = |x: ExprId| -> Option<Alvo> {
-        let x = cascatas.get(&x).copied().unwrap_or(x);
-        corpo.get_type(x).and_then(de_tipo)
+    let real_target_type = |x: ExprId| -> Option<TargetType> {
+        let x = cascades.get(&x).copied().unwrap_or(x);
+        body.get_type(x).and_then(target_type_of)
     };
-    // O `thisType` da classe que contém o membro resolvido (só a `class`).
-    let da_classe_do_membro = |e: ExprId| -> Option<Alvo> {
-        match corpo.get_resolved(e)? {
-            Resolved::Member { class, .. } if matches!(program.class(*class).kind, ClassKind::Class | ClassKind::MixinApplication) => Some(Alvo::Classe(*class)),
+    // The `thisType` of the class that contains the resolved member (only a `class`).
+    let member_class_type = |e: ExprId| -> Option<TargetType> {
+        match body.get_resolved(e)? {
+            Resolved::Member { class, .. } if matches!(program.class(*class).kind, ClassKind::Class | ClassKind::MixinApplication) => Some(TargetType::Class(*class)),
             _ => None,
         }
     };
-    let mut achados: Vec<(dartforge_diagnostics::Span, &'static CodigoLint, Vec<String>)> = Vec::new();
+    let mut findings: Vec<(dartforge_diagnostics::Span, &'static CodigoLint, Vec<String>)> = Vec::new();
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
         match &e.kind {
             // `visitAssignmentExpression`.
             ExprKind::Assign { target, .. } => {
-                let mut esq = *target;
-                while let ExprKind::Parenthesized(x) = &a.expr(esq).kind {
-                    esq = *x;
+                let mut left = *target;
+                while let ExprKind::Parenthesized(x) = &a.expr(left).kind {
+                    left = *x;
                 }
-                let (tipo, nome) = match &a.expr(esq).kind {
-                    ExprKind::Identifier(n) => (da_classe_do_membro(esq), n.sym),
-                    ExprKind::Property { target: t, name, .. } => (tipo_real(*t), name.sym),
+                let (recv_ty, name) = match &a.expr(left).kind {
+                    ExprKind::Identifier(n) => (member_class_type(left), n.sym),
+                    ExprKind::Property { target: t, name, .. } => (real_target_type(*t), name.sym),
                     _ => continue,
                 };
-                let Some(tipo) = tipo else { continue };
-                let n = interner.resolve(nome);
-                let inseguro = match n {
-                    "href" => dinamico_ou(tipo, "AnchorElement"),
-                    "src" => matches!(tipo, Alvo::Dinamico) || estende(tipo, "EmbedElement") || estende(tipo, "IFrameElement") || estende(tipo, "ScriptElement"),
-                    "srcdoc" => dinamico_ou(tipo, "IFrameElement"),
+                let Some(recv_ty) = recv_ty else { continue };
+                let n = interner.resolve(name);
+                let is_unsafe = match n {
+                    "href" => dynamic_or(recv_ty, "AnchorElement"),
+                    "src" => matches!(recv_ty, TargetType::Dynamic) || extends_html(recv_ty, "EmbedElement") || extends_html(recv_ty, "IFrameElement") || extends_html(recv_ty, "ScriptElement"),
+                    "srcdoc" => dynamic_or(recv_ty, "IFrameElement"),
                     _ => false,
                 };
-                if inseguro {
-                    achados.push((e.span, &UNSAFE_HTML_ATTRIBUTE, vec![n.to_string()]));
+                if is_unsafe {
+                    findings.push((e.span, &UNSAFE_HTML_ATTRIBUTE, vec![n.to_string()]));
                 }
             }
-            // `visitInstanceCreationExpression` (com `new` ou sem).
+            // `visitInstanceCreationExpression` (with or without `new`).
             ExprKind::InstanceCreation { constructor: Some(c), .. } if interner.resolve(c.sym) == "html" => {
-                let Some(tipo) = corpo.get_type(id).and_then(de_tipo) else { continue };
-                if estende(tipo, "DocumentFragment") {
-                    achados.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "DocumentFragment".to_string()]));
-                } else if estende(tipo, "Element") {
-                    achados.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "Element".to_string()]));
+                let Some(recv_ty) = body.get_type(id).and_then(target_type_of) else { continue };
+                if extends_html(recv_ty, "DocumentFragment") {
+                    findings.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "DocumentFragment".to_string()]));
+                } else if extends_html(recv_ty, "Element") {
+                    findings.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "Element".to_string()]));
                 }
             }
             ExprKind::Call { target, .. } => {
-                if let Some(Resolved::Constructor(f)) = corpo.get_resolved(id) {
+                if let Some(Resolved::Constructor(f)) = body.get_resolved(id) {
                     if interner.resolve(program.function(*f).name) != "html" {
                         continue;
                     }
-                    let Some(tipo) = corpo.get_type(id).and_then(de_tipo) else { continue };
-                    if estende(tipo, "DocumentFragment") {
-                        achados.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "DocumentFragment".to_string()]));
-                    } else if estende(tipo, "Element") {
-                        achados.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "Element".to_string()]));
+                    let Some(recv_ty) = body.get_type(id).and_then(target_type_of) else { continue };
+                    if extends_html(recv_ty, "DocumentFragment") {
+                        findings.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "DocumentFragment".to_string()]));
+                    } else if extends_html(recv_ty, "Element") {
+                        findings.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "Element".to_string()]));
                     }
                     continue;
                 }
@@ -203,34 +203,34 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 if !is_method_invocation(s, a, *target) {
                     continue;
                 }
-                let (tipo, nome) = match &a.expr(*target).kind {
-                    ExprKind::Identifier(n) => (da_classe_do_membro(*target), n.sym),
-                    ExprKind::Property { target: t, name, .. } => (tipo_real(*t), name.sym),
+                let (recv_ty, name) = match &a.expr(*target).kind {
+                    ExprKind::Identifier(n) => (member_class_type(*target), n.sym),
+                    ExprKind::Property { target: t, name, .. } => (real_target_type(*t), name.sym),
                     _ => continue,
                 };
-                let Some(tipo) = tipo else { continue };
-                let n = interner.resolve(nome);
-                let (inseguro, de) = match n {
-                    "createFragment" | "setInnerHtml" => (dinamico_ou(tipo, "Element"), "Element"),
-                    "open" => (dinamico_ou(tipo, "Window"), "Window"),
+                let Some(recv_ty) = recv_ty else { continue };
+                let n = interner.resolve(name);
+                let (is_unsafe, owner_class) = match n {
+                    "createFragment" | "setInnerHtml" => (dynamic_or(recv_ty, "Element"), "Element"),
+                    "open" => (dynamic_or(recv_ty, "Window"), "Window"),
                     _ => (false, ""),
                 };
-                if inseguro {
-                    achados.push((e.span, &UNSAFE_HTML_METHOD, vec![n.to_string(), de.to_string()]));
+                if is_unsafe {
+                    findings.push((e.span, &UNSAFE_HTML_METHOD, vec![n.to_string(), owner_class.to_string()]));
                 }
             }
             _ => {}
         }
     }
-    for (span, code, args) in achados {
+    for (span, code, args) in findings {
         out.push(LintReport { code, span, args });
     }
     out
 }
 
-/// `_isOldModelElement`: a classe declarada na unidade
-/// `package:analyzer/dart/element/element.dart`, fora das que não migram.
-fn modelo_antigo(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
+/// `_isOldModelElement`: the class declared in the unit
+/// `package:analyzer/dart/element/element.dart`, except those that do not migrate.
+fn is_old_model_element(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
     let k = s.program.class(c);
     let Some(r) = k.decl else { return false };
     if s.program.unit(r.unit).uri != "package:analyzer/dart/element/element.dart" {
@@ -239,14 +239,14 @@ fn modelo_antigo(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> b
     !matches!(interner.resolve(k.name), "DirectiveUri" | "DirectiveUriWithRelativeUri" | "ElementAnnotation" | "ElementKind")
 }
 
-/// `_isOldModelType`: o `RecursiveTypeVisitor` pelos tipos de interface.
-fn tipo_antigo(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, prof: u32) -> bool {
-    if prof > 32 {
+/// `_isOldModelType`: the `RecursiveTypeVisitor` over interface types.
+fn is_old_model_type(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, depth: u32) -> bool {
+    if depth > 32 {
         return false;
     }
-    let r = |x: TypeId| tipo_antigo(s, interner, x, prof + 1);
+    let r = |x: TypeId| is_old_model_type(s, interner, x, depth + 1);
     match s.table.get(t) {
-        Type::Interface { class, args, .. } => modelo_antigo(s, interner, *class) || args.iter().any(|x| r(*x)),
+        Type::Interface { class, args, .. } => is_old_model_element(s, interner, *class) || args.iter().any(|x| r(*x)),
         Type::ExtensionType { args, .. } => args.iter().any(|x| r(*x)),
         Type::FutureOr { arg, .. } => r(*arg),
         Type::Function { ret, positional, optional, named, .. } => r(*ret) || positional.iter().chain(optional.iter()).any(|x| r(*x)) || named.iter().any(|(_, x, _)| r(*x)),
@@ -256,23 +256,23 @@ fn tipo_antigo(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, prof: u
 }
 
 /// `analyzer_use_new_elements`.
-fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'_>) -> Vec<LintReport> {
+fn new_elements_rule(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'_>) -> Vec<LintReport> {
     let mut out = Vec::new();
     let program = s.program;
-    // `_isEnabledForFile`: o pacote pub, o arquivo de opção e os prefixos.
+    // `_isEnabledForFile`: the pub package, the option file and the prefixes.
     let lib = program.library(program.unit(s.unit).library);
-    let Some(arquivo) = lib.units.first().and_then(|x| program.unit(*x).path.clone()) else { return out };
-    let Some(raiz) = arquivo.ancestors().skip(1).find(|d| d.join("pubspec.yaml").is_file()).map(std::path::Path::to_path_buf) else { return out };
-    let Ok(texto) = std::fs::read_to_string(raiz.join("analyzer_use_new_elements.txt")) else { return out };
-    let separador = std::path::MAIN_SEPARATOR.to_string();
-    let prefixos: Vec<String> = texto.trim().split('\n').map(|l| l.trim().replace('/', &separador)).collect();
-    let caminho = arquivo.to_string_lossy().to_string();
-    let base = raiz.to_string_lossy().to_string();
-    if !caminho.starts_with(&base) || caminho.len() <= base.len() {
+    let Some(file) = lib.units.first().and_then(|x| program.unit(*x).path.clone()) else { return out };
+    let Some(root) = file.ancestors().skip(1).find(|d| d.join("pubspec.yaml").is_file()).map(std::path::Path::to_path_buf) else { return out };
+    let Ok(text) = std::fs::read_to_string(root.join("analyzer_use_new_elements.txt")) else { return out };
+    let separator = std::path::MAIN_SEPARATOR.to_string();
+    let prefixes: Vec<String> = text.trim().split('\n').map(|l| l.trim().replace('/', &separator)).collect();
+    let path = file.to_string_lossy().to_string();
+    let base = root.to_string_lossy().to_string();
+    if !path.starts_with(&base) || path.len() <= base.len() {
         return out;
     }
-    let relativo = &caminho[base.len() + 1..];
-    if !prefixos.iter().any(|p| relativo.starts_with(p.as_str())) {
+    let relative = &path[base.len() + 1..];
+    if !prefixes.iter().any(|p| relative.starts_with(p.as_str())) {
         return out;
     }
     let a = u.ast;
@@ -285,21 +285,21 @@ fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'_>
             _ => None,
         };
         if let Some(dartforge_elements::model::Element::Class(c)) = b.and_then(|b| b.getter)
-            && modelo_antigo(s, interner, c)
-            && let Some(ultimo) = name.last()
+            && is_old_model_element(s, interner, c)
+            && let Some(last) = name.last()
         {
-            out.push(LintReport { code: &ANALYZER_USE_NEW_ELEMENTS, span: ultimo.span, args: Vec::new() });
+            out.push(LintReport { code: &ANALYZER_USE_NEW_ELEMENTS, span: last.span, args: Vec::new() });
         }
     }
-    // Os nomes de método invocados: só pelo `visitMethodInvocation`.
-    let mut nomes_de_metodo: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
+    // The invoked method names: only through `visitMethodInvocation`.
+    let mut method_names: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     for (k, e) in a.exprs.iter().enumerate() {
         let ExprKind::Call { target, .. } = &e.kind else { continue };
         if matches!(s.body.get_resolved(ExprId(k as u32)), Some(Resolved::Constructor(_))) || !is_method_invocation(s, a, *target) {
             continue;
         }
-        nomes_de_metodo.insert(*target);
-        if s.body.get_type(ExprId(k as u32)).is_some_and(|t| tipo_antigo(s, interner, t, 0)) {
+        method_names.insert(*target);
+        if s.body.get_type(ExprId(k as u32)).is_some_and(|t| is_old_model_type(s, interner, t, 0)) {
             let sp = match &a.expr(*target).kind {
                 ExprKind::Property { name, .. } => name.span,
                 _ => a.expr(*target).span,
@@ -307,10 +307,10 @@ fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'_>
             out.push(LintReport { code: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
         }
     }
-    // `visitSimpleIdentifier`: o identificador e o nome de propriedade.
+    // `visitSimpleIdentifier`: the identifier and the property name.
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
-        if nomes_de_metodo.contains(&id) {
+        if method_names.contains(&id) {
             continue;
         }
         let sp = match &e.kind {
@@ -318,7 +318,7 @@ fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'_>
             ExprKind::Property { name, .. } => name.span,
             _ => continue,
         };
-        if s.body.get_type(id).is_some_and(|t| tipo_antigo(s, interner, t, 0)) {
+        if s.body.get_type(id).is_some_and(|t| is_old_model_type(s, interner, t, 0)) {
             out.push(LintReport { code: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
         }
     }
