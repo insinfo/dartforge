@@ -750,3 +750,77 @@ primários, augmentations) em ~15 casos; `default` em tipo de função (o valor 
 é inferido); código morto em mensagem de `assert` do inicializador; `late`
 definitivamente não atribuída em laço; `ambiguous_extension_member_access` de
 `[]` com getter/setter.
+
+## 10. Rodada de 2026-10-13, tarde (macOS)
+
+| medida | antes | depois |
+| --- | ---: | ---: |
+| Placar (posição exata) | 22.975/23.012 | **23.001/23.012** |
+| FP / posição errada / mensagem errada / FN | 0 / 0 / 9 / 37 | **0 / 0 / 5 / 11** |
+| Pub-cache (209 pacotes): FP / mensagem errada / FN | 0 / 0 / 29 | **0 / 0 / 6** |
+| Projetos reais (10): FP | 0 | **0** |
+
+Consertos (casos conferidos no `dart analyze` 3.6.2 em
+`crates/parity/tests/analyzer_rules.rs`):
+
+* Parser: `extends`/`implements`/`on`/superclasse de aplicação de mixin lidos
+  com `ensureTypeNotVoid` (`void` sozinho é `expected_type_name` e depois tipo
+  que não é classe: `extends_non_class`, `implements_non_class`,
+  `mixin_super_class_constraint_non_interface`); tipo de função ou registro na
+  cláusula é `expected_named_type` e sai da cláusula
+  (`_popNamedTypeList`); `this.`/`super.` sem nome ganham nome sintético (o
+  parâmetro fica: `initializing_formal_for_non_existent_field` com `''`); o
+  `required` que a recuperação do `ModifierContext` vê num nomeado é
+  `extraneous_modifier`, e só o `required` inicial torna o parâmetro
+  obrigatório; `var`/`final` em parâmetro de função à moda antiga e `var` com
+  tipo são `function_typed_parameter_var` e `var_and_type`.
+* Anotações de membro resolvidas no escopo da classe/extensão (setter sozinho
+  esconde o getter de fora; membro de instância é `invalid_annotation`) e com
+  o contexto do membro para o acesso sem `this` (estático, fábrica, campo).
+* Fluxo: a `InterpolationString` depois de `${throw …}` abre código morto (no
+  inicializador, até o fim do construtor); `for` de elemento sem condição
+  termina o fluxo; captura de escrita em closure por declaração (não por
+  nome); padrão `?` sobre valor não anulável ainda junta o fluxo "não casou"
+  antes da 3.9.
+* Constantes: argumento de tipo escrito que nomeia parâmetro de tipo numa
+  instanciação de tear-off constante; a parte `this :` do primário de um
+  extension type `const` precisa ser potencialmente constante.
+* Variância declarada (`in`/`inout`, experimento `variance`): a escolha da
+  solução prefere o limite superior para `in`, e o UP da mesma classe usa DOWN
+  em `in` e exige argumentos iguais em `inout`.
+* Criação sem construtor (`C()` sem o construtor sem nome) tem o tipo nomeado
+  (argumentos escritos ou instanciação aos limites; por alias, a expansão
+  exibida com o alias: `T<dynamic>`).
+* `[] =` com `[]` e `[]=` em extensões diferentes é ambíguo pelo nome `[]`;
+  `super.x` posicional obrigatório não marca o parâmetro da superclasse como
+  usado (3.6.2; marca no 3.13.4); representação sintética (sem primário)
+  dá `final_not_initialized_constructor` com `'<empty>'` (só 3.6.2);
+  representação nomeada sem tipo é `Object?` para o 3.13.4.
+* `deprecated_member_use(_from_same_package)`: nomes das anotações
+  (`@required`, `@alwaysThrows` do `meta`), referências `[A]`, `[A.b]`,
+  `[p.A]` dos comentários de documentação (membro do tipo envolvente,
+  escopo da biblioteca, depois membro herdado; `[A.b.c]` sem prefixo não
+  resolve) e o campo de um inicializador de campo (`x = e`).
+* Desempenho: `methods_without_combined_signature` deixou de percorrer todas
+  as funções do programa a cada biblioteca (sumiu do perfil do
+  `new_sali/backend`).
+
+Restam (11 FN, 5 mensagens): recursos 3.13 e augmentations analisados pelo
+3.6.2/3.13.4 de jeitos próprios (`augment` como duplicata, `<unnamed>`,
+`const A([])` avaliando o inicializador de campo do primário, conflito de
+membros herdados que vem do getter da representação, que o modelo não tem
+como elemento); `default` em tipo de função não é inferido
+(`ambiguous_set_or_map_literal_both`; também evita o FP de
+`unused_local_variable` de local citado só ali); `E2.named` não referenciado
+num enum com primário duplicado; exibição de `Null?`, `Never Function(Never)`
+e `Comparable<Object?>` (o tipo escrito sem normalizar). No pub-cache, os 6 FN
+são `[detectChanges]` em comentário de `View` (ngdart/ngx_dart), um membro de
+extensão aplicável ao tipo envolvente, que a resolução de referências não
+procura.
+
+Desempenho (`new_sali/backend`, 369 arquivos, um processo): ~12 s de CPU
+nossos, contra 21,7 s do `dart analyze` frio e 2,6 s com cache. O que sobra no
+perfil: `UnitBodyTypes::new` (cada passada por biblioteca aloca tabelas de
+todas as unidades que não são do SDK, quadrático no número de bibliotecas) e
+hashing SipHash em mapas por biblioteca. Medidas com a máquina carregada
+(carga 60–76) não são comparáveis; refazer com a máquina livre.
