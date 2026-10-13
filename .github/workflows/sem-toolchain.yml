@@ -55,7 +55,7 @@ jobs:
           shared-key: pesado-release
           save-if: false
       - name: Compilar dartforge (nativo, jit) e o harness
-        run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-differential
+        run: cargo build --locked --release -p dartforge-cli --features native,jit -p dartforge-differential
       # As importações contra as DLLs do System32 do runner, e programas C
       # (executável e DLL) ligados só com o lld-link e executados.
       - name: Testes do ligador do Windows
@@ -245,7 +245,7 @@ jobs:
           shared-key: pesado-unix
           save-if: false
       - name: Compilar dartforge (nativo, jit) e o harness
-        run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-differential
+        run: cargo build --locked --release -p dartforge-cli --features native,jit -p dartforge-differential
       - name: Testes dos ligadores
         run: cargo test --locked --release -p dartforge-emit-native --lib ligador_ -- --include-ignored
       - name: Montar a distribuição

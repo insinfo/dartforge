@@ -22,7 +22,7 @@ const COMPILING_EXECUTOR: &str = "DARTFORGE_BUILD_COMPILANDO_EXECUTOR";
 /// compilers (`compile-js`, `compile-native`, `run`), only with
 /// `DARTFORGE_BUILD_NATIVO=1`, because the executor's first compilation costs
 /// minutes. `DARTFORGE_BUILD_NATIVO=0` always turns it off (the fallback
-/// remains). Without the `nativo` feature, only the VM.
+/// remains). Without the `native` feature, only the VM.
 pub fn attach_executor(engine: &mut Engine, dart: Option<PathBuf>, sdk: Option<PathBuf>, cfg_path: &Path, default: bool) {
     if let Some(d) = dart {
         dartforge_build::vm::attach(engine, d, cfg_path);
@@ -34,7 +34,7 @@ pub fn attach_executor(engine: &mut Engine, dart: Option<PathBuf>, sdk: Option<P
         Some(_) => true,
         None => default,
     };
-    if cfg!(feature = "nativo") && enabled && let Ok(exe) = std::env::current_exe() {
+    if cfg!(feature = "native") && enabled && let Ok(exe) = std::env::current_exe() {
         dartforge_build::native_executor::attach(engine, exe, sdk, cfg_path);
     }
 }
@@ -110,7 +110,7 @@ pub fn generate_once(
 /// builders (DF-BUILD-009): `compile` receives the generator (or `None`) and
 /// the engine's report goes to `stderr`. An engine error fails the
 /// compilation — never an empty generation that lets the loader read the disk.
-#[cfg(feature = "nativo")]
+#[cfg(feature = "native")]
 pub fn with_generator<R>(
     input: &Path,
     packages: Option<&Path>,
@@ -142,7 +142,7 @@ pub fn with_generator<R>(
 /// without asking, nothing goes to disk (governing rule 6). With `--dart` (or
 /// `DARTFORGE_BUILD_DART`) the builders without a native generator run on the
 /// Dart VM (`dartforge_build::vm`); without it, on the native executor
-/// (`dartforge_build::native_executor`, requires the `nativo` feature).
+/// (`dartforge_build::native_executor`, requires the `native` feature).
 pub fn run_build(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<std::ffi::OsString> = args.to_vec();
     std::thread::Builder::new()

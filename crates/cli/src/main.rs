@@ -1,7 +1,7 @@
 //! Command-line interface of the DartForge compiler.
 use std::{env, path::PathBuf, process::ExitCode};
 mod analyze;
-#[cfg(feature = "nativo")]
+#[cfg(feature = "native")]
 mod pack;
 mod engine;
 mod format;
@@ -16,7 +16,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args.is_empty() || args[0] == "--help" {
         println!(
             "DartForge - Dart to JavaScript compiler\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]
-       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge build [<input.dart>] [--raiz <dir>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado]\n       dartforge aot|abi-info ...  (build with --features nativo)
+       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge build [<input.dart>] [--raiz <dir>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado]\n       dartforge aot|abi-info ...  (build with --features native)
        dartforge run|reload <input.dart> ...  (build with --features jit)
        dartforge empacotar <destination>  (the distribution: executable, runtime, SDK, linker)\n       dartforge analyze [--format=json] [--todos] [<dir|file>]  (the JSON of dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <files|dirs>  (dart format 3.6.2)\n       dartforge macros <input.dart> [--materializar] [--forma 3.6|atual] [--dart <exe>]\n\ncompile-js emits one ES module per library under the DDC contract.\ndev keeps the session alive and recompiles only what the edit affects."
         );
@@ -48,10 +48,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return native::aot(&args);
     }
     if args[0] == "empacotar" {
-        #[cfg(feature = "nativo")]
+        #[cfg(feature = "native")]
         return pack::run(&args[1..]);
-        #[cfg(not(feature = "nativo"))]
-        return Err("empacotar: build with --features nativo".into());
+        #[cfg(not(feature = "native"))]
+        return Err("empacotar: build with --features native".into());
     }
     Err(format!("unknown command: {}", args[0].to_string_lossy()).into())
 }

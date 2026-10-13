@@ -2,7 +2,7 @@
 //! cover (the VM does not serve as a reference, or the defect only shows up
 //! under load): each program is compiled by AOT and has to finish, within
 //! the deadline, with the expected output.
-#![cfg(feature = "nativo")]
+#![cfg(feature = "native")]
 
 use std::io::Read;
 use std::process::{Command, Stdio};

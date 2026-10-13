@@ -14,7 +14,7 @@ pub mod generator;
 pub mod linker;
 pub mod linker_macos;
 pub mod linker_windows;
-#[cfg(feature = "llvm-embutido")]
+#[cfg(feature = "embedded-llvm")]
 pub mod distributed_lto;
 pub mod hir;
 pub mod llvm;

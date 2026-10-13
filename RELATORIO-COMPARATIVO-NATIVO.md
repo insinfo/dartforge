@@ -141,7 +141,7 @@ Tempos em ms.
 
 - A0 vem da rodada mais limpa. As outras linhas vêm da rodada completa, mais
   ruidosa (nela o A0 deu 145 no `numerico` e 144 no `textos`).
-- O JIT pede a CLI montada com `--features nativo,jit` (LLVM embutido). Para
+- O JIT pede a CLI montada com `--features native,jit` (LLVM embutido). Para
   montá-la no macOS:
   - ligar com o `clang` e o `lld` do LLVM 22 (`CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER`
     e `-fuse-ld=lld`, como no CI);

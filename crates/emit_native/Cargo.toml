@@ -24,7 +24,7 @@ blake3 = "1"
 dartforge-llvm = { path = "../llvm", optional = true }
 
 [features]
-llvm-embutido = ["dep:dartforge-llvm"]
+embedded-llvm = ["dep:dartforge-llvm"]
 
 [build-dependencies]
 blake3 = "1"

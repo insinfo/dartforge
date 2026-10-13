@@ -1,26 +1,26 @@
-//! Commands of the native backend (ORCv2 JIT, AOT, ABI), behind the `nativo` feature.
+//! Commands of the native backend (ORCv2 JIT, AOT, ABI), behind the `native` feature.
 //!
 //! The JavaScript path does not depend on LLVM: without the feature, the
 //! commands exist but explain how to enable them. This keeps `llvm-sys` out of
 //! the CLI's default build (it was what cost minutes and required `LLVM-C.dll`).
-#![cfg_attr(not(feature = "nativo"), allow(unused))]
+#![cfg_attr(not(feature = "native"), allow(unused))]
 use std::{fs, path::PathBuf};
 
 type Outcome = Result<(), Box<dyn std::error::Error>>;
 
-#[cfg(not(feature = "nativo"))]
+#[cfg(not(feature = "native"))]
 fn disabled(command: &str) -> Outcome {
-    Err(format!("`dartforge {command}` requires the native backend: build with `cargo build -p dartforge-cli --features nativo` (set DARTFORGE_CLANG to LLVM 22)").into())
+    Err(format!("`dartforge {command}` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)").into())
 }
 
-#[cfg(not(feature = "nativo"))]
+#[cfg(not(feature = "native"))]
 pub fn abi_info(_args: &[std::ffi::OsString]) -> Outcome { disabled("abi-info") }
-#[cfg(not(feature = "nativo"))]
+#[cfg(not(feature = "native"))]
 pub fn aot(_args: &[std::ffi::OsString]) -> Outcome { disabled("aot") }
-#[cfg(not(feature = "nativo"))]
+#[cfg(not(feature = "native"))]
 pub fn run_compile_native(_args: &[std::ffi::OsString]) -> Outcome { disabled("compile-native") }
 
-#[cfg(feature = "nativo")]
+#[cfg(feature = "native")]
 pub fn abi_info(args: &[std::ffi::OsString]) -> Outcome {
         use dartforge_abi::{NativeType, Target};
         if args.len() != 2 {
@@ -49,7 +49,7 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Outcome {
         return Ok(());
 }
 
-#[cfg(feature = "nativo")]
+#[cfg(feature = "native")]
 /// `--excecoes checagem|tabelas`: the exception model of the generated code
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13). The emitter reads it from the
 /// `DARTFORGE_EXCECOES` variable (`dartforge_emit_native::target::table_exceptions`),
@@ -66,7 +66,7 @@ fn set_exception_model(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(feature = "nativo")]
+#[cfg(feature = "native")]
 /// `--memoria tracing|arc`: the memory policy of the generated code
 /// (docs/ARC-CICLOS-ESPECIFICACAO.md §18.1 and §24; docs/ARC-IMPLEMENTACAO.md).
 /// Like [`set_exception_model`]: the emitter reads `DARTFORGE_MEMORIA`, which
@@ -82,7 +82,7 @@ pub(crate) fn set_memory_policy(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(feature = "nativo")]
+#[cfg(feature = "native")]
 /// `--raizes sombra|mapas`: where the collector's roots live in the generated
 /// code (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8). Like
 /// [`set_exception_model`]: the emitter reads `DARTFORGE_RAIZES`.
@@ -97,7 +97,7 @@ fn set_roots_mode(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(feature = "nativo")]
+#[cfg(feature = "native")]
 /// `--rastro simbolico|nenhum`: the stack trace in the VM's format
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14): `simbolico` emits the
 /// address → (function, line, column) table and the `StackTrace` comes out
@@ -114,13 +114,13 @@ fn set_stack_trace(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(feature = "nativo")]
+#[cfg(feature = "native")]
 /// `dartforge aot <input.dart> <output.exe>` — production AOT.
 ///
 /// This command used to call `dartforge_compiler::compile_path_llvm_*`, from
 /// the old track (`lexer`/`parser`/`hir`/`llvm`), which is no longer a
 /// dependency of the CLI: the crate left `Cargo.toml` and the command stopped
-/// compiling with the `nativo` feature. The live native compiler is
+/// compiling with the `native` feature. The live native compiler is
 /// `emit_native` (frontend -> elements/types -> its own HIR -> LLVM IR ->
 /// Clang), the same as `compile-native`; `aot` becomes its production alias,
 /// so that there is a single native track instead of two measuring different
@@ -229,7 +229,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     Ok(())
 }
 
-#[cfg(feature = "nativo")]
+#[cfg(feature = "native")]
 pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     set_memory_policy("tracing")?;
     use dartforge_elements::sdk::LanguageOptions;
@@ -358,7 +358,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     Ok(())
 }
 
-#[cfg(feature = "nativo")]
+#[cfg(feature = "native")]
 /// `compile-native --emit-ir` / `--resumo`: emission only, without Clang or
 /// linking — what the determinism test compares, and what changes when the
 /// emitter changes.

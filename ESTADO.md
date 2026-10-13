@@ -1457,7 +1457,7 @@ sobrescrita, escalares/escopos, aliases publicados, entrada opaca em Phi,
 layouts divergentes, Phi de dois sítios/classes e Phi ancorado em laço.
 Passaram 248 testes do emissor (7 ignorados) e 52 exemplos de documentação.
 
-Prova AOT arc_local_fields passou no Windows com llvm-embutido:
+Prova AOT arc_local_fields passou no Windows com embedded-llvm:
 ARC/tracing × O0/O2, quatro positivas e doze controles por trap, retirando
 keepalive, cleanup do receiver ou release final do retorno. HIR aloca 40
 campos/Mint, muda e relê int 85, double -0.0, bool true e byte 255, lê o
@@ -1489,7 +1489,7 @@ do grupo, sem duplicar a cópia do módulo. Tracing permanece intacto.
 Teste adicional confere keepalive de campo borrowed antes do safepoint da
 alocação e release depois da inicialização. Passaram 242 testes do emissor
 (7 ignorados) e 52 exemplos de documentação.
-Prova AOT arc_field_allocation passou no Windows com llvm-embutido:
+Prova AOT arc_field_allocation passou no Windows com embedded-llvm:
 ARC/tracing × O0/O2, quatro positivas e oito controles por trap sem owner
 do objeto ou sem release do filho. HIR cria objeto de 40 campos/Mint;
 confere bits 85, -0.0, true e byte 255, aresta Ref no índice 39, owner do
@@ -1553,7 +1553,7 @@ exata 1 LF e controles exigindo trap de instrução, rejeitando erro de carga,
 abort e falha de geração. Registra comandos, saídas, versões e hashes;
 temporários ficam em target e são removidos ao encerrar. As três matrizes
 locais passaram: 20 positivas e 28 negativas, 240 hashes conferidos. Laços
-também passaram com llvm-embutido. Teste do exemplo passou (1 teste), YAML
+também passaram com embedded-llvm. Teste do exemplo passou (1 teste), YAML
 confere 48 steps válidos. CI preparada para usar o script e guardar logs e
 manifestos nas três plataformas; essa revisão ainda não foi publicada.
 Na CI 38034929874 da fonte ed5897e9, Windows e Linux terminaram com sucesso;
@@ -2272,7 +2272,7 @@ da prova AOT: o exemplo exigia target triple explícito, mas o cabeçalho macOS
 é genérico e o gerador completa o alvo. Corrigida a asserção para presença de
 declarações. Prova de geração do corpo escolhe Linux x86-64 ou aarch64 conforme
 a arquitetura nativa registrada no LLVM, sem exigir backend x86 no runner ARM.
-CI Unix passa a testar emit_native com llvm-embutido explicitamente, cobrindo
+CI Unix passa a testar emit_native com embedded-llvm explicitamente, cobrindo
 a geração O0/O2 dos dois corpos de cleanup/catch. Log macOS terminal obtido
 pela API do job 114087818227 em `target/ci-38010046028/macos-falha.log`.
 Não valida execução macOS; requer nova rodada com a correção e a variante mista.
@@ -2776,7 +2776,7 @@ O teste de emissão determinística também passou com
 anterior à separação do passe.
 Validação local do passe separado, código de `a80d1b84`: A1, A1 sob
 `--gc-stress`, B1 e B1 sob `--gc-stress`, todos 238/238 e código de saída 0.
-O harness foi recompilado com `llvm-embutido`; SHA-256
+O harness foi recompilado com `embedded-llvm`; SHA-256
 `3F5B4C1286C66C8BFB25880798B3C90F5C5DDCF753FC4C675204A99CE3798738`.
 Relatórios em `target/validacao-a80d1b84/`, incluindo a tentativa inicial
 inválida (`DARTFORGE_MEMORIA=rastreamento`, rejeitada antes de compilar),
@@ -6026,11 +6026,11 @@ português na saída**). A tabela (`diagnostics/src/codigos_g.rs`) é gerada do
 * **CI**: job `analise` do `pesado.yml`, contra o oráculo gravado (o runner
   não roda `dart analyze`), com o relatório idêntico em 1, 4 e 8
   trabalhadores (`determinismo`).
-### 1.5 Backend nativo — `crates/emit_native` (feature `nativo`)
+### 1.5 Backend nativo — `crates/emit_native` (feature `native`)
 
 Trilha nova → HIR própria → LLVM IR → Clang → executável, com o runtime
 Rust (GC por tracing). `dartforge compile-native` (compile com
-`cargo build -p dartforge-cli --features nativo`); `dartforge aot` é o
+`cargo build -p dartforge-cli --features native`); `dartforge aot` é o
 apelido de produção do mesmo caminho.
 
 **Rodada 2, P6 + RTI: corpus nativo 91/223 (Pesado 35904857766, CI
@@ -6212,7 +6212,7 @@ antes de toda alocação.
     (`sdk_cache`), e passa no Windows (registro de 2026-09-23 no cabeçalho do
     `ci.yml`, não reconferido). O `cargo test --workspace` continua só no
     Windows, mas o job `nativo-unix` do `ci.yml` (Ubuntu e macOS) compila a
-    CLI com `--features nativo,jit` e roda os testes do `emit_native`, do
+    CLI com `--features native,jit` e roda os testes do `emit_native`, do
     `jit`, a recarga pela CLI, as regressões de `dart:io` e a distribuição
     num ambiente limpo (`.github/workflows/ci.yml:162-250`).
   * Sem exclusões de crate: a trilha velha, o `cranelift-jit` e o driver

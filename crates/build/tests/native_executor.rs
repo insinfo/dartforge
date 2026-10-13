@@ -5,7 +5,7 @@
 //! is that of `vm_executor.rs`: output byte for byte equal to the oracle's,
 //! and incremental equal to from-scratch on every edit of the case.
 //!
-//! Prerequisites, hence `#[ignore]`: a `dartforge` with the `nativo` feature
+//! Prerequisites, hence `#[ignore]`: a `dartforge` with the `native` feature
 //! (`DARTFORGE_COMPILADOR`, or `target/release/dartforge`), the SDK
 //! (`DARTFORGE_SDK_LIB`/`DART_SDK`, like `compile-native`) and the
 //! `package_config.json` of each case (`dart pub get --enforce-lockfile`).

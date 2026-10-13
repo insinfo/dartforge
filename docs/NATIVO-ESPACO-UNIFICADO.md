@@ -2100,7 +2100,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
 
 Máquina Windows 11 (ambiente do scratchpad `agente-http/env.sh`), `--release`:
 
-1. `cargo build --release -p dartforge-cli --features nativo`.
+1. `cargo build --release -p dartforge-cli --features native`.
 2. `cargo test --release -p dartforge-runtime -p dartforge-emit-native -p dartforge-jit -p dartforge-cli`
    (inclui `tests/hot_reload.rs`, `reload_state.rs`, `io_regression.rs`, `jit_program.rs`).
 3. Módulo `heap` com `DARTFORGE_GC_VERIFICAR=1`.

@@ -517,7 +517,7 @@ impl Engine {
                 &m.package_graph.root_dir,
             ));
         }
-        #[cfg(feature = "nativos")]
+        #[cfg(feature = "native-generators")]
         {
             for g in crate::natives::all() {
                 m.register_native(g);

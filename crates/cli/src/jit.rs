@@ -1,7 +1,7 @@
 //! `dartforge run` and `dartforge reload`: the development profile of the
 //! native backend, through the ORCv2 JIT (`crates/jit`), behind the `jit` feature.
 //!
-//! The feature is separate from `nativo` because it links `dartforge` to the
+//! The feature is separate from `native` because it links `dartforge` to the
 //! LLVM of the full distribution (on Windows, to `LLVM-C.dll`: without it the
 //! executable does not start, not even for `compile-js`; on Linux and macOS,
 //! statically or to the package's `libLLVM`). Whoever only wants AOT does not

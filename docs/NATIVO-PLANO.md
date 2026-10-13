@@ -26,7 +26,7 @@ compilava**. Os defeitos, corrigidos antes de qualquer coisa nova:
    fora do `cargo`, então `cargo check` não via o erro. Ver §5.2 e §5.3.
 4. `crates/cli/src/nativo.rs` — `dartforge aot` chamava
    `dartforge_compiler::compile_path_llvm_*`, da trilha velha, que já não é
-   dependência do CLI: **o CLI não compilava com a feature `nativo`**. `aot`
+   dependência do CLI: **o CLI não compilava com a feature `native`**. `aot`
    passou a ser o apelido de produção do mesmo caminho do `compile-native`
    (`emit_native`), para existir uma trilha nativa só.
 
@@ -1515,7 +1515,7 @@ do usuário para o build do dartforge:
   máquina. `DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1` pula a etapa em `cargo
   check`/`clippy`.
 * **Gerador de objetos embutido** (`crates/llvm`, `src/gerador.rs`, feature
-  `llvm-embutido`, ligada pelo `jit` da CLI). O LLVM ligado ao dartforge lê
+  `embedded-llvm`, ligada pelo `jit` da CLI). O LLVM ligado ao dartforge lê
   o IR, roda o `default<O0>`/`default<O2>` do `PassBuilder` e emite o objeto
   com a CPU que o Clang assume sem `-march` (`x86-64`, `apple-m1`,
   `generic`) e código independente de posição fora do Windows — o que o

@@ -3,7 +3,7 @@
 //!
 //! Two generators with the same contract:
 //!
-//! * **embedded** (feature `llvm-embutido`, the distribution default): the LLVM
+//! * **embedded** (feature `embedded-llvm`, the distribution default): the LLVM
 //!   linked into dartforge itself (`crates/llvm`), in process — without Clang
 //!   on the machine of whoever uses dartforge, without a process per module and without
 //!   writing the IR to disk;
@@ -197,13 +197,13 @@ fn machine_resources() -> String {
 
 /// Whether this build has the embedded generator (and does not need Clang to generate
 /// objects).
-pub const EMBEDDED_GENERATOR: bool = cfg!(feature = "llvm-embutido");
+pub const EMBEDDED_GENERATOR: bool = cfg!(feature = "embedded-llvm");
 
 /// The generator of a compilation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Generator {
     /// The LLVM linked into dartforge.
-    #[cfg(feature = "llvm-embutido")]
+    #[cfg(feature = "embedded-llvm")]
     Builtin,
     /// The given `clang`.
     Clang(PathBuf),
@@ -213,7 +213,7 @@ impl Generator {
     /// The generator of this build and this environment: the embedded one when the build
     /// has it, unless `DARTFORGE_GERADOR=clang`; otherwise `clang`.
     pub fn choose(clang: &Path) -> Generator {
-        #[cfg(feature = "llvm-embutido")]
+        #[cfg(feature = "embedded-llvm")]
         if std::env::var("DARTFORGE_GERADOR").map_or(true, |g| g != "clang") {
             return Generator::Builtin;
         }
@@ -244,7 +244,7 @@ impl Generator {
     /// The identity for the cache keys (version, target).
     pub fn identity(&self) -> Result<String, String> {
         match self {
-            #[cfg(feature = "llvm-embutido")]
+            #[cfg(feature = "embedded-llvm")]
             Generator::Builtin => dartforge_llvm::identity(),
             Generator::Clang(clang) => crate::object_cache::clang_identity(clang),
         }
@@ -257,7 +257,7 @@ impl Generator {
     /// object byte for byte).
     pub fn generate(&self, ir: &str, generation: Generation, exit: &Path) -> Result<(), String> {
         match self {
-            #[cfg(feature = "llvm-embutido")]
+            #[cfg(feature = "embedded-llvm")]
             Generator::Builtin => {
                 let name = exit.file_stem().unwrap_or_default().to_string_lossy();
                 let options = dartforge_llvm::Options {
@@ -346,7 +346,7 @@ mod tests {
         assert!(Generation::of_program(false, false).args_clang().contains(&"-O0"));
     }
 
-    #[cfg(feature = "llvm-embutido")]
+    #[cfg(feature = "embedded-llvm")]
     #[test]
     fn embedded_generates_object() {
         let dir = tempfile::tempdir().unwrap();

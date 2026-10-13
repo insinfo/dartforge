@@ -42,7 +42,7 @@ jobs:
           shared-key: pesado-unix
           save-if: false
       - name: Compilar dartforge (nativo)
-        run: cargo build --locked --release -p dartforge-cli --features nativo
+        run: cargo build --locked --release -p dartforge-cli --features native
       - name: Empacotar
         run: |
           set -euo pipefail

@@ -23,7 +23,7 @@ pub mod glob;
 pub mod graph;
 pub mod command_line;
 pub mod engine;
-#[cfg(feature = "nativos")]
+#[cfg(feature = "native-generators")]
 pub mod natives;
 pub mod oracle;
 pub mod packages;

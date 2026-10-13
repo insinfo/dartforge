@@ -8,7 +8,7 @@
 #
 # Uso: scripts/matriz.sh [--sem-nativo] [--sem-js]
 # Precisa do `dartforge-differential` e do `dartforge` compilados em release
-# (com `--features nativo,jit` para os perfis nativos) e dos oráculos
+# (com `--features native,jit` para os perfis nativos) e dos oráculos
 # (DARTFORGE_DART_SDK, DARTFORGE_DART_SDK_3_13 para o corpus moderno).
 # O código de saída de cada rodada não interrompe o script: um programa que
 # falha é um estado da matriz, não um erro da medição.

@@ -256,7 +256,7 @@ Por ação, na ordem, o primeiro que aceita:
    `dartforge build --dart <exe>` ou `DARTFORGE_BUILD_DART`. O **nativo**
    (`executor_nativo.rs`, B01) é o mesmo bootstrap compilado pelo
    `compile-native` do DartForge, sem VM: é o padrão do `dartforge build`
-   com a feature `nativo` (`DARTFORGE_BUILD_NATIVO=0` o desliga; nos
+   com a feature `native` (`DARTFORGE_BUILD_NATIVO=0` o desliga; nos
    compiladores só com `DARTFORGE_BUILD_NATIVO=1`). O executável fica em
    `.dart_tool/dartforge/build/executor-<chave>`, com um depfile dos fontes
    que o programa carrega (o código dos builders para o motor); o processo

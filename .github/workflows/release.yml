@@ -87,7 +87,7 @@ jobs:
       - name: Rust fixado (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal
       - name: Compilar dartforge (nativo, jit)
-        run: cargo build --locked --release -p dartforge-cli --features nativo,jit
+        run: cargo build --locked --release -p dartforge-cli --features native,jit
       - name: Empacotar e conferir num ambiente limpo
         shell: bash
         env:

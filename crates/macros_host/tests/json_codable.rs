@@ -203,7 +203,7 @@ fn vm_runs_the_macro_and_matches_the_cfe() {
 /// `compile-native`, without a Dart VM, runs the macros of each corpus case
 /// and the assembled augmentation is CFE 3.6.2's, byte for byte.
 ///
-/// Requires a `dartforge` with the `nativo` feature in
+/// Requires a `dartforge` with the `native` feature in
 /// `DARTFORGE_COMPILADOR_NATIVO` (its `compile-native` compiles the
 /// executor) and the `pub get` of each case.
 #[test]

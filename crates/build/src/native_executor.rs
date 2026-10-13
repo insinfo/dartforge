@@ -42,7 +42,7 @@ pub const ENV_VAR: &str = "DARTFORGE_BUILD_NATIVO";
 /// Who compiles, and where.
 #[derive(Debug, Clone)]
 pub struct NativeConfig {
-    /// The `dartforge` with the native backend (the CLI's `nativo` feature).
+    /// The `dartforge` with the native backend (the CLI's `native` feature).
     pub compiler: PathBuf,
     /// The SDK's `lib/` for `compile-native` (`--sdk`); `None` uses the one
     /// the compiler discovers.
@@ -497,7 +497,7 @@ impl DartExecutor for NativeExecutor {
 }
 
 /// Hooks the native executor into `engine`, with the given `compiler` (the
-/// `dartforge` itself with the `nativo` feature): the process is only born at
+/// `dartforge` itself with the `native` feature): the process is only born at
 /// the session's first Dart action.
 pub fn attach(
     engine: &mut crate::Engine,

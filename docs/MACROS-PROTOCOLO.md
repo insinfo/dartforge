@@ -101,7 +101,7 @@ byte a byte**, sem VM Dart; a sessão gravada do `410` (98 mensagens
 ms). Compilação do executor: ~24 s na primeira vez (o runtime nativo entra
 no cache), ~2,5 s depois; o executável fica em cache. O `compile-js` segue
 com a VM por padrão até o executor nativo ser o padrão da distribuição (a
-distribuição precisa do `dartforge` com a feature `nativo` e do Clang).
+distribuição precisa do `dartforge` com a feature `native` e do Clang).
 
 Bibliotecas permitidas no fecho de uma macro (`:1329-1350`):
 `dart:{async,collection,convert,core,math,typed_data}`; o executor em si usa

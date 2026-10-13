@@ -635,7 +635,7 @@ pub fn compile_with_options<R>(
     // Macros (docs/MACROS-PROTOCOLO.md): only if the program declares some
     // `macro` class — without a pending application we do not start an executor.
     // By default the Dart VM runs our API; with `DARTFORGE_MACROS_NATIVO` (a
-    // `dartforge` built with the `nativo` feature) the executor is the native one
+    // `dartforge` built with the `native` feature) the executor is the native one
     // (D4). The host reloads the augmentation straight from memory.
     let program = if dartforge_macros_host::has_macros(&program) {
         let t = Instant::now();

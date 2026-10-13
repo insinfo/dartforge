@@ -1,7 +1,7 @@
 //! J05: the native debugger stops at a `file.dart:line` of the executable
 //! compiled with `--depuracao` and shows the stack with the Dart names and lines.
 //! Runs with `gdb` (Linux); without it, the test warns and passes.
-#![cfg(feature = "nativo")]
+#![cfg(feature = "native")]
 
 use std::process::Command;
 

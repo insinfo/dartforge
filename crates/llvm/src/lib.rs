@@ -183,7 +183,7 @@ pub fn identity() -> Result<String, String> {
     ID.get_or_init(|| {
         init_native_target()?;
         let triple = default_triple();
-        Ok(format!("llvm-embutido {} {} {} {}", version(), triple, default_cpu(&triple), generator_options_without_program().join(" ")))
+        Ok(format!("embedded-llvm {} {} {} {}", version(), triple, default_cpu(&triple), generator_options_without_program().join(" ")))
     })
     .clone()
 }

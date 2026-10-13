@@ -87,7 +87,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("exemplo", choices=PROVAS)
     parser.add_argument("--debug", action="store_true", help="compilar o gerador sem --release")
-    parser.add_argument("--features", help="features do gerador, como llvm-embutido")
+    parser.add_argument("--features", help="features do gerador, como embedded-llvm")
     args = parser.parse_args()
     diretorio, tem_caminho, casos = PROVAS[args.exemplo]
     root = Path(__file__).resolve().parent.parent

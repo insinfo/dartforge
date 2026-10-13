@@ -17,7 +17,7 @@ Most project documentation is written in Portuguese.
   contract, linked against the official `dart_sdk.js`. The whole differential corpus matches the
   VM byte for byte; `new_sali/frontend` (ngdart) and `limitless_ui/example` run in the browser.
 - **Production JavaScript** (`dartforge-jsprod`): one file, pruned runtime, closed world.
-- **Native AOT** (`compile-native` / `aot`, feature `nativo`) and an ORCv2 **JIT** (`run` /
+- **Native AOT** (`compile-native` / `aot`, feature `native`) and an ORCv2 **JIT** (`run` /
   `reload`, feature `jit`) over the same LLVM IR, with a Rust runtime and a tracing GC. The Dart
   SDK is compiled from source. The linker is driven directly (`lld-link`, `ld.lld`, `ld64.lld`):
   a distribution links programs on machines **without MSVC/Windows SDK or Xcode**, and ships
@@ -148,7 +148,7 @@ Rust is pinned in `rust-toolchain.toml`. The Dart 3.6.2 SDK is the oracle and pr
 
 Native backend (Clang/LLVM 22.1.8; `scripts/env.ps1` sets up the environment):
 
-    cargo run --release -p dartforge-cli --features nativo -- compile-native <entry.dart> -o <out.exe>
+    cargo run --release -p dartforge-cli --features native -- compile-native <entry.dart> -o <out.exe>
     cargo run --release -p dartforge-cli --features jit -- run <entry.dart>
 
 The `jit` feature needs the full LLVM distribution (`LLVM_SYS_221_PREFIX`, in

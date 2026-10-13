@@ -180,7 +180,7 @@ pub fn compile_and_link(
         // `lld-link` does not run the maps pass) and becomes the distributed
         // ThinLTO, which hands over native objects with the compact map
         // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Step 3).
-        let distributed = cfg!(feature = "llvm-embutido")
+        let distributed = cfg!(feature = "embedded-llvm")
             && production
             && !without_lto
             && matches!(crate::target::target_os(), Os::Windows | Os::Linux)
@@ -217,7 +217,7 @@ pub fn compile_and_link(
     // read-only section, which `ld.lld` rejects in a PIE executable (Step 4).
     // `DARTFORGE_LTO_DISTRIBUIDA=1` (measurement, §8): the same path with the
     // shadow stack, to compare the root modes in the same pipeline.
-    let single_distributed = cfg!(feature = "llvm-embutido")
+    let single_distributed = cfg!(feature = "embedded-llvm")
         && production
         && !without_lto
         && matches!(crate::target::target_os(), Os::Windows | Os::Linux)
@@ -304,7 +304,7 @@ pub fn compile_and_link(
 /// and the linker receives only objects, without LTO. The indices ask for the whole
 /// link, so the runtime library enters the list and leaves it before
 /// the final link (which adds it again).
-#[cfg(feature = "llvm-embutido")]
+#[cfg(feature = "embedded-llvm")]
 #[allow(clippy::too_many_arguments)]
 fn link_distributed(
     clang: &Path,
@@ -331,7 +331,7 @@ fn link_distributed(
     r
 }
 
-#[cfg(not(feature = "llvm-embutido"))]
+#[cfg(not(feature = "embedded-llvm"))]
 #[allow(clippy::too_many_arguments)]
 fn link_distributed(
     _clang: &Path,

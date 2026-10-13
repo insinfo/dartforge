@@ -1,5 +1,5 @@
 //! The policy is selected by the option, even with an inherited ARC environment.
-#![cfg(feature = "nativo")]
+#![cfg(feature = "native")]
 
 use std::{
     path::Path,

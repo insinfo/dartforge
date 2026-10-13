@@ -328,7 +328,7 @@ A Etapa 2 mede as duas ordens no mesmo programa (E2.3) antes de fixar uma.
 
 | perfil | hoje | modo mapas |
 |---|---|---|
-| desenvolvimento (`-O0`, objetos por parte) | Clang ou LLVM embutido gera objeto | pipeline próprio em processo (feature `llvm-embutido`): `default<O0>` → `mem2reg` → verificador → `rewrite-statepoints-for-gc` → verificador → código. Sem o LLVM embutido: `opt` + `llc`. A geração de código **sem FastISel** nas funções `gc`, por causa das [#56158](https://github.com/llvm/llvm-project/issues/56158) e [#39891](https://github.com/llvm/llvm-project/issues/39891) (`gc.relocate` em -O0) |
+| desenvolvimento (`-O0`, objetos por parte) | Clang ou LLVM embutido gera objeto | pipeline próprio em processo (feature `embedded-llvm`): `default<O0>` → `mem2reg` → verificador → `rewrite-statepoints-for-gc` → verificador → código. Sem o LLVM embutido: `opt` + `llc`. A geração de código **sem FastISel** nas funções `gc`, por causa das [#56158](https://github.com/llvm/llvm-project/issues/56158) e [#39891](https://github.com/llvm/llvm-project/issues/39891) (`gc.relocate` em -O0) |
 | produção, programa pequeno (um módulo, LTO com o SDK) | `clang` + LTO do linker | Linux/macOS: `--lto-newpm-passes='lto<O2>,rewrite-statepoints-for-gc'` (a confirmar que o nome `lto<O2>` vale em `--lto-newpm-passes`). Windows: LTO completa em processo (`llvm-link` do programa com o bitcode do SDK, `default<O2>`, RS4GC, código), entregando objeto ao `lld-link` |
 | produção, programa grande (partes em ThinLTO, `EN/driver.rs`) | `lld-link /lldltocache` | **ThinLTO distribuído**: `lld-link /thinlto-index-only` gera os índices; para cada parte, `clang -x ir parte.o -fthinlto-index=parte.thinlto.bc -emit-llvm -c` dá o bitcode **depois** da importação e da otimização do backend do ThinLTO; nós rodamos RS4GC + código e ligamos os objetos. O `lld-link` 22.1.8 também tem `/thinlto-distributor:` (o DTLTO), que pode chamar o nosso passo diretamente |
 
@@ -712,7 +712,7 @@ Uma função assim não leva `gc "statepoint-example"`. Ela grava os slots como 
   (`crates/runtime/Cargo.toml`), uma variante **por modo**, com o modo no nome da biblioteca:
   `dfrt_<modo>.lib`.
 * **`crates/emit_native`** ganha as features `raizes-mapas` e `excecoes-tabelas`. Elas compilam os lowerings
-  novos. A `raizes-mapas` depende de `llvm-embutido` no Windows, porque o pipeline próprio precisa do LLVM
+  novos. A `raizes-mapas` depende de `embedded-llvm` no Windows, porque o pipeline próprio precisa do LLVM
   em processo (§3.4).
 * **`crates/cli`** ganha a feature `nativo-experimental = ["dartforge-emit-native/raizes-mapas",
   "dartforge-emit-native/excecoes-tabelas", "dartforge-runtime/…"]`.
@@ -2136,7 +2136,7 @@ x86-64, LLVM 22.1.8):
 | verificação | resultado |
 |---|---|
 | testes do workspace, inclusive `dartforge-jit` e `dartforge-llvm` com os ignorados (o `bin` do LLVM no `PATH`) | verdes |
-| `reload_state` e `io_regression` (`--features nativo,jit`, release) | 7/7 e 7/7 |
+| `reload_state` e `io_regression` (`--features native,jit`, release) | 7/7 e 7/7 |
 | `corpus/js` em A0 e em A1 | 238/238 e 238/238 |
 | `corpus/native` em A0, em A1 e em A1 com `--gc-stress` | 129/129, 127/129 e 127/129 |
 

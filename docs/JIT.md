@@ -8,7 +8,7 @@ Tracing é o padrão da CLI. Para compilar e executar fonte com ARC, use
 `DARTFORGE_MEMORIA=arc` herdado não ativa ARC na CLI. Em `run`, opções depois
 do arquivo são argumentos de `main`; a opção de memória deve vir antes dele.
 
-| | Desenvolvimento (`crates/jit`) | Produção (`crates/emit_native`, feature `nativo`) |
+| | Desenvolvimento (`crates/jit`) | Produção (`crates/emit_native`, feature `native`) |
 | --- | --- | --- |
 | Comando | `dartforge run <entrada.dart>`, `dartforge reload <entrada.dart> [--reiniciar]` | `dartforge aot <entrada.dart> <saida.exe>` |
 | Geração de código | ORCv2 (`LLJIT`), em memória | Clang, em processo separado |
@@ -950,7 +950,7 @@ Ambiente mínimo, medido num Linux x86-64 (o mesmo que o CI prepara):
 export LLVM_SYS_221_PREFIX=/opt/LLVM-22.1.8-Linux-X64
 export DARTFORGE_LLVM_DIR=$LLVM_SYS_221_PREFIX
 export DARTFORGE_CLANG=$LLVM_SYS_221_PREFIX/bin/clang
-cargo build --release -p dartforge-cli --features nativo,jit
+cargo build --release -p dartforge-cli --features native,jit
 ```
 
 Com isso o corpus dá 184/224 no JIT e no AOT com o SDK da fonte, 224/224
@@ -1016,7 +1016,7 @@ com `desenvolvimento: 'true'` (`.github/workflows/ci.yml:67-72`) traz
 `cargo test --workspace` e a recarga pela CLI com `--features jit`. No Linux e
 no macOS, o job `nativo-unix` instala o LLVM 22 (no Linux, a `libLLVM-22.so` do
 apt.llvm.org com `DARTFORGE_LLVM_LINK=shared`) e roda os testes do
-`emit_native`, do `jit` e da CLI com `--features nativo,jit`
+`emit_native`, do `jit` e da CLI com `--features native,jit`
 (`.github/workflows/ci.yml:162-250`).
 
 > **Histórico (até 2026-09-27).** Aqui se lia que o workflow instalava só o

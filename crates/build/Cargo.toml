@@ -10,9 +10,9 @@ description = "Motor de geração de código do DartForge: o plano de fases do b
 workspace = true
 
 [features]
-default = ["nativos"]
+default = ["native-generators"]
 # Native generators (ngdart and sass) through ng_generator, via its public API only.
-nativos = ["dep:dartforge-ng-generator"]
+native-generators = ["dep:dartforge-ng-generator"]
 
 [dependencies]
 dartforge-elements = { path = "../elements" }

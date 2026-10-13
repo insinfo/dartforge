@@ -193,7 +193,7 @@ primeiro passo; é o critério de pronto.
 
 ```powershell
 # compilar o CLI com o backend nativo (o padrão não inclui, para não puxar LLVM)
-cargo build -p dartforge-cli --features nativo
+cargo build -p dartforge-cli --features native
 
 # um programa
 target\debug\dartforge.exe compile-native corpus\js\001_hello.dart -o saida.exe

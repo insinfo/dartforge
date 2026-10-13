@@ -5,7 +5,7 @@
 //! native generator, without `build_runner` having run before and without a
 //! fallback, and the program output is that of the official VM
 //! (`oraculo/saida.txt`).
-#![cfg(feature = "nativo")]
+#![cfg(feature = "native")]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

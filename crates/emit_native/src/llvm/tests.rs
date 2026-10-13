@@ -754,7 +754,7 @@ fn cleanup_resumes_original_pair_and_rejects_incoherent_metadata() {
     e.emit_function(&f);
     let ir = e.out;
     assert!(ir.contains("personality ptr @dartforge_personality_cleanup_itanium"));
-    #[cfg(feature = "llvm-embutido")]
+    #[cfg(feature = "embedded-llvm")]
     check_cleanup_objects(&ir);
     let landing_pad = &ir[ir.find("b2:").unwrap()..];
     assert!(landing_pad.contains("%lpad2 = landingpad { ptr, i32 } cleanup"));
@@ -788,7 +788,7 @@ fn resume_does_not_promise_seh_support_in_public_emitter() {
     LlvmEmitter::new(&m).emit_all();
 }
 
-#[cfg(feature = "llvm-embutido")]
+#[cfg(feature = "embedded-llvm")]
 fn check_cleanup_objects(ir: &str) {
     // The emitted body is verified and generates Itanium code, without using the
     // Windows header nor promising cross-compilation of Dart modules.
@@ -877,7 +877,7 @@ fn catch_in_cleanup_profile_checks_selector_and_remaps_landing_pad_phi() {
     }
     assert!(ir.contains("%lpad4.dart ]"), "{ir}");
     assert!(!ir.contains("%lpseletor2"));
-    #[cfg(feature = "llvm-embutido")]
+    #[cfg(feature = "embedded-llvm")]
     check_cleanup_objects(&ir);
 }
 
@@ -945,7 +945,7 @@ fn foreign_cleanup_closes_local_frames_in_lifo() {
     assert!(ir.contains("resume { ptr, i32 } %lpad3"));
 
 
-    #[cfg(feature = "llvm-embutido")]
+    #[cfg(feature = "embedded-llvm")]
     {
         let complete = format!("declare i64 @dartforge_arc_frame_open_v1(i64) nounwind\ndeclare void @dartforge_arc_frame_close_v1(i64) nounwind\n{ir}");
         check_cleanup_objects(&complete);

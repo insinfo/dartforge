@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 /// Who compiles, and where.
 #[derive(Debug, Clone)]
 pub struct NativeConfig {
-    /// The `dartforge` with the native backend (the `nativo` feature).
+    /// The `dartforge` with the native backend (the `native` feature).
     pub compiler: PathBuf,
     /// The SDK's `lib/` (the same one `compile-native` receives in `--sdk`).
     pub sdk_lib: PathBuf,

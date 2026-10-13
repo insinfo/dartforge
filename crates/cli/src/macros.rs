@@ -3,7 +3,7 @@
 //!
 //! The product's executor is the native one (D4, `--nativo`): the bootstrap
 //! compiled by the `compile-native` of this same executable (requires the
-//! `nativo` feature), without a Dart VM (`macros_host::native`). With
+//! `native` feature), without a Dart VM (`macros_host::native`). With
 //! `--dart`, the same macro runs with our API on a Dart VM (the
 //! materialization executor, `macros_host::vm`) — the compatibility path with
 //! the official toolchain, not a dependency of the compiler.
@@ -114,7 +114,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
     }
     let mut executor: Box<dyn MacroExecutor> = match &dart {
         None if native => {
-            if !cfg!(feature = "nativo") {
+            if !cfg!(feature = "native") {
                 return Err("--nativo requires dartforge built with the nativo feature (compile-native compiles the executor)".into());
             }
             let api = find_api(api).ok_or("the macro API (packages/macros) was not found: use --api")?;
