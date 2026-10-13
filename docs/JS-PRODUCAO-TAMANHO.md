@@ -921,3 +921,102 @@ sem erro (antes 45 com erro), desenvolvimento 47/47. E2e (`ui_test/e2e` do
 projeto, hoje 15 testes; o "26/26" da §6 era a suíte antiga): produção
 **15/15** (o binário anterior dava 1/15), desenvolvimento **15/15**,
 `dart2js -O4` 15/15.
+
+### 11.2 Regras rti repetidas viram encaminhamento
+
+`_Universe.findRule` e `_isSubtype` seguem uma regra que é *string* até a
+regra da classe nomeada (`rti.dart`). Nos projetos ngdart quase toda classe de
+*view* tem o mesmo corpo de regra (`{"EmbeddedView.T":"|vJ","|AG":[],…}`):
+no `limitless_ui` eram 95 KB de corpos repetidos em 139 KB de regras.
+`rti_rules::forward_identical` escreve `"|B":"|A"` quando o corpo de `B` repete
+o de uma classe anterior no texto (cujo `addRules` já rodou), registrada uma
+vez só. As chaves tocadas por `addOrUpdateRules` ficam como estão (ele não
+aceita a forma de encaminhamento), e corpos curtos também: abaixo de 12 bytes
+de ganho o gzip piorava mais do que o bruto melhorava (medido com 2, 12, 24 e
+40). `DARTFORGE_JSPROD_RULE_FORWARDING=0` desliga.
+
+### 11.3 Assinaturas sem o `_ti =>` e estáticos literais sem *getter* preguiçoso
+
+* `rtiFromSignature`, `getSetterType` e `getMethodDefaultTypeArgs` só chamam a
+  entrada da assinatura quando ela é função; a que não depende dos argumentos
+  de tipo da instância (o texto não cita `_ti`) é o próprio rti. As de campo
+  perdem `isConst` (só o depurador lê) e o `isFinal: false`.
+* Campo estático, estático de tipo de extensão e variável de topo (não
+  `late`) com inicializador literal (`null`, número, booleano, *string*
+  simples) é atribuído na carga (`C.x = null`) em vez de passar pelo
+  `dart.defineLazy`. Os nomes que uma função JS tem ou guarda (`length`,
+  `name`, `caller`…) mantêm o *getter*. Num objeto de biblioteca, a escrita
+  também deixa o achatamento (§9.2) trocar `N.x` por variável.
+
+### 11.4 Tabela de nomes com codificação de prefixo
+
+A tabela `t$N` (§9.5) escreve cada nome como um dígito (quantos caracteres
+iniciais ele divide com o nome anterior) e o resto, decodificada uma vez na
+carga. Os ids seguem a ordem do programa, e as *views* de um componente ficam
+lado a lado: no `limitless_ui` a tabela vai de 50 para 28 KB. Só quando ganha
+1 KB além do decodificador e os nomes são ASCII; nos programas do corpus fica
+a lista simples (o gzip perdia um pouco). `corpus/js/241` confere
+`runtimeType`, `toString` e erro de tipo pela tabela codificada.
+
+### 11.5 Formas compactas: assinatura de classe e `null` encadeado
+
+* `S(C, () => ({__proto__: G(C.__proto__), m: …}))`, uma por tipo de
+  assinatura de cada classe, vira `t$G(S, G, C, () => ({m: …}))`; o `t$G`
+  põe o mesmo protótipo no objeto que o *thunk* monta (`shapes.rs`). 750 no
+  `limitless_ui`, 17 no `01_print`.
+* Inicializações seguidas de campo com `null` no construtor viram uma só,
+  encadeada de trás para a frente (`this.c = this.b = this.a = null`), para
+  as propriedades nascerem na mesma ordem.
+
+Medido e descartado: juntar os `let` de um bloco no primeiro (`let e = …, n,
+r; …; n = …`). O bruto cai (−16 KB no `limitless_ui`, −13 KB no corpus), mas o
+gzip piora bem mais (+13 KB e +29 KB): a lista de declaradores é única em cada
+função, e os `let x = f(…)` repetidos comprimiam melhor.
+
+### 11.6 Resultado
+
+Corpus, os mesmos 237 programas da §10.8 (macOS, `dart compile js -O4` do SDK
+3.6.2 de macOS):
+
+| | bruto | gzip -9 |
+| --- | ---: | ---: |
+| §10.8 | 23.860.132 | 7.577.459 |
+| agora | **23.643.933** | **7.553.114** |
+| `dart2js -O4` | 9.606.538 | 3.120.104 |
+
+| alvo | §10.8 | agora | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| `01_print` | 88.445 | **87.723** | 34.926 |
+| `120_convert_json` | 173.620 | **170.626** | 58.550 |
+| `135_convert_json_classes` | 240.905 | **237.384** | 101.193 |
+| `limitless_ui/example` | 4.030.541 (gz 1.148.341) | **3.889.889** (gz 1.138.058) | 3.708.482 (gz 983.819) |
+| `new_sali/frontend` | 8.342.998 (gz 2.265.897) | **8.099.754** (gz 2.246.746) | 7.616.042 (gz 2.018.951) |
+
+Tempo de compilação (macOS, sem outra carga): `limitless_ui` 9,7 s
+(`dart2js` 21 s), `new_sali` 28 s (`dart2js` 68 s); mediana do corpus
+~0,35 s por programa.
+
+Os projetos ficaram a 1,05× (`limitless_ui`) e 1,06× (`new_sali`) do `dart2js`
+no bruto; no gzip, 1,16× e 1,11×. O corpus continua dominado pelo piso do
+runtime (a mediana da razão é 2,4×).
+
+Validação depois de cada passo: corpus diferencial 241/241 em
+desenvolvimento e produção; `limitless_ui` com as 47 rotas sem erro no Chrome
+e o e2e 15/15; `new_sali` carrega no Chrome sem erro, com a mesma página do
+`dart2js`.
+
+### 11.7 O que falta, por ganho esperado
+
+1. Assinaturas de método das *views* (`_handle_*` presos por `dart.bind`) e o
+   `dart.fn` das *closures*: ~60 KB e ~15 KB no `limitless_ui`. Só saem com
+   uma regra no mundo que prove que o tipo da função nunca é observado (`is`/
+   `as` de tipo função, covariância de genérico, `runtimeType`, `toString`,
+   `dcall`); o DDC calcula esse tipo pela assinatura quando alguém pergunta.
+2. O piso do runtime (§10.9 item 3): `dart:_rti` é 30% do `01_print` não
+   minificado (`_Universe` 21 KB, `_Parser` 9,5 KB, `Recipe` 5 KB). O
+   `JSNoSuchMethodError` (extensão registrada para `TypeError`) mantém
+   `RegExp`/`FormatException` vivos de verdade: só sai com outra
+   implementação da mensagem.
+3. Enum com constante por constante viva (~10 KB no `limitless_ui`).
+4. Os itens pequenos da §10.9 (nomes de variável de tipo curtos, regras
+   compactadas).
