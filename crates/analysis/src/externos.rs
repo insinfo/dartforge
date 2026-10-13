@@ -1,7 +1,7 @@
-//! Inicializadores em campos `abstract` e declarações `external`, conforme
-//! `_checkForAbstractOrExternalVariableInitializer` e
-//! `_checkForAbstractOrExternalFieldConstructorInitializer` do
-//! `ErrorVerifier` do analyzer. O erro fica no nome da variável/campo.
+//! Initializers on `abstract` fields and `external` declarations, as in the
+//! analyzer `ErrorVerifier`'s `_checkForAbstractOrExternalVariableInitializer`
+//! and `_checkForAbstractOrExternalFieldConstructorInitializer`. The error is
+//! on the variable/field name.
 
 use crate::Unidade;
 use dartforge_diagnostics::codigos::compile_time_error as c;
@@ -10,21 +10,21 @@ use dartforge_frontend::ast::{DeclKind, Initializer, MemberId, MemberKind};
 use dartforge_intern::SymbolId;
 use std::collections::HashSet;
 
-fn relatar(codigo: dartforge_diagnostics::Codigo, span: Span) -> Diagnostic {
-    Diagnostic::com_codigo(codigo, span, std::iter::empty::<&str>())
+fn report(code: dartforge_diagnostics::Codigo, span: Span) -> Diagnostic {
+    Diagnostic::com_codigo(code, span, std::iter::empty::<&str>())
 }
 
-/// Diagnósticos desta unidade que não exigem inferência de tipos.
-pub fn inicializadores(unidade: Unidade<'_>) -> Vec<Diagnostic> {
-    let ast = unidade.ast;
+/// This unit's diagnostics that do not need type inference.
+pub fn inicializadores(unit: Unidade<'_>) -> Vec<Diagnostic> {
+    let ast = unit.ast;
     let mut out = Vec::new();
-    for &id in &unidade.unit.declarations {
+    for &id in &unit.unit.declarations {
         match &ast.decl(id).kind {
             DeclKind::Variables(v) => {
                 if v.external {
                     for var in v.variables.iter() {
                         if var.initializer.is_some() {
-                            out.push(relatar(c::EXTERNAL_VARIABLE_INITIALIZER, var.name.span));
+                            out.push(report(c::EXTERNAL_VARIABLE_INITIALIZER, var.name.span));
                         }
                     }
                 }
@@ -40,25 +40,25 @@ pub fn inicializadores(unidade: Unidade<'_>) -> Vec<Diagnostic> {
                         continue
                     }
                 };
-                let mut campos_externos = HashSet::<SymbolId>::new();
-                let mut campos_abstratos = HashSet::<SymbolId>::new();
+                let mut external_fields = HashSet::<SymbolId>::new();
+                let mut abstract_fields = HashSet::<SymbolId>::new();
                 for &m in members {
                     if let MemberKind::Field(v) = &ast.member(m).kind {
                         for var in v.variables.iter() {
                             if !v.static_ {
                                 if v.external {
-                                    campos_externos.insert(var.name.sym);
+                                    external_fields.insert(var.name.sym);
                                 }
                                 if v.abstract_ {
-                                    campos_abstratos.insert(var.name.sym);
+                                    abstract_fields.insert(var.name.sym);
                                 }
                             }
                             if var.initializer.is_some() {
                                 if v.external {
-                                    out.push(relatar(c::EXTERNAL_FIELD_INITIALIZER, var.name.span));
+                                    out.push(report(c::EXTERNAL_FIELD_INITIALIZER, var.name.span));
                                 }
                                 if v.abstract_ {
-                                    out.push(relatar(c::ABSTRACT_FIELD_INITIALIZER, var.name.span));
+                                    out.push(report(c::ABSTRACT_FIELD_INITIALIZER, var.name.span));
                                 }
                             }
                         }
@@ -68,17 +68,17 @@ pub fn inicializadores(unidade: Unidade<'_>) -> Vec<Diagnostic> {
                     if let MemberKind::Constructor(k) = &ast.member(m).kind {
                         for p in k.parameters.iter() {
                             if p.this_ {
-                                if let Some(nome) = p.name {
-                                    if campos_externos.contains(&nome.sym) {
-                                        out.push(relatar(
+                                if let Some(name) = p.name {
+                                    if external_fields.contains(&name.sym) {
+                                        out.push(report(
                                             c::EXTERNAL_FIELD_CONSTRUCTOR_INITIALIZER,
-                                            nome.span,
+                                            name.span,
                                         ));
                                     }
-                                    if campos_abstratos.contains(&nome.sym) {
-                                        out.push(relatar(
+                                    if abstract_fields.contains(&name.sym) {
+                                        out.push(report(
                                             c::ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER,
-                                            nome.span,
+                                            name.span,
                                         ));
                                     }
                                 }
@@ -86,14 +86,14 @@ pub fn inicializadores(unidade: Unidade<'_>) -> Vec<Diagnostic> {
                         }
                         for init in &k.initializers {
                             if let Initializer::Field { name, .. } = init {
-                                if campos_externos.contains(&name.sym) {
-                                    out.push(relatar(
+                                if external_fields.contains(&name.sym) {
+                                    out.push(report(
                                         c::EXTERNAL_FIELD_CONSTRUCTOR_INITIALIZER,
                                         name.span,
                                     ));
                                 }
-                                if campos_abstratos.contains(&name.sym) {
-                                    out.push(relatar(
+                                if abstract_fields.contains(&name.sym) {
+                                    out.push(report(
                                         c::ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER,
                                         name.span,
                                     ));
@@ -109,14 +109,14 @@ pub fn inicializadores(unidade: Unidade<'_>) -> Vec<Diagnostic> {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
     use dartforge_frontend::parser::parse;
     use dartforge_intern::Interner;
 
     #[test]
-    fn tres_formas_iguais_ao_oraculo_gravado() {
-        for (fonte, codigo, inicio, mensagem, correcao) in [
+    fn three_shapes_match_recorded_oracle() {
+        for (source, code, start, message, correction) in [
             (
                 include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__topLevelVariabl_9e68b99b.dart")),
                 c::EXTERNAL_VARIABLE_INITIALIZER,
@@ -146,32 +146,32 @@ mod testes {
                 "Try removing the field initializer or the 'external' keyword from the field declaration.",
             ),
         ] {
-            let mut nomes = Interner::new();
-            let parsed = parse(fonte, &mut nomes);
-            let achados = inicializadores(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte });
-            assert!(achados.iter().any(|d|
-                d.code == Some(codigo) && d.span.start == inicio && d.span.end == inicio + 1
-                    && d.message == mensagem && d.correcao().as_deref() == Some(correcao)
-            ), "{fonte}: {achados:?}");
+            let mut names = Interner::new();
+            let parsed = parse(source, &mut names);
+            let found = inicializadores(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source });
+            assert!(found.iter().any(|d|
+                d.code == Some(code) && d.span.start == start && d.span.end == start + 1
+                    && d.message == message && d.correcao().as_deref() == Some(correction)
+            ), "{source}: {found:?}");
         }
     }
 
     #[test]
-    fn externo_sem_inicializador_e_campo_estatico_nao_criam_erro() {
-        let fonte = "external int topo; class A { external static int x; A() : x = 1; }";
-        let mut nomes = Interner::new();
-        let parsed = parse(fonte, &mut nomes);
-        let achados = inicializadores(Unidade {
+    fn external_without_initializer_and_static_field_report_nothing() {
+        let source = "external int topo; class A { external static int x; A() : x = 1; }";
+        let mut names = Interner::new();
+        let parsed = parse(source, &mut names);
+        let found = inicializadores(Unidade {
             ast: &parsed.ast,
             unit: &parsed.unit,
-            fonte,
+            fonte: source,
         });
-        assert!(achados.is_empty(), "{achados:?}");
+        assert!(found.is_empty(), "{found:?}");
     }
 
     #[test]
-    fn inicializadores_de_campo_abstrato_iguais_ao_oraculo() {
-        for (fonte, codigo, trecho, correcao) in [
+    fn abstract_field_initializers_match_oracle() {
+        for (source, code, fragment, correction) in [
             (
                 include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/abstract_field_initializer/AbstractFieldInitializer__abstract_fiel_92732177.dart")),
                 c::ABSTRACT_FIELD_INITIALIZER,
@@ -197,28 +197,28 @@ mod testes {
                 "Try removing the field initializer or the 'abstract' keyword from the field declaration.",
             ),
         ] {
-            let mut nomes = Interner::new();
-            let parsed = parse(fonte, &mut nomes);
-            let achados = inicializadores(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte });
-            let inicio = fonte.rfind(trecho).unwrap();
-            assert!(achados.iter().any(|d|
-                d.code == Some(codigo) && d.span.start == inicio && d.span.end == inicio + 1
+            let mut names = Interner::new();
+            let parsed = parse(source, &mut names);
+            let found = inicializadores(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source });
+            let start = source.rfind(fragment).unwrap();
+            assert!(found.iter().any(|d|
+                d.code == Some(code) && d.span.start == start && d.span.end == start + 1
                     && d.message == "Abstract fields can't have initializers."
-                    && d.correcao().as_deref() == Some(correcao)
-            ), "{fonte}: {achados:?}");
+                    && d.correcao().as_deref() == Some(correction)
+            ), "{source}: {found:?}");
         }
     }
 
     #[test]
-    fn campo_abstrato_sem_inicializador_nao_cria_erro() {
-        let fonte = "abstract class A { abstract int x; A(); }";
-        let mut nomes = Interner::new();
-        let parsed = parse(fonte, &mut nomes);
-        let achados = inicializadores(Unidade {
+    fn abstract_field_without_initializer_reports_nothing() {
+        let source = "abstract class A { abstract int x; A(); }";
+        let mut names = Interner::new();
+        let parsed = parse(source, &mut names);
+        let found = inicializadores(Unidade {
             ast: &parsed.ast,
             unit: &parsed.unit,
-            fonte,
+            fonte: source,
         });
-        assert!(achados.is_empty(), "{achados:?}");
+        assert!(found.is_empty(), "{found:?}");
     }
 }

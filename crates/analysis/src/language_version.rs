@@ -1,68 +1,68 @@
 //! `LanguageVersionOverrideVerifier`
 //! (`analyzer/lib/src/error/language_version_override_verifier.dart`,
-//! docs/ANALYZER-ESPECIFICACAO.md, `invalid_language_version_override`): os
-//! comentários antes do primeiro token que parecem um `// @dart = X.Y` mal
-//! escrito, e os `// @dart = X.Y` depois da primeira diretiva ou declaração.
-//! O `_GREATER` vem do scanner (`crates/elements/src/load.rs`).
+//! docs/ANALYZER-ESPECIFICACAO.md, `invalid_language_version_override`): the
+//! comments before the first token that look like a mistyped `// @dart = X.Y`,
+//! and the `// @dart = X.Y` after the first directive or declaration. The
+//! `_GREATER` comes from the scanner (`crates/elements/src/load.rs`).
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::Unidade;
 use dartforge_diagnostics::codigos::warning as w;
 use dartforge_diagnostics::{Codigo, Diagnostic, Span};
 use dartforge_frontend::comentarios::Comentarios;
 
-fn branco(c: u8) -> bool {
+fn is_blank(c: u8) -> bool {
     c == 0x09 || c == 0x20
 }
 
-fn digito(c: u8) -> bool {
+fn is_digit(c: u8) -> bool {
     c.is_ascii_digit()
 }
 
-fn letra(c: u8) -> bool {
+fn is_letter(c: u8) -> bool {
     c.is_ascii_alphabetic()
 }
 
-/// `_findLanguageVersionOverrideComment`: `Ok(true)` num override válido
-/// (a busca para), `Ok(false)` quando não é tentativa, `Err(código)` quando
-/// é uma tentativa inválida (a busca segue).
-fn conferir(comentario: &[u8]) -> Result<bool, Codigo> {
-    let n = comentario.len();
+/// `_findLanguageVersionOverrideComment`: `Ok(true)` on a valid override (the
+/// search stops), `Ok(false)` when it is not an attempt, `Err(code)` when it
+/// is an invalid attempt (the search goes on).
+fn check_comment(comment: &[u8]) -> Result<bool, Codigo> {
+    let n = comment.len();
     let mut i = 0usize;
-    let pular_brancos = |i: &mut usize| {
-        while *i < n && branco(comentario[*i]) {
+    let skip_blanks = |i: &mut usize| {
+        while *i < n && is_blank(comment[*i]) {
             *i += 1;
         }
     };
-    while i < n && comentario[i] == b'/' {
+    while i < n && comment[i] == b'/' {
         i += 1;
     }
-    let barras = i;
-    pular_brancos(&mut i);
+    let slashes = i;
+    skip_blanks(&mut i);
     if i == n {
         return Ok(false);
     }
-    let arroba = comentario[i] == b'@';
-    if arroba {
+    let at_sign = comment[i] == b'@';
+    if at_sign {
         i += 1;
     }
     if n - i < 4 {
         return Ok(false);
     }
-    let dart = &comentario[i..i + 4];
+    let dart = &comment[i..i + 4];
     if !dart.eq_ignore_ascii_case(b"dart") {
         return Ok(false);
     }
     i += 4;
-    pular_brancos(&mut i);
+    skip_blanks(&mut i);
     if i == n {
         return Ok(false);
     }
-    let inicio_separador = i;
+    let separator_start = i;
     while i < n {
-        let c = comentario[i];
-        if digito(c) || letra(c) || branco(c) {
+        let c = comment[i];
+        if is_digit(c) || is_letter(c) || is_blank(c) {
             break;
         }
         i += 1;
@@ -70,152 +70,152 @@ fn conferir(comentario: &[u8]) -> Result<bool, Codigo> {
     if i == n {
         return Ok(false);
     }
-    let separador = i - inicio_separador;
-    pular_brancos(&mut i);
+    let separator = i - separator_start;
+    skip_blanks(&mut i);
     if i == n {
         return Ok(false);
     }
-    let mut prefixo = false;
-    if letra(comentario[i]) {
-        prefixo = true;
+    let mut prefix = false;
+    if is_letter(comment[i]) {
+        prefix = true;
         i += 1;
         if i == n {
             return Ok(false);
         }
     }
-    if !digito(comentario[i]) {
+    if !is_digit(comment[i]) {
         return Ok(false);
     }
-    if i + 1 < n && letra(comentario[i + 1]) {
+    if i + 1 < n && is_letter(comment[i + 1]) {
         return Ok(false);
     }
-    if !arroba && separador == 0 {
+    if !at_sign && separator == 0 {
         return Ok(false);
     }
-    if barras > 2 {
+    if slashes > 2 {
         return Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_TWO_SLASHES);
     }
-    if !arroba {
+    if !at_sign {
         return Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_AT_SIGN);
     }
     if dart != b"dart" {
         return Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_LOWER_CASE);
     }
-    if separador != 1 || comentario[inicio_separador] != b'=' {
+    if separator != 1 || comment[separator_start] != b'=' {
         return Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_EQUALS);
     }
-    if prefixo {
+    if prefix {
         return Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_PREFIX);
     }
-    while i < n && digito(comentario[i]) {
+    while i < n && is_digit(comment[i]) {
         i += 1;
     }
-    if i == n || comentario[i] != b'.' {
+    if i == n || comment[i] != b'.' {
         return Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_NUMBER);
     }
     i += 1;
-    while i < n && digito(comentario[i]) {
+    while i < n && is_digit(comment[i]) {
         i += 1;
     }
-    pular_brancos(&mut i);
+    skip_blanks(&mut i);
     if i == n {
         return Ok(true);
     }
     Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_TRAILING_CHARACTERS)
 }
 
-/// `_overrideCommentLine` (`^\s*//\s*@dart\s*=\s*\d+\.\d+`): o fim do
-/// casamento, a partir do começo do comentário.
-fn casa_override(texto: &[u8]) -> Option<usize> {
-    let n = texto.len();
+/// `_overrideCommentLine` (`^\s*//\s*@dart\s*=\s*\d+\.\d+`): the end of the
+/// match, from the start of the comment.
+fn match_override(text: &[u8]) -> Option<usize> {
+    let n = text.len();
     let mut i = 0usize;
-    let espacos = |i: &mut usize| {
-        while *i < n && texto[*i].is_ascii_whitespace() {
+    let skip_spaces = |i: &mut usize| {
+        while *i < n && text[*i].is_ascii_whitespace() {
             *i += 1;
         }
     };
-    espacos(&mut i);
-    if !texto[i..].starts_with(b"//") {
+    skip_spaces(&mut i);
+    if !text[i..].starts_with(b"//") {
         return None;
     }
     i += 2;
-    espacos(&mut i);
-    if !texto[i..].starts_with(b"@dart") {
+    skip_spaces(&mut i);
+    if !text[i..].starts_with(b"@dart") {
         return None;
     }
     i += 5;
-    espacos(&mut i);
-    if texto.get(i) != Some(&b'=') {
+    skip_spaces(&mut i);
+    if text.get(i) != Some(&b'=') {
         return None;
     }
     i += 1;
-    espacos(&mut i);
+    skip_spaces(&mut i);
     let d = i;
-    while i < n && digito(texto[i]) {
+    while i < n && is_digit(text[i]) {
         i += 1;
     }
-    if i == d || texto.get(i) != Some(&b'.') {
+    if i == d || text.get(i) != Some(&b'.') {
         return None;
     }
     i += 1;
     let d = i;
-    while i < n && digito(texto[i]) {
+    while i < n && is_digit(text[i]) {
         i += 1;
     }
     (i > d).then_some(i)
 }
 
-/// O primeiro token depois do `#!` (o começo do código), pulando brancos e
-/// comentários.
-fn primeiro_token(fonte: &[u8], comentarios: &[Span], mut pos: usize) -> usize {
+/// The first token after the `#!` (the start of the code), skipping blanks
+/// and comments.
+fn first_token(source: &[u8], comments: &[Span], mut pos: usize) -> usize {
     loop {
-        while pos < fonte.len() && fonte[pos].is_ascii_whitespace() {
+        while pos < source.len() && source[pos].is_ascii_whitespace() {
             pos += 1;
         }
-        match comentarios.iter().find(|c| c.start == pos) {
+        match comments.iter().find(|c| c.start == pos) {
             Some(c) => pos = c.end,
             None => return pos,
         }
     }
 }
 
-pub fn verificar(u: Unidade<'_>) -> Vec<Diagnostic> {
-    let fonte = u.fonte.as_bytes();
-    let comentarios = Comentarios::de(u.fonte);
-    let todos = comentarios.todos();
-    let mut saida = Vec::new();
-    // `_verifyMisplaced`: depois do primeiro token significativo.
-    let primeiro_significativo = u
+pub fn check(u: Unidade<'_>) -> Vec<Diagnostic> {
+    let source = u.fonte.as_bytes();
+    let comments = Comentarios::de(u.fonte);
+    let all = comments.todos();
+    let mut out = Vec::new();
+    // `_verifyMisplaced`: after the first significant token.
+    let first_significant = u
         .unit
         .directives
         .first()
         .map(|d| d.span.start)
         .or_else(|| u.unit.declarations.first().map(|&d| u.ast.decl(d).span.start));
-    if let Some(p) = primeiro_significativo {
-        for c in todos.iter().filter(|c| c.start > p) {
-            let lexema = &fonte[c.start..c.end];
-            if let Some(fim) = casa_override(lexema)
-                && let Some(arroba) = u.fonte[c.start..c.end].find("@dart")
+    if let Some(p) = first_significant {
+        for c in all.iter().filter(|c| c.start > p) {
+            let lexeme = &source[c.start..c.end];
+            if let Some(end) = match_override(lexeme)
+                && let Some(at_sign) = u.fonte[c.start..c.end].find("@dart")
             {
-                saida.push(Diagnostic::com_codigo(
+                out.push(Diagnostic::com_codigo(
                     w::INVALID_LANGUAGE_VERSION_OVERRIDE_LOCATION,
-                    Span { start: c.start + arroba, end: c.start + fim },
+                    Span { start: c.start + at_sign, end: c.start + end },
                     Vec::<&str>::new(),
                 ));
             }
         }
     }
-    // Os comentários antes do primeiro token (depois do `#!`).
-    let depois_do_script = if fonte.starts_with(b"#!") { fonte.iter().position(|&b| b == b'\n').map_or(fonte.len(), |i| i + 1) } else { 0 };
-    let primeiro = primeiro_token(fonte, todos, depois_do_script);
-    for c in todos.iter().filter(|c| c.start >= depois_do_script && c.end <= primeiro) {
-        match conferir(&fonte[c.start..c.end]) {
+    // The comments before the first token (after the `#!`).
+    let after_script = if source.starts_with(b"#!") { source.iter().position(|&b| b == b'\n').map_or(source.len(), |i| i + 1) } else { 0 };
+    let first = first_token(source, all, after_script);
+    for c in all.iter().filter(|c| c.start >= after_script && c.end <= first) {
+        match check_comment(&source[c.start..c.end]) {
             Ok(true) => break,
             Ok(false) => {}
-            Err(codigo) => saida.push(Diagnostic::com_codigo(codigo, *c, Vec::<&str>::new())),
+            Err(code) => out.push(Diagnostic::com_codigo(code, *c, Vec::<&str>::new())),
         }
     }
-    saida
+    out
 }
 
 #[cfg(test)]
@@ -223,17 +223,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn formatos() {
-        assert_eq!(conferir(b"// @dart = 2.12"), Ok(true));
-        assert_eq!(conferir(b"// dart = 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_AT_SIGN));
-        assert_eq!(conferir(b"// @dart 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_EQUALS));
-        assert_eq!(conferir(b"// @dart >= 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_EQUALS));
-        assert_eq!(conferir(b"// @Dart = 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_LOWER_CASE));
-        assert_eq!(conferir(b"/// @dart = 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_TWO_SLASHES));
-        assert_eq!(conferir(b"// @dart = v2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_PREFIX));
-        assert_eq!(conferir(b"// @dart = 2"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_NUMBER));
-        assert_eq!(conferir(b"// @dart = 2.0 x"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_TRAILING_CHARACTERS));
-        assert_eq!(conferir(b"/// dart2 is great"), Ok(false));
-        assert_eq!(casa_override(b"// @dart = 3.0"), Some(14));
+    fn formats() {
+        assert_eq!(check_comment(b"// @dart = 2.12"), Ok(true));
+        assert_eq!(check_comment(b"// dart = 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_AT_SIGN));
+        assert_eq!(check_comment(b"// @dart 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_EQUALS));
+        assert_eq!(check_comment(b"// @dart >= 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_EQUALS));
+        assert_eq!(check_comment(b"// @Dart = 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_LOWER_CASE));
+        assert_eq!(check_comment(b"/// @dart = 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_TWO_SLASHES));
+        assert_eq!(check_comment(b"// @dart = v2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_PREFIX));
+        assert_eq!(check_comment(b"// @dart = 2"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_NUMBER));
+        assert_eq!(check_comment(b"// @dart = 2.0 x"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_TRAILING_CHARACTERS));
+        assert_eq!(check_comment(b"/// dart2 is great"), Ok(false));
+        assert_eq!(match_override(b"// @dart = 3.0"), Some(14));
     }
 }

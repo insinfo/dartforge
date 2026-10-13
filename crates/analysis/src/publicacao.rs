@@ -1,17 +1,17 @@
-//! A regra de publicação (plano §2.3), comum ao `dartforge analyze` e ao LSP:
-//! diagnóstico sintático é publicado sempre; um código semântico só é
-//! publicado se estiver em `verificados.txt` — nada do que ele emite está
-//! errado (zero falso positivo, zero posição errada, zero mensagem errada) no
-//! corpus de paridade e nos projetos reais. Falso negativo é permitido: o que
-//! o usuário vê está certo, ainda que falte algo. O resto existe internamente
-//! e vai só para o placar.
+//! The publication rule (plan §2.3), shared by `dartforge analyze` and the
+//! LSP: a syntactic diagnostic is always published; a semantic code is only
+//! published if it is in `verificados.txt` — nothing it emits is wrong (zero
+//! false positives, zero wrong positions, zero wrong messages) in the parity
+//! corpus and in the real projects. False negatives are allowed: what the
+//! user sees is right, even if something is missing. The rest exists
+//! internally and only goes to the scoreboard.
 
 use dartforge_diagnostics::{Diagnostic, TipoErro};
 
-/// A lista versionada de códigos semânticos verificados.
+/// The versioned list of verified semantic codes.
 pub const VERIFICADOS: &str = include_str!("../verificados.txt");
 
-/// Os códigos de [`VERIFICADOS`] (sem comentários).
+/// The codes of [`VERIFICADOS`] (without comments).
 pub fn verificados() -> Vec<&'static str> {
     VERIFICADOS
         .lines()
@@ -20,9 +20,9 @@ pub fn verificados() -> Vec<&'static str> {
         .collect()
 }
 
-/// O diagnóstico vai para o editor/CLI? `sintaxe`: veio do lexer/parser.
-pub fn publicado(d: &Diagnostic, sintaxe: bool) -> bool {
-    if sintaxe {
+/// Does the diagnostic go to the editor/CLI? `syntax`: it came from the lexer/parser.
+pub fn publicado(d: &Diagnostic, syntax: bool) -> bool {
+    if syntax {
         return true;
     }
     match d.code {

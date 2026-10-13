@@ -870,7 +870,7 @@ fn executaveis(u: Unidade<'_>) -> Vec<Span> {
 /// fasta pode ter mantido).
 pub fn nao_usados_com_pulados(u: Unidade<'_>, interner: &Interner, curinga: bool, pulados: crate::Pulados<'_>) -> Vec<Diagnostic> {
     let mut out = nao_usados_sem_filtro(u, interner, curinga);
-    if !pulados.vazio() {
+    if !pulados.is_empty() {
         let execs = executaveis(u);
         let blocos = escopos_de_bloco(u.ast);
         out.retain(|d| {
@@ -887,7 +887,7 @@ pub fn nao_usados_com_pulados(u: Unidade<'_>, interner: &Interner, curinga: bool
                     .filter(|b| b.start <= d.span.start && d.span.end <= b.end && e.start <= b.start && b.end <= e.end)
                     .min_by_key(|b| b.end - b.start)
                     .map_or(e.end, |b| b.end);
-                pulados.cita_em(nome, dartforge_diagnostics::Span { start: d.span.end, end: fim })
+                pulados.mentions_within(nome, dartforge_diagnostics::Span { start: d.span.end, end: fim })
             })
         });
     }

@@ -1,7 +1,7 @@
-//! Aridade de métodos `operator`, conforme
-//! `ErrorVerifier._checkForWrongNumberOfParametersForOperator` do analyzer,
-//! parâmetros opcionais (`_checkForOptionalParameterInOperator`) e o tipo de
-//! retorno de `[]=` (`_checkForNonVoidReturnTypeForOperator`).
+//! The arity of `operator` methods, as in the analyzer's
+//! `ErrorVerifier._checkForWrongNumberOfParametersForOperator`, optional
+//! parameters (`_checkForOptionalParameterInOperator`) and the return type of
+//! `[]=` (`_checkForNonVoidReturnTypeForOperator`).
 
 use crate::Unidade;
 use dartforge_diagnostics::codigos::compile_time_error as c;
@@ -9,13 +9,13 @@ use dartforge_diagnostics::Diagnostic;
 use dartforge_frontend::ast::{Ast, DeclKind, FunctionKind, MemberKind, ParameterKind, TypeId, TypeKind, TypedefKind};
 use dartforge_intern::{Interner, SymbolId};
 
-/// Confere operadores membros de classes, mixins, enums, extensões e tipos de extensão.
-pub fn aridade(unidade: Unidade<'_>, nomes: &Interner) -> Vec<Diagnostic> {
-    let ast = unidade.ast;
-    let vazios = aliases_de_void(unidade);
+/// Checks the operator members of classes, mixins, enums, extensions and extension types.
+pub fn aridade(unit: Unidade<'_>, names: &Interner) -> Vec<Diagnostic> {
+    let ast = unit.ast;
+    let void_aliases = void_aliases(unit);
     let mut out = Vec::new();
-    for &id in &unidade.unit.declarations {
-        let membros = match &ast.decl(id).kind {
+    for &id in &unit.unit.declarations {
+        let members = match &ast.decl(id).kind {
             DeclKind::Class(d) => &d.members,
             DeclKind::Mixin(d) => &d.members,
             DeclKind::Enum(d) => &d.members,
@@ -23,62 +23,64 @@ pub fn aridade(unidade: Unidade<'_>, nomes: &Interner) -> Vec<Diagnostic> {
             DeclKind::ExtensionType(d) => &d.members,
             _ => continue,
         };
-        for &id in membros.iter() {
+        for &id in members.iter() {
             let MemberKind::Method(fid) = &ast.member(id).kind else {
                 continue;
             };
-            let funcao = ast.function(*fid);
-            if funcao.kind != FunctionKind::Operator {
+            let function = ast.function(*fid);
+            if function.kind != FunctionKind::Operator {
                 continue;
             }
-            let (Some(nome), Some(params)) = (funcao.name, &funcao.parameters) else {
+            let (Some(name), Some(params)) = (function.name, &function.parameters) else {
                 continue;
             };
-            let texto = nomes.resolve(nome.sym);
-            let esperado = match texto {
+            let text = names.resolve(name.sym);
+            let expected = match text {
                 "[]=" => Some(2),
                 "<" | ">" | "<=" | ">=" | "==" | "+" | "/" | "~/" | "*" | "%" | "|" | "^" | "&"
                 | "<<" | ">>" | ">>>" | "[]" => Some(1),
                 "~" => Some(0),
                 _ => None,
             };
-            let mut aridade_errada = false;
-            if let Some(esperado) = esperado {
-                if params.len() != esperado {
-                    aridade_errada = true;
+            let mut wrong_arity = false;
+            if let Some(expected) = expected {
+                if params.len() != expected {
+                    wrong_arity = true;
                     out.push(Diagnostic::com_codigo(
                         c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR,
-                        nome.span,
+                        name.span,
                         [
-                            texto.to_string(),
-                            esperado.to_string(),
+                            text.to_string(),
+                            expected.to_string(),
                             params.len().to_string(),
                         ],
                     ));
                 }
-            } else if texto == "-" && params.len() > 1 {
-                aridade_errada = true;
+            } else if text == "-" && params.len() > 1 {
+                wrong_arity = true;
                 out.push(Diagnostic::com_codigo(
                     c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR_MINUS,
-                    nome.span,
+                    name.span,
                     [params.len().to_string()],
                 ));
             }
-            // `_checkForOptionalParameterInOperator`, só sem erro de aridade
-            // (um erro por operador); nomeado `required` não é opcional.
-            if !aridade_errada {
-                let opcionais = params.iter().filter(|p| {
+            // `_checkForOptionalParameterInOperator`, only without an arity
+            // error (one error per operator); a `required` named one is not
+            // optional.
+            if !wrong_arity {
+                let optional = params.iter().filter(|p| {
                     p.kind == ParameterKind::Optional || (p.kind == ParameterKind::Named && !p.required)
                 });
-                for p in opcionais {
+                for p in optional {
                     out.push(Diagnostic::com_codigo(c::OPTIONAL_PARAMETER_IN_OPERATOR, p.span, [] as [&str; 0]));
                 }
             }
-            // `_checkForNonVoidReturnTypeForOperator`: `[]=` com tipo escrito
-            // que não é `void` (nem alias de `void` declarado na unidade).
-            if texto == "[]="
-                && let Some(t) = funcao.return_type
-                && !e_void(ast, &vazios, t)
+            // `_checkForNonVoidReturnTypeForOperator`: `[]=` with a written
+            // type that is not `void` (nor an alias of `void` declared in the
+            // unit).
+            if text == "[]="
+                && let Some(t) = function.return_type
+                && !is_void(ast, &void_aliases, t)
             {
                 out.push(Diagnostic::com_codigo(c::NON_VOID_RETURN_FOR_OPERATOR, ast.ty(t).span, [] as [&str; 0]));
             }
@@ -87,10 +89,10 @@ pub fn aridade(unidade: Unidade<'_>, nomes: &Interner) -> Vec<Diagnostic> {
     out
 }
 
-/// Os `typedef` da unidade que são alias de `void`.
-fn aliases_de_void(unidade: Unidade<'_>) -> Vec<SymbolId> {
-    let ast = unidade.ast;
-    unidade
+/// The unit's `typedef`s that are aliases of `void`.
+fn void_aliases(unit: Unidade<'_>) -> Vec<SymbolId> {
+    let ast = unit.ast;
+    unit
         .unit
         .declarations
         .iter()
@@ -104,8 +106,8 @@ fn aliases_de_void(unidade: Unidade<'_>) -> Vec<SymbolId> {
         .collect()
 }
 
-/// `type is VoidType` pela forma escrita: `void` ou um alias local dele.
-fn e_void(ast: &Ast, aliases: &[SymbolId], t: TypeId) -> bool {
+/// `type is VoidType` by the written form: `void` or a local alias of it.
+fn is_void(ast: &Ast, aliases: &[SymbolId], t: TypeId) -> bool {
     match &ast.ty(t).kind {
         TypeKind::Void => true,
         TypeKind::Named { name, args } => args.is_empty() && name.len() == 1 && aliases.contains(&name[0].sym),
@@ -114,13 +116,13 @@ fn e_void(ast: &Ast, aliases: &[SymbolId], t: TypeId) -> bool {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
     use dartforge_frontend::parser::parse;
 
     #[test]
-    fn operadores_reais_do_corpus() {
-        for (fonte, codigo, operador, mensagem) in [
+    fn real_operators_from_the_corpus() {
+        for (source, code, operator, message) in [
             (
                 include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__tri_89062d24.dart")),
                 c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR,
@@ -140,53 +142,53 @@ mod testes {
                 "Operator '*' should declare exactly 1 parameters, but 2 found.",
             ),
         ] {
-            let mut nomes = Interner::new();
-            let parsed = parse(fonte, &mut nomes);
-            let achados = aridade(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte }, &nomes);
-            let inicio = fonte.find(&format!("operator {operador}")).unwrap() + "operator ".len();
-            assert!(achados.iter().any(|d|
-                d.code == Some(codigo) && d.span.start == inicio && d.span.end == inicio + operador.len()
-                    && d.message == mensagem
-            ), "{fonte}: {achados:?}");
+            let mut names = Interner::new();
+            let parsed = parse(source, &mut names);
+            let found = aridade(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source }, &names);
+            let start = source.find(&format!("operator {operator}")).unwrap() + "operator ".len();
+            assert!(found.iter().any(|d|
+                d.code == Some(code) && d.span.start == start && d.span.end == start + operator.len()
+                    && d.message == message
+            ), "{source}: {found:?}");
         }
     }
 
     #[test]
-    fn menos_aceita_zero_ou_um_parametro() {
-        let fonte =
+    fn minus_accepts_zero_or_one_parameter() {
+        let source =
             "class A { operator -() => this; operator -(a) => this; operator -(a, b) => this; }";
-        let mut nomes = Interner::new();
-        let parsed = parse(fonte, &mut nomes);
-        let achados = aridade(
+        let mut names = Interner::new();
+        let parsed = parse(source, &mut names);
+        let found = aridade(
             Unidade {
                 ast: &parsed.ast,
                 unit: &parsed.unit,
-                fonte,
+                fonte: source,
             },
-            &nomes,
+            &names,
         );
-        assert_eq!(achados.len(), 1, "{achados:?}");
+        assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(
-            achados[0].code,
+            found[0].code,
             Some(c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR_MINUS)
         );
         assert_eq!(
-            achados[0].message,
+            found[0].message,
             "Operator '-' should declare 0 or 1 parameter, but 2 found."
         );
     }
 
-    /// `operator/invalid_operators_test.dart` da linguagem (oráculo 3.6.2):
-    /// o parâmetro opcional inteiro, e nenhum quando a aridade já está errada.
+    /// The language's `operator/invalid_operators_test.dart` (3.6.2 oracle):
+    /// the whole optional parameter, and none when the arity is already wrong.
     #[test]
-    fn opcional_e_retorno_de_indice() {
-        let fonte = "typedef V = void;\nclass A {\n  operator ==([dynamic a]) => true;\n  operator <({a = 1}) => true;\n  operator >({required a}) => true;\n  operator +([a, b]) => 0;\n  int operator []=(a, b) => 0;\n  V operator []=(a, b) {}\n}";
-        let mut nomes = Interner::new();
-        let parsed = parse(fonte, &mut nomes);
-        let achados = aridade(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte }, &nomes);
-        let v: Vec<(&str, &str)> = achados
+    fn optional_and_index_return() {
+        let source = "typedef V = void;\nclass A {\n  operator ==([dynamic a]) => true;\n  operator <({a = 1}) => true;\n  operator >({required a}) => true;\n  operator +([a, b]) => 0;\n  int operator []=(a, b) => 0;\n  V operator []=(a, b) {}\n}";
+        let mut names = Interner::new();
+        let parsed = parse(source, &mut names);
+        let found = aridade(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source }, &names);
+        let v: Vec<(&str, &str)> = found
             .iter()
-            .map(|d| (d.code.unwrap().info().nome, &fonte[d.span.start..d.span.end]))
+            .map(|d| (d.code.unwrap().info().nome, &source[d.span.start..d.span.end]))
             .collect();
         assert_eq!(
             v,

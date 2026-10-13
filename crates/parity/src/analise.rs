@@ -661,9 +661,9 @@ impl Motor {
                 found.extend(with_phase(phase::BEST_PRACTICES, dartforge_analysis::a_doc::verificar(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::c2_syntactic::verificar(*u, &interner).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::UNICODE_TEXT, dartforge_analysis::phases::texto_bidirecional(*u).into_iter().map(|d| (i, d))));
-                found.extend(with_phase(phase::TODO_FINDER, dartforge_analysis::todos::verificar(u.fonte).into_iter().map(|d| (i, d))));
-                found.extend(with_phase(phase::LANGUAGE_VERSION, dartforge_analysis::language_version::verificar(*u).into_iter().map(|d| (i, d))));
-                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::records::verificar(u, &interner, library.features).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::TODO_FINDER, dartforge_analysis::todos::check(u.fonte).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::LANGUAGE_VERSION, dartforge_analysis::language_version::check(*u).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::records::check(u, &interner, library.features).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::inicializacao::constantes_nao_inicializadas(u, &interner).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::PARSER,
                     dartforge_analysis::phases::dois_pontos_no_padrao(*u, library.features.versao().major < 3).into_iter().map(|d| (i, d)),
@@ -675,7 +675,7 @@ impl Motor {
                         || library.features.tem(dartforge_frontend::features::Feature::Macros),
                 )
                 .into_iter().map(|d| (i, d))));
-                found.extend(with_phase(phase::PARSER, dartforge_analysis::natives::fora_do_sdk(*u).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::PARSER, dartforge_analysis::natives::outside_sdk(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d))));
             }
             // Unused privates: the `UnusedLocalElementsVerifier` runs on every
@@ -1009,7 +1009,7 @@ impl Motor {
                         unused.retain(|(u, d)| {
                             let name = program.unit(*u).source.get(d.span.start..d.span.end).unwrap_or("");
                             !units.iter().any(|x| {
-                                dartforge_analysis::Pulados { fonte: &program.unit(*x).source, trechos: &program.unit(*x).pulados }.cita(name)
+                                dartforge_analysis::Pulados { fonte: &program.unit(*x).source, trechos: &program.unit(*x).pulados }.mentions(name)
                             })
                         });
                         attributed.extend(with_phase(phase::UNUSED_LOCAL_ELEMENTS, unused));
@@ -1232,11 +1232,11 @@ impl Motor {
                     if depends_on_declarations(c) {
                         let name = source.get(d.span.start..d.span.end).unwrap_or("");
                         return !units.iter().any(|u| {
-                            dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados }.cita(name)
+                            dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados }.mentions(name)
                         });
                     }
                     if depends_on_line(c) {
-                        return !own_skipped.intersecta(d.span);
+                        return !own_skipped.intersects(d.span);
                     }
                     true
                 });

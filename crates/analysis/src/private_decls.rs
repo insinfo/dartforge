@@ -221,10 +221,10 @@ pub fn nao_usados_com_pulados(
     pulados: &[crate::Pulados<'_>],
 ) -> Vec<(usize, Diagnostic)> {
     let mut saida = nao_usados(unidades, nomes);
-    if pulados.iter().any(|p| !p.vazio()) {
+    if pulados.iter().any(|p| !p.is_empty()) {
         saida.retain(|(i, d)| {
             let nome = unidades.get(*i).and_then(|u| u.fonte.get(d.span.start..d.span.end)).unwrap_or("");
-            !pulados.iter().any(|p| p.cita(nome))
+            !pulados.iter().any(|p| p.mentions(nome))
         });
     }
     saida

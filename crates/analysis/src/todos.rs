@@ -1,68 +1,68 @@
-//! O `TodoFinder` do analyzer (`analyzer/lib/src/error/todo_finder.dart`,
+//! The analyzer's `TodoFinder` (`analyzer/lib/src/error/todo_finder.dart`,
 //! `analyzer/lib/src/dart/error/todo_codes.dart`;
-//! docs/ANALYZER-ESPECIFICACAO-INFRA.md §7.1): `todo`, `fixme`, `hack` e
-//! `undone`, um por casamento de `Todo.TODO_REGEX` nos comentários que
-//! precedem um token (os pendurados no fim do arquivo não são examinados).
-//! A mensagem é o próprio texto do comentário.
+//! docs/ANALYZER-ESPECIFICACAO-INFRA.md §7.1): `todo`, `fixme`, `hack` and
+//! `undone`, one per match of `Todo.TODO_REGEX` in the comments preceding a
+//! token (those dangling at the end of the file are not examined). The
+//! message is the comment's text itself.
 //!
-//! Escrito sem compilar nem executar (2026-10-04).
+//! Written without compiling or running (2026-10-04).
 
 use dartforge_diagnostics::codigos::todo as t;
 use dartforge_diagnostics::{Codigo, Diagnostic, Span};
 use dartforge_frontend::token::Kind;
 
-const PALAVRAS: [(&str, Codigo); 4] = [("TODO", t::TODO), ("FIXME", t::FIXME), ("HACK", t::HACK), ("UNDONE", t::UNDONE)];
+const WORDS: [(&str, Codigo); 4] = [("TODO", t::TODO), ("FIXME", t::FIXME), ("HACK", t::HACK), ("UNDONE", t::UNDONE)];
 
-/// Um comentário da fonte.
-struct Comentario {
-    inicio: usize,
-    fim: usize,
-    /// `/* */` (senão `//`).
-    de_bloco: bool,
-    linha: usize,
-    coluna: usize,
+/// A comment of the source.
+struct Comment {
+    start: usize,
+    end: usize,
+    /// `/* */` (otherwise `//`).
+    is_block: bool,
+    line: usize,
+    column: usize,
 }
 
-/// `\w` do Dart sem a opção `unicode`.
-fn de_palavra(c: char) -> bool {
+/// Dart's `\w` without the `unicode` option.
+fn is_word_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
 }
 
-/// O fim de `[^\r\n]*` a partir de `i`.
-fn resto_da_linha(s: &str, i: usize) -> usize {
+/// The end of `[^\r\n]*` from `i` on.
+fn line_rest_end(s: &str, i: usize) -> usize {
     s[i..].find(['\r', '\n']).map_or(s.len(), |k| i + k)
 }
 
-/// O primeiro casamento de `Todo.TODO_REGEX` em `lexema` a partir de `de`:
-/// o início e o fim do grupo 2 (a palavra e o texto) e o código.
-fn casar(lexema: &str, de: usize) -> Option<(usize, usize, Codigo)> {
-    for (p, c) in lexema[de..].char_indices() {
-        // Grupo 1: um caractere de espaço, `/` ou `*`.
+/// The first match of `Todo.TODO_REGEX` in `lexeme` from `from` on: the
+/// start and end of group 2 (the word and the text) and the code.
+fn find_match(lexeme: &str, from: usize) -> Option<(usize, usize, Codigo)> {
+    for (p, c) in lexeme[from..].char_indices() {
+        // Group 1: a whitespace character, `/` or `*`.
         if !(c.is_whitespace() || c == '/' || c == '*') {
             continue;
         }
-        let q = de + p + c.len_utf8();
-        let resto = &lexema[q..];
-        for (palavra, codigo) in PALAVRAS {
-            if !resto.starts_with(palavra) {
+        let q = from + p + c.len_utf8();
+        let rest = &lexeme[q..];
+        for (word, code) in WORDS {
+            if !rest.starts_with(word) {
                 continue;
             }
-            let depois = q + palavra.len();
-            match lexema[depois..].chars().next() {
-                // Alternativa A: um caractere que não é de palavra, o resto
-                // da linha e as linhas seguintes `*` mais dois espaços.
-                Some(x) if !de_palavra(x) => {
-                    let mut fim = resto_da_linha(lexema, depois + x.len_utf8());
+            let after = q + word.len();
+            match lexeme[after..].chars().next() {
+                // Alternative A: a non-word character, the rest of the line
+                // and the following `*` lines plus two spaces.
+                Some(x) if !is_word_char(x) => {
+                    let mut end = line_rest_end(lexeme, after + x.len_utf8());
                     loop {
-                        let Some(apos_quebra) = lexema[fim..].strip_prefix('\n') else { break };
-                        let sem_brancos = apos_quebra.trim_start();
-                        let Some(apos_marca) = sem_brancos.strip_prefix("*  ") else { break };
-                        fim = resto_da_linha(lexema, lexema.len() - apos_marca.len());
+                        let Some(after_break) = lexeme[end..].strip_prefix('\n') else { break };
+                        let trimmed = after_break.trim_start();
+                        let Some(after_mark) = trimmed.strip_prefix("*  ") else { break };
+                        end = line_rest_end(lexeme, lexeme.len() - after_mark.len());
                     }
-                    return Some((q, fim, codigo));
+                    return Some((q, end, code));
                 }
-                // Alternativa B: a palavra no fim do lexema.
-                None => return Some((q, depois, codigo)),
+                // Alternative B: the word at the end of the lexeme.
+                None => return Some((q, after, code)),
                 Some(_) => {}
             }
         }
@@ -70,168 +70,168 @@ fn casar(lexema: &str, de: usize) -> Option<(usize, usize, Codigo)> {
     None
 }
 
-/// Os comentários de `fonte[de..ate]`, um vão entre dois tokens.
-fn comentarios_do_vao(fonte: &str, de: usize, ate: usize, inicios_de_linha: &[usize], saida: &mut Vec<Comentario>) {
-    let b = fonte.as_bytes();
-    let mut i = de;
-    while i + 1 < ate {
-        let (fim, de_bloco) = if b[i] == b'/' && b[i + 1] == b'/' {
-            let fim = fonte[i..ate].find('\n').map_or(ate, |k| i + k);
-            (if fim > i && b[fim - 1] == b'\r' { fim - 1 } else { fim }, false)
+/// The comments of `source[from..until]`, a gap between two tokens.
+fn gap_comments(source: &str, from: usize, until: usize, line_starts: &[usize], out: &mut Vec<Comment>) {
+    let b = source.as_bytes();
+    let mut i = from;
+    while i + 1 < until {
+        let (end, is_block) = if b[i] == b'/' && b[i + 1] == b'/' {
+            let end = source[i..until].find('\n').map_or(until, |k| i + k);
+            (if end > i && b[end - 1] == b'\r' { end - 1 } else { end }, false)
         } else if b[i] == b'/' && b[i + 1] == b'*' {
-            let mut nivel = 1;
+            let mut level = 1;
             let mut j = i + 2;
-            while j < ate && nivel > 0 {
-                if j + 1 < ate && b[j] == b'/' && b[j + 1] == b'*' {
-                    nivel += 1;
+            while j < until && level > 0 {
+                if j + 1 < until && b[j] == b'/' && b[j + 1] == b'*' {
+                    level += 1;
                     j += 2;
-                } else if j + 1 < ate && b[j] == b'*' && b[j + 1] == b'/' {
-                    nivel -= 1;
+                } else if j + 1 < until && b[j] == b'*' && b[j + 1] == b'/' {
+                    level -= 1;
                     j += 2;
                 } else {
                     j += 1;
                 }
             }
-            (j.min(ate), true)
+            (j.min(until), true)
         } else if b[i].is_ascii_whitespace() {
             i += 1;
             continue;
         } else {
-            // Não é branco nem comentário: o vão não é o que se esperava.
+            // Neither blank nor comment: the gap is not what was expected.
             return;
         };
-        let linha = inicios_de_linha.partition_point(|&x| x <= i) - 1;
-        saida.push(Comentario { inicio: i, fim, de_bloco, linha, coluna: i - inicios_de_linha[linha] });
-        i = fim.max(i + 2);
+        let line = line_starts.partition_point(|&x| x <= i) - 1;
+        out.push(Comment { start: i, end: end, is_block, line, column: i - line_starts[line] });
+        i = end.max(i + 2);
     }
 }
 
 /// `replaceAll(RegExp(r'\s*\n\s*\*\s*'), ' ')`.
-fn desdobrar(texto: &str) -> String {
-    let mut saida = String::with_capacity(texto.len());
-    let mut resto = texto;
-    while let Some(k) = resto.find('\n') {
-        let depois = resto[k + 1..].trim_start();
-        match depois.strip_prefix('*') {
-            Some(apos) => {
-                saida.push_str(resto[..k].trim_end());
-                saida.push(' ');
-                resto = apos.trim_start();
+fn unfold(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(k) = rest.find('\n') {
+        let after = rest[k + 1..].trim_start();
+        match after.strip_prefix('*') {
+            Some(after) => {
+                out.push_str(rest[..k].trim_end());
+                out.push(' ');
+                rest = after.trim_start();
             }
             None => {
-                saida.push_str(&resto[..=k]);
-                resto = &resto[k + 1..];
+                out.push_str(&rest[..=k]);
+                rest = &rest[k + 1..];
             }
         }
     }
-    saida.push_str(resto);
-    saida
+    out.push_str(rest);
+    out
 }
 
-/// `TodoFinder.findIn`: os relatos de uma unidade.
-pub fn verificar(fonte: &str) -> Vec<Diagnostic> {
+/// `TodoFinder.findIn`: the reports of a unit.
+pub fn check(source: &str) -> Vec<Diagnostic> {
     let mut out = Vec::new();
-    // Sem nenhuma das palavras, nada a fazer (o caso comum).
-    if !PALAVRAS.iter().any(|(p, _)| fonte.contains(p)) {
+    // Without any of the words, nothing to do (the common case).
+    if !WORDS.iter().any(|(p, _)| source.contains(p)) {
         return out;
     }
-    let Ok(tokens) = dartforge_frontend::lexer::lex(fonte) else { return out };
-    let mut inicios_de_linha = vec![0usize];
-    inicios_de_linha.extend(fonte.bytes().enumerate().filter(|(_, c)| *c == b'\n').map(|(i, _)| i + 1));
-    let mut anterior = 0usize;
+    let Ok(tokens) = dartforge_frontend::lexer::lex(source) else { return out };
+    let mut line_starts = vec![0usize];
+    line_starts.extend(source.bytes().enumerate().filter(|(_, c)| *c == b'\n').map(|(i, _)| i + 1));
+    let mut previous = 0usize;
     for token in &tokens {
-        // Os comentários pendurados no token de fim de arquivo ficam fora.
+        // The comments dangling on the end-of-file token are left out.
         if matches!(token.kind, Kind::Eof) {
             break;
         }
         let mut cs = Vec::new();
-        comentarios_do_vao(fonte, anterior.min(token.span.start), token.span.start, &inicios_de_linha, &mut cs);
-        anterior = token.span.end;
+        gap_comments(source, previous.min(token.span.start), token.span.start, &line_starts, &mut cs);
+        previous = token.span.end;
         let mut k = 0;
         while k < cs.len() {
             let c = &cs[k];
-            let lexema = &fonte[c.inicio..c.fim];
-            // Quantos comentários seguintes viraram continuação deste.
-            let mut consumidos = 0;
-            let mut de = 0;
-            while let Some((ini, fim_do_texto, codigo)) = casar(lexema, de) {
-                de = fim_do_texto.max(ini + 1);
-                let offset = c.inicio + ini;
-                let coluna = c.coluna + ini;
-                let mut texto = lexema[ini..fim_do_texto].to_string();
-                let mut fim = offset + texto.len();
-                if c.de_bloco {
-                    if let Some(sem) = texto.strip_suffix("*/") {
-                        texto = sem.trim_end().to_string();
-                        fim = offset + texto.len();
+            let lexeme = &source[c.start..c.end];
+            // How many following comments became a continuation of this one.
+            let mut consumed = 0;
+            let mut from = 0;
+            while let Some((start, text_end, code)) = find_match(lexeme, from) {
+                from = text_end.max(start + 1);
+                let offset = c.start + start;
+                let column = c.column + start;
+                let mut text = lexeme[start..text_end].to_string();
+                let mut end = offset + text.len();
+                if c.is_block {
+                    if let Some(without) = text.strip_suffix("*/") {
+                        text = without.trim_end().to_string();
+                        end = offset + text.len();
                     }
-                    texto = desdobrar(&texto);
+                    text = unfold(&text);
                 } else {
-                    // As linhas de continuação: `//` na linha seguinte, na
-                    // mesma coluna, com o texto recuado um espaço a mais que
-                    // a palavra, e sem outro TODO.
-                    let mut linha = c.linha;
-                    let mut n = consumidos;
-                    while let Some(prox) = cs.get(k + 1 + n) {
-                        let lex = &fonte[prox.inicio..prox.fim];
-                        let recuo = lex.len() - lex.trim_start_matches(['/', ' ']).len();
-                        let continua = !prox.de_bloco
+                    // The continuation lines: `//` on the next line, at the
+                    // same column, with the text indented one space more than
+                    // the word, and without another TODO.
+                    let mut line = c.line;
+                    let mut n = consumed;
+                    while let Some(next) = cs.get(k + 1 + n) {
+                        let lex = &source[next.start..next.end];
+                        let indent = lex.len() - lex.trim_start_matches(['/', ' ']).len();
+                        let continues = !next.is_block
                             && !lex.starts_with("///")
-                            && prox.linha == linha + 1
-                            && prox.coluna == c.coluna
-                            && prox.coluna + recuo == coluna + 1
-                            && casar(lex, 0).is_none();
-                        if !continua {
+                            && next.line == line + 1
+                            && next.column == c.column
+                            && next.column + indent == column + 1
+                            && find_match(lex, 0).is_none();
+                        if !continues {
                             break;
                         }
-                        fim = prox.fim;
-                        texto.push(' ');
-                        texto.push_str(lex[recuo..].trim_end());
-                        linha = prox.linha;
+                        end = next.end;
+                        text.push(' ');
+                        text.push_str(lex[indent..].trim_end());
+                        line = next.line;
                         n += 1;
                     }
-                    consumidos = n;
+                    consumed = n;
                 }
-                out.push(Diagnostic::com_codigo(codigo, Span { start: offset, end: fim }, [texto.as_str()]));
+                out.push(Diagnostic::com_codigo(code, Span { start: offset, end: end }, [text.as_str()]));
             }
-            k += 1 + consumidos;
+            k += 1 + consumed;
         }
     }
     out
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    /// `(código, início, comprimento, mensagem)` de cada relato.
-    fn achados(fonte: &str) -> Vec<(&'static str, usize, usize, String)> {
-        verificar(fonte)
+    /// `(code, start, length, message)` of each report.
+    fn findings(source: &str) -> Vec<(&'static str, usize, usize, String)> {
+        check(source)
             .into_iter()
             .map(|d| (d.code.map_or("", |c| c.info().nome), d.span.start, d.span.end - d.span.start, d.message))
             .collect()
     }
 
-    /// A tabela conferida no binário 3.6.2 (§7.1).
+    /// The table checked on the 3.6.2 binary (§7.1).
     #[test]
-    fn tabela_do_oraculo() {
-        assert_eq!(achados("/// TODO: doc\nvoid a() {}\n"), vec![("todo", 4, 9, "TODO: doc".to_string())]);
-        let bloco = "/** HACK bloco\n *  continua aqui\n */\nvoid b() {}\n";
-        assert_eq!(achados(bloco), vec![("hack", 4, 28, "HACK bloco continua aqui".to_string())]);
-        let linhas = "// FIXME(x): linha um\n//  continua\n// nao continua\nvoid c() {}\n";
-        assert_eq!(achados(linhas), vec![("fixme", 3, 31, "FIXME(x): linha um continua".to_string())]);
-        assert_eq!(achados("void c() {} // UNDONE\nvoid d() {}\n"), vec![("undone", 15, 6, "UNDONE".to_string())]);
+    fn oracle_table() {
+        assert_eq!(findings("/// TODO: doc\nvoid a() {}\n"), vec![("todo", 4, 9, "TODO: doc".to_string())]);
+        let block = "/** HACK bloco\n *  continua aqui\n */\nvoid b() {}\n";
+        assert_eq!(findings(block), vec![("hack", 4, 28, "HACK bloco continua aqui".to_string())]);
+        let lines = "// FIXME(x): linha um\n//  continua\n// nao continua\nvoid c() {}\n";
+        assert_eq!(findings(lines), vec![("fixme", 3, 31, "FIXME(x): linha um continua".to_string())]);
+        assert_eq!(findings("void c() {} // UNDONE\nvoid d() {}\n"), vec![("undone", 15, 6, "UNDONE".to_string())]);
     }
 
     #[test]
-    fn o_que_nao_casa() {
-        assert!(achados("// todo: minusculo TODOS nao\nvoid a() {}\n").is_empty());
-        // Pendurado no fim do arquivo.
-        assert!(achados("void a() {}\n// TODO: no fim do arquivo\n").is_empty());
+    fn what_does_not_match() {
+        assert!(findings("// todo: minusculo TODOS nao\nvoid a() {}\n").is_empty());
+        // Dangling at the end of the file.
+        assert!(findings("void a() {}\n// TODO: no fim do arquivo\n").is_empty());
     }
 
     #[test]
-    fn desdobra_o_bloco() {
-        assert_eq!(desdobrar("HACK bloco\n *  continua aqui"), "HACK bloco continua aqui");
+    fn unfolds_the_block() {
+        assert_eq!(unfold("HACK bloco\n *  continua aqui"), "HACK bloco continua aqui");
     }
 }

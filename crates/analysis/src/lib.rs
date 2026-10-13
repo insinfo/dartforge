@@ -1,28 +1,28 @@
-//! Verificadores do analyzer que não dependem de tipos, sobre a árvore do
-//! `frontend` (plano A3). Cada um reproduz um verificador do
-//! `package:analyzer` 6.11.0 — os códigos, as mensagens em inglês e as
-//! posições são os dele — e é conferido pelo placar de `crates/parity`.
+//! Analyzer verifiers that do not depend on types, over the `frontend` tree
+//! (plan A3). Each one reproduces a verifier of `package:analyzer` 6.11.0 —
+//! the codes, the English messages and the positions are its own — and is
+//! checked by the scoreboard of `crates/parity`.
 //!
-//! * [`locais`]: variáveis e funções locais não usadas (`UnusedLocalElementsVerifier`).
-//! * [`duplicatas`]: `DuplicateDefinitionVerifier` e
+//! * [`locais`]: unused local variables and functions (`UnusedLocalElementsVerifier`).
+//! * [`duplicatas`]: `DuplicateDefinitionVerifier` and
 //!   `MemberDuplicateDefinitionVerifier` (`src/error/duplicate_definition_verifier.dart`).
-//! * [`externos`]: inicializadores de campos e variáveis `external`
+//! * [`externos`]: initializers of `external` fields and variables
 //!   (`ErrorVerifier`).
-//! * [`private_decls`]: declarações privadas nunca referenciadas
-//!   (`UnusedLocalElementsVerifier`, a parte de biblioteca).
-//! * [`operadores`]: aridade, parâmetros opcionais e retorno de `[]=` em
-//!   métodos `operator` (`ErrorVerifier`).
-//! * [`enums`]: enum sem constantes após augmentations (`ErrorVerifier`).
-//! * [`clauses`]: cláusulas de herança (`subtype_of_disallowed_type`,
-//!   erros de mixin, `class_used_as_mixin`) e a porta do `ErrorVerifier`
-//!   que desliga as verificações seguintes.
-//! * [`modifiers`]: `base`/`final`/`interface`/`sealed` usados fora da
-//!   biblioteca (`ErrorVerifier` e `BaseOrFinalTypeVerifier`).
-//! * [`members`]: verificações locais de declarações e membros do
-//!   `ErrorVerifier` (parâmetros de tipo em conflito, campos de enum e de
-//!   tipo de extensão, setters, `this.x` fora de construtor, lista de
-//!   inicializadores, `return` em construtor gerador).
-//! * [`natives`]: `native` (cláusula de classe e corpo) fora do SDK
+//! * [`private_decls`]: private declarations never referenced
+//!   (`UnusedLocalElementsVerifier`, the library part).
+//! * [`operadores`]: arity, optional parameters and the return of `[]=` in
+//!   `operator` methods (`ErrorVerifier`).
+//! * [`enums`]: an enum without constants after augmentations (`ErrorVerifier`).
+//! * [`clauses`]: inheritance clauses (`subtype_of_disallowed_type`, mixin
+//!   errors, `class_used_as_mixin`) and the `ErrorVerifier` gate that turns
+//!   off the following checks.
+//! * [`modifiers`]: `base`/`final`/`interface`/`sealed` used outside the
+//!   library (`ErrorVerifier` and `BaseOrFinalTypeVerifier`).
+//! * [`members`]: local checks of declarations and members of the
+//!   `ErrorVerifier` (conflicting type parameters, enum and extension type
+//!   fields, setters, `this.x` outside a constructor, initializer list,
+//!   `return` in a generative constructor).
+//! * [`natives`]: `native` (class clause and body) outside the SDK
 //!   (`ErrorVerifier`).
 
 pub mod a_context;
@@ -55,21 +55,21 @@ pub mod language_version;
 
 use dartforge_frontend::ast::{Ast, CompilationUnit};
 
-/// Uma unidade (arquivo) de uma biblioteca, na ordem da biblioteca: a que a
-/// declara primeiro, depois as partes.
+/// A unit (file) of a library, in the library's order: the one that declares
+/// it first, then the parts.
 #[derive(Clone, Copy)]
 pub struct Unidade<'a> {
     pub ast: &'a Ast,
     pub unit: &'a CompilationUnit,
-    /// O texto da unidade (anotações locais não ficam na árvore).
+    /// The unit's text (local annotations are not kept in the tree).
     pub fonte: &'a str,
 }
 
-/// Os trechos de uma unidade que a recuperação de erro do parser descartou
-/// (`Unit::pulados`), com o texto dela: a única supressão por sintaxe que
-/// resta (docs/ANALYZER-ESPECIFICACAO.md §G, T5, estrutura (c)). Um nome
-/// citado num trecho pulado pode ter ali um uso ou uma declaração que o
-/// fasta manteve e a nossa árvore não tem.
+/// The fragments of a unit that the parser's error recovery discarded
+/// (`Unit::pulados`), with its text: the only syntax-based suppression left
+/// (docs/ANALYZER-ESPECIFICACAO.md §G, T5, structure (c)). A name cited in a
+/// skipped fragment may have there a use or a declaration that fasta kept and
+/// our tree does not have.
 #[derive(Clone, Copy)]
 pub struct Pulados<'a> {
     pub fonte: &'a str,
@@ -77,68 +77,68 @@ pub struct Pulados<'a> {
 }
 
 impl Pulados<'_> {
-    pub fn vazio(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.trechos.is_empty()
     }
 
-    /// O intervalo `s` toca algum trecho pulado?
-    pub fn intersecta(&self, s: dartforge_diagnostics::Span) -> bool {
+    /// Does range `s` touch any skipped fragment?
+    pub fn intersects(&self, s: dartforge_diagnostics::Span) -> bool {
         self.trechos.iter().any(|t| t.start < s.end && s.start < t.end)
     }
 
-    /// O identificador `nome` aparece, como palavra inteira, em algum
-    /// trecho pulado?
-    pub fn cita(&self, nome: &str) -> bool {
-        self.trechos.iter().any(|t| cita_no_trecho(self.fonte, *t, nome))
+    /// Does identifier `name` appear, as a whole word, in any skipped
+    /// fragment?
+    pub fn mentions(&self, name: &str) -> bool {
+        self.trechos.iter().any(|t| mentioned_in_fragment(self.fonte, *t, name))
     }
 
-    /// Como [`Pulados::cita`], só nos trechos que tocam `dentro` (a
-    /// declaração executável de um local).
-    /// Só a citação que começa dentro de `dentro` conta (o próprio nome
-    /// declarado, num trecho pulado que o contém, não é uso: `var enum;`).
-    pub fn cita_em(&self, nome: &str, dentro: dartforge_diagnostics::Span) -> bool {
-        self.trechos.iter().filter(|t| t.start < dentro.end && dentro.start < t.end).any(|t| {
-            let inicio = t.start.max(dentro.start);
-            let fim = t.end.min(dentro.end);
-            // O trecho inteiro decide a fronteira de palavra; a posição, o recorte.
-            citacoes(self.fonte, *t, nome).any(|p| p >= inicio && p < fim)
+    /// Like [`Pulados::mentions`], only in the fragments that touch `within`
+    /// (a local's executable declaration). Only a mention starting inside
+    /// `within` counts (the declared name itself, in a skipped fragment that
+    /// contains it, is not a use: `var enum;`).
+    pub fn mentions_within(&self, name: &str, within: dartforge_diagnostics::Span) -> bool {
+        self.trechos.iter().filter(|t| t.start < within.end && within.start < t.end).any(|t| {
+            let start = t.start.max(within.start);
+            let end = t.end.min(within.end);
+            // The whole fragment decides the word boundary; the position, the cut.
+            mentions(self.fonte, *t, name).any(|p| p >= start && p < end)
         })
     }
 }
 
-/// As posições (na unidade) das citações de `nome` como palavra no trecho `t`.
-fn citacoes<'a>(fonte: &'a str, t: dartforge_diagnostics::Span, nome: &'a str) -> impl Iterator<Item = usize> + 'a {
-    let texto = fonte.get(t.start..t.end.min(fonte.len())).unwrap_or("");
-    let bytes = texto.as_bytes();
-    let de_palavra = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
-    texto
-        .match_indices(nome)
-        .filter(move |(ini, _)| {
-            let fim = ini + nome.len();
-            !nome.is_empty() && (*ini == 0 || !de_palavra(bytes[ini - 1])) && (fim >= bytes.len() || !de_palavra(bytes[fim]))
+/// The positions (in the unit) of the whole-word mentions of `name` in fragment `t`.
+fn mentions<'a>(source: &'a str, t: dartforge_diagnostics::Span, name: &'a str) -> impl Iterator<Item = usize> + 'a {
+    let text = source.get(t.start..t.end.min(source.len())).unwrap_or("");
+    let bytes = text.as_bytes();
+    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
+    text
+        .match_indices(name)
+        .filter(move |(start, _)| {
+            let end = start + name.len();
+            !name.is_empty() && (*start == 0 || !is_word(bytes[start - 1])) && (end >= bytes.len() || !is_word(bytes[end]))
         })
-        .map(move |(ini, _)| t.start + ini)
+        .map(move |(start, _)| t.start + start)
 }
 
-fn cita_no_trecho(fonte: &str, t: dartforge_diagnostics::Span, nome: &str) -> bool {
-    if nome.is_empty() {
+fn mentioned_in_fragment(source: &str, t: dartforge_diagnostics::Span, name: &str) -> bool {
+    if name.is_empty() {
         return false;
     }
-    let Some(texto) = fonte.get(t.start..t.end.min(fonte.len())) else { return false };
-    let bytes = texto.as_bytes();
-    let de_palavra = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
-    let mut de = 0;
-    while let Some(i) = texto[de..].find(nome) {
-        let ini = de + i;
-        let fim = ini + nome.len();
-        let antes_ok = ini == 0 || !de_palavra(bytes[ini - 1]);
-        let depois_ok = fim >= bytes.len() || !de_palavra(bytes[fim]);
-        if antes_ok && depois_ok {
+    let Some(text) = source.get(t.start..t.end.min(source.len())) else { return false };
+    let bytes = text.as_bytes();
+    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
+    let mut from = 0;
+    while let Some(i) = text[from..].find(name) {
+        let start = from + i;
+        let end = start + name.len();
+        let before_ok = start == 0 || !is_word(bytes[start - 1]);
+        let after_ok = end >= bytes.len() || !is_word(bytes[end]);
+        if before_ok && after_ok {
             return true;
         }
-        de = ini + 1;
-        while de < texto.len() && !texto.is_char_boundary(de) {
-            de += 1;
+        from = start + 1;
+        while from < text.len() && !text.is_char_boundary(from) {
+            from += 1;
         }
     }
     false
