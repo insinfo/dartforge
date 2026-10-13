@@ -360,6 +360,13 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "import 'dart:async';\nfinal class BS extends StreamView<List<int>> {\n  const BS(super.stream);\n}\nconst x = BS(Stream.empty());\nconst y = Stream<int>.empty();\nconst z = StreamView<int>(Stream.empty());\n",
         &[],
     ),
+    // A `late final` field without an initializer has a setter that a setter
+    // with `@override` overrides (code_builder; 2026-10-13).
+    (
+        "late_final_setter.dart",
+        "abstract class A {\n  late final String name;\n  late final int x = 1;\n  final int y = 2;\n}\nclass B extends A {\n  @override\n  set name(String v) {}\n  @override\n  set x(int v) {}\n  @override\n  set y(int v) {}\n}\nvoid f(A a) {\n  a.name = 's';\n}\nabstract class I { late final String q; }\nclass J implements I {\n  @override\n  String get q => '';\n  @override\n  set q(String v) {}\n}\nmixin M { late final int r; }\nclass K with M {\n  @override\n  set r(int v) {}\n}\n",
+        &[("override_on_non_overriding_member", 10, 7, 1), ("override_on_non_overriding_member", 12, 7, 1)],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",

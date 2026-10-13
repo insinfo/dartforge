@@ -53,6 +53,25 @@ fn has_setter(l: &ast::VariableList, v: &ast::Variable) -> bool {
     !l.const_ && (!l.final_ || (l.late && v.initializer.is_none()))
 }
 
+/// The inherited getter `name` is the implicit accessor of a `late final`
+/// field without an initializer, whose implicit setter the model does not
+/// create (the analyzer's element has it): a setter `name` overrides it.
+fn overrides_late_final_setter(h: &mut InheritanceManager, p: &mut OutlineProvider<'_, '_>, class: ClassId, lib: LibraryId, name: SymbolId) -> bool {
+    let program = p.program;
+    let the_name = MemberName::new(p.interner, lib, name);
+    let Some(ms) = h.overridden(p, class, the_name) else { return false };
+    ms.iter().any(|m| {
+        let f = program.function(m.function);
+        if f.kind != Fk::ImplicitAccessor {
+            return false;
+        }
+        let Some(v) = f.variable else { return false };
+        let VariableRef::Field { unit, member, index } = program.variable(v).node else { return false };
+        let MemberKind::Field(l) = &program.unit(unit).ast.member(member).kind else { return false };
+        l.variables.get(index).is_some_and(|x| l.late && l.final_ && x.initializer.is_none())
+    })
+}
+
 /// The declarations of the library's units, with the class of each one.
 fn the_declarations(program: &Program, lib: LibraryId) -> Vec<(UnitId, ast::DeclId, Option<ClassId>)> {
     let mut classes: HashMap<(UnitId, ast::DeclId), ClassId> = HashMap::new();
@@ -158,7 +177,11 @@ pub fn missing_override(
                         FunctionKind::Setter => (setter_key(interner, name.sym), w::OVERRIDE_ON_NON_OVERRIDING_SETTER),
                         FunctionKind::Function | FunctionKind::Operator => (Some(name.sym), w::OVERRIDE_ON_NON_OVERRIDING_METHOD),
                     };
-                    if !current.is_some_and(|c| the_overrides(&mut h, &mut p, c, lib, key)) {
+                    let overrides = current.is_some_and(|c| {
+                        the_overrides(&mut h, &mut p, c, lib, key)
+                            || (func.kind == FunctionKind::Setter && overrides_late_final_setter(&mut h, &mut p, c, lib, name.sym))
+                    });
+                    if !overrides {
                         output.push((u, Diagnostic::with_code(code, name.span, empty)));
                     }
                 }
