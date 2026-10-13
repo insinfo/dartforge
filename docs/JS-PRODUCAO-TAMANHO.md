@@ -287,7 +287,7 @@ trabalho, não substitui a medida.
 1. `dartforge-differential --producao`: corpus/js 238/238 iguais à VM.
 2. Testes de `mundo`, `emit_js`, `emit_js_production` e `elements`.
 3. `limitless_ui/example`: e2e 26/26.
-4. `new_sali/frontend`: `scripts/fluxo.mjs`, os 11 passos sem erro.
+4. `new_sali/frontend`: `scripts/flow.mjs`, os 11 passos sem erro.
 5. Tamanho (bruto) e tempo por fase, na tabela da §1.1.
 
 ---
@@ -342,7 +342,7 @@ Validação deste estado:
 * corpus/js `--producao` 238/238;
 * testes dos crates verdes;
 * `limitless_ui` 26/26 no e2e;
-* `new_sali` com o `fluxo.mjs` igual ao do bundle do `dart2js`: 11
+* `new_sali` com o `flow.mjs` igual ao do bundle do `dart2js`: 11
   passos, 0 com erro. Os passos 2 e 4 acusam botão ausente nos dois, porque
   a página abre já autenticada.
 
@@ -389,7 +389,7 @@ Validação:
 * corpus 238/238;
 * testes verdes;
 * `limitless_ui` 26/26;
-* `new_sali` com o `fluxo.mjs` igual ao controle `dart2js`.
+* `new_sali` com o `flow.mjs` igual ao controle `dart2js`.
 
 O `new_sali` compila em 29–45 s, contra 57 s do `dart2js`.
 
@@ -560,14 +560,14 @@ O limiar foi medido: com `2k > 13` o `new_sali` sai com 12.103.052 bytes; com
 | `01_print` | 156.012 | **155.403** |
 
 Validação (2026-10-06): corpus `--producao` 238/238, `limitless_ui` 26/26 no
-e2e, `new_sali` com o `fluxo.mjs` nos 11 passos sem erro, igual ao controle
+e2e, `new_sali` com o `flow.mjs` nos 11 passos sem erro, igual ao controle
 sem o passo.
 
 ## 9. Rodada de 2026-10-12 (macOS): rumo a menos que o `dart2js -O4`
 
 Meta do dono: arquivo **menor** que o do `dart compile js -O4`, com o corpus
 de produção 238/238 igual à VM. Medido antes de mexer
-(`scripts/medir-js-producao-tokens.py`, categorias de token do arquivo
+(`scripts/measure-js-production-tokens.py`, categorias de token do arquivo
 minificado; o `dart2js` é o `build_runner build --release` com `-O4`):
 
 | categoria | `new_sali` nosso | `new_sali` dart2js |
@@ -958,20 +958,38 @@ lado a lado: no `limitless_ui` a tabela vai de 50 para 28 KB. Só quando ganha
 a lista simples (o gzip perdia um pouco). `corpus/js/241` confere
 `runtimeType`, `toString` e erro de tipo pela tabela codificada.
 
-### 11.5 Formas compactas: assinatura de classe e `null` encadeado
+### 11.5 Formas compactas e o *bootstrap*
 
 * `S(C, () => ({__proto__: G(C.__proto__), m: …}))`, uma por tipo de
   assinatura de cada classe, vira `t$G(S, G, C, () => ({m: …}))`; o `t$G`
   põe o mesmo protótipo no objeto que o *thunk* monta (`shapes.rs`). 750 no
   `limitless_ui`, 17 no `01_print`.
+* O prólogo de todo construtor genérico, `X.$ti = X.$ti || _ti ||
+  dart.getReifiedType(X);`, vira `t$Q(X, _ti);` (1.152 no `limitless_ui`, 29
+  no `01_print`). O `t$Q` chama a mesma função que as instruções chamavam (uma
+  variável depois do achatamento): a mais comum, quando aparece 4 vezes ou
+  mais.
 * Inicializações seguidas de campo com `null` no construtor viram uma só,
   encadeada de trás para a frente (`this.c = this.b = this.a = null`), para
   as propriedades nascerem na mesma ordem.
+* O *bootstrap* do SDK próprio criava cada símbolo `dartx` numa linha
+  (`dartx.abs = Symbol("dartx.abs");`, 65 no `01_print`); agora é um laço
+  sobre a lista de nomes, que continuam *strings* do runtime (o renomeio de
+  propriedades as preserva). É o maior ganho do corpus nesta rodada (−432 KB).
+* `Object.create` entrou na lista de funções puras do compressor: o objeto de
+  biblioteca que o achatamento esvaziou perdia a declaração mas mantinha a
+  chamada.
 
-Medido e descartado: juntar os `let` de um bloco no primeiro (`let e = …, n,
-r; …; n = …`). O bruto cai (−16 KB no `limitless_ui`, −13 KB no corpus), mas o
-gzip piora bem mais (+13 KB e +29 KB): a lista de declaradores é única em cada
-função, e os `let x = f(…)` repetidos comprimiam melhor.
+Medidos e descartados:
+
+* juntar os `let` de um bloco no primeiro (`let e = …, n, r; …; n = …`): o
+  bruto cai (−16 KB no `limitless_ui`, −13 KB no corpus), mas o gzip piora bem
+  mais (+13 KB e +29 KB): a lista de declaradores é única em cada função, e os
+  `let x = f(…)` repetidos comprimiam melhor;
+* as sequências de ids sem nome na tabela `t$N` escritas como o comprimento
+  (`"3 int  String"`): −61 KB brutos no corpus, mas +15 KB no gzip (os espaços
+  seguidos já comprimiam quase de graça, e o decodificador entra em todo
+  programa).
 
 ### 11.6 Resultado
 
@@ -981,24 +999,24 @@ Corpus, os mesmos 237 programas da §10.8 (macOS, `dart compile js -O4` do SDK
 | | bruto | gzip -9 |
 | --- | ---: | ---: |
 | §10.8 | 23.860.132 | 7.577.459 |
-| agora | **23.643.933** | **7.553.114** |
+| agora | **23.052.209** (−3,4%) | **7.488.242** (−1,2%) |
 | `dart2js -O4` | 9.606.538 | 3.120.104 |
 
 | alvo | §10.8 | agora | `dart2js -O4` |
 | --- | ---: | ---: | ---: |
-| `01_print` | 88.445 | **87.723** | 34.926 |
-| `120_convert_json` | 173.620 | **170.626** | 58.550 |
-| `135_convert_json_classes` | 240.905 | **237.384** | 101.193 |
-| `limitless_ui/example` | 4.030.541 (gz 1.148.341) | **3.889.889** (gz 1.138.058) | 3.708.482 (gz 983.819) |
-| `new_sali/frontend` | 8.342.998 (gz 2.265.897) | **8.099.754** (gz 2.246.746) | 7.616.042 (gz 2.018.951) |
+| `01_print` | 88.445 (gz 28.373) | **85.454** (gz 28.047) | 34.926 (gz 11.543) |
+| `120_convert_json` | 173.620 | **167.191** | 58.550 |
+| `135_convert_json_classes` | 240.905 | **232.822** | 101.193 |
+| `limitless_ui/example` | 4.030.541 (gz 1.148.341) | **3.857.125** (gz 1.136.359) | 3.708.482 (gz 983.819) |
+| `new_sali/frontend` | 8.342.998 (gz 2.265.897) | **8.024.157** (gz 2.242.510) | 7.616.042 (gz 2.018.951) |
 
-Tempo de compilação (macOS, sem outra carga): `limitless_ui` 9,7 s
-(`dart2js` 21 s), `new_sali` 28 s (`dart2js` 68 s); mediana do corpus
-~0,35 s por programa.
+Os projetos ficaram a 1,04× (`limitless_ui`) e 1,05× (`new_sali`) do
+`dart2js` no bruto; no gzip, 1,16× e 1,11×. No corpus a mediana da razão
+caiu para 2,35× (bruto) e 2,34× (gzip): o piso do runtime domina.
 
-Os projetos ficaram a 1,05× (`limitless_ui`) e 1,06× (`new_sali`) do `dart2js`
-no bruto; no gzip, 1,16× e 1,11×. O corpus continua dominado pelo piso do
-runtime (a mediana da razão é 2,4×).
+Tempo de compilação (macOS): `limitless_ui` 10–12 s (`dart2js` 21 s),
+`new_sali` 24–28 s (`dart2js` 68 s); mediana do corpus ~0,35–0,5 s por
+programa.
 
 Validação depois de cada passo: corpus diferencial 241/241 em
 desenvolvimento e produção; `limitless_ui` com as 47 rotas sem erro no Chrome
@@ -1016,7 +1034,9 @@ e o e2e 15/15; `new_sali` carrega no Chrome sem erro, com a mesma página do
    minificado (`_Universe` 21 KB, `_Parser` 9,5 KB, `Recipe` 5 KB). O
    `JSNoSuchMethodError` (extensão registrada para `TypeError`) mantém
    `RegExp`/`FormatException` vivos de verdade: só sai com outra
-   implementação da mensagem.
+   implementação da mensagem. Formas compactas do *bootstrap* como a do
+   `dartx` rendem mais no corpus que nos projetos (cada programa repete o piso).
 3. Enum com constante por constante viva (~10 KB no `limitless_ui`).
 4. Os itens pequenos da §10.9 (nomes de variável de tipo curtos, regras
-   compactadas).
+   compactadas) e o `addRtiResources(C, ["|x"])` de um item só (~2 KB por
+   programa pequeno, pede mudar a função do runtime).
