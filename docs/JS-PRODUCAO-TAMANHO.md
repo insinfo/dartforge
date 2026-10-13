@@ -1357,3 +1357,86 @@ Medidos e descartados:
    tipos de argumento à moda do `dart2js`.
 3. Os `let` por declaração (68 KB brutos no `limitless_ui` contra 22 KB de
    `var` do `dart2js`) — juntá-los piorou o gzip na §11.5.
+
+## 14. Rodada de 2026-10-13, fim da tarde (macOS): onde está o gzip que falta
+
+Medido antes de mexer (o binário do fim da §13, sem `-O4`, como nas rodadas
+anteriores): `limitless_ui` 3.546.977 (gz 1.026.260), `new_sali` 7.626.767
+(gz 2.082.025), contra 3.708.482 (gz 983.819) e 7.616.042 (gz 2.018.951) do
+`dart2js -O4`.
+
+### 14.1 Ablação por categoria no `limitless_ui`
+
+Cada linha é o gzip que some quando a construção sai do arquivo minificado
+(medido sozinho; as somas não são aditivas):
+
+| construção | ocorrências | bruto | gzip |
+| --- | ---: | ---: | ---: |
+| assinaturas (`t$G(…)`; métodos 419, campos 155, *getters* 152, *setters* 22) | 748 | 43.170 | 13.952 |
+| JSON das regras rti (programa 25 KB + SDK 16 KB; o do `dart2js` tem 46 KB e custa 5,3 KB gzip) | 2 | 41.141 | 8.549 |
+| tabela de nomes `t$N` | 1 | 28.165 | 7.670 |
+| lista dos `addRtiResources` em lote | 1.693 classes | 15.697 | 7.276 |
+| nomes sem inicializador no `var` do topo (achatamento) | 3.502 | 11.635 | 6.487 |
+| `t$P(C.x = function…, C)` (o embrulho) | 1.635 | 9.812 | 5.537 |
+| `t$R` de receitas usadas uma vez | 691 | — | 4.849 |
+| `dart.fn` das *closures* | 1.881 | 13.371 | 4.274 |
+| bloco dos `t$T` (receitas fixas) | — | 7.505 | 2.642 |
+| embrulhos IIFE por biblioteca | 492 | — | 529 |
+
+Por categoria de *token* (acorn), a diferença para o `dart2js` está nos
+identificadores (+37 KB gzip; os nomes do topo achatados são identificadores
+aleatórios, e o `dart2js` escreve `A.x`, que conta como propriedade: somando
+identificadores e propriedades, +17 KB), na pontuação (+27 KB) e nas
+palavras-chave (+8 KB: `let` por declaração, `get`, `this`, `new`). As
+*strings* custam o mesmo nos dois.
+
+### 14.2 Classe e construtor padrão numa chamada (`shapes.rs`)
+
+`C = class …{…};` seguido de `(C.new = function(…){…}).prototype =
+C.prototype;` vira `C = t$C(class …{…}, function(…){…})`, com `t$C = function(c,
+f) { c.new = f; f.prototype = c.prototype; return c; }`: o nome da classe sai
+uma vez em vez de três. A função do construtor passa a ser criada antes da
+atribuição de `C`, o que ninguém observa (só é chamada depois). Só quando as
+duas instruções são vizinhas e o construtor é o `new`; os outros continuam no
+`t$P`. `DARTFORGE_JSPROD_CLASS_CONSTRUCTOR=0` desliga.
+
+| alvo | antes | agora | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| `limitless_ui/example` | 3.546.977 (gz 1.026.260) | **3.537.433** (gz **1.020.554**) | 3.708.482 (gz 983.819) |
+| `new_sali/frontend` | 7.626.767 (gz 2.082.025) | **7.602.291** (gz **2.067.576**) | 7.616.042 (gz 2.018.951) |
+
+O `new_sali` ficou **menor que o `dart2js -O4` no bruto** (0,998×) e a 1,024×
+no gzip; o `limitless_ui` a 0,954× e 1,037×. Validação: corpus diferencial
+241/241 em desenvolvimento e produção, `corpus/modern` 26/26 nos dois,
+`limitless_ui` com o e2e 15/15 e as 47 rotas sem erro, `new_sali` carrega sem
+erro.
+
+### 14.3 Medidos e descartados (ou adiados)
+
+* Deduplicação de *strings* (§9.x) com limiares: só a partir de 3 usos, −2,2 KB
+  gzip e +16 KB brutos; a partir de 5 usos ou com usos a mais de 100 KB de
+  distância, −3,7 KB gzip e +26 KB brutos. Troca bruto por gzip; fica para
+  decidir com o corpus. Ordem das declarações por primeira ocorrência: pior
+  (+0,9 KB). Sem deduplicação: +8 KB gzip.
+* Receitas fixas (`t$T`) por primeira ocorrência ou só com 3 usos: neutro ou
+  pior.
+* Regras rti na ordem do programa (as chaves hoje saem em ordem alfabética,
+  pelo `serde_json::Map`): −1 KB gzip, estimado sobre o arquivo final.
+* Lista dos `addRtiResources` com o id próprio implícito (o número do id é
+  quase sempre o anterior mais 1; 1.322 de 1.693): −8,3 KB brutos e −2,3 KB
+  gzip, estimado.
+
+### 14.4 O que falta, por ganho esperado
+
+1. Assinaturas (14 KB gzip): os `dart.bind` de *tearoff* com receptor de tipo
+   estático conhecido (1.815 no `limitless_ui`, quase todos `_handleEvent_*`
+   das *views*) poderiam levar o tipo na chamada (`bind(obj, nome, método)`
+   já recebe o método); a entrada da assinatura ficaria só para os nomes de
+   `dsend`/`dload`. Pede provar no mundo que nenhuma subclasse viva
+   sobrescreve o método com outro tipo.
+2. Os nomes do topo sem inicializador (6,5 KB): declarar no lugar da
+   atribuição pede tirar as IIFEs de biblioteca (renomeando os locais delas).
+3. Estender o `t$C` com os recursos rti da classe (o nome sai da lista em
+   lote) e com as assinaturas.
+4. Os itens estimados da §14.3 (ordem das regras, ids implícitos, limiar da
+   deduplicação).
