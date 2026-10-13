@@ -1,16 +1,16 @@
-//! O vigésimo quinto lote de regras de lint
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`), pela
-//! semântica da unidade:
+//! The twenty-fifth batch of lint rules
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the 3.6.2
+//! emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`),
+//! through the unit's semantics:
 //!
-//! * `discarded_futures`: a chamada que devolve `Future`/`FutureOr` num
-//!   corpo síncrono (construtor, função, método, closure de inicializador),
-//!   fora das closures assíncronas de dentro e do `unawaited`.
-//! * `diagnostic_describe_all_properties`: as propriedades públicas de uma
-//!   classe `Diagnosticable` que não aparecem no `debugFillProperties` nem
-//!   no `debugDescribeChildren`.
+//! * `discarded_futures`: a call that returns `Future`/`FutureOr` in a
+//!   synchronous body (constructor, function, method, initializer closure),
+//!   outside the async closures inside it and `unawaited`.
+//! * `diagnostic_describe_all_properties`: the public properties of a
+//!   `Diagnosticable` class that do not appear in `debugFillProperties` nor
+//!   in `debugDescribeChildren`.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -24,23 +24,23 @@ use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::{Type, TypeId};
 use std::collections::HashSet;
 
-fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
+fn class_of_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
     (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
 }
 
-/// A chamada é `MethodInvocation` (e não `FunctionExpressionInvocation`).
-fn e_invocacao_de_metodo(s: &super::Semantics<'_>, a: &Ast, alvo: ExprId) -> bool {
-    if !matches!(a.expr(alvo).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
+/// The call is a `MethodInvocation` (and not a `FunctionExpressionInvocation`).
+fn is_method_invocation(s: &super::Semantics<'_>, a: &Ast, callee: ExprId) -> bool {
+    if !matches!(a.expr(callee).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
         return false;
     }
-    let nao_getter = |f: dartforge_elements::model::FunctionElementId| s.program.function(f).kind != FunctionKind::Getter;
-    match s.body.get_resolved(alvo) {
-        Some(Resolved::Member { member: MemberRef::Function(f), .. }) => nao_getter(*f),
+    let not_getter = |f: dartforge_elements::model::FunctionElementId| s.program.function(f).kind != FunctionKind::Getter;
+    match s.body.get_resolved(callee) {
+        Some(Resolved::Member { member: MemberRef::Function(f), .. }) => not_getter(*f),
         Some(Resolved::Member { member: MemberRef::Variable(_), .. }) => false,
-        Some(Resolved::Element(Element::Function(f))) => nao_getter(*f),
+        Some(Resolved::Element(Element::Function(f))) => not_getter(*f),
         Some(Resolved::Element(_)) => false,
-        Some(Resolved::ExtensionMember { member, .. }) => nao_getter(*member),
-        Some(Resolved::Local(_)) => s.body.declaracao_local(alvo).is_some_and(|d| {
+        Some(Resolved::ExtensionMember { member, .. }) => not_getter(*member),
+        Some(Resolved::Local(_)) => s.body.declaracao_local(callee).is_some_and(|d| {
             a.stmts.iter().any(|x| matches!(&x.kind, StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == d)))
         }),
         Some(Resolved::Parameter { .. }) => false,
@@ -48,20 +48,20 @@ fn e_invocacao_de_metodo(s: &super::Semantics<'_>, a: &Ast, alvo: ExprId) -> boo
     }
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let program = s.program;
     let table = s.table;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `discarded_futures`.
-    if ligada("discarded_futures") {
-        let e_future = |t: TypeId| -> bool {
+    if enabled("discarded_futures") {
+        let is_future = |t: TypeId| -> bool {
             let r = match table.get(t) {
                 Type::Function { ret, .. } => *ret,
                 Type::Interface { .. } | Type::FutureOr { .. } => t,
@@ -69,36 +69,36 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             };
             matches!(table.get(r), Type::Interface { class, .. } if Some(*class) == s.core.future_class) || matches!(table.get(r), Type::FutureOr { .. })
         };
-        let escrito_future = |t: Option<dartforge_frontend::ast::TypeId>| {
-            t.and_then(|t| s.body.tipos_de_anotacoes.get(&t).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, t)).copied())).is_some_and(e_future)
+        let written_future = |t: Option<dartforge_frontend::ast::TypeId>| {
+            t.and_then(|t| s.body.tipos_de_anotacoes.get(&t).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, t)).copied())).is_some_and(is_future)
         };
-        let assincrono = |m: AsyncModifier| matches!(m, AsyncModifier::Async | AsyncModifier::AsyncStar);
-        // Os corpos verificados: (região, ok).
-        let mut corpos: Vec<Span> = Vec::new();
-        let regiao = |b: &FunctionBody| match b {
+        let is_async = |m: AsyncModifier| matches!(m, AsyncModifier::Async | AsyncModifier::AsyncStar);
+        // The checked bodies: (region, ok).
+        let mut bodies: Vec<Span> = Vec::new();
+        let region_of = |b: &FunctionBody| match b {
             FunctionBody::Block(x) => Some(a.stmt(*x).span),
             FunctionBody::Expression(e) => Some(a.expr(*e).span),
             _ => None,
         };
         for m in a.members.iter() {
             match &m.kind {
-                MemberKind::Constructor(k) => corpos.extend(regiao(&k.body)),
+                MemberKind::Constructor(k) => bodies.extend(region_of(&k.body)),
                 MemberKind::Method(f) => {
                     let f = a.function(*f);
-                    if !escrito_future(f.return_type) && !assincrono(f.modifier) {
-                        corpos.extend(regiao(&f.body));
+                    if !written_future(f.return_type) && !is_async(f.modifier) {
+                        bodies.extend(region_of(&f.body));
                     }
                 }
                 MemberKind::Field(l) => {
-                    if escrito_future(l.ty) {
+                    if written_future(l.ty) {
                         continue;
                     }
                     for v in l.variables.iter() {
                         if let Some(i) = v.initializer
                             && let ExprKind::FunctionExpression(g) = &a.expr(i).kind
-                            && !assincrono(a.function(*g).modifier)
+                            && !is_async(a.function(*g).modifier)
                         {
-                            corpos.extend(regiao(&a.function(*g).body));
+                            bodies.extend(region_of(&a.function(*g).body));
                         }
                     }
                 }
@@ -108,20 +108,20 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             match &d.kind {
                 DeclKind::Function(f) => {
                     let f = a.function(*f);
-                    if !escrito_future(f.return_type) && !assincrono(f.modifier) {
-                        corpos.extend(regiao(&f.body));
+                    if !written_future(f.return_type) && !is_async(f.modifier) {
+                        bodies.extend(region_of(&f.body));
                     }
                 }
                 DeclKind::Variables(l) => {
-                    if escrito_future(l.ty) {
+                    if written_future(l.ty) {
                         continue;
                     }
                     for v in l.variables.iter() {
                         if let Some(i) = v.initializer
                             && let ExprKind::FunctionExpression(g) = &a.expr(i).kind
-                            && !assincrono(a.function(*g).modifier)
+                            && !is_async(a.function(*g).modifier)
                         {
-                            corpos.extend(regiao(&a.function(*g).body));
+                            bodies.extend(region_of(&a.function(*g).body));
                         }
                     }
                 }
@@ -131,44 +131,44 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         for st in a.stmts.iter() {
             if let StmtKind::Function(f) = &st.kind {
                 let f = a.function(*f);
-                if !escrito_future(f.return_type) && !assincrono(f.modifier) {
-                    corpos.extend(regiao(&f.body));
+                if !written_future(f.return_type) && !is_async(f.modifier) {
+                    bodies.extend(region_of(&f.body));
                 }
             }
         }
-        // As closures assíncronas (não visitadas por dentro) e os `unawaited`.
-        let assincronas: Vec<Span> = a.functions.iter().filter(|f| assincrono(f.modifier)).filter_map(|f| regiao(&f.body)).collect();
-        let mut nao_visitar: Vec<Span> = assincronas.clone();
+        // The async closures (not visited inside) and the `unawaited`s.
+        let async_bodies: Vec<Span> = a.functions.iter().filter(|f| is_async(f.modifier)).filter_map(|f| region_of(&f.body)).collect();
+        let mut skipped: Vec<Span> = async_bodies.clone();
         for e in a.exprs.iter() {
             if let ExprKind::Call { target, .. } = &e.kind
                 && let Some(Resolved::Element(Element::Function(f))) = s.body.get_resolved(*target)
                 && interner.resolve(program.function(*f).name) == "unawaited"
                 && program.library(program.function(*f).library).uri == "dart:async"
             {
-                // O `unawaited(...)` inteiro não é descido.
-                nao_visitar.push(e.span);
+                // The whole `unawaited(...)` is not descended into.
+                skipped.push(e.span);
             }
         }
-        let dentro = |sp: Span, r: Span| sp.start >= r.start && sp.end <= r.end;
-        let mut achados: HashSet<(usize, usize)> = HashSet::new();
+        let within = |sp: Span, r: Span| sp.start >= r.start && sp.end <= r.end;
+        let mut findings: HashSet<(usize, usize)> = HashSet::new();
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
             let ExprKind::Call { target, .. } = &e.kind else { continue };
             if matches!(s.body.get_resolved(id), Some(Resolved::Constructor(_))) {
                 continue;
             }
-            // Algum corpo verificado alcança a chamada sem passar por uma
-            // closure assíncrona ou por um `unawaited` dentro dele.
-            let alcancada = corpos.iter().any(|c| dentro(e.span, *c) && !nao_visitar.iter().any(|r| r != c && dentro(*r, *c) && dentro(e.span, *r)));
-            if !alcancada {
+            // Some checked body reaches the call without passing through an
+            // async closure or an `unawaited` inside it.
+            let reached = bodies.iter().any(|c| within(e.span, *c) && !skipped.iter().any(|r| r != c && within(*r, *c) && within(e.span, *r)));
+            if !reached {
                 continue;
             }
             let Some(t) = s.body.get_type(id) else { continue };
-            let retorna_future = matches!(table.get(t), Type::Interface { class, .. } if Some(*class) == s.core.future_class) || matches!(table.get(t), Type::FutureOr { .. });
-            if !retorna_future {
+            let returns_future = matches!(table.get(t), Type::Interface { class, .. } if Some(*class) == s.core.future_class) || matches!(table.get(t), Type::FutureOr { .. });
+            if !returns_future {
                 continue;
             }
-            let sp = if e_invocacao_de_metodo(s, a, *target) {
+            let sp = if is_method_invocation(s, a, *target) {
                 match &a.expr(*target).kind {
                     ExprKind::Property { name, .. } | ExprKind::Identifier(name) => name.span,
                     _ => a.expr(*target).span,
@@ -176,18 +176,18 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             } else {
                 a.expr(*target).span
             };
-            achados.insert((sp.start, sp.end));
+            findings.insert((sp.start, sp.end));
         }
-        let mut v: Vec<(usize, usize)> = achados.into_iter().collect();
+        let mut v: Vec<(usize, usize)> = findings.into_iter().collect();
         v.sort();
-        for (ini, fim) in v {
-            relatar(&c::DISCARDED_FUTURES, Span { start: ini, end: fim }, &[]);
+        for (start, end) in v {
+            report(&c::DISCARDED_FUTURES, Span { start: start, end: end }, &[]);
         }
     }
 
     // `diagnostic_describe_all_properties`.
-    if ligada("diagnostic_describe_all_properties") {
-        let implementa_diagnosticable = |cl: ClassId| {
+    if enabled("diagnostic_describe_all_properties") {
+        let implements_diagnosticable = |cl: ClassId| {
             let f = |k: ClassId| {
                 let x = program.class(k);
                 interner.resolve(x.name) == "Diagnosticable" && program.library(x.library).name.as_ref().is_none_or(|n| n.is_empty())
@@ -196,17 +196,17 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         };
         for (k, d) in a.decls.iter().enumerate() {
             let DeclKind::Class(x) = &d.kind else { continue };
-            let Some(classe) = classe_da_decl(s, DeclId(k as u32)) else { continue };
-            if !implementa_diagnosticable(classe) {
+            let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else { continue };
+            if !implements_diagnosticable(class_id) {
                 continue;
             }
-            // `_isOverridingMember`: um membro herdado de mesmo nome.
-            let herdado = |n: dartforge_intern::SymbolId| {
-                let mut sup: Vec<ClassId> = s.outline.hierarchy.get(classe).map(|h| h.supertypes.keys().copied().collect()).unwrap_or_default();
+            // `_isOverridingMember`: an inherited member with the same name.
+            let inherited = |n: dartforge_intern::SymbolId| {
+                let mut sup: Vec<ClassId> = s.outline.hierarchy.get(class_id).map(|h| h.supertypes.keys().copied().collect()).unwrap_or_default();
                 sup.extend(s.core.object_class);
                 sup.iter().any(|sc| program.class(*sc).instance_members.contains_key(&n))
             };
-            let mut propriedades: Vec<dartforge_frontend::ast::Name> = Vec::new();
+            let mut properties: Vec<dartforge_frontend::ast::Name> = Vec::new();
             for &mid in &x.members {
                 match &a.member(mid).kind {
                     MemberKind::Method(f) => {
@@ -215,11 +215,11 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                             continue;
                         }
                         let Some(n) = f.name else { continue };
-                        let tipo = f.return_type.and_then(|t| s.outline.tipos_escritos.get(&(s.unit, t)).copied());
-                        if interner.resolve(n.sym).starts_with('_') || herdado(n.sym) || tipo.is_some_and(|t| super::rules20::is_widget_property(s, interner, t, 0)) {
+                        let ty = f.return_type.and_then(|t| s.outline.tipos_escritos.get(&(s.unit, t)).copied());
+                        if interner.resolve(n.sym).starts_with('_') || inherited(n.sym) || ty.is_some_and(|t| super::rules20::is_widget_property(s, interner, t, 0)) {
                             continue;
                         }
-                        propriedades.push(n);
+                        properties.push(n);
                     }
                     MemberKind::Field(l) => {
                         if l.static_ {
@@ -227,71 +227,71 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                         }
                         for (index, v) in l.variables.iter().enumerate() {
                             let r = dartforge_elements::model::VariableRef::Field { unit: s.unit, member: mid, index };
-                            let tipo = program.variables.iter().position(|y| y.node == r).and_then(|i| s.outline.variables.get(i)).and_then(|d| d.declared_type.or(d.inferred));
-                            if interner.resolve(v.name.sym).starts_with('_') || herdado(v.name.sym) || tipo.is_some_and(|t| super::rules20::is_widget_property(s, interner, t, 0)) {
+                            let ty = program.variables.iter().position(|y| y.node == r).and_then(|i| s.outline.variables.get(i)).and_then(|d| d.declared_type.or(d.inferred));
+                            if interner.resolve(v.name.sym).starts_with('_') || inherited(v.name.sym) || ty.is_some_and(|t| super::rules20::is_widget_property(s, interner, t, 0)) {
                                 continue;
                             }
-                            propriedades.push(v.name);
+                            properties.push(v.name);
                         }
                     }
                     MemberKind::Constructor(_) => {}
                 }
             }
-            if propriedades.is_empty() {
+            if properties.is_empty() {
                 continue;
             }
-            // Os identificadores dos corpos de `debugFillProperties` e
+            // The identifiers of the bodies of `debugFillProperties` and
             // `debugDescribeChildren`.
-            let mut citados: Vec<String> = Vec::new();
+            let mut mentioned: Vec<String> = Vec::new();
             for &mid in &x.members {
                 let MemberKind::Method(f) = &a.member(mid).kind else { continue };
                 let f = a.function(*f);
                 if !f.name.is_some_and(|n| matches!(interner.resolve(n.sym), "debugFillProperties" | "debugDescribeChildren")) {
                     continue;
                 }
-                let corpo = match &f.body {
+                let body = match &f.body {
                     FunctionBody::Block(b) => a.stmt(*b).span,
                     FunctionBody::Expression(e) => a.expr(*e).span,
                     _ => continue,
                 };
                 for e in a.exprs.iter() {
-                    if e.span.start < corpo.start || e.span.end > corpo.end {
+                    if e.span.start < body.start || e.span.end > body.end {
                         continue;
                     }
                     match &e.kind {
-                        ExprKind::Identifier(n) | ExprKind::Property { name: n, .. } => citados.push(interner.resolve(n.sym).to_string()),
+                        ExprKind::Identifier(n) | ExprKind::Property { name: n, .. } => mentioned.push(interner.resolve(n.sym).to_string()),
                         ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
                             for arg in arguments.args.iter() {
                                 if let Some(n) = arg.name {
-                                    citados.push(interner.resolve(n.sym).to_string());
+                                    mentioned.push(interner.resolve(n.sym).to_string());
                                 }
                             }
                             if let ExprKind::InstanceCreation { constructor: Some(n), .. } = &e.kind {
-                                citados.push(interner.resolve(n.sym).to_string());
+                                mentioned.push(interner.resolve(n.sym).to_string());
                             }
                         }
                         _ => {}
                     }
                 }
             }
-            for nome in &citados {
-                let (debug, simples) = if nome.starts_with("debug") && nome.len() > 5 {
-                    let resto = &nome[5..];
-                    let mut cs = resto.chars();
-                    let primeira = cs.next().map(|c| c.to_lowercase().collect::<String>()).unwrap_or_default();
-                    (nome.clone(), format!("{primeira}{}", cs.as_str()))
+            for name in &mentioned {
+                let (debug, simple) = if name.starts_with("debug") && name.len() > 5 {
+                    let rest = &name[5..];
+                    let mut cs = rest.chars();
+                    let first = cs.next().map(|c| c.to_lowercase().collect::<String>()).unwrap_or_default();
+                    (name.clone(), format!("{first}{}", cs.as_str()))
                 } else {
-                    let mut cs = nome.chars();
-                    let primeira = cs.next().map(|c| c.to_uppercase().collect::<String>()).unwrap_or_default();
-                    (format!("debug{primeira}{}", cs.as_str()), nome.clone())
+                    let mut cs = name.chars();
+                    let first = cs.next().map(|c| c.to_uppercase().collect::<String>()).unwrap_or_default();
+                    (format!("debug{first}{}", cs.as_str()), name.clone())
                 };
-                propriedades.retain(|p| {
+                properties.retain(|p| {
                     let t = interner.resolve(p.sym);
-                    t != debug && t != simples
+                    t != debug && t != simple
                 });
             }
-            for p in propriedades {
-                relatar(&c::DIAGNOSTIC_DESCRIBE_ALL_PROPERTIES, p.span, &[]);
+            for p in properties {
+                report(&c::DIAGNOSTIC_DESCRIBE_ALL_PROPERTIES, p.span, &[]);
             }
         }
     }
