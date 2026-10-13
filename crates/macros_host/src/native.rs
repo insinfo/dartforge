@@ -11,7 +11,7 @@
 //! them changes, it is compiled again.
 use crate::applications::Application;
 use crate::executor::DfexecExecutor;
-use crate::protocol::CanalDeProcesso;
+use crate::protocol::ProcessChannel;
 use std::path::{Path, PathBuf};
 
 /// Who compiles, and where.
@@ -40,9 +40,9 @@ pub fn start(
     cfg: &NativeConfig,
     apps: &[Application],
     project_package_config: Option<&Path>,
-) -> Result<DfexecExecutor<CanalDeProcesso>, String> {
+) -> Result<DfexecExecutor<ProcessChannel>, String> {
     let exe = compile(cfg, apps, project_package_config)?;
-    Ok(DfexecExecutor::new(CanalDeProcesso::iniciar(std::process::Command::new(&exe))?))
+    Ok(DfexecExecutor::new(ProcessChannel::start(std::process::Command::new(&exe))?))
 }
 
 /// The native executable of the bootstrap for `apps` (compiled now or taken

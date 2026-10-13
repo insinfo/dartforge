@@ -30,7 +30,7 @@ use crate::executor::{
     ActionResult, BuilderScript, BuildStepService,
 };
 use crate::vm::{WrittenBootstrap, depfile_deps, write_bootstrap};
-use dartforge_dfexec::CanalDeProcesso;
+use dartforge_dfexec::ProcessChannel;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -197,7 +197,7 @@ pub struct NativeMeasurement {
 /// first Dart action, creates the process and keeps it warm.
 pub struct NativeExecutor {
     cfg: NativeConfig,
-    client: Option<BuildClient<CanalDeProcesso>>,
+    client: Option<BuildClient<ProcessChannel>>,
     /// Key of the executable that the current process runs.
     key: Option<String>,
     failure: Option<String>,

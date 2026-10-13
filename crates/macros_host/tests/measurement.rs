@@ -29,7 +29,7 @@ use dartforge_intern::Interner;
 use dartforge_macros_host::cache::MacroCache;
 use dartforge_macros_host::executor::{DfexecExecutor, MacroExecutor};
 use dartforge_macros_host::model::View;
-use dartforge_macros_host::protocol::CanalDeProcesso;
+use dartforge_macros_host::protocol::ProcessChannel;
 use dartforge_macros_host::{Output, apply, apply_incremental};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -55,7 +55,7 @@ fn dart() -> PathBuf {
 }
 
 /// The VM as executor, with the bootstrap of the applications of `input`.
-fn vm(input: &Path, config: &Path, sdk: &SdkLayout, work: &Path) -> DfexecExecutor<CanalDeProcesso> {
+fn vm(input: &Path, config: &Path, sdk: &SdkLayout, work: &Path) -> DfexecExecutor<ProcessChannel> {
     let mut names = Interner::new();
     let (p, _) = load_lenient_generated(input, sdk, Some(config), &mut names, None, None, None);
     let apps = dartforge_macros_host::applications::detect(&View { program: &p, interner: &names });

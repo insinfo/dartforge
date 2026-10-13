@@ -251,3 +251,5 @@ outras já em inglês ficam.
 | `Mundo::{funcao, variavel, estat}` | `World::{is_live_function, is_live_variable, stats}` |
 | `Raizes { funcoes, classes_instanciadas, seletores }` | `Roots { functions, instantiated_classes, selectors }` |
 | `Statistics { classes_instanciadas, funcoes_usuario, funcoes_vivas, seletores }` | `Statistics { instantiated_classes, user_functions, live_functions, selectors }` |
+| `dfexec::{Canal, CanalDeProcesso, PROTOCOLO, escrever_quadro, ler_quadro}` | `dfexec::{Channel, ProcessChannel, PROTOCOL, write_frame, read_frame}` (o valor `dfexec/1` fica) |
+| `Canal::{enviar, receber}`, `CanalDeProcesso::{iniciar, com_prazo}` | `Channel::{send, receive}`, `ProcessChannel::{start, with_deadline}` |

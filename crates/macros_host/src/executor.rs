@@ -8,12 +8,12 @@
 //!   `dart:convert`); the plug-in point is [`DfexecExecutor`] with the native
 //!   process's channel.
 //! * [`DfexecExecutor`] — the client of the `macro.*` service of `dfexec/1`
-//!   over any [`Canal`]: a process ([`crate::protocol::CanalDeProcesso`]),
+//!   over any [`Channel`]: a process ([`crate::protocol::ProcessChannel`]),
 //!   or, in tests, a recorded session ([`RecordedChannel`]). It is the same
 //!   client for the native executor and for the materialization builder that
 //!   runs the same macro on a VM (docs/MACROS-COMPATIBILIDADE.md).
 use crate::assembly::{ExecutionResult, result_from_json};
-use crate::protocol::{Canal, Handshake, check_hello, host_hello};
+use crate::protocol::{Channel, Handshake, check_hello, host_hello};
 use serde_json::{Value, json};
 
 /// The three phases (spec, "Phases").
@@ -124,13 +124,13 @@ impl MacroExecutor for Unavailable {
 
 /// The `macro.*` client over a channel. Requests are numbered by the host;
 /// during an execution, it answers the executor's `macro.consulta` queries.
-pub struct DfexecExecutor<C: Canal> {
+pub struct DfexecExecutor<C: Channel> {
     channel: C,
     next: u64,
     started: bool,
 }
 
-impl<C: Canal> DfexecExecutor<C> {
+impl<C: Channel> DfexecExecutor<C> {
     pub fn new(channel: C) -> Self {
         DfexecExecutor { channel, next: 1, started: false }
     }
@@ -155,7 +155,7 @@ impl<C: Canal> DfexecExecutor<C> {
     /// the way.
     fn await_reply(&mut self, id: u64, t: &str, queries: &mut dyn QueryService) -> Result<Value, String> {
         loop {
-            let m = self.channel.receber()?;
+            let m = self.channel.receive()?;
             match m.get("t").and_then(Value::as_str) {
                 Some("macro.consulta") => {
                     let qid = m.get("id").cloned().unwrap_or(Value::Null);
@@ -165,7 +165,7 @@ impl<C: Canal> DfexecExecutor<C> {
                         Ok(value) => json!({"t": "macro.resposta", "id": qid, "valor": value}),
                         Err(e) => json!({"t": "macro.resposta", "id": qid, "erro": {"tipo": e.kind, "mensagem": e.message}}),
                     };
-                    self.channel.enviar(&reply)?;
+                    self.channel.send(&reply)?;
                 }
                 Some("erro") => {
                     let msg = m.get("mensagem").and_then(Value::as_str).unwrap_or("");
@@ -185,21 +185,21 @@ impl QueryService for NoQueries {
     }
 }
 
-impl<C: Canal> MacroExecutor for DfexecExecutor<C> {
+impl<C: Channel> MacroExecutor for DfexecExecutor<C> {
     fn availability(&self) -> Availability {
         Availability::Available
     }
 
     fn start(&mut self) -> Result<Handshake, String> {
-        self.channel.enviar(&host_hello())?;
-        let r = check_hello(&self.channel.receber()?)?;
+        self.channel.send(&host_hello())?;
+        let r = check_hello(&self.channel.receive()?)?;
         self.started = true;
         Ok(r)
     }
 
     fn instantiate(&mut self, macro_: &str, constructor: &str, arguments: &Value) -> Result<(u64, Vec<String>), String> {
         let id = self.id();
-        self.channel.enviar(&json!({"t": "macro.instanciar", "id": id, "macro": macro_, "construtor": constructor, "argumentos": arguments}))?;
+        self.channel.send(&json!({"t": "macro.instanciar", "id": id, "macro": macro_, "construtor": constructor, "argumentos": arguments}))?;
         let r = self.await_reply(id, "macro.instancia", &mut NoQueries)?;
         let instance = r.get("instancia").and_then(Value::as_u64).ok_or_else(|| format!("reply without an instance: {r}"))?;
         let interfaces = r
@@ -212,7 +212,7 @@ impl<C: Canal> MacroExecutor for DfexecExecutor<C> {
 
     fn execute(&mut self, p: &ExecutionRequest, queries: &mut dyn QueryService) -> Result<ExecutionResult, String> {
         let id = self.id();
-        self.channel.enviar(&json!({"t": "macro.executar", "id": id, "instancia": p.instance, "fase": p.phase.name(),
+        self.channel.send(&json!({"t": "macro.executar", "id": id, "instancia": p.instance, "fase": p.phase.name(),
             "alvo": p.target, "modelo": p.model}))?;
         let r = self.await_reply(id, "macro.resultado", queries)?;
         result_from_json(r.get("resultado").ok_or("missing result")?)
@@ -220,8 +220,8 @@ impl<C: Canal> MacroExecutor for DfexecExecutor<C> {
 
     fn shut_down(&mut self) {
         if self.started {
-            let _ = self.channel.enviar(&json!({"t": "fim"}));
-            let _ = self.channel.receber();
+            let _ = self.channel.send(&json!({"t": "fim"}));
+            let _ = self.channel.receive();
             self.started = false;
         }
     }
@@ -232,18 +232,18 @@ impl<C: Canal> MacroExecutor for DfexecExecutor<C> {
 /// A channel that records everything that goes through it (`>` left the
 /// host, `<` came from the executor), to replay the session without the
 /// executor.
-pub struct RecordingChannel<C: Canal> {
+pub struct RecordingChannel<C: Channel> {
     pub inner: C,
     pub session: Vec<(char, Value)>,
 }
 
-impl<C: Canal> Canal for RecordingChannel<C> {
-    fn enviar(&mut self, m: &Value) -> Result<(), String> {
+impl<C: Channel> Channel for RecordingChannel<C> {
+    fn send(&mut self, m: &Value) -> Result<(), String> {
         self.session.push(('>', m.clone()));
-        self.inner.enviar(m)
+        self.inner.send(m)
     }
-    fn receber(&mut self) -> Result<Value, String> {
-        let m = self.inner.receber()?;
+    fn receive(&mut self) -> Result<Value, String> {
+        let m = self.inner.receive()?;
         self.session.push(('<', m.clone()));
         Ok(m)
     }
@@ -294,8 +294,8 @@ pub fn session_to_text(session: &[(char, Value)]) -> String {
     s
 }
 
-impl Canal for RecordedChannel {
-    fn enviar(&mut self, m: &Value) -> Result<(), String> {
+impl Channel for RecordedChannel {
+    fn send(&mut self, m: &Value) -> Result<(), String> {
         match self.session.pop_front() {
             Some(('>', expected)) if &expected == m => Ok(()),
             Some(('>', expected)) => Err(format!("the host sent\n  {m}\nbut the recorded session has\n  {expected}")),
@@ -303,7 +303,7 @@ impl Canal for RecordedChannel {
             _ => Err(format!("the host sent {m} after the end of the recorded session")),
         }
     }
-    fn receber(&mut self) -> Result<Value, String> {
+    fn receive(&mut self) -> Result<Value, String> {
         match self.session.pop_front() {
             Some(('<', m)) => Ok(m),
             Some((_, m)) => Err(format!("the host expected to receive, but the recorded session sends {m}")),

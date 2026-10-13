@@ -3,14 +3,14 @@
 //! the builders' (governing rule, item 2); macros are its `macro.*` service
 //! (§5 there, and docs/MACROS-PROTOCOLO.md §5 here).
 use serde_json::{Value, json};
-pub use dartforge_dfexec::{Canal, CanalDeProcesso, PROTOCOLO, escrever_quadro, ler_quadro};
+pub use dartforge_dfexec::{Channel, ProcessChannel, PROTOCOL, write_frame, read_frame};
 
 /// The host version announced in the handshake.
 pub const HOST_VERSION: &str = concat!("dartforge-macros-host/", env!("CARGO_PKG_VERSION"));
 
 /// The host's `ola` (hello) message.
 pub fn host_hello() -> Value {
-    json!({"t": "ola", "protocolo": PROTOCOLO, "servicos": ["macro"], "motor": HOST_VERSION})
+    json!({"t": "ola", "protocolo": PROTOCOL, "servicos": ["macro"], "motor": HOST_VERSION})
 }
 
 /// What the executor answered in the handshake.
@@ -28,8 +28,8 @@ pub fn check_hello(v: &Value) -> Result<Handshake, String> {
         return Err(format!("the executor did not answer the handshake: {v}"));
     }
     let p = v.get("protocolo").and_then(Value::as_str).unwrap_or("");
-    if p != PROTOCOLO {
-        return Err(format!("the executor speaks {p}, the host speaks {PROTOCOLO}"));
+    if p != PROTOCOL {
+        return Err(format!("the executor speaks {p}, the host speaks {PROTOCOL}"));
     }
     let services: Vec<&str> =
         v.get("servicos").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
@@ -68,11 +68,11 @@ mod tests {
     fn frame_round_trip() {
         let mut buf = Vec::new();
         let m = json!({"t": "macro.executar", "id": 7, "texto": "ação ✓"});
-        escrever_quadro(&mut buf, &m).unwrap();
+        write_frame(&mut buf, &m).unwrap();
         assert_eq!(&buf[..4], &(buf.len() as u32 - 4).to_be_bytes());
         let mut r = &buf[..];
-        assert_eq!(ler_quadro(&mut r).unwrap(), Some(m));
-        assert_eq!(ler_quadro(&mut r).unwrap(), None);
+        assert_eq!(read_frame(&mut r).unwrap(), Some(m));
+        assert_eq!(read_frame(&mut r).unwrap(), None);
     }
 
     #[test]

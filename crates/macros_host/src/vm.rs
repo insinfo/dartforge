@@ -13,7 +13,7 @@
 //! that is the project's own with `macros` pointing at our API.
 use crate::applications::Application;
 use crate::executor::DfexecExecutor;
-use crate::protocol::CanalDeProcesso;
+use crate::protocol::ProcessChannel;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -124,7 +124,7 @@ fn file_uri(p: &Path, directory: bool) -> String {
 
 /// Writes the bootstrap and starts the VM with it. The channel is that of
 /// any process that speaks `dfexec/1`.
-pub fn start(cfg: &VmConfig, apps: &[Application], project_package_config: Option<&Path>) -> Result<DfexecExecutor<CanalDeProcesso>, String> {
+pub fn start(cfg: &VmConfig, apps: &[Application], project_package_config: Option<&Path>) -> Result<DfexecExecutor<ProcessChannel>, String> {
     std::fs::create_dir_all(&cfg.work_dir).map_err(|e| format!("{}: {e}", cfg.work_dir.display()))?;
     let main = cfg.work_dir.join("bootstrap.dart");
     std::fs::write(&main, bootstrap(apps)).map_err(|e| format!("{}: {e}", main.display()))?;
@@ -133,5 +133,5 @@ pub fn start(cfg: &VmConfig, apps: &[Application], project_package_config: Optio
     std::fs::write(&pc, serde_json::to_string_pretty(&json).unwrap_or_default()).map_err(|e| format!("{}: {e}", pc.display()))?;
     let mut cmd = std::process::Command::new(&cfg.dart);
     cmd.arg("--enable-experiment=macros").arg(format!("--packages={}", pc.display())).arg(&main);
-    Ok(DfexecExecutor::new(CanalDeProcesso::iniciar(cmd)?))
+    Ok(DfexecExecutor::new(ProcessChannel::start(cmd)?))
 }

@@ -25,7 +25,7 @@ use crate::executor::{
     Availability, ExecutorError, DartExecutor, RuntimeExtensions, ActionRequest, ExtensionsRequest,
     ActionResult, BuilderScript, BuildStepService,
 };
-use dartforge_dfexec::CanalDeProcesso;
+use dartforge_dfexec::ProcessChannel;
 use serde_json::{Value, json};
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -362,7 +362,7 @@ pub struct VmMeasurement {
 /// and keeps it warm until [`DartExecutor::shutdown`].
 pub struct VmExecutor {
     cfg: VmConfig,
-    client: Option<BuildClient<CanalDeProcesso>>,
+    client: Option<BuildClient<ProcessChannel>>,
     /// Key of the kernel the current process loaded.
     key: Option<String>,
     failure: Option<String>,

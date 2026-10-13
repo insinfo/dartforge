@@ -3,12 +3,12 @@
 use serde_json::Value;
 use std::io::{Read, Write};
 
-pub const PROTOCOLO: &str = "dfexec/1";
+pub const PROTOCOL: &str = "dfexec/1";
 
 /// Frames larger than 64 MiB are a defect on the other side, not a valid model.
 const LARGEST_FRAME: u32 = 64 << 20;
 
-pub fn escrever_quadro(w: &mut dyn Write, m: &Value) -> std::io::Result<()> {
+pub fn write_frame(w: &mut dyn Write, m: &Value) -> std::io::Result<()> {
     let body = serde_json::to_vec(m).map_err(std::io::Error::other)?;
     let n = u32::try_from(body.len()).map_err(std::io::Error::other)?;
     if n > LARGEST_FRAME { return Err(std::io::Error::other(format!("frame of {n} bytes exceeds the limit"))); }
@@ -17,7 +17,7 @@ pub fn escrever_quadro(w: &mut dyn Write, m: &Value) -> std::io::Result<()> {
     w.flush()
 }
 
-pub fn ler_quadro(r: &mut dyn Read) -> std::io::Result<Option<Value>> {
+pub fn read_frame(r: &mut dyn Read) -> std::io::Result<Option<Value>> {
     let mut n = [0u8; 4];
     let mut read_list = 0;
     while read_list < 4 {
@@ -34,18 +34,18 @@ pub fn ler_quadro(r: &mut dyn Read) -> std::io::Result<Option<Value>> {
     serde_json::from_slice(&body).map(Some).map_err(std::io::Error::other)
 }
 
-pub trait Canal: Send {
-    fn enviar(&mut self, m: &Value) -> Result<(), String>;
-    fn receber(&mut self) -> Result<Value, String>;
+pub trait Channel: Send {
+    fn send(&mut self, m: &Value) -> Result<(), String>;
+    fn receive(&mut self) -> Result<Value, String>;
 }
 
 /// Child process that speaks `dfexec/1` over stdin/stdout. stderr is inherited.
 ///
-/// The child's frames are read by a thread, and `receber` waits for them at most
-/// the deadline ([`CanalDeProcesso::com_prazo`]): a stuck executor (an infinite
+/// The child's frames are read by a thread, and `receive` waits for them at most
+/// the deadline ([`ProcessChannel::with_deadline`]): a stuck executor (an infinite
 /// loop in a builder, an `await` that never completes) becomes a channel error
 /// instead of holding the host, and the process is terminated.
-pub struct CanalDeProcesso {
+pub struct ProcessChannel {
     child: std::process::Child,
     input: std::process::ChildStdin,
     frames: std::sync::mpsc::Receiver<std::io::Result<Option<Value>>>,
@@ -53,17 +53,17 @@ pub struct CanalDeProcesso {
     shut: bool,
 }
 
-impl CanalDeProcesso {
-    pub fn iniciar(mut command: std::process::Command) -> Result<Self, String> {
+impl ProcessChannel {
+    pub fn start(mut command: std::process::Command) -> Result<Self, String> {
         command.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped());
         let mut child = command.spawn().map_err(|e| format!("could not start the executor: {e}"))?;
         let input = child.stdin.take().ok_or("executor without stdin")?;
         let mut out = child.stdout.take().ok_or("executor without stdout")?;
         let (tx, frames) = std::sync::mpsc::channel();
         std::thread::Builder::new()
-            .name("dfexec-leitor".into())
+            .name("dfexec-reader".into())
             .spawn(move || loop {
-                let q = ler_quadro(&mut out);
+                let q = read_frame(&mut out);
                 let end = !matches!(q, Ok(Some(_)));
                 if tx.send(q).is_err() || end {
                     break;
@@ -74,23 +74,23 @@ impl CanalDeProcesso {
     }
 
     /// Waits at most `deadline` for each message from the executor (`None`: no
-    /// limit). When it runs out, the process is terminated and `receber` fails.
-    pub fn com_prazo(mut self, deadline: Option<std::time::Duration>) -> Self {
+    /// limit). When it runs out, the process is terminated and `receive` fails.
+    pub fn with_deadline(mut self, deadline: Option<std::time::Duration>) -> Self {
         self.deadline = deadline;
         self
     }
 }
 
-impl Canal for CanalDeProcesso {
-    fn enviar(&mut self, m: &Value) -> Result<(), String> {
+impl Channel for ProcessChannel {
+    fn send(&mut self, m: &Value) -> Result<(), String> {
         if self.shut {
-            return Err("executor encerrado".into());
+            return Err("executor shut down".into());
         }
-        escrever_quadro(&mut self.input, m).map_err(|e| format!("executor: {e}"))
+        write_frame(&mut self.input, m).map_err(|e| format!("executor: {e}"))
     }
-    fn receber(&mut self) -> Result<Value, String> {
+    fn receive(&mut self) -> Result<Value, String> {
         if self.shut {
-            return Err("executor encerrado".into());
+            return Err("executor shut down".into());
         }
         let q = match self.deadline {
             Some(p) => match self.frames.recv_timeout(p) {
@@ -116,7 +116,7 @@ impl Canal for CanalDeProcesso {
     }
 }
 
-impl Drop for CanalDeProcesso {
+impl Drop for ProcessChannel {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -134,23 +134,23 @@ mod tests_mod {
         let mut c = std::process::Command::new("sleep");
         c.arg("30");
         let t0 = std::time::Instant::now();
-        let mut chan = CanalDeProcesso::iniciar(c)
+        let mut chan = ProcessChannel::start(c)
             .unwrap()
-            .com_prazo(Some(std::time::Duration::from_millis(200)));
-        let e = chan.receber().unwrap_err();
+            .with_deadline(Some(std::time::Duration::from_millis(200)));
+        let e = chan.receive().unwrap_err();
         assert!(e.contains("did not respond"), "{e}");
         assert!(t0.elapsed() < std::time::Duration::from_secs(10));
-        assert!(chan.receber().is_err());
+        assert!(chan.receive().is_err());
     }
 
     #[test]
-    fn quadro_ida_e_volta() {
+    fn frame_round_trip() {
         let mut buf = Vec::new();
         let m = json!({"t": "macro.executar", "id": 7, "texto": "ação ✓"});
-        escrever_quadro(&mut buf, &m).unwrap();
+        write_frame(&mut buf, &m).unwrap();
         assert_eq!(&buf[..4], &(buf.len() as u32 - 4).to_be_bytes());
         let mut r = &buf[..];
-        assert_eq!(ler_quadro(&mut r).unwrap(), Some(m));
-        assert_eq!(ler_quadro(&mut r).unwrap(), None);
+        assert_eq!(read_frame(&mut r).unwrap(), Some(m));
+        assert_eq!(read_frame(&mut r).unwrap(), None);
     }
 }

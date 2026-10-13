@@ -7,11 +7,11 @@ use crate::executor::{
 use crate::graph::AssetId;
 use crate::value::{Map, Value};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use dartforge_dfexec::{Canal, CanalDeProcesso, PROTOCOLO};
+use dartforge_dfexec::{Channel, ProcessChannel, PROTOCOL};
 use serde_json::{Value as JsonValue, json};
 use std::sync::Arc;
 
-pub struct BuildClient<C: Canal> {
+pub struct BuildClient<C: Channel> {
     channel: C,
     next_id: u64,
     started: bool,
@@ -19,7 +19,7 @@ pub struct BuildClient<C: Canal> {
     prepare_failure: Option<String>,
 }
 
-impl BuildClient<CanalDeProcesso> {
+impl BuildClient<ProcessChannel> {
     /// Starts a compatible process. The handshake and the loading are left
     /// for the first Dart action; the engine should build this client on
     /// demand so that the process is kept warm only when needed.
@@ -28,7 +28,7 @@ impl BuildClient<CanalDeProcesso> {
     /// [`executor_timeout`]: a hung builder becomes a failure of the action
     /// (`Origin::Failure`), not a stuck `dartforge build`.
     pub fn start(command: std::process::Command) -> Result<Self, String> {
-        CanalDeProcesso::iniciar(command).map(|c| Self::new(c.com_prazo(executor_timeout())))
+        ProcessChannel::start(command).map(|c| Self::new(c.with_deadline(executor_timeout())))
     }
 }
 
@@ -45,7 +45,7 @@ pub fn executor_timeout() -> Option<std::time::Duration> {
     (s > 0.0).then(|| std::time::Duration::from_secs_f64(s))
 }
 
-impl<C: Canal> BuildClient<C> {
+impl<C: Channel> BuildClient<C> {
     pub fn new(channel: C) -> Self {
         Self {
             channel,
@@ -73,7 +73,7 @@ impl<C: Canal> BuildClient<C> {
         service: &mut dyn BuildStepService,
     ) -> Result<JsonValue, ExecutorError> {
         loop {
-            let message = self.channel.receber().map_err(ExecutorError)?;
+            let message = self.channel.receive().map_err(ExecutorError)?;
             let kind = message.get("t").and_then(JsonValue::as_str).unwrap_or("");
             if matches!(
                 kind,
@@ -96,7 +96,7 @@ impl<C: Canal> BuildClient<C> {
                         json!({"t":"build.resposta","id":request,"erro":error.0})
                     }
                 };
-                self.channel.enviar(&response).map_err(ExecutorError)?;
+                self.channel.send(&response).map_err(ExecutorError)?;
                 continue;
             }
             if message.get("id").and_then(JsonValue::as_u64) != Some(id) {
@@ -207,7 +207,7 @@ impl<C: Canal> BuildClient<C> {
             return Err(ExecutorError(format!("{kind} before build.carregar")));
         }
         let id = self.id();
-        self.channel.enviar(&json!({"t":kind,"id":id,"fase":p.phase,"chave":p.key,
+        self.channel.send(&json!({"t":kind,"id":id,"fase":p.phase,"chave":p.key,
             "fabrica":p.factory,"opcoes":map_json(&p.options),"isRoot":p.root,"entrada":p.input.text(),
             "saidas_permitidas":p.allowed_outputs.iter().map(AssetId::text).collect::<Vec<_>>()
         })).map_err(ExecutorError)?;
@@ -280,11 +280,11 @@ impl<C: Canal> BuildClient<C> {
     }
 
     fn handshake(&mut self) -> Result<(), ExecutorError> {
-        self.channel.enviar(&json!({"t":"ola","protocolo":PROTOCOLO,"servicos":["build"],"motor":crate::VERSION})).map_err(ExecutorError)?;
-        let response = self.channel.receber().map_err(ExecutorError)?;
+        self.channel.send(&json!({"t":"ola","protocolo":PROTOCOL,"servicos":["build"],"motor":crate::VERSION})).map_err(ExecutorError)?;
+        let response = self.channel.receive().map_err(ExecutorError)?;
         let services = response.get("servicos").and_then(JsonValue::as_array);
         if response.get("t").and_then(JsonValue::as_str) != Some("ola")
-            || response.get("protocolo").and_then(JsonValue::as_str) != Some(PROTOCOLO)
+            || response.get("protocolo").and_then(JsonValue::as_str) != Some(PROTOCOL)
             || !services.is_some_and(|s| s.iter().any(|v| v.as_str() == Some("build")))
         {
             return Err(ExecutorError(format!(
@@ -323,7 +323,7 @@ impl BuildStepService for NoService {
     fn log(&mut self, _: Level, _: &str) {}
 }
 
-impl<C: Canal> DartExecutor for BuildClient<C> {
+impl<C: Channel> DartExecutor for BuildClient<C> {
     fn availability(&self) -> Availability {
         self.prepare_failure
             .as_ref()
@@ -343,7 +343,7 @@ impl<C: Canal> DartExecutor for BuildClient<C> {
             let id = self.id();
             let applications: Vec<_> = script.applications.iter().map(|(key, import, factories)|
                 json!({"chave":key,"import":import,"fabricas":factories})).collect();
-            self.channel.enviar(&json!({"t":"build.carregar","id":id,"script":{"aplicacoes":applications,"chave_de_cache":script.cache_key}})).map_err(ExecutorError)?;
+            self.channel.send(&json!({"t":"build.carregar","id":id,"script":{"aplicacoes":applications,"chave_de_cache":script.cache_key}})).map_err(ExecutorError)?;
             self.receive(id, "build.carregado", &mut NoService)?;
             self.loaded = true;
             Ok(())
@@ -359,7 +359,7 @@ impl<C: Canal> DartExecutor for BuildClient<C> {
             // Notification without a response: the executor resets its
             // per-build state before the next action, which comes through the
             // same ordered channel.
-            if let Err(e) = self.channel.enviar(&json!({"t":"build.rodada"})) {
+            if let Err(e) = self.channel.send(&json!({"t":"build.rodada"})) {
                 self.prepare_failure = Some(e);
                 self.loaded = false;
             }
@@ -377,7 +377,7 @@ impl<C: Canal> DartExecutor for BuildClient<C> {
         }
         let id = self.id();
         self.channel
-            .enviar(
+            .send(
                 &json!({"t":"build.extensoes","id":id,"chave":p.key,"fabrica":p.factory,
             "opcoes":map_json(&p.options),"isRoot":p.root}),
             )
@@ -420,7 +420,7 @@ impl<C: Canal> DartExecutor for BuildClient<C> {
         }
         let id = self.id();
         self.channel
-            .enviar(
+            .send(
                 &json!({"t":"build.entradas_pos","id":id,"chave":p.key,"fabrica":p.factory,
             "opcoes":map_json(&p.options),"isRoot":p.root}),
             )
@@ -448,8 +448,8 @@ impl<C: Canal> DartExecutor for BuildClient<C> {
 
     fn shutdown(&mut self) {
         if self.started {
-            let _ = self.channel.enviar(&json!({"t":"fim"}));
-            let _ = self.channel.receber();
+            let _ = self.channel.send(&json!({"t":"fim"}));
+            let _ = self.channel.receive();
             self.started = false;
             self.loaded = false;
             self.prepare_failure = None;
@@ -480,7 +480,7 @@ fn value_json(value: &Value) -> JsonValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dartforge_dfexec::Canal;
+    use dartforge_dfexec::Channel;
     use std::collections::VecDeque;
     use std::sync::Mutex;
 
@@ -488,12 +488,12 @@ mod tests {
         received: VecDeque<JsonValue>,
         sent: Arc<Mutex<Vec<JsonValue>>>,
     }
-    impl Canal for FakeChannel {
-        fn enviar(&mut self, m: &JsonValue) -> Result<(), String> {
+    impl Channel for FakeChannel {
+        fn send(&mut self, m: &JsonValue) -> Result<(), String> {
             self.sent.lock().unwrap().push(m.clone());
             Ok(())
         }
-        fn receber(&mut self) -> Result<JsonValue, String> {
+        fn receive(&mut self) -> Result<JsonValue, String> {
             self.received
                 .pop_front()
                 .ok_or_else(|| "fake executor finished".into())
@@ -791,14 +791,14 @@ mod tests {
             json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"]}),
             json!({"t":"build.carregado","id":1}),
         ] {
-            dartforge_dfexec::escrever_quadro(&mut b, &m).unwrap();
+            dartforge_dfexec::write_frame(&mut b, &m).unwrap();
         }
         std::fs::write(&script, b).unwrap();
         let mut c = std::process::Command::new("sh");
         c.arg("-c").arg("cat \"$0\"; exec sleep 60").arg(&script);
-        let channel = CanalDeProcesso::iniciar(c)
+        let channel = ProcessChannel::start(c)
             .unwrap()
-            .com_prazo(Some(std::time::Duration::from_millis(500)));
+            .with_deadline(Some(std::time::Duration::from_millis(500)));
         let mut client = BuildClient::new(channel);
         client
             .prepare(&BuilderScript { applications: vec![], cache_key: "x".into() })
