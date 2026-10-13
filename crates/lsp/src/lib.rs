@@ -752,7 +752,7 @@ impl Analyzer for SyntacticAnalyzer {
     /// After the syntax, the `crates/analysis` checkers that do not depend on
     /// types (duplicate names, unused locals) over the file itself; of these,
     /// only what the publication rule lets through comes out
-    /// (`dartforge_analysis::publication`): codes verified against the oracle,
+    /// (`dartforge_analysis::publicacao`): codes verified against the oracle,
     /// and not suppressed by `// ignore:` (the `dartforge analyze` filter).
     fn diagnose(&mut self, uri: &str, text: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, text);

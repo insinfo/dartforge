@@ -1,97 +1,97 @@
-# Oráculo de paridade do LSP: abre os mesmos arquivos Dart no
-# `dart language-server` (SDK 3.6.2) e no `dartforge-lsp`, pede os mesmos
-# recursos nas mesmas posições e grava as respostas lado a lado (JSONL).
+# LSP parity oracle: opens the same Dart files in `dart language-server`
+# (SDK 3.6.2) and in `dartforge-lsp`, requests the same features at the same
+# positions and writes the responses side by side (JSONL).
 #
-# Uso: python oracle.py <saida.jsonl> <binario-dartforge> [projeto ...]
-# (variáveis de ambiente: ORACULO_DART, ORACULO_SDK_LIB, ORACULO_POR_ARQUIVO,
-# ORACULO_SNIPPETS, ORACULO_METODOS)
-# O resumo (tabela de paridade) sai de `summary.py`.
+# Usage: python oracle.py <output.jsonl> <dartforge-binary> [project ...]
+# (environment variables: ORACLE_DART, ORACLE_SDK_LIB, ORACLE_PER_FILE,
+# ORACLE_SNIPPETS, ORACLE_METHODS)
+# The summary (parity table) comes out of `summary.py`.
 import json, os, re, subprocess, sys, threading, time, queue, urllib.parse, pathlib
 
-# Caminhos do SDK 3.6.2: `ORACULO_DART` (o executável `dart`) e
-# `ORACULO_SDK_LIB` (a pasta `lib` do mesmo SDK, que vira o
-# `DARTFORGE_SDK_LIB` do servidor do DartForge). Sem elas, os padrões do
-# Windows.
-DART = os.environ.get("ORACULO_DART", r"C:\tools\dartsdk-3.6.2\bin\dart.exe")
-SDK_LIB = os.environ.get("ORACULO_SDK_LIB", r"C:\tools\dartsdk-3.6.2\lib")
-POR_ARQUIVO = int(os.environ.get("ORACULO_POR_ARQUIVO", "12"))
-# Só estes métodos (separados por vírgula, sem o `textDocument/`); vazio: todos.
-METODOS = {m.strip() for m in os.environ.get("ORACULO_METODOS", "").split(",") if m.strip()}
+# Paths of the 3.6.2 SDK: `ORACLE_DART` (the `dart` executable) and
+# `ORACLE_SDK_LIB` (the `lib` folder of the same SDK, which becomes the
+# `DARTFORGE_SDK_LIB` of the DartForge server). Without them, the Windows
+# defaults.
+DART = os.environ.get("ORACLE_DART", r"C:\tools\dartsdk-3.6.2\bin\dart.exe")
+SDK_LIB = os.environ.get("ORACLE_SDK_LIB", r"C:\tools\dartsdk-3.6.2\lib")
+PER_FILE = int(os.environ.get("ORACLE_PER_FILE", "12"))
+# Only these methods (comma separated, without `textDocument/`); empty: all.
+METHODS = {m.strip() for m in os.environ.get("ORACLE_METHODS", "").split(",") if m.strip()}
 
 
-def pedido(metodo):
-    return not METODOS or metodo.split("/", 1)[-1] in METODOS
+def requested(method):
+    return not METHODS or method.split("/", 1)[-1] in METHODS
 
 
 class Lsp:
-    def __init__(self, nome, cmd, env=None):
-        self.nome = nome
+    def __init__(self, name, cmd, env=None):
+        self.name = name
         self.p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, env=env)
-        self.prox = 0
-        self.respostas = {}
+        self.next_id = 0
+        self.responses = {}
         self.cv = threading.Condition()
-        self.diagnosticos = {}
-        threading.Thread(target=self._ler, daemon=True).start()
+        self.diagnostics = {}
+        threading.Thread(target=self._read, daemon=True).start()
 
-    def _ler(self):
+    def _read(self):
         f = self.p.stdout
         while True:
-            cab = {}
+            headers = {}
             while True:
-                linha = f.readline()
-                if not linha:
+                line = f.readline()
+                if not line:
                     return
-                linha = linha.decode().strip()
-                if not linha:
+                line = line.decode().strip()
+                if not line:
                     break
-                k, v = linha.split(":", 1)
-                cab[k.lower()] = v.strip()
-            corpo = f.read(int(cab["content-length"]))
-            m = json.loads(corpo)
+                k, v = line.split(":", 1)
+                headers[k.lower()] = v.strip()
+            body = f.read(int(headers["content-length"]))
+            m = json.loads(body)
             if "method" in m and "id" in m:
-                # Pedido do servidor ao cliente.
+                # Request from the server to the client.
                 r = None
                 if m["method"] == "workspace/configuration":
                     r = [{} for _ in m["params"]["items"]]
-                self._enviar({"jsonrpc": "2.0", "id": m["id"], "result": r})
+                self._send({"jsonrpc": "2.0", "id": m["id"], "result": r})
             elif "method" in m:
                 if m["method"] == "textDocument/publishDiagnostics":
                     with self.cv:
-                        self.diagnosticos[norm_uri(m["params"]["uri"])] = m["params"]["diagnostics"]
+                        self.diagnostics[norm_uri(m["params"]["uri"])] = m["params"]["diagnostics"]
                         self.cv.notify_all()
             else:
                 with self.cv:
-                    self.respostas[m["id"]] = m
+                    self.responses[m["id"]] = m
                     self.cv.notify_all()
 
-    def _enviar(self, m):
+    def _send(self, m):
         b = json.dumps(m).encode()
         self.p.stdin.write(b"Content-Length: %d\r\n\r\n" % len(b) + b)
         self.p.stdin.flush()
 
-    def pedir(self, metodo, params, limite=120):
-        self.prox += 1
-        i = self.prox
+    def request(self, method, params, limit=120):
+        self.next_id += 1
+        i = self.next_id
         t0 = time.perf_counter()
-        self._enviar({"jsonrpc": "2.0", "id": i, "method": metodo, "params": params})
+        self._send({"jsonrpc": "2.0", "id": i, "method": method, "params": params})
         with self.cv:
-            while i not in self.respostas:
-                if not self.cv.wait(timeout=limite):
-                    return {"erro": "tempo esgotado"}, limite * 1000
-            r = self.respostas.pop(i)
+            while i not in self.responses:
+                if not self.cv.wait(timeout=limit):
+                    return {"error": "timed out"}, limit * 1000
+            r = self.responses.pop(i)
         ms = (time.perf_counter() - t0) * 1000
         if "error" in r:
-            return {"erro": r["error"]}, ms
+            return {"error": r["error"]}, ms
         return r.get("result"), ms
 
-    def notificar(self, metodo, params):
-        self._enviar({"jsonrpc": "2.0", "method": metodo, "params": params})
+    def notify(self, method, params):
+        self._send({"jsonrpc": "2.0", "method": method, "params": params})
 
-    def fechar(self):
+    def close(self):
         try:
-            self.pedir("shutdown", None, limite=10)
-            self.notificar("exit", None)
+            self.request("shutdown", None, limit=10)
+            self.notify("exit", None)
             self.p.wait(timeout=10)
         except Exception:
             self.p.kill()
@@ -104,7 +104,7 @@ def norm_uri(u):
     return u.lower().replace("file:///", "file:///")
 
 
-CAPACIDADES = {
+CAPABILITIES = {
     "textDocument": {
         "synchronization": {"didSave": True},
         "completion": {"completionItem": {"snippetSupport": True, "documentationFormat": ["markdown", "plaintext"],
@@ -141,21 +141,21 @@ CAPACIDADES = {
                   "executeCommand": {}},
     "window": {"workDoneProgress": False},
 }
-# Os `SnippetTextEdit` das ações de código (o que o Dart-Code anuncia):
-# ligados por padrão; `ORACULO_SNIPPETS=0` mede o cliente sem a capacidade.
-if os.environ.get("ORACULO_SNIPPETS", "1") != "0":
-    CAPACIDADES["experimental"] = {"snippetTextEdit": True}
+# The code actions' `SnippetTextEdit` (what Dart-Code announces): on by
+# default; `ORACLE_SNIPPETS=0` measures the client without the capability.
+if os.environ.get("ORACLE_SNIPPETS", "1") != "0":
+    CAPABILITIES["experimental"] = {"snippetTextEdit": True}
 
 ID = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
-PALAVRAS = set("""abstract as assert async await base break case catch class const continue covariant default deferred do
+KEYWORDS = set("""abstract as assert async await base break case catch class const continue covariant default deferred do
 dynamic else enum export extends extension external factory false final finally for Function get hide if implements import
 in interface is late library mixin new null of on operator part required rethrow return sealed set show static super switch
 sync this throw true try type typedef var void when while with yield""".split())
 
 
-def tokens_de_codigo(t):
-    """Identificadores fora de comentários e strings: (início, fim, texto)."""
-    saida, i, n = [], 0, len(t)
+def code_tokens(t):
+    """Identifiers outside comments and strings: (start, end, text)."""
+    output, i, n = [], 0, len(t)
     while i < n:
         c = t[i]
         if t.startswith("//", i):
@@ -176,168 +176,168 @@ def tokens_de_codigo(t):
                 i = j + 1
         elif c.isalpha() or c in "_$":
             m = ID.match(t, i)
-            # `r'...'` cru
+            # raw `r'...'`
             if m.group() == "r" and m.end() < n and t[m.end()] in "'\"":
                 i = m.end()
                 continue
-            saida.append((i, m.end(), m.group()))
+            output.append((i, m.end(), m.group()))
             i = m.end()
         elif c.isdigit():
             while i < n and (t[i].isalnum() or t[i] == "."):
                 i += 1
         else:
             i += 1
-    return saida
+    return output
 
 
-def posicao(t, off):
-    linha = t.count("\n", 0, off)
-    ini = t.rfind("\n", 0, off) + 1
-    col = len(t[ini:off].encode("utf-16-le")) // 2
-    return {"line": linha, "character": col}
+def position(t, off):
+    line = t.count("\n", 0, off)
+    start = t.rfind("\n", 0, off) + 1
+    col = len(t[start:off].encode("utf-16-le")) // 2
+    return {"line": line, "character": col}
 
 
-def amostrar(lista, k):
-    if len(lista) <= k:
-        return lista
-    passo = len(lista) / k
-    return [lista[int(i * passo)] for i in range(k)]
+def sample(items, k):
+    if len(items) <= k:
+        return items
+    step = len(items) / k
+    return [items[int(i * step)] for i in range(k)]
 
 
 def main():
-    saida = sys.argv[1]
-    binario = sys.argv[2]
-    projetos = sys.argv[3:]
+    output_path = sys.argv[1]
+    binary = sys.argv[2]
+    projects = sys.argv[3:]
     env = dict(os.environ)
     env["DARTFORGE_SDK_LIB"] = SDK_LIB
-    with open(saida, "w", encoding="utf-8") as out:
-        for proj in projetos:
-            raiz = pathlib.Path(proj).resolve()
-            raiz_uri = raiz.as_uri()
-            arquivos = sorted(p for d in ("lib", "bin") for p in (raiz / d).rglob("*.dart"))
-            servidores = [
-                Lsp("dart", [DART, "language-server", "--protocol=lsp", "--client-id=oraculo"]),
-                Lsp("dartforge", [binario, "--stdio"], env=env),
+    with open(output_path, "w", encoding="utf-8") as out:
+        for proj in projects:
+            root = pathlib.Path(proj).resolve()
+            root_uri = root.as_uri()
+            files = sorted(p for d in ("lib", "bin") for p in (root / d).rglob("*.dart"))
+            servers = [
+                Lsp("dart", [DART, "language-server", "--protocol=lsp", "--client-id=oracle"]),
+                Lsp("dartforge", [binary, "--stdio"], env=env),
             ]
-            for s in servidores:
-                r, ms = s.pedir("initialize", {"processId": os.getpid(), "rootUri": raiz_uri,
-                                               "workspaceFolders": [{"uri": raiz_uri, "name": raiz.name}],
-                                               "capabilities": CAPACIDADES,
-                                               "initializationOptions": {"onlyAnalyzeProjectsWithOpenFiles": True}})
-                out.write(json.dumps({"projeto": raiz.name, "servidor": s.nome, "metodo": "initialize",
-                                      "resultado": r}) + "\n")
-                s.notificar("initialized", {})
-            textos = {}
-            for a in arquivos:
+            for s in servers:
+                r, ms = s.request("initialize", {"processId": os.getpid(), "rootUri": root_uri,
+                                                 "workspaceFolders": [{"uri": root_uri, "name": root.name}],
+                                                 "capabilities": CAPABILITIES,
+                                                 "initializationOptions": {"onlyAnalyzeProjectsWithOpenFiles": True}})
+                out.write(json.dumps({"project": root.name, "server": s.name, "method": "initialize",
+                                      "result": r}) + "\n")
+                s.notify("initialized", {})
+            texts = {}
+            for a in files:
                 t = a.read_text(encoding="utf-8")
-                textos[a] = t
-                for s in servidores:
-                    s.notificar("textDocument/didOpen", {"textDocument": {"uri": a.as_uri(), "languageId": "dart",
-                                                                          "version": 1, "text": t}})
-            # Espera os diagnósticos do Dart (análise inicial).
-            fim = time.time() + 90
-            dart = servidores[0]
+                texts[a] = t
+                for s in servers:
+                    s.notify("textDocument/didOpen", {"textDocument": {"uri": a.as_uri(), "languageId": "dart",
+                                                                       "version": 1, "text": t}})
+            # Waits for Dart's diagnostics (initial analysis).
+            deadline = time.time() + 90
+            dart = servers[0]
             with dart.cv:
-                while len(dart.diagnosticos) < len(arquivos) and time.time() < fim:
+                while len(dart.diagnostics) < len(files) and time.time() < deadline:
                     dart.cv.wait(timeout=1)
             time.sleep(1.0)
-            for a in arquivos:
-                t = textos[a]
+            for a in files:
+                t = texts[a]
                 uri = a.as_uri()
                 doc = {"uri": uri}
-                rel = str(a.relative_to(raiz)).replace("\\", "/")
+                rel = str(a.relative_to(root)).replace("\\", "/")
 
-                def registrar(metodo, pos, params, extra=None):
-                    if not pedido(metodo):
+                def record(method, pos, params, extra=None):
+                    if not requested(method):
                         return
-                    linha = {"projeto": raiz.name, "arquivo": rel, "metodo": metodo, "pos": pos}
+                    line = {"project": root.name, "file": rel, "method": method, "pos": pos}
                     if extra:
-                        linha.update(extra)
-                    for s in servidores:
-                        r, ms = s.pedir(metodo, params)
-                        linha[s.nome] = r
-                        linha["ms_" + s.nome] = ms
-                    out.write(json.dumps(linha, ensure_ascii=False) + "\n")
+                        line.update(extra)
+                    for s in servers:
+                        r, ms = s.request(method, params)
+                        line[s.name] = r
+                        line["ms_" + s.name] = ms
+                    out.write(json.dumps(line, ensure_ascii=False) + "\n")
                     out.flush()
 
-                # Por arquivo.
-                for metodo, params in [
+                # Per file.
+                for method, params in [
                     ("textDocument/documentSymbol", {"textDocument": doc}),
                     ("textDocument/foldingRange", {"textDocument": doc}),
                     ("textDocument/semanticTokens/full", {"textDocument": doc}),
                     ("textDocument/inlayHint", {"textDocument": doc, "range": {"start": {"line": 0, "character": 0},
-                                                                               "end": posicao(t, len(t))}}),
+                                                                               "end": position(t, len(t))}}),
                     ("textDocument/documentLink", {"textDocument": doc}),
                     ("textDocument/formatting", {"textDocument": doc, "options": {"tabSize": 2, "insertSpaces": True}}),
                 ]:
-                    registrar(metodo, None, params)
-                # Diagnósticos do Dart: ações no intervalo de cada um.
-                for d in dart.diagnosticos.get(norm_uri(uri), [])[:15]:
-                    registrar("textDocument/codeAction", d["range"]["start"],
-                              {"textDocument": doc, "range": d["range"], "context": {"diagnostics": [d]}},
-                              {"diagnostico": d.get("code")})
-                ids = [x for x in tokens_de_codigo(t) if x[2] not in PALAVRAS]
-                for (i0, i1, nome) in amostrar(ids, POR_ARQUIVO):
-                    pos = posicao(t, i0 + min(1, i1 - i0 - 1))
+                    record(method, None, params)
+                # Dart's diagnostics: actions in the range of each one.
+                for d in dart.diagnostics.get(norm_uri(uri), [])[:15]:
+                    record("textDocument/codeAction", d["range"]["start"],
+                           {"textDocument": doc, "range": d["range"], "context": {"diagnostics": [d]}},
+                           {"diagnostic": d.get("code")})
+                ids = [x for x in code_tokens(t) if x[2] not in KEYWORDS]
+                for (i0, i1, name) in sample(ids, PER_FILE):
+                    pos = position(t, i0 + min(1, i1 - i0 - 1))
                     pp = {"textDocument": doc, "position": pos}
-                    ex = {"nome": nome}
-                    registrar("textDocument/hover", pos, pp, ex)
-                    registrar("textDocument/definition", pos, pp, ex)
-                    registrar("textDocument/typeDefinition", pos, pp, ex)
-                    registrar("textDocument/implementation", pos, pp, ex)
-                    registrar("textDocument/references", pos, dict(pp, context={"includeDeclaration": True}), ex)
-                    registrar("textDocument/documentHighlight", pos, pp, ex)
-                    registrar("textDocument/prepareRename", pos, pp, ex)
-                    registrar("textDocument/rename", pos, dict(pp, newName=nome + "Novo"), ex)
-                    registrar("textDocument/codeAction", pos,
-                              {"textDocument": doc, "range": {"start": posicao(t, i0), "end": posicao(t, i0)},
-                               "context": {"diagnostics": []}}, ex)
-                    registrar("textDocument/selectionRange", pos, {"textDocument": doc, "positions": [pos]}, ex)
-                    registrar("textDocument/prepareCallHierarchy", pos, pp, ex)
-                    registrar("textDocument/prepareTypeHierarchy", pos, pp, ex)
-                    # Completar: no meio do nome (prefixo de até 2) ou logo
-                    # depois do ponto de um acesso a membro.
+                    ex = {"name": name}
+                    record("textDocument/hover", pos, pp, ex)
+                    record("textDocument/definition", pos, pp, ex)
+                    record("textDocument/typeDefinition", pos, pp, ex)
+                    record("textDocument/implementation", pos, pp, ex)
+                    record("textDocument/references", pos, dict(pp, context={"includeDeclaration": True}), ex)
+                    record("textDocument/documentHighlight", pos, pp, ex)
+                    record("textDocument/prepareRename", pos, pp, ex)
+                    record("textDocument/rename", pos, dict(pp, newName=name + "New"), ex)
+                    record("textDocument/codeAction", pos,
+                           {"textDocument": doc, "range": {"start": position(t, i0), "end": position(t, i0)},
+                            "context": {"diagnostics": []}}, ex)
+                    record("textDocument/selectionRange", pos, {"textDocument": doc, "positions": [pos]}, ex)
+                    record("textDocument/prepareCallHierarchy", pos, pp, ex)
+                    record("textDocument/prepareTypeHierarchy", pos, pp, ex)
+                    # Completion: in the middle of the name (a prefix of up to 2)
+                    # or right after the dot of a member access.
                     if i0 > 0 and t[i0 - 1] == ".":
-                        cpos = posicao(t, i0)
+                        cpos = position(t, i0)
                         ctx = {"triggerKind": 2, "triggerCharacter": "."}
-                        prefixo = ""
+                        prefix = ""
                     else:
-                        corte = i0 + min(2, i1 - i0)
-                        cpos = posicao(t, corte)
+                        cut = i0 + min(2, i1 - i0)
+                        cpos = position(t, cut)
                         ctx = {"triggerKind": 1}
-                        prefixo = t[i0:corte]
-                    registrar("textDocument/completion", cpos,
-                              {"textDocument": doc, "position": cpos, "context": ctx},
-                              {"nome": nome, "prefixo": prefixo})
-                # Ajuda de assinatura: logo depois de `(` de uma chamada e
-                # depois da primeira vírgula dela.
-                chamadas = [m.end() for m in re.finditer(r"[A-Za-z0-9_$>]\(", t)]
-                cods = set()
+                        prefix = t[i0:cut]
+                    record("textDocument/completion", cpos,
+                           {"textDocument": doc, "position": cpos, "context": ctx},
+                           {"name": name, "prefix": prefix})
+                # Signature help: right after the `(` of a call and after its
+                # first comma.
+                calls = [m.end() for m in re.finditer(r"[A-Za-z0-9_$>]\(", t)]
+                codes = set()
                 for (a0, a1, _) in ids:
-                    cods.add(a0)
-                for off in amostrar(chamadas, max(3, POR_ARQUIVO // 3)):
-                    pos = posicao(t, off)
-                    registrar("textDocument/signatureHelp", pos,
-                              {"textDocument": doc, "position": pos,
-                               "context": {"triggerKind": 2, "triggerCharacter": "(", "isRetrigger": False}})
-                    virg = t.find(",", off, off + 80)
-                    fecha = t.find(")", off)
-                    if 0 <= virg < (fecha if fecha >= 0 else len(t)):
-                        pos = posicao(t, virg + 1)
-                        registrar("textDocument/signatureHelp", pos,
-                                  {"textDocument": doc, "position": pos,
-                                   "context": {"triggerKind": 1, "isRetrigger": False}})
+                    codes.add(a0)
+                for off in sample(calls, max(3, PER_FILE // 3)):
+                    pos = position(t, off)
+                    record("textDocument/signatureHelp", pos,
+                           {"textDocument": doc, "position": pos,
+                            "context": {"triggerKind": 2, "triggerCharacter": "(", "isRetrigger": False}})
+                    comma = t.find(",", off, off + 80)
+                    close = t.find(")", off)
+                    if 0 <= comma < (close if close >= 0 else len(t)):
+                        pos = position(t, comma + 1)
+                        record("textDocument/signatureHelp", pos,
+                               {"textDocument": doc, "position": pos,
+                                "context": {"triggerKind": 1, "isRetrigger": False}})
             # workspace/symbol
-            for q in ["Arg", "parse", "Scanner", "ctx", "Ponto", "join"] if pedido("workspace/symbol") else []:
-                linha = {"projeto": raiz.name, "metodo": "workspace/symbol", "pos": q}
-                for s in servidores:
-                    r, ms = s.pedir("workspace/symbol", {"query": q})
-                    linha[s.nome] = r
-                    linha["ms_" + s.nome] = ms
-                out.write(json.dumps(linha, ensure_ascii=False) + "\n")
-            for s in servidores:
-                s.fechar()
-            print("projeto", raiz.name, "feito", flush=True)
+            for q in ["Arg", "parse", "Scanner", "ctx", "Ponto", "join"] if requested("workspace/symbol") else []:
+                line = {"project": root.name, "method": "workspace/symbol", "pos": q}
+                for s in servers:
+                    r, ms = s.request("workspace/symbol", {"query": q})
+                    line[s.name] = r
+                    line["ms_" + s.name] = ms
+                out.write(json.dumps(line, ensure_ascii=False) + "\n")
+            for s in servers:
+                s.close()
+            print("project", root.name, "done", flush=True)
 
 
 if __name__ == "__main__":

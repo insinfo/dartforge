@@ -1654,7 +1654,7 @@ fn quoted_with_and(names: &[String]) -> String {
 
 // -- ExitDetector -----------------------------------------------------------------
 
-/// The `ExitDetector` ([`dartforge_analysis::output::Saida`]) with
+/// The `ExitDetector` ([`dartforge_analysis::saida::Saida`]) with
 /// `_elementExits` through the context's elements.
 pub(crate) struct Output<'c, 'p> {
     cx: &'c Context<'p>,

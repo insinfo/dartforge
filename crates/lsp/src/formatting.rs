@@ -6,7 +6,7 @@
 //!
 //! The text is formatted by the `dart_style` port ([`dartforge_formatter`]);
 //! the response is the minimal whitespace edits between tokens
-//! ([`dartforge_formatter::edits::edicoes_minimas`]). Without changes, or
+//! ([`dartforge_formatter::edicoes::edicoes_minimas`]). Without changes, or
 //! with a syntax error, the response is `null`.
 
 use dartforge_formatter::edicoes::edicoes_minimas;
