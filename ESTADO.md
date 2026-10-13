@@ -1,5 +1,57 @@
 # Estado do DartForge — 2026-10-13
 
+## Analisador (rodada de 2026-10-13, macOS)
+
+| medida | antes | depois |
+| --- | ---: | ---: |
+| Placar (posição exata) | 22.965/23.012 | **22.975/23.012** |
+| FP / posição errada / mensagem errada / FN | 0 / 0 / 10 / 47 | **0 / 0 / 9 / 37** |
+| Pub-cache (209 pacotes): FP / mensagem errada / FN | 35 / 2 / 40 | **0 / 0 / 29** |
+| Projetos reais (10): FP | 0 | **0** |
+| Mutações (567): FP | 7 | **4** (só lints não publicados) |
+| Códigos em `verificados.txt` | 477 | **485** |
+
+Códigos novos publicados: `argument_type_not_assignable`,
+`const_eval_throws_exception`, `deprecated_new_in_comment_reference`,
+`override_on_non_overriding_member`, `return_of_invalid_type_from_closure`,
+`unchecked_use_of_nullable_value`, `unused_import`, `variable_type_mismatch`.
+Consertos: promoção de `T?` para `T & S`; `?.` cobre a invocação; mensagem do
+`assert` no ramo falso; `if-case` dentro de `case` não troca o escrutínio;
+`identical(x, null)` promove; fábrica `const` redirecionada instancia o alvo;
+setter implícito de `late final`; `@internal`/`@literal` pelo `package:meta`;
+UP de tipo de extensão que implementa `Object`; `C?` sem tear-off de `call`;
+recuperações do parser (`var enum;`, `"$"`). Caixa do caminho no macOS
+resolvida (o motor canoniza raiz, arquivos e `package_config`). `is_shadowed`
+deixou de ser quadrático: `element.dart` do analyzer ~60 s → 1,5 s; pub-cache
+inteiro ~50 min → 6 min. Formatador 39.762/39.762. Detalhes em
+`docs/ANALISADOR-PARIDADE-PLANO.md` §9. Restam: variância (experimento),
+exibição de `Never?`/alias, recursos 3.13 (construtores primários,
+augmentations), casos isolados.
+
+## LSP (rodada de 2026-10-13, macOS)
+
+Oráculo contra o `dart language-server` 3.6.2: references 96 → **100%**,
+implementation 96 → **100%**, definition 98 → **100%**, prepareCallHierarchy
+99 → **100%**, hover/typeDefinition 100%, completar top-1/top-5 98/97 →
+**99/100%**; nenhuma categoria caiu. As buscas seguem as relações do índice do
+Dart (mixin por `typedef` não faz subtipo, class alias faz); referências de
+documentação só quando resolvem para o elemento; `this.x` só para o campo;
+membros de `Object` num receptor `dynamic`. No completar: alvo classe sem
+membros de `Type`, `A.n(…)` só construtores, não importados também no nome de
+uma declaração, par getter/setter explícito deixou de colidir. Os `Create
+function/method` usam os nomes declarados dos parâmetros de tipo função (`p1`
+só para os sem nome). A varredura das pastas do workspace saiu do laço
+principal (pedido de 1,5 s: 16 s → 2 s), o que resolveu o teste flaky
+`cancellation`. Medianas (ms, Dart/DF): references 2,6/2,1, implementation
+1,0/1,6, completion 4,5/7,2.
+
+**Regressão a tratar:** com a raiz do workspace aberta no `new_sali` (858
+arquivos), a análise tipada do workspace (I7) leva o pico a 430–820 MiB e o RSS
+em repouso a 99–640 MiB, muito variável entre execuções (os ~20 MiB de platô
+registrados abaixo são de antes do I7). Em investigação: retenção ou alocador.
+Pendentes: I5–I6 (motor), 22 avisos de código morto e ~170 de clippy em
+`crates/lsp`.
+
 ## JS de produção: o piso do runtime (2026-10-13, macOS)
 
 Substituições de variável de tipo só as citadas, nativos de *typed data* só
