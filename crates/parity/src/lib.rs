@@ -73,7 +73,7 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
             let ignored = filtros::Ignorados::de_texto(&a.texto);
             // The reports over the program's tree, with semantics; without it
             // (a file outside the program), over the text's tree.
-            let mut reports = match &a.relatos_de_lint {
+            let mut reports = match &a.lint_reports {
                 Some(r) => r.iter().filter(|x| enabled(x.codigo.nome)).cloned().collect::<Vec<_>>(),
                 None => {
                     let mut names = dartforge_intern::Interner::new();
@@ -84,7 +84,7 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
             };
             // Those of the rules that need the resolved program, already
             // computed by the engine.
-            for l in &a.lints_semanticos {
+            for l in &a.semantic_lints {
                 if let Some(code) = dartforge_analysis::lints::codigos_g::TODOS.iter().copied().find(|k| k.unico == l.unico)
                     && enabled(code.nome)
                 {
@@ -277,7 +277,7 @@ pub fn publicaveis(a: &analise::Arquivo, opcoes: &filtros::Opcoes, so_publicados
     let ignored = filtros::Ignorados::de_texto(&a.texto);
     let mut out = Vec::new();
     for (i, d) in a.diags.iter().enumerate() {
-        let syntax = i < a.sintaticos;
+        let syntax = i < a.syntactic_count;
         if so_publicados && !publicado(d, syntax) {
             continue;
         }

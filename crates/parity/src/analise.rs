@@ -1,23 +1,22 @@
-//! Nosso analisador sobre um conjunto de arquivos: carga, outline, inferência
-//! e os diagnósticos de cada arquivo, já com código (pela [`crate::bridge`]).
+//! Our analyzer over a set of files: loading, outline, inference and the
+//! diagnostics of each file, already with codes (through [`crate::bridge`]).
 //!
-//! Um conjunto de arquivos vira **um programa só**: uma entrada sintética em
-//! memória (`__dartforge_analise__.dart`, pela `Geracao` do `elements`)
-//! importa cada biblioteca com um prefixo próprio. Cada arquivo continua
-//! sendo a sua biblioteca, como no `dart analyze` de um diretório, e o SDK e
-//! os pacotes são carregados e tipados uma vez por lote em vez de uma vez por
-//! arquivo. Até o banco semântico (plano B2) existir, este é o único
-//! condutor de análise por diretório.
+//! A set of files becomes **a single program**: a synthetic in-memory entry
+//! (`__dartforge_analise__.dart`, through the `Geracao` of `elements`) imports
+//! each library with its own prefix. Each file is still its own library, as in
+//! `dart analyze` of a directory, and the SDK and the packages are loaded and
+//! typed once per batch instead of once per file. Until the semantic database
+//! (plan B2) exists, this is the only per-directory analysis driver.
 //!
-//! **Atribuição a arquivo.** O `Diagnostic` de `types` ainda não diz em que
-//! unidade está (pedido T1). Até lá: corpos, uma passada de inferência por
-//! biblioteca do lote (o que ela acrescenta depois dos diagnósticos dos
-//! inicializadores é daquela biblioteca); inicializadores, na ordem de
-//! `program.variables`, cada um no primeiro inicializador (a partir do
-//! anterior) que o contém; outline, a unidade com um nó (expressão, comando,
-//! tipo ou padrão) de intervalo exato, ou a do lote cuja declaração de topo o
-//! contém. Casos com mais de uma candidata são contados em
-//! [`Analise::ambiguos`] — o placar os mostra.
+//! **Attributing to a file.** The `Diagnostic` of `types` does not say yet
+//! which unit it is in (request T1). Until then: bodies, one inference pass
+//! per library of the batch (what it adds after the diagnostics of the
+//! initializers belongs to that library); initializers, in the order of
+//! `program.variables`, each one in the first initializer (from the previous
+//! one on) that contains it; outline, the unit with a node (expression,
+//! statement, type or pattern) of the exact range, or the batch unit whose
+//! top-level declaration contains it. Cases with more than one candidate are
+//! counted in [`Analise::ambiguos`] — the scoreboard shows them.
 
 use crate::bridge;
 use dartforge_diagnostics::{Diagnostic, Span, codigos};
@@ -27,47 +26,48 @@ use dartforge_frontend::ast::DirectiveKind;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-/// Nome da entrada sintética (nunca existe no disco).
-pub const ENTRADA: &str = "__dartforge_analise__.dart";
+/// Name of the synthetic entry (it never exists on disk).
+pub const ENTRY: &str = "__dartforge_analise__.dart";
 
-/// O SDK carregado uma vez e reaproveitado por todas as análises.
+/// The SDK, loaded once and reused by every analysis.
 pub struct Motor {
     sdk: SdkLayout,
-    /// Todas as bibliotecas `dart:` que o analyzer conhece: as de qualquer
-    /// seção do `libraries.json` (o analyzer não se limita ao DDC).
-    bibliotecas_sdk: BTreeSet<String>,
+    /// Every `dart:` library the analyzer knows: those of any section of
+    /// `libraries.json` (the analyzer is not limited to DDC).
+    sdk_libraries: BTreeSet<String>,
 }
 
-/// Diagnósticos de um arquivo, com o texto dele (para converter posições).
+/// The diagnostics of a file, with its text (to convert positions).
 #[derive(Debug, Default)]
 pub struct Arquivo {
     pub texto: String,
     pub diags: Vec<Diagnostic>,
-    /// Quantos dos primeiros `diags` são sintáticos (publicados sempre).
-    pub sintaticos: usize,
-    /// Os achados das regras de lint que pedem o programa resolvido (a
-    /// hierarquia, os tipos): saem só se a regra estiver ligada nas opções.
-    pub lints_semanticos: Vec<LintSemantico>,
-    /// Os relatos de todas as regras de lint sobre a árvore do programa,
-    /// com a semântica do motor (`dartforge_analysis::lints::executar_com`):
-    /// quem publica filtra pelas regras ligadas. `None` quando o arquivo
-    /// não é unidade do programa resolvido.
-    pub relatos_de_lint: Option<Vec<dartforge_analysis::lints::rules::RelatoDeLint>>,
+    /// How many of the first `diags` are syntactic (always published).
+    pub syntactic_count: usize,
+    /// The findings of the lint rules that need the resolved program (the
+    /// hierarchy, the types): they only come out if the rule is enabled in the
+    /// options.
+    pub semantic_lints: Vec<SemanticLint>,
+    /// The reports of every lint rule over the program's tree, with the
+    /// engine's semantics (`dartforge_analysis::lints::executar_com`): the
+    /// publisher filters by the enabled rules. `None` when the file is not a
+    /// unit of the resolved program.
+    pub lint_reports: Option<Vec<dartforge_analysis::lints::rules::RelatoDeLint>>,
 }
 
-/// Um achado de regra de lint calculado com o programa resolvido.
+/// A lint rule finding computed with the resolved program.
 #[derive(Debug, Clone)]
-pub struct LintSemantico {
-    /// O nome único do código (`LinterLintCode`), que é também a chave em
+pub struct SemanticLint {
+    /// The code's unique name (`LinterLintCode`), which is also the key in
     /// `dartforge_analysis::lints::codigos_g::TODOS`.
     pub unico: &'static str,
     pub span: dartforge_diagnostics::Span,
     pub args: Vec<String>,
 }
 
-/// As fases do `LibraryAnalyzer.analyze()` (INFRA §1.2), na ordem em que
-/// relatam: a chave da ordem da lista final de cada arquivo.
-pub mod fase {
+/// The phases of `LibraryAnalyzer.analyze()` (INFRA §1.2), in the order they
+/// report: the sort key of each file's final list.
+pub mod phase {
     pub const SCANNER: u16 = 0;
     pub const PARSER: u16 = 10;
     pub const DIRECTIVES: u16 = 20;
@@ -94,58 +94,59 @@ pub mod fase {
     pub const IGNORE_VALIDATOR: u16 = 100;
 }
 
-/// Põe a fase do emissor em cada relato de um iterador.
-fn com_fase<A, I: IntoIterator<Item = (A, Diagnostic)>>(f: u16, it: I) -> impl Iterator<Item = (A, Diagnostic, u16)> {
+/// Tags each report of an iterator with the emitter's phase.
+fn with_phase<A, I: IntoIterator<Item = (A, Diagnostic)>>(f: u16, it: I) -> impl Iterator<Item = (A, Diagnostic, u16)> {
     it.into_iter().map(move |(a, d)| (a, d, f))
 }
 
-/// Resultado de uma análise: por caminho absoluto normalizado.
+/// The result of an analysis: per normalized absolute path.
 #[derive(Debug, Default)]
 pub struct Analise {
     pub arquivos: BTreeMap<PathBuf, Arquivo>,
-    /// Diagnósticos com mais de uma unidade candidata.
+    /// Diagnostics with more than one candidate unit.
     pub ambiguos: usize,
-    /// A fase de cada relato de `arquivos[k].diags`, na mesma ordem.
-    fases: BTreeMap<PathBuf, Vec<u16>>,
+    /// The phase of each report of `arquivos[k].diags`, in the same order.
+    phases: BTreeMap<PathBuf, Vec<u16>>,
 }
 
 impl Analise {
-    /// Relata `d` no arquivo `k`, na fase `f`.
-    fn por(&mut self, k: &Path, d: Diagnostic, f: u16) {
+    /// Reports `d` in file `k`, in phase `f`.
+    fn report(&mut self, k: &Path, d: Diagnostic, f: u16) {
         if let Some(a) = self.arquivos.get_mut(k) {
             a.diags.push(d);
-            self.fases.entry(k.to_path_buf()).or_default().push(f);
+            self.phases.entry(k.to_path_buf()).or_default().push(f);
         }
     }
 
-    /// A lista de cada arquivo (fora os sintáticos, que vêm primeiro) na
-    /// ordem das fases, estável.
-    fn ordenar_pelas_fases(&mut self) {
+    /// Each file's list (except the syntactic ones, which come first) in
+    /// phase order, stable.
+    fn sort_by_phases(&mut self) {
         for (k, a) in self.arquivos.iter_mut() {
-            let fases = self.fases.remove(k).unwrap_or_default();
-            let n = a.sintaticos.min(a.diags.len());
-            let resto: Vec<Diagnostic> = a.diags.drain(n..).collect();
-            let mut com: Vec<(u16, usize, Diagnostic)> =
-                resto.into_iter().enumerate().map(|(i, d)| (fases.get(n + i).copied().unwrap_or(fase::RESOLVER_VISITOR), i, d)).collect();
-            com.sort_by_key(|(f, i, _)| (*f, *i));
-            a.diags.extend(com.into_iter().map(|(_, _, d)| d));
+            let phases = self.phases.remove(k).unwrap_or_default();
+            let n = a.syntactic_count.min(a.diags.len());
+            let rest: Vec<Diagnostic> = a.diags.drain(n..).collect();
+            let mut with: Vec<(u16, usize, Diagnostic)> =
+                rest.into_iter().enumerate().map(|(i, d)| (phases.get(n + i).copied().unwrap_or(phase::RESOLVER_VISITOR), i, d)).collect();
+            with.sort_by_key(|(f, i, _)| (*f, *i));
+            a.diags.extend(with.into_iter().map(|(_, _, d)| d));
         }
     }
 }
 
-/// Caminho normalizado (lexical, sem `\\?\`), a chave de comparação de arquivos.
+/// Normalized path (lexical, without `\\?\`), the comparison key of files.
 pub fn chave(p: &Path) -> PathBuf {
     dartforge_elements::gerado::chave(p)
 }
 
-/// O arquivo é uma parte (`part of`)? Olha as diretivas antes da primeira declaração.
-pub fn e_parte(texto: &str) -> bool {
-    let mut em_bloco = false;
-    for linha in texto.lines() {
-        let t = linha.trim();
-        if em_bloco {
+/// Is the file a part (`part of`)? Looks at the directives before the first
+/// declaration.
+pub fn e_parte(text: &str) -> bool {
+    let mut in_block = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if in_block {
             if t.contains("*/") {
-                em_bloco = false;
+                in_block = false;
             }
             continue;
         }
@@ -153,7 +154,7 @@ pub fn e_parte(texto: &str) -> bool {
             continue;
         }
         if t.starts_with("/*") {
-            em_bloco = !t.contains("*/");
+            in_block = !t.contains("*/");
             continue;
         }
         return t.starts_with("part of");
@@ -161,19 +162,19 @@ pub fn e_parte(texto: &str) -> bool {
     false
 }
 
-/// O caminho de uma URI de diretiva escrita em `base` (relativa, ou
-/// `package:` pelo `package_config.json`); `dart:` e outros esquemas não têm.
-fn resolver_uri_de_diretiva(uri: &str, base: &Path, config: Option<&dartforge_elements::PackageConfig>) -> Option<PathBuf> {
-    if let Some(resto) = uri.strip_prefix("package:") {
-        let (pacote, rel) = resto.split_once('/')?;
-        let dir = config?.package_dirs.iter().find(|(n, _)| n == pacote).map(|(_, d)| d.clone())?;
+/// The path of a directive URI written in `base` (relative, or `package:`
+/// through `package_config.json`); `dart:` and other schemes have none.
+fn resolve_directive_uri(uri: &str, base: &Path, config: Option<&dartforge_elements::PackageConfig>) -> Option<PathBuf> {
+    if let Some(rest) = uri.strip_prefix("package:") {
+        let (package, rel) = rest.split_once('/')?;
+        let dir = config?.package_dirs.iter().find(|(n, _)| n == package).map(|(_, d)| d.clone())?;
         return Some(dir.join(rel));
     }
     if uri.contains(':') {
         return None;
     }
-    // `/x.dart` numa biblioteca de `lib/` (URI `package:`): a raiz do pacote,
-    // como `resolver_relativo_a_package` na carga.
+    // `/x.dart` in a `lib/` library (a `package:` URI): the package's root,
+    // like `resolver_relativo_a_package` while loading.
     if uri.starts_with('/') && !uri.starts_with("//")
         && let Some(dir) = config.and_then(|c| c.package_dirs.iter().find(|(_, d)| base.starts_with(d)).map(|(_, d)| d.clone()))
     {
@@ -182,143 +183,143 @@ fn resolver_uri_de_diretiva(uri: &str, base: &Path, config: Option<&dartforge_el
     Some(base.join(uri))
 }
 
-/// A parte `a` tem biblioteca conhecida (`PartOfUriKnownFileKind.library` /
-/// `PartOfNameFileKind.library`): a do `part of 'uri'`, que existe e a
-/// inclui por uma diretiva `part`; ou, por nome, uma biblioteca do lote com
-/// esse nome que a inclui.
-fn parte_com_biblioteca(
+/// Does part `a` have a known library (`PartOfUriKnownFileKind.library` /
+/// `PartOfNameFileKind.library`)? That of the `part of 'uri'`, which exists
+/// and includes it through a `part` directive; or, by name, a library of the
+/// batch with that name that includes it.
+fn part_has_library(
     a: &Path,
-    texto: &str,
-    lote: &[(usize, &PathBuf, String)],
+    text: &str,
+    batch: &[(usize, &PathBuf, String)],
     config: Option<&dartforge_elements::PackageConfig>,
-    textos: &HashMap<PathBuf, String>,
+    texts: &HashMap<PathBuf, String>,
 ) -> bool {
-    let mut nomes = dartforge_intern::Interner::new();
-    let analisado = dartforge_frontend::parser::parse(texto, &mut nomes);
+    let mut names = dartforge_intern::Interner::new();
+    let parsed = dartforge_frontend::parser::parse(text, &mut names);
     let base = a.parent().map(Path::to_path_buf).unwrap_or_default();
-    let alvo = chave(a);
-    // A biblioteca `lib` (texto) inclui `alvo` por `part`?
-    let inclui = |caminho_lib: &Path, texto_lib: &str| -> bool {
+    let target = chave(a);
+    // Does library `lib` (text) include `target` through `part`?
+    let includes = |lib_path: &Path, lib_text: &str| -> bool {
         let mut n2 = dartforge_intern::Interner::new();
-        let lib = dartforge_frontend::parser::parse(texto_lib, &mut n2);
-        let base_lib = caminho_lib.parent().map(Path::to_path_buf).unwrap_or_default();
+        let lib = dartforge_frontend::parser::parse(lib_text, &mut n2);
+        let lib_base = lib_path.parent().map(Path::to_path_buf).unwrap_or_default();
         lib.unit.directives.iter().any(|d| match &d.kind {
             DirectiveKind::Part { uri } => dartforge_elements::load::string_lit_value(uri)
-                .and_then(|u| resolver_uri_de_diretiva(&u, &base_lib, config))
-                .is_some_and(|c| chave(&c) == alvo),
+                .and_then(|u| resolve_directive_uri(&u, &lib_base, config))
+                .is_some_and(|c| chave(&c) == target),
             _ => false,
         })
     };
-    for d in &analisado.unit.directives {
+    for d in &parsed.unit.directives {
         let DirectiveKind::PartOf { uri, name } = &d.kind else { continue };
         if let Some(lit) = uri {
             let Some(u) = dartforge_elements::load::string_lit_value(lit) else { return false };
-            let Some(caminho_lib) = resolver_uri_de_diretiva(&u, &base, config) else { return false };
-            let texto_lib = textos.get(&chave(&caminho_lib)).cloned().or_else(|| std::fs::read_to_string(&caminho_lib).ok());
-            return texto_lib.is_some_and(|t| !e_parte(&t) && inclui(&caminho_lib, &t));
+            let Some(lib_path) = resolve_directive_uri(&u, &base, config) else { return false };
+            let lib_text = texts.get(&chave(&lib_path)).cloned().or_else(|| std::fs::read_to_string(&lib_path).ok());
+            return lib_text.is_some_and(|t| !e_parte(&t) && includes(&lib_path, &t));
         }
-        // `part of a.b;`: uma biblioteca do lote com esse nome que a inclui.
-        let procurado: Vec<String> = name.iter().map(|n| nomes.resolve(n.sym).to_string()).collect();
-        return lote.iter().any(|(_, c, t)| {
+        // `part of a.b;`: a library of the batch with that name that includes it.
+        let wanted: Vec<String> = name.iter().map(|n| names.resolve(n.sym).to_string()).collect();
+        return batch.iter().any(|(_, c, t)| {
             if e_parte(t) {
                 return false;
             }
             let mut n3 = dartforge_intern::Interner::new();
             let lib = dartforge_frontend::parser::parse(t, &mut n3);
-            let nome_da_lib = lib.unit.directives.iter().find_map(|d| match &d.kind {
+            let lib_name = lib.unit.directives.iter().find_map(|d| match &d.kind {
                 DirectiveKind::Library { name } => Some(name.iter().map(|n| n3.resolve(n.sym).to_string()).collect::<Vec<_>>()),
                 _ => None,
             });
-            nome_da_lib.as_ref() == Some(&procurado) && inclui(c, t)
+            lib_name.as_ref() == Some(&wanted) && includes(c, t)
         });
     }
     false
 }
 
-/// A biblioteca que inclui a parte `a` quando ela não está no lote: a do
-/// `part of 'uri'`, ou, por nome, uma biblioteca **da mesma pasta** com esse
-/// nome que a inclui (`PartOfNameFileKind.discoverLibraries` só lê os
-/// irmãos; a primeira pelo caminho). `None` se a biblioteca está no lote ou
-/// não é achada assim (a parte segue como biblioteca própria).
-fn biblioteca_fora_do_lote(
+/// The library that includes part `a` when it is not in the batch: the one of
+/// the `part of 'uri'`, or, by name, a library **of the same folder** with
+/// that name that includes it (`PartOfNameFileKind.discoverLibraries` only
+/// reads the siblings; the first by path). `None` if the library is in the
+/// batch or is not found this way (the part goes on as its own library).
+fn library_outside_batch(
     a: &Path,
-    texto: &str,
-    raiz: &Path,
-    lote: &[(usize, &PathBuf, String)],
+    text: &str,
+    root: &Path,
+    batch: &[(usize, &PathBuf, String)],
     config: Option<&dartforge_elements::PackageConfig>,
-    textos: &HashMap<PathBuf, String>,
+    texts: &HashMap<PathBuf, String>,
 ) -> Option<PathBuf> {
-    let mut nomes = dartforge_intern::Interner::new();
-    let analisado = dartforge_frontend::parser::parse(texto, &mut nomes);
+    let mut names = dartforge_intern::Interner::new();
+    let parsed = dartforge_frontend::parser::parse(text, &mut names);
     let base = a.parent().map(Path::to_path_buf).unwrap_or_default();
-    let alvo = chave(a);
-    let no_lote = |c: &Path| lote.iter().any(|(_, x, _)| chave(x) == chave(c));
-    let ler = |c: &Path| textos.get(&chave(c)).cloned().or_else(|| std::fs::read_to_string(c).ok());
-    let inclui = |caminho_lib: &Path, texto_lib: &str| -> bool {
+    let target = chave(a);
+    let in_batch = |c: &Path| batch.iter().any(|(_, x, _)| chave(x) == chave(c));
+    let read = |c: &Path| texts.get(&chave(c)).cloned().or_else(|| std::fs::read_to_string(c).ok());
+    let includes = |lib_path: &Path, lib_text: &str| -> bool {
         let mut n2 = dartforge_intern::Interner::new();
-        let lib = dartforge_frontend::parser::parse(texto_lib, &mut n2);
-        let base_lib = caminho_lib.parent().map(Path::to_path_buf).unwrap_or_default();
+        let lib = dartforge_frontend::parser::parse(lib_text, &mut n2);
+        let lib_base = lib_path.parent().map(Path::to_path_buf).unwrap_or_default();
         lib.unit.directives.iter().any(|d| match &d.kind {
             DirectiveKind::Part { uri } => dartforge_elements::load::string_lit_value(uri)
-                .and_then(|u| resolver_uri_de_diretiva(&u, &base_lib, config))
-                .is_some_and(|c| chave(&c) == alvo),
+                .and_then(|u| resolve_directive_uri(&u, &lib_base, config))
+                .is_some_and(|c| chave(&c) == target),
             _ => false,
         })
     };
-    let d = analisado.unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::PartOf { .. }))?;
+    let d = parsed.unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::PartOf { .. }))?;
     let DirectiveKind::PartOf { uri, name } = &d.kind else { return None };
     if let Some(lit) = uri {
         let u = dartforge_elements::load::string_lit_value(lit)?;
-        let caminho = resolver_uri_de_diretiva(&u, &base, config)?;
-        let t = ler(&caminho)?;
-        return (!no_lote(&caminho) && !e_parte(&t) && inclui(&caminho, &t)).then_some(caminho);
+        let path = resolve_directive_uri(&u, &base, config)?;
+        let t = read(&path)?;
+        return (!in_batch(&path) && !e_parte(&t) && includes(&path, &t)).then_some(path);
     }
-    let procurado: Vec<String> = name.iter().map(|n| nomes.resolve(n.sym).to_string()).collect();
-    if procurado.is_empty() {
+    let wanted: Vec<String> = name.iter().map(|n| names.resolve(n.sym).to_string()).collect();
+    if wanted.is_empty() {
         return None;
     }
-    let _ = raiz;
-    let mut irmaos: Vec<PathBuf> = std::fs::read_dir(&base)
+    let _ = root;
+    let mut siblings: Vec<PathBuf> = std::fs::read_dir(&base)
         .map(|it| it.flatten().map(|e| e.path()).filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "dart")).collect())
         .unwrap_or_default();
-    irmaos.sort();
-    for c in irmaos {
-        if no_lote(&c) || chave(&c) == alvo {
+    siblings.sort();
+    for c in siblings {
+        if in_batch(&c) || chave(&c) == target {
             continue;
         }
-        let Some(t) = ler(&c) else { continue };
-        if e_parte(&t) || !t.contains(procurado.last().map(String::as_str).unwrap_or("")) {
+        let Some(t) = read(&c) else { continue };
+        if e_parte(&t) || !t.contains(wanted.last().map(String::as_str).unwrap_or("")) {
             continue;
         }
         let mut n3 = dartforge_intern::Interner::new();
         let lib = dartforge_frontend::parser::parse(&t, &mut n3);
-        let nome_da_lib = lib.unit.directives.iter().find_map(|d| match &d.kind {
+        let lib_name = lib.unit.directives.iter().find_map(|d| match &d.kind {
             DirectiveKind::Library { name } => Some(name.iter().map(|n| n3.resolve(n.sym).to_string()).collect::<Vec<_>>()),
             _ => None,
         });
-        if nome_da_lib.as_ref() == Some(&procurado) && inclui(&c, &t) {
+        if lib_name.as_ref() == Some(&wanted) && includes(&c, &t) {
             return Some(c);
         }
     }
     None
 }
 
-/// Sufixos de arquivo gerado (`file_paths.isGenerated`, analyzer 6.11.0).
-fn gerado(uri: &str) -> bool {
+/// Generated-file suffixes (`file_paths.isGenerated`, analyzer 6.11.0).
+fn is_generated(uri: &str) -> bool {
     [".g.dart", ".pb.dart", ".pbenum.dart", ".pbserver.dart", ".pbjson.dart", ".template.dart"]
         .iter()
         .any(|s| uri.ends_with(s))
 }
 
-/// O arquivo `alvo` existe como saída do `build_runner`
-/// (`.dart_tool/build/generated/<pacote>/<rel>`, de `lib/` ou de qualquer
-/// outra pasta do pacote)? O analyzer os enxerga.
-fn gerado_pelo_build(c: &dartforge_elements::PackageConfig, alvo: &Path) -> bool {
-    c.gerado_no_lugar_de(alvo).is_some()
-        || c.package_dirs.iter().any(|(nome, dir)| {
-            alvo.strip_prefix(dir)
+/// Does file `target` exist as a `build_runner` output
+/// (`.dart_tool/build/generated/<package>/<rel>`, from `lib/` or any other
+/// folder of the package)? The analyzer sees them.
+fn generated_by_build(c: &dartforge_elements::PackageConfig, target: &Path) -> bool {
+    c.gerado_no_lugar_de(target).is_some()
+        || c.package_dirs.iter().any(|(name, dir)| {
+            target.strip_prefix(dir)
                 .ok()
-                .and_then(|rel| c.generated_path(nome, &rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")))
+                .and_then(|rel| c.generated_path(name, &rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")))
                 .is_some()
         })
 }
@@ -326,40 +327,41 @@ fn gerado_pelo_build(c: &dartforge_elements::PackageConfig, alvo: &Path) -> bool
 impl Motor {
     pub fn novo(sdk_lib: &Path) -> Result<Motor, String> {
         let mut sdk = SdkLayout::load(sdk_lib, "dartdevc")?;
-        // O `dart analyze` não usa perfil de compilação: enxerga toda
-        // biblioteca pública da plataforma, pela fonte e sem patches. As que
-        // o perfil do DDC não tem (`dart:ffi`, `dart:mirrors`, `dart:cli`,
-        // `dart:nativewrappers`) vêm das seções da VM, sem os patches dela;
-        // sem isso, `import 'dart:ffi'` não resolvia e cada `Pointer`,
-        // `Struct`… virava `undefined_class`.
-        for secao in ["vm_common", "vm"] {
-            if let Ok(vm) = SdkLayout::load(sdk_lib, secao) {
-                for (nome, mut lib) in vm.libraries {
-                    if !nome.starts_with('_') && !sdk.libraries.contains_key(&nome) {
+        // `dart analyze` uses no compilation profile: it sees every public
+        // library of the platform, from source and without patches. Those the
+        // DDC profile lacks (`dart:ffi`, `dart:mirrors`, `dart:cli`,
+        // `dart:nativewrappers`) come from the VM sections, without their
+        // patches; without this, `import 'dart:ffi'` did not resolve and every
+        // `Pointer`, `Struct`… became `undefined_class`.
+        for section in ["vm_common", "vm"] {
+            if let Ok(vm) = SdkLayout::load(sdk_lib, section) {
+                for (name, mut lib) in vm.libraries {
+                    if !name.starts_with('_') && !sdk.libraries.contains_key(&name) {
                         lib.patches.clear();
-                        sdk.libraries.insert(nome, lib);
+                        sdk.libraries.insert(name, lib);
                     }
                 }
             }
         }
-        // O resto do que o analyzer enxerga (`libraries.dart`, sem patches):
-        // as internas que nenhum dos perfis acima traz (`dart:_wasm`), para
-        // que `import 'dart:_wasm'` resolva e relate `import_internal_library`.
+        // The rest of what the analyzer sees (`libraries.dart`, without
+        // patches): the internal ones that none of the profiles above bring
+        // (`dart:_wasm`), so that `import 'dart:_wasm'` resolves and reports
+        // `import_internal_library`.
         if let Ok(analyzer) = SdkLayout::load_como_analyzer(sdk_lib) {
-            for (nome, lib) in analyzer.libraries {
-                if !sdk.libraries.contains_key(&nome) && lib.path.is_file() {
-                    sdk.libraries.insert(nome, lib);
+            for (name, lib) in analyzer.libraries {
+                if !sdk.libraries.contains_key(&name) && lib.path.is_file() {
+                    sdk.libraries.insert(name, lib);
                 }
             }
         }
-        // Importação condicional: o analyzer escolhe a configuração cujo
-        // `dart.library.x` está nas variáveis declaradas do contexto
-        // (`an611:src/dart/analysis/file_state.dart:785-800`), e o `dart
-        // analyze` não declara nenhuma — vale sempre a URI principal. Sem
-        // biblioteca "suportada", a carga também fica com a principal
+        // Conditional imports: the analyzer picks the configuration whose
+        // `dart.library.x` is in the context's declared variables
+        // (`an611:src/dart/analysis/file_state.dart:785-800`), and `dart
+        // analyze` declares none — the main URI always applies. Without a
+        // "supported" library, loading also keeps the main one
         // (`import 'fake.dart' if (dart.library.js_interop) 'real.dart'`
-        // resolve para `fake.dart`, como no analyzer). Exceção conhecida: uma
-        // condição `== 'false'` seria escolhida aqui e não no analyzer.
+        // resolves to `fake.dart`, as in the analyzer). Known exception: a
+        // `== 'false'` condition would be chosen here and not in the analyzer.
         for lib in sdk.libraries.values_mut() {
             lib.supported = false;
         }
@@ -367,383 +369,385 @@ impl Motor {
             &std::fs::read_to_string(sdk_lib.join("libraries.json")).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
-        let mut bibliotecas_sdk = BTreeSet::new();
+        let mut sdk_libraries = BTreeSet::new();
         if let Some(o) = json.as_object() {
-            for secao in o.values() {
-                if let Some(libs) = secao.get("libraries").and_then(|l| l.as_object()) {
-                    bibliotecas_sdk.extend(libs.keys().cloned());
+            for section in o.values() {
+                if let Some(libs) = section.get("libraries").and_then(|l| l.as_object()) {
+                    sdk_libraries.extend(libs.keys().cloned());
                 }
             }
         }
-        Ok(Motor { sdk, bibliotecas_sdk })
+        Ok(Motor { sdk, sdk_libraries })
     }
 
-    /// O SDK do `DARTFORGE_SDK_LIB`/`DART_SDK`/`PATH`, ou o 3.6.2 padrão da máquina.
+    /// The SDK from `DARTFORGE_SDK_LIB`/`DART_SDK`/`PATH`, or the machine's
+    /// default 3.6.2.
     pub fn descobrir() -> Result<Motor, String> {
         let lib = SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
         Motor::novo(&lib)
     }
 
-    /// Analisa `arquivos` (absolutos, dentro de `raiz`), cada um como a sua
-    /// biblioteca. `packages` é o `package_config.json`.
-    pub fn analisar(&self, raiz: &Path, arquivos: &[PathBuf], packages: Option<&Path>) -> Analise {
-        self.analisar_com(raiz, arquivos, packages, &HashMap::new(), &|| false)
-            .expect("sem cancelamento, a análise sempre conclui")
+    /// Analyzes `files` (absolute, inside `root`), each as its own library.
+    /// `packages` is the `package_config.json`.
+    pub fn analisar(&self, root: &Path, files: &[PathBuf], packages: Option<&Path>) -> Analise {
+        self.analisar_com(root, files, packages, &HashMap::new(), &|| false)
+            .expect("without cancellation, the analysis always completes")
     }
 
-    /// Como [`Motor::analisar`], com textos em memória e cancelamento.
+    /// Like [`Motor::analisar`], with in-memory texts and cancellation.
     ///
-    /// `textos` (pela [`chave`] do caminho) vale mais que o disco, tanto
-    /// para os `arquivos` quanto para qualquer arquivo que a carga alcance:
-    /// é o que o LSP passa com os documentos abertos ainda não salvos.
-    /// `cancelado` é consultado entre as fases (carga, verificadores, cada
-    /// biblioteca na inferência de corpos); quando responde verdadeiro, a
-    /// análise para ali e devolve `None` — o LSP a descarta porque o texto
-    /// mudou. Nada é retido pelo motor entre chamadas.
+    /// `texts` (keyed by the path's [`chave`]) takes precedence over the disk,
+    /// both for `files` and for any file the loading reaches: it is what the
+    /// LSP passes with the open documents not yet saved. `cancelled` is
+    /// consulted between phases (loading, verifiers, each library in body
+    /// inference); when it answers true, the analysis stops there and returns
+    /// `None` — the LSP discards it because the text changed. The engine
+    /// retains nothing between calls.
     pub fn analisar_com(
         &self,
-        raiz: &Path,
-        arquivos: &[PathBuf],
+        root: &Path,
+        files: &[PathBuf],
         packages: Option<&Path>,
-        textos: &HashMap<PathBuf, String>,
-        cancelado: &dyn Fn() -> bool,
+        texts: &HashMap<PathBuf, String>,
+        cancelled: &dyn Fn() -> bool,
     ) -> Option<Analise> {
-        let mut analise = Analise::default();
-        let mut proprios: BTreeMap<PathBuf, String> = BTreeMap::new();
+        let mut analysis = Analise::default();
+        let mut own: BTreeMap<PathBuf, String> = BTreeMap::new();
         let mut imports = String::new();
-        let lidos: Vec<(usize, &PathBuf, String)> = arquivos
+        let read: Vec<(usize, &PathBuf, String)> = files
             .iter()
             .enumerate()
             .filter_map(|(i, a)| {
-                let texto = match textos.get(&chave(a)) {
+                let text = match texts.get(&chave(a)) {
                     Some(t) => t.clone(),
                     None => std::fs::read_to_string(a).ok()?,
                 };
-                Some((i, a, texto))
+                Some((i, a, text))
             })
             .collect();
-        let config_de_pacotes = packages.and_then(|p| dartforge_elements::PackageConfig::load(p).ok());
-        for (i, a, texto) in &lidos {
-            let (i, a, texto) = (*i, *a, texto.clone());
-            // Uma parte cuja biblioteca não é conhecida (o `part of` não
-            // aponta para uma biblioteca que a inclui) é analisada como
-            // biblioteca própria (`FileKind.asLibrary`; INFRA III.5 item 1).
-            let parte = e_parte(&texto);
-            let como_biblioteca = !parte || !parte_com_biblioteca(a, &texto, &lidos, config_de_pacotes.as_ref(), textos);
-            // A parte pedida sem a biblioteca no lote (a análise de um arquivo
-            // só: o LSP, as mutações): o analyzer conhece todos os arquivos
-            // do contexto e a analisa dentro da biblioteca que a inclui
-            // (`part of 'uri'` ou `part of nome;` de uma biblioteca do
-            // pacote). A biblioteca entra na carga; os relatos continuam só
-            // os dos arquivos pedidos.
-            if parte
-                && let Some(lib) = biblioteca_fora_do_lote(a, &texto, raiz, &lidos, config_de_pacotes.as_ref(), textos)
+        let package_config = packages.and_then(|p| dartforge_elements::PackageConfig::load(p).ok());
+        for (i, a, text) in &read {
+            let (i, a, text) = (*i, *a, text.clone());
+            // A part whose library is not known (the `part of` does not point
+            // to a library that includes it) is analyzed as its own library
+            // (`FileKind.asLibrary`; INFRA III.5 item 1).
+            let part = e_parte(&text);
+            let as_library = !part || !part_has_library(a, &text, &read, package_config.as_ref(), texts);
+            // A part requested without its library in the batch (the analysis
+            // of a single file: the LSP, the mutations): the analyzer knows
+            // all the files of the context and analyzes it inside the library
+            // that includes it (`part of 'uri'` or `part of name;` of a library
+            // of the package). The library joins the loading; the reports
+            // still are only those of the requested files.
+            if part
+                && let Some(lib) = library_outside_batch(a, &text, root, &read, package_config.as_ref(), texts)
             {
-                let rel = lib.strip_prefix(raiz).unwrap_or(&lib).to_string_lossy().replace('\\', "/").replace(' ', "%20");
+                let rel = lib.strip_prefix(root).unwrap_or(&lib).to_string_lossy().replace('\\', "/").replace(' ', "%20");
                 imports.push_str(&format!("import '{rel}' as _dfb{i};\n"));
-                proprios.insert(chave(a), texto);
+                own.insert(chave(a), text);
                 continue;
             }
-            if como_biblioteca {
-                let rel = a.strip_prefix(raiz).unwrap_or(a).to_string_lossy().replace('\\', "/");
+            if as_library {
+                let rel = a.strip_prefix(root).unwrap_or(a).to_string_lossy().replace('\\', "/");
                 let rel: String = rel
                     .chars()
                     .map(|c| if c == ' ' { "%20".to_string() } else { c.to_string() })
                     .collect();
                 imports.push_str(&format!("import '{rel}' as _dfp{i};\n"));
             }
-            proprios.insert(chave(a), texto);
+            own.insert(chave(a), text);
         }
-        for (p, t) in &proprios {
-            analise.arquivos.insert(p.clone(), Arquivo { texto: t.clone(), diags: Vec::new(), sintaticos: 0, lints_semanticos: Vec::new(), relatos_de_lint: None });
+        for (p, t) in &own {
+            analysis.arquivos.insert(p.clone(), Arquivo { texto: t.clone(), diags: Vec::new(), syntactic_count: 0, semantic_lints: Vec::new(), lint_reports: None });
         }
         if imports.is_empty() {
-            return Some(analise);
+            return Some(analysis);
         }
-        let entrada = raiz.join(ENTRADA);
+        let entry = root.join(ENTRY);
         let mut c = dartforge_elements::gerado::Construtor::nova();
-        for (caminho, texto) in textos {
-            c.por(caminho.clone(), texto.clone(), "lsp", vec![]);
+        for (path, text) in texts {
+            c.por(path.clone(), text.clone(), "lsp", vec![]);
         }
-        c.por(entrada.clone(), imports, "paridade", vec![]);
-        let geracao = c.concluir(1).ok();
+        c.por(entry.clone(), imports, "paridade", vec![]);
+        let generation = c.concluir(1).ok();
         let cache = dartforge_elements::SdkCache::abrir_ou_construir(&self.sdk, "dartdevc").ok().map(|(c, _)| c);
         let mut interner = dartforge_intern::Interner::new();
-        let (program, diags_carga) = dartforge_elements::load::load_lenient_gerados(
-            &entrada,
+        let (program, load_diags) = dartforge_elements::load::load_lenient_gerados(
+            &entry,
             &self.sdk,
             packages,
             &mut interner,
             cache,
             None,
-            geracao,
+            generation,
         );
-        if cancelado() {
+        if cancelled() {
             return None;
         }
 
-        // Unidades do lote.
-        let mut unidade_de: HashMap<PathBuf, UnitId> = HashMap::new();
+        // The batch's units.
+        let mut unit_of: HashMap<PathBuf, UnitId> = HashMap::new();
         for (i, u) in program.units.iter().enumerate() {
             if let Some(p) = &u.path {
                 let k = chave(p);
-                if proprios.contains_key(&k) && !program.library(u.library).is_sdk {
-                    unidade_de.insert(k, UnitId(i as u32));
+                if own.contains_key(&k) && !program.library(u.library).is_sdk {
+                    unit_of.insert(k, UnitId(i as u32));
                 }
             }
         }
-        let libs_proprias: Vec<LibraryId> = {
-            let s: BTreeSet<LibraryId> = unidade_de.values().map(|u| program.unit(*u).library).collect();
+        let own_libs: Vec<LibraryId> = {
+            let s: BTreeSet<LibraryId> = unit_of.values().map(|u| program.unit(*u).library).collect();
             s.into_iter().collect()
         };
-        let unidades_proprias: BTreeSet<UnitId> = unidade_de.values().copied().collect();
+        let own_units: BTreeSet<UnitId> = unit_of.values().copied().collect();
 
-        // 1. Sintaxe: o `elements` prefixa o caminho e o offset na mensagem.
-        // O que ali não é sintático (marcador de versão) entra depois, fora da
-        // faixa publicada sempre.
-        let mut da_carga_semanticos: Vec<(PathBuf, Diagnostic)> = Vec::new();
-        for d in &diags_carga {
-            for (k, u) in &unidade_de {
+        // 1. Syntax: `elements` prefixes the path and the offset in the
+        // message. What is not syntactic there (a version marker) goes in
+        // later, outside the always-published range.
+        let mut semantic_from_load: Vec<(PathBuf, Diagnostic)> = Vec::new();
+        for d in &load_diags {
+            for (k, u) in &unit_of {
                 let Some(p) = &program.unit(*u).path else { continue };
-                let prefixo = format!("{}:{}: ", p.display(), d.span.start);
-                if let Some(msg) = d.message.strip_prefix(&prefixo) {
-                    let mut cru = d.clone();
-                    cru.message = msg.to_string();
-                    let sintatico = cru.code.is_none_or(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError);
-                    if sintatico {
-                        analise.por(k, bridge::encode_syntax(&cru), fase::PARSER);
-                        analise.arquivos.get_mut(k).expect("próprio").sintaticos += 1;
+                let prefix = format!("{}:{}: ", p.display(), d.span.start);
+                if let Some(msg) = d.message.strip_prefix(&prefix) {
+                    let mut raw = d.clone();
+                    raw.message = msg.to_string();
+                    let syntactic = raw.code.is_none_or(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError);
+                    if syntactic {
+                        analysis.report(k, bridge::encode_syntax(&raw), phase::PARSER);
+                        analysis.arquivos.get_mut(k).expect("own").syntactic_count += 1;
                     } else {
-                        da_carga_semanticos.push((k.clone(), cru));
+                        semantic_from_load.push((k.clone(), raw));
                     }
                     break;
                 }
             }
         }
-        for (k, d) in da_carga_semanticos {
-            analise.por(&k, d, fase::SCANNER);
+        for (k, d) in semantic_from_load {
+            analysis.report(&k, d, phase::SCANNER);
         }
 
-        // 2. Diretivas cujo alvo não existe.
+        // 2. Directives whose target does not exist.
         let config = packages.and_then(|p| dartforge_elements::PackageConfig::load(p).ok());
-        for (k, u) in &unidade_de {
+        for (k, u) in &unit_of {
             let unit = program.unit(*u);
-            let base = unit.path.as_deref().and_then(Path::parent).unwrap_or(raiz).to_path_buf();
-            // `_resolveLibraryDocImportDirective`: os `@docImport` do doc da
-            // diretiva `library` com alvo ausente (`URI_DOES_NOT_EXIST_IN_DOC_IMPORT`).
-            let arvore = dartforge_analysis::Unidade { ast: &unit.ast, unit: &unit.unit, fonte: &unit.source };
-            for i in dartforge_analysis::a_doc::imports_de_doc_da_biblioteca(arvore) {
-                // A URI interpolada (`DirectiveUriWithInterpolation`, no literal).
+            let base = unit.path.as_deref().and_then(Path::parent).unwrap_or(root).to_path_buf();
+            // `_resolveLibraryDocImportDirective`: the `@docImport`s of the
+            // `library` directive's doc with a missing target
+            // (`URI_DOES_NOT_EXIST_IN_DOC_IMPORT`).
+            let tree = dartforge_analysis::Unidade { ast: &unit.ast, unit: &unit.unit, fonte: &unit.source };
+            for i in dartforge_analysis::a_doc::imports_de_doc_da_biblioteca(tree) {
+                // The interpolated URI (`DirectiveUriWithInterpolation`, on the literal).
                 if i.interpolada {
                     let d = Diagnostic::com_codigo(codigos::compile_time_error::URI_WITH_INTERPOLATION, i.literal, [] as [&str; 0]);
-                    analise.por(k, d, fase::DIRECTIVES);
+                    analysis.report(k, d, phase::DIRECTIVES);
                     continue;
                 }
                 let Some(uri) = i.uri else { continue };
-                // `_reportImportDirectiveErrors`: `dart-ext:` no lugar do alvo ausente.
+                // `_reportImportDirectiveErrors`: `dart-ext:` instead of the missing target.
                 if uri.starts_with("dart-ext:") {
                     let d = Diagnostic::com_codigo(codigos::compile_time_error::USE_OF_NATIVE_EXTENSION, i.literal, [] as [&str; 0]);
-                    analise.por(k, d, fase::DIRECTIVES);
+                    analysis.report(k, d, phase::DIRECTIVES);
                     continue;
                 }
-                if textos.contains_key(&chave(&base.join(&uri))) {
+                if texts.contains_key(&chave(&base.join(&uri))) {
                     continue;
                 }
-                if self.diretiva_sem_alvo(&uri, &base, config.as_ref(), i.literal, false).is_some() {
+                if self.directive_without_target(&uri, &base, config.as_ref(), i.literal, false).is_some() {
                     let d = Diagnostic::com_codigo(codigos::warning::URI_DOES_NOT_EXIST_IN_DOC_IMPORT, i.literal, [uri.as_str()]);
-                    analise.por(k, d, fase::DIRECTIVES);
+                    analysis.report(k, d, phase::DIRECTIVES);
                 }
             }
             for dir in &unit.unit.directives {
-                let (lit, parte) = match &dir.kind {
+                let (lit, part) = match &dir.kind {
                     DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => (uri, false),
                     DirectiveKind::Part { uri } => (uri, true),
                     _ => continue,
                 };
-                let Some(texto) = dartforge_elements::load::string_lit_value(lit) else { continue };
+                let Some(text) = dartforge_elements::load::string_lit_value(lit) else { continue };
                 // `USE_OF_NATIVE_EXTENSION` (`library_analyzer.dart:672-684`, `:906-916`):
-                // import ou export de `dart-ext:`, no lugar do alvo ausente.
-                if !parte && texto.starts_with("dart-ext:") {
+                // an import or export of `dart-ext:`, instead of the missing target.
+                if !part && text.starts_with("dart-ext:") {
                     let d = Diagnostic::com_codigo(codigos::compile_time_error::USE_OF_NATIVE_EXTENSION, lit.span, [] as [&str; 0]);
-                    analise.por(k, d, fase::DIRECTIVES);
+                    analysis.report(k, d, phase::DIRECTIVES);
                     continue;
                 }
-                if textos.contains_key(&chave(&base.join(&texto))) {
-                    // Documento aberto ainda não salvo: existe para o editor.
+                if texts.contains_key(&chave(&base.join(&text))) {
+                    // An open document not saved yet: it exists for the editor.
                     continue;
                 }
-                if let Some(d) = self.diretiva_sem_alvo(&texto, &base, config.as_ref(), lit.span, parte) {
-                    analise.por(k, d, fase::DIRECTIVES);
-                } else if parte && let Some(uri_do_alvo) = self.parte_sem_part_of(&texto, &base, config.as_ref(), &program, &textos) {
+                if let Some(d) = self.directive_without_target(&text, &base, config.as_ref(), lit.span, part) {
+                    analysis.report(k, d, phase::DIRECTIVES);
+                } else if part && let Some(target_uri) = self.part_without_part_of(&text, &base, config.as_ref(), &program, &texts) {
                     // `_resolvePartDirective` (`library_analyzer.dart:971-1032`):
-                    // o arquivo existe e não é parte.
-                    let d = Diagnostic::com_codigo(codigos::compile_time_error::PART_OF_NON_PART, lit.span, [uri_do_alvo.as_str()]);
-                    analise.por(k, d, fase::DIRECTIVES);
+                    // the file exists and is not a part.
+                    let d = Diagnostic::com_codigo(codigos::compile_time_error::PART_OF_NON_PART, lit.span, [target_uri.as_str()]);
+                    analysis.report(k, d, phase::DIRECTIVES);
                 }
             }
         }
 
-        // O `UnusedLocalElementsVerifier` roda pelo elemento depois da
-        // inferência (`dartforge_types::fase_nao_usados`); o relato pelo nome
-        // fica guardado para quando não houver corpos.
-        let mut privados_adiados: HashMap<LibraryId, Vec<(UnitId, dartforge_diagnostics::Diagnostic, u16)>> = HashMap::new();
-        // T5 (docs/ANALYZER-ESPECIFICACAO.md §G): não há portas por erro de
-        // sintaxe (biblioteca inteira, declaração executável, arquivo); a
-        // regra é a dos trechos que o parser pulou, onde a recuperação do
-        // fasta teria lido o que a nossa descartou.
-        // O outline sai antes das verificações de declaração: a porta das
-        // cláusulas (`analise::clausulas`) usa as decisões dos mixins, que
-        // precisam de tipos (`dartforge_types::fase_mixins`).
+        // The `UnusedLocalElementsVerifier` runs by element after inference
+        // (`dartforge_types::fase_nao_usados`); the by-name report is kept for
+        // when there are no bodies.
+        let mut deferred_privates: HashMap<LibraryId, Vec<(UnitId, dartforge_diagnostics::Diagnostic, u16)>> = HashMap::new();
+        // T5 (docs/ANALYZER-ESPECIFICACAO.md §G): there are no gates for syntax
+        // errors (whole library, executable declaration, file); the rule is
+        // that of the fragments the parser skipped, where fasta's recovery
+        // would have read what ours discarded.
+        // The outline comes before the declaration checks: the clauses' gate
+        // (`analise::clausulas`) uses the mixin decisions, which need types
+        // (`dartforge_types::fase_mixins`).
         let mut table = dartforge_types::TypeTable::new();
-        // Mensagens com o alias de `typedef` e o `Never?` escritos (C9).
+        // Messages with the `typedef` alias and the `Never?` as written (C9).
         table.preservar_exibicao = true;
         let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
-        let (mut outline, diags_outline, unidades_outline) =
+        let (mut outline, outline_diags, outline_units) =
             dartforge_types::resolve_outline_com_unidades(&program, &interner, &mut table, &core);
-        /// Limpa as decisões dos mixins ao sair (por qualquer caminho).
-        struct LimparDecisoes;
-        impl Drop for LimparDecisoes {
+        /// Clears the mixin decisions on exit (on any path).
+        struct ClearDecisions;
+        impl Drop for ClearDecisions {
             fn drop(&mut self) {
                 dartforge_analysis::clauses::definir_decisoes_de_mixins(None);
             }
         }
-        let _limpar_decisoes = LimparDecisoes;
+        let _clear_decisions = ClearDecisions;
         dartforge_analysis::clauses::definir_decisoes_de_mixins(Some(dartforge_types::fase_mixins::decisoes(
             &program,
             &interner,
             &mut table,
             &core,
             &outline,
-            &libs_proprias,
+            &own_libs,
         )));
-        // `computeSimplyBounded`, uma vez para o programa.
-        let limites_simples = dartforge_analysis::simple_bounds::calcular(&program);
-        // 3. Nomes duplicados (`crates/analysis`), por biblioteca do lote.
-        for lib in &libs_proprias {
-            let biblioteca = program.library(*lib);
-            let ids: Vec<UnitId> = biblioteca
+        // `computeSimplyBounded`, once for the program.
+        let simple_bounds = dartforge_analysis::simple_bounds::calcular(&program);
+        // 3. Duplicate names (`crates/analysis`), per library of the batch.
+        for lib in &own_libs {
+            let library = program.library(*lib);
+            let ids: Vec<UnitId> = library
                 .units
                 .iter()
                 .copied()
                 .filter(|u| program.unit(*u).role != dartforge_elements::model::UnitRole::Patch)
                 .collect();
-            let unidades: Vec<dartforge_analysis::Unidade<'_>> = ids
+            let units: Vec<dartforge_analysis::Unidade<'_>> = ids
                 .iter()
                 .map(|u| dartforge_analysis::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, fonte: &program.unit(*u).source })
                 .collect();
-            let curinga = biblioteca.features.tem(dartforge_frontend::features::Feature::WildcardVariables);
-            // O 6.11 junta declarações de mesmo nome; o 3.13.4 (referência
-            // de uma biblioteca com sintaxe posterior ao 3.6) não.
-            // A referência da biblioteca é a maior das unidades dela (T2):
-            // o parser marca a unidade que usa sintaxe que o 3.6.2 não
-            // conhece, e a versão acima da 3.6 marca todas.
-            let sintaxe_nova = program.referencia_da_biblioteca(*lib) == dartforge_diagnostics::Referencia::V3_13;
-            let caminhos: Vec<String> = ids.iter().map(|u| program.caminho_da_unidade(*u)).collect();
-            let mut achados: Vec<(usize, Diagnostic, u16)> =
-                com_fase(fase::ERROR_VERIFIER, dartforge_analysis::duplicatas::duplicatas_com_caminhos(&unidades, &caminhos, &interner, curinga, !sintaxe_nova)).collect();
-            achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analysis::enums::sem_constantes(&unidades)));
-            // `finais_nao_inicializados` sai depois da inferência dos corpos
-            // (o tipo de um campo sem tipo vem dela).
+            let wildcard = library.features.tem(dartforge_frontend::features::Feature::WildcardVariables);
+            // 6.11 merges declarations with the same name; 3.13.4 (the
+            // reference of a library with syntax later than 3.6) does not.
+            // The library's reference is the highest among its units (T2): the
+            // parser marks the unit that uses syntax 3.6.2 does not know, and
+            // a version above 3.6 marks all of them.
+            let new_syntax = program.referencia_da_biblioteca(*lib) == dartforge_diagnostics::Referencia::V3_13;
+            let paths: Vec<String> = ids.iter().map(|u| program.caminho_da_unidade(*u)).collect();
+            let mut found: Vec<(usize, Diagnostic, u16)> =
+                with_phase(phase::ERROR_VERIFIER, dartforge_analysis::duplicatas::duplicatas_com_caminhos(&units, &paths, &interner, wildcard, !new_syntax)).collect();
+            found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::enums::sem_constantes(&units)));
+            // `finais_nao_inicializados` comes after body inference (the type
+            // of a field without a type comes from it).
 
-            achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analysis::constructors::verificar(&unidades, &interner)));
-            for (i, u) in unidades.iter().enumerate() {
-                let pulados = dartforge_analysis::Pulados { fonte: u.fonte, trechos: &program.unit(ids[i]).pulados };
-                achados.extend(com_fase(
-                    fase::UNUSED_LOCAL_ELEMENTS,
-                    dartforge_analysis::locais::nao_usados_com_pulados(*u, &interner, curinga, pulados).into_iter().map(|d| (i, d)),
+            found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::constructors::verificar(&units, &interner)));
+            for (i, u) in units.iter().enumerate() {
+                let skipped = dartforge_analysis::Pulados { fonte: u.fonte, trechos: &program.unit(ids[i]).pulados };
+                found.extend(with_phase(
+                    phase::UNUSED_LOCAL_ELEMENTS,
+                    dartforge_analysis::locais::nao_usados_com_pulados(*u, &interner, wildcard, skipped).into_iter().map(|d| (i, d)),
                 ));
-                achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analysis::externos::inicializadores(*u).into_iter().map(|d| (i, d))));
-                achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analysis::a_context::verificar(*u).into_iter().map(|d| (i, d))));
-                achados.extend(com_fase(fase::BEST_PRACTICES, dartforge_analysis::a_doc::verificar(*u).into_iter().map(|d| (i, d))));
-                achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analysis::c2_syntactic::verificar(*u, &interner).into_iter().map(|d| (i, d))));
-                achados.extend(com_fase(fase::UNICODE_TEXT, dartforge_analysis::phases::texto_bidirecional(*u).into_iter().map(|d| (i, d))));
-                achados.extend(com_fase(fase::TODO_FINDER, dartforge_analysis::todos::verificar(u.fonte).into_iter().map(|d| (i, d))));
-                achados.extend(com_fase(fase::LANGUAGE_VERSION, dartforge_analysis::language_version::verificar(*u).into_iter().map(|d| (i, d))));
-                achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analysis::records::verificar(u, &interner, biblioteca.features).into_iter().map(|d| (i, d))));
-                achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analysis::inicializacao::constantes_nao_inicializadas(u, &interner).into_iter().map(|d| (i, d))));
-                achados.extend(com_fase(fase::PARSER, 
-                    dartforge_analysis::phases::dois_pontos_no_padrao(*u, biblioteca.features.versao().major < 3).into_iter().map(|d| (i, d)),
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::externos::inicializadores(*u).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::a_context::verificar(*u).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::BEST_PRACTICES, dartforge_analysis::a_doc::verificar(*u).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::c2_syntactic::verificar(*u, &interner).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::UNICODE_TEXT, dartforge_analysis::phases::texto_bidirecional(*u).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::TODO_FINDER, dartforge_analysis::todos::verificar(u.fonte).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::LANGUAGE_VERSION, dartforge_analysis::language_version::verificar(*u).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::records::verificar(u, &interner, library.features).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::inicializacao::constantes_nao_inicializadas(u, &interner).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::PARSER,
+                    dartforge_analysis::phases::dois_pontos_no_padrao(*u, library.features.versao().major < 3).into_iter().map(|d| (i, d)),
                 ));
-                achados.extend(com_fase(fase::RESOLUTION_VISITOR, dartforge_analysis::phases::embutido_como_tipo(
+                found.extend(with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::phases::embutido_como_tipo(
                     *u,
                     &interner,
-                    biblioteca.features.tem(dartforge_frontend::features::Feature::Augmentations)
-                        || biblioteca.features.tem(dartforge_frontend::features::Feature::Macros),
+                    library.features.tem(dartforge_frontend::features::Feature::Augmentations)
+                        || library.features.tem(dartforge_frontend::features::Feature::Macros),
                 )
                 .into_iter().map(|d| (i, d))));
-                achados.extend(com_fase(fase::PARSER, dartforge_analysis::natives::fora_do_sdk(*u).into_iter().map(|d| (i, d))));
-                achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analysis::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::PARSER, dartforge_analysis::natives::fora_do_sdk(*u).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d))));
             }
-            // Privados não usados: o `UnusedLocalElementsVerifier` roda em
-            // toda biblioteca, com ou sem erro de sintaxe (`_computeWarnings`,
-            // library_analyzer.dart:513-521): o semântico depois da
-            // inferência, e o relato pelo nome guardado para quando não houver
-            // corpos. Um nome citado num trecho que o parser pulou não é
-            // relatado (o fasta o teria lido).
-            let pulados: Vec<dartforge_analysis::Pulados<'_>> = ids
+            // Unused privates: the `UnusedLocalElementsVerifier` runs on every
+            // library, with or without syntax errors (`_computeWarnings`,
+            // library_analyzer.dart:513-521): the semantic one after
+            // inference, and the by-name report kept for when there are no
+            // bodies. A name cited in a fragment the parser skipped is not
+            // reported (fasta would have read it).
+            let skipped: Vec<dartforge_analysis::Pulados<'_>> = ids
                 .iter()
                 .map(|u| dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados })
                 .collect();
-            let adiados = dartforge_analysis::private_decls::nao_usados_com_pulados(&unidades, &interner, &pulados);
-            privados_adiados.insert(*lib, adiados.into_iter().map(|(i, d)| (ids[i], d, fase::UNUSED_LOCAL_ELEMENTS)).collect());
-            for (i, d, f) in achados {
+            let deferred = dartforge_analysis::private_decls::nao_usados_com_pulados(&units, &interner, &skipped);
+            deferred_privates.insert(*lib, deferred.into_iter().map(|(i, d)| (ids[i], d, phase::UNUSED_LOCAL_ELEMENTS)).collect());
+            for (i, d, f) in found {
                 if let Some(p) = &program.unit(ids[i]).path {
-                    analise.por(&chave(p), d, f);
+                    analysis.report(&chave(p), d, f);
                 }
             }
-            for (u, d, f) in com_fase(fase::DIRECTIVES, dartforge_analysis::importacoes::extensoes_adiadas(&program, *lib))
+            for (u, d, f) in with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::extensoes_adiadas(&program, *lib))
                 .into_iter()
-                .chain(com_fase(fase::DIRECTIVES, dartforge_analysis::importacoes::diretivas_internas_e_adiadas(&program, *lib)))
-                .chain(com_fase(fase::DIRECTIVES, dartforge_analysis::importacoes::nomes_mostrados_indefinidos(&program, *lib, &interner)))
-                .chain(com_fase(fase::DIRECTIVES, dartforge_analysis::importacoes::exports_ambiguos(&program, *lib, &interner)))
-                .chain(com_fase(fase::RESOLUTION_VISITOR, dartforge_analysis::importacoes::tipos_adiados(&program, *lib, &interner)))
-                // FASES NOVAS (INFRA etapa 6): os verificadores de aviso por biblioteca.
-                .chain(com_fase(fase::IMPORTS_VERIFIER, dartforge_analysis::phases::diretivas_repetidas(&program, *lib, &interner)))
-                // As anotações do `package:meta` (lote II.7). API pública:
-                // a biblioteca em `lib/`, fora de `lib/src/`.
+                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::diretivas_internas_e_adiadas(&program, *lib)))
+                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::nomes_mostrados_indefinidos(&program, *lib, &interner)))
+                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::exports_ambiguos(&program, *lib, &interner)))
+                .chain(with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::importacoes::tipos_adiados(&program, *lib, &interner)))
+                // NEW PHASES (INFRA step 6): the per-library warning verifiers.
+                .chain(with_phase(phase::IMPORTS_VERIFIER, dartforge_analysis::phases::diretivas_repetidas(&program, *lib, &interner)))
+                // The `package:meta` annotations (batch II.7). Public API: the
+                // library in `lib/`, outside `lib/src/`.
                 .chain({
-                    let publica = program
+                    let public = program
                         .library(*lib)
                         .units
                         .first()
                         .and_then(|u| program.unit(*u).path.as_deref())
-                        .and_then(|p| p.strip_prefix(raiz).ok())
+                        .and_then(|p| p.strip_prefix(root).ok())
                         .map(|p| p.to_string_lossy().replace('\\', "/"))
                         .is_some_and(|rel| rel.starts_with("lib/") && !rel.starts_with("lib/src/"));
-                    com_fase(fase::BEST_PRACTICES, dartforge_analysis::meta::verificar(&program, *lib, &interner, publica))
+                    with_phase(phase::BEST_PRACTICES, dartforge_analysis::meta::verificar(&program, *lib, &interner, public))
                 })
             {
                 if let Some(p) = &program.unit(u).path {
-                    analise.por(&chave(p), d, f);
+                    analysis.report(&chave(p), d, f);
                 }
             }
-            for (u, d, f) in com_fase(fase::RESOLVER_VISITOR, dartforge_analysis::modifiers::fora_da_biblioteca(&program, *lib, &interner)) {
+            for (u, d, f) in with_phase(phase::RESOLVER_VISITOR, dartforge_analysis::modifiers::fora_da_biblioteca(&program, *lib, &interner)) {
                 if let Some(p) = &program.unit(u).path {
-                    analise.por(&chave(p), d, f);
+                    analysis.report(&chave(p), d, f);
                 }
             }
-            for (u, d, f) in com_fase(fase::RESOLUTION_VISITOR, dartforge_analysis::clauses::verificar(&program, *lib, &interner))
+            for (u, d, f) in with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::clauses::verificar(&program, *lib, &interner))
                 .into_iter()
-                .chain(com_fase(fase::MEMBER_DUPLICATE_DEFINITION, dartforge_analysis::members::verificar(&program, *lib, &interner)))
-                .chain(com_fase(fase::ERROR_VERIFIER, dartforge_analysis::simple_bounds::verificar(&program, *lib, &interner, &limites_simples)))
+                .chain(with_phase(phase::MEMBER_DUPLICATE_DEFINITION, dartforge_analysis::members::verificar(&program, *lib, &interner)))
+                .chain(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::simple_bounds::verificar(&program, *lib, &interner, &simple_bounds)))
             {
                 if let Some(p) = &program.unit(u).path {
-                    analise.por(&chave(p), d, f);
+                    analysis.report(&chave(p), d, f);
                 }
             }
         }
 
-        if cancelado() {
+        if cancelled() {
             return None;
         }
 
-        // 4. Tipos (o outline já foi resolvido antes das cláusulas).
-        let indice = Indice::novo(&program, &unidades_proprias);
-        // Inicializadores: `types` os infere em toda passada, de qualquer
-        // biblioteca. Uma passada sem corpo nenhum (`&[]`) estabiliza os tipos
-        // inferidos; a segunda dá só os diagnósticos deles.
+        // 4. Types (the outline was already resolved before the clauses).
+        let index = Index::new(&program, &own_units);
+        // Initializers: `types` infers them on every pass, from any library.
+        // A pass with no bodies at all (`&[]`) stabilizes the inferred types;
+        // the second gives only their diagnostics.
         let _ = dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &[]);
-        let (_, diags_init, unidades_init) = dartforge_types::infer_bodies_das_bibliotecas_com_unidades(
+        let (_, init_diags, init_units) = dartforge_types::infer_bodies_das_bibliotecas_com_unidades(
             &program,
             &interner,
             &mut table,
@@ -752,15 +756,15 @@ impl Motor {
             &[],
             false,
         );
-        let mut atribuidos: Vec<(UnitId, Diagnostic, u16)> = Vec::new();
-        // As bibliotecas em que o analyzer 3.6.2 lança (`fase_ffi::QuebraDoAnalyzer`).
-        let mut quebradas: BTreeSet<dartforge_elements::model::LibraryId> = BTreeSet::new();
-        // As tabelas laterais das bibliotecas do lote, cada unidade da passada
-        // da sua biblioteca (a avaliação de constantes lê todas).
-        let mut corpos: Option<dartforge_types::BodyTypes> = None;
-        // Corpos: uma passada por biblioteca do lote.
-        for lib in &libs_proprias {
-            if cancelado() {
+        let mut attributed: Vec<(UnitId, Diagnostic, u16)> = Vec::new();
+        // The libraries on which analyzer 3.6.2 throws (`fase_ffi::QuebraDoAnalyzer`).
+        let mut crashed: BTreeSet<dartforge_elements::model::LibraryId> = BTreeSet::new();
+        // The side tables of the batch's libraries, each unit from its own
+        // library's pass (constant evaluation reads all of them).
+        let mut bodies: Option<dartforge_types::BodyTypes> = None;
+        // Bodies: one pass per library of the batch.
+        for lib in &own_libs {
+            if cancelled() {
                 return None;
             }
             let (bt, ds, us) = dartforge_types::infer_bodies_das_bibliotecas_com_unidades(
@@ -772,8 +776,8 @@ impl Motor {
                 std::slice::from_ref(lib),
                 true,
             );
-            match &mut corpos {
-                None => corpos = Some(bt),
+            match &mut bodies {
+                None => bodies = Some(bt),
                 Some(c) => {
                     let mut bt = bt;
                     for u in &program.library(*lib).units {
@@ -782,72 +786,72 @@ impl Motor {
                             c.units[i] = std::mem::take(&mut bt.units[i]);
                         }
                     }
-                    // As extensões que esta passada escolheu (o
-                    // `notifyExtensionUsed` do `unused_import`).
+                    // The extensions this pass chose (the `unused_import`'s
+                    // `notifyExtensionUsed`).
                     c.extensoes_usadas.extend(bt.extensoes_usadas.drain());
                 }
             }
-            let inicio = if ds.len() >= diags_init.len() && ds[..diags_init.len()] == diags_init[..] {
-                diags_init.len()
+            let start = if ds.len() >= init_diags.len() && ds[..init_diags.len()] == init_diags[..] {
+                init_diags.len()
             } else {
-                // O prefixo mudou: não dá para separar; conta como ambíguo.
-                analise.ambiguos += 1;
+                // The prefix changed: it cannot be separated; counts as ambiguous.
+                analysis.ambiguos += 1;
                 0
             };
-            let unidades: Vec<UnitId> = program.library(*lib).units.clone();
-            for (d, registrada) in ds[inicio..].iter().zip(&us[inicio..]) {
-                // A unidade do corpo em inferência, quando é desta
-                // biblioteca; senão, pelo intervalo.
-                let u = match registrada {
-                    Some(u) if unidades.contains(u) => Some(*u),
-                    _ if unidades.len() == 1 => Some(unidades[0]),
-                    _ => indice.atribuir_entre(&program, d.span, &unidades),
+            let units: Vec<UnitId> = program.library(*lib).units.clone();
+            for (d, registered) in ds[start..].iter().zip(&us[start..]) {
+                // The unit of the body under inference, when it is from this
+                // library; otherwise, by range.
+                let u = match registered {
+                    Some(u) if units.contains(u) => Some(*u),
+                    _ if units.len() == 1 => Some(units[0]),
+                    _ => index.attribute_among(&program, d.span, &units),
                 };
                 if let Some(u) = u {
-                    atribuidos.push((u, d.clone(), fase::RESOLVER_VISITOR));
+                    attributed.push((u, d.clone(), phase::RESOLVER_VISITOR));
                 }
             }
         }
-        // Inicializadores, em ordem, no primeiro inicializador que os contém.
-        let inits = inicializadores(&program);
+        // Initializers, in order, in the first initializer that contains them.
+        let inits = initializers(&program);
         let mut pos = 0;
-        for (d, registrada) in diags_init.iter().zip(&unidades_init) {
-            if let Some(u) = registrada {
-                atribuidos.push((*u, d.clone(), fase::RESOLVER_VISITOR));
+        for (d, registered) in init_diags.iter().zip(&init_units) {
+            if let Some(u) = registered {
+                attributed.push((*u, d.clone(), phase::RESOLVER_VISITOR));
                 continue;
             }
             match (pos..inits.len()).find(|&i| inits[i].1.start <= d.span.start && d.span.end <= inits[i].1.end) {
                 Some(i) => {
                     pos = i;
-                    atribuidos.push((inits[i].0, d.clone(), fase::RESOLVER_VISITOR));
+                    attributed.push((inits[i].0, d.clone(), phase::RESOLVER_VISITOR));
                 }
                 None => {
-                    if let Some((u, amb)) = indice.atribuir(d.span) {
-                        analise.ambiguos += usize::from(amb);
-                        atribuidos.push((u, d.clone(), fase::RESOLVER_VISITOR));
+                    if let Some((u, amb)) = index.attribute(d.span) {
+                        analysis.ambiguos += usize::from(amb);
+                        attributed.push((u, d.clone(), phase::RESOLVER_VISITOR));
                     }
                 }
             }
         }
-        // Outline: na unidade da anotação resolvida.
-        for (d, u) in diags_outline.iter().zip(&unidades_outline) {
-            atribuidos.push((*u, d.clone(), fase::RESOLUTION_VISITOR));
+        // Outline: in the unit of the resolved annotation.
+        for (d, u) in outline_diags.iter().zip(&outline_units) {
+            attributed.push((*u, d.clone(), phase::RESOLUTION_VISITOR));
         }
-        // As bibliotecas de fora do lote cujas constantes a avaliação lê
-        // (variáveis e construtores `const` citados, em fecho): o analyzer
-        // resolve os inicializadores constantes de toda biblioteca no link
-        // (`ConstantInitializersResolver`) e os avalia sob demanda
-        // (`computeConstantValue`); aqui elas são inferidas, sem relatar
-        // nada delas. O SDK fica opaco (valor desconhecido válido).
-        let mut inferidas: HashSet<LibraryId> = libs_proprias.iter().copied().collect();
-        if let Some(c) = &mut corpos {
+        // The libraries outside the batch whose constants the evaluation reads
+        // (cited `const` variables and constructors, transitively): the
+        // analyzer resolves the constant initializers of every library at link
+        // time (`ConstantInitializersResolver`) and evaluates them on demand
+        // (`computeConstantValue`); here they are inferred, reporting nothing
+        // of theirs. The SDK stays opaque (a valid unknown value).
+        let mut inferred: HashSet<LibraryId> = own_libs.iter().copied().collect();
+        if let Some(c) = &mut bodies {
             loop {
-                let novas = bibliotecas_de_constantes_citadas(&program, c, &inferidas);
-                if novas.is_empty() {
+                let new = libraries_of_cited_constants(&program, c, &inferred);
+                if new.is_empty() {
                     break;
                 }
-                for lib in novas {
-                    if cancelado() {
+                for lib in new {
+                    if cancelled() {
                         return None;
                     }
                     let (mut bt, _, _) = dartforge_types::infer_bodies_das_bibliotecas_com_unidades(
@@ -865,42 +869,43 @@ impl Motor {
                             c.units[i] = std::mem::take(&mut bt.units[i]);
                         }
                     }
-                    inferidas.insert(lib);
+                    inferred.insert(lib);
                 }
             }
         }
-        // Constantes (`ConstantVerifier`), relatadas só nas do lote.
-        if let Some(corpos) = &corpos {
-            // A exaustividade em que o 3.6.2 lança tira a biblioteca inteira.
-            let (relatos, quebras) = dartforge_types::constantes::verificar_com_quebras(
+        // Constants (`ConstantVerifier`), reported only on the batch's.
+        if let Some(bodies) = &bodies {
+            // The exhaustiveness on which 3.6.2 throws removes the whole library.
+            let (reports, crashes) = dartforge_types::constantes::verificar_com_quebras(
                 &program,
                 &interner,
                 &mut table,
                 &core,
                 &outline,
-                corpos,
-                &inferidas,
-                &libs_proprias,
+                bodies,
+                &inferred,
+                &own_libs,
             );
-            atribuidos.extend(com_fase(fase::CONSTANT_VERIFIER, relatos));
-            quebradas.extend(quebras);
+            attributed.extend(with_phase(phase::CONSTANT_VERIFIER, reports));
+            crashed.extend(crashes);
             // `BestPracticesVerifier`: `non_const_call_to_literal_constructor`,
-            // com o `canBeConst` pela verificação de constantes.
-            atribuidos.extend(com_fase(fase::BEST_PRACTICES, dartforge_types::fase_literal::construtores_literais(
+            // with `canBeConst` through the constant verification.
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::fase_literal::construtores_literais(
                 &program,
                 &interner,
                 &mut table,
                 &core,
                 &outline,
-                corpos,
-                &inferidas,
-                &libs_proprias,
+                bodies,
+                &inferred,
+                &own_libs,
             )));
         }
-        // `_checkForFinalNotInitializedInClass` e o `ConstructorFieldsVerifier`
-        // (`crates/analysis`), com o `isPotentiallyNonNullable` do tipo de cada
-        // campo de instância (o escrito ou o inferido, já com os corpos).
-        for lib in &libs_proprias {
+        // `_checkForFinalNotInitializedInClass` and the `ConstructorFieldsVerifier`
+        // (`crates/analysis`), with the `isPotentiallyNonNullable` of the type of
+        // each instance field (the written or the inferred one, already with
+        // the bodies).
+        for lib in &own_libs {
             let ids: Vec<UnitId> = program
                 .library(*lib)
                 .units
@@ -908,11 +913,11 @@ impl Motor {
                 .copied()
                 .filter(|u| program.unit(*u).role != dartforge_elements::model::UnitRole::Patch)
                 .collect();
-            let unidades: Vec<dartforge_analysis::Unidade<'_>> = ids
+            let units: Vec<dartforge_analysis::Unidade<'_>> = ids
                 .iter()
                 .map(|u| dartforge_analysis::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, fonte: &program.unit(*u).source })
                 .collect();
-            let mut nao_anulaveis: std::collections::HashMap<(usize, usize), bool> = std::collections::HashMap::new();
+            let mut non_nullable: std::collections::HashMap<(usize, usize), bool> = std::collections::HashMap::new();
             for (vi, var) in program.variables.iter().enumerate() {
                 if var.library != *lib || var.static_ {
                     continue;
@@ -924,299 +929,299 @@ impl Motor {
                 let od = &outline.variables[vi];
                 let Some(t) = od.declared_type.or(od.inferred) else { continue };
                 let mut env = dartforge_types::subtyping::SubtypeEnv::new(&mut table, &outline.hierarchy, &core);
-                let anulavel = dartforge_types::subtyping::is_subtype(core.null, t, &mut env);
-                nao_anulaveis.insert((ui, v.name.span.start), !anulavel);
+                let nullable = dartforge_types::subtyping::is_subtype(core.null, t, &mut env);
+                non_nullable.insert((ui, v.name.span.start), !nullable);
             }
-            let achados = dartforge_analysis::inicializacao::finais_nao_inicializados_com(&unidades, &interner, &|u, s| nao_anulaveis.get(&(u, s)).copied());
-            atribuidos.extend(com_fase(fase::ERROR_VERIFIER, achados.into_iter().map(|(i, d)| (ids[i], d))));
+            let found = dartforge_analysis::inicializacao::finais_nao_inicializados_com(&units, &interner, &|u, s| non_nullable.get(&(u, s)).copied());
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, found.into_iter().map(|(i, d)| (ids[i], d))));
         }
-        // Sobrescritas inválidas, nas classes em que o `verify()` do
-        // `InheritanceOverrideVerifier` chega a conferi-las.
-        for lib in &libs_proprias {
+        // Invalid overrides, in the classes where the `verify()` of the
+        // `InheritanceOverrideVerifier` gets to check them.
+        for lib in &own_libs {
             let classes = dartforge_analysis::clauses::verificador_de_heranca_prossegue(&program, *lib, &interner);
-            // `verify()`: os conflitos da interface antes dos membros.
-            atribuidos.extend(com_fase(fase::INHERITANCE_OVERRIDE, dartforge_types::fase_heranca::inconsistencias(&program, &interner, &mut table, &core, &outline, &classes)));
-            atribuidos.extend(com_fase(fase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::sobrescritas_invalidas(
+            // `verify()`: the interface conflicts before the members.
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::fase_heranca::inconsistencias(&program, &interner, &mut table, &core, &outline, &classes)));
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::sobrescritas_invalidas(
                 &program, &interner, &mut table, &core, &outline, &classes,
             )));
-            atribuidos.extend(com_fase(fase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::membros_de_enum(
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::membros_de_enum(
                 &program, &interner, &mut table, &core, &outline, &classes,
             )));
-            atribuidos.extend(com_fase(fase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::membros_abstratos(
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::membros_abstratos(
                 &program, &interner, &mut table, &core, &outline, &classes,
             )));
-            atribuidos.extend(com_fase(fase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::membros_em_conflito(&program, &interner, &mut table, &core, &outline, *lib)));
-            atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::sobrescritas::estaticos_de_enum(&program, &interner, &mut table, &core, &outline, *lib)));
-            atribuidos.extend(com_fase(fase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::valores_padrao_com(&program, &interner, &mut table, Some(&core), &outline, corpos.as_ref(), *lib)));
-            atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::sobrescritas::variaveis_nao_inicializadas(&program, &interner, &table, &outline, *lib)));
-            // `BestPracticesVerifier` sobre declarações e tipos escritos.
-            atribuidos.extend(com_fase(fase::BEST_PRACTICES, dartforge_types::boas_praticas::parametro_de_igualdade_anulavel(&program, &interner, &table, &core, &outline, *lib)));
-            atribuidos.extend(com_fase(fase::BEST_PRACTICES, dartforge_types::boas_praticas::no_such_method_desnecessario(&program, &interner, &core, *lib)));
-            atribuidos.extend(com_fase(fase::BEST_PRACTICES, dartforge_types::boas_praticas::interrogacoes_desnecessarias(&program, &interner, &table, &outline, corpos.as_ref(), *lib)));
-            atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::sobrescritas::getters_e_setters(
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::membros_em_conflito(&program, &interner, &mut table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::sobrescritas::estaticos_de_enum(&program, &interner, &mut table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::valores_padrao_com(&program, &interner, &mut table, Some(&core), &outline, bodies.as_ref(), *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::sobrescritas::variaveis_nao_inicializadas(&program, &interner, &table, &outline, *lib)));
+            // `BestPracticesVerifier` over declarations and written types.
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::boas_praticas::parametro_de_igualdade_anulavel(&program, &interner, &table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::boas_praticas::no_such_method_desnecessario(&program, &interner, &core, *lib)));
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::boas_praticas::interrogacoes_desnecessarias(&program, &interner, &table, &outline, bodies.as_ref(), *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::sobrescritas::getters_e_setters(
                 &program, &interner, &mut table, &core, &outline, *lib, &classes,
             )));
-            atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::variancia::variancia(&program, &interner, &table, &outline, *lib)));
-            atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::variancia::posicoes_nao_covariantes_na_representacao(&program, &table, &outline, *lib)));
-            atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::a_main::funcao_main(&program, &interner, &mut table, &core, &outline, *lib)));
-            // `conflicting_generic_interfaces`, com a porta das cláusulas.
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::variancia::variancia(&program, &interner, &table, &outline, *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::variancia::posicoes_nao_covariantes_na_representacao(&program, &table, &outline, *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::a_main::funcao_main(&program, &interner, &mut table, &core, &outline, *lib)));
+            // `conflicting_generic_interfaces`, with the clauses' gate.
             {
-                let aberta = |id: dartforge_elements::model::ClassId| {
+                let open = |id: dartforge_elements::model::ClassId| {
                     dartforge_analysis::clauses::porta(&program, *lib, &interner, id) == dartforge_analysis::clauses::Porta::Aberta
                 };
-                atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::fase_genericos::conflitos_genericos(&program, &interner, &mut table, &core, &outline, *lib, &aberta)));
+                attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::fase_genericos::conflitos_genericos(&program, &interner, &mut table, &core, &outline, *lib, &open)));
             }
-            // `visitEnumDeclaration`: o enum instanciado aos limites.
-            atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::limites::enum_instanciado_aos_limites(&program, &interner, &mut table, &core, &outline, *lib)));
-            // Declarações `extension type`: ciclos, fundo, conflitos e `implements`.
-            atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::tipos_de_extensao::verificar(&program, &interner, &mut table, &core, &outline, *lib)));
-            // FASES NOVAS (INFRA etapa 6): `OverrideVerifier`.
-            atribuidos.extend(com_fase(fase::OVERRIDE_VERIFIER, dartforge_types::fase_override::sem_sobrescrita(&program, &interner, &mut table, &core, &outline, *lib)));
-            atribuidos.extend(com_fase(fase::REDECLARE_VERIFIER, dartforge_types::fase_override::sem_redeclaracao(&program, &interner, &mut table, &core, &outline, *lib)));
+            // `visitEnumDeclaration`: the enum instantiated to bounds.
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::limites::enum_instanciado_aos_limites(&program, &interner, &mut table, &core, &outline, *lib)));
+            // `extension type` declarations: cycles, bottom, conflicts and `implements`.
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::tipos_de_extensao::verificar(&program, &interner, &mut table, &core, &outline, *lib)));
+            // NEW PHASES (INFRA step 6): `OverrideVerifier`.
+            attributed.extend(with_phase(phase::OVERRIDE_VERIFIER, dartforge_types::fase_override::sem_sobrescrita(&program, &interner, &mut table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::REDECLARE_VERIFIER, dartforge_types::fase_override::sem_redeclaracao(&program, &interner, &mut table, &core, &outline, *lib)));
             // `BestPracticesVerifier`: `invalid_override_of_non_virtual_member`.
-            atribuidos.extend(com_fase(fase::BEST_PRACTICES, dartforge_types::fase_override::sobrescritas_de_nao_virtuais(&program, &interner, &mut table, &core, &outline, *lib)));
-            // O lint `annotate_overrides`, guardado à parte: só sai com a
-            // regra ligada.
-            for (u, span, nome) in dartforge_types::fase_override::sem_anotacao_de_override(&program, &interner, &mut table, &core, &outline, *lib) {
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::fase_override::sobrescritas_de_nao_virtuais(&program, &interner, &mut table, &core, &outline, *lib)));
+            // The `annotate_overrides` lint, kept apart: it only comes out with
+            // the rule enabled.
+            for (u, span, name) in dartforge_types::fase_override::sem_anotacao_de_override(&program, &interner, &mut table, &core, &outline, *lib) {
                 if let Some(p) = &program.unit(u).path
-                    && let Some(a) = analise.arquivos.get_mut(&chave(p))
+                    && let Some(a) = analysis.arquivos.get_mut(&chave(p))
                 {
-                    a.lints_semanticos.push(LintSemantico { unico: "annotate_overrides", span, args: vec![nome] });
+                    a.semantic_lints.push(SemanticLint { unico: "annotate_overrides", span, args: vec![name] });
                 }
             }
             // `MustCallSuperVerifier`.
-            atribuidos.extend(com_fase(fase::BEST_PRACTICES, dartforge_types::fase_super::sem_chamada_ao_super(&program, &interner, *lib)));
-            if let Some(corpos) = &corpos {
-                // Roda também nas bibliotecas julgadas pelo 3.13.4: lá o
-                // código sai como `unused_element_parameter`, pela variante
-                // (`Diagnostic::na_referencia`, no laço final).
-                atribuidos.extend(com_fase(fase::UNUSED_LOCAL_ELEMENTS, dartforge_types::parametros::parametros_nao_usados(&program, &interner, &outline, corpos, *lib)));
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::fase_super::sem_chamada_ao_super(&program, &interner, *lib)));
+            if let Some(bodies) = &bodies {
+                // Also runs on the libraries judged by 3.13.4: there the code
+                // comes out as `unused_element_parameter`, through the variant
+                // (`Diagnostic::na_referencia`, in the final loop).
+                attributed.extend(with_phase(phase::UNUSED_LOCAL_ELEMENTS, dartforge_types::parametros::parametros_nao_usados(&program, &interner, &outline, bodies, *lib)));
             }
-            // `UnusedLocalElementsVerifier` (declarações de biblioteca).
-            if let Some(adiados) = privados_adiados.remove(lib) {
-                match &corpos {
-                    Some(corpos) => {
-                        let inferidas: HashSet<LibraryId> = libs_proprias.iter().copied().collect();
-                        let mut nao_usados = dartforge_types::fase_nao_usados::elementos_nao_usados(
-                            &program, &interner, &mut table, &core, &outline, corpos, &inferidas, *lib,
+            // `UnusedLocalElementsVerifier` (library declarations).
+            if let Some(deferred) = deferred_privates.remove(lib) {
+                match &bodies {
+                    Some(bodies) => {
+                        let inferred: HashSet<LibraryId> = own_libs.iter().copied().collect();
+                        let mut unused = dartforge_types::fase_nao_usados::elementos_nao_usados(
+                            &program, &interner, &mut table, &core, &outline, bodies, &inferred, *lib,
                         );
-                        let unidades = &program.library(*lib).units;
-                        nao_usados.retain(|(u, d)| {
-                            let nome = program.unit(*u).source.get(d.span.start..d.span.end).unwrap_or("");
-                            !unidades.iter().any(|x| {
-                                dartforge_analysis::Pulados { fonte: &program.unit(*x).source, trechos: &program.unit(*x).pulados }.cita(nome)
+                        let units = &program.library(*lib).units;
+                        unused.retain(|(u, d)| {
+                            let name = program.unit(*u).source.get(d.span.start..d.span.end).unwrap_or("");
+                            !units.iter().any(|x| {
+                                dartforge_analysis::Pulados { fonte: &program.unit(*x).source, trechos: &program.unit(*x).pulados }.cita(name)
                             })
                         });
-                        atribuidos.extend(com_fase(fase::UNUSED_LOCAL_ELEMENTS, nao_usados));
+                        attributed.extend(with_phase(phase::UNUSED_LOCAL_ELEMENTS, unused));
                     }
-                    None => atribuidos.extend(adiados),
+                    None => attributed.extend(deferred),
                 }
             }
         }
-        // `SdkConstraintVerifier`: só com `environment: sdk:` legível no
-        // `pubspec.yaml` da raiz.
-        let restricao_de_sdk = std::fs::read_to_string(raiz.join("pubspec.yaml"))
+        // `SdkConstraintVerifier`: only with a readable `environment: sdk:` in
+        // the root's `pubspec.yaml`.
+        let sdk_constraint = std::fs::read_to_string(root.join("pubspec.yaml"))
             .ok()
             .and_then(|t| yaml_rust2::YamlLoader::load_from_str(&t).ok())
             .and_then(|docs| docs.into_iter().next())
             .and_then(|y| y["environment"]["sdk"].as_str().and_then(dartforge_types::fase_sdk::RestricaoDeSdk::de_texto));
-        // Argumentos de tipo fora dos limites, unidade a unidade.
-        // As bibliotecas inferidas, para o motor de constantes dos lints.
-        let inferidas_dos_lints: HashSet<LibraryId> = libs_proprias.iter().copied().collect();
-        for &u in &unidades_proprias {
-            let corpo_da_unidade = corpos.as_ref().and_then(|c| c.units.get(u.0 as usize));
-            for d in dartforge_types::limites::argumentos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, corpo_da_unidade, u) {
-                atribuidos.push((u, d, fase::ERROR_VERIFIER));
+        // Type arguments out of bounds, unit by unit.
+        // The inferred libraries, for the lints' constant engine.
+        let lint_inferred: HashSet<LibraryId> = own_libs.iter().copied().collect();
+        for &u in &own_units {
+            let unit_body = bodies.as_ref().and_then(|c| c.units.get(u.0 as usize));
+            for d in dartforge_types::limites::argumentos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, unit_body, u) {
+                attributed.push((u, d, phase::ERROR_VERIFIER));
             }
-            // `DeprecatedMemberUseVerifier`: "mesmo pacote" é a biblioteca
-            // cujo arquivo fica dentro da raiz analisada.
-            let mesmo_pacote = |l: dartforge_elements::model::LibraryId| {
-                program.library(l).units.first().and_then(|x| program.unit(*x).path.as_deref()).is_some_and(|p| p.starts_with(raiz))
+            // `DeprecatedMemberUseVerifier`: "same package" is the library
+            // whose file lies inside the analyzed root.
+            let same_package = |l: dartforge_elements::model::LibraryId| {
+                program.library(l).units.first().and_then(|x| program.unit(*x).path.as_deref()).is_some_and(|p| p.starts_with(root))
             };
-            let corpo_da_unidade = corpos.as_ref().and_then(|c| c.units.get(u.0 as usize));
-            for d in dartforge_types::fase_deprecado::usos_de_deprecados(&program, &interner, &table, corpo_da_unidade, u, &mesmo_pacote) {
-                atribuidos.push((u, d, fase::BEST_PRACTICES));
+            let unit_body = bodies.as_ref().and_then(|c| c.units.get(u.0 as usize));
+            for d in dartforge_types::fase_deprecado::usos_de_deprecados(&program, &interner, &table, unit_body, u, &same_package) {
+                attributed.push((u, d, phase::BEST_PRACTICES));
             }
-            // O `DeprecatedFunctionalityVerifier` do 3.13.4 (no
+            // 3.13.4's `DeprecatedFunctionalityVerifier` (in the
             // `BestPracticesVerifier`): `DEPRECATED_OPTIONAL`.
-            for d in dartforge_types::fase_deprecado::opcionais_depreciados(&program, &interner, corpo_da_unidade, u) {
-                atribuidos.push((u, d, fase::BEST_PRACTICES));
+            for d in dartforge_types::fase_deprecado::opcionais_depreciados(&program, &interner, unit_body, u) {
+                attributed.push((u, d, phase::BEST_PRACTICES));
             }
-            // `_InvalidAccessVerifier` e as classes `@sealed`.
-            for d in dartforge_types::fase_acesso::acessos_invalidos(&program, &interner, &outline, corpo_da_unidade, u, &mesmo_pacote) {
-                atribuidos.push((u, d, fase::BEST_PRACTICES));
+            // `_InvalidAccessVerifier` and the `@sealed` classes.
+            for d in dartforge_types::fase_acesso::acessos_invalidos(&program, &interner, &outline, unit_body, u, &same_package) {
+                attributed.push((u, d, phase::BEST_PRACTICES));
             }
-            if let Some(restricao) = &restricao_de_sdk {
-                for d in dartforge_types::fase_sdk::restricao_de_sdk(&program, &interner, corpo_da_unidade, u, restricao) {
-                    atribuidos.push((u, d, fase::SDK_CONSTRAINT));
+            if let Some(constraint) = &sdk_constraint {
+                for d in dartforge_types::fase_sdk::restricao_de_sdk(&program, &interner, unit_body, u, constraint) {
+                    attributed.push((u, d, phase::SDK_CONSTRAINT));
                 }
             }
-            if let Some(todos) = corpos.as_ref()
-                && let Some(corpo) = todos.units.get(u.0 as usize)
+            if let Some(all) = bodies.as_ref()
+                && let Some(body) = all.units.get(u.0 as usize)
             {
-                // As regras de lint tipadas, guardadas à parte: só saem
-                // com a regra ligada.
-                let mut de_lint = dartforge_types::lints_tipados::achados(&program, &table, &core, &outline, corpo, u);
-                de_lint.extend(dartforge_types::lints_tipados2::achados(&program, &interner, &mut table, &core, &outline, todos, &inferidas_dos_lints, u));
-                de_lint.extend(dartforge_types::lints_tipados3::achados(&program, &interner, &mut table, &core, &outline, corpo, u));
-                de_lint.extend(dartforge_types::lints_tipados4::achados(&program, &interner, &mut table, &core, &outline, todos, &inferidas_dos_lints, u));
-                de_lint.extend(dartforge_types::lints_tipados5::achados(&program, &interner, &mut table, &core, &outline, todos, &inferidas_dos_lints, u));
-                de_lint.extend(dartforge_types::lints_tipados7::achados(&program, &mut table, &core, &outline, corpo, u));
-                de_lint.extend(dartforge_types::lints_tipados8::achados(&program, &mut table, &core, &outline, corpo, u));
-                de_lint.extend(dartforge_types::lints_tipados9::achados(&program, &interner, &mut table, &core, &outline, todos, &inferidas_dos_lints, u));
-                de_lint.extend(dartforge_types::fase_deprecado::lint_do_mesmo_pacote(&program, &interner, &table, Some(corpo), u, &mesmo_pacote));
-                if !de_lint.is_empty()
+                // The typed lint rules, kept apart: they only come out with the
+                // rule enabled.
+                let mut from_lints = dartforge_types::lints_tipados::achados(&program, &table, &core, &outline, body, u);
+                from_lints.extend(dartforge_types::lints_tipados2::achados(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
+                from_lints.extend(dartforge_types::lints_tipados3::achados(&program, &interner, &mut table, &core, &outline, body, u));
+                from_lints.extend(dartforge_types::lints_tipados4::achados(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
+                from_lints.extend(dartforge_types::lints_tipados5::achados(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
+                from_lints.extend(dartforge_types::lints_tipados7::achados(&program, &mut table, &core, &outline, body, u));
+                from_lints.extend(dartforge_types::lints_tipados8::achados(&program, &mut table, &core, &outline, body, u));
+                from_lints.extend(dartforge_types::lints_tipados9::achados(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
+                from_lints.extend(dartforge_types::fase_deprecado::lint_do_mesmo_pacote(&program, &interner, &table, Some(body), u, &same_package));
+                if !from_lints.is_empty()
                     && let Some(p) = &program.unit(u).path
-                    && let Some(a) = analise.arquivos.get_mut(&chave(p))
+                    && let Some(a) = analysis.arquivos.get_mut(&chave(p))
                 {
-                    a.lints_semanticos.extend(de_lint.into_iter().map(|(span, unico, args)| LintSemantico { unico, span, args }));
+                    a.semantic_lints.extend(from_lints.into_iter().map(|(span, unico, args)| SemanticLint { unico, span, args }));
                 }
-                // As regras de lint da árvore, sobre a árvore do programa e
-                // com a semântica do motor.
+                // The tree lint rules, over the program's tree and with the
+                // engine's semantics.
                 {
-                    let pode_ser_const = dartforge_types::lints_tipados6::podem_ser_const(&program, &interner, &mut table, &core, &outline, todos, &inferidas_dos_lints, u);
+                    let can_be_const = dartforge_types::lints_tipados6::podem_ser_const(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u);
                     let un = program.unit(u);
                     let sem = dartforge_analysis::lints::Semantica {
                         program: &program,
                         unidade: u,
-                        corpo,
-                        corpos: todos,
+                        corpo: body,
+                        corpos: all,
                         table: &table,
                         core: &core,
                         outline: &outline,
-                        pode_ser_const: Some(&pode_ser_const),
+                        pode_ser_const: Some(&can_be_const),
                     };
-                    let arvore = dartforge_analysis::Unidade { ast: &un.ast, unit: &un.unit, fonte: &un.source };
-                    let relatos = dartforge_analysis::lints::executar_com(arvore, &interner, &|_| true, Some(&sem));
+                    let tree = dartforge_analysis::Unidade { ast: &un.ast, unit: &un.unit, fonte: &un.source };
+                    let reports = dartforge_analysis::lints::executar_com(tree, &interner, &|_| true, Some(&sem));
                     if let Some(p) = &un.path
-                        && let Some(a) = analise.arquivos.get_mut(&chave(p))
+                        && let Some(a) = analysis.arquivos.get_mut(&chave(p))
                     {
-                        a.relatos_de_lint = Some(relatos);
+                        a.lint_reports = Some(reports);
                     }
                 }
-                // `RequiredParametersVerifier`: o `@required` do `package:meta`.
-                for d in dartforge_types::fase_requeridos::requeridos_ausentes(&program, &interner, corpo, u) {
-                    atribuidos.push((u, d, fase::ERROR_VERIFIER));
+                // `RequiredParametersVerifier`: `package:meta`'s `@required`.
+                for d in dartforge_types::fase_requeridos::requeridos_ausentes(&program, &interner, body, u) {
+                    attributed.push((u, d, phase::ERROR_VERIFIER));
                 }
-                // `ErrorHandlerVerifier`: o retorno do `onError` de `catchError`.
-                for d in dartforge_types::fase_catch_error::retornos_de_catch_error(&program, &interner, &mut table, &core, &outline, corpo, u) {
-                    atribuidos.push((u, d, fase::BEST_PRACTICES));
+                // `ErrorHandlerVerifier`: the return of `catchError`'s `onError`.
+                for d in dartforge_types::fase_catch_error::retornos_de_catch_error(&program, &interner, &mut table, &core, &outline, body, u) {
+                    attributed.push((u, d, phase::BEST_PRACTICES));
                 }
-                // `FfiVerifier`; a quebra do 3.6.2 tira a biblioteca inteira.
-                match dartforge_types::fase_ffi::verificar(&program, &interner, &mut table, &core, &outline, todos, &inferidas_dos_lints, u) {
+                // `FfiVerifier`; the 3.6.2 crash removes the whole library.
+                match dartforge_types::fase_ffi::verificar(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u) {
                     Ok(ds) => {
                         for d in ds {
-                            atribuidos.push((u, d, fase::FFI_VERIFIER));
+                            attributed.push((u, d, phase::FFI_VERIFIER));
                         }
                     }
                     Err(dartforge_types::fase_ffi::QuebraDoAnalyzer) => {
-                        quebradas.insert(program.unit(u).library);
+                        crashed.insert(program.unit(u).library);
                     }
                 }
-                // `BestPracticesVerifier`: `assignment_of_do_not_store` e `return_of_do_not_store`.
-                for d in dartforge_types::fase_nao_guardar::guardados_e_devolvidos(&program, &interner, corpo, u) {
-                    atribuidos.push((u, d, fase::BEST_PRACTICES));
+                // `BestPracticesVerifier`: `assignment_of_do_not_store` and `return_of_do_not_store`.
+                for d in dartforge_types::fase_nao_guardar::guardados_e_devolvidos(&program, &interner, body, u) {
+                    attributed.push((u, d, phase::BEST_PRACTICES));
                 }
-                // `BestPracticesVerifier` com `strict-inference` (filtrado sem a opção).
-                for d in dartforge_types::fase_estrita::falhas_de_inferencia(&program, &interner, &mut table, &core, &outline, corpo, u) {
-                    atribuidos.push((u, d, fase::BEST_PRACTICES));
+                // `BestPracticesVerifier` with `strict-inference` (filtered out without the option).
+                for d in dartforge_types::fase_estrita::falhas_de_inferencia(&program, &interner, &mut table, &core, &outline, body, u) {
+                    attributed.push((u, d, phase::BEST_PRACTICES));
                 }
                 // `UseResultVerifier`.
-                for d in dartforge_types::fase_resultado::resultados_nao_usados(&program, &interner, corpo, u) {
-                    atribuidos.push((u, d, fase::ERROR_VERIFIER));
+                for d in dartforge_types::fase_resultado::resultados_nao_usados(&program, &interner, body, u) {
+                    attributed.push((u, d, phase::ERROR_VERIFIER));
                 }
-                for d in dartforge_types::limites::argumentos_inferidos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, corpo, u) {
-                    atribuidos.push((u, d, fase::ERROR_VERIFIER));
+                for d in dartforge_types::limites::argumentos_inferidos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, body, u) {
+                    attributed.push((u, d, phase::ERROR_VERIFIER));
                 }
             }
         }
-        // Nos tipos de `extends`/`implements`/`with` o analyzer não relata
-        // nome indefinido nem nome que não é tipo: o erro é o `*_non_class`
-        // de `analise::clausulas`.
-        let clausulas: BTreeSet<(UnitId, usize)> = libs_proprias
+        // In the types of `extends`/`implements`/`with` the analyzer reports
+        // neither an undefined name nor a name that is not a type: the error
+        // is the `*_non_class` of `analise::clausulas`.
+        let clause_names: BTreeSet<(UnitId, usize)> = own_libs
             .iter()
             .flat_map(|lib| dartforge_analysis::clauses::nomes_de_clausulas(&program, *lib))
             .collect();
-        let mut vistos: BTreeSet<(UnitId, Option<dartforge_diagnostics::Codigo>, usize, usize, String)> = BTreeSet::new();
-        for (unidade, d, fase_do_emissor) in &atribuidos {
-            let unidade = *unidade;
-            if !unidades_proprias.contains(&unidade) {
+        let mut seen: BTreeSet<(UnitId, Option<dartforge_diagnostics::Codigo>, usize, usize, String)> = BTreeSet::new();
+        for (unit, d, emitter_phase) in &attributed {
+            let unit = *unit;
+            if !own_units.contains(&unit) {
                 continue;
             }
-            let fonte = &program.unit(unidade).source;
-            let trecho = fonte.get(d.span.start..d.span.end).unwrap_or("");
-            // Os códigos de constantes vêm de `types::constantes`; o que a
-            // inferência emite deles (sem código) fica de fora.
+            let source = &program.unit(unit).source;
+            let fragment = source.get(d.span.start..d.span.end).unwrap_or("");
+            // The constant codes come from `types::constantes`; what inference
+            // emits of them (without a code) is left out.
             if d.code.is_none() {
-                let cod = bridge::encode_types(d, trecho);
-                if cod.code.is_some_and(|c| dartforge_types::constantes::CODIGOS.contains(&c.info().nome)) {
+                let coded = bridge::encode_types(d, fragment);
+                if coded.code.is_some_and(|c| dartforge_types::constantes::CODIGOS.contains(&c.info().nome)) {
                     continue;
                 }
             }
-            let cod = bridge::encode_types(d, trecho);
-            // A validade de uma anotação depende do SDK (`@Deprecated.optional()`
-            // só existe depois do 3.6.2): numa biblioteca julgada pelo 3.13.4,
-            // o nosso SDK 3.6.2 não decide.
-            if cod.code.is_some_and(|c| matches!(c.info().nome, "invalid_annotation" | "undefined_annotation"))
-                && program.referencia_da_biblioteca(program.unit(unidade).library) == dartforge_diagnostics::Referencia::V3_13
+            let coded = bridge::encode_types(d, fragment);
+            // An annotation's validity depends on the SDK
+            // (`@Deprecated.optional()` only exists after 3.6.2): in a library
+            // judged by 3.13.4, our 3.6.2 SDK does not decide.
+            if coded.code.is_some_and(|c| matches!(c.info().nome, "invalid_annotation" | "undefined_annotation"))
+                && program.referencia_da_biblioteca(program.unit(unit).library) == dartforge_diagnostics::Referencia::V3_13
             {
                 continue;
             }
-            if cod.code.is_some_and(|c| matches!(c.info().nome, "undefined_class" | "not_a_type"))
-                && clausulas.contains(&(unidade, cod.span.start))
+            if coded.code.is_some_and(|c| matches!(c.info().nome, "undefined_class" | "not_a_type"))
+                && clause_names.contains(&(unit, coded.span.start))
             {
                 continue;
             }
-            if !vistos.insert((unidade, cod.code, cod.span.start, cod.span.end, cod.message.clone())) {
+            if !seen.insert((unit, coded.code, coded.span.start, coded.span.end, coded.message.clone())) {
                 continue;
             }
-            let k = chave(program.unit(unidade).path.as_deref().expect("próprio tem caminho"));
-            analise.por(&k, cod, *fase_do_emissor);
+            let k = chave(program.unit(unit).path.as_deref().expect("an own unit has a path"));
+            analysis.report(&k, coded, *emitter_phase);
         }
 
-        // 5. Imports não usados, depois de tudo (a supressão olha os
-        // diagnósticos da biblioteca).
-        for lib in &libs_proprias {
-            let chaves: Vec<PathBuf> =
+        // 5. Unused imports, after everything (the suppression looks at the
+        // library's diagnostics).
+        for lib in &own_libs {
+            let keys: Vec<PathBuf> =
                 program.library(*lib).units.iter().filter_map(|u| program.unit(*u).path.as_deref().map(chave)).collect();
-            let ja: Vec<Diagnostic> = chaves
+            let existing: Vec<Diagnostic> = keys
                 .iter()
-                .filter_map(|k| analise.arquivos.get(k))
+                .filter_map(|k| analysis.arquivos.get(k))
                 .flat_map(|a| a.diags.iter().cloned())
                 .collect();
-            for (u, d) in dartforge_analysis::importacoes::nao_usados(&program, *lib, &interner, &ja, corpos.as_ref()) {
+            for (u, d) in dartforge_analysis::importacoes::nao_usados(&program, *lib, &interner, &existing, bodies.as_ref()) {
                 if let Some(p) = &program.unit(u).path {
-                    analise.por(&chave(p), d, fase::IMPORTS_VERIFIER);
+                    analysis.report(&chave(p), d, phase::IMPORTS_VERIFIER);
                 }
             }
         }
 
-        // A ordem de emissão (INFRA III.5 item 3, §1.2): a lista de cada
-        // arquivo sai na ordem das fases do `LibraryAnalyzer`; dentro de uma
-        // fase, na ordem em que o emissor relatou. É ela que decide qual de
-        // dois relatos iguais sobrevive (a deduplicação do fim fica com o
-        // primeiro) e a ordem que o LSP publica.
-        analise.ordenar_pelas_fases();
+        // The emission order (INFRA III.5 item 3, §1.2): each file's list comes
+        // out in the order of the `LibraryAnalyzer`'s phases; within a phase,
+        // in the order the emitter reported. It decides which of two equal
+        // reports survives (the final deduplication keeps the first) and the
+        // order the LSP publishes.
+        analysis.sort_by_phases();
 
-        // 6. A regra dos trechos pulados (T5, estrutura (c)): "não definido" de
-        // um nome citado num trecho pulado da biblioteca; e os dois códigos
-        // de forma de declaração, quando o intervalo toca um trecho pulado.
+        // 6. The skipped-fragments rule (T5, structure (c)): "not defined" for
+        // a name cited in a skipped fragment of the library; and the two
+        // declaration-shape codes, when the range touches a skipped fragment.
         {
-            let mut da_biblioteca: HashMap<PathBuf, Vec<UnitId>> = HashMap::new();
-            for lib in &libs_proprias {
-                let unidades: Vec<UnitId> = program.library(*lib).units.clone();
-                for u in &unidades {
+            let mut library_units: HashMap<PathBuf, Vec<UnitId>> = HashMap::new();
+            for lib in &own_libs {
+                let units: Vec<UnitId> = program.library(*lib).units.clone();
+                for u in &units {
                     if let Some(p) = &program.unit(*u).path {
-                        da_biblioteca.insert(chave(p), unidades.clone());
+                        library_units.insert(chave(p), units.clone());
                     }
                 }
             }
-            for (k, a) in analise.arquivos.iter_mut() {
-                let Some(unidades) = da_biblioteca.get(k) else { continue };
-                let Some(&propria) = unidade_de.get(k) else { continue };
-                let fonte = program.unit(propria).source.as_str();
-                let proprios_pulados = dartforge_analysis::Pulados { fonte, trechos: &program.unit(propria).pulados };
-                let n = a.sintaticos;
+            for (k, a) in analysis.arquivos.iter_mut() {
+                let Some(units) = library_units.get(k) else { continue };
+                let Some(&own_unit) = unit_of.get(k) else { continue };
+                let source = program.unit(own_unit).source.as_str();
+                let own_skipped = dartforge_analysis::Pulados { fonte: source, trechos: &program.unit(own_unit).pulados };
+                let n = a.syntactic_count;
                 let mut i = 0;
                 a.diags.retain(|d| {
                     i += 1;
@@ -1224,99 +1229,99 @@ impl Motor {
                         return true;
                     }
                     let Some(c) = d.code.map(|c| c.info().nome) else { return true };
-                    if depende_de_declaracoes(c) {
-                        let nome = fonte.get(d.span.start..d.span.end).unwrap_or("");
-                        return !unidades.iter().any(|u| {
-                            dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados }.cita(nome)
+                    if depends_on_declarations(c) {
+                        let name = source.get(d.span.start..d.span.end).unwrap_or("");
+                        return !units.iter().any(|u| {
+                            dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados }.cita(name)
                         });
                     }
-                    if depende_da_linha(c) {
-                        return !proprios_pulados.intersecta(d.span);
+                    if depends_on_line(c) {
+                        return !own_skipped.intersecta(d.span);
                     }
                     true
                 });
             }
         }
-        // O analyzer não relata duas vezes o mesmo diagnóstico (código,
-        // intervalo e mensagem) — o `_checkDuplicateIdentifier` de uma
-        // variável mutável repetida pede o mesmo erro pelo getter e pelo
-        // setter, e o resultado tem um só.
-        for (k, a) in analise.arquivos.iter_mut() {
-            // O ponto único do T2: cada diagnóstico sai com o nome, o texto
-            // e os argumentos do analyzer que é a referência do arquivo.
-            // Nenhum emissor consulta a referência; eles só passam, depois
-            // dos argumentos do molde 3.6, os que só o 3.13 usa.
-            let referencia = unidade_de.get(k).map_or(dartforge_diagnostics::Referencia::V3_6, |u| program.referencia(*u));
-            if referencia == dartforge_diagnostics::Referencia::V3_13 {
-                let n = a.sintaticos;
-                let mut sintaticos_fora = 0;
-                let antes = std::mem::take(&mut a.diags);
-                for (i, d) in antes.into_iter().enumerate() {
-                    match d.na_referencia(referencia) {
+        // The analyzer does not report the same diagnostic twice (code, range
+        // and message) — the `_checkDuplicateIdentifier` of a repeated mutable
+        // variable asks for the same error through the getter and the setter,
+        // and the result has only one.
+        for (k, a) in analysis.arquivos.iter_mut() {
+            // T2's single point: each diagnostic comes out with the name, text
+            // and arguments of the analyzer that is the file's reference. No
+            // emitter consults the reference; they just pass, after the 3.6
+            // template's arguments, those only 3.13 uses.
+            let reference = unit_of.get(k).map_or(dartforge_diagnostics::Referencia::V3_6, |u| program.referencia(*u));
+            if reference == dartforge_diagnostics::Referencia::V3_13 {
+                let n = a.syntactic_count;
+                let mut syntactic_dropped = 0;
+                let before = std::mem::take(&mut a.diags);
+                for (i, d) in before.into_iter().enumerate() {
+                    match d.na_referencia(reference) {
                         Some(d) => a.diags.push(d),
-                        None if i < n => sintaticos_fora += 1,
+                        None if i < n => syntactic_dropped += 1,
                         None => {}
                     }
                 }
-                a.sintaticos -= sintaticos_fora;
+                a.syntactic_count -= syntactic_dropped;
             }
-            // O identificador sintético que o parser insere (`x = ;`, `a.`)
-            // tem nome vazio e não é resolvido: o resolvedor do analyzer não
-            // relata nome indefinido nele.
+            // The synthetic identifier the parser inserts (`x = ;`, `a.`) has
+            // an empty name and is not resolved: the analyzer's resolver
+            // reports no undefined name on it.
             {
-                let n = a.sintaticos;
+                let n = a.syntactic_count;
                 let mut i = 0;
                 a.diags.retain(|d| {
                     i += 1;
                     i <= n || d.span.start != d.span.end || !d.code.is_some_and(|c| c.info().nome.starts_with("undefined_"))
                 });
             }
-            let mut vistos: BTreeSet<(Option<dartforge_diagnostics::Codigo>, usize, usize, String)> = BTreeSet::new();
-            let n = a.sintaticos;
+            let mut seen: BTreeSet<(Option<dartforge_diagnostics::Codigo>, usize, usize, String)> = BTreeSet::new();
+            let n = a.syntactic_count;
             let mut i = 0;
-            let mut removidos_sintaticos = 0;
+            let mut syntactic_removed = 0;
             a.diags.retain(|d| {
                 i += 1;
-                let novo = vistos.insert((d.code, d.span.start, d.span.end, d.message.clone()));
-                if !novo && i <= n {
-                    removidos_sintaticos += 1;
+                let new = seen.insert((d.code, d.span.start, d.span.end, d.message.clone()));
+                if !new && i <= n {
+                    syntactic_removed += 1;
                 }
-                novo
+                new
             });
-            a.sintaticos -= removidos_sintaticos;
+            a.syntactic_count -= syntactic_removed;
         }
-        // A biblioteca em que o analyzer lança fica sem resultado: nenhum
-        // diagnóstico (nem os sintáticos nem os lints) dos arquivos dela.
-        for lib in &quebradas {
+        // The library on which the analyzer throws gets no result: no
+        // diagnostic (neither syntactic nor lints) of its files.
+        for lib in &crashed {
             for u in &program.library(*lib).units {
                 if let Some(p) = &program.unit(*u).path
-                    && let Some(a) = analise.arquivos.get_mut(&chave(p))
+                    && let Some(a) = analysis.arquivos.get_mut(&chave(p))
                 {
                     a.diags.clear();
-                    a.sintaticos = 0;
-                    a.lints_semanticos.clear();
-                    a.relatos_de_lint = None;
+                    a.syntactic_count = 0;
+                    a.semantic_lints.clear();
+                    a.lint_reports = None;
                 }
             }
         }
-        Some(analise)
+        Some(analysis)
     }
 
-    /// O alvo de uma `part` existe e não tem `part of` (o `kind` dele não é
-    /// `PartFileKind`): a `uriStr` dele (a da unidade carregada, senão
-    /// `dart:`/`package:` como escrita, senão `file:///…`).
-    fn parte_sem_part_of(
+    /// The target of a `part` exists and has no `part of` (its `kind` is not
+    /// `PartFileKind`): its `uriStr` (that of the loaded unit, otherwise
+    /// `dart:`/`package:` as written, otherwise `file:///…`).
+    fn part_without_part_of(
         &self,
         uri: &str,
         base: &Path,
         config: Option<&dartforge_elements::PackageConfig>,
         program: &dartforge_elements::model::Program,
-        textos: &HashMap<std::path::PathBuf, String>,
+        texts: &HashMap<std::path::PathBuf, String>,
     ) -> Option<String> {
-        let caminho = if let Some(nome) = uri.strip_prefix("dart:") {
-            match nome.split_once('/') {
-                Some((lib, resto)) => self.sdk.libraries.get(lib)?.path.parent()?.join(resto),
-                None => self.sdk.libraries.get(nome)?.path.clone(),
+        let path = if let Some(name) = uri.strip_prefix("dart:") {
+            match name.split_once('/') {
+                Some((lib, rest)) => self.sdk.libraries.get(lib)?.path.parent()?.join(rest),
+                None => self.sdk.libraries.get(name)?.path.clone(),
             }
         } else if uri.starts_with("package:") {
             config?.resolve_package_uri(uri).ok()?
@@ -1325,25 +1330,25 @@ impl Motor {
         } else {
             base.join(uri)
         };
-        let k = chave(&caminho);
-        let carregada = program.units.iter().find(|u| u.path.as_deref().map(chave).as_ref() == Some(&k));
-        let tem_part_of = |diretivas: &[dartforge_frontend::ast::Directive]| diretivas.iter().any(|d| matches!(d.kind, DirectiveKind::PartOf { .. }));
-        let parte = match (textos.get(&k), carregada) {
-            (Some(texto), _) => {
-                let mut nomes = dartforge_intern::Interner::new();
-                tem_part_of(&dartforge_frontend::parser::parse(texto, &mut nomes).unit.directives)
+        let k = chave(&path);
+        let loaded = program.units.iter().find(|u| u.path.as_deref().map(chave).as_ref() == Some(&k));
+        let has_part_of = |directives: &[dartforge_frontend::ast::Directive]| directives.iter().any(|d| matches!(d.kind, DirectiveKind::PartOf { .. }));
+        let part = match (texts.get(&k), loaded) {
+            (Some(text), _) => {
+                let mut names = dartforge_intern::Interner::new();
+                has_part_of(&dartforge_frontend::parser::parse(text, &mut names).unit.directives)
             }
-            (None, Some(u)) => tem_part_of(&u.unit.directives),
+            (None, Some(u)) => has_part_of(&u.unit.directives),
             (None, None) => {
-                let texto = std::fs::read_to_string(&caminho).ok()?;
-                let mut nomes = dartforge_intern::Interner::new();
-                tem_part_of(&dartforge_frontend::parser::parse(&texto, &mut nomes).unit.directives)
+                let text = std::fs::read_to_string(&path).ok()?;
+                let mut names = dartforge_intern::Interner::new();
+                has_part_of(&dartforge_frontend::parser::parse(&text, &mut names).unit.directives)
             }
         };
-        if parte {
+        if part {
             return None;
         }
-        if let Some(u) = carregada
+        if let Some(u) = loaded
             && !u.uri.is_empty()
         {
             return Some(u.uri.clone());
@@ -1356,29 +1361,29 @@ impl Motor {
     }
 
     /// `URI_DOES_NOT_EXIST` / `URI_HAS_NOT_BEEN_GENERATED`
-    /// (`library_analyzer.dart:670-720`): o alvo da diretiva não existe.
-    fn diretiva_sem_alvo(
+    /// (`library_analyzer.dart:670-720`): the directive's target does not exist.
+    fn directive_without_target(
         &self,
         uri: &str,
         base: &Path,
         config: Option<&dartforge_elements::PackageConfig>,
         span: Span,
-        parte: bool,
+        part: bool,
     ) -> Option<Diagnostic> {
         if uri.is_empty() {
-            // `import ''` resolve para a própria biblioteca, que existe.
+            // `import ''` resolves to the library itself, which exists.
             return None;
         }
-        let existe = if let Some(nome) = uri.strip_prefix("dart:") {
-            match nome.split_once('/') {
-                // `dart:async/future.dart`: arquivo ao lado da biblioteca `dart:async`.
-                Some((lib, resto)) => self
+        let exists = if let Some(name) = uri.strip_prefix("dart:") {
+            match name.split_once('/') {
+                // `dart:async/future.dart`: a file next to the `dart:async` library.
+                Some((lib, rest)) => self
                     .sdk
                     .libraries
                     .get(lib)
                     .and_then(|l| l.path.parent())
-                    .is_some_and(|d| d.join(resto).is_file()),
-                None => self.bibliotecas_sdk.contains(nome),
+                    .is_some_and(|d| d.join(rest).is_file()),
+                None => self.sdk_libraries.contains(name),
             }
         } else if uri.starts_with("package:") {
             match config.map(|c| c.resolve_package_uri(uri)) {
@@ -1386,42 +1391,42 @@ impl Motor {
                 _ => false,
             }
         } else if uri.contains(':') {
-            // Outros esquemas (`dart-ext:`, `http:`): fora do escopo.
+            // Other schemes (`dart-ext:`, `http:`): out of scope.
             return None;
         } else {
-            let alvo = chave(&resolver_uri_de_diretiva(uri, base, config).unwrap_or_else(|| base.join(uri)));
-            alvo.is_file() || config.is_some_and(|c| gerado_pelo_build(c, &alvo))
+            let target = chave(&resolve_directive_uri(uri, base, config).unwrap_or_else(|| base.join(uri)));
+            target.is_file() || config.is_some_and(|c| generated_by_build(c, &target))
         };
-        if existe {
+        if exists {
             return None;
         }
-        let codigo = if !uri.starts_with("dart:") && gerado(uri) {
+        let code = if !uri.starts_with("dart:") && is_generated(uri) {
             codigos::compile_time_error::URI_HAS_NOT_BEEN_GENERATED
         } else {
             codigos::compile_time_error::URI_DOES_NOT_EXIST
         };
-        // Numa `part` com URI relativa, o analyzer mostra a URI resolvida
-        // (`file:///…/a.dart`); em `import`/`export`, o texto da diretiva.
-        if parte && !uri.contains(':') {
+        // In a `part` with a relative URI, the analyzer shows the resolved URI
+        // (`file:///…/a.dart`); in `import`/`export`, the directive's text.
+        if part && !uri.contains(':') {
             let abs = chave(&base.join(uri)).to_string_lossy().replace('\\', "/");
-            let uri_arquivo = format!("file://{}{abs}", if abs.starts_with('/') { "" } else { "/" });
-            return Some(Diagnostic::com_codigo(codigo, span, [uri_arquivo.as_str()]));
+            let file_uri = format!("file://{}{abs}", if abs.starts_with('/') { "" } else { "/" });
+            return Some(Diagnostic::com_codigo(code, span, [file_uri.as_str()]));
         }
-        Some(Diagnostic::com_codigo(codigo, span, [uri]))
+        Some(Diagnostic::com_codigo(code, span, [uri]))
     }
 }
 
-/// Códigos de nome que não resolve numa **expressão**: dependem de todas as
-/// declarações da biblioteca terem sido recuperadas pelo parser, e a nossa
-/// recuperação de comandos e expressões ainda diverge da do fasta em casos
-/// medidos (FP de `undefined_identifier`/`undefined_getter` sem esta porta).
-/// Os nomes de **tipo** (`undefined_class`, `not_a_type` e os do
-/// `NamedTypeResolver`) não passam por aqui: a recuperação de declarações é
-/// a do fasta (docs/ANALISADOR-PARIDADE-PLANO.md §3.2), e o analyzer resolve
-/// a árvore recuperada como qualquer outra.
-fn depende_de_declaracoes(codigo: &str) -> bool {
+/// Codes of a name that does not resolve in an **expression**: they depend on
+/// every declaration of the library having been recovered by the parser, and
+/// our recovery of statements and expressions still diverges from fasta's in
+/// measured cases (FP of `undefined_identifier`/`undefined_getter` without
+/// this gate). **Type** names (`undefined_class`, `not_a_type` and those of
+/// the `NamedTypeResolver`) do not go through here: the recovery of
+/// declarations is fasta's (docs/ANALISADOR-PARIDADE-PLANO.md §3.2), and the
+/// analyzer resolves the recovered tree like any other.
+fn depends_on_declarations(code: &str) -> bool {
     matches!(
-        codigo,
+        code,
         "undefined_identifier"
             | "undefined_function"
             | "undefined_method"
@@ -1431,26 +1436,26 @@ fn depende_de_declaracoes(codigo: &str) -> bool {
     )
 }
 
-/// Códigos que dependem da forma exata de uma declaração (tipos de getter e
-/// setter; variável sem inicializador, que a recuperação pode inventar a
-/// partir de um getter com nome inválido): não saem de uma linha
-/// em que o parser se recuperou.
-fn depende_da_linha(codigo: &str) -> bool {
-    matches!(codigo, "getter_not_subtype_setter_types" | "not_initialized_non_nullable_variable")
+/// Codes that depend on the exact shape of a declaration (getter and setter
+/// types; a variable without an initializer, which recovery may invent from a
+/// getter with an invalid name): they do not come out of a line where the
+/// parser recovered.
+fn depends_on_line(code: &str) -> bool {
+    matches!(code, "getter_not_subtype_setter_types" | "not_initialized_non_nullable_variable")
 }
 
-/// As bibliotecas de fora de `inferidas` (e do SDK) das variáveis `const` e
-/// dos construtores `const` que as expressões das inferidas citam.
-fn bibliotecas_de_constantes_citadas(program: &Program, corpos: &dartforge_types::BodyTypes, inferidas: &HashSet<LibraryId>) -> Vec<LibraryId> {
+/// The libraries outside `inferred` (and the SDK) of the `const` variables and
+/// `const` constructors that the expressions of the inferred ones cite.
+fn libraries_of_cited_constants(program: &Program, bodies: &dartforge_types::BodyTypes, inferred: &HashSet<LibraryId>) -> Vec<LibraryId> {
     use dartforge_elements::model::Element;
     use dartforge_types::{MemberRef, Resolved};
-    let mut novas = BTreeSet::new();
-    for &lib in inferidas {
+    let mut new = BTreeSet::new();
+    for &lib in inferred {
         for &u in &program.library(lib).units {
-            let Some(b) = corpos.units.get(u.0 as usize) else { continue };
+            let Some(b) = bodies.units.get(u.0 as usize) else { continue };
             for i in 0..program.unit(u).ast.exprs.len() {
                 let e = dartforge_frontend::ast::ExprId(i as u32);
-                let alvo = match b.get_resolved(e) {
+                let target = match b.get_resolved(e) {
                     Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
                         let var = program.variable(*v);
                         var.const_.then_some(var.library)
@@ -1467,21 +1472,21 @@ fn bibliotecas_de_constantes_citadas(program: &Program, corpos: &dartforge_types
                     }
                     _ => None,
                 };
-                if let Some(l) = alvo
-                    && !inferidas.contains(&l)
+                if let Some(l) = target
+                    && !inferred.contains(&l)
                     && !program.library(l).uri.starts_with("dart:")
                 {
-                    novas.insert(l.0);
+                    new.insert(l.0);
                 }
             }
         }
     }
-    novas.into_iter().map(LibraryId).collect()
+    new.into_iter().map(LibraryId).collect()
 }
 
-/// `(unidade, intervalo do inicializador)` das variáveis fora do SDK, na
-/// ordem de `program.variables` (a ordem em que `types` os infere).
-fn inicializadores(program: &Program) -> Vec<(UnitId, Span)> {
+/// `(unit, initializer range)` of the variables outside the SDK, in the order
+/// of `program.variables` (the order in which `types` infers them).
+fn initializers(program: &Program) -> Vec<(UnitId, Span)> {
     use dartforge_elements::model::VariableRef;
     use dartforge_frontend::ast::{DeclKind, MemberKind};
     let mut v = Vec::new();
@@ -1509,51 +1514,52 @@ fn inicializadores(program: &Program) -> Vec<(UnitId, Span)> {
     v
 }
 
-/// Intervalos de nós por unidade, para atribuir diagnósticos sem unidade.
-struct Indice {
-    exato: HashMap<(usize, usize), Vec<UnitId>>,
-    /// Intervalos das declarações de topo das unidades do lote.
-    topo: Vec<(UnitId, Span)>,
-    proprias: BTreeSet<UnitId>,
+/// Node ranges per unit, to attribute diagnostics without a unit.
+struct Index {
+    exact: HashMap<(usize, usize), Vec<UnitId>>,
+    /// The ranges of the top-level declarations of the batch's units.
+    top: Vec<(UnitId, Span)>,
+    own: BTreeSet<UnitId>,
 }
 
-impl Indice {
-    fn novo(program: &Program, proprias: &BTreeSet<UnitId>) -> Indice {
-        let mut exato: HashMap<(usize, usize), Vec<UnitId>> = HashMap::new();
-        let mut topo = Vec::new();
+impl Index {
+    fn new(program: &Program, own: &BTreeSet<UnitId>) -> Index {
+        let mut exact: HashMap<(usize, usize), Vec<UnitId>> = HashMap::new();
+        let mut top = Vec::new();
         for (i, u) in program.units.iter().enumerate() {
             if program.library(u.library).is_sdk {
                 continue;
             }
             let id = UnitId(i as u32);
-            let mut por = |s: Span| {
-                let v = exato.entry((s.start, s.end)).or_default();
+            let mut add = |s: Span| {
+                let v = exact.entry((s.start, s.end)).or_default();
                 if v.last() != Some(&id) {
                     v.push(id);
                 }
             };
-            u.ast.exprs.iter().for_each(|e| por(e.span));
-            u.ast.stmts.iter().for_each(|e| por(e.span));
-            u.ast.types.iter().for_each(|e| por(e.span));
-            u.ast.patterns.iter().for_each(|e| por(e.span));
-            if proprias.contains(&id) {
+            u.ast.exprs.iter().for_each(|e| add(e.span));
+            u.ast.stmts.iter().for_each(|e| add(e.span));
+            u.ast.types.iter().for_each(|e| add(e.span));
+            u.ast.patterns.iter().for_each(|e| add(e.span));
+            if own.contains(&id) {
                 for d in &u.unit.declarations {
-                    topo.push((id, u.ast.decls[d.0 as usize].span));
+                    top.push((id, u.ast.decls[d.0 as usize].span));
                 }
             }
         }
-        Indice { exato, topo, proprias: proprias.clone() }
+        Index { exact, top, own: own.clone() }
     }
 
-    /// Entre as `unidades` dadas (as de uma biblioteca): a do nó com o
-    /// intervalo exato; senão a primeira cuja declaração de topo o contém.
-    fn atribuir_entre(&self, program: &Program, s: Span, unidades: &[UnitId]) -> Option<UnitId> {
-        if let Some(v) = self.exato.get(&(s.start, s.end)) {
-            if let Some(u) = v.iter().find(|u| unidades.contains(u)) {
+    /// Among the given `units` (those of one library): that of the node with
+    /// the exact range; otherwise the first whose top-level declaration
+    /// contains it.
+    fn attribute_among(&self, program: &Program, s: Span, units: &[UnitId]) -> Option<UnitId> {
+        if let Some(v) = self.exact.get(&(s.start, s.end)) {
+            if let Some(u) = v.iter().find(|u| units.contains(u)) {
                 return Some(*u);
             }
         }
-        unidades.iter().copied().find(|u| {
+        units.iter().copied().find(|u| {
             let unit = program.unit(*u);
             unit.unit.declarations.iter().any(|d| {
                 let sp = unit.ast.decls[d.0 as usize].span;
@@ -1562,75 +1568,75 @@ impl Indice {
         })
     }
 
-    /// A unidade do diagnóstico e se houve mais de uma candidata.
-    fn atribuir(&self, s: Span) -> Option<(UnitId, bool)> {
-        if let Some(v) = self.exato.get(&(s.start, s.end)) {
-            let escolhida = v.iter().copied().find(|u| self.proprias.contains(u)).unwrap_or(v[0]);
-            return Some((escolhida, v.len() > 1));
+    /// The diagnostic's unit and whether there was more than one candidate.
+    fn attribute(&self, s: Span) -> Option<(UnitId, bool)> {
+        if let Some(v) = self.exact.get(&(s.start, s.end)) {
+            let chosen = v.iter().copied().find(|u| self.own.contains(u)).unwrap_or(v[0]);
+            return Some((chosen, v.len() > 1));
         }
-        let mut cands = self.topo.iter().filter(|(_, d)| d.start <= s.start && s.end <= d.end).map(|(u, _)| *u);
-        let primeira = cands.next()?;
-        let outra = cands.any(|u| u != primeira);
-        Some((primeira, outra))
+        let mut cands = self.top.iter().filter(|(_, d)| d.start <= s.start && s.end <= d.end).map(|(u, _)| *u);
+        let first = cands.next()?;
+        let other = cands.any(|u| u != first);
+        Some((first, other))
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn parte_pela_primeira_diretiva() {
+    fn part_by_first_directive() {
         assert!(e_parte("// c\n/* x\n y */\npart of 'a.dart';\n"));
         assert!(!e_parte("library a;\npart 'b.dart';\n"));
         assert!(!e_parte("void main() {}\n"));
     }
 
     #[test]
-    fn textos_em_memoria_e_cancelamento() {
-        let raiz = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    fn in_memory_texts_and_cancellation() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join(format!("../../target/tmp-agent/motor-memoria-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&raiz);
-        std::fs::create_dir_all(raiz.join("sdk/lib/core")).unwrap();
-        std::fs::write(raiz.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
-        std::fs::write(raiz.join("sdk/lib/core/core.dart"), "class Object {} class bool {} class num {} class int extends num {} class Null {}").unwrap();
-        let a = raiz.join("a.dart");
-        let b = raiz.join("b.dart");
-        // No disco, tudo certo; em memória, `b.dart` muda o tipo de `x`.
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sdk/lib/core")).unwrap();
+        std::fs::write(root.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        std::fs::write(root.join("sdk/lib/core/core.dart"), "class Object {} class bool {} class num {} class int extends num {} class Null {}").unwrap();
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        // On disk, all fine; in memory, `b.dart` changes the type of `x`.
         std::fs::write(&a, "import 'b.dart';\nvoid f() { if (x) {} }\n").unwrap();
         std::fs::write(&b, "bool x = true;\n").unwrap();
-        let motor = Motor::novo(&raiz.join("sdk/lib")).unwrap();
-        let nao_bool = |r: &Analise| {
+        let engine = Motor::novo(&root.join("sdk/lib")).unwrap();
+        let non_bool = |r: &Analise| {
             r.arquivos[&chave(&a)].diags.iter().filter(|d| d.code == Some(codigos::compile_time_error::NON_BOOL_CONDITION)).count()
         };
-        let disco = motor.analisar(&raiz, std::slice::from_ref(&a), None);
-        assert_eq!(nao_bool(&disco), 0);
-        let textos = HashMap::from([(chave(&b), "int x = 0;\n".to_string())]);
-        let memoria = motor.analisar_com(&raiz, std::slice::from_ref(&a), None, &textos, &|| false).unwrap();
-        assert_eq!(nao_bool(&memoria), 1, "{:?}", memoria.arquivos[&chave(&a)].diags);
-        assert!(motor.analisar_com(&raiz, std::slice::from_ref(&a), None, &textos, &|| true).is_none());
-        let sdk = SdkLayout::load(&raiz.join("sdk/lib"), "dartdevc").unwrap();
+        let disk = engine.analisar(&root, std::slice::from_ref(&a), None);
+        assert_eq!(non_bool(&disk), 0);
+        let texts = HashMap::from([(chave(&b), "int x = 0;\n".to_string())]);
+        let memory = engine.analisar_com(&root, std::slice::from_ref(&a), None, &texts, &|| false).unwrap();
+        assert_eq!(non_bool(&memory), 1, "{:?}", memory.arquivos[&chave(&a)].diags);
+        assert!(engine.analisar_com(&root, std::slice::from_ref(&a), None, &texts, &|| true).is_none());
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::caminho(&sdk, "dartdevc"));
-        std::fs::remove_dir_all(&raiz).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
-    fn conflito_herdado_chega_ao_arquivo_certo_no_motor() {
-        let raiz = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    fn inherited_conflict_reaches_the_right_file_in_the_engine() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join(format!("../../target/tmp-agent/motor-heranca-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&raiz);
-        std::fs::create_dir_all(raiz.join("sdk/lib/core")).unwrap();
-        std::fs::write(raiz.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
-        std::fs::write(raiz.join("sdk/lib/core/core.dart"), "class Object {} class int extends Object {}").unwrap();
-        let entrada = raiz.join("main.dart");
-        let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/conflicting_static_and_instance/ConflictingStaticAndInstanceClass__inSu_7966ede4.dart"));
-        std::fs::write(&entrada, fonte).unwrap();
-        let motor = Motor::novo(&raiz.join("sdk/lib")).unwrap();
-        let resultado = motor.analisar(&raiz, std::slice::from_ref(&entrada), None);
-        let arquivo = &resultado.arquivos[&chave(&entrada)];
-        let achados: Vec<_> = arquivo.diags.iter().filter(|d| d.code == Some(codigos::compile_time_error::CONFLICTING_STATIC_AND_INSTANCE)).collect();
-        assert_eq!(achados.len(), 1, "{:?}", arquivo.diags);
-        assert_eq!(&fonte[achados[0].span.start as usize..achados[0].span.end as usize], "foo");
-        std::fs::remove_dir_all(&raiz).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sdk/lib/core")).unwrap();
+        std::fs::write(root.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        std::fs::write(root.join("sdk/lib/core/core.dart"), "class Object {} class int extends Object {}").unwrap();
+        let entry = root.join("main.dart");
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/conflicting_static_and_instance/ConflictingStaticAndInstanceClass__inSu_7966ede4.dart"));
+        std::fs::write(&entry, source).unwrap();
+        let engine = Motor::novo(&root.join("sdk/lib")).unwrap();
+        let result = engine.analisar(&root, std::slice::from_ref(&entry), None);
+        let file = &result.arquivos[&chave(&entry)];
+        let found: Vec<_> = file.diags.iter().filter(|d| d.code == Some(codigos::compile_time_error::CONFLICTING_STATIC_AND_INSTANCE)).collect();
+        assert_eq!(found.len(), 1, "{:?}", file.diags);
+        assert_eq!(&source[found[0].span.start as usize..found[0].span.end as usize], "foo");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }
