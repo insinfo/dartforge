@@ -16,13 +16,13 @@
 //!   `must_be_immutable`, `invalid_export_of_internal_element` and
 //!   `invalid_export_of_internal_element_indirectly` (the
 //!   `invalid_override_of_non_virtual_member` needs the
-//!   `InheritanceManager3` and lives in `dartforge_types::fase_override`).
+//!   `InheritanceManager3` and lives in `dartforge_types::phase_override`).
 //!
 //! Annotations are recognized by element, like the analyzer's
 //! `ElementAnnotation`: the getter of a library named `meta` (`angular.meta`
 //! for the template ones), the constructor of `meta`'s `UseResult`/`Required`
-//! and that of `meta_meta`'s `Target` (`dartforge_types::anotacoes::e_getter_de`
-//! and `e_construtor_de`). The general `invalid_annotation_target`
+//! and that of `meta_meta`'s `Target` (`dartforge_types::annotations::is_getter_of`
+//! and `is_constructor_of`). The general `invalid_annotation_target`
 //! (`_checkKinds`) reads the `@Target({...})` of the annotation's class, on
 //! every target the `BestPracticesVerifier` visits: declarations, members,
 //! constants, directives, parameters (`isOptional`), type parameters, local
@@ -92,12 +92,12 @@ impl<'a> Ctx<'a> {
 
     /// `_isPackageMetaGetter` (and the `_isTopGetter` of `angular.meta`).
     fn is_getter_of(&self, m: &ast::Annotation, library: &str, name: &str) -> bool {
-        dartforge_types::anotacoes::e_getter_de(self.program, self.interner, self.unit, m, library, name)
+        dartforge_types::annotations::is_getter_of(self.program, self.interner, self.unit, m, library, name)
     }
 
     /// `_isConstructor`.
     fn is_constructor_of(&self, m: &ast::Annotation, library: &str, class: &str) -> bool {
-        dartforge_types::anotacoes::e_construtor_de(self.program, self.interner, self.unit, m, library, class)
+        dartforge_types::annotations::is_constructor_of(self.program, self.interner, self.unit, m, library, class)
     }
 
     /// The range of a `VariableDeclaration`: from the name to the end of the
@@ -404,7 +404,7 @@ impl<'a> Ctx<'a> {
         let a = &self.program.unit(d.unit).ast;
         let mut out = Vec::new();
         for m in a.decl(d.decl).metadata.iter() {
-            if !dartforge_types::anotacoes::e_construtor_de(self.program, self.interner, d.unit, m, "meta_meta", "Target") {
+            if !dartforge_types::annotations::is_constructor_of(self.program, self.interner, d.unit, m, "meta_meta", "Target") {
                 continue;
             }
             let Some(first) = m.arguments.as_ref().and_then(|args| args.args.iter().find(|x| x.name.is_none())) else { continue };
@@ -670,7 +670,7 @@ fn is_immutable(program: &Program, interner: &Interner, c: ClassId, seen: &mut V
             .decl(d.decl)
             .metadata
             .iter()
-            .any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, d.unit, m, "meta", "immutable"))
+            .any(|m| dartforge_types::annotations::is_getter_of(program, interner, d.unit, m, "meta", "immutable"))
     });
     anotada
         || e.mixin_classes.iter().any(|m| is_immutable(program, interner, *m, seen))

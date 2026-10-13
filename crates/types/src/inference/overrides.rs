@@ -24,7 +24,7 @@
 //! Written without compiling or running (2026-10-05).
 
 use super::BodyInferrer;
-use crate::heranca::{Kind, Membro, Nome};
+use crate::inheritance::{Kind, InterfaceMember, MemberName};
 use crate::table::{Type, TypeId, TypeParamId};
 use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionKind, FunctionRef};
 use dartforge_frontend::ast;
@@ -65,7 +65,7 @@ impl<'a> BodyInferrer<'a> {
             let _ = self.infer_class(c, &mut done, &mut in_progress);
         }
         // The interfaces built during the pass have types from before it.
-        self.inheritance = crate::heranca::Heranca::default();
+        self.inheritance = crate::inheritance::InheritanceManager::default();
     }
 
     /// `_inferClass`.
@@ -130,13 +130,13 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// `getOverridden2` by the `Name` of the member's library.
-    fn member_overridden(&mut self, c: ClassId, f: FunctionElementId, setter: bool) -> Option<Vec<Membro>> {
+    fn member_overridden(&mut self, c: ClassId, f: FunctionElementId, setter: bool) -> Option<Vec<InterfaceMember>> {
         let e = self.program.function(f);
         let lib = e.library;
         let text = self.interner.resolve(e.name);
         let base = text.strip_suffix("_=").unwrap_or(text).to_string();
         let key = if setter { self.interner.lookup(&format!("{base}_="))? } else { self.interner.lookup(&base)? };
-        let name = Nome::novo(self.interner, lib, key);
+        let name = MemberName::new(self.interner, lib, key);
         let mut h = std::mem::take(&mut self.inheritance);
         let r = h.overridden(self, c, name);
         self.inheritance = h;
@@ -144,15 +144,15 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// `combineSignatures(..., doTopMerge: true)`.
-    fn combined(&mut self, c: ClassId, candidates: &[Membro], name: Nome) -> Option<Membro> {
+    fn combined(&mut self, c: ClassId, candidates: &[InterfaceMember], name: MemberName) -> Option<InterfaceMember> {
         if candidates.is_empty() {
             return None;
         }
-        crate::heranca::combine(self, c, candidates, true, name, None)
+        crate::inheritance::combine(self, c, candidates, true, name, None)
     }
 
     /// `combinedGetterType`.
-    pub(crate) fn combined_getter_type(&mut self, c: ClassId, getters: &[Membro], name: Nome) -> TypeId {
+    pub(crate) fn combined_getter_type(&mut self, c: ClassId, getters: &[InterfaceMember], name: MemberName) -> TypeId {
         match self.combined(c, getters, name) {
             Some(m) => match self.table.get(m.ty) {
                 Type::Function { ret, .. } => *ret,
@@ -163,7 +163,7 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// `combinedSetterType`.
-    pub(crate) fn combined_setter_type(&mut self, c: ClassId, setters: &[Membro], name: Nome) -> TypeId {
+    pub(crate) fn combined_setter_type(&mut self, c: ClassId, setters: &[InterfaceMember], name: MemberName) -> TypeId {
         match self.combined(c, setters, name) {
             Some(m) => match self.table.get(m.ty) {
                 Type::Function { positional, .. } => positional.first().copied().unwrap_or(self.core.dynamic_),
@@ -174,12 +174,12 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// The overridden getters and setters of a name (`_inferAccessorOrField`).
-    pub(crate) fn overridden_getters_and_setters(&mut self, c: ClassId, lib: dartforge_elements::model::LibraryId, name: dartforge_intern::SymbolId) -> (Vec<Membro>, Vec<Membro>, Nome, Option<Nome>) {
-        let n_getter = Nome::novo(self.interner, lib, name);
-        let n_setter = self.setter_key(name).map(|k| Nome::novo(self.interner, lib, k));
+    pub(crate) fn overridden_getters_and_setters(&mut self, c: ClassId, lib: dartforge_elements::model::LibraryId, name: dartforge_intern::SymbolId) -> (Vec<InterfaceMember>, Vec<InterfaceMember>, MemberName, Option<MemberName>) {
+        let n_getter = MemberName::new(self.interner, lib, name);
+        let n_setter = self.setter_key(name).map(|k| MemberName::new(self.interner, lib, k));
         let mut h = std::mem::take(&mut self.inheritance);
-        let getters: Vec<Membro> = h.overridden(self, c, n_getter).unwrap_or_default().into_iter().filter(|m| m.kind == Kind::Getter).collect();
-        let setters: Vec<Membro> = match n_setter {
+        let getters: Vec<InterfaceMember> = h.overridden(self, c, n_getter).unwrap_or_default().into_iter().filter(|m| m.kind == Kind::Getter).collect();
+        let setters: Vec<InterfaceMember> = match n_setter {
             Some(n) => h.overridden(self, c, n).unwrap_or_default(),
             None => Vec::new(),
         };
@@ -258,7 +258,7 @@ impl<'a> BodyInferrer<'a> {
         // omitted one stays as `TypesBuilder` left it: `dynamic` (the return of
         // `[]=`, `void`).
         let overridden = match self.member_overridden(c, f, false) {
-            Some(s) if s.iter().all(|m| m.kind == Kind::Metodo) => s,
+            Some(s) if s.iter().all(|m| m.kind == Kind::Method) => s,
             _ => {
                 self.omitted_default(f, parameters, implicit_return);
                 return;
@@ -266,7 +266,7 @@ impl<'a> BodyInferrer<'a> {
         };
         let mut combined: Option<TypeId> = None;
         if some_implicit {
-            let name = Nome::novo(self.interner, e.library, e.name);
+            let name = MemberName::new(self.interner, e.library, e.name);
             if let Some(m) = self.combined(c, &overridden, name) {
                 combined = self.for_overridden_type(f, m.ty);
             }
@@ -383,7 +383,7 @@ impl<'a> BodyInferrer<'a> {
                 ast::ParameterKind::Required => pos.push(par.ty),
                 ast::ParameterKind::Optional => opt.push(par.ty),
                 ast::ParameterKind::Named => {
-                    if let Some(n) = par.externo {
+                    if let Some(n) = par.external_name {
                         the_named.push((n, par.ty, par.required));
                     }
                 }

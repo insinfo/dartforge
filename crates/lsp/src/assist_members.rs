@@ -585,7 +585,7 @@ impl Context<'_> {
                 && match self.bodies.get_resolved(x) {
                     Some(dartforge_types::Resolved::Parameter { name, .. }) => self.p.name(*name) == parameter_name,
                     // In the initializers the parameter is a local declared at its name.
-                    Some(dartforge_types::Resolved::Local(_)) => self.bodies.declaracao_local(x) == Some(name_.start),
+                    Some(dartforge_types::Resolved::Local(_)) => self.bodies.local_declaration(x) == Some(name_.start),
                     _ => false,
                 }
             {

@@ -1014,7 +1014,7 @@ impl Project {
                 continue;
             }
             let id = ast::ExprId(i as u32);
-            if let Some(d) = bodies.declaracao_local(id)
+            if let Some(d) = bodies.local_declaration(id)
                 && conflicting.iter().any(|(a, b)| *a <= d && d <= *b)
             {
                 continue;
@@ -1049,7 +1049,7 @@ impl Project {
                 Some(dartforge_types::Resolved::Local(_)) => {
                     // `ElementKind.displayName`: a local declared in a parameter list is
                     // `parameter`.
-                    let parameter = bodies.declaracao_local(id).is_some_and(|d| {
+                    let parameter = bodies.local_declaration(id).is_some_and(|d| {
                         un.ast.functions.iter().any(|f| f.parameters.iter().flatten().any(|q| q.name.is_some_and(|x| x.span.start == d)))
                     });
                     (if parameter { "parameter" } else { "local variable" }, new.to_string(), file_of(Some(u)))

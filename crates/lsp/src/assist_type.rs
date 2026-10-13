@@ -223,7 +223,7 @@ impl Context<'_> {
         if !self.source[name.start..name.end].chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$') {
             return None;
         }
-        let t = self.bodies.tipo_local(name.start)?;
+        let t = self.bodies.local_type(name.start)?;
         if !(self.is_interface_type(t) || matches!(self.p.query.table.get(t), Type::Record { .. })) {
             return None;
         }
@@ -241,7 +241,7 @@ impl Context<'_> {
     fn declared_pattern_type(&self, node: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
         let pid = self.node_pattern(node)?;
         let ast::PatternKind::Variable { name, .. } = &self.ast.pattern(pid).kind else { return None };
-        let t = *self.bodies.tipos_casados.get(&pid)?;
+        let t = *self.bodies.matched_types.get(&pid)?;
         let word = self
             .tokens
             .iter()
@@ -278,7 +278,7 @@ impl Context<'_> {
             return None;
         }
         let name = self.previous_token(self.tree.nos[node].fim)?;
-        let t = self.bodies.tipo_local(name.start)?;
+        let t = self.bodies.local_type(name.start)?;
         if !(self.is_interface_type(t)
             || matches!(self.p.query.table.get(t), Type::Function { .. } | Type::Record { .. } | Type::TypeParameter { .. } | Type::Intersection { .. }))
         {
@@ -314,7 +314,7 @@ impl Context<'_> {
             if e.span.start < command_end || e.span.end > block_end {
                 continue;
             }
-            if !matches!(self.ast.expr(*target).kind, ExprKind::Identifier(_)) || self.bodies.declaracao_local(*target) != Some(name.start) {
+            if !matches!(self.ast.expr(*target).kind, ExprKind::Identifier(_)) || self.bodies.local_declaration(*target) != Some(name.start) {
                 continue;
             }
             let _ = i;
@@ -385,7 +385,7 @@ impl Context<'_> {
     /// The declared type of the local whose name starts at `name` (`dynamic`
     /// does not count: `staticType is DynamicType`).
     fn local_declared_type(&self, name: usize) -> Option<TypeId> {
-        let t = *self.bodies.tipos_de_locais.get(&name)?;
+        let t = *self.bodies.local_types.get(&name)?;
         (!matches!(self.p.query.table.get(t), Type::Dynamic)).then_some(t)
     }
 

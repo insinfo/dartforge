@@ -241,7 +241,7 @@ impl Context<'_> {
             // `writeParameterMatchingArgument`.
             let value = if named { self.children(arg).get(1).copied().unwrap_or(arg) } else { arg };
             let table = &self.p.query.table;
-            let ty = self.node_type(value).filter(|t| !matches!(table.get(*t), Type::Never | Type::Null) && !matches!(table.exibicao(*t), Some(dartforge_types::table::Exibicao::NeverAnulavel)));
+            let ty = self.node_type(value).filter(|t| !matches!(table.get(*t), Type::Never | Type::Null) && !matches!(table.decoration(*t), Some(dartforge_types::table::DisplayDecoration::NeverNullable)));
             let without_suffix = ty.is_none_or(|t| !table.get(t).is_declared_nullable());
             if named && without_suffix {
                 s.push_str("required ");

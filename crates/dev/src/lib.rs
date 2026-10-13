@@ -402,7 +402,7 @@ impl Session {
         let t = Instant::now();
         let (bodies, body_diags) = match &affected {
             None => dartforge_types::infer_program_bodies(&program, &self.interner, &mut table, &core, &mut outline),
-            Some(libs) => dartforge_types::infer_bodies_das_bibliotecas(
+            Some(libs) => dartforge_types::infer_library_bodies(
                 &program, &self.interner, &mut table, &core, &mut outline, libs,
             ),
         };

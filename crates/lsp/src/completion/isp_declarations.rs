@@ -353,7 +353,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             .parameters
             .iter()
             .filter_map(|p| {
-                let n = query.name(p.externo.or(p.name)?).to_string();
+                let n = query.name(p.external_name.or(p.name)?).to_string();
                 match p.kind {
                     ast::ParameterKind::Required => Some(n),
                     ast::ParameterKind::Named if p.required => Some(format!("{n}: ")),
@@ -1325,7 +1325,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let lib = self.library();
         let applicable = {
             let Query { program, names, table, core, outline, .. } = &mut *self.query;
-            dartforge_types::extensoes_aplicaveis(program, names, table, core, outline, lib, target)
+            dartforge_types::applicable_extensions(program, names, table, core, outline, lib, target)
         };
         for (x, _) in applicable {
             let (accessors, fields, ms) = self.declared_members(None, Some(x));
@@ -2418,7 +2418,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             for ps in parameters_sup.iter() {
                 if ps.kind == ast::ParameterKind::Named
-                    && let Some(name) = ps.externo.or(ps.name)
+                    && let Some(name) = ps.external_name.or(ps.name)
                 {
                     let text = self.query.name(name).to_string();
                     if !specified.contains(&text) {

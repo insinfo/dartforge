@@ -100,7 +100,7 @@ fn canonical(s: &super::Semantics<'_>, a: &Ast, mut e: ExprId) -> Option<Canonic
 /// property name).
 fn element_of(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> Option<Canonical> {
     Some(match s.body.get_resolved(e)? {
-        Resolved::Local(_) => Canonical::Local(s.body.declaracao_local(e)?),
+        Resolved::Local(_) => Canonical::Local(s.body.local_declaration(e)?),
         Resolved::Parameter { name, .. } => Canonical::Parameter(declared_parameter(a, a.expr(e).span, *name)?),
         Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => Canonical::Variable(*v),
         Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => function_canonical(s, *f),

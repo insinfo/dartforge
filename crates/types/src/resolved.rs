@@ -64,12 +64,12 @@ pub struct UnitBodyTypes {
     /// the local in that type's representation (`int?` is a box, `int` is an
     /// `i64`), which cannot be deduced from the reads: they have the type
     /// promoted by flow analysis.
-    pub tipos_de_locais: std::collections::HashMap<usize, TypeId>,
+    pub local_types: std::collections::HashMap<usize, TypeId>,
     /// Declaration (name offset) of the local that each expression resolved to
     /// [`Resolved::Local`] reads or writes. Only filled in when
-    /// [`crate::BodyInferrer::registrar_locais`] is on (the LSP, for renaming
+    /// [`crate::BodyInferrer::record_locals`] is on (the LSP, for renaming
     /// and finding references); the compiler does not pay for it.
-    pub declaracoes_de_locais: std::collections::HashMap<ast::ExprId, usize>,
+    pub local_declarations: std::collections::HashMap<ast::ExprId, usize>,
     /// Expressions whose type is the analyzer's recovery type (`InvalidType`, a
     /// read that does not resolve): in `static_types` they are `dynamic`, which
     /// is how `InvalidType` behaves; the mark only matters for display.
@@ -97,7 +97,7 @@ pub struct UnitBodyTypes {
     /// the declared type of a variable, the written type of a wildcard or a
     /// cast, the required type of an object, list (`List<E>`) or map
     /// (`Map<K, V>`) pattern.
-    pub tipos_de_padroes: std::collections::HashMap<ast::PatternId, TypeId>,
+    pub pattern_types: std::collections::HashMap<ast::PatternId, TypeId>,
     /// The type of the extension property read by an object pattern field
     /// (`ExtensionKey`), by the field's subpattern.
     pub extension_fields: std::collections::HashMap<ast::PatternId, TypeId>,
@@ -109,7 +109,7 @@ pub struct UnitBodyTypes {
     /// pattern flow (previous `switch` cases, `&&`, `?`): what the analyzer
     /// stores in `DartPatternImpl.matchedValueType` and `ConstantVerifier` reads
     /// (`constant_pattern_never_matches_value_type`).
-    pub tipos_casados: std::collections::HashMap<ast::PatternId, TypeId>,
+    pub matched_types: std::collections::HashMap<ast::PatternId, TypeId>,
     /// Bare-name patterns in a refutable context (the `ConstantPattern` of a
     /// `SimpleIdentifier`) whose name is not a constant: a local or variable without
     /// `const`, an instance member, a getter (3.6.2's `_getConstantValue` gives the
@@ -127,25 +127,25 @@ pub struct UnitBodyTypes {
     /// The resolved type of each type annotation in the bodies (the analyzer's
     /// `TypeAnnotation.type`): `is`, `as`, `catch`, local variable, type
     /// argument.
-    pub tipos_de_anotacoes: std::collections::HashMap<ast::TypeId, TypeId>,
+    pub annotation_types: std::collections::HashMap<ast::TypeId, TypeId>,
     /// The declaration (the name offset) of the local that each assignment
     /// pattern variable writes (`AssignedVariablePattern.element`), with local
     /// recording on.
-    pub declaracoes_de_padroes: std::collections::HashMap<ast::PatternId, usize>,
+    pub pattern_declarations: std::collections::HashMap<ast::PatternId, usize>,
     /// The expressions that the analyzer's resolver replaces with an
     /// `ImplicitCallReference` (`_insertImplicitCallReference`,
     /// `resolver.dart:4085-4142`): an object of a non-nullable interface type
     /// with a `call` method, in a context that accepts a function. The shape
     /// (cascade target, branch of `?:`, operand of `??`) is left to the reader,
     /// through the tree.
-    pub chamadas_implicitas: std::collections::HashSet<ast::ExprId>,
+    pub implicit_calls: std::collections::HashSet<ast::ExprId>,
     /// The type of the parameter that receives each argument (the
     /// `staticParameterElement.type`), by the argument expression (the value of
     /// a named argument): that of the already instantiated invoked type.
-    pub tipos_de_parametros: std::collections::HashMap<ast::ExprId, TypeId>,
+    pub parameter_types: std::collections::HashMap<ast::ExprId, TypeId>,
     /// The `writeType` of each assignment (simple and compound), by the
     /// assignment expression.
-    pub tipos_de_escrita: std::collections::HashMap<ast::ExprId, TypeId>,
+    pub write_types: std::collections::HashMap<ast::ExprId, TypeId>,
     /// The `PatternField.element` of each object pattern field that found a
     /// member, by the field's subpattern.
     pub field_elements: std::collections::HashMap<ast::PatternId, Resolved>,
@@ -160,24 +160,24 @@ impl UnitBodyTypes {
         Self {
             static_types: vec![fallback_type; num_exprs],
             resolved: vec![None; num_exprs],
-            tipos_de_locais: std::collections::HashMap::new(),
-            declaracoes_de_locais: std::collections::HashMap::new(),
+            local_types: std::collections::HashMap::new(),
+            local_declarations: std::collections::HashMap::new(),
             with_function_type: std::collections::HashSet::new(),
-            tipos_de_anotacoes: std::collections::HashMap::new(),
-            declaracoes_de_padroes: std::collections::HashMap::new(),
+            annotation_types: std::collections::HashMap::new(),
+            pattern_declarations: std::collections::HashMap::new(),
             invalid_types: std::collections::HashSet::new(),
             function_runtime_types: std::collections::HashMap::new(),
             instantiations: std::collections::HashMap::new(),
             tearoff_instantiations: std::collections::HashMap::new(),
-            tipos_de_padroes: std::collections::HashMap::new(),
+            pattern_types: std::collections::HashMap::new(),
             extension_fields: std::collections::HashMap::new(),
             invalid_patterns: std::collections::HashSet::new(),
-            tipos_casados: std::collections::HashMap::new(),
+            matched_types: std::collections::HashMap::new(),
             non_constant_name_patterns: std::collections::HashSet::new(),
             pattern_names: std::collections::HashMap::new(),
-            chamadas_implicitas: std::collections::HashSet::new(),
-            tipos_de_parametros: std::collections::HashMap::new(),
-            tipos_de_escrita: std::collections::HashMap::new(),
+            implicit_calls: std::collections::HashSet::new(),
+            parameter_types: std::collections::HashMap::new(),
+            write_types: std::collections::HashMap::new(),
             field_elements: std::collections::HashMap::new(),
             relational_operators: std::collections::HashMap::new(),
         }
@@ -185,7 +185,7 @@ impl UnitBodyTypes {
 
     /// The type arguments of the implicit instantiation of tear-off `e` (see
     /// [`UnitBodyTypes::tearoff_instantiations`]).
-    pub fn instanciacao_de_tearoff(&self, e: ast::ExprId) -> Option<&[TypeId]> {
+    pub fn tearoff_instantiation(&self, e: ast::ExprId) -> Option<&[TypeId]> {
         self.tearoff_instantiations.get(&e).map(|a| &**a)
     }
 
@@ -197,25 +197,25 @@ impl UnitBodyTypes {
 
     /// Type arguments of the generic call whose argument list starts at
     /// `offset` (see [`UnitBodyTypes::instantiations`]).
-    pub fn instanciacao(&self, offset: usize) -> Option<&[TypeId]> {
+    pub fn instantiation(&self, offset: usize) -> Option<&[TypeId]> {
         self.instantiations.get(&offset).map(|a| &**a)
     }
 
     /// Records the type of a local variable declared at `offset`.
     pub fn set_local_type(&mut self, offset: usize, ty: TypeId) {
-        self.tipos_de_locais.insert(offset, ty);
+        self.local_types.insert(offset, ty);
     }
 
     /// The runtime type of a generator function without a written return type,
     /// when it differs from the static one (see
     /// [`Self::function_runtime_types`]).
-    pub fn tipo_de_execucao_de_funcao(&self, f: ast::FunctionId) -> Option<TypeId> {
+    pub fn function_runtime_type(&self, f: ast::FunctionId) -> Option<TypeId> {
         self.function_runtime_types.get(&f).copied()
     }
 
     /// Type of the local variable declared at `offset` (the name's).
-    pub fn tipo_local(&self, offset: usize) -> Option<TypeId> {
-        self.tipos_de_locais.get(&offset).copied()
+    pub fn local_type(&self, offset: usize) -> Option<TypeId> {
+        self.local_types.get(&offset).copied()
     }
 
     /// Sets the static type of an expression.
@@ -240,9 +240,9 @@ impl UnitBodyTypes {
     }
 
     /// Offset of the name in the declaration of the local that `expr` references, when
-    /// inference recorded locals (see [`UnitBodyTypes::declaracoes_de_locais`]).
-    pub fn declaracao_local(&self, expr: ast::ExprId) -> Option<usize> {
-        self.declaracoes_de_locais.get(&expr).copied()
+    /// inference recorded locals (see [`UnitBodyTypes::local_declarations`]).
+    pub fn local_declaration(&self, expr: ast::ExprId) -> Option<usize> {
+        self.local_declarations.get(&expr).copied()
     }
 
     /// Gets the resolved semantic target of an expression.
@@ -258,7 +258,7 @@ pub struct BodyTypes {
     pub units: Vec<UnitBodyTypes>,
     /// The extensions chosen when resolving a member (the `ImportsTracking`'s
     /// `notifyExtensionUsed`), by the library in which the resolution happened.
-    pub extensoes_usadas: std::collections::HashSet<(dartforge_elements::model::LibraryId, dartforge_elements::model::ExtensionId)>,
+    pub used_extensions: std::collections::HashSet<(dartforge_elements::model::LibraryId, dartforge_elements::model::ExtensionId)>,
 }
 
 /// A local (variable, parameter or local function) visible at a point of
@@ -275,10 +275,10 @@ pub struct VisibleLocal {
 }
 
 /// The lexical scope captured at the probed identifier (see
-/// [`crate::BodyInferrer::sonda_escopo`]): what the LSP offers when
+/// [`crate::BodyInferrer::scope_probe`]): what the LSP offers when
 /// completing a simple name, from the same scope stack that resolves names.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct EscopoSondado {
+pub struct ProbedScope {
     /// Visible locals, from innermost to outermost; a shadowed name appears only
     /// once (the innermost declaration).
     pub locals: Vec<VisibleLocal>,

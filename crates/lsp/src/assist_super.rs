@@ -93,7 +93,7 @@ impl Context<'_> {
                 .iter()
                 .enumerate()
                 .map(|(i, p)| SuperParameter {
-                    name: p.externo.or(p.name).map(|n| self.p.name(n).to_string()).unwrap_or_default(),
+                    name: p.external_name.or(p.name).map(|n| self.p.name(n).to_string()).unwrap_or_default(),
                     named: p.kind == ParameterKind::Named,
                     ty: dartforge_types::ops::substitute(p.ty, &map, table),
                     pattern: patterns.get(i).copied().flatten(),
@@ -147,7 +147,7 @@ impl Context<'_> {
             }
             let Marca::Expr(x) = self.tree.nos[e].marca else { return None };
             let decl = match self.bodies.get_resolved(x)? {
-                Resolved::Local(_) => self.bodies.declaracao_local(x)?,
+                Resolved::Local(_) => self.bodies.local_declaration(x)?,
                 Resolved::Parameter { name, .. } => k.parameters.iter().find(|p| p.name.is_some_and(|n| n.sym == *name))?.name?.span.start,
                 _ => return None,
             };
@@ -168,7 +168,7 @@ impl Context<'_> {
                             }
                         }
                         Some(Resolved::Local(_)) => {
-                            if let Some(d) = self.bodies.declaracao_local(x)
+                            if let Some(d) = self.bodies.local_declaration(x)
                                 && let Some(&i) = map.get(&d)
                             {
                                 cited.insert(i);
@@ -196,12 +196,12 @@ impl Context<'_> {
             let pattern_range = match (p.default_value, super_p.pattern) {
                 (Some(d), Some((su, sl, se))) => {
                     let m = engine.get_or_insert_with(|| table.clone());
-                    let mut mt = dartforge_types::constantes::avaliador::Motor::novo(prog, &query.names, m, &query.core, &query.outline, &query.bodies, &self.p.libraries);
+                    let mut mt = dartforge_types::const_eval::evaluation::Engine::new(prog, &query.names, m, &query.core, &query.outline, &query.bodies, &self.p.libraries);
                     let lib = prog.unit(self.unit).library;
-                    let this = mt.avaliar(&dartforge_types::constantes::avaliador::Ctx::simples(self.unit, lib), d, true);
-                    let its = mt.avaliar(&dartforge_types::constantes::avaliador::Ctx::simples(su, sl), se, true);
-                    match (its.valor(), this.valor()) {
-                        (Some(a), Some(b)) if mt.iguais(a, b) => Some(Span { start: name_.end, end: self.ast.expr(d).span.end }),
+                    let this = mt.evaluate(&dartforge_types::const_eval::evaluation::Ctx::simple(self.unit, lib), d, true);
+                    let its = mt.evaluate(&dartforge_types::const_eval::evaluation::Ctx::simple(su, sl), se, true);
+                    match (its.value(), this.value()) {
+                        (Some(a), Some(b)) if mt.equal(a, b) => Some(Span { start: name_.end, end: self.ast.expr(d).span.end }),
                         _ => None,
                     }
                 }

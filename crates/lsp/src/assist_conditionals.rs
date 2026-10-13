@@ -334,7 +334,7 @@ impl Context<'_> {
             if self.kind(k) == "SimpleIdentifier"
                 && let crate::arvore_analyzer::Marca::Expr(x) = self.tree.nos[k].marca
                 && matches!(self.bodies.get_resolved(x), Some(dartforge_types::Resolved::Local(_)))
-                && self.bodies.declaracao_local(x) == Some(name)
+                && self.bodies.local_declaration(x) == Some(name)
             {
                 return true;
             }
@@ -353,7 +353,7 @@ impl Context<'_> {
         let variables: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) == "VariableDeclaration").collect();
         let [variable] = variables[..] else { return None };
         let name = self.next_token(self.tree.nos[variable].inicio)?;
-        self.bodies.tipos_de_locais.get(&name.start)?;
+        self.bodies.local_types.get(&name.start)?;
         let initializer = *self.children(variable).first()?;
         let final_ = self.tokens.iter().any(|t| {
             t.span.start >= self.tree.nos[list].inicio && t.span.end <= name.start && matches!(&self.source[t.span.start..t.span.end], "final" | "const")

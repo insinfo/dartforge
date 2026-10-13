@@ -2,7 +2,7 @@
 //! `flow-analysis.md` models for `if`, loops, `switch`, `try`, jumps),
 //! `return` and `yield` (collected for the inference of closures' returns).
 
-use super::body::{JumpTarget, Body, Local, Nome};
+use super::body::{JumpTarget, Body, Local, MemberName};
 use super::expr::{self, declare_local, infer, infer_free};
 use super::flow::Flow;
 use super::functions;
@@ -74,10 +74,10 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
         }
         StmtKind::While { condition, body } => {
             let the_labels = pending_labels(cx);
-            let (writes, captured) = writes_in(inf, cx, &[Parte::Expr(*condition), Parte::Stmt(*body)]);
+            let (writes, captured) = writes_in(inf, cx, &[Part::Expr(*condition), Part::Stmt(*body)]);
             cx.flow.conservative_join(&writes, &captured);
             let (vf, ff) = expr::checked_condition(inf, cx, *condition);
-            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, e_switch: false, breaks: Vec::new(), continues: Vec::new() });
+            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, is_switch: false, breaks: Vec::new(), continues: Vec::new() });
             cx.flow = vf;
             flow_branch(inf, cx, *body);
             let tgt = cx.jumps.pop().unwrap();
@@ -88,9 +88,9 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
         }
         StmtKind::DoWhile { body, condition } => {
             let the_labels = pending_labels(cx);
-            let (writes, captured) = writes_in(inf, cx, &[Parte::Expr(*condition), Parte::Stmt(*body)]);
+            let (writes, captured) = writes_in(inf, cx, &[Part::Expr(*condition), Part::Stmt(*body)]);
             cx.flow.conservative_join(&writes, &captured);
-            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, e_switch: false, breaks: Vec::new(), continues: Vec::new() });
+            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, is_switch: false, breaks: Vec::new(), continues: Vec::new() });
             branch(inf, cx, *body);
             let tgt = cx.jumps.pop().unwrap();
             let mut the_conts = vec![cx.flow.clone()];
@@ -148,12 +148,12 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 }
                 cx.dead_code = Some(usize::MAX);
             }
-            let mut parts = vec![Parte::Stmt(*body)];
+            let mut parts = vec![Part::Stmt(*body)];
             if let Some(c) = condition {
-                parts.push(Parte::Expr(*c));
+                parts.push(Part::Expr(*c));
             }
             for u in updates.iter() {
-                parts.push(Parte::Expr(*u));
+                parts.push(Part::Expr(*u));
             }
             let (writes, captured) = writes_in(inf, cx, &parts);
             cx.flow.conservative_join(&writes, &captured);
@@ -165,7 +165,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     (f, i)
                 }
             };
-            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, e_switch: false, breaks: Vec::new(), continues: Vec::new() });
+            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, is_switch: false, breaks: Vec::new(), continues: Vec::new() });
             cx.flow = vf;
             let dead_before = cx.dead_code.is_some();
             cx.dead_origin = None;
@@ -237,7 +237,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     inf.warning(DEAD_CODE.template.to_string(), Span { start: i, end: end });
                     cx.dead_code = Some(cx.flow_ends.len());
                 }
-                let (writes, captured) = writes_in(inf, cx, &[Parte::Stmt(*body)]);
+                let (writes, captured) = writes_in(inf, cx, &[Part::Stmt(*body)]);
                 cx.flow.conservative_join(&writes, &captured);
                 let before = cx.flow.clone();
                 if let Some(x) = write {
@@ -245,7 +245,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 }
                 before
             };
-            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, e_switch: false, breaks: Vec::new(), continues: Vec::new() });
+            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, is_switch: false, breaks: Vec::new(), continues: Vec::new() });
             flow_branch(inf, cx, *body);
             let tgt = cx.jumps.pop().unwrap();
             let after = cx.flow.clone();
@@ -263,7 +263,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             let mut not_matched = after_value.clone();
             // All cases match the same reference to the value (T6).
             let outer_scrutinee = cx.switch_scrutinee.replace(None);
-            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: false, e_switch: true, breaks: Vec::new(), continues: Vec::new() });
+            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: false, is_switch: true, breaks: Vec::new(), continues: Vec::new() });
             let mut has_default_value = false;
             let mut i = 0;
             // The index of the case group (those that share the body count as one).
@@ -365,7 +365,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 // written or captured in the whole `switch` (a write after the label
                 // demotes).
                 if with_label {
-                    let (writes, captured) = writes_in(inf, cx, &[Parte::Stmt(s)]);
+                    let (writes, captured) = writes_in(inf, cx, &[Part::Stmt(s)]);
                     let mut f = after_value.clone();
                     f.conservative_join(&writes, &captured);
                     cx.flow = f;
@@ -477,7 +477,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 }
                 invalid_yield(inf, cx, *value, t, declared, true, m);
                 let cls = if m == AsyncModifier::AsyncStar { inf.core.stream_class } else { inf.core.iterable_class };
-                let el = if inf.e_dynamic(t) { inf.core.dynamic_ } else { inf.as_instance_of(t, cls).map(|a| a[0]).unwrap_or(inf.core.dynamic_) };
+                let el = if inf.is_dynamic(t) { inf.core.dynamic_ } else { inf.as_instance_of(t, cls).map(|a| a[0]).unwrap_or(inf.core.dynamic_) };
                 if let Some(f) = cx.functions.last_mut() {
                     f.returned.push(el);
                 }
@@ -492,7 +492,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
         }
         StmtKind::Try { body, catches, finally_ } => {
             let before = cx.flow.clone();
-            let (writes, captured) = writes_in(inf, cx, &[Parte::Stmt(*body)]);
+            let (writes, captured) = writes_in(inf, cx, &[Part::Stmt(*body)]);
             flow_branch(inf, cx, *body);
             let after_try = cx.flow.clone();
             let mut exits = vec![after_try];
@@ -514,7 +514,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     // `on T` with `T` potentially nullable (and not invalid): a nullable
                     // value is not thrown.
                     if let Some(t) = c.on_type {
-                        if !inf.table.e_invalido(ex_type) && !inf.is_non_nullable(ex_type) {
+                        if !inf.table.is_invalid(ex_type) && !inf.is_non_nullable(ex_type) {
                             let sp = inf.program.unit(cx.unit).ast.ty(t).span;
                             inf.warning_with_code(w::NULLABLE_TYPE_IN_CATCH_CLAUSE, sp, &[]);
                         }
@@ -536,7 +536,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                                     inf.warning_with_args(
                                         w::DEAD_CODE_ON_CATCH_SUBTYPE,
                                         Span { start: c.span.start, end: end },
-                                        &[crate::exibicao::Arg::Type_(ex_type), crate::exibicao::Arg::Type_(s)],
+                                        &[crate::display::Arg::Type_(ex_type), crate::display::Arg::Type_(s)],
                                     );
                                     dead_catch = true;
                                 }
@@ -600,7 +600,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 cx.pending_labels.extend(ls);
                 infer_statement(inf, cx, *body);
             } else {
-                cx.jumps.push(JumpTarget { labels: ls, the_loop: false, e_switch: false, breaks: Vec::new(), continues: Vec::new() });
+                cx.jumps.push(JumpTarget { labels: ls, the_loop: false, is_switch: false, breaks: Vec::new(), continues: Vec::new() });
                 infer_statement(inf, cx, *body);
                 let tgt = cx.jumps.pop().unwrap();
                 let mut exits = vec![cx.flow.clone()];
@@ -744,10 +744,10 @@ fn group_joins(inf: &mut BodyInferrer<'_>, cx: &mut Body, members: &[Vec<(Symbol
             Some(if with_label { c::PATTERN_VARIABLE_SHARED_CASE_SCOPE_HAS_LABEL } else { c::PATTERN_VARIABLE_SHARED_CASE_SCOPE_NOT_ALL_CASES })
         } else {
             let first = cx.local(ids[0]).clone();
-            let typ = inf.table.canonico(first.ty);
+            let typ = inf.table.canonical(first.ty);
             let different = ids[1..].iter().any(|&id| {
                 let l = cx.local(id);
-                inf.table.canonico(l.ty) != typ || l.final_ != first.final_
+                inf.table.canonical(l.ty) != typ || l.final_ != first.final_
             });
             different.then_some(c::PATTERN_VARIABLE_SHARED_CASE_SCOPE_DIFFERENT_FINALITY_OR_TYPE)
         };
@@ -822,7 +822,7 @@ fn jump_target(cx: &mut Body, label: Option<SymbolId>, continue_: bool) -> Optio
                 }
             }
             None => {
-                if tgt.the_loop || (!continue_ && tgt.e_switch) {
+                if tgt.the_loop || (!continue_ && tgt.is_switch) {
                     return Some(tgt);
                 }
             }
@@ -859,7 +859,7 @@ fn exhaustive_switch(inf: &mut BodyInferrer<'_>, cx: &Body, t: TypeId, the_cases
     if k.kind != dartforge_elements::model::ClassKind::Enum {
         return false;
     }
-    let mut constantes: Vec<dartforge_elements::model::VariableId> = k.enum_constants.clone();
+    let mut constants: Vec<dartforge_elements::model::VariableId> = k.enum_constants.clone();
     let mut covered_null = !nullable;
     let a = &inf.program.unit(cx.unit).ast;
     let the_body = &inf.body_types.units[cx.unit.0 as usize];
@@ -881,12 +881,12 @@ fn exhaustive_switch(inf: &mut BodyInferrer<'_>, cx: &Body, t: TypeId, the_cases
             _ => None,
         };
         if let Some(v) = variable {
-            constantes.retain(|x| *x != v);
+            constants.retain(|x| *x != v);
         }
         if matches!(a.expr(e).kind, ast::ExprKind::Null) {
             covered_null = true;
         }
-        if constantes.is_empty() && covered_null {
+        if constants.is_empty() && covered_null {
             exhaustive = true;
         }
     }
@@ -956,18 +956,18 @@ fn invalid_yield(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId, r:
     let cls = if m == AsyncModifier::AsyncStar { inf.core.stream_class } else { inf.core.iterable_class };
     if the_star {
         if let Some(r) = r.filter(|&r| !inf.assignable(t, r)) {
-            inf.warning_with_args(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[crate::exibicao::Arg::Type_(t), crate::exibicao::Arg::Type_(r)]);
+            inf.warning_with_args(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[crate::display::Arg::Type_(t), crate::display::Arg::Type_(r)]);
             return;
         }
         let d = inf.core.dynamic_;
         let req = if m == AsyncModifier::AsyncStar { inf.flow_of(d) } else { inf.iterable(d) };
         if !inf.assignable(t, req) {
-            inf.warning_with_args(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[crate::exibicao::Arg::Type_(t), crate::exibicao::Arg::Type_(req)]);
+            inf.warning_with_args(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[crate::display::Arg::Type_(t), crate::display::Arg::Type_(req)]);
         }
     } else if let Some(args) = r.and_then(|r| inf.as_instance_of(r, cls)) {
         let v = args[0];
         if !inf.assignable(t, v) {
-            inf.warning_with_args(c::YIELD_OF_INVALID_TYPE, sp, &[crate::exibicao::Arg::Type_(t), crate::exibicao::Arg::Type_(v)]);
+            inf.warning_with_args(c::YIELD_OF_INVALID_TYPE, sp, &[crate::display::Arg::Type_(t), crate::display::Arg::Type_(v)]);
         }
     }
 }
@@ -983,8 +983,8 @@ fn late_initializer(inf: &mut BodyInferrer<'_>, cx: &mut Body, init: ExprId, ctx
     if cx.written_in_body.is_none() {
         let a = &inf.program.unit(cx.unit).ast;
         cx.written_in_body = Some(match cx.root {
-            super::body::Root::Funcao(f) => separately_written_names(inf, cx.unit, &a.function(f).body),
-            super::body::Root::Construtor(m) => match &a.member(m).kind {
+            super::body::Root::Function(f) => separately_written_names(inf, cx.unit, &a.function(f).body),
+            super::body::Root::Constructor(m) => match &a.member(m).kind {
                 ast::MemberKind::Constructor(c) => separately_written_names(inf, cx.unit, &c.body),
                 _ => Default::default(),
             },
@@ -1168,9 +1168,9 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
     // iterable gives `dynamic`; what is not an `Iterable`/`Stream` (including
     // `InvalidType` itself) gives `InvalidType`, and the element's uses do
     // not report anything else.
-    let el = if inf.table.e_invalido(t) {
+    let el = if inf.table.is_invalid(t) {
         t
-    } else if inf.e_dynamic(t) {
+    } else if inf.is_dynamic(t) {
         inf.core.dynamic_
     } else {
         match inf.as_instance_of(t, cls) {
@@ -1190,7 +1190,7 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
             // `for (x in e)`: assignment to an existing variable.
             let a = &inf.program.unit(cx.unit).ast;
             if let ExprKind::Identifier(n) = &a.expr(*e).kind {
-                if let Some(Nome::Local(id)) = cx.lookup(n.sym) {
+                if let Some(MemberName::Local(id)) = cx.lookup(n.sym) {
                     expr::resolver(inf, cx, *e, crate::resolved::Resolved::Local(id));
                     // `checkFinalAlreadyAssigned(identifier, isForEachIdentifier: true)`
                     // (3.6.2 `for_resolver.dart:131-136`,
@@ -1212,10 +1212,10 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
                         }
                     }
                     let decl = cx.local(id).ty;
-                    expr::registrar(inf, cx, *e, decl);
+                    expr::record_type(inf, cx, *e, decl);
                     // `DemoteViaExplicitWrite` at the identifier
                     // (`ForEachPartsWithIdentifier.identifier`).
-                    let reason = super::flow::NonPromotionReason::Escrita { nome: n.sym, span: n.span };
+                    let reason = super::flow::NonPromotionReason::Write { name: n.sym, span: n.span };
                     return Some(LoopWrite { local: id, declared: decl, written: el, reason });
                 }
             }
@@ -1243,7 +1243,7 @@ fn validate_local_annotations(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
 pub(crate) fn validate_local_annotation(inf: &mut BodyInferrer<'_>, cx: &Body, m: &ast::Annotation) {
     let Some(n1) = m.name.first() else { return };
     match cx.lookup(n1.sym) {
-        Some(Nome::Local(id)) => {
+        Some(MemberName::Local(id)) => {
             let l = cx.local(id);
             if cx.local_functions.contains(&id) || !l.const_ || m.arguments.is_some() || m.name.len() > 1 {
                 inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVALID_ANNOTATION, m.span, &[]);
@@ -1281,7 +1281,7 @@ fn for_in_invalid_type(
     // and the invalid type; the arguments are the type and always `'Iterable'`
     // (`shared_type_analyzer.dart:161-171`).
     if matches!(target, ast::ForInTarget::Pattern { .. }) {
-        if inf.e_dynamic(t) || inf.table.e_invalido(t) || inf.the_is_unknown(t) {
+        if inf.is_dynamic(t) || inf.table.is_invalid(t) || inf.the_is_unknown(t) {
             return false;
         }
         let mut b = t;
@@ -1315,7 +1315,7 @@ fn for_in_invalid_type(
     if matches!(inf.table.get(t), Type::Void | Type::Null) || inf.table.get(t).is_declared_nullable() {
         return false;
     }
-    if inf.e_dynamic(t) || inf.the_is_unknown(t) {
+    if inf.is_dynamic(t) || inf.the_is_unknown(t) {
         return !matches!(target, ast::ForInTarget::Pattern { .. });
     }
     // `resolveToBound`.
@@ -1336,7 +1336,7 @@ fn for_in_invalid_type(
     let d = inf.core.dynamic_;
     let the_required = inf.iface(Some(cls), vec![d]);
     let the_name = if await_ { "Stream" } else { "Iterable" };
-    if inf.e_dynamic(base) || matches!(inf.table.get(base), Type::Void) || base == inf.core.object_nullable {
+    if inf.is_dynamic(base) || matches!(inf.table.get(base), Type::Void) || base == inf.core.object_nullable {
         return !matches!(target, ast::ForInTarget::Pattern { .. });
     }
     let sp = inf.span_expr(cx.unit, iterable);
@@ -1351,7 +1351,7 @@ fn for_in_invalid_type(
         ast::ForInTarget::Declared { .. } => written,
         ast::ForInTarget::Expression(e) => match &inf.program.unit(cx.unit).ast.expr(*e).kind {
             ExprKind::Identifier(n) => match cx.lookup(n.sym) {
-                Some(Nome::Local(id)) => Some(cx.local(id).ty),
+                Some(MemberName::Local(id)) => Some(cx.local(id).ty),
                 _ => None,
             },
             _ => None,
@@ -1365,7 +1365,7 @@ fn for_in_invalid_type(
     let tearoff = matches!(inf.table.get(var), Type::Function { .. } | Type::FutureOr { .. })
         && matches!(inf.table.get(el), Type::Interface { .. } | Type::ExtensionType { .. } | Type::TypeParameter { .. } | Type::Intersection { .. });
     if !tearoff && !inf.assignable(el, var) {
-        inf.warning_with_args(ce::FOR_IN_OF_INVALID_ELEMENT_TYPE, sp, &[crate::exibicao::Arg::Type_(base), crate::exibicao::Arg::from(the_name), crate::exibicao::Arg::Type_(var)]);
+        inf.warning_with_args(ce::FOR_IN_OF_INVALID_ELEMENT_TYPE, sp, &[crate::display::Arg::Type_(base), crate::display::Arg::from(the_name), crate::display::Arg::Type_(var)]);
         return false;
     }
     true
@@ -1427,11 +1427,11 @@ fn return_(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: Option<ExprId>, span: d
 // Syntactic scan: written variables (assignedIn/capturedIn)
 // -------------------------------------------------------------------
 
-pub(crate) enum Parte<'a> {
+pub(crate) enum Part<'a> {
     Expr(ExprId),
     Stmt(StmtId),
     /// The body of a collection `for`/`for-in`.
-    Elemento(&'a ast::CollectionElement),
+    Element(&'a ast::CollectionElement),
 }
 
 /// A write: the name and the name's offset in the declaration it refers to,
@@ -1445,7 +1445,7 @@ pub(crate) type Write = (SymbolId, Option<usize>);
 /// The local of `cx` that the write refers to, as seen from the current
 /// point.
 pub(crate) fn write_local(cx: &Body, e: Write) -> Option<LocalId> {
-    let Some(Nome::Local(id)) = cx.lookup(e.0) else { return None };
+    let Some(MemberName::Local(id)) = cx.lookup(e.0) else { return None };
     match e.1 {
         Some(o) if cx.local(id).offset != o => None,
         _ => Some(id),
@@ -1453,13 +1453,13 @@ pub(crate) fn write_local(cx: &Body, e: Write) -> Option<LocalId> {
 }
 
 /// Locals written in the parts (and those written inside closures in them).
-pub(crate) fn writes_in(inf: &BodyInferrer<'_>, cx: &Body, parts: &[Parte<'_>]) -> (Vec<LocalId>, Vec<LocalId>) {
+pub(crate) fn writes_in(inf: &BodyInferrer<'_>, cx: &Body, parts: &[Part<'_>]) -> (Vec<LocalId>, Vec<LocalId>) {
     let mut v = Sweep::new(&inf.program.unit(cx.unit).ast);
     for p in parts {
         match p {
-            Parte::Expr(e) => v.expr(*e, false),
-            Parte::Stmt(s) => v.stmt(*s, false),
-            Parte::Elemento(el) => v.element(el, false),
+            Part::Expr(e) => v.expr(*e, false),
+            Part::Stmt(s) => v.stmt(*s, false),
+            Part::Element(el) => v.element(el, false),
         }
     }
     let ids = |es: &[Write]| -> Vec<LocalId> {
@@ -1492,8 +1492,8 @@ pub(crate) fn names_written_in_function(inf: &BodyInferrer<'_>, unit: UnitId, f:
     out
 }
 
-/// Writes in a body, separated: `(fora de literais de função, dentro de
-/// literais)`, the analyzer's `assignedVariables.anywhere.written` and
+/// Writes in a body, separated: `(outside function literals, inside
+/// literals)`, the analyzer's `assignedVariables.anywhere.written` and
 /// `.captured`.
 pub(crate) fn separately_written_names(inf: &BodyInferrer<'_>, unit: UnitId, body: &ast::FunctionBody) -> (Vec<Write>, Vec<Write>) {
     let mut v = Sweep::new(&inf.program.unit(unit).ast);

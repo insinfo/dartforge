@@ -39,7 +39,7 @@ impl Context<'_> {
         let s = self.tree.span(k);
         self.ast.types.iter().enumerate().filter(|(_, t)| t.span == s).find_map(|(i, _)| {
             let id = ast::TypeId(i as u32);
-            self.bodies.tipos_de_anotacoes.get(&id).or_else(|| self.p.query.outline.tipos_escritos.get(&(self.unit, id))).copied()
+            self.bodies.annotation_types.get(&id).or_else(|| self.p.query.outline.written_types.get(&(self.unit, id))).copied()
         })
     }
 

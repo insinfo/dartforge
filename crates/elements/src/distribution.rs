@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! <root>/bin/dartforge[.exe]
-//! <root>/lib/dartforge-distribution.json   distribution marker and version
+//! <root>/lib/dartforge-distribuicao.json   distribution marker and version
 //! <root>/lib/dart-sdk/lib/…                the Dart SDK libraries (source)
 //! <root>/lib/native_sdk/…                  the native backend overlay
 //! <root>/lib/runtime/…                     the precompiled runtime (staticlib)

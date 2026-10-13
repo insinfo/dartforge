@@ -198,9 +198,9 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     continue;
                 }
                 let is_the_param = |e: dartforge_frontend::ast::ExprId| {
-                    matches!(a.expr(e).kind, ExprKind::Identifier(_)) && sem.body.declaracao_local(e) == Some(decl)
+                    matches!(a.expr(e).kind, ExprKind::Identifier(_)) && sem.body.local_declaration(e) == Some(decl)
                 };
-                let pattern_is_the_param = |q: PatternId| sem.body.declaracoes_de_padroes.get(&q) == Some(&decl);
+                let pattern_is_the_param = |q: PatternId| sem.body.pattern_declarations.get(&q) == Some(&decl);
                 let name = interner.resolve(n.sym).to_string();
                 let mut already_assigned = false;
                 // In source order (the `RecursiveAstVisitor`).

@@ -1095,7 +1095,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(alvo) = self.redirected_target(fid) {
             let target_params = &self.ctx.outline.functions.get(alvo)?.parameters;
             let j = if p.kind == ParameterKind::Named {
-                target_params.iter().position(|sp| sp.kind == ParameterKind::Named && sp.externo == p.name.map(|n| n.sym))?
+                target_params.iter().position(|sp| sp.kind == ParameterKind::Named && sp.external_name == p.name.map(|n| n.sym))?
             } else {
                 // The positional ones come before the named ones, in the same order.
                 i
@@ -1112,7 +1112,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let alvo = if p.kind == ParameterKind::Named {
             sup_params
                 .iter()
-                .position(|sp| sp.externo == p.name.map(|n| n.sym))?
+                .position(|sp| sp.external_name == p.name.map(|n| n.sym))?
         } else {
             let k = params[..i]
                 .iter()
@@ -1195,7 +1195,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .parameters
             .iter()
             // The external name matches that of the argument (private named parameter of 3.12).
-            .map(|p| (p.externo, p.ty, p.kind))
+            .map(|p| (p.external_name, p.ty, p.kind))
             .collect();
         let mut positionals = evaluated
             .iter()
@@ -1413,7 +1413,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         .parameters
                         .iter()
                         .zip(values)
-                        .map(|(p, v)| (if p.kind == ParameterKind::Named { p.externo } else { None }, v))
+                        .map(|(p, v)| (if p.kind == ParameterKind::Named { p.external_name } else { None }, v))
                         .collect()
                 } else {
                     evaluated.to_vec()
@@ -2348,7 +2348,7 @@ mod arc_mixin_field_tests {
             let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
             let (bodies, body_diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
             for d in diags.iter().chain(&body_diags) {
-                assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
+                assert!(!dartforge_types::codes::is_compile_error(&d.message), "{d:?}");
             }
             let te = crate::erasure::compute(&program, &outline, &mut table);
             let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
@@ -2437,7 +2437,7 @@ mod arc_mixin_field_tests {
             let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
             let (bodies, body_diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
             for d in diags.iter().chain(&body_diags) {
-                assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
+                assert!(!dartforge_types::codes::is_compile_error(&d.message), "{d:?}");
             }
             let te = crate::erasure::compute(&program, &outline, &mut table);
             let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);

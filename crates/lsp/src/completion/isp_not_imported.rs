@@ -68,7 +68,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     let candidates: Vec<ExtensionId> = exported.into_iter().map(|(_, x)| x).collect();
                     let applicable = {
                         let Query { program, names, table, core, outline, .. } = &mut *self.query;
-                        dartforge_types::extensoes_aplicaveis_dentre(program, names, table, core, outline, &candidates, target)
+                        dartforge_types::applicable_extensions_among(program, names, table, core, outline, &candidates, target)
                     };
                     let library = self.library();
                     for (x, _) in applicable {

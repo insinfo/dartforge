@@ -216,3 +216,14 @@ outras já em inglês ficam.
 | `lookup_na_unidade`, `lookup_prefixed_na_unidade`, `prefixos_na_unidade` | `lookup_in_unit`, `lookup_prefixed_in_unit`, `prefixes_in_unit` |
 | `dono_da_classe`, `dono_do_grupo`, `representante(_da_classe)`, `publico`, `declaracao_publica` | `class_owner`, `group_owner`, `representative`/`class_representative`, `public`, `public_declaration` |
 | `Library { pais, escopos_de_unidade }`, `instancia_sobrepostos`, `augmentacoes` | `Library { unit_parents, unit_scopes }`, `shadowed_instance_members`, `augmentations` |
+| `types::fase_*` (`acesso`, `deprecado`, `heranca`, `genericos`, `requeridos`, `resultado`, `nao_guardar`, `nao_usados`, `estrita`…) | `types::phase_*` (`access`, `deprecated`, `inheritance`, `generics`, `required`, `result`, `do_not_store`, `unused`, `strict`…) |
+| `types::lints_tipados{,2..9}`, `achados` | `types::typed_lints{,2..9}`, `findings` |
+| `types::constantes` (`valor`, `avaliador`; `Motor`, `Constante`, `Valor`, `Estado`) | `types::const_eval` (`value`, `evaluation`; `Engine`, `Constant`, `Value`, `InstanceState`) |
+| `types::heranca::{Heranca, Membro, Nome, ProvedorDoOutline}` | `types::inheritance::{InheritanceManager, InterfaceMember, MemberName, OutlineProvider}` |
+| `types::exibicao::Exibidor`, `table::Exibicao`, `TypeTable::exibicao` | `types::display::Displayer`, `table::DisplayDecoration`, `TypeTable::decoration` |
+| `types::{despejo, limites, sobrescritas, anotacoes, auto_referencia, boas_praticas, parametros, tipos_de_extensao, variancia}` | `types::{dump, bound_checks, override_checks, annotations, self_reference, best_practices, parameters, extension_types, variance}` |
+| `EscopoSondado`, `infer_all_com_sonda`, `sonda_escopo` | `ProbedScope`, `infer_all_with_probe`, `scope_probe` |
+| `UnitBodyTypes::{tipos_escritos, tipos_de_anotacoes, tipos_casados, tipo_local, declaracao_local, …}` | `UnitBodyTypes::{written_types, annotation_types, matched_types, local_type, local_declaration, …}` |
+| `infer_bodies_das_bibliotecas(_com_unidades)`, `resolve_outline_com_unidades`, `inferir_corpos`, `corpos_da_unidade`, `corpo_no_offset` | `infer_library_bodies(_with_units)`, `resolve_outline_with_units`, `infer_bodies`, `unit_bodies`, `body_at_offset` |
+| `e_<x>` (predicados “é x”) | `is_<x>` |
+| exemplos `despejo_tipos`, `comparar_tipos`, `gravar_corpus`, `avisos`, `memoria_types`; testes `corpus_inferencia`, `inferencia_grupos` | `dump_types`, `compare_types`, `record_corpus`, `warnings`, `memory_types`; `corpus_inference`, `inference_groups` |

@@ -875,7 +875,7 @@ pub fn check(
                 DeclKind::Typedef(td) => {
                     // `_checkForTypeAliasCannotReferenceItself`.
                     let target = DeclRef { unit: u, decl: id };
-                    if dartforge_types::auto_referencia::typedef_auto_referente(program, target) {
+                    if dartforge_types::self_reference::self_referencing_typedef(program, target) {
                         cx.report(c::TYPE_ALIAS_CANNOT_REFERENCE_ITSELF, td.name.span, &[]);
                     }
                     continue;

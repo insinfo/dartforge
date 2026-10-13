@@ -140,7 +140,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                                 matches!(e.kind, ExprKind::Identifier(_))
                                     && region.start <= e.span.start
                                     && e.span.end <= region.end
-                                    && s.body.declaracao_local(ast::ExprId(j as u32)).is_some_and(|dd| param_starts.contains(&dd))
+                                    && s.body.local_declaration(ast::ExprId(j as u32)).is_some_and(|dd| param_starts.contains(&dd))
                             });
                             if !uses {
                                 report(&c::AVOID_FIELD_INITIALIZERS_IN_CONST_CLASSES, *span, &[]);

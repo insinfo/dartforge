@@ -38,7 +38,7 @@ fn module(entry: &Path) -> Result<Module, String> {
         &mut outline,
     );
     for d in diags.iter().chain(&body_diags) {
-        if dartforge_types::codes::e_erro_de_compilacao(&d.message) {
+        if dartforge_types::codes::is_compile_error(&d.message) {
             return Err(format!("tipagem: {d:?}"));
         }
     }

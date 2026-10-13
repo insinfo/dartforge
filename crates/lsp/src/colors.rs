@@ -21,8 +21,8 @@ use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, LibraryId, UnitId};
 use dartforge_frontend::ast::{self, ExprId, ExprKind};
 use dartforge_frontend::parents::{Parent, Parents};
-use dartforge_types::constantes::avaliador::{Constante, Ctx, Motor};
-use dartforge_types::constantes::valor::{Campo, Estado, Valor};
+use dartforge_types::const_eval::evaluation::{Constant, Ctx, Engine};
+use dartforge_types::const_eval::value::{Field, InstanceState, Value};
 use dartforge_types::{Resolved, Type};
 use std::collections::HashSet;
 
@@ -202,9 +202,9 @@ impl Project {
         let lib = self.program().unit(u).library;
         let value = {
             let crate::query::Query { program, names, table, core, outline, bodies, .. } = &mut self.query;
-            let mut engine = Motor::novo(program, names, table, core, outline, bodies, inferred);
-            match engine.avaliar(&Ctx::simples(u, lib), target, in_const) {
-                Constante::Valor(v) if engine.relatos.is_empty() => v,
+            let mut engine = Engine::new(program, names, table, core, outline, bodies, inferred);
+            match engine.evaluate(&Ctx::simple(u, lib), target, in_const) {
+                Constant::Value(v) if engine.reports.is_empty() => v,
                 _ => return None,
             }
         };
@@ -226,25 +226,25 @@ impl Project {
     }
 
     /// `_getSwatchColor`: the entry with key `k` of the `_swatch` field.
-    fn from_palette(&self, v: &Valor, k: i64) -> Option<Valor> {
+    fn from_palette(&self, v: &Value, k: i64) -> Option<Value> {
         let symbol = self.query.names.lookup("_swatch")?;
         let palette = field(v, symbol)?;
-        let Estado::Mapa { entradas: entries, .. } = &palette.estado else { return None };
-        entries.iter().find(|(c, _)| matches!(c.estado, Estado::Int(Some(x)) if x == k)).map(|(_, v)| v.clone())
+        let InstanceState::Map { entries, .. } = &palette.state else { return None };
+        entries.iter().find(|(c, _)| matches!(c.state, InstanceState::Int(Some(x)) if x == k)).map(|(_, v)| v.clone())
     }
 
     /// `getColorForObject`: the `color` field (if any) and `a`, `r`, `g`, `b`.
-    fn value_color(&self, v: &Valor) -> Option<Color> {
-        match self.query.table.get(v.tipo) {
+    fn value_color(&self, v: &Value) -> Option<Color> {
+        match self.query.table.get(v.ty) {
             Type::Interface { class, .. } if self.is_color(*class) => {}
             _ => return None,
         }
         let names = &self.query.names;
         let v = names.lookup("color").and_then(|s| field(v, s)).unwrap_or_else(|| v.clone());
         let d = |n: &str| -> Option<f64> {
-            match field(&v, names.lookup(n)?)?.estado {
-                Estado::Double(Some(x)) => Some(x),
-                Estado::Int(Some(x)) => Some(x as f64),
+            match field(&v, names.lookup(n)?)?.state {
+                InstanceState::Double(Some(x)) => Some(x),
+                InstanceState::Int(Some(x)) => Some(x as f64),
                 _ => None,
             }
         };
@@ -392,12 +392,12 @@ fn superficial_shape(a: &ast::Ast, e: ExprId, constructor: bool) -> Superficial 
 }
 
 /// `getFieldFromHierarchy`: the field by name, walking up through `super`.
-fn field(v: &Valor, name: dartforge_intern::SymbolId) -> Option<Valor> {
-    let Estado::Generico { campos: fields, .. } = &v.estado else { return None };
-    if let Some((_, x)) = fields.iter().find(|(c, _)| *c == Campo::Nome(name)) {
+fn field(v: &Value, name: dartforge_intern::SymbolId) -> Option<Value> {
+    let InstanceState::Generic { fields, .. } = &v.state else { return None };
+    if let Some((_, x)) = fields.iter().find(|(c, _)| *c == Field::MemberName(name)) {
         return Some(x.clone());
     }
-    let (_, sup) = fields.iter().find(|(c, _)| *c == Campo::Super)?;
+    let (_, sup) = fields.iter().find(|(c, _)| *c == Field::Super)?;
     field(sup, name)
 }
 

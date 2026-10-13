@@ -135,8 +135,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         let e = self.real_expr(target)?;
         let c = self.query_expr(e)?;
         let bodies = &self.query.bodies.units[self.unit.0 as usize];
-        if let Some(&off) = bodies.declaracoes_de_locais.get(&c)
-            && let Some(t) = bodies.tipo_local(off)
+        if let Some(&off) = bodies.local_declarations.get(&c)
+            && let Some(t) = bodies.local_type(off)
         {
             return Some(t);
         }
@@ -305,7 +305,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let (start, end) = (self.map(s.start), self.map_end(s.end));
         let ast_c = &self.query.program.unit(self.unit).ast;
         let id = ast_c.patterns.iter().position(|x| x.span.start == start && x.span.end == end)?;
-        self.query.bodies.units[self.unit.0 as usize].tipos_de_padroes.get(&ast::PatternId(id as u32)).copied()
+        self.query.bodies.units[self.unit.0 as usize].pattern_types.get(&ast::PatternId(id as u32)).copied()
     }
 
     /// `_requiredTypeOfPattern`.
@@ -316,12 +316,12 @@ impl<'a, 'c> Isp<'a, 'c> {
         match self.kind(p) {
             "AssignedVariablePattern" => {
                 let i = self.tok_after(self.start(p))?;
-                let e = self.query.bodies.units[self.unit.0 as usize].declaracoes_de_padroes.iter().find(|(pid, _)| {
+                let e = self.query.bodies.units[self.unit.0 as usize].pattern_declarations.iter().find(|(pid, _)| {
                     let s = self.query.program.unit(self.unit).ast.pattern(**pid).span;
                     s.start == self.map(self.span_tok(i).start)
                 });
                 let off = e.map(|(_, &off)| off)?;
-                self.query.bodies.units[self.unit.0 as usize].tipo_local(off)
+                self.query.bodies.units[self.unit.0 as usize].local_type(off)
             }
             "DeclaredVariablePattern" => {
                 let i = self.variable_pattern_name(p)?;

@@ -164,7 +164,7 @@ fn corresponding(ctx: &Context, fid: usize, i: usize, g: usize) -> Option<usize>
     let p = ctx.outline.functions.get(fid)?.parameters.get(i)?;
     let gp = &ctx.outline.functions.get(g)?.parameters;
     if p.kind == ParameterKind::Named {
-        gp.iter().position(|q| q.kind == ParameterKind::Named && q.externo == p.externo)
+        gp.iter().position(|q| q.kind == ParameterKind::Named && q.external_name == p.external_name)
     } else {
         (gp.get(i)?.kind != ParameterKind::Named).then_some(i)
     }
@@ -174,7 +174,7 @@ fn corresponding(ctx: &Context, fid: usize, i: usize, g: usize) -> Option<usize>
 /// `covariant`, or generic covariant of the class of `g`.
 fn covariant_in(ctx: &Context, g: usize, j: usize) -> bool {
     let Some(q) = ctx.outline.functions.get(g).and_then(|o| o.parameters.get(j)) else { return false };
-    let name = (q.kind == ParameterKind::Named).then_some(q.externo).flatten();
+    let name = (q.kind == ParameterKind::Named).then_some(q.external_name).flatten();
     let written = declared_covariant(ctx, g).iter().any(|(k, n)| match name {
         Some(x) => *n == Some(x),
         None => n.is_none() && *k == j,
@@ -323,7 +323,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for p in o.parameters.iter() {
             let x = ParameterType { ty: p.ty, subst: subst.clone() };
             if p.kind == ParameterKind::Named {
-                if let Some(n) = p.externo {
+                if let Some(n) = p.external_name {
                     t.named.push((n, x));
                 }
             } else {
@@ -407,7 +407,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut positionals = evaluated.iter().filter(|(n, _)| n.is_none()).map(|(_, v)| v.clone());
         for (i, p) in params.iter().enumerate() {
             let v = if p.kind == ParameterKind::Named {
-                evaluated.iter().find(|(n, _)| n.is_some() && *n == p.externo).map(|(_, v)| v.clone())
+                evaluated.iter().find(|(n, _)| n.is_some() && *n == p.external_name).map(|(_, v)| v.clone())
             } else {
                 positionals.next()
             };

@@ -820,7 +820,7 @@ impl Collector {
                     .parameters
                     .iter()
                     .filter_map(|p| {
-                        let n = query.name(p.externo.or(p.name)?).to_string();
+                        let n = query.name(p.external_name.or(p.name)?).to_string();
                         match p.kind {
                             ast::ParameterKind::Required => Some(n),
                             ast::ParameterKind::Named if p.required => Some(format!("{n}: ")),

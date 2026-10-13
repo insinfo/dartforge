@@ -713,18 +713,18 @@ pub fn compile_with_options<R>(
     let (bodies, body_diags) = if infer_sdk {
         let all: Vec<dartforge_elements::model::LibraryId> =
             (0..program.libraries.len() as u32).map(dartforge_elements::model::LibraryId).collect();
-        dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &all)
+        dartforge_types::infer_library_bodies(&program, &interner, &mut table, &core, &mut outline, &all)
     } else {
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline)
     };
     rel.phase("body inference", t);
     // Language errors of the 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §3)
     // and reads of locals that are not definitely assigned abort like load errors
-    // (`codes::e_erro_de_compilacao`); the rest of `types` is a warning.
+    // (`codes::is_compile_error`); the rest of `types` is a warning.
     let errors: Vec<&dartforge_diagnostics::Diagnostic> = outline_diags
         .iter()
         .chain(body_diags.iter())
-        .filter(|d| dartforge_types::codes::e_erro_de_compilacao(&d.message))
+        .filter(|d| dartforge_types::codes::is_compile_error(&d.message))
         .collect();
     if !errors.is_empty() {
         for d in &errors {

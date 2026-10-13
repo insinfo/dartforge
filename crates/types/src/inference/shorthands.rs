@@ -71,7 +71,7 @@ fn display(inf: &mut BodyInferrer<'_>, t: TypeId) -> String {
     let base = inf.non_null(base);
     // The analyzer passes the text ready-made (`getDisplayString()`, without
     // the alias).
-    inf.table.format_sem_alias(base, inf.interner, inf.program)
+    inf.table.format_without_alias(base, inf.interner, inf.program)
 }
 
 /// The declaration `D` that the context denotes (spec 3.10, "Declaration
@@ -244,7 +244,7 @@ fn name_and_span(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> (String, dartf
 /// `.the_name(args)` / `const .the_name(args)` that is a construction: the
 /// constructor of `D`, with the type arguments from the call's context.
 /// `None` when it is not a construction (a static method goes through the
-/// call's common path, which types the target through [`valor`]).
+/// call's common path, which types the target through [`value`]).
 pub(crate) fn construction(
     inf: &mut BodyInferrer<'_>,
     cx: &mut Body,
@@ -302,7 +302,7 @@ pub(crate) fn construction(
         {
             let span = inf.program.unit(cx.unit).ast.expr(e).span;
             inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
-            // The target goes through the common path (`valor`), which is not a
+            // The target goes through the common path (`value`), which is not a
             // tear-off.
             cx.reported_shorthands.insert(tgt.0);
         }

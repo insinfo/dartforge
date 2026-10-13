@@ -3,7 +3,7 @@
 //! variables, `switch` as an expression, `if-case`, declarations and
 //! assignments by pattern.
 
-use super::body::{Body, Local, Nome};
+use super::body::{Body, Local, MemberName};
 use super::expr::{self, declare_local, infer, infer_free};
 use super::flow::Flow;
 use super::members::Search;
@@ -124,9 +124,9 @@ fn implicit_named_field(inf: &BodyInferrer<'_>, cx: &Body, parent: PatternId, ch
 fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId, final_: bool, assignment: bool) {
     let a = &inf.program.unit(cx.unit).ast;
     // The matched type of each pattern, read by the constant verifier
-    // (`UnitBodyTypes::tipos_casados`); still without the pattern flow's
+    // (`UnitBodyTypes::matched_types`); still without the pattern flow's
     // promotion (T6 of the specification).
-    inf.body_types.units[cx.unit.0 as usize].tipos_casados.insert(p, t);
+    inf.body_types.units[cx.unit.0 as usize].matched_types.insert(p, t);
     match &a.pattern(p).kind {
         PatternKind::Wildcard { ty: Some(x) } => {
             let x = *x;
@@ -147,15 +147,15 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
             // With `var`, `final` or a type, it is a declaration even in an
             // assignment (`DeclaredVariablePattern`).
             if assignment && !*var_ && !f2 && ty.is_none() {
-                if let Some(Nome::Local(id)) = cx.lookup(name.sym) {
+                if let Some(MemberName::Local(id)) = cx.lookup(name.sym) {
                     super::expr::write_in_primary(inf, cx, id, name.span);
-                    if inf.registrar_locais {
+                    if inf.record_locals {
                         let offset = cx.local(id).offset;
-                        inf.body_types.units[cx.unit.0 as usize].declaracoes_de_padroes.insert(p, offset);
+                        inf.body_types.units[cx.unit.0 as usize].pattern_declarations.insert(p, offset);
                     }
                     let decl = cx.local(id).ty;
                     let mut f = std::mem::replace(&mut cx.flow, Flow::reachable());
-                    let reason = super::flow::NonPromotionReason::Escrita { nome: name.sym, span: name.span };
+                    let reason = super::flow::NonPromotionReason::Write { name: name.sym, span: name.span };
                     inf.assign_flow(&mut f, id, decl, t, Some(reason));
                     cx.flow = f;
                 }
@@ -212,7 +212,7 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
         PatternKind::List { type_args, elements } => {
             let el = if let Some(x) = type_args.first() {
                 inf.type_argument_type(cx, *x)
-            } else if inf.e_dynamic(t) {
+            } else if inf.is_dynamic(t) {
                 inf.core.dynamic_
             } else {
                 inf.as_instance_of(t, inf.core.list_class).map(|a| a[0]).unwrap_or(inf.core.object_nullable)
@@ -242,7 +242,7 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
         PatternKind::Map { type_args, entries, .. } => {
             let (k, v) = if type_args.len() == 2 {
                 (inf.type_argument_type(cx, type_args[0]), inf.type_argument_type(cx, type_args[1]))
-            } else if inf.e_dynamic(t) {
+            } else if inf.is_dynamic(t) {
                 (inf.core.dynamic_, inf.core.dynamic_)
             } else {
                 match inf.as_instance_of(t, inf.core.map_class) {
@@ -280,7 +280,7 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
                     }
                     _ => None,
                 };
-                let ft = ft.unwrap_or(if inf.e_dynamic(t) { inf.core.dynamic_ } else { inf.core.object_nullable });
+                let ft = ft.unwrap_or(if inf.is_dynamic(t) { inf.core.dynamic_ } else { inf.core.object_nullable });
                 type_check(inf, cx, x, ft, final_, assignment);
             }
         }
@@ -323,12 +323,12 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
 }
 
 /// Stores the pattern's type for exhaustiveness (see
-/// [`crate::resolved::UnitBodyTypes::tipos_de_padroes`]); a written type that
+/// [`crate::resolved::UnitBodyTypes::pattern_types`]); a written type that
 /// does not resolve (it is `dynamic` without being `dynamic`) marks the
 /// pattern as invalid, like the analyzer's `InvalidType`.
 fn record_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId, invalid: bool) {
     let b = &mut inf.body_types.units[cx.unit.0 as usize];
-    b.tipos_de_padroes.insert(p, t);
+    b.pattern_types.insert(p, t);
     if invalid {
         b.invalid_patterns.insert(p);
     }
@@ -337,7 +337,7 @@ fn record_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: T
 /// The annotation `x`, resolved to `r`, does not resolve: `dynamic` without
 /// having been written `dynamic`.
 fn invalid_annotation(inf: &BodyInferrer<'_>, cx: &Body, x: ast::TypeId, r: TypeId) -> bool {
-    if !inf.e_dynamic(r) {
+    if !inf.is_dynamic(r) {
         return false;
     }
     match &inf.program.unit(cx.unit).ast.ty(x).kind {
@@ -361,7 +361,7 @@ fn never_matches(inf: &mut BodyInferrer<'_>, cx: &Body, matched: TypeId, the_req
     inf.warning_with_args(
         dartforge_diagnostics::codes::warning::PATTERN_NEVER_MATCHES_VALUE_TYPE,
         span,
-        &[crate::exibicao::Arg::Type_(matched), crate::exibicao::Arg::Type_(the_required)],
+        &[crate::display::Arg::Type_(matched), crate::display::Arg::Type_(the_required)],
     );
 }
 
@@ -391,12 +391,12 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
     }
     let left = inf.non_null(left);
     let right = inf.non_null(right);
-    let e_function = |inf: &BodyInferrer<'_>, c: ClassId| Some(c) == inf.core.function_class;
-    let e_object = |inf: &BodyInferrer<'_>, c: ClassId| Some(c) == inf.core.object_class;
-    let e_record = |inf: &BodyInferrer<'_>, c: ClassId| inf.interner.resolve(inf.program.class(c).name) == "Record" && inf.program.library(inf.program.class(c).library).is_sdk;
+    let is_function = |inf: &BodyInferrer<'_>, c: ClassId| Some(c) == inf.core.function_class;
+    let is_object = |inf: &BodyInferrer<'_>, c: ClassId| Some(c) == inf.core.object_class;
+    let is_record = |inf: &BodyInferrer<'_>, c: ClassId| inf.interner.resolve(inf.program.class(c).name) == "Record" && inf.program.library(inf.program.class(c).library).is_sdk;
     match (inf.table.get(left).clone(), inf.table.get(right).clone()) {
-        (Type::Function { .. }, Type::Interface { class, .. }) => return e_function(inf, class) || e_object(inf, class),
-        (Type::Interface { class, .. }, Type::Function { .. }) => return e_function(inf, class) || e_object(inf, class),
+        (Type::Function { .. }, Type::Interface { class, .. }) => return is_function(inf, class) || is_object(inf, class),
+        (Type::Interface { class, .. }, Type::Function { .. }) => return is_function(inf, class) || is_object(inf, class),
         _ => {}
     }
     if let Type::FutureOr { arg, .. } = inf.table.get(left).clone() {
@@ -419,8 +419,8 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
         // (`v1<String>()` is `A<String>`) is a subtype of the right one (3.6.2
         // `type_system.dart:221-229`).
         if inf.program.class(lc).kind == dartforge_elements::model::ClassKind::Enum {
-            let constantes = inf.program.class(lc).enum_constants.clone();
-            return constantes.into_iter().any(|v| {
+            let constants = inf.program.class(lc).enum_constants.clone();
+            return constants.into_iter().any(|v| {
                 let t = inf.variable_type(v);
                 inf.sub(t, right)
             });
@@ -461,7 +461,7 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
     match (inf.table.get(left).clone(), inf.table.get(right).clone()) {
         (Type::Record { .. }, Type::Function { .. }) | (Type::Function { .. }, Type::Record { .. }) => return false,
         (Type::Record { .. }, Type::Interface { class, .. }) | (Type::Interface { class, .. }, Type::Record { .. }) => {
-            return e_object(inf, class) || e_record(inf, class);
+            return is_object(inf, class) || is_record(inf, class);
         }
         (Type::Record { positional: lp, named: ln, .. }, Type::Record { positional: rp, named: rn, .. }) => {
             if lp.len() != rp.len() || ln.len() != rn.len() {
@@ -538,7 +538,7 @@ fn object_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, ty: ast::TypeId, m
             };
             if let Some(Element::Class(c)) = binding.and_then(|b| b.getter) {
                 let params = inf.outline.classes[c.0 as usize].type_params.clone();
-                if !params.is_empty() && !inf.e_dynamic(matched) {
+                if !params.is_empty() && !inf.is_dynamic(matched) {
                     let this = inf.class_this_type(c);
                     let mut gi = GenericInferrer::new(&params);
                     let mut env = inf.env();
@@ -594,7 +594,7 @@ fn matched_type(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) 
 }
 
 /// `case p when g`: types the pattern and the guard, returns
-/// `(matched, não matched)`. `scrutinee`: the matched expression; a promotable
+/// `(matched, not matched)`. `scrutinee`: the matched expression; a promotable
 /// variable is promoted to the matched type on the matching branch, before
 /// the guard (R-FLU-14).
 pub(crate) fn case(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId, guard: Option<ExprId>, scrutinee: Option<ExprId>) -> (Flow, Flow) {
@@ -703,7 +703,7 @@ pub(crate) fn pattern_assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
     }
     let local = match &inf.program.unit(cx.unit).ast.pattern(q).kind {
         PatternKind::Variable { name, ty: None, .. } => match cx.lookup(name.sym) {
-            Some(Nome::Local(id)) => Some(id),
+            Some(MemberName::Local(id)) => Some(id),
             _ => None,
         },
         _ => None,
@@ -734,7 +734,7 @@ fn assignment_schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
     let a = &inf.program.unit(cx.unit).ast;
     match &a.pattern(p).kind {
         PatternKind::Variable { name, ty: None, .. } => match cx.lookup(name.sym) {
-            Some(Nome::Local(id)) => cx.local(id).ty,
+            Some(MemberName::Local(id)) => cx.local(id).ty,
             _ => inf.core.unknown,
         },
         PatternKind::Record { fields } => {

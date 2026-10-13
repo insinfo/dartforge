@@ -29,7 +29,7 @@ pub(crate) struct Local {
 
 /// What a name resolves to in a block scope.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Nome {
+pub(crate) enum MemberName {
     Local(LocalId),
     TypeParam(TypeParamId),
     /// A local declared further ahead in the same block: the block's scope
@@ -76,18 +76,18 @@ pub(crate) struct FunctionCtx {
 #[derive(Debug, Clone)]
 pub(crate) struct Executable {
     pub kind: ExecutableKind,
-    pub nome: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutableKind {
     /// Named top-level or local function, and getters/setters (top-level or
     /// class ones): a `PropertyAccessorElement` counts as a function.
-    Funcao,
+    Function,
     /// Method or operator of a class or extension.
     Method,
     /// Factory constructor.
-    Construtor,
+    Constructor,
 }
 
 /// Inference state of a body.
@@ -101,7 +101,7 @@ pub(crate) struct Body {
     pub locals: Vec<Local>,
     /// Declarations of local functions (distinct from final variables with a function type).
     pub local_functions: HashSet<LocalId>,
-    pub scopes: Vec<Vec<(SymbolId, Nome)>>,
+    pub scopes: Vec<Vec<(SymbolId, MemberName)>>,
     pub flow: Flow,
     pub functions: Vec<FunctionCtx>,
     pub cascades: Vec<TypeId>,
@@ -174,18 +174,18 @@ pub(crate) struct Body {
     /// `DotShorthand` expression (see `atalhos`).
     pub shorthand_context: HashMap<u32, TypeId>,
     /// `DotShorthand` roots of an invocation whose error was already reported
-    /// (`shorthands::construction`): the target's [`super::shorthands::valor`] does not report again.
+    /// (`shorthands::construction`): the target's [`super::shorthands::value`] does not report again.
     pub reported_shorthands: std::collections::HashSet<u32>,
     /// Names written anywhere in the top-level body: inside a closure they do
     /// not stay promoted (`functionExpression_begin` does the conservative join
     /// with `assignedVariables.anywhere`).
     /// Computed at the first closure (most bodies have none).
-    /// `(written_ones outside de literais, written_ones dentro de literais)` of the member.
+    /// `(written_ones outside de literals, written_ones dentro de literals)` of the member.
     pub written_in_body: Option<(Vec<super::statements::Write>, Vec<super::statements::Write>)>,
     /// The top-level body, for computing `written_in_body` on demand.
     pub root: Root,
     /// Promotable properties (Dart 3.2) already referenced:
-    /// `(base, versão de escrita da base, name) -> local sintético` that carries
+    /// `(base, write version of the base, name) -> synthetic local` that carries
     /// the property's flow model (the `_promotableProperties` of the base's SSA
     /// node).
     pub fields: HashMap<(Base, u32, SymbolId), LocalId>,
@@ -200,7 +200,7 @@ pub(crate) struct Body {
     pub local_this: Option<LocalId>,
     /// Flows from before each `?.` of the chains in progress.
     pub chains: Vec<super::flow::Flow>,
-    /// Condition variables (§7.10): `(true_, false_, versão)` of the value
+    /// Condition variables (§7.10): `(true_, false_, version)` of the value
     /// written to the variable, restored when it is read as a condition.
     pub conditions: HashMap<LocalId, (Flow, Flow, u32)>,
     /// Explicit extension overrides (`E(x)`, R-EXT-02): the call `E(x)` → the
@@ -249,8 +249,8 @@ pub(crate) enum Base {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Root {
     Nothing,
-    Funcao(ast::FunctionId),
-    Construtor(ast::MemberId),
+    Function(ast::FunctionId),
+    Constructor(ast::MemberId),
 }
 
 /// Jump destination.
@@ -258,7 +258,7 @@ pub(crate) struct JumpTarget {
     pub labels: Vec<SymbolId>,
     /// It is a loop or a `switch` (target of an unlabeled `break`/`continue`).
     pub the_loop: bool,
-    pub e_switch: bool,
+    pub is_switch: bool,
     pub breaks: Vec<Flow>,
     pub continues: Vec<Flow>,
 }
@@ -325,7 +325,7 @@ impl Body {
             let ps = inf.outline.classes[c.0 as usize].type_params.clone();
             for p in ps.iter() {
                 let name = inf.table.param(*p).name;
-                cx.scopes[0].push((name, Nome::TypeParam(*p)));
+                cx.scopes[0].push((name, MemberName::TypeParam(*p)));
             }
             if !static_ {
                 cx.this_type = Some(inf.class_this_type(c));
@@ -334,7 +334,7 @@ impl Body {
             let ps = inf.outline.extensions[e.0 as usize].type_params.clone();
             for p in ps.iter() {
                 let name = inf.table.param(*p).name;
-                cx.scopes[0].push((name, Nome::TypeParam(*p)));
+                cx.scopes[0].push((name, MemberName::TypeParam(*p)));
             }
             if !static_ {
                 cx.this_type = Some(inf.outline.extensions[e.0 as usize].on);
@@ -404,7 +404,7 @@ impl Body {
             return id;
         }
         if let Some(e) = self.scopes.last_mut() {
-            e.push((name, Nome::Local(id)));
+            e.push((name, MemberName::Local(id)));
         }
         self.flow.declare(id);
         id
@@ -416,7 +416,7 @@ impl Body {
             return;
         }
         if let Some(e) = self.scopes.last_mut() {
-            e.push((name, Nome::Forward(span)));
+            e.push((name, MemberName::Forward(span)));
         }
     }
 
@@ -476,12 +476,12 @@ impl Body {
 
     pub fn declare_type_param(&mut self, name: SymbolId, p: TypeParamId) {
         if let Some(e) = self.scopes.last_mut() {
-            e.push((name, Nome::TypeParam(p)));
+            e.push((name, MemberName::TypeParam(p)));
         }
     }
 
     /// A name in the block scopes (from the innermost outwards).
-    pub fn lookup(&self, name: SymbolId) -> Option<Nome> {
+    pub fn lookup(&self, name: SymbolId) -> Option<MemberName> {
         for e in self.scopes.iter().rev() {
             for (n, r) in e.iter().rev() {
                 if *n == name {
@@ -505,15 +505,15 @@ impl Body {
         for e in self.scopes.iter() {
             for (n, r) in e.iter() {
                 match r {
-                    Nome::TypeParam(_) => {
+                    MemberName::TypeParam(_) => {
                         m.remove(n);
                     }
-                    Nome::Local(id) => {
+                    MemberName::Local(id) => {
                         let l = &self.locals[id.0 as usize];
                         let start = l.offset;
                         m.insert(*n, (dartforge_diagnostics::Span { start: start, end: start + interner.resolve(*n).len() }, false));
                     }
-                    Nome::Forward(s) => {
+                    MemberName::Forward(s) => {
                         m.insert(*n, (*s, true));
                     }
                 }
@@ -528,13 +528,13 @@ impl Body {
         for e in self.scopes.iter() {
             for (n, r) in e.iter() {
                 match r {
-                    Nome::TypeParam(p) => {
+                    MemberName::TypeParam(p) => {
                         m.insert(*n, *p);
                     }
-                    Nome::Local(_) => {
+                    MemberName::Local(_) => {
                         m.remove(n);
                     }
-                    Nome::Forward(_) => {}
+                    MemberName::Forward(_) => {}
                 }
             }
         }
@@ -543,9 +543,9 @@ impl Body {
 
     /// The lexical scope at this point, for the LSP probe: each name once, by
     /// the innermost declaration (the same order as [`Body::buscar`]).
-    pub fn visible_scope(&self) -> crate::resolved::EscopoSondado {
+    pub fn visible_scope(&self) -> crate::resolved::ProbedScope {
         let mut seen: HashSet<SymbolId> = HashSet::new();
-        let mut output = crate::resolved::EscopoSondado {
+        let mut output = crate::resolved::ProbedScope {
             class: self.class,
             extension: self.extension,
             the_static: self.the_static,
@@ -559,7 +559,7 @@ impl Body {
                     continue;
                 }
                 match r {
-                    Nome::Local(id) => {
+                    MemberName::Local(id) => {
                         let l = self.local(*id);
                         output.locals.push(crate::resolved::VisibleLocal {
                             name: l.name,
@@ -568,9 +568,9 @@ impl Body {
                             function: self.local_functions.contains(id),
                         });
                     }
-                    Nome::TypeParam(p) => output.type_parameters.push((*n, *p)),
+                    MemberName::TypeParam(p) => output.type_parameters.push((*n, *p)),
                     // Declared ahead: it cannot be used here yet.
-                    Nome::Forward(_) => {}
+                    MemberName::Forward(_) => {}
                 }
             }
         }

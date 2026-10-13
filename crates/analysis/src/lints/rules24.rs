@@ -41,7 +41,7 @@ fn untyped_patterns(s: &super::Semantics<'_>, a: &Ast, p: PatternId, out: &mut V
         let PatternKind::Variable { ty, .. } = &a.pattern(x).kind else { continue };
         let untyped = match ty {
             None => true,
-            Some(t) => s.body.tipos_de_anotacoes.get(t).is_none_or(|t| matches!(s.table.get(*t), Type::Dynamic | Type::Null)),
+            Some(t) => s.body.annotation_types.get(t).is_none_or(|t| matches!(s.table.get(*t), Type::Dynamic | Type::Null)),
         };
         if untyped {
             out.push(a.pattern(x).span);
@@ -66,7 +66,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         let is_obvious = |e: ExprId| super::obvious::has_obvious_type(s, interner, a, e);
         let list = |l: &dartforge_frontend::ast::VariableList, start: usize, findings: &mut Vec<Span>| {
             if let Some(t) = l.ty
-                && s.body.tipos_de_anotacoes.get(&t).is_some_and(|x| !matches!(table.get(*x), Type::Null))
+                && s.body.annotation_types.get(&t).is_some_and(|x| !matches!(table.get(*x), Type::Null))
             {
                 return;
             }
@@ -99,7 +99,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     list(l, start_pos, &mut findings);
                 }
                 StmtKind::ForIn { target: ForInTarget::Declared { ty, name, .. }, iterable, .. } => {
-                    let typed = ty.and_then(|t| s.body.tipos_de_anotacoes.get(&t)).is_some_and(|x| !matches!(table.get(*x), Type::Dynamic));
+                    let typed = ty.and_then(|t| s.body.annotation_types.get(&t)).is_some_and(|x| !matches!(table.get(*x), Type::Dynamic));
                     if typed || is_obvious(*iterable) {
                         continue;
                     }
@@ -180,14 +180,14 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                         if !matches!(a.expr(*target).kind, ExprKind::Identifier(_)) {
                             continue;
                         }
-                        let Some(&write_type) = s.body.tipos_de_escrita.get(&x) else { continue };
+                        let Some(&write_type) = s.body.write_types.get(&x) else { continue };
                         if !is_string(write_type) {
                             continue;
                         }
                         if matches!(op, AssignOp::Compound(_)) {
                             // Is the written element a local of the body?
                             let local = match s.body.get_resolved(*target) {
-                                Some(Resolved::Local(_)) => s.body.declaracao_local(*target).is_some_and(|d| locals.contains(&d)),
+                                Some(Resolved::Local(_)) => s.body.local_declaration(*target).is_some_and(|d| locals.contains(&d)),
                                 _ => false,
                             };
                             if !local {

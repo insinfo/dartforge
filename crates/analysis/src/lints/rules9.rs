@@ -332,10 +332,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     let Some(v) = synthetic_field(*target) else { return false };
                     let Some([param]) = setter.parameters.as_deref() else { return false };
                     let same_type = match (super::variable_type(s, v), s.body.get_type(*value)) {
-                        (Some(x), Some(y)) => s.table.canonico(x) == s.table.canonico(y),
+                        (Some(x), Some(y)) => s.table.canonical(x) == s.table.canonical(y),
                         _ => false,
                     };
-                    same_type && param.name.is_some_and(|n| s.body.declaracao_local(*value) == Some(n.span.start))
+                    same_type && param.name.is_some_and(|n| s.body.local_declaration(*value) == Some(n.span.start))
                 });
                 if returns_field && assigns_field && let Some(n) = getter.name {
                     findings.push(n.span);
@@ -365,7 +365,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 let Some(class_id) = super::member_class(s, m) else { continue };
                 // The constructor parameter that the expression reads.
                 let param = |e: ExprId| -> Option<&ast::Parameter> {
-                    let decl = s.body.declaracao_local(e)?;
+                    let decl = s.body.local_declaration(e)?;
                     k.parameters.iter().find(|p| p.name.is_some_and(|n| n.span.start == decl))
                 };
                 if let FunctionBody::Block(body) = &k.body

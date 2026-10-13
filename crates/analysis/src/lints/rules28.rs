@@ -48,7 +48,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     }
     let comments = Comments::scan(source);
     let is_private = |n: SymbolId| interner.resolve(n).starts_with('_');
-    let is_internal = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
+    let is_internal = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, interner, s.unit, m, "meta", "internal"));
     let is_documented = |metadata: &[Annotation], pos: usize| doc_for(source, &comments, metadata, pos).is_some();
     let class_of_decl = |d: DeclId| -> Option<ClassId> {
         (0..program.classes.len()).map(|i| ClassId(i as u32)).find(|c| program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))

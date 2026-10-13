@@ -40,7 +40,7 @@ fn is_method_invocation(s: &super::Semantics<'_>, a: &Ast, callee: ExprId) -> bo
         Some(Resolved::Element(Element::Function(f))) => not_getter(*f),
         Some(Resolved::Element(_)) => false,
         Some(Resolved::ExtensionMember { member, .. }) => not_getter(*member),
-        Some(Resolved::Local(_)) => s.body.declaracao_local(callee).is_some_and(|d| {
+        Some(Resolved::Local(_)) => s.body.local_declaration(callee).is_some_and(|d| {
             a.stmts.iter().any(|x| matches!(&x.kind, StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == d)))
         }),
         Some(Resolved::Parameter { .. }) => false,
@@ -70,7 +70,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             matches!(table.get(r), Type::Interface { class, .. } if Some(*class) == s.core.future_class) || matches!(table.get(r), Type::FutureOr { .. })
         };
         let written_future = |t: Option<dartforge_frontend::ast::TypeId>| {
-            t.and_then(|t| s.body.tipos_de_anotacoes.get(&t).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, t)).copied())).is_some_and(is_future)
+            t.and_then(|t| s.body.annotation_types.get(&t).copied().or_else(|| s.outline.written_types.get(&(s.unit, t)).copied())).is_some_and(is_future)
         };
         let is_async = |m: AsyncModifier| matches!(m, AsyncModifier::Async | AsyncModifier::AsyncStar);
         // The checked bodies: (region, ok).
@@ -215,7 +215,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                             continue;
                         }
                         let Some(n) = f.name else { continue };
-                        let ty = f.return_type.and_then(|t| s.outline.tipos_escritos.get(&(s.unit, t)).copied());
+                        let ty = f.return_type.and_then(|t| s.outline.written_types.get(&(s.unit, t)).copied());
                         if interner.resolve(n.sym).starts_with('_') || inherited(n.sym) || ty.is_some_and(|t| super::rules20::is_widget_property(s, interner, t, 0)) {
                             continue;
                         }

@@ -285,7 +285,7 @@ impl Context<'_> {
             return None;
         }
         let table = &query.table;
-        let dynamic = matches!(table.get(ty), Type::Dynamic) || table.e_invalido(ty);
+        let dynamic = matches!(table.get(ty), Type::Dynamic) || table.is_invalid(ty);
         let mut arguments: Option<Vec<TypeId>> = None;
         let mut constructor_name = "";
         let id = if matches!(table.get(ty), Type::Function { .. }) {
@@ -507,7 +507,7 @@ impl Context<'_> {
                 node.especie == "SimpleIdentifier"
                     && node.inicio >= self.tree.nos[body].inicio
                     && node.fim <= self.tree.nos[body].fim
-                    && matches!(node.marca, crate::arvore_analyzer::Marca::Expr(x) if self.bodies.declaracao_local(x) == Some(name.start))
+                    && matches!(node.marca, crate::arvore_analyzer::Marca::Expr(x) if self.bodies.local_declaration(x) == Some(name.start))
             });
             if used {
                 return None;

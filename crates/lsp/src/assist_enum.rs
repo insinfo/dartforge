@@ -13,8 +13,8 @@ use crate::refactorings_exec::{Text, ONE_INDENT};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{FunctionElementId, VariableId, VariableRef};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind};
-use dartforge_types::constantes::avaliador::Motor;
-use dartforge_types::constantes::valor::{Campo, Estado, Valor};
+use dartforge_types::const_eval::evaluation::Engine;
+use dartforge_types::const_eval::value::{Field, InstanceState, Value};
 use dartforge_types::{Resolved, Type};
 use std::collections::HashSet;
 
@@ -126,8 +126,8 @@ impl Context<'_> {
             prog.class(class_).fields.iter().copied().find(|&v| prog.variable(v).node == VariableRef::Field { unit: self.unit, member: m, index: j })
         };
         let mut table = query.table.clone();
-        let mut engine = Motor::novo(prog, &query.names, &mut table, &query.core, &query.outline, &query.bodies, &self.p.libraries);
-        let mut groups: Vec<(Valor, Vec<ConstantField>)> = Vec::new();
+        let mut engine = Engine::new(prog, &query.names, &mut table, &query.core, &query.outline, &query.bodies, &self.p.libraries);
+        let mut groups: Vec<(Value, Vec<ConstantField>)> = Vec::new();
         let mut index_field: Option<ClassField> = None;
         for (i, &m) in k.members.iter().enumerate() {
             let MemberKind::Field(l) = &self.ast.member(m).kind else { continue };
@@ -158,14 +158,14 @@ impl Context<'_> {
                     if prog.function(f).factory || prog.function(f).class != Some(class_) {
                         continue;
                     }
-                    let Some(value) = engine.valor_de_variavel(var).and_then(|c| c.valor().cloned()) else { continue };
+                    let Some(value) = engine.variable_value(var).and_then(|c| c.value().cloned()) else { continue };
                     if l.variables.len() != 1 {
                         return None;
                     }
                     // `fieldValue.getField('index')?.toIntValue() ?? -1`.
-                    let index = match &value.estado {
-                        Estado::Generico { campos: fields, .. } => fields.iter().find_map(|(c, x)| match (c, &x.estado) {
-                            (Campo::Nome(s), Estado::Int(Some(n))) if self.p.name(*s) == "index" => Some(*n),
+                    let index = match &value.state {
+                        InstanceState::Generic { fields, .. } => fields.iter().find_map(|(c, x)| match (c, &x.state) {
+                            (Field::MemberName(s), InstanceState::Int(Some(n))) if self.p.name(*s) == "index" => Some(*n),
                             _ => None,
                         }),
                         _ => None,
@@ -180,7 +180,7 @@ impl Context<'_> {
                     };
                     let mut found = None;
                     for (g, (key, _)) in groups.iter().enumerate() {
-                        if engine.iguais(key, &value) {
+                        if engine.equal(key, &value) {
                             found = Some(g);
                             break;
                         }

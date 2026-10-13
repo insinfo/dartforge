@@ -785,7 +785,7 @@ fn members(rel: &mut Reporter<'_>, ast: &Ast, ctx: &mut DeclContext) {
 
 /// `_checkClassStatic` / `_checkExtensionStatic`: a static member with the
 /// name of an instance member declared there. (The `_checkEnumStatic`, through
-/// the enum's interface, is `types::sobrescritas::estaticos_de_enum`.)
+/// the enum's interface, is `types::override_checks::enum_statics`.)
 fn unit_statics(rel: &mut Reporter<'_>, u: &Unidade<'_>, contexts: &[DeclContext], elements: &HashMap<ElementKey, Scopes>) {
     let empty = Scopes::default();
     for ctx in contexts {

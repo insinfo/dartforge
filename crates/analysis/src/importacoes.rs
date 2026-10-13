@@ -6,8 +6,8 @@
 //!
 //! The use is the analyzer's tracking (`ImportsTrackingOfPrefix`), done over
 //! the unit's lexical lookups with the local and member scopes of
-//! `dartforge_types::anotacoes::sombreado`, and the extensions chosen during
-//! member resolution (`BodyTypes::extensoes_usadas`); see [`unused`].
+//! `dartforge_types::annotations::is_shadowed`, and the extensions chosen during
+//! member resolution (`BodyTypes::used_extensions`); see [`unused`].
 
 use dartforge_diagnostics::codes::{compile_time_error as c, warning as w};
 use dartforge_diagnostics::Diagnostic;
@@ -424,7 +424,7 @@ pub fn nomes_usados_do_import(program: &Program, u: dartforge_elements::model::U
     };
     let mut names: Vec<SymbolId> = Vec::new();
     let is_prefix = |a: &dartforge_frontend::ast::Ast, pos: usize, p: SymbolId| {
-        prefixes.contains(&p) && !declared.contains_key(&p) && !dartforge_types::anotacoes::sombreado(a, interner, pos, p)
+        prefixes.contains(&p) && !declared.contains_key(&p) && !dartforge_types::annotations::is_shadowed(a, interner, pos, p)
     };
     let unit = program.unit(u);
     unit_lookups(unit, interner, &is_prefix, &|p| prefixes.contains(&p) && !declared.contains_key(&p), &mut |b| {
@@ -484,7 +484,7 @@ fn unit_lookups(
     for (k, e) in a.exprs.iter().enumerate() {
         if let ExprKind::Identifier(n) = &e.kind
             && !from_prefix.contains(&dartforge_frontend::ast::ExprId(k as u32))
-            && !dartforge_types::anotacoes::sombreado(a, interner, n.span.start, n.sym)
+            && !dartforge_types::annotations::is_shadowed(a, interner, n.span.start, n.sym)
         {
             f(Lookup::Name(n.sym));
         }
@@ -495,7 +495,7 @@ fn unit_lookups(
             match &name[..] {
                 [p, n, ..] if is_prefix(a, p.span.start, p.sym) => f(Lookup::Prefixed(p.sym, n.sym)),
                 [n, ..] => {
-                    if !dartforge_types::anotacoes::sombreado(a, interner, n.span.start, n.sym) {
+                    if !dartforge_types::annotations::is_shadowed(a, interner, n.span.start, n.sym) {
                         f(Lookup::Name(n.sym));
                     }
                 }
@@ -508,7 +508,7 @@ fn unit_lookups(
         match &m.name[..] {
             [p, n, ..] if is_prefix(a, m.span.start, p.sym) => f(Lookup::Prefixed(p.sym, n.sym)),
             [n, ..] => {
-                if !dartforge_types::anotacoes::sombreado(a, interner, m.span.start, n.sym) {
+                if !dartforge_types::annotations::is_shadowed(a, interner, m.span.start, n.sym) {
                     f(Lookup::Name(n.sym));
                 }
             }
@@ -517,7 +517,7 @@ fn unit_lookups(
     }
     // The loose name in a refutable pattern: a constant pattern.
     for n in pattern_constants(a) {
-        if !dartforge_types::anotacoes::sombreado(a, interner, n.span.start, n.sym) {
+        if !dartforge_types::annotations::is_shadowed(a, interner, n.span.start, n.sym) {
             f(Lookup::Name(n.sym));
         }
     }
@@ -528,7 +528,7 @@ fn unit_lookups(
         for parts in doc_references(&source[doc.start..doc.end]) {
             let simbolos: Vec<Option<SymbolId>> = parts.iter().map(|x| interner.lookup(x)).collect();
             let Some(first) = simbolos[0] else { continue };
-            if extras.contains(&first) || dartforge_types::anotacoes::sombreado(a, interner, pos, first) {
+            if extras.contains(&first) || dartforge_types::annotations::is_shadowed(a, interner, pos, first) {
                 continue;
             }
             let prefix = simple_prefix(first);
@@ -691,12 +691,12 @@ fn doc_references(text: &str) -> Vec<Vec<String>> {
 /// `generateUnusedShownNameHints` and `generateUnnecessaryImportHints`, over
 /// the analyzer's usage tracking (`ImportsTrackingOfPrefix`,
 /// `dart/element/scope.dart`): each lexical lookup of a name that does not
-/// stop at a local or member scope (`anotacoes::sombreado`) nor at the
+/// stop at a local or member scope (`annotations::is_shadowed`) nor at the
 /// library's declarations (or at a prefix) and reaches the import scope marks,
 /// in each unprefixed import that provides the name, the getter and setter
 /// found; `p.x` marks the imports of prefix `p` (a `deferred` prefix's
 /// `loadLibrary` does not mark); the extension chosen in a member resolution
-/// (`BodyTypes::extensoes_usadas`) marks the imports that provide it. The
+/// (`BodyTypes::used_extensions`) marks the imports that provide it. The
 /// lookups: expression identifiers, type names, annotation names, loose
 /// constant patterns and documentation comment references (in the scope of
 /// the documented declaration); `[p]` of a prefix in a comment frees its
@@ -768,7 +768,7 @@ pub fn unused(
     };
     // `p` is a prefix at that place (neither shadowed nor declared).
     let is_prefix = |a: &dartforge_frontend::ast::Ast, pos: usize, p: SymbolId| {
-        prefixes.contains(&p) && !declared.contains_key(&p) && !dartforge_types::anotacoes::sombreado(a, interner, pos, p)
+        prefixes.contains(&p) && !declared.contains_key(&p) && !dartforge_types::annotations::is_shadowed(a, interner, pos, p)
     };
 
     for &u in &library.units {
@@ -787,7 +787,7 @@ pub fn unused(
     // `notifyExtensionUsed`.
     match bodies {
         Some(c) => {
-            for &(l, x) in c.extensoes_usadas.iter() {
+            for &(l, x) in c.used_extensions.iter() {
                 if l != lib {
                     continue;
                 }
@@ -900,7 +900,7 @@ fn from_deprecated_export(program: &Program, interner: &Interner, target: Librar
         }
         any = true;
         let Some(dir) = program.unit(ex.unit).unit.directives.get(ex.directive) else { return false };
-        if !dir.metadata.iter().any(|m| dartforge_types::anotacoes::e_deprecated(program, interner, ex.unit, m)) {
+        if !dir.metadata.iter().any(|m| dartforge_types::annotations::is_deprecated(program, interner, ex.unit, m)) {
             return false;
         }
     }

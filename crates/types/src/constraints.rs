@@ -36,11 +36,11 @@ pub enum Origin {
     /// `TypeConstraintFromArgument`: `Parameter 'p' declared as '…' but
     /// argument is '…'.`; `prefixo` replaces `Parameter 'p'` (`List element`,
     /// `Map key`, `Map value`).
-    Argument { parametro: String, declarado: TypeId, argumento: TypeId, prefixo: Option<String> },
+    Argument { parameter: String, declared: TypeId, argument: TypeId, prefix: Option<String> },
     /// `TypeConstraintFromReturnType`.
-    Return { declarado: TypeId, contexto: TypeId },
+    Return { declared: TypeId, context: TypeId },
     /// `TypeConstraintFromFunctionContext`.
-    Funcao { declarado: TypeId, contexto: TypeId },
+    Function { declared: TypeId, context: TypeId },
 }
 
 /// Type argument inferrer for a set of parameters `L`.
@@ -549,7 +549,7 @@ impl GenericInferrer {
         program: &dartforge_elements::model::Program,
     ) -> Vec<(String, String)> {
         let n = self.params.len();
-        let fmt = |env: &SubtypeEnv, t: TypeId| env.table.format_sem_alias(t, interner, program);
+        let fmt = |env: &SubtypeEnv, t: TypeId| env.table.format_without_alias(t, interner, program);
         let mut inferred: Vec<TypeId> = vec![env.core.unknown; n];
         let mut output = Vec::new();
         for i in 0..n {
@@ -586,7 +586,7 @@ impl GenericInferrer {
                     .map(|&p| {
                         let d = env.table.param(p).clone();
                         let n = interner.resolve(d.name).to_string();
-                        if d.explicito { format!("{n} extends {}", fmt(env, d.bound)) } else { n }
+                        if d.explicit { format!("{n} extends {}", fmt(env, d.bound)) } else { n }
                     })
                     .collect();
                 output.push((
@@ -602,7 +602,7 @@ impl GenericInferrer {
         if output.is_empty() {
             for i in 0..n.min(finals.len()) {
                 let d = env.table.param(self.params[i]).clone();
-                if !d.explicito {
+                if !d.explicit {
                     continue;
                 }
                 let map: HashMap<TypeParamId, TypeId> = self.params.iter().copied().zip(finals.iter().copied()).collect();
@@ -639,7 +639,7 @@ impl GenericInferrer {
         interner: &dartforge_intern::Interner,
         program: &dartforge_elements::model::Program,
     ) -> Option<String> {
-        let fmt = |env: &SubtypeEnv, t: TypeId| env.table.format_sem_alias(t, interner, program);
+        let fmt = |env: &SubtypeEnv, t: TypeId| env.table.format_without_alias(t, interner, program);
         let t = vector[i];
         let own: Vec<Constraint> = self.constraints.iter().filter(|r| r.param == i).copied().collect();
         let satisfies = |r: &Constraint, env: &mut SubtypeEnv| {
@@ -683,17 +683,17 @@ impl GenericInferrer {
         let mut lines_s: Vec<Vec<String>> = Vec::new();
         for (o, ok) in &by_origin {
             let parts = match o.and_then(|o| self.origins.get(o)) {
-                Some(Origin::Argument { parametro: parameter, declarado: the_declared, argumento: argument, prefixo: prefix }) => vec![
+                Some(Origin::Argument { parameter, declared: the_declared, argument, prefix }) => vec![
                     prefix.clone().unwrap_or_else(|| format!("Parameter '{parameter}'")),
                     format!("declared as     '{}'", fmt(env, *the_declared)),
                     format!("but argument is '{}'.", fmt(env, *argument)),
                 ],
-                Some(Origin::Return { declarado: the_declared, contexto: the_context }) => vec![
+                Some(Origin::Return { declared: the_declared, context: the_context }) => vec![
                     "Return type".to_string(),
                     format!("declared as '{}'", fmt(env, *the_declared)),
                     format!("used where  '{}' is required.", fmt(env, *the_context)),
                 ],
-                Some(Origin::Funcao { declarado: the_declared, contexto: the_context }) => vec![
+                Some(Origin::Function { declared: the_declared, context: the_context }) => vec![
                     "Function type".to_string(),
                     format!("declared as '{}'", fmt(env, *the_declared)),
                     format!("used where  '{}' is required.", fmt(env, *the_context)),
@@ -736,7 +736,7 @@ Consider passing explicit type argument(s) to the generic.
     /// The written bound of parameter `i`, with the parameters substituted by the
     /// `current` (the `extends` clause).
     fn written_bound(&self, i: usize, current: &[TypeId], env: &mut SubtypeEnv) -> Option<TypeId> {
-        if !env.table.param(self.params[i]).explicito {
+        if !env.table.param(self.params[i]).explicit {
             return None;
         }
         let b = env.table.param(self.params[i]).bound;

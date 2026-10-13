@@ -39,7 +39,7 @@ use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionKind, LibraryId, UnitId, UnitRole};
 use dartforge_frontend::ast::{self, DeclKind};
 use dartforge_frontend::token::Kind;
-use dartforge_types::table::Exibicao;
+use dartforge_types::table::DisplayDecoration;
 use dartforge_types::{Type, TypeId, TypeParamId};
 use std::collections::{BTreeSet, HashMap};
 
@@ -264,13 +264,13 @@ impl Project {
     fn inherited_member(&mut self, class: ClassId, name: &str, setter: bool) -> Option<dartforge_elements::model::FunctionElementId> {
         let crate::query::Query { program, names, core, outline, table, .. } = &mut self.query;
         let symbol = names.lookup(name)?;
-        let mut n = dartforge_types::heranca::Nome::novo(names, program.class(class).library, symbol);
+        let mut n = dartforge_types::inheritance::MemberName::new(names, program.class(class).library, symbol);
         if setter {
-            n = n.de_setter(names)?;
+            n = n.from_setter(names)?;
         }
-        let mut provider = dartforge_types::heranca::ProvedorDoOutline { program: program, interner: names, core, outline, table: table };
-        let mut inheritance = dartforge_types::heranca::Heranca::default();
-        inheritance.herdado(&mut provider, class, n).map(|m| m.funcao)
+        let mut provider = dartforge_types::inheritance::OutlineProvider { program, interner: names, core, outline, table };
+        let mut inheritance = dartforge_types::inheritance::InheritanceManager::default();
+        inheritance.inherited(&mut provider, class, n).map(|m| m.function)
     }
 
     /// The implementations of what `offset` denotes: subtypes of a class, or the
@@ -476,7 +476,7 @@ impl Project {
                 },
                 Some(e) => bodies.get_type(e)?,
                 None => match (&d.target, d.concrete) {
-                    (Target::Local { unit: u, declaration }, _) => self.query.bodies.units[u.0 as usize].tipo_local(*declaration)?,
+                    (Target::Local { unit: u, declaration }, _) => self.query.bodies.units[u.0 as usize].local_type(*declaration)?,
                     (_, Some(Concrete::Variable(v))) => self.query.variable_type(v)?,
                     (_, Some(Concrete::Function(f))) => self.query.outline.functions[f.0 as usize].return_type,
                     _ => return None,
@@ -508,7 +508,7 @@ impl Project {
     /// `Null`; nothing for `InvalidType`, `Never?` and the other types.
     pub(crate) fn interface_class(&self, t: TypeId) -> Option<(ClassId, Vec<TypeId>)> {
         let table = &self.query.table;
-        if matches!(table.exibicao(t), Some(Exibicao::Invalido | Exibicao::NeverAnulavel)) {
+        if matches!(table.decoration(t), Some(DisplayDecoration::Invalid | DisplayDecoration::NeverNullable)) {
             return None;
         }
         match table.get(t) {
@@ -689,7 +689,7 @@ impl Project {
             .filter(|(_, t)| t.span == s && matches!(t.kind, ast::TypeKind::Named { .. } | ast::TypeKind::Void))
             .find_map(|(i, _)| {
                 let id = ast::TypeId(i as u32);
-                cx.bodies.tipos_de_anotacoes.get(&id).or_else(|| self.query.outline.tipos_escritos.get(&(cx.unit, id))).copied()
+                cx.bodies.annotation_types.get(&id).or_else(|| self.query.outline.written_types.get(&(cx.unit, id))).copied()
             })
     }
 
@@ -742,7 +742,7 @@ impl Project {
             let range = cx.tree.span(node);
             let (Some(uri), Some(reference)) = (self.unit_uri(u), self.class_reference(c)) else { continue };
             output.push(crate::TypeItem {
-                name: self.query.table.format_sem_alias(ty, &self.query.names, &self.query.program),
+                name: self.query.table.format_without_alias(ty, &self.query.names, &self.query.program),
                 uri,
                 range,
                 selection,
@@ -810,8 +810,8 @@ impl Project {
     /// The written type `t` of `u` names `target` directly (the index's
     /// `NamedType.element`: a `typedef` alias does not count).
     fn names_a_class(&self, u: UnitId, t: ast::TypeId, target: ClassId) -> bool {
-        let Some(&ty) = self.query.outline.tipos_escritos.get(&(u, t)) else { return false };
-        if matches!(self.query.table.exibicao(ty), Some(Exibicao::Alias { .. })) {
+        let Some(&ty) = self.query.outline.written_types.get(&(u, t)) else { return false };
+        if matches!(self.query.table.decoration(ty), Some(DisplayDecoration::Alias { .. })) {
             return false;
         }
         self.interface_class(ty).is_some_and(|(c, _)| c == target)

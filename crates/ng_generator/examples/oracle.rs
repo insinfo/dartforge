@@ -352,7 +352,7 @@ fn main() -> std::process::ExitCode {
 ///
 /// And the hidden ones: the `build_to: source` outputs of phases after the
 /// ngdart one, which its resolver does not see (the `x.i18n.dart` of `i18n`,
-/// next to the `x.i18n.yaml`), as `Motor::saidas_invisiveis_a` does.
+/// next to the `x.i18n.yaml`), as `Engine::saidas_invisiveis_a` does.
 fn all_files(
     root: &std::path::Path,
     dependencies: &[(String, PathBuf)],

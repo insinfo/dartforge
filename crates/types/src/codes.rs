@@ -283,15 +283,15 @@ pub const DEAD_CODE: DiagnosticCode = DiagnosticCode::new(
 // The `types` diagnostics are warnings, because the inference still has
 // gaps; these are not: they are what the CFE rejects in the new features and
 // what a negative corpus program needs to see rejected. The message starts
-// with [`ERRO_DE_LINGUAGEM`], and whoever compiles (`compile-js`,
+// with [`LANGUAGE_ERROR`], and whoever compiles (`compile-js`,
 // `dartforge-jsprod`, native) aborts as it aborts on load errors.
 
 /// Prefix of language error messages.
-pub const ERRO_DE_LINGUAGEM: &str = "language error: ";
+pub const LANGUAGE_ERROR: &str = "language error: ";
 
 /// Is the message a language error (and not a types warning)?
 pub fn is_language_error(message: &str) -> bool {
-    message.starts_with(ERRO_DE_LINGUAGEM)
+    message.starts_with(LANGUAGE_ERROR)
 }
 
 /// The `types` diagnostic rejects the program: a language error
@@ -306,12 +306,12 @@ pub fn is_language_error(message: &str) -> bool {
 /// docs/VERSOES-LINGUAGEM.md §4.6). The other diagnostics remain warnings.
 ///
 /// ```
-/// use dartforge_types::codes::{e_erro_de_compilacao, DEFINITELY_UNASSIGNED_VARIABLE, ERRO_DE_LINGUAGEM};
-/// assert!(e_erro_de_compilacao(&format!("{}: 'y'", DEFINITELY_UNASSIGNED_VARIABLE.template)));
-/// assert!(e_erro_de_compilacao(&format!("{ERRO_DE_LINGUAGEM}a.dart:3: x")));
-/// assert!(!e_erro_de_compilacao("The type 'int' can't be assigned to 'String'."));
+/// use dartforge_types::codes::{is_compile_error, DEFINITELY_UNASSIGNED_VARIABLE, LANGUAGE_ERROR};
+/// assert!(is_compile_error(&format!("{}: 'y'", DEFINITELY_UNASSIGNED_VARIABLE.template)));
+/// assert!(is_compile_error(&format!("{LANGUAGE_ERROR}a.dart:3: x")));
+/// assert!(!is_compile_error("The type 'int' can't be assigned to 'String'."));
 /// ```
-pub fn e_erro_de_compilacao(message: &str) -> bool {
+pub fn is_compile_error(message: &str) -> bool {
     is_language_error(message)
         || message.starts_with(DEFINITELY_UNASSIGNED_VARIABLE.template)
         // `READ_POTENTIALLY_UNASSIGNED_FINAL` (with an analyzer code): reading a

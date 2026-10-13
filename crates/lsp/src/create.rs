@@ -400,7 +400,7 @@ impl Context<'_> {
                             return self.p.query.outline.functions.get(f.0 as usize).map(|d| d.return_type);
                         }
                         let name = self.ast.function(fid).name?;
-                        return match self.bodies.tipo_local(name.span.start).map(|t| self.p.query.table.get(t)) {
+                        return match self.bodies.local_type(name.span.start).map(|t| self.p.query.table.get(t)) {
                             Some(Type::Function { ret, .. }) => Some(*ret),
                             _ => None,
                         };
@@ -450,7 +450,7 @@ impl Context<'_> {
             "VariableDeclaration" => {
                 if self.children(parent).first() == Some(&e) {
                     let s = crate::project::word(self.source, self.tree.nos[parent].inicio)?;
-                    return self.bodies.tipo_local(s.start).or_else(|| {
+                    return self.bodies.local_type(s.start).or_else(|| {
                         crate::document_highlight::variable_declared_in(self.p, self.unit, s.start).and_then(|v| self.p.query.variable_type(v))
                     });
                 }
@@ -620,7 +620,7 @@ pub(crate) fn supertype_suggestions_at(p: &Project, copy: &mut Option<dartforge_
             if nullable && let Type::Interface { class, args, .. } = table.get(st).clone() {
                 st = table.intern(Type::Interface { class, args, nullable: true });
             }
-            v.push(table.format_sem_alias(st, &p.query.names, p.program()));
+            v.push(table.format_without_alias(st, &p.query.names, p.program()));
         }
     }
     v
@@ -1151,7 +1151,7 @@ impl Project {
                 ast::MemberKind::Constructor(k) => k.parameters.iter().find(|q| q.this_ && q.span.start >= cx.tree.nos[param].inicio && q.span.end <= cx.tree.nos[param].fim),
                 _ => None,
             });
-            let ty = ty.and_then(|q| q.ty).and_then(|t| self.query.outline.tipos_escritos.get(&(cx.unit, t)).copied());
+            let ty = ty.and_then(|q| q.ty).and_then(|t| self.query.outline.written_types.get(&(cx.unit, t)).copied());
             let decl = field_declaration(&mut writer, &name, constant, false, ty);
             let (o, text) = cx.insert_in_member(container, Filter::Field, &decl.text)?;
             let marks = marks_in(&text, decl);
@@ -1579,7 +1579,7 @@ impl Project {
             return None;
         }
         let type_target = cx.node_type(target)?;
-        if matches!(self.query.table.get(type_target), Type::Dynamic) || matches!(self.query.table.exibicao(type_target), Some(dartforge_types::table::Exibicao::Invalido)) {
+        if matches!(self.query.table.get(type_target), Type::Dynamic) || matches!(self.query.table.decoration(type_target), Some(dartforge_types::table::DisplayDecoration::Invalid)) {
             return None;
         }
         let eol = Text::new(cx.source).eol();
@@ -1731,7 +1731,7 @@ impl Project {
                 }
                 "SimpleIdentifier" => {
                     let Marca::Expr(x) = node.marca else { continue };
-                    if cx.bodies.get_resolved(x).is_some() || cx.bodies.declaracao_local(x).is_some() {
+                    if cx.bodies.get_resolved(x).is_some() || cx.bodies.local_declaration(x).is_some() {
                         continue;
                     }
                     let Some(parent) = cx.parent(n) else { continue };

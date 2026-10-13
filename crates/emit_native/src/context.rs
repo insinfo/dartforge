@@ -821,7 +821,7 @@ impl<'a> Context<'a> {
     /// Lexical obligations depend on the static identity, including extension
     /// types; absence in the table does not prove the absence of those obligations.
     pub(crate) fn semantic_local_type(&self, unit: UnitId, offset: usize) -> Option<TypeId> {
-        self.bodies.units.get(unit.0 as usize)?.tipo_local(offset)
+        self.bodies.units.get(unit.0 as usize)?.local_type(offset)
     }
 }
 

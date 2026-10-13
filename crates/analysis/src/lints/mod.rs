@@ -123,8 +123,8 @@ pub struct Semantics<'a> {
     pub core: &'a dartforge_types::table::CoreTypes,
     pub outline: &'a dartforge_types::resolve::OutlineTypes,
     /// The `canBeConst` of the unit's creations, literals and constructors
-    /// (`dartforge_types::lints_tipados6`), when computed.
-    pub can_be_const: Option<&'a dartforge_types::lints_tipados6::PodemSerConst>,
+    /// (`dartforge_types::typed_lints6`), when computed.
+    pub can_be_const: Option<&'a dartforge_types::typed_lints6::CanBeConst>,
 }
 
 /// `FunctionBody.isPotentiallyMutatedInScope` of the local declared at
@@ -134,7 +134,7 @@ pub struct Semantics<'a> {
 /// `for (x in …)` and the variable of an assignment pattern.
 pub fn is_mutated(sem: &Semantics<'_>, a: &dartforge_frontend::ast::Ast, decl: usize) -> bool {
     use dartforge_frontend::ast::{CollectionElement, ExprKind, ForInTarget, StmtKind, UnaryOp};
-    let is_it = |x: dartforge_frontend::ast::ExprId| sem.body.declaracao_local(x) == Some(decl);
+    let is_it = |x: dartforge_frontend::ast::ExprId| sem.body.local_declaration(x) == Some(decl);
     for e in a.exprs.iter() {
         match &e.kind {
             ExprKind::Assign { target, .. } if is_it(*target) => return true,
@@ -162,7 +162,7 @@ pub fn is_mutated(sem: &Semantics<'_>, a: &dartforge_frontend::ast::Ast, decl: u
     if a.stmts.iter().any(|s| matches!(&s.kind, StmtKind::ForIn { target: ForInTarget::Expression(x), .. } if is_it(*x))) {
         return true;
     }
-    sem.body.declaracoes_de_padroes.values().any(|d| *d == decl)
+    sem.body.pattern_declarations.values().any(|d| *d == decl)
 }
 
 /// The `canonicalElement` of a resolved element: a local by its declaration;
@@ -218,7 +218,7 @@ pub fn canonical(sem: &Semantics<'_>, interner: &dartforge_intern::Interner, e: 
     use dartforge_elements::model::Element;
     use dartforge_types::resolved::{MemberRef, Resolved};
     Some(match sem.body.get_resolved(e)? {
-        Resolved::Local(_) => Canonical::Local(sem.body.declaracao_local(e)?),
+        Resolved::Local(_) => Canonical::Local(sem.body.local_declaration(e)?),
         Resolved::Parameter { name, .. } => Canonical::Parameter(*name),
         Resolved::TypeParameter(p) => Canonical::TypeParameter(*p),
         Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => Canonical::Variable(*v),
@@ -404,7 +404,7 @@ pub fn super_parameter(
     match target.kind {
         ParameterKind::Named => {
             let n = target.name?.sym;
-            let j = data.parameters.iter().position(|x| x.kind == ParameterKind::Named && x.externo.or(x.name) == Some(n))?;
+            let j = data.parameters.iter().position(|x| x.kind == ParameterKind::Named && x.external_name.or(x.name) == Some(n))?;
             Some((ctor, j))
         }
         _ => {
@@ -424,14 +424,14 @@ pub fn super_parameter(
 /// `TypeAnnotation.type` of annotation `t` of the unit: the outline's
 /// (signatures) or the bodies'.
 pub fn written_type(sem: &Semantics<'_>, t: dartforge_frontend::ast::TypeId) -> Option<dartforge_types::table::TypeId> {
-    sem.outline.tipos_escritos.get(&(sem.unit, t)).copied().or_else(|| sem.body.tipos_de_anotacoes.get(&t).copied())
+    sem.outline.written_types.get(&(sem.unit, t)).copied().or_else(|| sem.body.annotation_types.get(&t).copied())
 }
 
 /// The return type of the element of function `f` of the unit
 /// (`ExecutableElement.returnType`): the inferred one of a literal or local
 /// function, or the outline's (written, or inherited from the override).
 pub fn function_return(sem: &Semantics<'_>, f: dartforge_frontend::ast::FunctionId) -> Option<dartforge_types::table::TypeId> {
-    if let Some(t) = sem.body.tipo_de_execucao_de_funcao(f)
+    if let Some(t) = sem.body.function_runtime_type(f)
         && let dartforge_types::table::Type::Function { ret, .. } = sem.table.get(t)
     {
         return Some(*ret);

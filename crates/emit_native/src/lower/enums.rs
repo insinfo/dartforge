@@ -164,7 +164,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     // Without a written bound, `dynamic` (instantiate to bounds).
                     let d = self.ctx.table.param(*p);
-                    if !d.explicito {
+                    if !d.explicit {
                         r.text.push('D');
                         continue;
                     }

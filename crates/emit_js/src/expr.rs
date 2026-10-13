@@ -332,7 +332,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// arity is not used.
     pub fn common_instantiation(&self, arguments: &ast::Arguments, n: usize) -> Option<Vec<Ty>> {
         let inst = (|| {
-            let ids = self.ctx.bodies.units.get(self.unit.0 as usize)?.instanciacao(arguments.span.start)?;
+            let ids = self.ctx.bodies.units.get(self.unit.0 as usize)?.instantiation(arguments.span.start)?;
             let tys: Option<Vec<Ty>> = ids.iter().map(|&t| self.common_ty_in_scope(t)).collect();
             tys.filter(|t| t.len() == n)
         })();
@@ -504,7 +504,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         let file = self.ctx.program.unit(self.unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
         self.ctx.errors.borrow_mut().push(dartforge_diagnostics::Diagnostic::new(
-            format!("{}{file}:{}: {msg}", dartforge_types::codes::ERRO_DE_LINGUAGEM, span.start),
+            format!("{}{file}:{}: {msg}", dartforge_types::codes::LANGUAGE_ERROR, span.start),
             span,
         ));
     }
@@ -676,7 +676,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     .bodies
                     .units
                     .get(self.unit.0 as usize)
-                    .and_then(|u| u.tipo_de_execucao_de_funcao(*fid).or_else(|| u.get_type(e)));
+                    .and_then(|u| u.function_runtime_type(*fid).or_else(|| u.get_type(e)));
                 let r = self.emit_function_expr(*fid, expected, common);
                 self.in_const = saved_const;
                 r

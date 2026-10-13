@@ -4,7 +4,7 @@
 //! set, through the unit's semantics:
 //!
 //! * `implicit_call_tearoffs`: the expressions that the resolver replaces with
-//!   an `ImplicitCallReference` (`UnitBodyTypes::chamadas_implicitas`), except
+//!   an `ImplicitCallReference` (`UnitBodyTypes::implicit_calls`), except
 //!   the forms that `_shouldSkipImplicitCallReferenceDueToForm` skips (cascade
 //!   target, `?:` branch, `??` operand, through parentheses).
 //! * `prefer_iterable_whereType`: `target.where((x) => x is T)` with the
@@ -132,7 +132,7 @@ impl FunctionIndex {
             return Some(s.body.get_type(e));
         }
         if let Some(&pos) = self.locals.get(&g) {
-            return Some(s.body.tipo_local(pos));
+            return Some(s.body.local_type(pos));
         }
         if let Some(fe) = self.top_level.get(&g) {
             return Some(s.outline.functions.get(fe.0 as usize).map(|d| d.signature));
@@ -145,7 +145,7 @@ impl FunctionIndex {
 fn variable_type(s: &super::Semantics<'_>, ref_: VariableRef, name_pos: usize, initializer: ExprId) -> Option<TypeId> {
     let v = s.program.variables.iter().position(|x| x.node == ref_)?;
     let d = s.outline.variables.get(v)?;
-    d.declared_type.or(d.inferred).or_else(|| s.body.get_type(initializer)).or_else(|| s.body.tipo_local(name_pos))
+    d.declared_type.or(d.inferred).or_else(|| s.body.get_type(initializer)).or_else(|| s.body.local_type(name_pos))
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
@@ -207,7 +207,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
 
     // `implicit_call_tearoffs`.
     if enabled("implicit_call_tearoffs") {
-        let mut implicit: Vec<ExprId> = s.body.chamadas_implicitas.iter().copied().collect();
+        let mut implicit: Vec<ExprId> = s.body.implicit_calls.iter().copied().collect();
         implicit.sort_by_key(|e| (a.expr(*e).span.start, a.expr(*e).span.end));
         for e in implicit {
             let mut x = e;
@@ -286,7 +286,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         // The `p!` pattern: the matched type.
         for (k, p) in a.patterns.iter().enumerate() {
             if let PatternKind::NullAssert(_) = &p.kind
-                && let Some(&t) = s.body.tipos_casados.get(&PatternId(k as u32))
+                && let Some(&t) = s.body.matched_types.get(&PatternId(k as u32))
                 && is_nullable_type_param(t)
             {
                 report(&c::NULL_CHECK_ON_NULLABLE_TYPE_PARAMETER, Span { start: p.span.end - 1, end: p.span.end }, &[]);
@@ -436,7 +436,7 @@ pub(super) fn expected_type(
                 let ExprKind::Unary { operand, .. } = &a.expr(node).kind else { return None };
                 match (dotted_name(*target), dotted_name(*operand)) {
                     (Some(x), Some(y)) if x == y => None,
-                    _ => s.body.tipos_de_escrita.get(&p).copied(),
+                    _ => s.body.write_types.get(&p).copied(),
                 }
             }
             // Right operand of a binary: the operator's first parameter.
@@ -518,7 +518,7 @@ pub(super) fn expected_type(
                 {
                     return None;
                 }
-                s.body.tipos_de_parametros.get(&real).copied()
+                s.body.parameter_types.get(&real).copied()
             }
             _ => None,
         },
@@ -530,7 +530,7 @@ pub(super) fn expected_type(
                 _ => return None,
             };
             let v = list.variables.iter().find(|v| v.initializer == Some(real))?;
-            s.body.tipo_local(v.name.span.start).or_else(|| s.body.get_type(real)).filter(|t| *t != core.unknown)
+            s.body.local_type(v.name.span.start).or_else(|| s.body.get_type(real)).filter(|t| *t != core.unknown)
         }
         Node::Member(m) => {
             let MemberKind::Field(l) = &a.member(m).kind else { return None };

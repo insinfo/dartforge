@@ -243,7 +243,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // instantiated type and carries the type arguments.
         if matches!(ast.expr(expr_id).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
             && let Some(args) = self.ctx.bodies.units[self.unit_id.0 as usize]
-                .instanciacao_de_tearoff(expr_id)
+                .tearoff_instantiation(expr_id)
                 .map(<[_]>::to_vec)
             && let Some(fid) = self.target_generic_function(ast, expr_id)
         {
@@ -940,7 +940,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             && c2 == c
                         {
                             if let Some(inst) = self.ctx.bodies.units[self.unit_id.0 as usize]
-                                .instanciacao_de_tearoff(expr_id)
+                                .tearoff_instantiation(expr_id)
                                 .map(<[_]>::to_vec)
                                 .filter(|i| i.len() == type_params.len())
                             {

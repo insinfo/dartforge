@@ -17,7 +17,7 @@ use dartforge_frontend::ast::ParameterKind;
 use dartforge_intern::Interner;
 
 /// The diagnostics of the top-level `main` function of library `lib`.
-pub fn funcao_main(
+pub fn main_function(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,

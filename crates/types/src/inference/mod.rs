@@ -96,14 +96,14 @@ impl Symbols {
 pub enum BodyRef {
     /// Top-level function, method, constructor, getter/setter or local function
     /// declared as an element.
-    Funcao(FunctionElementId),
+    Function(FunctionElementId),
     /// The initializer of a top-level variable or of a field.
     Variable(VariableId),
 }
 
 /// The body that contains offset `pos` of unit `u`: the executable or
 /// variable initializer whose node encloses it (the smallest).
-pub fn corpo_no_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyRef> {
+pub fn body_at_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyRef> {
     use dartforge_elements::model::FunctionRef;
     let a = &program.unit(u).ast;
     let mut best: Option<(usize, BodyRef)> = None;
@@ -114,7 +114,7 @@ pub fn corpo_no_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyR
             _ => continue,
         };
         if span.start <= pos && pos <= span.end && best.is_none_or(|(t, _)| span.end - span.start < t) {
-            best = Some((span.end - span.start, BodyRef::Funcao(FunctionElementId(i as u32))));
+            best = Some((span.end - span.start, BodyRef::Function(FunctionElementId(i as u32))));
         }
     }
     for (i, v) in program.variables.iter().enumerate() {
@@ -135,7 +135,7 @@ pub fn corpo_no_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyR
 /// without a written type that the sketch already inferred: what the
 /// inference of a library whose bodies were not requested writes into this
 /// unit's tables (on-demand top-level inference).
-pub fn corpos_da_unidade(program: &Program, outline: &crate::resolve::OutlineTypes, u: UnitId, all: bool) -> Vec<BodyRef> {
+pub fn unit_bodies(program: &Program, outline: &crate::resolve::OutlineTypes, u: UnitId, all: bool) -> Vec<BodyRef> {
     use dartforge_elements::model::FunctionRef;
     let mut v = Vec::new();
     for (i, var) in program.variables.iter().enumerate() {
@@ -168,20 +168,20 @@ pub fn corpos_da_unidade(program: &Program, outline: &crate::resolve::OutlineTyp
             }
         };
         if its {
-            v.push(BodyRef::Funcao(FunctionElementId(i as u32)));
+            v.push(BodyRef::Function(FunctionElementId(i as u32)));
         }
     }
     v
 }
 
-/// The result of [`inferir_corpos`].
+/// The result of [`infer_bodies`].
 pub struct InferredBodies {
     /// The unit's tables, filled by the requested bodies.
-    pub tabelas: UnitBodyTypes,
+    pub tables: UnitBodyTypes,
     /// The diagnostics of those bodies.
     pub diagnostics: Vec<Diagnostic>,
     /// The scope captured by the probe, when requested and reached.
-    pub escopo: Option<crate::resolved::EscopoSondado>,
+    pub scope: Option<crate::resolved::ProbedScope>,
 }
 
 /// Infers only `bodies` (all from unit `unit_id`) over a sketch and a type
@@ -195,7 +195,7 @@ pub struct InferredBodies {
 /// Invariant: for every body `c`, the tables and diagnostics of `c` are
 /// those that full inference of the program gives `c`.
 #[allow(clippy::too_many_arguments)]
-pub fn inferir_corpos(
+pub fn infer_bodies(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
@@ -208,16 +208,16 @@ pub fn inferir_corpos(
     record_locals: bool,
 ) -> InferredBodies {
     let mut inf = BodyInferrer::with_tables(program, interner, table, core, outline, Some(unit_id));
-    inf.apenas_bibliotecas = Some(HashSet::from([program.unit(unit_id).library.0]));
-    inf.registrar_locais = record_locals;
-    inf.sonda_escopo = probe;
+    inf.only_libraries = Some(HashSet::from([program.unit(unit_id).library.0]));
+    inf.record_locals = record_locals;
+    inf.scope_probe = probe;
     inf.use_retained_sketch();
     inf.complete_field_overrides();
     inf.infer_overrides();
     for &c in bodies {
         match c {
             BodyRef::Variable(v) => inf.reinfer_variable(v),
-            BodyRef::Funcao(f) => functions::infer_declared_function(&mut inf, f),
+            BodyRef::Function(f) => functions::infer_declared_function(&mut inf, f),
         }
     }
     if metadata {
@@ -225,9 +225,9 @@ pub fn inferir_corpos(
         functions::infer_unit_metadata(&mut inf, unit_id);
     }
     InferredBodies {
-        tabelas: std::mem::take(&mut inf.body_types.units[unit_id.0 as usize]),
+        tables: std::mem::take(&mut inf.body_types.units[unit_id.0 as usize]),
         diagnostics: std::mem::take(&mut inf.diagnostics),
-        escopo: inf.probed_scope.take(),
+        scope: inf.probed_scope.take(),
     }
 }
 
@@ -245,7 +245,7 @@ pub struct BodyInferrer<'a> {
     /// emitter only consults the bodies of what it emits. Variable initializers
     /// are still inferred in all libraries, because the inferred type of a
     /// variable (`var x = 1;`) is read by whoever uses it.
-    pub apenas_bibliotecas: Option<HashSet<u32>>,
+    pub only_libraries: Option<HashSet<u32>>,
     /// Incremental inference (LSP completion): when `Some`, only these bodies
     /// (functions/methods/constructors and variable initializers) are inferred;
     /// the types of top-level variables they read are still on demand. Unit
@@ -299,16 +299,16 @@ pub struct BodyInferrer<'a> {
     /// The type of each spread after the literal's visit, for the shape from the
     /// elements (`collections::literal`).
     pub(crate) visited_spreads: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
-    /// LSP: records in [`UnitBodyTypes::declaracoes_de_locais`] the declaration
+    /// LSP: records in [`UnitBodyTypes::local_declarations`] the declaration
     /// of each referenced local (rename, references). Off in the compiler, which
     /// does not pay for the table.
-    pub registrar_locais: bool,
+    pub record_locals: bool,
     /// LSP (completion): the simple identifier at `(unit_id, offset do name)`
     /// has its lexical scope captured in [`BodyInferrer::probed_scope`] when
     /// inference goes through it.
-    pub sonda_escopo: Option<(UnitId, usize)>,
-    /// The scope captured by [`BodyInferrer::sonda_escopo`].
-    pub probed_scope: Option<crate::resolved::EscopoSondado>,
+    pub scope_probe: Option<(UnitId, usize)>,
+    /// The scope captured by [`BodyInferrer::scope_probe`].
+    pub probed_scope: Option<crate::resolved::ProbedScope>,
     /// The context of the next resolved annotation (read and cleared by
     /// `resolve_annotation`).
     pub(crate) type_context: crate::resolve::TypeContext,
@@ -324,10 +324,10 @@ pub struct BodyInferrer<'a> {
     pub(crate) in_static_member: bool,
     /// The `InheritanceManager3` (the classes' interfaces), with the types of
     /// the fields inferred on demand.
-    pub(crate) inheritance: crate::heranca::Heranca,
+    pub(crate) inheritance: crate::inheritance::InheritanceManager,
     /// The parents of the expressions of each unit, on demand (the rules that
     /// depend on a node's syntactic place).
-    pais: HashMap<UnitId, Rc<dartforge_frontend::parents::Parents>>,
+    parents: HashMap<UnitId, Rc<dartforge_frontend::parents::Parents>>,
     /// `_inferring` of top-level inference: the variables whose initializer is
     /// being inferred, in order.
     variable_stack: Vec<VariableId>,
@@ -336,13 +336,13 @@ pub struct BodyInferrer<'a> {
     in_cycle: HashSet<VariableId>,
     /// When looking up what an untyped field overrides, its class: the fields
     /// declared in it are not typed when building the interface
-    /// ([`crate::heranca::Provedor::tipo_do_membro`]).
+    /// ([`crate::inheritance::Provider::member_type`]).
     pub(crate) declared_untyped: Option<dartforge_elements::model::ClassId>,
     /// Some interface in the cache was built with an untyped field.
     pub(crate) provisional_inheritance: bool,
     /// The name (without the `=`) looked up in the interface during a top-level
     /// inference: fields not yet inferred with another name stay provisional
-    /// ([`crate::heranca::Provedor::tipo_do_membro`]).
+    /// ([`crate::inheritance::Provider::member_type`]).
     pub(crate) lookup_name: Option<SymbolId>,
 }
 
@@ -352,7 +352,7 @@ pub struct BodyInferrer<'a> {
 /// used by completion: `InstanceExtensionMembersOperation` and the extension
 /// members of `DeclarationHelper`). The receiver is taken as is: the caller
 /// already promoted it to non-nullable (`promoteToNonNull`).
-pub fn extensoes_aplicaveis(
+pub fn applicable_extensions(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
@@ -367,10 +367,10 @@ pub fn extensoes_aplicaveis(
     exts.iter().filter_map(|&e| inf.applicable_extension(e, recv).map(|a| (e, a))).collect()
 }
 
-/// Like [`extensoes_aplicaveis`], for a given list of extensions (those of
+/// Like [`applicable_extensions`], for a given list of extensions (those of
 /// the `exportNamespace` of a library not yet imported,
 /// `addNotImportedExtensionMethods`).
-pub fn extensoes_aplicaveis_dentre(
+pub fn applicable_extensions_among(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
@@ -395,7 +395,7 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// Like [`BodyInferrer::new`]; with `only = Some(u)`, only unit `u` has tables
-    /// (the inference of isolated bodies, [`inferir_corpos`]).
+    /// (the inference of isolated bodies, [`infer_bodies`]).
     fn with_tables(
         program: &'a Program,
         interner: &'a Interner,
@@ -426,8 +426,8 @@ impl<'a> BodyInferrer<'a> {
             core,
             outline,
             diagnostics: Vec::new(),
-            body_types: BodyTypes { units, extensoes_usadas: std::collections::HashSet::new() },
-            apenas_bibliotecas: None,
+            body_types: BodyTypes { units, used_extensions: std::collections::HashSet::new() },
+            only_libraries: None,
             only_bodies: None,
             vars_state: vec![VarState::Pending; nvars],
             visited_initializer: vec![false; nvars],
@@ -446,17 +446,17 @@ impl<'a> BodyInferrer<'a> {
             implicit_call: false,
             warning_units: Vec::new(),
             current_unit: None,
-            inheritance: crate::heranca::Heranca::default(),
+            inheritance: crate::inheritance::InheritanceManager::default(),
             declared_untyped: None,
             provisional_inheritance: false,
             lookup_name: None,
-            pais: HashMap::new(),
+            parents: HashMap::new(),
             variable_stack: Vec::new(),
             in_cycle: HashSet::new(),
             inferred_spreads: HashMap::new(),
             visited_spreads: HashMap::new(),
-            registrar_locais: false,
-            sonda_escopo: None,
+            record_locals: false,
+            scope_probe: None,
             probed_scope: None,
             type_context: crate::resolve::TypeContext::Normal,
             locals_as_type: HashMap::new(),
@@ -469,7 +469,7 @@ impl<'a> BodyInferrer<'a> {
     /// Gives body tables to the SDK units of the libraries `libs` (which `new`
     /// leaves empty): the LSP's reference search infers the SDK bodies that
     /// cite the searched name (docs/LSP-ESPECIFICACAO.md §11.9 B).
-    pub fn alocar_corpos_de(&mut self, libs: &[LibraryId]) {
+    pub fn allocate_bodies_of(&mut self, libs: &[LibraryId]) {
         for (i, u) in self.program.units.iter().enumerate() {
             if libs.contains(&u.library) && self.program.library(u.library).is_sdk && self.body_types.units[i].static_types.is_empty() {
                 self.body_types.units[i] = UnitBodyTypes::new(u.ast.exprs.len(), self.core.dynamic_);
@@ -524,8 +524,8 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// Like [`BodyInferrer::infer_all`], also returning the scope captured by
-    /// [`BodyInferrer::sonda_escopo`] (LSP completion).
-    pub fn infer_all_com_sonda(mut self) -> (BodyTypes, Vec<Diagnostic>, Option<crate::resolved::EscopoSondado>) {
+    /// [`BodyInferrer::scope_probe`] (LSP completion).
+    pub fn infer_all_with_probe(mut self) -> (BodyTypes, Vec<Diagnostic>, Option<crate::resolved::ProbedScope>) {
         self.infer_everything();
         (self.body_types, self.diagnostics, self.probed_scope)
     }
@@ -534,7 +534,7 @@ impl<'a> BodyInferrer<'a> {
     fn infer_everything(&mut self) {
         // SDK libraries requested explicitly (the native backend compiles the
         // SDK from source) get side tables like the user's.
-        if let Some(requested) = self.apenas_bibliotecas.clone() {
+        if let Some(requested) = self.only_libraries.clone() {
             for (ui, u) in self.program.units.iter().enumerate() {
                 if self.program.library(u.library).is_sdk && requested.contains(&u.library.0) {
                     self.body_types.units[ui] = UnitBodyTypes::new(u.ast.exprs.len(), self.core.dynamic_);
@@ -552,7 +552,7 @@ impl<'a> BodyInferrer<'a> {
                         self.variable_type(vid);
                         self.visit_initializer(vid);
                     }
-                    BodyRef::Funcao(f) => functions::infer_declared_function(self, f),
+                    BodyRef::Function(f) => functions::infer_declared_function(self, f),
                 }
             }
             return;
@@ -588,7 +588,7 @@ impl<'a> BodyInferrer<'a> {
     /// The bodies of `lib` are inferred: the requested ones, when there is a
     /// request (including the SDK's); otherwise all except the SDK's.
     pub(crate) fn infer_bodies_of(&self, lib: LibraryId) -> bool {
-        match &self.apenas_bibliotecas {
+        match &self.only_libraries {
             Some(s) => s.contains(&lib.0),
             None => !self.program.library(lib).is_sdk,
         }
@@ -689,8 +689,8 @@ impl<'a> BodyInferrer<'a> {
     /// inferred type of the overridden field, instantiated in the overrider's
     /// class.
     fn complete_field_overrides(&mut self) {
-        let pendentes = std::mem::take(&mut self.outline.field_overrides);
-        for p in &pendentes {
+        let pending = std::mem::take(&mut self.outline.field_overrides);
+        for p in &pending {
             let t = self.variable_type(p.field);
             let subst: HashMap<_, _> = p.subst.iter().copied().collect();
             let t = crate::ops::substitute(t, &subst, self.table);
@@ -709,7 +709,7 @@ impl<'a> BodyInferrer<'a> {
                     ast::ParameterKind::Required => pos.push(par.ty),
                     ast::ParameterKind::Optional => opt.push(par.ty),
                     ast::ParameterKind::Named => {
-                        if let Some(n) = par.externo {
+                        if let Some(n) = par.external_name {
                             the_named.push((n, par.ty, par.required));
                         }
                     }
@@ -725,7 +725,7 @@ impl<'a> BodyInferrer<'a> {
             });
             self.outline.functions[p.function.0 as usize].signature = sig;
         }
-        self.outline.field_overrides = pendentes;
+        self.outline.field_overrides = pending;
     }
 
     /// The variable's implicit accessors get the inferred type.
@@ -890,8 +890,8 @@ impl<'a> BodyInferrer<'a> {
     /// The syntactic parent of expression `e` of unit `u`.
     pub(crate) fn parent_of(&mut self, u: UnitId, e: ast::ExprId) -> dartforge_frontend::parents::Parent {
         let program = self.program;
-        let pais = self.pais.entry(u).or_insert_with(|| Rc::new(crate::lints_tipados::unit_parents(program, u))).clone();
-        pais.parent(e)
+        let parents = self.parents.entry(u).or_insert_with(|| Rc::new(crate::typed_lints::unit_parents(program, u))).clone();
+        parents.parent(e)
     }
 
     pub(crate) fn warning(&mut self, msg: String, span: Span) {
@@ -905,7 +905,7 @@ impl<'a> BodyInferrer<'a> {
     /// same place.
     pub(crate) fn null_warning(&mut self, recv: TypeId, code: dartforge_diagnostics::Code, span: Span, args: &[&str]) {
         // `Never?` is not `Null` for the analyzer (it is `NeverType` with `?`).
-        let nullable_never = matches!(self.table.exibicao(recv), Some(crate::table::Exibicao::NeverAnulavel));
+        let nullable_never = matches!(self.table.decoration(recv), Some(crate::table::DisplayDecoration::NeverNullable));
         if matches!(self.table.get(recv), crate::table::Type::Null) && !nullable_never {
             self.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVALID_USE_OF_NULL_VALUE, span, &[]);
         } else {
@@ -930,12 +930,12 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// A warning with a code whose arguments go together through the
-    /// `ErrorReporter`'s conversion ([`crate::exibicao::Exibidor::argumentos`],
+    /// `ErrorReporter`'s conversion ([`crate::display::Displayer::argumentos`],
     /// T7): the types come out with aliases, and two types of the same report
     /// with the same text get the `(where X is defined in …)`.
-    pub(crate) fn warning_with_args(&mut self, code: dartforge_diagnostics::Code, span: Span, args: &[crate::exibicao::Arg<'_>]) {
+    pub(crate) fn warning_with_args(&mut self, code: dartforge_diagnostics::Code, span: Span, args: &[crate::display::Arg<'_>]) {
         let (texts, context) = {
-            let displayer = crate::exibicao::Exibidor { table: &*self.table, interner: self.interner, program: self.program };
+            let displayer = crate::display::Displayer { table: &*self.table, interner: self.interner, program: self.program };
             displayer.arguments_and_context(args)
         };
         let mut d = Diagnostic::with_code(code, span, texts);
@@ -944,12 +944,12 @@ impl<'a> BodyInferrer<'a> {
         self.warning_units.push(self.current_unit);
     }
 
-    /// Records a language error (`codes::ERRO_DE_LINGUAGEM`,
+    /// Records a language error (`codes::LANGUAGE_ERROR`,
     /// docs/VERSOES-LINGUAGEM.md §3): aborts compilation, with the file and the
     /// offset in the message, like load errors.
     pub(crate) fn language_error(&mut self, unit: UnitId, span: Span, msg: String) {
         let file = self.program.unit(unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
-        let text = format!("{}{file}:{}: {msg}", crate::codes::ERRO_DE_LINGUAGEM, span.start);
+        let text = format!("{}{file}:{}: {msg}", crate::codes::LANGUAGE_ERROR, span.start);
         self.diagnostics.push(Diagnostic::new(text, span));
         self.warning_units.push(Some(unit));
     }
@@ -967,7 +967,7 @@ impl<'a> BodyInferrer<'a> {
         // Codes with types in their arguments go through the `ErrorReporter`'s
         // conversion (aliases and the `(where C is defined in …)`
         // disambiguation of two types with the same name).
-        use crate::exibicao::Arg;
+        use crate::display::Arg;
         use dartforge_diagnostics::codes::compile_time_error as c;
         if template == crate::codes::INVALID_ASSIGNMENT.template {
             self.warning_with_args(c::INVALID_ASSIGNMENT, span, &[Arg::Type_(of), Arg::Type_(for_)]);

@@ -129,7 +129,7 @@ impl Context<'_> {
             if self.kind(k) == "SimpleIdentifier"
                 && let Marca::Expr(x) = self.tree.nos[k].marca
                 && matches!(self.bodies.get_resolved(x), Some(Resolved::Local(_)))
-                && self.bodies.declaracao_local(x) == Some(name)
+                && self.bodies.local_declaration(x) == Some(name)
             {
                 let parent = self.parent(k);
                 match parent.map(|p| self.kind(p)) {
@@ -154,7 +154,7 @@ impl Context<'_> {
         }
         let name = self.next_token(self.tree.nos[node].inicio)?;
         // `declaredElement2`: only a local.
-        let ty = *self.bodies.tipos_de_locais.get(&name.start)?;
+        let ty = *self.bodies.local_types.get(&name.start)?;
         let table = &self.p.query.table;
         let action = |edits: Vec<(Span, String)>| CodeAction {
             title: "Destructure variable assignment".into(),

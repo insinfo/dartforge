@@ -1,9 +1,9 @@
-//! The written target of a redirecting factory (`factory C() = D.nome;`).
+//! The written target of a redirecting factory (`factory C() = D.name;`).
 //!
 //! The parser reads the target as a type and only splits off the final
-//! `.nome` when a dot is left over: `D.nome` arrives as the type `[D, nome]`,
-//! which may be either the type `nome` from import prefix `D` or class `D`
-//! and constructor `nome` (the analyzer's `AstRewriter` decides by scope).
+//! `.name` when a dot is left over: `D.name` arrives as the type `[D, name]`,
+//! which may be either the type `name` from import prefix `D` or class `D`
+//! and constructor `name` (the analyzer's `AstRewriter` decides by scope).
 //! The two cannot coexist in the same scope
 //! (`PREFIX_COLLIDES_WITH_TOP_LEVEL_MEMBER`), so the order of the attempts
 //! does not change the result.

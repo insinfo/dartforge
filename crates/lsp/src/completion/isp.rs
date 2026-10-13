@@ -1069,7 +1069,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The type of a local or a local function parameter by the name offset.
     pub(super) fn local_type(&self, name: usize) -> Option<TypeId> {
-        self.query.bodies.units[self.unit.0 as usize].tipos_de_locais.get(&self.map(name)).copied()
+        self.query.bodies.units[self.unit.0 as usize].local_types.get(&self.map(name)).copied()
     }
 
     /// The class (or mixin, enum, extension type) declared with the name at

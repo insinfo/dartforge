@@ -134,7 +134,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 StmtKind::Variables(l) => lists.push(l),
                 StmtKind::For { init: Some(ForInit::Variables(l)), .. } => lists.push(l),
                 StmtKind::ForIn { target: ForInTarget::Declared { ty: Some(ty), .. }, iterable, .. } => {
-                    let Some(&tl) = s.body.tipos_de_anotacoes.get(ty) else { continue };
+                    let Some(&tl) = s.body.annotation_types.get(ty) else { continue };
                     if matches!(table.get(tl), Type::Dynamic) || !super::obvious::has_obvious_type(s, interner, a, *iterable) {
                         continue;
                     }
@@ -147,7 +147,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         }
         for l in lists {
             let Some(ty) = l.ty else { continue };
-            let Some(&tl) = s.body.tipos_de_anotacoes.get(&ty) else { continue };
+            let Some(&tl) = s.body.annotation_types.get(&ty) else { continue };
             if matches!(table.get(tl), Type::Null) {
                 continue;
             }
@@ -180,7 +180,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     continue;
                 }
                 let Some(rt) = f.return_type else { continue };
-                let Some(&tr) = s.outline.tipos_escritos.get(&(s.unit, rt)) else { continue };
+                let Some(&tr) = s.outline.written_types.get(&(s.unit, rt)) else { continue };
                 let is_this = match table.get(tr) {
                     Type::Interface { class, nullable: false, .. } => *class == class_id,
                     Type::ExtensionType { decl, nullable: false, .. } => *decl == class_id,
@@ -385,7 +385,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         for (k, d) in a.decls.iter().enumerate() {
             let DeclKind::Class(x) = &d.kind else { continue };
             let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else { continue };
-            if d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "reopen")) {
+            if d.metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, interner, s.unit, m, "meta", "reopen")) {
                 continue;
             }
             let m = &x.modifiers;

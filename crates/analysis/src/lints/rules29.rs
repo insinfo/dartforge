@@ -251,7 +251,7 @@ impl Cx<'_> {
     fn type_element(&self, u: UnitId, body: &UnitBodyTypes, t: ast::TypeId) -> Option<Ref> {
         let a = &self.program.unit(u).ast;
         let TypeKind::Named { name, .. } = &a.ty(t).kind else { return None };
-        let ty = body.tipos_de_anotacoes.get(&t).copied().or_else(|| self.s.outline.tipos_escritos.get(&(u, t)).copied());
+        let ty = body.annotation_types.get(&t).copied().or_else(|| self.s.outline.written_types.get(&(u, t)).copied());
         if ty.is_some_and(|x| matches!(self.s.table.get(x), Type::TypeParameter { .. })) {
             return None;
         }
@@ -616,7 +616,7 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
     // `visitPatternField`: the getter of an object pattern field.
     for p in a.patterns.iter() {
         let PatternKind::Object { ty, fields } = &p.kind else { continue };
-        let matched_ty = body.tipos_de_anotacoes.get(ty).copied().or_else(|| cx.s.outline.tipos_escritos.get(&(u, *ty)).copied());
+        let matched_ty = body.annotation_types.get(ty).copied().or_else(|| cx.s.outline.written_types.get(&(u, *ty)).copied());
         let class_id = match matched_ty.map(|t| cx.s.table.get(t)) {
             Some(Type::Interface { class, .. }) => Some(*class),
             Some(Type::ExtensionType { decl, .. }) => Some(*decl),
@@ -708,7 +708,7 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
                     out.push((x.name.span.start, Action::Element(Ref::Function(k))));
                 }
                 // `test_reflective_loader`'s `@reflectiveTest`.
-                if d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, cx.interner, u, m, "test_reflective_loader", "reflectiveTest"))
+                if d.metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, cx.interner, u, m, "test_reflective_loader", "reflectiveTest"))
                     && let Some(k) = cx.constructor(class_id, None)
                 {
                     out.push((x.name.span.start, Action::Element(Ref::Function(k))));
@@ -911,7 +911,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     }
     // The unreached ones of the unit, public and without `@visibleForTesting`.
     let a = u.ast;
-    let visible_for_testing = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "visibleForTesting"));
+    let visible_for_testing = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, interner, s.unit, m, "meta", "visibleForTesting"));
     let mut findings: Vec<(Span, String)> = Vec::new();
     for d in unit_declarations(&cx, s.unit) {
         if used.contains(&d) {

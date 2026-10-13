@@ -26,14 +26,14 @@ fn natural_of(text: &str) -> Option<Natural> {
     let mut n: Natural = vec![0];
     for c in digits.chars() {
         let d = c.to_digit(base)?;
-        let mut vai = d as u64;
-        for limbo in n.iter_mut() {
-            let v = *limbo as u64 * base as u64 + vai;
-            *limbo = v as u32;
-            vai = v >> 32;
+        let mut carry = d as u64;
+        for limb in n.iter_mut() {
+            let v = *limb as u64 * base as u64 + carry;
+            *limb = v as u32;
+            carry = v >> 32;
         }
-        if vai > 0 {
-            n.push(vai as u32);
+        if carry > 0 {
+            n.push(carry as u32);
         }
     }
     while n.len() > 1 && n.last() == Some(&0) {
@@ -119,9 +119,9 @@ fn nearest(n: &Natural) -> f64 {
 
 /// `BigInt.from(double).toString()` of an integral, finite `double`.
 fn decimal_of(d: f64) -> String {
-    let bits_do_double = d.to_bits();
-    let exponent = ((bits_do_double >> 52) & 0x7ff) as i32;
-    let fraction = bits_do_double & ((1u64 << 52) - 1);
+    let double_bits = d.to_bits();
+    let exponent = ((double_bits >> 52) & 0x7ff) as i32;
+    let fraction = double_bits & ((1u64 << 52) - 1);
     if exponent == 0 {
         return (d as u64).to_string();
     }
@@ -133,23 +133,23 @@ fn decimal_of(d: f64) -> String {
     // mantissa · 2^e in base 2^32.
     let mut n: Natural = vec![mantissa as u32, (mantissa >> 32) as u32];
     for _ in 0..e {
-        let mut vai = 0u32;
-        for limbo in n.iter_mut() {
-            let new_ = (*limbo << 1) | vai;
-            vai = *limbo >> 31;
-            *limbo = new_;
+        let mut carry = 0u32;
+        for limb in n.iter_mut() {
+            let new_ = (*limb << 1) | carry;
+            carry = *limb >> 31;
+            *limb = new_;
         }
-        if vai > 0 {
-            n.push(vai);
+        if carry > 0 {
+            n.push(carry);
         }
     }
     // Successive divisions by 10^9.
     let mut parts: Vec<u32> = Vec::new();
     while !(n.len() == 1 && n[0] == 0) && !n.is_empty() {
         let mut rest = 0u64;
-        for limbo in n.iter_mut().rev() {
-            let v = (rest << 32) | *limbo as u64;
-            *limbo = (v / 1_000_000_000) as u32;
+        for limb in n.iter_mut().rev() {
+            let v = (rest << 32) | *limb as u64;
+            *limb = (v / 1_000_000_000) as u32;
             rest = v % 1_000_000_000;
         }
         parts.push(rest as u32);

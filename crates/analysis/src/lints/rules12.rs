@@ -178,7 +178,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         for st in a.stmts.iter() {
             let StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, body, .. } = &st.kind else { continue };
             let variable = name.span.start;
-            let is_the_variable = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Identifier(_)) && s.body.declaracao_local(e) == Some(variable);
+            let is_the_variable = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Identifier(_)) && s.body.local_declaration(e) == Some(variable);
             let mut body = *body;
             while let StmtKind::Block(l) = &a.stmt(body).kind {
                 let [single] = &l[..] else { break };

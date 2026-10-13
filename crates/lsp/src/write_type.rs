@@ -7,7 +7,7 @@
 
 use crate::refactorings::Context;
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, LibraryId};
-use dartforge_types::table::Exibicao;
+use dartforge_types::table::DisplayDecoration;
 use dartforge_types::{Type, TypeId, TypeParamOwner};
 use std::collections::BTreeSet;
 
@@ -111,20 +111,20 @@ impl<'a, 'p> Writer<'a, 'p> {
         if !self.visible(t) {
             return None;
         }
-        let display = self.table().exibicao(t).cloned();
-        if matches!(display, Some(Exibicao::Invalido)) || matches!(self.table().get(t), Type::Dynamic) {
+        let display = self.table().decoration(t).cloned();
+        if matches!(display, Some(DisplayDecoration::Invalid)) || matches!(self.table().get(t), Type::Dynamic) {
             return required.then(|| "dynamic".to_string());
         }
-        if matches!(self.table().get(t), Type::Never) && !matches!(display, Some(Exibicao::NeverAnulavel)) {
+        if matches!(self.table().get(t), Type::Never) && !matches!(display, Some(DisplayDecoration::NeverNullable)) {
             return Some("Never".to_string());
         }
         let nullable_ = self.table().get(t).is_declared_nullable();
         let suffix = if nullable_ { "?" } else { "" };
-        if let Some(Exibicao::Alias { typedef, args }) = display {
+        if let Some(DisplayDecoration::Alias { typedef, args }) = display {
             let s = self.element_with_arguments(Element::Typedef(typedef), &args);
             return Some(format!("{s}{suffix}"));
         }
-        if matches!(display, Some(Exibicao::NeverAnulavel)) {
+        if matches!(display, Some(DisplayDecoration::NeverNullable)) {
             return Some("Never?".to_string());
         }
         let p = self.query;
@@ -143,7 +143,7 @@ impl<'a, 'p> Writer<'a, 'p> {
                             s.push_str(", ");
                         }
                         let data = self.table().param(*tp);
-                        let (name, limit, explicit) = (data.name, data.bound, data.explicito);
+                        let (name, limit, explicit) = (data.name, data.bound, data.explicit);
                         s.push_str(p.name(name));
                         if explicit && let Some(b) = self.write(limit, false) {
                             s.push_str(" extends ");

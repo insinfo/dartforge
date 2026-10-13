@@ -4,7 +4,7 @@
 //! It is the single model behind `definition`, `hover`, `references` and
 //! `rename`. What a reference denotes comes from the side tables of the
 //! common inference of `crates/types` (`get_resolved`, `local_declaration`,
-//! `tipos_de_locais`) and from the namespaces of `crates/elements`
+//! `local_types`) and from the namespaces of `crates/elements`
 //! (`lookup`, `lookup_prefixed`), never from a parallel resolution by name:
 //!
 //! * local, parameter or local function — the declaration and the
@@ -641,7 +641,7 @@ impl Project {
             };
             return match resolved.as_ref() {
                 Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. }) => {
-                    match bodies.declaracao_local(id) {
+                    match bodies.local_declaration(id) {
                         Some(d) => {
                             let (target_, concrete) = self.local_or_field(unit, d);
                             denoted(target_, Some(id), concrete)
@@ -719,7 +719,7 @@ impl Project {
             };
         }
         // Declaration of a local or parameter.
-        if bodies.tipo_local(name_.start).is_some() {
+        if bodies.local_type(name_.start).is_some() {
             let (target_, concrete) = self.local_or_field(unit, name_.start);
             return denoted(target_, None, concrete);
         }
@@ -1891,7 +1891,7 @@ impl Project {
                 ));
             }
             let bodies = &self.query.bodies.units[unit_.0 as usize];
-            for (e, d) in &bodies.declaracoes_de_locais {
+            for (e, d) in &bodies.local_declarations {
                 if *d == declaration
                     && let ExprKind::Identifier(n) = &u.ast.expr(*e).kind
                 {

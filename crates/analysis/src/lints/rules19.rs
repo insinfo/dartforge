@@ -53,7 +53,7 @@ fn class_of_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
 /// The class has `@immutable` (the element's `hasImmutable`).
 fn is_immutable(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
     let Some(r) = s.program.class(c).decl else { return false };
-    s.program.unit(r.unit).ast.decl(r.decl).metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(s.program, interner, r.unit, m, "meta", "immutable"))
+    s.program.unit(r.unit).ast.decl(r.decl).metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(s.program, interner, r.unit, m, "meta", "immutable"))
 }
 
 /// The class or its superclass chain has `@immutable`.
@@ -137,13 +137,13 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
-    let empty = dartforge_types::lints_tipados6::PodemSerConst::default();
+    let empty = dartforge_types::typed_lints6::CanBeConst::default();
     let can = s.can_be_const.unwrap_or(&empty);
 
     // `prefer_const_constructors`.
     if enabled("prefer_const_constructors") {
-        let parents = super::rules16::unit_parents(u, &|e| can.criacoes.contains(&e));
-        let mut creations: Vec<ExprId> = can.criacoes.iter().copied().collect();
+        let parents = super::rules16::unit_parents(u, &|e| can.creations.contains(&e));
+        let mut creations: Vec<ExprId> = can.creations.iter().copied().collect();
         creations.sort_by_key(|e| a.expr(*e).span.start);
         for e in creations {
             let Some(Resolved::Constructor(f)) = s.body.get_resolved(e) else { continue };
@@ -186,7 +186,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     .member(member)
                     .metadata
                     .iter()
-                    .any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, unit, m, "meta", "literal")),
+                    .any(|m| dartforge_types::annotations::is_getter_of(program, interner, unit, m, "meta", "literal")),
                 _ => false,
             };
             if is_literal {
@@ -238,7 +238,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     // `prefer_const_literals_to_create_immutables`.
     if enabled("prefer_const_literals_to_create_immutables") {
         let parents = super::rules16::unit_parents(u, &|_| false);
-        let mut literals: Vec<ExprId> = can.literais.iter().copied().collect();
+        let mut literals: Vec<ExprId> = can.literals.iter().copied().collect();
         literals.sort_by_key(|e| a.expr(*e).span.start);
         for lit in literals {
             // Goes up through parentheses, arguments, literals, entries and
@@ -320,7 +320,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 if kc.factory
                     && let Some(r) = &kc.redirect
                 {
-                    let target_class = s.outline.tipos_escritos.get(&(s.unit, r.ty)).and_then(|t| match table.get(*t) {
+                    let target_class = s.outline.written_types.get(&(s.unit, r.ty)).and_then(|t| match table.get(*t) {
                         Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => Some(*class),
                         _ => None,
                     });
@@ -351,7 +351,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     DeclKind::ExtensionType(x) => x.const_,
                     _ => program.class(class_id).supertype_class.is_some_and(|sc| const_constructor(sc, None)),
                 });
-                if invokes_const && can.construtores.contains(&mid) {
+                if invokes_const && can.constructors.contains(&mid) {
                     report(&c::PREFER_CONST_CONSTRUCTORS_IN_IMMUTABLES, token_at(source, first), &[]);
                 }
             }

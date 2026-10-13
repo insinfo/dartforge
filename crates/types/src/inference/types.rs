@@ -61,7 +61,7 @@ impl<'a> BodyInferrer<'a> {
         self.sub(t, o)
     }
 
-    pub(crate) fn e_dynamic(&self, t: TypeId) -> bool {
+    pub(crate) fn is_dynamic(&self, t: TypeId) -> bool {
         matches!(self.table.get(t), Type::Dynamic)
     }
 
@@ -224,7 +224,7 @@ impl<'a> BodyInferrer<'a> {
     /// Assignable: subtype, `dynamic` (implicit cast) or coercion through
     /// `call`.
     pub(crate) fn assignable(&mut self, of: TypeId, for_: TypeId) -> bool {
-        if self.e_dynamic(of) || self.sub(of, for_) {
+        if self.is_dynamic(of) || self.sub(of, for_) {
             return true;
         }
         if matches!(self.table.get(of), Type::Interface { .. }) {
@@ -323,7 +323,7 @@ impl<'a> BodyInferrer<'a> {
             let b = self.table.param(p).bound;
             let b = self.subst(b, &map);
             self.table.set_type_param_bound(p, b);
-            self.table.param_mut(p).explicito = self.table.param(o).explicito;
+            self.table.param_mut(p).explicit = self.table.param(o).explicit;
         }
         self.constructor_params.insert(original[0].0, new_.clone());
         new_
@@ -354,7 +354,7 @@ impl<'a> BodyInferrer<'a> {
         self.type_container = before;
         self.in_static_member = static_before;
         // The analyzer's `TypeAnnotation.type`, for the rules that read it.
-        self.body_types.units[unit.0 as usize].tipos_de_anotacoes.insert(t, r);
+        self.body_types.units[unit.0 as usize].annotation_types.insert(t, r);
         r
     }
 
@@ -372,7 +372,7 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// Resolves an annotation and stores its type and that of each nested type
-    /// (type arguments, function and record parts) in `tipos_de_anotacoes` (the
+    /// (type arguments, function and record parts) in `annotation_types` (the
     /// `NamedType.type` of each analyzer node).
     pub(crate) fn resolve_annotation(
         &mut self,
@@ -382,7 +382,7 @@ impl<'a> BodyInferrer<'a> {
         scope: &HashMap<dartforge_intern::SymbolId, TypeParamId>,
     ) -> TypeId {
         let r = self.resolve_annotation_without_recording(unit, lib, t, scope);
-        self.body_types.units[unit.0 as usize].tipos_de_anotacoes.insert(t, r);
+        self.body_types.units[unit.0 as usize].annotation_types.insert(t, r);
         r
     }
 
@@ -472,7 +472,7 @@ impl<'a> BodyInferrer<'a> {
                         "dynamic" if self.program.lookup_in_unit(unit, sym).is_none() => return self.core.dynamic_,
                         "void" => return self.core.void_,
                         "Never" if self.program.lookup_in_unit(unit, sym).and_then(|b| b.getter).is_none() => {
-                            return if is_nullable { self.table.decorate(self.core.null, crate::table::Exibicao::NeverAnulavel) } else { self.core.never };
+                            return if is_nullable { self.table.decorate(self.core.null, crate::table::DisplayDecoration::NeverNullable) } else { self.core.never };
                         }
                         _ => {}
                     }
@@ -526,8 +526,8 @@ impl<'a> BodyInferrer<'a> {
                         self.class_type_with_args(cid, resolved)
                     }
                     // An alias that reaches itself instantiates as `dynamic`
-                    // (`hasSelfReference`, `auto_referencia`).
-                    Some(Element::Typedef(tid)) if crate::auto_referencia::typedef_auto_referente(self.program, self.program.typedef(tid).decl) => {
+                    // (`hasSelfReference`, `self_reference`).
+                    Some(Element::Typedef(tid)) if crate::self_reference::self_referencing_typedef(self.program, self.program.typedef(tid).decl) => {
                         return self.core.dynamic_;
                     }
                     Some(Element::Typedef(tid)) => {
@@ -541,14 +541,14 @@ impl<'a> BodyInferrer<'a> {
                         };
                         let map = self.map(&data.type_params, &args);
                         let r = self.subst(data.target_type, &map);
-                        self.table.decorate(r, crate::table::Exibicao::Alias { typedef: tid, args: args.into_boxed_slice() })
+                        self.table.decorate(r, crate::table::DisplayDecoration::Alias { typedef: tid, args: args.into_boxed_slice() })
                     }
                     _ => {
                         let the_name = self.interner.resolve(name[name.len() - 1].sym);
                         match the_name {
                             "dynamic" if name.len() == 1 => return self.core.dynamic_,
                             "Never" if name.len() == 1 => {
-                                return if is_nullable { self.table.decorate(self.core.null, crate::table::Exibicao::NeverAnulavel) } else { self.core.never };
+                                return if is_nullable { self.table.decorate(self.core.null, crate::table::DisplayDecoration::NeverNullable) } else { self.core.never };
                             }
                             "Null" if name.len() == 1 => return self.core.null,
                             _ => {

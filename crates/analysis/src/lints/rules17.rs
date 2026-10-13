@@ -401,7 +401,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                         v.visit_type_params(&x.type_params);
                         // The constructor's `isEffectivelyPrivate`: `@internal`,
                         // `sealed`, `abstract final`, `abstract interface`.
-                        let internal = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
+                        let internal = d.metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, interner, s.unit, m, "meta", "internal"));
                         let m = &x.modifiers;
                         let effectively = internal || m.sealed || (m.abstract_ && (m.final_ || m.interface));
                         v.visit_members(&x.members, Some(&d.kind), effectively);
@@ -421,7 +421,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                         v.tps = x.type_params.iter().map(|t| t.name.sym).collect();
                         v.visit_type_params(&x.type_params);
                         v.visit_type(x.on);
-                        let internal = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
+                        let internal = d.metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, interner, s.unit, m, "meta", "internal"));
                         v.visit_members(&x.members, Some(&d.kind), internal);
                     }
                     DeclKind::ExtensionType(x) => {
@@ -433,7 +433,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                         if !is_private(interner.resolve(x.representation_name.sym)) {
                             v.visit_type(x.representation_type);
                         }
-                        let internal = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
+                        let internal = d.metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, interner, s.unit, m, "meta", "internal"));
                         v.visit_members(&x.members, Some(&d.kind), internal);
                     }
                     DeclKind::Mixin(x) => {
@@ -445,7 +445,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                             v.visit_type(*t);
                         }
                         v.visit_type_params(&x.type_params);
-                        let internal = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
+                        let internal = d.metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, interner, s.unit, m, "meta", "internal"));
                         v.visit_members(&x.members, Some(&d.kind), internal);
                     }
                     DeclKind::Function(f) => {
@@ -521,7 +521,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     let t = s.outline.variables.get(v.0 as usize).and_then(|d| d.declared_type.or(d.inferred));
                     (name, init, t, Some(v), None)
                 }
-                LeakCandidate::Local { name, init } => (name, init, s.body.tipo_local(name.span.start), None, Some(name.span.start)),
+                LeakCandidate::Local { name, init } => (name, init, s.body.local_type(name.span.start), None, Some(name.span.start)),
             };
             // `variable.equals != null && initializer is SimpleIdentifier`.
             if init.is_some_and(|i| matches!(a.expr(i).kind, ExprKind::Identifier(_))) {
@@ -534,7 +534,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             // The identifier's element is the variable (or its accessor).
             let is_the_variable = |e: ExprId| -> bool {
                 match (local, field_id) {
-                    (Some(pos), _) => matches!(s.body.get_resolved(e), Some(Resolved::Local(_))) && s.body.declaracao_local(e) == Some(pos),
+                    (Some(pos), _) => matches!(s.body.get_resolved(e), Some(Resolved::Local(_))) && s.body.local_declaration(e) == Some(pos),
                     (_, Some(v)) => match s.body.get_resolved(e) {
                         Some(Resolved::Member { member: MemberRef::Variable(x), .. }) => *x == v,
                         Some(Resolved::Member { member: MemberRef::Function(f), .. }) => program.function(*f).variable == Some(v),
@@ -546,7 +546,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             // The element is the variable itself (not the accessor).
             let is_the_element = |e: ExprId| -> bool {
                 match (local, field_id) {
-                    (Some(pos), _) => matches!(s.body.get_resolved(e), Some(Resolved::Local(_))) && s.body.declaracao_local(e) == Some(pos),
+                    (Some(pos), _) => matches!(s.body.get_resolved(e), Some(Resolved::Local(_))) && s.body.local_declaration(e) == Some(pos),
                     (_, Some(v)) => matches!(s.body.get_resolved(e), Some(Resolved::Member { member: MemberRef::Variable(x), .. }) if *x == v),
                     _ => false,
                 }
@@ -563,7 +563,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     if enabled("erase_dart_type_extension_types") {
         for e in a.exprs.iter() {
             let ExprKind::Is { ty, .. } = &e.kind else { continue };
-            if let Some(&t) = s.body.tipos_de_anotacoes.get(ty)
+            if let Some(&t) = s.body.annotation_types.get(ty)
                 && implements_class(s, interner, t, "DartType", "kernel.ast")
             {
                 report(&c::ERASE_DART_TYPE_EXTENSION_TYPES, e.span, &[]);
@@ -614,7 +614,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 _ => continue,
             };
             for &t in with_types {
-                let Some(&ty) = s.outline.tipos_escritos.get(&(s.unit, t)) else { continue };
+                let Some(&ty) = s.outline.written_types.get(&(s.unit, t)) else { continue };
                 let Type::Interface { class, .. } = table.get(ty) else { continue };
                 let k = program.class(*class);
                 if k.kind == ClassKind::Class && !k.modifiers.mixin {
@@ -632,7 +632,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             let StmtKind::Try { catches, .. } = &st.kind else { continue };
             for k in catches.iter() {
                 let Some(on) = k.on_type else { continue };
-                let Some(&t) = s.body.tipos_de_anotacoes.get(&on) else { continue };
+                let Some(&t) = s.body.annotation_types.get(&on) else { continue };
                 if !implements_class(s, interner, t, "Error", "dart.core") {
                     continue;
                 }
@@ -640,7 +640,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 if exact {
                     report(&c::AVOID_CATCHING_ERRORS_CLASS, k.span, &[]);
                 } else {
-                    let text = dartforge_types::despejo::formatar(table, t, interner, program);
+                    let text = dartforge_types::dump::display_string(table, t, interner, program);
                     report(&c::AVOID_CATCHING_ERRORS_SUBCLASS, k.span, &[text.as_str()]);
                 }
             }
@@ -672,7 +672,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     if enabled("cast_nullable_to_non_nullable") {
         for e in a.exprs.iter() {
             let ExprKind::As { value, ty } = &e.kind else { continue };
-            let (Some(te), Some(&tt)) = (s.body.get_type(*value), s.body.tipos_de_anotacoes.get(ty)) else { continue };
+            let (Some(te), Some(&tt)) = (s.body.get_type(*value), s.body.annotation_types.get(ty)) else { continue };
             if matches!(table.get(te), Type::Dynamic) || s.core.is_unknown(table, te) {
                 continue;
             }

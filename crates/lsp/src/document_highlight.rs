@@ -234,7 +234,7 @@ fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
     if let Marca::Expr(x) = node.marca {
         return match cx.bodies.get_resolved(x) {
             Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. }) => {
-                let d = cx.bodies.declaracao_local(x)?;
+                let d = cx.bodies.local_declaration(x)?;
                 // `this.x` → the field.
                 if let Some((q, _)) = crate::project::parameter_in(cx.ast, d)
                     && q.this_

@@ -68,8 +68,8 @@ fn class_of_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
 /// `hasDeprecated`: `dart:core`'s `@deprecated` or `@Deprecated(…)`.
 fn is_deprecated(s: &super::Semantics<'_>, interner: &Interner, u: dartforge_elements::model::UnitId, metadata: &[Annotation]) -> bool {
     metadata.iter().any(|m| {
-        dartforge_types::anotacoes::e_getter_de(s.program, interner, u, m, "dart.core", "deprecated")
-            || dartforge_types::anotacoes::e_construtor_de(s.program, interner, u, m, "dart.core", "Deprecated")
+        dartforge_types::annotations::is_getter_of(s.program, interner, u, m, "dart.core", "deprecated")
+            || dartforge_types::annotations::is_constructor_of(s.program, interner, u, m, "dart.core", "Deprecated")
     })
 }
 
@@ -136,7 +136,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else { continue };
             let is_immutable = |c: ClassId| -> bool {
                 let Some(r) = program.class(c).decl else { return false };
-                program.unit(r.unit).ast.decl(r.decl).metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, r.unit, m, "meta", "immutable"))
+                program.unit(r.unit).ast.decl(r.decl).metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, interner, r.unit, m, "meta", "immutable"))
             };
             let has = is_immutable(class_id) || s.outline.hierarchy.get(class_id).is_some_and(|h| h.supertypes.keys().any(|k| is_immutable(*k)));
             if has {
@@ -169,7 +169,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     if enabled("unnecessary_null_checks") {
         for (k, p) in a.patterns.iter().enumerate() {
             if let PatternKind::NullAssert(_) = &p.kind
-                && let Some(&t) = s.body.tipos_casados.get(&PatternId(k as u32))
+                && let Some(&t) = s.body.matched_types.get(&PatternId(k as u32))
                 && is_nullable(table, t)
             {
                 report(&c::UNNECESSARY_NULL_CHECKS, Span { start: p.span.end - 1, end: p.span.end }, &[]);
@@ -277,7 +277,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         for d in a.decls.iter() {
             let DeclKind::Class(x) = &d.kind else { continue };
             for &t in x.implements.iter() {
-                if let Some(&ty_id) = s.outline.tipos_escritos.get(&(s.unit, t))
+                if let Some(&ty_id) = s.outline.written_types.get(&(s.unit, t))
                     && let Type::Interface { class, .. } = table.get(ty_id)
                     && overrides_equals(*class)
                 {
@@ -388,7 +388,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             // inherited ones).
             let mut names: HashSet<dartforge_intern::SymbolId> = HashSet::new();
             for &t in x.implements.iter() {
-                let Some(&ty_id) = s.outline.tipos_escritos.get(&(s.unit, t)) else { continue };
+                let Some(&ty_id) = s.outline.written_types.get(&(s.unit, t)) else { continue };
                 let (Type::Interface { class: ic, .. } | Type::ExtensionType { decl: ic, .. }) = table.get(ty_id) else { continue };
                 let mut all_classes = vec![*ic];
                 if let Some(h) = s.outline.hierarchy.get(*ic) {
@@ -415,7 +415,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     continue;
                 }
                 let Some(n) = f.name else { continue };
-                if m.metadata.iter().any(|x| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, x, "meta", "redeclare")) {
+                if m.metadata.iter().any(|x| dartforge_types::annotations::is_getter_of(program, interner, s.unit, x, "meta", "redeclare")) {
                     continue;
                 }
                 let text = interner.resolve(n.sym);
@@ -447,7 +447,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 if !matches!(a.ty(ty).kind, TypeKind::Named { .. }) {
                     continue;
                 }
-                let is_dynamic = s.body.tipos_de_anotacoes.get(&ty).is_some_and(|x| matches!(table.get(*x), Type::Dynamic));
+                let is_dynamic = s.body.annotation_types.get(&ty).is_some_and(|x| matches!(table.get(*x), Type::Dynamic));
                 if !is_dynamic {
                     report(&c::AVOID_TYPES_ON_CLOSURE_PARAMETERS, a.ty(ty).span, &[]);
                 }

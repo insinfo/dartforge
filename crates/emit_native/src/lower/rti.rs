@@ -1122,7 +1122,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// that of the local, whose return without a written type comes from the body (`g() { return
     /// 1; }` is `() => int`, not `() => dynamic`).
     pub fn literal_function_type(&self, ast: &ast::Ast, fid: ast::FunctionId, expr: Option<ast::ExprId>) -> Option<dartforge_types::table::TypeId> {
-        let execution = self.ctx.bodies.units.get(self.unit_id.0 as usize).and_then(|u| u.tipo_de_execucao_de_funcao(fid));
+        let execution = self.ctx.bodies.units.get(self.unit_id.0 as usize).and_then(|u| u.function_runtime_type(fid));
         execution.or_else(|| match expr {
             Some(e) => self.ctx.get_type(self.unit_id, e),
             None => ast.function(fid).name.and_then(|n| self.ctx.local_type(self.unit_id, n.span.start as usize)),

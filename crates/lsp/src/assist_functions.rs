@@ -102,7 +102,7 @@ impl Context<'_> {
         {
             let ty = match self.p.node_function(self.unit, fid) {
                 Some(e) => self.p.query.outline.functions.get(e.0 as usize).map(|d| d.return_type),
-                None => self.bodies.tipos_de_anotacoes.get(&annotation).copied(),
+                None => self.bodies.annotation_types.get(&annotation).copied(),
             };
             if let Some(t) = ty {
                 let table = &self.p.query.table;

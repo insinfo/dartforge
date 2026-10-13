@@ -193,7 +193,7 @@ impl Project {
                             return None;
                         };
                         let name_ = source[name_span.start..name_span.end].to_string();
-                        let ty_ = self.query.bodies.units[ul.0 as usize].tipo_local(declaration)?;
+                        let ty_ = self.query.bodies.units[ul.0 as usize].local_type(declaration)?;
                         let ast_local = &self.program().unit(ul).ast;
                         let parameters = match ast_local.functions.iter().find(|f| f.name.is_some_and(|n| n.span.start == declaration)) {
                             Some(f) => {

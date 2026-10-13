@@ -889,7 +889,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             }
             let local_or_param = match s.body.get_resolved(id) {
                 Some(dartforge_types::resolved::Resolved::Local(_)) => {
-                    !s.body.declaracao_local(id).is_some_and(|d| local_functions.contains(&d))
+                    !s.body.local_declaration(id).is_some_and(|d| local_functions.contains(&d))
                 }
                 Some(dartforge_types::resolved::Resolved::Parameter { .. }) => true,
                 _ => false,

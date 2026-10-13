@@ -36,7 +36,7 @@ pub struct LibraryPromotion {
     pub info: HashMap<SymbolId, NonPromotionInfo>,
     /// Fields with `isPromotable` (including private representation fields of
     /// extension types).
-    pub campos: HashSet<VariableId>,
+    pub fields: HashSet<VariableId>,
     /// Private abstract getters whose synthetic field is promotable (the
     /// analyzer's `accessor.variable2`).
     pub getters: HashSet<FunctionElementId>,
@@ -201,7 +201,7 @@ pub fn compute(program: &Program, interner: &Interner, lib: LibraryId) -> Librar
             }
             if let Some(rep) = c.representation {
                 if private(program.variable(rep).name) {
-                    r.campos.insert(rep);
+                    r.fields.insert(rep);
                 }
             }
         }
@@ -219,7 +219,7 @@ pub fn compute(program: &Program, interner: &Interner, lib: LibraryId) -> Librar
     }
     for v in possible_fields {
         if !info.contains_key(&program.variable(v).name) {
-            r.campos.insert(v);
+            r.fields.insert(v);
         }
     }
     for f in possible_getters {

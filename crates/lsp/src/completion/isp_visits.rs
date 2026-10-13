@@ -731,7 +731,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let ast_c = &self.query.program.unit(self.unit).ast;
         let id = ast_c.types.iter().position(|x| x.span.start == start && x.span.end == end).map(|i| ast::TypeId(i as u32))?;
         let bodies = &self.query.bodies.units[self.unit.0 as usize];
-        bodies.tipos_de_anotacoes.get(&id).copied().or_else(|| self.query.outline.tipos_escritos.get(&(self.unit, id)).copied())
+        bodies.annotation_types.get(&id).copied().or_else(|| self.query.outline.written_types.get(&(self.unit, id)).copied())
     }
 
     /// The `matchedValueType` of a pattern.
@@ -741,7 +741,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let (start, end) = (self.map(s.start), self.map_end(s.end));
         let ast_c = &self.query.program.unit(self.unit).ast;
         let bodies = &self.query.bodies.units[self.unit.0 as usize];
-        ast_c.patterns.iter().enumerate().find(|(_, x)| x.span.start == start && x.span.end == end).and_then(|(i, _)| bodies.tipos_casados.get(&ast::PatternId(i as u32)).copied())
+        ast_c.patterns.iter().enumerate().find(|(_, x)| x.span.start == start && x.span.end == end).and_then(|(i, _)| bodies.matched_types.get(&ast::PatternId(i as u32)).copied())
     }
 
     /// `_forRedirectingConstructorInvocation`.
@@ -1011,7 +1011,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 .parameters
                 .iter()
                 .filter_map(|p| {
-                    let name = query.name(p.externo.or(p.name)?).to_string();
+                    let name = query.name(p.external_name.or(p.name)?).to_string();
                     Some(InvokedParameter {
                         name,
                         named: p.kind == ast::ParameterKind::Named,
@@ -2807,7 +2807,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             if let Some(t) = ty {
                 self.to_member_access(n, t, false);
             }
-            let without_type = ty.is_none_or(|t| self.query.table.e_invalido(t) || self.is_type_type(t));
+            let without_type = ty.is_none_or(|t| self.query.table.is_invalid(t) || self.is_type_type(t));
             if without_type
                 && let Some(a) = target
                 && matches!(self.kind(a), "SimpleIdentifier" | "PrefixedIdentifier")
@@ -3150,7 +3150,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.to_member_access(n, t, only_super);
         }
         let cascade = self.is_op(op, Op::DotDot) || self.is_op(op, Op::QuestionDotDot);
-        let without_type = ty.is_none_or(|t| self.query.table.e_invalido(t) || self.is_type_type(t));
+        let without_type = ty.is_none_or(|t| self.query.table.is_invalid(t) || self.is_type_type(t));
         if without_type && matches!(self.kind(target), "SimpleIdentifier" | "PrefixedIdentifier") && (!cascade || self.offset == self.span_tok(op).start + 1) {
             self.static_or_prefix(target);
         }

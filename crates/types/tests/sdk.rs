@@ -56,7 +56,7 @@ fn load_full_sdk() -> Option<(Program, Interner, TypeTable, CoreTypes, OutlineTy
 
 #[test]
 #[ignore]
-fn outline_do_sdk_resolve() {
+fn sdk_outline_resolves() {
     let Some((_lib_dir, sdk)) = get_sdk() else {
         eprintln!("SDK 3.6.2 not available, skipping test.");
         return;

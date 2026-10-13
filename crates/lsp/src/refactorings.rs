@@ -323,7 +323,7 @@ impl<'p> Context<'p> {
             }
         };
         match r {
-            Resolved::Local(_) | Resolved::Parameter { .. } => match self.bodies.declaracao_local(x) {
+            Resolved::Local(_) | Resolved::Parameter { .. } => match self.bodies.local_declaration(x) {
                 Some(d) => self.local_element(d),
                 None if matches!(r, Resolved::Parameter { .. }) => Elem::Parameter,
                 None => Elem::LocalVariable,
@@ -550,7 +550,7 @@ impl<'p> Context<'p> {
             },
             Elem::LocalFunction(fid) => {
                 let Some(name) = self.ast.function(fid).name else { return false };
-                match self.bodies.tipo_local(name.span.start).map(|t| table.get(t)) {
+                match self.bodies.local_type(name.span.start).map(|t| table.get(t)) {
                     Some(Type::Function { ret, .. }) => *ret,
                     _ => return false,
                 }

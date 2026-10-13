@@ -459,7 +459,7 @@ impl Context<'_> {
             let name = self.node_text(*self.children(arg).first()?).trim_end_matches(':').trim().to_string();
             return parameters
                 .iter()
-                .find(|p| p.kind == dartforge_frontend::ast::ParameterKind::Named && p.externo.or(p.name).is_some_and(|n| self.p.name(n) == name))
+                .find(|p| p.kind == dartforge_frontend::ast::ParameterKind::Named && p.external_name.or(p.name).is_some_and(|n| self.p.name(n) == name))
                 .map(|p| p.ty);
         }
         parameters.iter().filter(|p| p.kind != dartforge_frontend::ast::ParameterKind::Named).nth(positional).map(|p| p.ty)
@@ -533,7 +533,7 @@ impl Context<'_> {
                     && let Some(&annotation) = self.children(list).iter().find(|&&f| self.kind(f) == "NamedType")
                     && let Some(&first) = self.children(list).iter().find(|&&f| self.kind(f) == "VariableDeclaration")
                     && let Some(name) = self.next_token(self.tree.nos[first].inicio)
-                    && let Some(&t) = self.bodies.tipos_de_locais.get(&name.start)
+                    && let Some(&t) = self.bodies.local_types.get(&name.start)
                     && self.is_set_type(t)
                 {
                     let _ = annotation;
@@ -629,7 +629,7 @@ impl Context<'_> {
                 let marks_parameter = match self.tree.nos[k].marca {
                     crate::arvore_analyzer::Marca::Expr(x) => match self.bodies.get_resolved(x) {
                         Some(Resolved::Parameter { name, .. }) => self.p.name(*name) == name_text,
-                        Some(Resolved::Local(_)) => self.bodies.declaracao_local(x) == Some(name_.start),
+                        Some(Resolved::Local(_)) => self.bodies.local_declaration(x) == Some(name_.start),
                         _ => false,
                     },
                     _ => false,

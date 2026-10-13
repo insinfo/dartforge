@@ -588,7 +588,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             // itself (`instanciar_para_limites` of the shared
                             // inference).
                             let p = &self.ctx.class_params[c.0 as usize][args.len()];
-                            let explicit = self.ctx.table.param(dartforge_types::table::TypeParamId(p.id)).explicito;
+                            let explicit = self.ctx.table.param(dartforge_types::table::TypeParamId(p.id)).explicit;
                             // A bound that references the class's own parameters
                             // (`class A<E extends A<E>>`): they count as `dynamic`
                             // in the bound (raw `A` is `A<A<dynamic>>`), otherwise

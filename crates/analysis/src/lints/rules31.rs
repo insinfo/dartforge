@@ -23,7 +23,7 @@ use dartforge_elements::model::{Element, FunctionRef};
 use dartforge_frontend::ast::{self, CollectionElement, ExprId, ExprKind, ForInTarget, ForInit, MemberKind, ParameterKind, PatternKind, StmtKind, TypeKind};
 use dartforge_frontend::token::Token;
 use dartforge_intern::Interner;
-use dartforge_types::exibicao::Exibidor;
+use dartforge_types::display::Displayer;
 use dartforge_types::resolved::Resolved;
 use dartforge_types::table::{Type, TypeId};
 use std::collections::HashSet;
@@ -47,10 +47,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     let program = s.program;
     let table = s.table;
     let body = s.body;
-    let ex = Exibidor { table, interner, program };
+    let ex = Displayer { table, interner, program };
     // The `DartType` argument (with alias) and the text of `getDisplayString()`.
-    let type_arg = |t: TypeId| ex.tipo(t, true);
-    let text = |t: TypeId| ex.tipo(t, false);
+    let type_arg = |t: TypeId| ex.ty(t, true);
+    let text = |t: TypeId| ex.ty(t, false);
     let is_dynamic = |t: TypeId| matches!(table.get(t), Type::Dynamic);
     let mut findings: Vec<(Span, &'static CodigoLint, Vec<String>)> = Vec::new();
     let word = |sp: Span| &source[sp.start..sp.end];
@@ -92,7 +92,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         if !matches!(p, "var" | "final" | "const") {
             continue;
         }
-        let Some(t) = body.tipo_local(name.span.start) else { continue };
+        let Some(t) = body.local_type(name.span.start) else { continue };
         if p == "var" {
             findings.push((k, &c::ALWAYS_SPECIFY_TYPES_REPLACE_KEYWORD, vec![p.to_string(), type_arg(t)]));
         } else {
@@ -114,7 +114,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         if assignments.iter().any(|sp| sp.start <= p.span.start && p.span.end <= sp.end) {
             continue;
         }
-        let Some(t) = body.tipos_casados.get(&ast::PatternId(k as u32)).copied() else { continue };
+        let Some(t) = body.matched_types.get(&ast::PatternId(k as u32)).copied() else { continue };
         let keyword = if *final_ || *var_ { token_before(&tokens, name.span.start) } else { None };
         match keyword {
             Some(kw) if *var_ => findings.push((kw, &c::ALWAYS_SPECIFY_TYPES_REPLACE_KEYWORD, vec![word(kw).to_string(), type_arg(t)])),
@@ -136,7 +136,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
     }
 
     // `visitNamedType`: a generic interface type without arguments.
-    let optional_type_args = |metadata: &[ast::Annotation], unit| metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, unit, m, "meta", "optionalTypeArgs"));
+    let optional_type_args = |metadata: &[ast::Annotation], unit| metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, interner, unit, m, "meta", "optionalTypeArgs"));
     // The element's type parameters and `hasOptionalTypeArgs`.
     let generic = |el: Element| -> bool {
         match el {
@@ -167,7 +167,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         if !args.is_empty() || in_is.contains(&id) {
             continue;
         }
-        let Some(r) = body.tipos_de_anotacoes.get(&id).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, id)).copied()) else { continue };
+        let Some(r) = body.annotation_types.get(&id).copied().or_else(|| s.outline.written_types.get(&(s.unit, id)).copied()) else { continue };
         if !is_interface(r) {
             continue;
         }
@@ -231,7 +231,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         }
         let g = a.function(f);
         let fn_type = match g.name {
-            Some(n) => body.tipo_local(n.span.start),
+            Some(n) => body.local_type(n.span.start),
             None => a.exprs.iter().position(|e| matches!(e.kind, ExprKind::FunctionExpression(x) if x == f)).and_then(|k| body.get_type(ExprId(k as u32))),
         }?;
         let Type::Function { positional, optional, named, .. } = table.get(fn_type) else { return None };
@@ -385,7 +385,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         for v in l.variables.iter() {
             let Some(i) = v.initializer else { continue };
             let t = match body.get_resolved(i) {
-                Some(Resolved::Local(_)) if matches!(a.expr(i).kind, ExprKind::Identifier(_)) => body.declaracao_local(i).and_then(|d| body.tipo_local(d)),
+                Some(Resolved::Local(_)) if matches!(a.expr(i).kind, ExprKind::Identifier(_)) => body.local_declaration(i).and_then(|d| body.local_type(d)),
                 _ => None,
             }
             .or_else(|| body.get_type(i));

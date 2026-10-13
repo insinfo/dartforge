@@ -49,7 +49,7 @@ mod arc_tests {
             let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
             let (bodies, body_diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
             for d in diags.iter().chain(&body_diags) {
-                assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
+                assert!(!dartforge_types::codes::is_compile_error(&d.message), "{d:?}");
             }
             let te = crate::erasure::compute(&program, &outline, &mut table);
             let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);

@@ -137,12 +137,12 @@ pub fn has_obvious_type(s: &super::Semantics<'_>, interner: &Interner, a: &Ast, 
             if !matches!(s.body.get_resolved(e), Some(Resolved::Local(_))) {
                 return false;
             }
-            let Some(decl) = s.body.declaracao_local(e) else { return false };
+            let Some(decl) = s.body.local_declaration(e) else { return false };
             let is_function = a.stmts.iter().any(|x| matches!(&x.kind, dartforge_frontend::ast::StmtKind::Function(f) if a.function(*f).name.is_some_and(|n| n.span.start == decl)));
             if is_function {
                 return false;
             }
-            s.body.get_type(e).is_some() && s.body.get_type(e) == s.body.tipo_local(decl)
+            s.body.get_type(e).is_some() && s.body.get_type(e) == s.body.local_type(decl)
         }
         ExprKind::InstanceCreation { ty, .. } => match &a.ty(*ty).kind {
             TypeKind::Named { args, .. } if !args.is_empty() => true,

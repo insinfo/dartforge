@@ -137,7 +137,7 @@ mod tests {
             let (bodies, ds_bodies) = dartforge_types::infer_program_bodies(
                 &program, &interner, &mut types, &core, &mut outline);
             for d in ds.iter().chain(&ds_bodies) {
-                assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
+                assert!(!dartforge_types::codes::is_compile_error(&d.message), "{d:?}");
             }
             let mut ctx = Context::new(&program, &interner, &types, &core, &outline, &bodies);
             for arc in [false, true] {

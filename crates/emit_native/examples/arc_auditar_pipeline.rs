@@ -50,7 +50,7 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
         &mut outline,
     );
     for d in diags.iter().chain(&body_diags) {
-        if dartforge_types::codes::e_erro_de_compilacao(&d.message) {
+        if dartforge_types::codes::is_compile_error(&d.message) {
             return Err(format!("tipagem: {d:?}"));
         }
     }
@@ -256,7 +256,7 @@ fn lower_sdk_for_audit(
     if libs.len() != sdk_modulo::SOURCE_LIBRARIES.len() {
         return Err("bibliotecas SDK incompletas".into());
     }
-    let (bodies, _) = dartforge_types::infer_bodies_das_bibliotecas(
+    let (bodies, _) = dartforge_types::infer_library_bodies(
         &program,
         &interner,
         &mut types,

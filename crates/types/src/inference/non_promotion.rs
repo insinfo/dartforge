@@ -62,7 +62,7 @@ impl BodyInferrer<'_> {
             FunctionKind::ImplicitAccessor => match fe.variable {
                 Some(v) => {
                     let owner = self.program.variable(v).library;
-                    self.library_promotion(owner).campos.contains(&v)
+                    self.library_promotion(owner).fields.contains(&v)
                 }
                 None => false,
             },
@@ -92,7 +92,7 @@ impl BodyInferrer<'_> {
             return Some(WhyNotPromoted::NotAField);
         }
         let (external, final_, owner) = (ve.external, ve.final_, ve.library);
-        if self.library_promotion(owner).campos.contains(&v) {
+        if self.library_promotion(owner).fields.contains(&v) {
             return None;
         }
         if external {
@@ -155,7 +155,7 @@ impl BodyInferrer<'_> {
         let name = property_key.2;
         let inherent = self.why_not_promoted(name, f);
         let enabled = field_promotion::enabled(self.program, cx.lib);
-        let reason = NonPromotionReason::Property { nome: name, membro: f, inherent, enabled };
+        let reason = NonPromotionReason::Property { name, member: f, inherent, enabled };
         let mut r: Vec<(TypeId, NonPromotionReason)> = Vec::new();
         for l in lists {
             for t in l {
@@ -205,12 +205,12 @@ impl BodyInferrer<'_> {
     /// O `_WhyNotPromotedVisitor`.
     fn reason_messages(&mut self, cx: &Body, m: &NonPromotionReason, error: Span) -> Vec<ContextMessage> {
         match m {
-            NonPromotionReason::Escrita { nome: name, span } => {
+            NonPromotionReason::Write { name, span } => {
                 let text = format!("Variable '{}' could not be promoted due to an assignment", self.interner.resolve(*name));
                 vec![ContextMessage { file: None, span: *span, message: text.into() }]
             }
             NonPromotionReason::This => vec![ContextMessage { file: None, span: error, message: "'this' can't be promoted".into() }],
-            NonPromotionReason::Property { nome: name, membro: member, inherent, enabled } => {
+            NonPromotionReason::Property { name, member, inherent, enabled } => {
                 let program = self.program;
                 let fe = program.function(*member);
                 // `receiverElement is PropertyAccessorElement`: only getters.

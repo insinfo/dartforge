@@ -452,7 +452,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 let body = a.stmt(cc.body).span;
                 let mentions = |region: Span| {
                     a.exprs.iter().enumerate().any(|(j, e)| {
-                        matches!(e.kind, ExprKind::Identifier(_)) && within(e.span, region) && s.body.declaracao_local(ExprId(j as u32)) == Some(ex.span.start)
+                        matches!(e.kind, ExprKind::Identifier(_)) && within(e.span, region) && s.body.local_declaration(ExprId(j as u32)) == Some(ex.span.start)
                     })
                 };
                 // The visitor's events, by position: (position, order,

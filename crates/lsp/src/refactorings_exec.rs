@@ -584,9 +584,9 @@ impl Context<'_> {
             let core = &self.p.query.core;
             match table.get(t) {
                 Type::Dynamic => {}
-                _ if table.canonico(t) == table.canonico(core.int) => add_letter(excluded, &mut output, b'i'),
-                _ if table.canonico(t) == table.canonico(core.double) => add_letter(excluded, &mut output, b'd'),
-                _ if table.canonico(t) == table.canonico(core.string) => add_letter(excluded, &mut output, b's'),
+                _ if table.canonical(t) == table.canonical(core.int) => add_letter(excluded, &mut output, b'i'),
+                _ if table.canonical(t) == table.canonical(core.double) => add_letter(excluded, &mut output, b'd'),
+                _ if table.canonical(t) == table.canonical(core.string) => add_letter(excluded, &mut output, b's'),
                 Type::Interface { class, .. } => {
                     let name = self.p.name(self.p.program().class(*class).name).to_string();
                     add_all(excluded, &mut output, camel_combinations(&name), None);
@@ -991,7 +991,7 @@ fn inline_local(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> Re
                     return Err(State::fatal(message));
                 }
                 let crate::arvore_analyzer::Marca::Expr(x) = cx.tree.nos[n].marca else { return Err(State::fatal(message)) };
-                cx.bodies.declaracao_local(x).ok_or_else(|| State::fatal(message))?
+                cx.bodies.local_declaration(x).ok_or_else(|| State::fatal(message))?
             }
             "VariableDeclaration" if cx.tree.nos[n].marca == crate::arvore_analyzer::Marca::VariavelLocal => cx.tree.nos[n].inicio,
             _ => return Err(State::fatal(message)),
@@ -1060,7 +1060,7 @@ impl Context<'_> {
         for (i, e) in self.ast.exprs.iter().enumerate() {
             let x = ExprId(i as u32);
             let ExprKind::Identifier(n) = &e.kind else { continue };
-            if self.bodies.declaracao_local(x) != Some(decl) {
+            if self.bodies.local_declaration(x) != Some(decl) {
                 continue;
             }
             let kind = if compound.contains(&x) {
@@ -1075,7 +1075,7 @@ impl Context<'_> {
             v.push((n.span, kind));
         }
         // `AssignedVariablePattern`: a write.
-        for (pid, d) in self.bodies.declaracoes_de_padroes.iter() {
+        for (pid, d) in self.bodies.pattern_declarations.iter() {
             if *d == decl {
                 v.push((self.ast.pattern(*pid).span, ReferenceKind::Write));
             }

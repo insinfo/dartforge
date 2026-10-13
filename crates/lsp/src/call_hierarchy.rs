@@ -218,7 +218,7 @@ impl Project {
         if let Some(&f) = cx.constructors_by_target.get(&x) {
             return Some(CallElem::Function(f));
         }
-        if let Some(d) = cx.bodies.declaracao_local(x)
+        if let Some(d) = cx.bodies.local_declaration(x)
             && let Some(i) = cx.ast.functions.iter().position(|f| f.name.is_some_and(|nm| nm.span.start == d))
         {
             return Some(CallElem::Local(cx.unit, i as u32));

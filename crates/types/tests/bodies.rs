@@ -1034,9 +1034,9 @@ fn final_field_without_setter_and_assignable_late_final() {
         assert!(snippet == "x" || snippet == "s" || snippet == "z", "{diags:?}");
         assert!(d.message.contains(&format!("'{snippet}'")), "{diags:?}");
     }
-    let constantes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_CONST.template)).collect();
-    assert_eq!(constantes.len(), 1, "{diags:?}");
-    assert_eq!(&source[constantes[0].span.start as usize..constantes[0].span.end as usize], "c");
+    let constants: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_CONST.template)).collect();
+    assert_eq!(constants.len(), 1, "{diags:?}");
+    assert_eq!(&source[constants[0].span.start as usize..constants[0].span.end as usize], "c");
     assert!(!diags.iter().any(|d| d.message.contains("'y'")), "{diags:?}");
 }
 
@@ -1056,10 +1056,10 @@ fn read_only_static_members_in_assignments() {
 
     let finals: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
     let getters: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)).collect();
-    let constantes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_CONST.template)).collect();
+    let constants: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_CONST.template)).collect();
     assert_eq!(finals.len(), 4, "{diags:?}");
     assert_eq!(getters.len(), 4, "{diags:?}");
-    assert_eq!(constantes.len(), 1, "{diags:?}");
+    assert_eq!(constants.len(), 1, "{diags:?}");
     for d in finals {
         assert_eq!(&source[d.span.start as usize..d.span.end as usize], "x");
     }
@@ -1067,7 +1067,7 @@ fn read_only_static_members_in_assignments() {
         assert_eq!(&source[d.span.start as usize..d.span.end as usize], "g");
         assert!(d.message.contains("in class 'A'"));
     }
-    assert_eq!(&source[constantes[0].span.start as usize..constantes[0].span.end as usize], "c");
+    assert_eq!(&source[constants[0].span.start as usize..constants[0].span.end as usize], "c");
     assert!(!diags.iter().any(|d| d.message.contains("'l'")), "{diags:?}");
 }
 
@@ -1764,7 +1764,7 @@ fn type_arguments_out_of_bounds() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let unit = prog.library(prog.entry.unwrap()).units[0];
-    let diags = dartforge_types::limites::argumentos_fora_dos_limites(&prog, &interner, &mut table, &core, &outline, None, unit);
+    let diags = dartforge_types::bound_checks::arguments_out_of_bounds(&prog, &interner, &mut table, &core, &outline, None, unit);
     let v: Vec<(&str, &str)> = diags.iter().map(|d| (&source[d.span.start..d.span.end], d.message.as_str())).collect();
     assert_eq!(
         v,
@@ -1810,7 +1810,7 @@ fn void_result_use() {
 // SDK: the displayed type of an expression, as in the corpus dump.
 // ===========================================================================
 
-/// `(snippet, tipo)` of each expression of `source`, in code order (with the
+/// `(snippet, ty)` of each expression of `source`, in code order (with the
 /// real SDK; `None` without it). The types come out as in the corpus dump.
 fn types_with_sdk(source: &str) -> Option<Vec<(String, String)>> {
     let (_, sdk) = get_real_sdk()?;
@@ -1820,7 +1820,7 @@ fn types_with_sdk(source: &str) -> Option<Vec<(String, String)>> {
     let lines = std::thread::Builder::new()
         .stack_size(1 << 28)
         .spawn(move || {
-            let d = dartforge_types::despejo::dump(&main, &sdk, None);
+            let d = dartforge_types::dump::dump(&main, &sdk, None);
             d.units.into_iter().next().expect("dumped unit").lines
         })
         .unwrap()
@@ -2120,8 +2120,8 @@ fn enum_augmentation_adds_values_and_members() {
     .unwrap();
     let (prog, load_diags) = load_lenient(&the_proj.join("main.dart"), &sdk, None, &mut interner);
     assert!(load_diags.iter().all(|d| !d.message.contains("augment")), "{load_diags:?}");
-    let cor = prog.classes.iter().find(|c| interner.resolve(c.name) == "Cor").expect("Cor");
-    let values: Vec<&str> = cor.enum_constants.iter().map(|v| interner.resolve(prog.variable(*v).name)).collect();
+    let color_class = prog.classes.iter().find(|c| interner.resolve(c.name) == "Cor").expect("Cor");
+    let values: Vec<&str> = color_class.enum_constants.iter().map(|v| interner.resolve(prog.variable(*v).name)).collect();
     assert_eq!(values, vec!["vermelho", "verde", "azul"]);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);

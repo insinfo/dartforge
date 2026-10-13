@@ -343,7 +343,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                     let data = self.query.table.param(*tp);
                     head.push_str(self.query.name(data.name));
-                    if data.explicito
+                    if data.explicit
                         && let Some(b) = writer.write(data.bound, false)
                     {
                         head.push_str(" extends ");

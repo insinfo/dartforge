@@ -4,7 +4,7 @@
 //! the syntactic diagnostics right away (parser + local checkers of
 //! `crates/analysis`) and asks this worker for the full analysis of the
 //! document's package. The analysis is **the same** as `dartforge analyze`'s:
-//! [`dartforge_parity::analise::Motor`] (load, outline, `crates/types`
+//! [`dartforge_parity::analise::Engine`] (load, outline, `crates/types`
 //! inference and the `crates/analysis` checkers) followed by
 //! [`dartforge_parity::publicaveis`] (the publication rule of
 //! `verificados.txt`, `analysis_options.yaml` and `// ignore:`). No rule is
@@ -13,7 +13,7 @@
 //!
 //! * **One program per package.** All open documents of the package (plus
 //!   the owning library of each open part) go into a single
-//!   `Motor::analisar_com`, with the open texts winning over the disk. So
+//!   `Engine::analisar_com`, with the open texts winning over the disk. So
 //!   editing an imported file reanalyzes whoever imports it, directly or
 //!   transitively, without a dependency graph of its own.
 //! * **Version.** Each result carries the version of the analyzed text; the
@@ -24,11 +24,11 @@
 //!   running analysis checks, between the engine's phases, whether the
 //!   package was marked again; if so, it stops and restarts with the new
 //!   text.
-//! * **Memory.** The worker retains only the [`Motor`] (SDK layout and
+//! * **Memory.** The worker retains only the [`Engine`] (SDK layout and
 //!   library names) and a copy of the current text of each open document.
 //!   Program, trees and type table live for one analysis and drop with it.
 //!
-//! [`Motor`]: dartforge_parity::analise::Motor
+//! [`Engine`]: dartforge_parity::analise::Motor
 
 use crate::{Analyzer, SyntacticAnalyzer};
 use dartforge_diagnostics::Diagnostic;

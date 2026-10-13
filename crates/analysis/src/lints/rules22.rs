@@ -53,7 +53,7 @@ fn is_double(s: &super::Semantics<'_>, t: TypeId) -> bool {
 
 /// The written type of an annotation.
 fn written_type(s: &super::Semantics<'_>, t: dartforge_frontend::ast::TypeId) -> Option<TypeId> {
-    s.body.tipos_de_anotacoes.get(&t).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, t)).copied())
+    s.body.annotation_types.get(&t).copied().or_else(|| s.outline.written_types.get(&(s.unit, t)).copied())
 }
 
 /// The first positional `bool` (`_isBoolean`).
@@ -259,7 +259,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     }
                     // The generic local function.
                     if matches!(s.body.get_resolved(*target), Some(Resolved::Local(_)))
-                        && let Some(decl) = s.body.declaracao_local(*target)
+                        && let Some(decl) = s.body.local_declaration(*target)
                         && let Some(g) = a.stmts.iter().find_map(|x| match &x.kind {
                             StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == decl) => Some(*g),
                             _ => None,
@@ -389,7 +389,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     };
                     table.intern_lookup(x)
                 }),
-                DeclKind::Extension(x) => s.outline.tipos_escritos.get(&(s.unit, x.on)).copied().filter(|t| matches!(table.get(*t), Type::Interface { .. })),
+                DeclKind::Extension(x) => s.outline.written_types.get(&(s.unit, x.on)).copied().filter(|t| matches!(table.get(*t), Type::Interface { .. })),
                 _ => continue,
             };
             this_types.push((d.span.start, t));
@@ -481,7 +481,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             let has_double_type = match parent.get(&e).copied() {
                 Some(Node::Expr(p)) => match &a.expr(p).kind {
                     ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
-                        arguments.args.iter().any(|x| x.value == e) && s.body.tipos_de_parametros.get(&e).is_some_and(|t| is_double(s, *t))
+                        arguments.args.iter().any(|x| x.value == e) && s.body.parameter_types.get(&e).is_some_and(|t| is_double(s, *t))
                     }
                     ExprKind::List { type_args, elements, .. } => {
                         elements.iter().any(|el| matches!(el, dartforge_frontend::ast::CollectionElement::Expression(x) if *x == e))

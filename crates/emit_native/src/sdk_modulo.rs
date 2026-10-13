@@ -111,7 +111,7 @@ pub fn measure_sdk_inference(lib_dir: &Path) -> Result<Vec<LibraryInference>, St
         let lib = dartforge_elements::model::LibraryId(idx as u32);
         let functions = program.functions.iter().filter(|f| f.library == lib).count();
         let (_bodies, diags) =
-            dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &[lib]);
+            dartforge_types::infer_library_bodies(&program, &interner, &mut table, &core, &mut outline, &[lib]);
         exit.push(LibraryInference {
             library: uri,
             functions,
@@ -302,7 +302,7 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
         return Err("source SDK library outside the program".to_string());
     }
     let (bodies, _) =
-        dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &libs);
+        dartforge_types::infer_library_bodies(&program, &interner, &mut table, &core, &mut outline, &libs);
     let base = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies);
     let base = base.with_source_sdk();
     // The SDK comes out in the exception model of the program (`alvo::excecoes_por_tabelas`).
@@ -869,7 +869,7 @@ pub fn measure_sdk_lowering(lib_dir: &Path) -> Result<Vec<SdkMember>, String> {
         .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
         .collect();
     let (bodies, _) =
-        dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &libs);
+        dartforge_types::infer_library_bodies(&program, &interner, &mut table, &core, &mut outline, &libs);
     let ctx = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
     let mut exit = Vec::new();
     for f in 0..program.functions.len() {

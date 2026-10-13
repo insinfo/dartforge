@@ -43,7 +43,7 @@ pub struct ParameterTypeData {
     /// External name: the one in the signature and the call. Differs from
     /// `name` only for a private named parameter in 3.12 (`{this._x}` is passed
     /// as `x:`).
-    pub externo: Option<SymbolId>,
+    pub external_name: Option<SymbolId>,
     pub ty: TypeId,
     pub required: bool,
     pub kind: ParameterKind,
@@ -76,20 +76,20 @@ pub struct ExtensionTypeData {
 }
 
 impl OutlineTypes {
-    /// Replaces the `ast::TypeId`s of `u` in [`OutlineTypes::tipos_escritos`]
+    /// Replaces the `ast::TypeId`s of `u` in [`OutlineTypes::written_types`]
     /// using `map` (a unit's text swap without reloading,
     /// `dartforge_elements::incremental`). Refuses, without changing anything, if
     /// any key of the unit is not in the map.
-    pub fn remapear_tipos_escritos(&mut self, u: UnitId, map: &HashMap<ast::TypeId, ast::TypeId>) -> bool {
-        let of_unit: Vec<((UnitId, ast::TypeId), TypeId)> = self.tipos_escritos.iter().filter(|((un, _), _)| *un == u).map(|(k, v)| (*k, *v)).collect();
+    pub fn remap_written_types(&mut self, u: UnitId, map: &HashMap<ast::TypeId, ast::TypeId>) -> bool {
+        let of_unit: Vec<((UnitId, ast::TypeId), TypeId)> = self.written_types.iter().filter(|((un, _), _)| *un == u).map(|(k, v)| (*k, *v)).collect();
         if of_unit.iter().any(|((_, t), _)| !map.contains_key(t)) {
             return false;
         }
         for (k, _) in &of_unit {
-            self.tipos_escritos.remove(k);
+            self.written_types.remove(k);
         }
         for ((un, t), v) in of_unit {
-            self.tipos_escritos.insert((un, map[&t]), v);
+            self.written_types.insert((un, map[&t]), v);
         }
         true
     }
@@ -119,8 +119,8 @@ pub struct OutlineTypes {
     /// The type of each type annotation that the outline resolved (signatures,
     /// clauses, bounds, and the annotations inside them), by unit and node: the
     /// analyzer's `TypeAnnotation.type`. Those of the bodies are in
-    /// [`crate::resolved::UnitBodyTypes::tipos_de_anotacoes`].
-    pub tipos_escritos: HashMap<(UnitId, ast::TypeId), TypeId>,
+    /// [`crate::resolved::UnitBodyTypes::annotation_types`].
+    pub written_types: HashMap<(UnitId, ast::TypeId), TypeId>,
     /// The faithful override inference (`InstanceMemberInferrer`) has already
     /// run over these types (in the first body inference).
     pub inferred_overrides: bool,
@@ -317,8 +317,8 @@ pub fn shadowed_prefix_diagnostic(the_name: &str, range: dartforge_diagnostics::
 /// A declaration whose members form a scope (the analyzer's `InstanceScope`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Container {
-    Classe(ClassId),
-    Extensao(ExtensionId),
+    Class(ClassId),
+    Extension(ExtensionId),
 }
 
 /// What a name is in the instance scope of a container.
@@ -362,15 +362,15 @@ pub struct OutlineResolver<'a> {
     pub extension_type_params: Vec<Box<[TypeParamId]>>,
     /// Expanded target types of typedefs: `[TypedefId] -> Option<TypeId>`
     pub typedef_targets: Vec<Option<TypeId>>,
-    /// Cache of the `hasSelfReference` of each `typedef` (`auto_referencia`).
+    /// Cache of the `hasSelfReference` of each `typedef` (`self_reference`).
     self_referencing_typedefs: Vec<Option<bool>>,
     /// The bounds that `_breakRawTypeCycles` replaces with `dynamic`
     /// ([`crate::raw_cycles`]); computed on the first read of the bounds.
     broken_bounds: Option<std::collections::HashSet<(dartforge_elements::model::DeclRef, usize)>>,
     /// Ver [`OutlineTypes::field_overrides`].
     pub field_overrides: Vec<FieldOverride>,
-    /// Ver [`OutlineTypes::tipos_escritos`].
-    pub tipos_escritos: HashMap<(UnitId, ast::TypeId), TypeId>,
+    /// Ver [`OutlineTypes::written_types`].
+    pub written_types: HashMap<(UnitId, ast::TypeId), TypeId>,
 }
 
 impl<'a> OutlineResolver<'a> {
@@ -401,7 +401,7 @@ impl<'a> OutlineResolver<'a> {
             self_referencing_typedefs: vec![None; num_typedefs],
             broken_bounds: None,
             field_overrides: Vec::new(),
-            tipos_escritos: HashMap::new(),
+            written_types: HashMap::new(),
         }
     }
 
@@ -430,11 +430,11 @@ impl<'a> OutlineResolver<'a> {
         // `import 'dart:core' as prefix0;` does not hide the library's `dynamic`.
         let principal = self.program.library(lib).units.first().copied();
         let imports = &self.program.library(lib).imports;
-        let do_core: Vec<_> = imports.iter().filter(|i| Some(i.library) == self.program.core && Some(i.unit) == principal).collect();
-        if do_core.is_empty() {
+        let from_core: Vec<_> = imports.iter().filter(|i| Some(i.library) == self.program.core && Some(i.unit) == principal).collect();
+        if from_core.is_empty() {
             return true;
         }
-        do_core.iter().any(|i| {
+        from_core.iter().any(|i| {
             i.prefix.is_none()
                 && i.combinators.iter().all(|c| match c {
                     ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == sym),
@@ -452,8 +452,8 @@ impl<'a> OutlineResolver<'a> {
     /// ([`name_in_container`]).
     fn in_container(&self, sym: SymbolId) -> Option<InContainer> {
         let (the_class, extension) = match self.container? {
-            Container::Classe(c) => (Some(c), None),
-            Container::Extensao(e) => (None, Some(e)),
+            Container::Class(c) => (Some(c), None),
+            Container::Extension(e) => (None, Some(e)),
         };
         name_in_container(self.program, self.interner, the_class, extension, sym)
     }
@@ -502,7 +502,7 @@ impl<'a> OutlineResolver<'a> {
             typedefs: typedef_type_data,
             hierarchy,
             field_overrides: std::mem::take(&mut self.field_overrides),
-            tipos_escritos: std::mem::take(&mut self.tipos_escritos),
+            written_types: std::mem::take(&mut self.written_types),
             inferred_overrides: false,
         };
 
@@ -646,7 +646,7 @@ impl<'a> OutlineResolver<'a> {
         if let Some(r) = self.self_referencing_typedefs[i] {
             return r;
         }
-        let r = crate::auto_referencia::typedef_auto_referente(self.program, self.program.typedefs[i].decl);
+        let r = crate::self_reference::self_referencing_typedef(self.program, self.program.typedefs[i].decl);
         self.self_referencing_typedefs[i] = Some(r);
         r
     }
@@ -982,7 +982,7 @@ impl<'a> OutlineResolver<'a> {
             for (p_elem, &pid) in ext.type_params.iter().zip(params.iter()) {
                 scope.insert(p_elem.name, pid);
             }
-            // Limites escritos (`extension X<T extends Enum> on ...`).
+            // Written bounds (`extension X<T extends Enum> on ...`).
             for (p_elem, &pid) in ext.type_params.iter().zip(params.iter()) {
                 if let Some((unit_id, ast_ty_id)) = p_elem.bound {
                     let b = self.resolve_annotation(unit_id, ast_ty_id, ext.library, &scope);
@@ -1202,7 +1202,7 @@ impl<'a> OutlineResolver<'a> {
         let mut position = 0usize;
         for (i, p) in new_.iter_mut().enumerate() {
             let corresponding = if p.kind == ParameterKind::Named {
-                previous.parameters.iter().find(|q| q.kind == ParameterKind::Named && q.externo == p.externo)
+                previous.parameters.iter().find(|q| q.kind == ParameterKind::Named && q.external_name == p.external_name)
             } else {
                 let q = positional_before.get(position).copied();
                 position += 1;
@@ -1227,7 +1227,7 @@ impl<'a> OutlineResolver<'a> {
                 ParameterKind::Required => positional.push(p.ty),
                 ParameterKind::Optional => optional.push(p.ty),
                 ParameterKind::Named => {
-                    if let Some(n) = p.externo {
+                    if let Some(n) = p.external_name {
                         named.push((n, p.ty, p.required));
                     }
                 }
@@ -1329,7 +1329,7 @@ impl<'a> OutlineResolver<'a> {
 
                         param_types.push(ParameterTypeData {
                             name: p_name,
-                            externo: p.external_name().map(|n| n.sym),
+                            external_name: p.external_name().map(|n| n.sym),
                             ty: p_ty,
                             required: p.required,
                             kind: p.kind,
@@ -1406,7 +1406,7 @@ impl<'a> OutlineResolver<'a> {
 
                     param_types.push(ParameterTypeData {
                         name: p_name,
-                        externo: p.external_name().map(|n| n.sym),
+                        external_name: p.external_name().map(|n| n.sym),
                         ty: p_ty,
                         required: p.required,
                         kind: p.kind,
@@ -1462,7 +1462,7 @@ impl<'a> OutlineResolver<'a> {
                         // Setter
                         let param = ParameterTypeData {
                             name: None,
-                            externo: None,
+                            external_name: None,
                             ty: var_ty,
                             required: true,
                             kind: ParameterKind::Required,
@@ -1567,7 +1567,7 @@ impl<'a> OutlineResolver<'a> {
     }
 
     /// Same-named member in the supertypes of `func`'s class, in lookup order
-    /// (superclasses and mixins, then interfaces): `(the_class, função)`.
+    /// (superclasses and mixins, then interfaces): `(the_class, function)`.
     fn overlapping_member(&self, func: &FunctionElement, hierarchy: &ClassHierarchy) -> Option<(ClassId, FunctionElementId)> {
         let class_id = func.class?;
         if func.static_ {
@@ -1760,7 +1760,7 @@ impl<'a> OutlineResolver<'a> {
     ) -> TypeId {
         let t = self.resolve_written_annotation(unit_id, ast_ty_id, library, type_param_scope);
         // `TypeAnnotation.type`, for the rules that read it.
-        self.tipos_escritos.insert((unit_id, ast_ty_id), t);
+        self.written_types.insert((unit_id, ast_ty_id), t);
         // `ResolutionVisitor.visitNamedType` resolves the type arguments before
         // the name, whatever it is (type parameter, `dynamic`, undefined name or
         // one that is not a type): those that the name path did not resolve are
@@ -1770,7 +1770,7 @@ impl<'a> OutlineResolver<'a> {
             _ => Vec::new(),
         };
         for a in args {
-            if !self.tipos_escritos.contains_key(&(unit_id, a)) {
+            if !self.written_types.contains_key(&(unit_id, a)) {
                 self.type_context = TypeContext::TypeArgument;
                 self.resolve_annotation(unit_id, a, library, type_param_scope);
             }
@@ -1837,7 +1837,7 @@ impl<'a> OutlineResolver<'a> {
                     }
                     if self.interner.lookup("Never") == Some(sym) {
                         return if is_nullable {
-                            self.table.decorate(self.core.null, crate::table::Exibicao::NeverAnulavel)
+                            self.table.decorate(self.core.null, crate::table::DisplayDecoration::NeverNullable)
                         } else {
                             self.core.never
                         };
@@ -1987,7 +1987,7 @@ impl<'a> OutlineResolver<'a> {
                                     let expanded = substitute(target_ty, &subst, self.table);
                                     let expanded = self.table.decorate(
                                         expanded,
-                                        crate::table::Exibicao::Alias { typedef: tid, args: resolved_args.clone().into_boxed_slice() },
+                                        crate::table::DisplayDecoration::Alias { typedef: tid, args: resolved_args.clone().into_boxed_slice() },
                                     );
                                     if is_nullable {
                                         nullable(expanded, self.table)
@@ -2021,8 +2021,8 @@ impl<'a> OutlineResolver<'a> {
                     let member = name[1].sym;
                     if name[0].span.start != name[0].span.end {
                         let (the_class, extension) = match self.container {
-                            Some(Container::Classe(c)) => (Some(c), None),
-                            Some(Container::Extensao(e)) => (None, Some(e)),
+                            Some(Container::Class(c)) => (Some(c), None),
+                            Some(Container::Extension(e)) => (None, Some(e)),
                             None => (None, None),
                         };
                         let local = type_param_scope.contains_key(&prefix);
@@ -2114,7 +2114,7 @@ impl<'a> OutlineResolver<'a> {
                                 let expanded = substitute(target_ty, &subst, self.table);
                                 let expanded = self.table.decorate(
                                     expanded,
-                                    crate::table::Exibicao::Alias { typedef: tid, args: resolved_args.clone().into_boxed_slice() },
+                                    crate::table::DisplayDecoration::Alias { typedef: tid, args: resolved_args.clone().into_boxed_slice() },
                                 );
                                 if is_nullable {
                                     nullable(expanded, self.table)
@@ -2130,7 +2130,7 @@ impl<'a> OutlineResolver<'a> {
                         None => {
                             // `_rewriteToConstructorName` (`named_type_resolver.dart:101-109`,
                             // `:329-382`): the "prefix" is a class or an alias, not an import
-                            // prefix (`A.foo` read as `prefixo.Nome`). Outside a creation,
+                            // prefix (`A.foo` read as `prefix.MemberName`). Outside a creation,
                             // `NOT_A_TYPE` with `A.foo`, from the prefix to the end of the
                             // name, in any context; never the undefined name.
                             let prefix_and_type = matches!(
@@ -2368,8 +2368,8 @@ impl<'a> OutlineResolver<'a> {
 /// The container of a member (class or extension), if any.
 fn container_of(the_class: Option<ClassId>, extension: Option<ExtensionId>) -> Option<Container> {
     match (the_class, extension) {
-        (Some(c), _) => Some(Container::Classe(c)),
-        (None, Some(e)) => Some(Container::Extensao(e)),
+        (Some(c), _) => Some(Container::Class(c)),
+        (None, Some(e)) => Some(Container::Extension(e)),
         _ => None,
     }
 }

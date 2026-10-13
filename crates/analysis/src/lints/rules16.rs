@@ -89,7 +89,7 @@ pub(super) fn is_method_invocation(s: &super::Semantics<'_>, a: &Ast, recv: Expr
         Some(Resolved::Element(Element::Function(f))) => not_getter(*f),
         Some(Resolved::Element(_)) => false,
         Some(Resolved::ExtensionMember { member, .. }) => not_getter(*member),
-        Some(Resolved::Local(_)) => s.body.declaracao_local(recv).is_some_and(|d| {
+        Some(Resolved::Local(_)) => s.body.local_declaration(recv).is_some_and(|d| {
             a.stmts.iter().any(|x| matches!(&x.kind, StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == d)))
         }),
         Some(Resolved::Parameter { .. }) => false,
@@ -182,7 +182,7 @@ pub(super) fn unit_parents(u: Unidade<'_>, keep: &dyn Fn(ExprId) -> bool) -> Nod
 /// The written return type of a function (`returnType?.type`).
 fn written_return(s: &super::Semantics<'_>, a: &Ast, f: dartforge_frontend::ast::FunctionId) -> Option<TypeId> {
     let t = a.function(f).return_type?;
-    s.body.tipos_de_anotacoes.get(&t).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, t)).copied())
+    s.body.annotation_types.get(&t).copied().or_else(|| s.outline.written_types.get(&(s.unit, t)).copied())
 }
 
 /// The return type of the element of a declared function (method, top-level
@@ -197,7 +197,7 @@ fn element_return(s: &super::Semantics<'_>, a: &Ast, f: dartforge_frontend::ast:
         }
     }
     let n = a.function(f).name?;
-    match s.table.get(s.body.tipo_local(n.span.start)?) {
+    match s.table.get(s.body.local_type(n.span.start)?) {
         Type::Function { ret, .. } => Some(*ret),
         _ => None,
     }
@@ -269,7 +269,7 @@ pub(super) fn approximate_context(s: &super::Semantics<'_>, interner: &Interner,
                 if arg.name.is_none() && child != me {
                     return ApproxContext::Invalid;
                 }
-                s.body.tipos_de_parametros.get(&key).copied().map_or(ApproxContext::Invalid, ApproxContext::Typed)
+                s.body.parameter_types.get(&key).copied().map_or(ApproxContext::Invalid, ApproxContext::Typed)
             }
             ExprKind::Assign { .. } | ExprKind::Conditional { .. } => type_ctx(p),
             _ => ApproxContext::NoContext,
@@ -338,11 +338,11 @@ pub(super) fn approximate_context(s: &super::Semantics<'_>, interner: &Interner,
                 if l.ty.is_none() {
                     return ApproxContext::NoContext;
                 }
-                let t = l.ty.and_then(|t| s.body.tipos_de_anotacoes.get(&t).copied());
+                let t = l.ty.and_then(|t| s.body.annotation_types.get(&t).copied());
                 t.map_or(ApproxContext::NoContext, ApproxContext::Typed)
             }
             StmtKind::For { init: Some(ForInit::Variables(l)), .. } => {
-                l.ty.and_then(|t| s.body.tipos_de_anotacoes.get(&t).copied()).map_or(ApproxContext::NoContext, ApproxContext::Typed)
+                l.ty.and_then(|t| s.body.annotation_types.get(&t).copied()).map_or(ApproxContext::NoContext, ApproxContext::Typed)
             }
             _ => ApproxContext::NoContext,
         },
@@ -369,7 +369,7 @@ fn variable_list_context(s: &super::Semantics<'_>, a: &Ast, m: Option<dartforge_
         return ApproxContext::NoContext;
     }
     let Some(t) = list.ty else { return ApproxContext::NoContext };
-    s.outline.tipos_escritos.get(&(s.unit, t)).copied().map_or(ApproxContext::NoContext, ApproxContext::Typed)
+    s.outline.written_types.get(&(s.unit, t)).copied().map_or(ApproxContext::NoContext, ApproxContext::Typed)
 }
 
 /// The element type of a top-level variable or field.
@@ -920,7 +920,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         for st in a.stmts.iter() {
             if let StmtKind::Variables(l) = &st.kind {
                 for v in l.variables.iter() {
-                    check_decl(l.final_ || l.const_, v.name, v.initializer, s.body.tipo_local(v.name.span.start));
+                    check_decl(l.final_ || l.const_, v.name, v.initializer, s.body.local_type(v.name.span.start));
                 }
             }
         }
@@ -947,7 +947,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             };
             for f in children {
                 let PatternKind::Variable { name, .. } = &a.pattern(f).kind else { continue };
-                let (Some(t), Some(&value)) = (s.body.tipo_local(name.span.start), s.body.tipos_casados.get(&f)) else { continue };
+                let (Some(t), Some(&value)) = (s.body.local_type(name.span.start), s.body.matched_types.get(&f)) else { continue };
                 if matches!(table.get(t), Type::Dynamic) {
                     continue;
                 }

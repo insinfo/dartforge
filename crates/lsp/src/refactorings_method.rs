@@ -14,7 +14,7 @@ use crate::refactorings_exec::{State, Change, Severity, Text, ONE_INDENT, finish
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionKind, LibraryId};
 use dartforge_frontend::ast::{self, DeclKind, ExprId};
-use dartforge_types::table::Exibicao;
+use dartforge_types::table::DisplayDecoration;
 use dartforge_types::{SubtypeEnv, Type, TypeId, TypeTable};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -52,7 +52,7 @@ impl Pattern {
         other.normalized == self.normalized
             && other.types.len() == self.types.len()
             && self.types.iter().zip(other.types.iter()).all(|(a, b)| match (a, b) {
-                (Some(a), Some(b)) => table.canonico(*a) == table.canonico(*b),
+                (Some(a), Some(b)) => table.canonical(*a) == table.canonical(*b),
                 (None, None) => true,
                 _ => false,
             })
@@ -173,7 +173,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         match e {
             Elem::LocalFunction(fid) => self.cx.ast.function(fid).name.map(|x| x.span.start),
             Elem::LocalVariable | Elem::Parameter => match self.cx.tree.nos[n].marca {
-                Marca::Expr(x) => self.cx.bodies.declaracao_local(x),
+                Marca::Expr(x) => self.cx.bodies.local_declaration(x),
                 _ => None,
             },
             _ => None,
@@ -275,7 +275,7 @@ impl<'c, 'p> Extract<'c, 'p> {
                 return r;
             }
             let (d, name) = assigned[0].clone();
-            self.return_type_ = self.cx.bodies.tipo_local(d);
+            self.return_type_ = self.cx.bodies.local_type(d);
             self.return_variable = Some(name);
         }
         if assigned.len() > 1 {
@@ -310,7 +310,7 @@ impl<'c, 'p> Extract<'c, 'p> {
             if !(self.range.0 <= d && d <= self.range.1) {
                 if !self.parameters.iter().any(|p| p.name == name) {
                     let ty = if self.in_write(n) {
-                        cx.bodies.tipo_local(d)
+                        cx.bodies.local_type(d)
                     } else {
                         match cx.tree.nos[n].marca {
                             Marca::Expr(x) => cx.bodies.get_type(x),
@@ -365,7 +365,7 @@ impl<'c, 'p> Extract<'c, 'p> {
                 && e.span.start > self.range.1
                 && mi <= e.span.start
                 && e.span.end <= mf
-                && self.cx.bodies.declaracao_local(ExprId(i as u32)) == Some(d)
+                && self.cx.bodies.local_declaration(ExprId(i as u32)) == Some(d)
         })
     }
 
@@ -470,7 +470,7 @@ impl<'c, 'p> Extract<'c, 'p> {
             };
             return;
         };
-        if matches!(self.table.get(t), Type::Dynamic) && !matches!(self.table.exibicao(t), Some(Exibicao::Invalido)) {
+        if matches!(self.table.get(t), Type::Dynamic) && !matches!(self.table.decoration(t), Some(DisplayDecoration::Invalid)) {
             self.variable_type = Some(String::new());
             self.return_type = if self.has_await {
                 let fd = self.future(core.dynamic_);
@@ -574,7 +574,7 @@ impl<'c, 'p> Extract<'c, 'p> {
                 }
                 "VariableDeclaration" if cx.tree.nos[k].marca == Marca::VariavelLocal => {
                     let name = name_at_start(cx.node_text(k));
-                    add(&mut p, ki, ki + name.len(), name, cx.bodies.tipo_local(ki));
+                    add(&mut p, ki, ki + name.len(), name, cx.bodies.local_type(ki));
                 }
                 _ => {}
             }
@@ -608,8 +608,8 @@ impl<'c, 'p> Extract<'c, 'p> {
     /// `FunctionElement.type`).
     fn element_type(&self, e: Elem, d: usize) -> Option<TypeId> {
         match e {
-            Elem::LocalFunction(fid) => self.cx.bodies.tipo_local(d).or_else(|| self.cx.bodies.tipo_de_execucao_de_funcao(fid)),
-            _ => self.cx.bodies.tipo_local(d),
+            Elem::LocalFunction(fid) => self.cx.bodies.local_type(d).or_else(|| self.cx.bodies.function_runtime_type(fid)),
+            _ => self.cx.bodies.local_type(d),
         }
     }
 
@@ -760,14 +760,14 @@ impl<'c, 'p> Extract<'c, 'p> {
 
     /// `LibraryElement.getTypeSource(type, librariesToImport, parametersBuffer)`.
     fn type_source(&mut self, t: TypeId, buffer: Option<(&mut String, Vec<String>)>) -> Option<String> {
-        if let Some(Exibicao::Alias { typedef, args }) = self.table.exibicao(t).cloned() {
+        if let Some(DisplayDecoration::Alias { typedef, args }) = self.table.decoration(t).cloned() {
             let null = self.table.get(t).is_declared_nullable();
             return self.source_with_arguments(Element::Typedef(typedef), null, &args);
         }
-        if matches!(self.table.exibicao(t), Some(Exibicao::Invalido)) {
+        if matches!(self.table.decoration(t), Some(DisplayDecoration::Invalid)) {
             return Some("dynamic".to_string());
         }
-        if matches!(self.table.exibicao(t), Some(Exibicao::NeverAnulavel)) {
+        if matches!(self.table.decoration(t), Some(DisplayDecoration::NeverNullable)) {
             return Some("Never".to_string());
         }
         match self.table.get(t).clone() {
@@ -1688,7 +1688,7 @@ fn element_exits(cx: &Context<'_>, m: usize) -> bool {
             never || has_always_throws(cx, declared)
         }
         Elem::LocalFunction(fid) => {
-            let t = cx.ast.function(fid).name.and_then(|n| cx.bodies.tipo_local(n.span.start));
+            let t = cx.ast.function(fid).name.and_then(|n| cx.bodies.local_type(n.span.start));
             matches!(t.map(|t| cx.p.query.table.get(t)), Some(Type::Function { ret, .. }) if matches!(cx.p.query.table.get(*ret), Type::Never))
         }
         _ => false,

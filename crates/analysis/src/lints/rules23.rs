@@ -502,7 +502,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             if excluded.contains(&id) || augmented.iter().any(|sp| t.span.start >= sp.start && t.span.end <= sp.end) {
                 continue;
             }
-            let ty = s.body.tipos_de_anotacoes.get(&id).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, id)).copied());
+            let ty = s.body.annotation_types.get(&id).copied().or_else(|| s.outline.written_types.get(&(s.unit, id)).copied());
             if ty.is_some_and(|x| matches!(table.get(x), Type::Null)) {
                 report(&c::PREFER_VOID_TO_NULL, name[name.len() - 1].span, &[]);
             }

@@ -198,7 +198,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
                 .exprs
                 .iter()
                 .enumerate()
-                .filter(|(i, x)| matches!(x.kind, ast::ExprKind::Identifier(_)) && cxm.bodies.declaracao_local(ExprId(*i as u32)) == d && d.is_some())
+                .filter(|(i, x)| matches!(x.kind, ast::ExprKind::Identifier(_)) && cxm.bodies.local_declaration(ExprId(*i as u32)) == d && d.is_some())
                 .map(|(_, x)| (unit_m, x.span))
                 .collect();
             v.sort_by_key(|(_, s)| s.start);
@@ -317,7 +317,7 @@ impl<'c, 'p> Method<'c, 'p> {
                         let e = cxm.identifier_element(k, true);
                         if e == Elem::LocalVariable
                             && let Marca::Expr(x) = cxm.tree.nos[k].marca
-                            && let Some(d) = cxm.bodies.declaracao_local(x)
+                            && let Some(d) = cxm.bodies.local_declaration(x)
                         {
                             add_variable(&mut part, d, cxm.node_text(k).to_string(), (ki - a, kf - a));
                         }
@@ -401,7 +401,7 @@ impl<'c, 'p> Method<'c, 'p> {
             return;
         }
         let Marca::Expr(x) = cxm.tree.nos[n].marca else { return };
-        let Some(d) = cxm.bodies.declaracao_local(x) else { return };
+        let Some(d) = cxm.bodies.local_declaration(x) else { return };
         let Some((_, name)) = names.iter().find(|(o, _)| *o == d) else { return };
         let (ki, kf) = range(cxm, n);
         let occurrence = ParameterOccurrence {

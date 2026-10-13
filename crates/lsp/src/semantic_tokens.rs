@@ -509,7 +509,7 @@ impl Project {
                 ExprKind::Identifier(n) => {
                     let constructor_ = constructor2.contains(&(i as u32));
                     let r = bodies.get_resolved(id);
-                    if matches!(r, Some(Resolved::Local(_))) && bodies.declaracao_local(id).is_some_and(|d| parameters_.contains(&d)) {
+                    if matches!(r, Some(Resolved::Local(_))) && bodies.local_declaration(id).is_some_and(|d| parameters_.contains(&d)) {
                         c.name(n.span, "parameter", &[]);
                     } else {
                         c.resolved(n.span, r, constructor_, &[], true);

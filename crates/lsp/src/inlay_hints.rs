@@ -115,7 +115,7 @@ impl Project {
                             && !prm.super_
                             && prm.function_parameters.is_none()
                             && let Some(n) = prm.name
-                            && let Some(t) = bodies.tipo_local(n.span.start).or_else(|| {
+                            && let Some(t) = bodies.local_type(n.span.start).or_else(|| {
                                 element.and_then(|f| self.query.outline.functions.get(f.0 as usize)).and_then(|d| d.parameters.get(j)).map(|d| d.ty)
                             })
                         {
@@ -187,7 +187,7 @@ impl Project {
             match &s.kind {
                 StmtKind::Variables(vl) if vl.ty.is_none() => {
                     for var in vl.variables.iter() {
-                        if let Some(t) = bodies.tipo_local(var.name.span.start) {
+                        if let Some(t) = bodies.local_type(var.name.span.start) {
                             ty_(var.name.span.start, t, &mut output);
                         }
                     }
@@ -196,13 +196,13 @@ impl Project {
                 // `VariableDeclarationList` (`visitVariableDeclaration`).
                 StmtKind::For { init: Some(ast::ForInit::Variables(vl)), .. } if vl.ty.is_none() => {
                     for var in vl.variables.iter() {
-                        if let Some(t) = bodies.tipo_local(var.name.span.start) {
+                        if let Some(t) = bodies.local_type(var.name.span.start) {
                             ty_(var.name.span.start, t, &mut output);
                         }
                     }
                 }
                 StmtKind::ForIn { target: ast::ForInTarget::Declared { ty: None, name, .. }, .. } => {
-                    if let Some(t) = bodies.tipo_local(name.span.start) {
+                    if let Some(t) = bodies.local_type(name.span.start) {
                         ty_(name.span.start, t, &mut output);
                     }
                 }
@@ -211,7 +211,7 @@ impl Project {
                     if func.return_type.is_none()
                         && func.kind != ast::FunctionKind::Setter
                         && let Some(n) = func.name
-                        && let Some(t) = bodies.tipo_local(n.span.start)
+                        && let Some(t) = bodies.local_type(n.span.start)
                         && let Type::Function { ret, .. } = self.query.table.get(t)
                     {
                         ty_(n.span.start, *ret, &mut output);
@@ -222,7 +222,7 @@ impl Project {
         }
         for pt in &ast.patterns {
             if let ast::PatternKind::Variable { ty: None, name, .. } = &pt.kind
-                && let Some(t) = bodies.tipo_local(name.span.start)
+                && let Some(t) = bodies.local_type(name.span.start)
             {
                 ty_(name.span.start, t, &mut output);
             }
@@ -235,7 +235,7 @@ impl Project {
                     && !prm.super_
                     && prm.function_parameters.is_none()
                     && let Some(n) = prm.name
-                    && let Some(t) = bodies.tipo_local(n.span.start)
+                    && let Some(t) = bodies.local_type(n.span.start)
                 {
                     ty_(n.span.start, t, &mut output);
                 }
@@ -258,7 +258,7 @@ impl Project {
                                         && vl.ty.is_none()
                                     {
                                         for var in vl.variables.iter() {
-                                            if let Some(t) = bodies.tipo_local(var.name.span.start) {
+                                            if let Some(t) = bodies.local_type(var.name.span.start) {
                                                 f(var.name.span.start, t);
                                             }
                                         }
@@ -268,7 +268,7 @@ impl Project {
                                 ast::CollectionElement::ForIn { target, body, .. } => {
                                     // `[for (var x in l) …]`: the `DeclaredIdentifier` without a type.
                                     if let ast::ForInTarget::Declared { ty: None, name, .. } = target
-                                        && let Some(t) = bodies.tipo_local(name.span.start)
+                                        && let Some(t) = bodies.local_type(name.span.start)
                                     {
                                         f(name.span.start, t);
                                     }
@@ -298,7 +298,7 @@ impl Project {
         let mut of_pattern: HashMap<u32, TypeId> = HashMap::new();
         for (i, pt) in ast.patterns.iter().enumerate() {
             if let ast::PatternKind::Object { ty, .. } = &pt.kind
-                && let Some(&t) = bodies.tipos_de_padroes.get(&ast::PatternId(i as u32))
+                && let Some(&t) = bodies.pattern_types.get(&ast::PatternId(i as u32))
             {
                 of_pattern.insert(ty.0, t);
             }
@@ -315,7 +315,7 @@ impl Project {
         }
         let direct = |i: u32| -> Option<TypeId> {
             let id = ast::TypeId(i);
-            of_pattern.get(&i).or_else(|| bodies.tipos_de_anotacoes.get(&id)).or_else(|| self.query.outline.tipos_escritos.get(&(unit_, id))).copied()
+            of_pattern.get(&i).or_else(|| bodies.annotation_types.get(&id)).or_else(|| self.query.outline.written_types.get(&(unit_, id))).copied()
         };
         let resolve = |i: u32| -> Option<TypeId> {
             let mut path: Vec<usize> = Vec::new();
@@ -353,7 +353,7 @@ impl Project {
                     // without written arguments (the implicit creation is not an invocation).
                     if arguments.type_args.is_empty()
                         && !matches!(bodies.get_resolved(id), Some(Resolved::Constructor(_)))
-                        && let Some(chosen) = bodies.instanciacao(arguments.span.start)
+                        && let Some(chosen) = bodies.instantiation(arguments.span.start)
                         && !chosen.is_empty()
                     {
                         let opens = u.source[arguments.span.start..].find('(').map_or(arguments.span.start, |k| arguments.span.start + k);
@@ -372,7 +372,7 @@ impl Project {
                     };
                     let names = match f {
                         Some(f) => self.positional_names(f),
-                        None => bodies.declaracao_local(*target).map_or_else(Vec::new, |d| local_function_names(ast, &u.source, d)),
+                        None => bodies.local_declaration(*target).map_or_else(Vec::new, |d| local_function_names(ast, &u.source, d)),
                     };
                     self.argument_names(ast, &u.source, arguments, &names, &mut output);
                     // `Caixa('a')` without `new`: the inferred type arguments after the class name.
@@ -515,7 +515,7 @@ impl Project {
     /// `_appendTypePart`: the element's name (not the alias's), the arguments
     /// and the `?`; the rest through `getDisplayString`.
     fn type_text(&self, t: TypeId) -> String {
-        self.query.table.format_sem_alias(t, &self.query.names, &self.query.program)
+        self.query.table.format_without_alias(t, &self.query.names, &self.query.program)
     }
 }
 

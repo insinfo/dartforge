@@ -567,7 +567,7 @@ fn superclass_of_itself_terminates() {
     let _ = resolve_outline(&prog, &interner, &mut table, &core);
 }
 
-/// `invalid_override` (`types::sobrescritas`), in the forms of the analyzer's
+/// `invalid_override` (`types::override_checks`), in the forms of the analyzer's
 /// corpus (3.6.2 oracle): return, parameter, setter, `covariant` and the check
 /// of covariant parameters against all supertypes.
 #[test]
@@ -586,7 +586,7 @@ fn corpus_invalid_overrides() {
     let classes: Vec<ClassId> =
         (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
     let mut v: Vec<(String, String)> =
-        dartforge_types::sobrescritas::sobrescritas_invalidas(&prog, &interner, &mut table, &core, &outline, &classes)
+        dartforge_types::override_checks::invalid_overrides(&prog, &interner, &mut table, &core, &outline, &classes)
             .into_iter()
             .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
             .collect();
@@ -602,7 +602,7 @@ fn corpus_invalid_overrides() {
     );
 }
 
-/// `types::variancia`: variance positions and supertypes (checked against
+/// `types::variance`: variance positions and supertypes (checked against
 /// `dart analyze` 3.6.2, which keeps the written variance even without the
 /// experiment).
 #[test]
@@ -618,7 +618,7 @@ fn type_parameter_variance() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let lib = prog.entry.unwrap();
-    let v: Vec<(String, String)> = dartforge_types::variancia::variancia(&prog, &interner, &table, &outline, lib)
+    let v: Vec<(String, String)> = dartforge_types::variance::variance(&prog, &interner, &table, &outline, lib)
         .into_iter()
         .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
         .collect();
@@ -635,7 +635,7 @@ fn type_parameter_variance() {
     );
 }
 
-/// `getter_not_subtype_setter_types` (`types::sobrescritas::getters_e_setters`):
+/// `getter_not_subtype_setter_types` (`types::override_checks::getters_and_setters`):
 /// top-level, static and the interface (the inherited getter carries the class
 /// name).
 #[test]
@@ -654,7 +654,7 @@ fn getter_and_setter_with_incompatible_types() {
     let classes: Vec<ClassId> =
         (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
     let mut v: Vec<(String, String)> =
-        dartforge_types::sobrescritas::getters_e_setters(&prog, &interner, &mut table, &core, &outline, lib, &classes)
+        dartforge_types::override_checks::getters_and_setters(&prog, &interner, &mut table, &core, &outline, lib, &classes)
             .into_iter()
             .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
             .collect();
@@ -670,7 +670,7 @@ fn getter_and_setter_with_incompatible_types() {
     );
 }
 
-/// `types::sobrescritas::membros_abstratos`: an abstract member in a concrete
+/// `types::override_checks::abstract_members`: an abstract member in a concrete
 /// class, inherited ones without an implementation (sorted, with `getter`),
 /// the concrete superclass that already leaves them out, and `noSuchMethod`.
 #[test]
@@ -689,7 +689,7 @@ fn abstract_members_in_concrete_class() {
     let classes: Vec<ClassId> =
         (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
     let mut v: Vec<(String, String)> =
-        dartforge_types::sobrescritas::membros_abstratos(&prog, &interner, &mut table, &core, &outline, &classes)
+        dartforge_types::override_checks::abstract_members(&prog, &interner, &mut table, &core, &outline, &classes)
             .into_iter()
             .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
             .collect();
@@ -703,7 +703,7 @@ fn abstract_members_in_concrete_class() {
     );
 }
 
-/// `membros_em_conflito` and `default_values` of `types::sobrescritas`
+/// `conflicting_members` and `default_values` of `types::override_checks`
 /// (analyzer corpus, 3.6.2 oracle).
 #[test]
 fn conflicting_members_and_default_values() {
@@ -718,9 +718,9 @@ fn conflicting_members_and_default_values() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let lib = prog.entry.unwrap();
-    let mut v: Vec<(String, String)> = dartforge_types::sobrescritas::membros_em_conflito(&prog, &interner, &mut table, &core, &outline, lib)
+    let mut v: Vec<(String, String)> = dartforge_types::override_checks::conflicting_members(&prog, &interner, &mut table, &core, &outline, lib)
         .into_iter()
-        .chain(dartforge_types::sobrescritas::default_values(&prog, &interner, &mut table, &outline, lib))
+        .chain(dartforge_types::override_checks::default_values(&prog, &interner, &mut table, &outline, lib))
         .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
         .collect();
     v.sort();
@@ -735,7 +735,7 @@ fn conflicting_members_and_default_values() {
     );
 }
 
-/// `membros_de_enum`: concrete `index`/`hashCode` and `values` in a class
+/// `enum_members`: concrete `index`/`hashCode` and `values` in a class
 /// that implements `Enum` (`illegal_*` corpus, 3.6.2 oracle).
 #[test]
 fn members_forbidden_in_enum_implementers() {
@@ -758,7 +758,7 @@ fn members_forbidden_in_enum_implementers() {
     let classes: Vec<ClassId> =
         (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
     let mut v: Vec<(String, String)> =
-        dartforge_types::sobrescritas::membros_de_enum(&prog, &interner, &mut table, &core, &outline, &classes)
+        dartforge_types::override_checks::enum_members(&prog, &interner, &mut table, &core, &outline, &classes)
             .into_iter()
             .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
             .collect();

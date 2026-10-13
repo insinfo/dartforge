@@ -51,7 +51,7 @@ pub fn is_subtype(t0: TypeId, t1: TypeId, env: &mut SubtypeEnv) -> bool {
     // error was already reported, and nothing that depends on the type is
     // reported again. It only exists in analysis (decorated types); in the
     // emitters the table has none.
-    if !env.table.empty_display() && (env.table.e_invalido(t0) || env.table.e_invalido(t1)) {
+    if !env.table.empty_display() && (env.table.is_invalid(t0) || env.table.is_invalid(t1)) {
         return true;
     }
 

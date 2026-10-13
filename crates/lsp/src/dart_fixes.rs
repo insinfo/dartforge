@@ -329,7 +329,7 @@ impl Context<'_> {
                 }
                 "SimpleIdentifier" => {
                     if let Marca::Expr(x) = self.tree.nos[k].marca
-                        && self.bodies.declaracao_local(x) == Some(decl)
+                        && self.bodies.local_declaration(x) == Some(decl)
                     {
                         v.push(k);
                     }
@@ -422,7 +422,7 @@ impl Context<'_> {
                 ExprKind::Property { name, .. } => name.span,
                 _ => continue,
             };
-            let by_local = matches!(target_, Declared::LocalFunction(d) if self.bodies.declaracao_local(id) == Some(d));
+            let by_local = matches!(target_, Declared::LocalFunction(d) if self.bodies.local_declaration(id) == Some(d));
             let resolved = self.bodies.get_resolved(id).is_some_and(|r| self.resolve_to(r, target_));
             // The call `o.m()`/`m()` keeps the resolution on the call.
             let by_call = ast.exprs.iter().enumerate().any(|(j, c)| match &c.kind {
@@ -662,7 +662,7 @@ impl Context<'_> {
                     let table = &self.p.query.table;
                     let ty = match element {
                         crate::refactorings::Elem::Function(f) => self.p.query.outline.functions.get(f.0 as usize).map(|d| d.return_type),
-                        crate::refactorings::Elem::LocalFunction(fid) => self.ast.function(fid).name.and_then(|n| match self.bodies.tipo_local(n.span.start).map(|t| table.get(t)) {
+                        crate::refactorings::Elem::LocalFunction(fid) => self.ast.function(fid).name.and_then(|n| match self.bodies.local_type(n.span.start).map(|t| table.get(t)) {
                             Some(Type::Function { ret, .. }) => Some(*ret),
                             _ => None,
                         }),
@@ -1340,7 +1340,7 @@ impl Context<'_> {
         let table = &self.p.query.table;
         let mut declared = match element {
             crate::refactorings::Elem::Function(f) => self.p.query.outline.functions.get(f.0 as usize).map(|d| d.return_type)?,
-            crate::refactorings::Elem::LocalFunction(fid) => match self.ast.function(fid).name.and_then(|n| self.bodies.tipo_local(n.span.start)).map(|t| table.get(t)) {
+            crate::refactorings::Elem::LocalFunction(fid) => match self.ast.function(fid).name.and_then(|n| self.bodies.local_type(n.span.start)).map(|t| table.get(t)) {
                 Some(Type::Function { ret, .. }) => *ret,
                 _ => return None,
             },
@@ -1538,7 +1538,7 @@ impl Context<'_> {
     /// is the `switch`; the witnesses with parts come from the constant checker
     /// (the `diagnostic.data`). The edit and the libraries to import.
     pub(crate) fn missing_cases(&self, error: Span) -> Option<(Span, String, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
-        use dartforge_types::constantes::ParteDeTestemunha as P;
+        use dartforge_types::const_eval::WitnessPart as P;
         let node = self.tree.localizar(error.start, error.end)?;
         let expression = match self.kind(node) {
             "SwitchStatement" => false,
@@ -1549,7 +1549,7 @@ impl Context<'_> {
         let lib = prog.unit(self.unit).library;
         let query = &self.p.query;
         let mut table = query.table.clone();
-        let map = dartforge_types::constantes::testemunhas_de_switch(
+        let map = dartforge_types::const_eval::switch_witnesses(
             prog,
             &query.names,
             &mut table,
@@ -1583,7 +1583,7 @@ impl Context<'_> {
         // `default` comes in.
         let inaccessible = |parts: &[P]| {
             parts.iter().any(|q| match q {
-                P::ValorDeEnum { enumeracao, valor: value } => {
+                P::EnumValue { enumeration: enumeracao, value } => {
                     let c = prog.class(*enumeracao);
                     (self.p.name(c.name).starts_with('_') || self.p.name(prog.variable(*value).name).starts_with('_')) && c.library != lib
                 }
@@ -1603,14 +1603,14 @@ impl Context<'_> {
             let mut pattern = String::new();
             for q in parts {
                 match q {
-                    P::Texto(t) => pattern.push_str(t),
-                    P::ValorDeEnum { enumeracao, valor: value } => {
+                    P::Text(t) => pattern.push_str(t),
+                    P::EnumValue { enumeration: enumeracao, value } => {
                         let name = self.p.name(prog.class(*enumeracao).name).to_string();
                         pattern.push_str(&writer.reference_of(dartforge_elements::model::Element::Class(*enumeracao), &name));
                         pattern.push('.');
                         pattern.push_str(self.p.name(prog.variable(*value).name));
                     }
-                    P::Tipo(t) => pattern.push_str(&writer.write_type(Some(*t), false).unwrap_or_default()),
+                    P::Type(t) => pattern.push_str(&writer.write_type(Some(*t), false).unwrap_or_default()),
                 }
             }
             if expression {
@@ -1746,7 +1746,7 @@ impl Context<'_> {
                 if !(q.required && q.kind == ast::ParameterKind::Named) {
                     continue;
                 }
-                let Some(name) = q.externo.or(q.name).map(|s| self.p.name(s).to_string()) else { continue };
+                let Some(name) = q.external_name.or(q.name).map(|s| self.p.name(s).to_string()) else { continue };
                 if named_data.contains(&name) {
                     continue;
                 }

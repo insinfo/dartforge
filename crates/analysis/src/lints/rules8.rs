@@ -327,7 +327,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 } else {
                     continue;
                 };
-                if target.is_some_and(|x| s.table.canonico(x) == s.table.canonico(written)) {
+                if target.is_some_and(|x| s.table.canonical(x) == s.table.canonical(written)) {
                     report(&c::TYPE_INIT_FORMALS, a.ty(t).span, &[]);
                 }
             }
@@ -379,7 +379,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 from_list(l, &|k, _| fields.get(&(mi, k)).and_then(|v| super::variable_type(s, *v)), &mut findings);
             }
         }
-        let local = |_: usize, n: ast::Name| s.body.tipo_local(n.span.start);
+        let local = |_: usize, n: ast::Name| s.body.local_type(n.span.start);
         for st in a.stmts.iter() {
             match &st.kind {
                 StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => from_list(l, &local, &mut findings),
@@ -391,7 +391,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         // the superclass parameter's).
         let param_type = |mi: Option<usize>, pi: usize, p: &ast::Parameter| -> Option<dartforge_types::table::TypeId> {
             let n = p.name?;
-            if let Some(t) = s.body.tipo_local(n.span.start) {
+            if let Some(t) = s.body.local_type(n.span.start) {
                 return Some(t);
             }
             if let Some(t) = p.ty {
@@ -519,12 +519,12 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 .iter()
                 .enumerate()
                 .filter(|(_, e)| matches!(e.kind, ExprKind::Identifier(_)) && regions.iter().any(|r| r.start <= e.span.start && e.span.end <= r.end))
-                .filter_map(|(k, _)| s.body.declaracao_local(ExprId(k as u32)))
+                .filter_map(|(k, _)| s.body.local_declaration(ExprId(k as u32)))
                 .collect();
             for p in k.parameters.iter().filter(|p| !p.this_ && !p.super_) {
                 let Some(n) = p.name else { continue };
                 let text = interner.resolve(n.sym);
-                let deprecated = p.metadata.iter().any(|x| dartforge_types::anotacoes::e_deprecated(s.program, interner, s.unit, x));
+                let deprecated = p.metadata.iter().any(|x| dartforge_types::annotations::is_deprecated(s.program, interner, s.unit, x));
                 if deprecated || text.bytes().all(|b| b == b'_') || used.contains(&n.span.start) {
                     continue;
                 }

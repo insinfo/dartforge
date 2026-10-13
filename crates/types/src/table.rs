@@ -51,7 +51,7 @@ pub struct TypeParameterData {
     pub variance: Variance,
     /// The bound was written (`T extends Object?`), and is not the implicit
     /// `Object?`: instantiation to bounds and display tell them apart.
-    pub explicito: bool,
+    pub explicit: bool,
 }
 
 /// Semantic representation of a Dart 3 type.
@@ -77,14 +77,14 @@ pub enum Type {
         ret: TypeId,
         positional: Box<[TypeId]>,
         optional: Box<[TypeId]>,
-        /// Named parameters canonically ordered by `SymbolId`: `(the_name, tipo, required)`.
+        /// Named parameters canonically ordered by `SymbolId`: `(the_name, ty, required)`.
         named: Box<[(SymbolId, TypeId, bool)]>,
         nullable: bool,
     },
     /// Tuple/record type: `(T1, ..., Tn, {N1: U1, ...})`.
     Record {
         positional: Box<[TypeId]>,
-        /// Named fields canonically ordered by `SymbolId`: `(the_name, tipo)`.
+        /// Named fields canonically ordered by `SymbolId`: `(the_name, ty)`.
         named: Box<[(SymbolId, TypeId)]>,
         nullable: bool,
     },
@@ -133,13 +133,13 @@ pub struct TypeTable {
     /// was written (the analyzer's `TypeImpl.alias`) and `Never?` (which is
     /// `Null` semantically). Each decorated type is its own `TypeId` with the
     /// same structure as the target (`get` returns the target's), outside
-    /// hash-consing; they only exist with [`TypeTable::preservar_exibicao`] on
+    /// hash-consing; they only exist with [`TypeTable::preserve_decoration`] on
     /// (analysis: parity, LSP), never in compilation.
-    display: HashMap<TypeId, Exibicao>,
-    decorated: HashMap<(TypeId, Exibicao), TypeId>,
+    display: HashMap<TypeId, DisplayDecoration>,
+    decorated: HashMap<(TypeId, DisplayDecoration), TypeId>,
     canonical: HashMap<TypeId, TypeId>,
     /// Enables the creation of decorated types ([`TypeTable::decorate`]).
-    pub preservar_exibicao: bool,
+    pub preserve_decoration: bool,
     /// The sentinel parameter of the unknown `_` ([`CoreTypes::unknown_param`]),
     /// displayed as `_` like in the analyzer (`B<_>`).
     pub the_unknown_param: Option<TypeParamId>,
@@ -158,15 +158,15 @@ pub struct TypeTable {
 
 /// The display decoration of a type (see [`TypeTable`]).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Exibicao {
+pub enum DisplayDecoration {
     /// Written as the `typedef` alias with these arguments.
     Alias { typedef: dartforge_elements::model::TypedefId, args: Box<[TypeId]> },
     /// `Never?` (estrutura `Null`).
-    NeverAnulavel,
+    NeverNullable,
     /// The analyzer's `InvalidType` (`dynamic` structure): the recovery type of
     /// a name or type that does not resolve. Behaves like `dynamic`, suppresses
     /// type diagnostics and is displayed as `InvalidType`.
-    Invalido,
+    Invalid,
 }
 
 impl Default for TypeTable {
@@ -186,7 +186,7 @@ impl TypeTable {
             display: HashMap::new(),
             decorated: HashMap::new(),
             canonical: HashMap::new(),
-            preservar_exibicao: false,
+            preserve_decoration: false,
             the_unknown_param: None,
             fresh_formals: HashMap::new(),
             without_default_type: std::collections::HashSet::new(),
@@ -194,12 +194,12 @@ impl TypeTable {
     }
 
     /// The type `target` with the display decoration `ex` (a new `TypeId` with the
-    /// same structure); without [`TypeTable::preservar_exibicao`], `target` itself.
-    pub fn decorate(&mut self, target: TypeId, ex: Exibicao) -> TypeId {
-        if !self.preservar_exibicao {
+    /// same structure); without [`TypeTable::preserve_decoration`], `target` itself.
+    pub fn decorate(&mut self, target: TypeId, ex: DisplayDecoration) -> TypeId {
+        if !self.preserve_decoration {
             return target;
         }
-        let c = self.canonico(target);
+        let c = self.canonical(target);
         if let Some(&d) = self.decorated.get(&(c, ex.clone())) {
             return d;
         }
@@ -212,15 +212,15 @@ impl TypeTable {
         id
     }
 
-    /// The `InvalidType` (see [`Exibicao::Invalido`]); without
-    /// [`TypeTable::preservar_exibicao`], `dynamic` itself.
+    /// The `InvalidType` (see [`DisplayDecoration::Invalid`]); without
+    /// [`TypeTable::preserve_decoration`], `dynamic` itself.
     pub fn invalid(&mut self, dynamic_: TypeId) -> TypeId {
-        self.decorate(dynamic_, Exibicao::Invalido)
+        self.decorate(dynamic_, DisplayDecoration::Invalid)
     }
 
     /// Whether `t` is the `InvalidType` (at the top).
-    pub fn e_invalido(&self, t: TypeId) -> bool {
-        matches!(self.exibicao(t), Some(Exibicao::Invalido))
+    pub fn is_invalid(&self, t: TypeId) -> bool {
+        matches!(self.decoration(t), Some(DisplayDecoration::Invalid))
     }
 
     /// Whether `t` is the `InvalidType` or contains it in some position (type
@@ -233,7 +233,7 @@ impl TypeTable {
     }
 
     fn contains_invalid_up_to(&self, t: TypeId, prof: u32) -> bool {
-        if self.e_invalido(t) {
+        if self.is_invalid(t) {
             return true;
         }
         if prof > 32 {
@@ -258,7 +258,7 @@ impl TypeTable {
     }
 
     /// The type without the top-level decoration (the interned one).
-    pub fn canonico(&self, t: TypeId) -> TypeId {
+    pub fn canonical(&self, t: TypeId) -> TypeId {
         self.canonical.get(&t).copied().unwrap_or(t)
     }
 
@@ -268,7 +268,7 @@ impl TypeTable {
     }
 
     /// The display decoration of `t`, if any.
-    pub fn exibicao(&self, t: TypeId) -> Option<&Exibicao> {
+    pub fn decoration(&self, t: TypeId) -> Option<&DisplayDecoration> {
         if self.display.is_empty() {
             return None;
         }
@@ -319,7 +319,7 @@ impl TypeTable {
             owner,
             bound,
             variance,
-            explicito: false,
+            explicit: false,
         });
         self.payload_bytes += std::mem::size_of::<TypeParameterData>();
         id
@@ -327,12 +327,12 @@ impl TypeTable {
 
     /// Updates the bound (*bound*) of a type parameter (useful for mutual recursion / F-bounds).
     ///
-    /// Marks the bound as written ([`TypeParameterData::explicito`]); copies of
+    /// Marks the bound as written ([`TypeParameterData::explicit`]); copies of
     /// parameters restore the original's mark.
     pub fn set_type_param_bound(&mut self, id: TypeParamId, bound: TypeId) {
         let d = &mut self.type_params[id.0 as usize];
         d.bound = bound;
-        d.explicito = true;
+        d.explicit = true;
     }
 
     /// Interns a structural type in the table, guaranteeing uniqueness by hash-consing.
@@ -391,7 +391,7 @@ impl TypeTable {
     }
 
     /// The display names of the formal parameters of function `ty`, besides
-    /// those already renamed in `ren` (see `formatar`).
+    /// those already renamed in `ren` (see `display_string`).
     fn rename_formals(&self, ty: TypeId, interner: &Interner, ren: &[(TypeParamId, String)]) -> Vec<(TypeParamId, String)> {
         let mut output = ren.to_vec();
         let Type::Function { type_params, .. } = self.get(ty) else { return output };
@@ -461,15 +461,15 @@ impl TypeTable {
     }
 
     /// `getDisplayString()` without the alias (`DartType.toString`).
-    pub fn format_sem_alias(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
+    pub fn format_without_alias(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
         self.format_with(ty, interner, program, false, &[])
     }
 
     fn format_with(&self, ty: TypeId, interner: &Interner, program: &Program, alias: bool, ren: &[(TypeParamId, String)]) -> String {
-        match self.exibicao(ty) {
-            Some(Exibicao::NeverAnulavel) => return "Never?".to_string(),
-            Some(Exibicao::Invalido) => return "InvalidType".to_string(),
-            Some(Exibicao::Alias { typedef, args }) if alias => {
+        match self.decoration(ty) {
+            Some(DisplayDecoration::NeverNullable) => return "Never?".to_string(),
+            Some(DisplayDecoration::Invalid) => return "InvalidType".to_string(),
+            Some(DisplayDecoration::Alias { typedef, args }) if alias => {
                 let the_name = interner.resolve(program.typedefs[typedef.0 as usize].name);
                 let q = if self.get(ty).is_declared_nullable() { "?" } else { "" };
                 if args.is_empty() {
@@ -554,7 +554,7 @@ impl TypeTable {
                                 let the_name = ren.iter().rev().find(|(q, _)| *q == p).map(|(_, n)| n.as_str()).unwrap_or(interner.resolve(d.name));
                                 match self.get(d.bound) {
                                     Type::Interface { nullable: true, class, .. }
-                                        if !d.explicito && interner.resolve(program.classes[class.0 as usize].name) == "Object" =>
+                                        if !d.explicit && interner.resolve(program.classes[class.0 as usize].name) == "Object" =>
                                     {
                                         the_name.to_string()
                                     }

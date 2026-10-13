@@ -24,7 +24,7 @@
 //! **remapped** by walking the signatures' type annotations in parallel (the
 //! type arena is filled in parse order, by signatures and bodies: a new type
 //! in a body shifts the ids of what comes after). The types outline keeps
-//! the same pairs (`OutlineTypes::tipos_escritos`); whoever keeps it applies
+//! the same pairs (`OutlineTypes::written_types`); whoever keeps it applies
 //! [`Previous::type_map`] (and the inverse, when undoing).
 
 use crate::model::{Program, UnitId};

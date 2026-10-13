@@ -14,11 +14,11 @@ use std::collections::HashMap;
 /// do not change. `Never?` is canonically simplified to `Null`.
 pub fn nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
     // Display decorations (C9): the nullable alias stays the alias.
-    if let Some(ex) = table.exibicao(ty).cloned() {
-        let c = table.canonico(ty);
+    if let Some(ex) = table.decoration(ty).cloned() {
+        let c = table.canonical(ty);
         let n = nullable(c, table);
         return match ex {
-            crate::table::Exibicao::NeverAnulavel | crate::table::Exibicao::Invalido => ty,
+            crate::table::DisplayDecoration::NeverNullable | crate::table::DisplayDecoration::Invalid => ty,
             ex if n != c => table.decorate(n, ex),
             _ => ty,
         };
@@ -30,7 +30,7 @@ pub fn nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
         Type::Never => {
             // Never? === Null (displayed as `Never?` when the table preserves the display).
             let n = table.intern(Type::Null);
-            table.decorate(n, crate::table::Exibicao::NeverAnulavel)
+            table.decorate(n, crate::table::DisplayDecoration::NeverNullable)
         }
         Type::Interface {
             class,
@@ -96,14 +96,14 @@ pub fn nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
 ///
 /// `Null` becomes `Never`. `dynamic` and `void` remain unchanged.
 pub fn non_nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
-    if let Some(ex) = table.exibicao(ty).cloned() {
-        let c = table.canonico(ty);
+    if let Some(ex) = table.decoration(ty).cloned() {
+        let c = table.canonical(ty);
         let n = non_nullable(c, table);
         return match ex {
-            crate::table::Exibicao::Alias { .. } if n != c => table.decorate(n, ex),
-            crate::table::Exibicao::Alias { .. } => ty,
-            crate::table::Exibicao::NeverAnulavel => n,
-            crate::table::Exibicao::Invalido => ty,
+            crate::table::DisplayDecoration::Alias { .. } if n != c => table.decorate(n, ex),
+            crate::table::DisplayDecoration::Alias { .. } => ty,
+            crate::table::DisplayDecoration::NeverNullable => n,
+            crate::table::DisplayDecoration::Invalid => ty,
         };
     }
     let t = table.get(ty).clone();
@@ -210,13 +210,13 @@ pub fn instantiate_to_bounds(
     let mut args: Vec<Option<TypeId>> = (0..n).map(|i| fixed.get(i).copied().flatten()).collect();
     for i in 0..n {
         let d = table.param(params[i]);
-        if args[i].is_none() && (!d.explicito || matches!(table.get(d.bound), Type::Dynamic)) {
+        if args[i].is_none() && (!d.explicit || matches!(table.get(d.bound), Type::Dynamic)) {
             args[i] = Some(core.dynamic_);
         }
     }
     loop {
-        let pendentes: Vec<TypeParamId> = (0..n).filter(|&i| args[i].is_none()).map(|i| params[i]).collect();
-        if pendentes.is_empty() {
+        let pending: Vec<TypeParamId> = (0..n).filter(|&i| args[i].is_none()).map(|i| params[i]).collect();
+        if pending.is_empty() {
             break;
         }
         let map: HashMap<TypeParamId, TypeId> =
@@ -227,7 +227,7 @@ pub fn instantiate_to_bounds(
                 continue;
             }
             let b = table.param(params[i]).bound;
-            if !mentions_parameters(b, &pendentes, table) {
+            if !mentions_parameters(b, &pending, table) {
                 args[i] = Some(substitute(b, &map, table));
                 progress = true;
             }
@@ -259,19 +259,19 @@ pub fn substitute(
         return ty;
     }
     // Display decoration: substitutes the alias's target and arguments.
-    if let Some(ex) = table.exibicao(ty).cloned() {
-        let c = table.canonico(ty);
+    if let Some(ex) = table.decoration(ty).cloned() {
+        let c = table.canonical(ty);
         let nc = substitute(c, mapping, table);
         return match ex {
-            crate::table::Exibicao::Alias { typedef, args } => {
+            crate::table::DisplayDecoration::Alias { typedef, args } => {
                 let new_: Box<[TypeId]> = args.iter().map(|&a| substitute(a, mapping, table)).collect();
                 if nc == c && new_ == args {
                     ty
                 } else {
-                    table.decorate(nc, crate::table::Exibicao::Alias { typedef, args: new_ })
+                    table.decorate(nc, crate::table::DisplayDecoration::Alias { typedef, args: new_ })
                 }
             }
-            crate::table::Exibicao::NeverAnulavel | crate::table::Exibicao::Invalido => ty,
+            crate::table::DisplayDecoration::NeverNullable | crate::table::DisplayDecoration::Invalid => ty,
         };
     }
 
@@ -390,9 +390,9 @@ pub fn substitute(
             let mut type_params = type_params;
             let mut formals_changed = false;
             if !type_params.is_empty() && !active_mapping.is_empty() {
-                let limites: Vec<TypeId> = type_params.iter().map(|&p| table.param(p).bound).collect();
-                let new_bounds: Vec<TypeId> = limites.iter().map(|&b| substitute(b, &active_mapping, table)).collect();
-                if new_bounds != limites {
+                let limits: Vec<TypeId> = type_params.iter().map(|&p| table.param(p).bound).collect();
+                let new_bounds: Vec<TypeId> = limits.iter().map(|&b| substitute(b, &active_mapping, table)).collect();
+                if new_bounds != limits {
                     let key = (type_params.clone(), new_bounds.into_boxed_slice());
                     let fresh = match table.fresh_formals.get(&key) {
                         Some(f) => f.clone(),
@@ -402,7 +402,7 @@ pub fn substitute(
                                 .map(|&p| {
                                     let d = table.param(p).clone();
                                     let n = table.alloc_type_param(d.name, d.owner.clone(), d.bound, d.variance);
-                                    table.param_mut(n).explicito = d.explicito;
+                                    table.param_mut(n).explicit = d.explicit;
                                     n
                                 })
                                 .collect();
@@ -411,7 +411,7 @@ pub fn substitute(
                                 let tn = table.intern(Type::TypeParameter { param: n, nullable: false });
                                 renaming.insert(o, tn);
                             }
-                            for (&b, &n) in limites.iter().zip(fresh.iter()) {
+                            for (&b, &n) in limits.iter().zip(fresh.iter()) {
                                 let nb = substitute(b, &renaming, table);
                                 table.param_mut(n).bound = nb;
                             }
@@ -529,7 +529,7 @@ pub fn normalize(ty: TypeId, table: &mut TypeTable, core: &CoreTypes) -> TypeId 
 /// `NormalizeHelper` (`analyzer/lib/src/dart/element/normalize.dart` from
 /// 3.6.2): `NORM(T)`.
 fn normalize_(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, in_progress: &mut Vec<TypeParamId>) -> TypeId {
-    if table.e_invalido(ty) {
+    if table.is_invalid(ty) {
         return ty;
     }
     let t = table.get(ty).clone();
@@ -567,7 +567,7 @@ fn normalize_(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, in_progress: 
         Type::TypeParameter { param, .. } => {
             // `NORM(X extends T)`.
             let data = table.param(param).clone();
-            if !data.explicito {
+            if !data.explicit {
                 return ty;
             }
             if in_progress.contains(&param) {
@@ -593,7 +593,7 @@ fn normalize_(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, in_progress: 
             }
             if s == core.object {
                 let data = table.param(param).clone();
-                if data.explicito {
+                if data.explicit {
                     let b = normalize_(data.bound, table, core, in_progress);
                     if b == core.object {
                         return x;
@@ -633,13 +633,13 @@ fn normalize_(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, in_progress: 
             let mut formals = type_params.clone();
             let mut map: HashMap<TypeParamId, TypeId> = HashMap::new();
             if !type_params.is_empty() {
-                let limites: Vec<TypeId> = type_params.iter().map(|&p| table.param(p).bound).collect();
+                let limits: Vec<TypeId> = type_params.iter().map(|&p| table.param(p).bound).collect();
                 let new_: Vec<TypeId> = type_params
                     .iter()
-                    .zip(limites.iter())
-                    .map(|(&p, &b)| if table.param(p).explicito { normalize_(b, table, core, in_progress) } else { b })
+                    .zip(limits.iter())
+                    .map(|(&p, &b)| if table.param(p).explicit { normalize_(b, table, core, in_progress) } else { b })
                     .collect();
-                if new_ != limites {
+                if new_ != limits {
                     let key = (type_params.clone(), new_.clone().into_boxed_slice());
                     let fresh = match table.fresh_formals.get(&key) {
                         Some(f) => f.clone(),
@@ -649,7 +649,7 @@ fn normalize_(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, in_progress: 
                                 .map(|&p| {
                                     let d = table.param(p).clone();
                                     let n = table.alloc_type_param(d.name, d.owner.clone(), d.bound, d.variance);
-                                    table.param_mut(n).explicito = d.explicito;
+                                    table.param_mut(n).explicit = d.explicit;
                                     n
                                 })
                                 .collect();
@@ -737,8 +737,8 @@ fn is_top_norm(table: &TypeTable, core: &CoreTypes, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void => true,
         Type::Interface { class, nullable, .. } => *nullable && Some(*class) == core.object_class,
-        Type::FutureOr { arg, nullable } => is_top_norm(table, core, *arg) || (*nullable && table.canonico(*arg) == core.object),
-        _ => table.e_invalido(t),
+        Type::FutureOr { arg, nullable } => is_top_norm(table, core, *arg) || (*nullable && table.canonical(*arg) == core.object),
+        _ => table.is_invalid(t),
     }
 }
 
@@ -747,7 +747,7 @@ fn nullable_norm(table: &TypeTable, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => true,
         Type::FutureOr { arg, nullable } => *nullable || nullable_norm(table, *arg),
-        other => other.is_declared_nullable() || table.e_invalido(t),
+        other => other.is_declared_nullable() || table.is_invalid(t),
     }
 }
 
@@ -788,7 +788,7 @@ fn top_merge_rec(table: &mut TypeTable, core: &CoreTypes, t: TypeId, s: TypeId, 
     if t_oq && s_oq {
         return Some(t);
     }
-    let (t_inv, the_s_inv) = (table.e_invalido(t), table.e_invalido(s));
+    let (t_inv, the_s_inv) = (table.is_invalid(t), table.is_invalid(s));
     let t_dyn = matches!(tt, Type::Dynamic) && !t_inv;
     let s_dyn = matches!(st, Type::Dynamic) && !the_s_inv;
     if t_dyn && s_dyn {
@@ -867,10 +867,10 @@ fn top_merge_rec(table: &mut TypeTable, core: &CoreTypes, t: TypeId, s: TypeId, 
             }
             for (x, y) in tp_a.iter().zip(tp_b.iter()) {
                 let (dx, dy) = (table.param(*x).clone(), table.param(*y).clone());
-                if dx.explicito != dy.explicito {
+                if dx.explicit != dy.explicit {
                     return None;
                 }
-                if dx.explicito {
+                if dx.explicit {
                     let by = substitute(dy.bound, &map, table);
                     top_merge_rec(table, core, dx.bound, by, prof + 1)?;
                 }
@@ -1100,7 +1100,7 @@ pub use crate::bounds::down as glb;
 /// the structure: the semantic identity, for comparing `TypeId`s
 /// (`a as N` with `typedef N = num` and `a: num` is the same type).
 pub fn without_display(ty: TypeId, table: &mut TypeTable) -> TypeId {
-    let c = table.canonico(ty);
+    let c = table.canonical(ty);
     if table.empty_display() {
         return c;
     }

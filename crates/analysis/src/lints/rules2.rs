@@ -285,7 +285,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             if !matches!(a.expr(*x).kind, ExprKind::Identifier(_)) {
                 continue;
             }
-            let Some(decl) = sem.body.declaracao_local(*x) else { continue };
+            let Some(decl) = sem.body.local_declaration(*x) else { continue };
             // The innermost `catch` that contains the `throw`.
             let Some(k) = clauses
                 .iter()

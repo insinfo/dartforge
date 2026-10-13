@@ -428,7 +428,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 let limit = (id.0 != u32::MAX)
                     .then(|| self.ctx.table.param(*id))
-                    .filter(|d| d.explicito)
+                    .filter(|d| d.explicit)
                     .map(|d| self.type_recipe(d.bound))
                     .filter(|r| !r.variables);
                 text.push_str(limit.as_ref().map_or("D", |r| r.text.as_str()));

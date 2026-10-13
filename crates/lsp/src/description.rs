@@ -563,7 +563,7 @@ impl Project {
         // `writeType` (`_getTypeOfDeclarationOrReference`).
         let ast = &self.program().unit(unit).ast;
         if let Some(i) = ast.exprs.iter().position(|x| matches!(&x.kind, ast::ExprKind::Assign { target, .. } if *target == e))
-            && let Some(&t) = bodies.tipos_de_escrita.get(&ast::ExprId(i as u32))
+            && let Some(&t) = bodies.write_types.get(&ast::ExprId(i as u32))
         {
             return Some(t);
         }
@@ -582,7 +582,7 @@ impl Project {
         let name_span = word(&unit.source, declaration)?;
         let name = &unit.source[name_span.start..name_span.end];
         let bodies = &self.query.bodies.units[u.0 as usize];
-        let declared = bodies.tipo_local(declaration)?;
+        let declared = bodies.local_type(declaration)?;
         // Local function: the written signature.
         if let Some(fid) = unit
             .ast
@@ -784,7 +784,7 @@ impl Project {
         let return_t = sub(data.return_type);
         let types: Vec<Option<TypeId>> = data.parameters.iter().map(|q| Some(sub(q.ty))).collect();
         let table = copy.as_ref().unwrap_or(&self.query.table);
-        let fmt = |t: TypeId| table.format_sem_alias(t, &self.query.names, &self.query.program);
+        let fmt = |t: TypeId| table.format_without_alias(t, &self.query.names, &self.query.program);
         let return_ = fmt(return_t);
         let (unit_, parameters, written_types): (
             Option<UnitId>,

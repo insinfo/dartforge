@@ -209,12 +209,12 @@ fn element_exits(cx: &Cx<'_>, m: usize) -> bool {
     match cx.resolved(m) {
         Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) | Some(Resolved::ExtensionMember { member: f, .. }) => {
             let never = s.outline.functions.get(f.0 as usize).is_some_and(|d| matches!(s.table.get(d.return_type), Type::Never));
-            never || function_annotations(s, *f).is_some_and(|(meta, u)| meta.iter().any(|a| dartforge_types::anotacoes::e_getter_de(s.program, cx.interner, u, a, "meta", "alwaysThrows")))
+            never || function_annotations(s, *f).is_some_and(|(meta, u)| meta.iter().any(|a| dartforge_types::annotations::is_getter_of(s.program, cx.interner, u, a, "meta", "alwaysThrows")))
         }
         Some(Resolved::Local(_)) => {
             let Marca::Expr(e) = cx.tree.nos[m].marca else { return false };
-            let Some(d) = s.body.declaracao_local(e) else { return false };
-            matches!(s.body.tipo_local(d).map(|t| s.table.get(t)), Some(Type::Function { ret, .. }) if matches!(s.table.get(*ret), Type::Never))
+            let Some(d) = s.body.local_declaration(e) else { return false };
+            matches!(s.body.local_type(d).map(|t| s.table.get(t)), Some(Type::Function { ret, .. }) if matches!(s.table.get(*ret), Type::Never))
         }
         _ => false,
     }
@@ -874,7 +874,7 @@ fn context_element(cx: &Cx<'_>, interner: &Interner, mut n: usize) -> Option<Con
                     // The identifier read resolves to the synthetic getter.
                     (d.declared_type.or(d.inferred)?, true, s.program.variable(*v).class)
                 }
-                Resolved::Local(_) => (s.body.declaracao_local(e).and_then(|d| s.body.tipo_local(d)).or_else(|| s.body.get_type(e))?, false, None),
+                Resolved::Local(_) => (s.body.local_declaration(e).and_then(|d| s.body.local_type(d)).or_else(|| s.body.get_type(e))?, false, None),
                 Resolved::Parameter { .. } => (s.body.get_type(e)?, false, None),
                 _ => return None,
             };

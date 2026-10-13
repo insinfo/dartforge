@@ -15,7 +15,7 @@ use dartforge_frontend::ast::{DeclKind, MemberKind};
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::scope::MemberResolver;
 use dartforge_types::{
-    BodyInferrer, BodyTypes, CoreTypes, EscopoSondado, OutlineTypes, Type, TypeId, TypeTable,
+    BodyInferrer, BodyTypes, CoreTypes, ProbedScope, OutlineTypes, Type, TypeId, TypeTable,
     resolve_outline,
 };
 
@@ -35,7 +35,7 @@ pub(crate) enum SwapMode {
 pub(crate) struct Swap {
     previous: dartforge_elements::incremental::Previous,
     tables: dartforge_types::UnitBodyTypes,
-    scope: Option<EscopoSondado>,
+    scope: Option<ProbedScope>,
 }
 
 /// Program, types and bodies of one request.
@@ -47,7 +47,7 @@ pub(crate) struct Query {
     pub outline: OutlineTypes,
     pub bodies: BodyTypes,
     /// Scope captured by the probe, when requested and reached.
-    pub scope: Option<EscopoSondado>,
+    pub scope: Option<ProbedScope>,
 }
 
 impl Query {
@@ -65,17 +65,17 @@ impl Query {
         let mut table = TypeTable::new();
         // The analyzer mode (M2): `InvalidType`, `Never?` and written aliases stay
         // in the display, and the pattern flow is the analyzer's.
-        table.preservar_exibicao = true;
+        table.preserve_decoration = true;
         let core = CoreTypes::init(&mut table, &program, &names);
         let (mut outline, _) = resolve_outline(&program, &names, &mut table, &core);
         let (bodies, scope) = {
             let mut inferrer =
                 BodyInferrer::new(&program, &names, &mut table, &core, &mut outline);
-            inferrer.apenas_bibliotecas = Some(libraries.iter().map(|l| l.0).collect());
-            inferrer.alocar_corpos_de(libraries);
-            inferrer.registrar_locais = register_locals;
-            inferrer.sonda_escopo = probe;
-            let (bodies, _, scope) = inferrer.infer_all_com_sonda();
+            inferrer.only_libraries = Some(libraries.iter().map(|l| l.0).collect());
+            inferrer.allocate_bodies_of(libraries);
+            inferrer.record_locals = register_locals;
+            inferrer.scope_probe = probe;
+            let (bodies, _, scope) = inferrer.infer_all_with_probe();
             (bodies, scope)
         };
         Self {
@@ -98,27 +98,27 @@ impl Query {
         use dartforge_elements::incremental::{restore_unit, swap_unit};
         let speculative = matches!(mode, SwapMode::Speculative { .. });
         let previous = swap_unit(&mut self.program, &mut self.names, u, text, speculative).ok()?;
-        if !self.outline.remapear_tipos_escritos(u, previous.type_map()) {
+        if !self.outline.remap_written_types(u, previous.type_map()) {
             restore_unit(&mut self.program, previous);
             return None;
         }
         let (bodies, metadata, probe, register) = match mode {
             SwapMode::Speculative { offset } => {
                 // §16.7 rule 1: only with the sentinel inside a body.
-                let Some(c) = dartforge_types::corpo_no_offset(&self.program, u, offset) else {
-                    self.outline.remapear_tipos_escritos(u, &previous.inverse_map());
+                let Some(c) = dartforge_types::body_at_offset(&self.program, u, offset) else {
+                    self.outline.remap_written_types(u, &previous.inverse_map());
                     restore_unit(&mut self.program, previous);
                     return None;
                 };
                 (vec![c], false, Some((u, offset)), false)
             }
             SwapMode::Final { inferred_bodies, register_locals } => {
-                (dartforge_types::corpos_da_unidade(&self.program, &self.outline, u, inferred_bodies), inferred_bodies, None, register_locals)
+                (dartforge_types::unit_bodies(&self.program, &self.outline, u, inferred_bodies), inferred_bodies, None, register_locals)
             }
         };
-        let r = dartforge_types::inferir_corpos(&self.program, &self.names, &mut self.table, &self.core, &mut self.outline, u, &bodies, metadata, probe, register);
-        let tables = std::mem::replace(&mut self.bodies.units[u.0 as usize], r.tabelas);
-        let scope = std::mem::replace(&mut self.scope, r.escopo);
+        let r = dartforge_types::infer_bodies(&self.program, &self.names, &mut self.table, &self.core, &mut self.outline, u, &bodies, metadata, probe, register);
+        let tables = std::mem::replace(&mut self.bodies.units[u.0 as usize], r.tables);
+        let scope = std::mem::replace(&mut self.scope, r.scope);
         Some(Swap { previous, tables, scope })
     }
 
@@ -130,21 +130,21 @@ impl Query {
         let u = previous.unit();
         self.bodies.units[u.0 as usize] = tables;
         self.scope = scope;
-        self.outline.remapear_tipos_escritos(u, &previous.inverse_map());
+        self.outline.remap_written_types(u, &previous.inverse_map());
         dartforge_elements::incremental::restore_unit(&mut self.program, previous);
     }
 
     /// Infers the bodies of more `libraries` over the retained outline and
-    /// table, unit by unit (`inferir_corpos`, §16.5: each body comes out as in
+    /// table, unit by unit (`infer_bodies`, §16.5: each body comes out as in
     /// the full inference), without redoing the outline or the bodies already
     /// inferred.
     pub fn infer_libraries(&mut self, libraries: &[LibraryId]) {
         for &lib in libraries {
             let units = self.program.library(lib).units.clone();
             for u in units {
-                let bodies = dartforge_types::corpos_da_unidade(&self.program, &self.outline, u, true);
-                let r = dartforge_types::inferir_corpos(&self.program, &self.names, &mut self.table, &self.core, &mut self.outline, u, &bodies, true, None, true);
-                self.bodies.units[u.0 as usize] = r.tabelas;
+                let bodies = dartforge_types::unit_bodies(&self.program, &self.outline, u, true);
+                let r = dartforge_types::infer_bodies(&self.program, &self.names, &mut self.table, &self.core, &mut self.outline, u, &bodies, true, None, true);
+                self.bodies.units[u.0 as usize] = r.tables;
             }
         }
     }
@@ -160,7 +160,7 @@ impl Query {
     /// `preferTypeAlias`): the alias does not appear; `InvalidType` and `Never?`
     /// do.
     pub fn format(&self, ty: TypeId) -> String {
-        self.table.format_sem_alias(ty, &self.names, &self.program)
+        self.table.format_without_alias(ty, &self.names, &self.program)
     }
 
     /// Text of a symbol.
@@ -239,7 +239,7 @@ impl Query {
                         .and_then(|d| {
                             d.parameters
                                 .iter()
-                                .position(|p| p.externo.or(p.name) == Some(*n))
+                                .position(|p| p.external_name.or(p.name) == Some(*n))
                         })
                         .unwrap_or(usize::MAX);
                     let prefix = if *required { "required " } else { "" };

@@ -394,7 +394,7 @@ impl Motor {
             .expect("without cancellation, the analysis always completes")
     }
 
-    /// Like [`Motor::analisar`], with in-memory texts and cancellation.
+    /// Like [`Engine::analisar`], with in-memory texts and cancellation.
     ///
     /// `texts` (keyed by the path's [`chave`]) takes precedence over the disk,
     /// both for `files` and for any file the loading reaches: it is what the
@@ -588,7 +588,7 @@ impl Motor {
         }
 
         // The `UnusedLocalElementsVerifier` runs by element after inference
-        // (`dartforge_types::fase_nao_usados`); the by-name report is kept for
+        // (`dartforge_types::phase_unused`); the by-name report is kept for
         // when there are no bodies.
         let mut deferred_privates: HashMap<LibraryId, Vec<(UnitId, dartforge_diagnostics::Diagnostic, u16)>> = HashMap::new();
         // T5 (docs/ANALYZER-ESPECIFICACAO.md §G): there are no gates for syntax
@@ -597,13 +597,13 @@ impl Motor {
         // would have read what ours discarded.
         // The outline comes before the declaration checks: the clauses' gate
         // (`analise::clausulas`) uses the mixin decisions, which need types
-        // (`dartforge_types::fase_mixins`).
+        // (`dartforge_types::phase_mixins`).
         let mut table = dartforge_types::TypeTable::new();
         // Messages with the `typedef` alias and the `Never?` as written (C9).
-        table.preservar_exibicao = true;
+        table.preserve_decoration = true;
         let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
         let (mut outline, outline_diags, outline_units) =
-            dartforge_types::resolve_outline_com_unidades(&program, &interner, &mut table, &core);
+            dartforge_types::resolve_outline_with_units(&program, &interner, &mut table, &core);
         /// Clears the mixin decisions on exit (on any path).
         struct ClearDecisions;
         impl Drop for ClearDecisions {
@@ -612,7 +612,7 @@ impl Motor {
             }
         }
         let _clear_decisions = ClearDecisions;
-        dartforge_analysis::clauses::set_mixin_decisions(Some(dartforge_types::fase_mixins::decisoes(
+        dartforge_analysis::clauses::set_mixin_decisions(Some(dartforge_types::phase_mixins::decisions(
             &program,
             &interner,
             &mut table,
@@ -746,8 +746,8 @@ impl Motor {
         // Initializers: `types` infers them on every pass, from any library.
         // A pass with no bodies at all (`&[]`) stabilizes the inferred types;
         // the second gives only their diagnostics.
-        let _ = dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &[]);
-        let (_, init_diags, init_units) = dartforge_types::infer_bodies_das_bibliotecas_com_unidades(
+        let _ = dartforge_types::infer_library_bodies(&program, &interner, &mut table, &core, &mut outline, &[]);
+        let (_, init_diags, init_units) = dartforge_types::infer_library_bodies_with_units(
             &program,
             &interner,
             &mut table,
@@ -757,7 +757,7 @@ impl Motor {
             false,
         );
         let mut attributed: Vec<(UnitId, Diagnostic, u16)> = Vec::new();
-        // The libraries on which analyzer 3.6.2 throws (`fase_ffi::QuebraDoAnalyzer`).
+        // The libraries on which analyzer 3.6.2 throws (`phase_ffi::AnalyzerCrash`).
         let mut crashed: BTreeSet<dartforge_elements::model::LibraryId> = BTreeSet::new();
         // The side tables of the batch's libraries, each unit from its own
         // library's pass (constant evaluation reads all of them).
@@ -767,7 +767,7 @@ impl Motor {
             if cancelled() {
                 return None;
             }
-            let (bt, ds, us) = dartforge_types::infer_bodies_das_bibliotecas_com_unidades(
+            let (bt, ds, us) = dartforge_types::infer_library_bodies_with_units(
                 &program,
                 &interner,
                 &mut table,
@@ -788,7 +788,7 @@ impl Motor {
                     }
                     // The extensions this pass chose (the `unused_import`'s
                     // `notifyExtensionUsed`).
-                    c.extensoes_usadas.extend(bt.extensoes_usadas.drain());
+                    c.used_extensions.extend(bt.used_extensions.drain());
                 }
             }
             let start = if ds.len() >= init_diags.len() && ds[..init_diags.len()] == init_diags[..] {
@@ -854,7 +854,7 @@ impl Motor {
                     if cancelled() {
                         return None;
                     }
-                    let (mut bt, _, _) = dartforge_types::infer_bodies_das_bibliotecas_com_unidades(
+                    let (mut bt, _, _) = dartforge_types::infer_library_bodies_with_units(
                         &program,
                         &interner,
                         &mut table,
@@ -876,7 +876,7 @@ impl Motor {
         // Constants (`ConstantVerifier`), reported only on the batch's.
         if let Some(bodies) = &bodies {
             // The exhaustiveness on which 3.6.2 throws removes the whole library.
-            let (reports, crashes) = dartforge_types::constantes::verificar_com_quebras(
+            let (reports, crashes) = dartforge_types::const_eval::verify_with_crashes(
                 &program,
                 &interner,
                 &mut table,
@@ -890,7 +890,7 @@ impl Motor {
             crashed.extend(crashes);
             // `BestPracticesVerifier`: `non_const_call_to_literal_constructor`,
             // with `canBeConst` through the constant verification.
-            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::fase_literal::construtores_literais(
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::phase_literal::literal_constructors(
                 &program,
                 &interner,
                 &mut table,
@@ -940,49 +940,49 @@ impl Motor {
         for lib in &own_libs {
             let classes = dartforge_analysis::clauses::inheritance_verifier_proceeds(&program, *lib, &interner);
             // `verify()`: the interface conflicts before the members.
-            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::fase_heranca::inconsistencias(&program, &interner, &mut table, &core, &outline, &classes)));
-            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::sobrescritas_invalidas(
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::phase_inheritance::inconsistencies(&program, &interner, &mut table, &core, &outline, &classes)));
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::override_checks::invalid_overrides(
                 &program, &interner, &mut table, &core, &outline, &classes,
             )));
-            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::membros_de_enum(
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::override_checks::enum_members(
                 &program, &interner, &mut table, &core, &outline, &classes,
             )));
-            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::membros_abstratos(
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::override_checks::abstract_members(
                 &program, &interner, &mut table, &core, &outline, &classes,
             )));
-            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::membros_em_conflito(&program, &interner, &mut table, &core, &outline, *lib)));
-            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::sobrescritas::estaticos_de_enum(&program, &interner, &mut table, &core, &outline, *lib)));
-            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::valores_padrao_com(&program, &interner, &mut table, Some(&core), &outline, bodies.as_ref(), *lib)));
-            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::sobrescritas::variaveis_nao_inicializadas(&program, &interner, &table, &outline, *lib)));
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::override_checks::conflicting_members(&program, &interner, &mut table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::override_checks::enum_statics(&program, &interner, &mut table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::override_checks::default_values_with(&program, &interner, &mut table, Some(&core), &outline, bodies.as_ref(), *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::override_checks::uninitialized_variables(&program, &interner, &table, &outline, *lib)));
             // `BestPracticesVerifier` over declarations and written types.
-            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::boas_praticas::parametro_de_igualdade_anulavel(&program, &interner, &table, &core, &outline, *lib)));
-            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::boas_praticas::no_such_method_desnecessario(&program, &interner, &core, *lib)));
-            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::boas_praticas::interrogacoes_desnecessarias(&program, &interner, &table, &outline, bodies.as_ref(), *lib)));
-            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::sobrescritas::getters_e_setters(
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::best_practices::nullable_equality_parameter(&program, &interner, &table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::best_practices::unnecessary_no_such_method(&program, &interner, &core, *lib)));
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::best_practices::unnecessary_question_marks(&program, &interner, &table, &outline, bodies.as_ref(), *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::override_checks::getters_and_setters(
                 &program, &interner, &mut table, &core, &outline, *lib, &classes,
             )));
-            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::variancia::variancia(&program, &interner, &table, &outline, *lib)));
-            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::variancia::posicoes_nao_covariantes_na_representacao(&program, &table, &outline, *lib)));
-            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::a_main::funcao_main(&program, &interner, &mut table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::variance::variance(&program, &interner, &table, &outline, *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::variance::non_covariant_positions_in_representation(&program, &table, &outline, *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::a_main::main_function(&program, &interner, &mut table, &core, &outline, *lib)));
             // `conflicting_generic_interfaces`, with the clauses' gate.
             {
                 let open = |id: dartforge_elements::model::ClassId| {
                     dartforge_analysis::clauses::gate(&program, *lib, &interner, id) == dartforge_analysis::clauses::Gate::Open
                 };
-                attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::fase_genericos::conflitos_genericos(&program, &interner, &mut table, &core, &outline, *lib, &open)));
+                attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::phase_generics::generic_conflicts(&program, &interner, &mut table, &core, &outline, *lib, &open)));
             }
             // `visitEnumDeclaration`: the enum instantiated to bounds.
-            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::limites::enum_instanciado_aos_limites(&program, &interner, &mut table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::bound_checks::enum_instantiated_to_bounds(&program, &interner, &mut table, &core, &outline, *lib)));
             // `extension type` declarations: cycles, bottom, conflicts and `implements`.
-            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::tipos_de_extensao::verificar(&program, &interner, &mut table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::extension_types::verify(&program, &interner, &mut table, &core, &outline, *lib)));
             // NEW PHASES (INFRA step 6): `OverrideVerifier`.
-            attributed.extend(with_phase(phase::OVERRIDE_VERIFIER, dartforge_types::fase_override::sem_sobrescrita(&program, &interner, &mut table, &core, &outline, *lib)));
-            attributed.extend(with_phase(phase::REDECLARE_VERIFIER, dartforge_types::fase_override::sem_redeclaracao(&program, &interner, &mut table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::OVERRIDE_VERIFIER, dartforge_types::phase_override::missing_override(&program, &interner, &mut table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::REDECLARE_VERIFIER, dartforge_types::phase_override::missing_redeclare(&program, &interner, &mut table, &core, &outline, *lib)));
             // `BestPracticesVerifier`: `invalid_override_of_non_virtual_member`.
-            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::fase_override::sobrescritas_de_nao_virtuais(&program, &interner, &mut table, &core, &outline, *lib)));
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::phase_override::non_virtual_overrides(&program, &interner, &mut table, &core, &outline, *lib)));
             // The `annotate_overrides` lint, kept apart: it only comes out with
             // the rule enabled.
-            for (u, span, name) in dartforge_types::fase_override::sem_anotacao_de_override(&program, &interner, &mut table, &core, &outline, *lib) {
+            for (u, span, name) in dartforge_types::phase_override::missing_override_annotation(&program, &interner, &mut table, &core, &outline, *lib) {
                 if let Some(p) = &program.unit(u).path
                     && let Some(a) = analysis.arquivos.get_mut(&chave(p))
                 {
@@ -990,19 +990,19 @@ impl Motor {
                 }
             }
             // `MustCallSuperVerifier`.
-            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::fase_super::sem_chamada_ao_super(&program, &interner, *lib)));
+            attributed.extend(with_phase(phase::BEST_PRACTICES, dartforge_types::phase_super::missing_super_call(&program, &interner, *lib)));
             if let Some(bodies) = &bodies {
                 // Also runs on the libraries judged by 3.13.4: there the code
                 // comes out as `unused_element_parameter`, through the variant
                 // (`Diagnostic::for_reference`, in the final loop).
-                attributed.extend(with_phase(phase::UNUSED_LOCAL_ELEMENTS, dartforge_types::parametros::parametros_nao_usados(&program, &interner, &outline, bodies, *lib)));
+                attributed.extend(with_phase(phase::UNUSED_LOCAL_ELEMENTS, dartforge_types::parameters::unused_parameters(&program, &interner, &outline, bodies, *lib)));
             }
             // `UnusedLocalElementsVerifier` (library declarations).
             if let Some(deferred) = deferred_privates.remove(lib) {
                 match &bodies {
                     Some(bodies) => {
                         let inferred: HashSet<LibraryId> = own_libs.iter().copied().collect();
-                        let mut unused = dartforge_types::fase_nao_usados::elementos_nao_usados(
+                        let mut unused = dartforge_types::phase_unused::unused_elements(
                             &program, &interner, &mut table, &core, &outline, bodies, &inferred, *lib,
                         );
                         let units = &program.library(*lib).units;
@@ -1024,13 +1024,13 @@ impl Motor {
             .ok()
             .and_then(|t| yaml_rust2::YamlLoader::load_from_str(&t).ok())
             .and_then(|docs| docs.into_iter().next())
-            .and_then(|y| y["environment"]["sdk"].as_str().and_then(dartforge_types::fase_sdk::RestricaoDeSdk::de_texto));
+            .and_then(|y| y["environment"]["sdk"].as_str().and_then(dartforge_types::phase_sdk::SdkConstraint::from_text));
         // Type arguments out of bounds, unit by unit.
         // The inferred libraries, for the lints' constant engine.
         let lint_inferred: HashSet<LibraryId> = own_libs.iter().copied().collect();
         for &u in &own_units {
             let unit_body = bodies.as_ref().and_then(|c| c.units.get(u.0 as usize));
-            for d in dartforge_types::limites::argumentos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, unit_body, u) {
+            for d in dartforge_types::bound_checks::arguments_out_of_bounds(&program, &interner, &mut table, &core, &outline, unit_body, u) {
                 attributed.push((u, d, phase::ERROR_VERIFIER));
             }
             // `DeprecatedMemberUseVerifier`: "same package" is the library
@@ -1039,20 +1039,20 @@ impl Motor {
                 program.library(l).units.first().and_then(|x| program.unit(*x).path.as_deref()).is_some_and(|p| p.starts_with(root))
             };
             let unit_body = bodies.as_ref().and_then(|c| c.units.get(u.0 as usize));
-            for d in dartforge_types::fase_deprecado::usos_de_deprecados(&program, &interner, &table, unit_body, u, &same_package) {
+            for d in dartforge_types::phase_deprecated::deprecated_uses(&program, &interner, &table, unit_body, u, &same_package) {
                 attributed.push((u, d, phase::BEST_PRACTICES));
             }
             // 3.13.4's `DeprecatedFunctionalityVerifier` (in the
             // `BestPracticesVerifier`): `DEPRECATED_OPTIONAL`.
-            for d in dartforge_types::fase_deprecado::opcionais_depreciados(&program, &interner, unit_body, u) {
+            for d in dartforge_types::phase_deprecated::deprecated_optionals(&program, &interner, unit_body, u) {
                 attributed.push((u, d, phase::BEST_PRACTICES));
             }
             // `_InvalidAccessVerifier` and the `@sealed` classes.
-            for d in dartforge_types::fase_acesso::acessos_invalidos(&program, &interner, &outline, unit_body, u, &same_package) {
+            for d in dartforge_types::phase_access::invalid_accesses(&program, &interner, &outline, unit_body, u, &same_package) {
                 attributed.push((u, d, phase::BEST_PRACTICES));
             }
             if let Some(constraint) = &sdk_constraint {
-                for d in dartforge_types::fase_sdk::restricao_de_sdk(&program, &interner, unit_body, u, constraint) {
+                for d in dartforge_types::phase_sdk::sdk_constraint(&program, &interner, unit_body, u, constraint) {
                     attributed.push((u, d, phase::SDK_CONSTRAINT));
                 }
             }
@@ -1061,15 +1061,15 @@ impl Motor {
             {
                 // The typed lint rules, kept apart: they only come out with the
                 // rule enabled.
-                let mut from_lints = dartforge_types::lints_tipados::achados(&program, &table, &core, &outline, body, u);
-                from_lints.extend(dartforge_types::lints_tipados2::achados(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
-                from_lints.extend(dartforge_types::lints_tipados3::achados(&program, &interner, &mut table, &core, &outline, body, u));
-                from_lints.extend(dartforge_types::lints_tipados4::achados(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
-                from_lints.extend(dartforge_types::lints_tipados5::achados(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
-                from_lints.extend(dartforge_types::lints_tipados7::achados(&program, &mut table, &core, &outline, body, u));
-                from_lints.extend(dartforge_types::lints_tipados8::achados(&program, &mut table, &core, &outline, body, u));
-                from_lints.extend(dartforge_types::lints_tipados9::achados(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
-                from_lints.extend(dartforge_types::fase_deprecado::lint_do_mesmo_pacote(&program, &interner, &table, Some(body), u, &same_package));
+                let mut from_lints = dartforge_types::typed_lints::findings(&program, &table, &core, &outline, body, u);
+                from_lints.extend(dartforge_types::typed_lints2::findings(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
+                from_lints.extend(dartforge_types::typed_lints3::findings(&program, &interner, &mut table, &core, &outline, body, u));
+                from_lints.extend(dartforge_types::typed_lints4::findings(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
+                from_lints.extend(dartforge_types::typed_lints5::findings(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
+                from_lints.extend(dartforge_types::typed_lints7::findings(&program, &mut table, &core, &outline, body, u));
+                from_lints.extend(dartforge_types::typed_lints8::findings(&program, &mut table, &core, &outline, body, u));
+                from_lints.extend(dartforge_types::typed_lints9::findings(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u));
+                from_lints.extend(dartforge_types::phase_deprecated::same_package_lint(&program, &interner, &table, Some(body), u, &same_package));
                 if !from_lints.is_empty()
                     && let Some(p) = &program.unit(u).path
                     && let Some(a) = analysis.arquivos.get_mut(&chave(p))
@@ -1079,7 +1079,7 @@ impl Motor {
                 // The tree lint rules, over the program's tree and with the
                 // engine's semantics.
                 {
-                    let can_be_const = dartforge_types::lints_tipados6::podem_ser_const(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u);
+                    let can_be_const = dartforge_types::typed_lints6::can_be_const(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u);
                     let un = program.unit(u);
                     let sem = dartforge_analysis::lints::Semantics {
                         program: &program,
@@ -1100,37 +1100,37 @@ impl Motor {
                     }
                 }
                 // `RequiredParametersVerifier`: `package:meta`'s `@required`.
-                for d in dartforge_types::fase_requeridos::requeridos_ausentes(&program, &interner, body, u) {
+                for d in dartforge_types::phase_required::missing_required(&program, &interner, body, u) {
                     attributed.push((u, d, phase::ERROR_VERIFIER));
                 }
                 // `ErrorHandlerVerifier`: the return of `catchError`'s `onError`.
-                for d in dartforge_types::fase_catch_error::retornos_de_catch_error(&program, &interner, &mut table, &core, &outline, body, u) {
+                for d in dartforge_types::phase_catch_error::catch_error_returns(&program, &interner, &mut table, &core, &outline, body, u) {
                     attributed.push((u, d, phase::BEST_PRACTICES));
                 }
                 // `FfiVerifier`; the 3.6.2 crash removes the whole library.
-                match dartforge_types::fase_ffi::verificar(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u) {
+                match dartforge_types::phase_ffi::verify(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u) {
                     Ok(ds) => {
                         for d in ds {
                             attributed.push((u, d, phase::FFI_VERIFIER));
                         }
                     }
-                    Err(dartforge_types::fase_ffi::QuebraDoAnalyzer) => {
+                    Err(dartforge_types::phase_ffi::AnalyzerCrash) => {
                         crashed.insert(program.unit(u).library);
                     }
                 }
                 // `BestPracticesVerifier`: `assignment_of_do_not_store` and `return_of_do_not_store`.
-                for d in dartforge_types::fase_nao_guardar::guardados_e_devolvidos(&program, &interner, body, u) {
+                for d in dartforge_types::phase_do_not_store::stored_and_returned(&program, &interner, body, u) {
                     attributed.push((u, d, phase::BEST_PRACTICES));
                 }
                 // `BestPracticesVerifier` with `strict-inference` (filtered out without the option).
-                for d in dartforge_types::fase_estrita::falhas_de_inferencia(&program, &interner, &mut table, &core, &outline, body, u) {
+                for d in dartforge_types::phase_strict::inference_failures(&program, &interner, &mut table, &core, &outline, body, u) {
                     attributed.push((u, d, phase::BEST_PRACTICES));
                 }
                 // `UseResultVerifier`.
-                for d in dartforge_types::fase_resultado::resultados_nao_usados(&program, &interner, body, u) {
+                for d in dartforge_types::phase_result::unused_results(&program, &interner, body, u) {
                     attributed.push((u, d, phase::ERROR_VERIFIER));
                 }
-                for d in dartforge_types::limites::argumentos_inferidos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, body, u) {
+                for d in dartforge_types::bound_checks::inferred_arguments_out_of_bounds(&program, &interner, &mut table, &core, &outline, body, u) {
                     attributed.push((u, d, phase::ERROR_VERIFIER));
                 }
             }
@@ -1150,11 +1150,11 @@ impl Motor {
             }
             let source = &program.unit(unit).source;
             let fragment = source.get(d.span.start..d.span.end).unwrap_or("");
-            // The constant codes come from `types::constantes`; what inference
+            // The constant codes come from `types::const_eval`; what inference
             // emits of them (without a code) is left out.
             if d.code.is_none() {
                 let coded = bridge::encode_types(d, fragment);
-                if coded.code.is_some_and(|c| dartforge_types::constantes::CODIGOS.contains(&c.info().name)) {
+                if coded.code.is_some_and(|c| dartforge_types::const_eval::CODES.contains(&c.info().name)) {
                     continue;
                 }
             }

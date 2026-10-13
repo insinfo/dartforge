@@ -54,20 +54,20 @@ impl Context<'_> {
             }
             Type::ExtensionType { .. } => {
                 let deleted = {
-                    let mut engine = dartforge_types::constantes::avaliador::Motor::novo(prog, &query.names, table, &query.core, &query.outline, &query.bodies, &self.p.libraries);
-                    engine.apagar(t)
+                    let mut engine = dartforge_types::const_eval::evaluation::Engine::new(prog, &query.names, table, &query.core, &query.outline, &query.bodies, &self.p.libraries);
+                    engine.erase(t)
                 };
                 deleted != t && self.always_exhaustive_in_lsp(table, deleted, prof + 1)
             }
             Type::FutureOr { arg, .. } => self.always_exhaustive_in_lsp(table, arg, prof + 1),
             Type::Intersection { param, bound } => {
                 self.always_exhaustive_in_lsp(table, bound, prof + 1) || {
-                    let (explicit, limit) = (table.param(param).explicito, table.param(param).bound);
+                    let (explicit, limit) = (table.param(param).explicit, table.param(param).bound);
                     explicit && self.always_exhaustive_in_lsp(table, limit, prof + 1)
                 }
             }
             Type::TypeParameter { param, .. } => {
-                let (explicit, limit) = (table.param(param).explicito, table.param(param).bound);
+                let (explicit, limit) = (table.param(param).explicit, table.param(param).bound);
                 explicit && self.always_exhaustive_in_lsp(table, limit, prof + 1)
             }
             Type::Record { positional, named, .. } => {
@@ -200,7 +200,7 @@ impl Context<'_> {
                     let operator = self.next_token(self.tree.nos[left].fim)?;
                     let operator = self.source[operator.start..operator.end].to_string();
                     let declaration = match self.tree.nos[left].marca {
-                        crate::arvore_analyzer::Marca::Expr(x) => self.bodies.declaracao_local(x),
+                        crate::arvore_analyzer::Marca::Expr(x) => self.bodies.local_declaration(x),
                         _ => None,
                     };
                     match &write {

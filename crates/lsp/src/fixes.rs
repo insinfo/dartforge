@@ -498,7 +498,7 @@ fn local_not_final(project: &Project, unit: UnitId, usage: Span) -> Option<(Stri
     let ast = &u.ast;
     let bodies = &project.query.bodies.units[unit.0 as usize];
     let expr = ast.exprs.iter().position(|e| e.span == usage && matches!(e.kind, ast::ExprKind::Identifier(_)))?;
-    let decl = bodies.declaracao_local(ast::ExprId(expr as u32))?;
+    let decl = bodies.local_declaration(ast::ExprId(expr as u32))?;
     let list = ast.stmts.iter().find_map(|s| match &s.kind {
         StmtKind::Variables(l) if l.variables.len() == 1 && l.variables[0].name.span.start == decl => Some((s.span, l)),
         _ => None,

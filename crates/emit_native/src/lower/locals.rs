@@ -687,7 +687,7 @@ void main() {}
                 );
                 for d in diags_outline.iter().chain(diags_body.iter()) {
                     assert!(
-                        !dartforge_types::codes::e_erro_de_compilacao(&d.message),
+                        !dartforge_types::codes::is_compile_error(&d.message),
                         "{d:?}"
                     );
                 }

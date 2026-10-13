@@ -143,7 +143,7 @@ impl Project {
                         let prefix = indentation(source, s.span.start);
                         let mut edits = Vec::new();
                         if l.ty.is_none()
-                            && let Some(t) = bodies.tipo_local(v.name.span.start)
+                            && let Some(t) = bodies.local_type(v.name.span.start)
                             && !matches!(self.query.table.get(t), Type::Dynamic)
                             && let Some(k) = source[s.span.start..v.name.span.start].find("var")
                         {

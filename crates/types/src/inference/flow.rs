@@ -20,12 +20,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 pub(crate) enum NonPromotionReason {
     /// `DemoteViaExplicitWrite`: the variable's name and the write's node (the
     /// assignment, the `++`/`--`, the `for-in` identifier, the pattern).
-    Escrita { nome: SymbolId, span: Span },
+    Write { name: SymbolId, span: Span },
     /// `PropertyNotPromotedForInherentReason` (with the reason) or
     /// `PropertyNotPromotedForNonInherentReason` (without): the name, the member
     /// (`propertyMember`) and whether field promotion applies in the body's
     /// library (`fieldPromotionEnabled`).
-    Property { nome: SymbolId, membro: FunctionElementId, inherent: Option<WhyNotPromoted>, enabled: bool },
+    Property { name: SymbolId, member: FunctionElementId, inherent: Option<WhyNotPromoted>, enabled: bool },
     /// `ThisNotPromoted`.
     This,
 }
@@ -383,9 +383,9 @@ impl<'a> BodyInferrer<'a> {
             // non-nullable of the declared type like a `Never`); writing `dynamic`
             // to a typed local is an implicit cast: the effective written type is
             // the declared one.
-            let written = if self.table.e_invalido(written) && !self.e_dynamic(declared) {
+            let written = if self.table.is_invalid(written) && !self.is_dynamic(declared) {
                 self.core.never
-            } else if self.e_dynamic(written) && !self.e_dynamic(declared) {
+            } else if self.is_dynamic(written) && !self.is_dynamic(declared) {
                 declared
             } else {
                 written

@@ -14,7 +14,7 @@ use dartforge_frontend::ast::{CollectionElement, ExprId, ExprKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shape {
-    Lista,
+    List,
     Set,
     Map,
 }
@@ -74,7 +74,7 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
     // decide the shape again (`_inferSetOrMapLiteralType`).
     let mut keys = false;
     let (mut shape, type_args, elements, const_) = match &a.expr(e).kind {
-        ExprKind::List { const_, type_args, elements } => (Shape::Lista, type_args, elements, *const_),
+        ExprKind::List { const_, type_args, elements } => (Shape::List, type_args, elements, *const_),
         ExprKind::SetOrMap { const_, type_args, elements } => {
             let shape = match type_args.len() {
                 1 => Shape::Set,
@@ -148,7 +148,7 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         let mut gi = GenericInferrer::new(&params);
         gi.generic_metadata = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::GenericMetadata);
         if !inf.the_is_unknown(ctx) {
-            gi.with_origin(crate::constraints::Origin::Return { declarado: ret, contexto: ctx });
+            gi.with_origin(crate::constraints::Origin::Return { declared: ret, context: ctx });
             let mut env = inf.env();
             gi.constrain_return(ret, ctx, &mut env);
         }
@@ -289,9 +289,9 @@ fn verify_elements(
                 if !report || matches!(inf.table.get(tx), Type::Void) || inf.assignable(tx, e_t) || implicit_tearoff(inf, tx, e_t) {
                     continue;
                 }
-                let code = if shape == Shape::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
+                let code = if shape == Shape::List { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
                 let sp = inf.span_expr(cx.unit, *x);
-                inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Type_(tx), crate::exibicao::Arg::Type_(e_t)]);
+                inf.warning_with_args(code, sp, &[crate::display::Arg::Type_(tx), crate::display::Arg::Type_(e_t)]);
             }
             CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } if shape == Shape::Map => {
                 if !report || args.len() < 2 {
@@ -316,7 +316,7 @@ fn verify_elements(
                 for (x, tx, tgt, code) in [(*key, tk, args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (*value, tv, args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
                     if !inf.assignable(tx, tgt) && !implicit_tearoff(inf, tx, tgt) {
                         let sp = inf.span_expr(cx.unit, x);
-                        inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Type_(tx), crate::exibicao::Arg::Type_(tgt)]);
+                        inf.warning_with_args(code, sp, &[crate::display::Arg::Type_(tx), crate::display::Arg::Type_(tgt)]);
                     }
                 }
             }
@@ -332,7 +332,7 @@ fn verify_elements(
                 // `Never` does not report; a subtype of `Null` (including a type
                 // parameter bounded by `Null`) only without `?`; the rest through
                 // `asInstanceOf` (without the `?`, a type parameter through its bound).
-                if inf.e_dynamic(tx) {
+                if inf.is_dynamic(tx) {
                     continue;
                 }
                 let never = inf.core.never;
@@ -348,7 +348,7 @@ fn verify_elements(
                     continue;
                 }
                 let tx = inf.non_null(tx);
-                if inf.e_dynamic(tx) || matches!(inf.table.get(tx), Type::Never | Type::Null | Type::Void) {
+                if inf.is_dynamic(tx) || matches!(inf.table.get(tx), Type::Never | Type::Null | Type::Void) {
                     continue;
                 }
                 let sp = inf.span_expr(cx.unit, *value);
@@ -368,15 +368,15 @@ fn verify_elements(
                     }
                     for (of, for_, code) in [(m[0], args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (m[1], args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
                         if !inf.assignable(of, for_) && !implicit_tearoff(inf, of, for_) {
-                            inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Type_(of), crate::exibicao::Arg::Type_(for_)]);
+                            inf.warning_with_args(code, sp, &[crate::display::Arg::Type_(of), crate::display::Arg::Type_(for_)]);
                         }
                     }
                 } else {
                     let Some(i) = inf.as_instance_of(tx, inf.core.iterable_class) else { continue };
                     let (Some(of), Some(for_)) = (i.first().copied(), args.first().copied()) else { continue };
                     if !inf.assignable(of, for_) && !implicit_tearoff(inf, of, for_) {
-                        let code = if shape == Shape::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
-                        inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Type_(of), crate::exibicao::Arg::Type_(for_)]);
+                        let code = if shape == Shape::List { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
+                        inf.warning_with_args(code, sp, &[crate::display::Arg::Type_(of), crate::display::Arg::Type_(for_)]);
                     }
                 }
             }
@@ -463,7 +463,7 @@ fn params_in_type(table: &crate::table::TypeTable, t: TypeId, output: &mut Vec<T
 
 fn final_type(inf: &mut BodyInferrer<'_>, shape: Shape, args: &[TypeId]) -> TypeId {
     match shape {
-        Shape::Lista => inf.list(args[0]),
+        Shape::List => inf.list(args[0]),
         Shape::Set => inf.set(args[0]),
         Shape::Map => inf.map_type(args[0], args[1]),
     }
@@ -515,7 +515,7 @@ fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Ad
             if let Some(a) = inf.as_instance_of(t, inf.core.map_class) {
                 return Admits { element: None, key: a.first().copied(), value: a.get(1).copied() };
             }
-            if inf.e_dynamic(t) {
+            if inf.is_dynamic(t) {
                 return Admits { element: Some(t), key: Some(t), value: Some(t) };
             }
             let n = inf.core.never;
@@ -532,7 +532,7 @@ fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Ad
             let a = admits(inf, then, after);
             let Some(e) = else_ else { return a };
             let b = admits(inf, e, after);
-            let dynamic = |x: &Admits, inf: &BodyInferrer<'_>| [x.element, x.key, x.value].iter().all(|t| t.is_some_and(|t| inf.e_dynamic(t)));
+            let dynamic = |x: &Admits, inf: &BodyInferrer<'_>| [x.element, x.key, x.value].iter().all(|t| t.is_some_and(|t| inf.is_dynamic(t)));
             let or_dynamic = |t: Option<TypeId>, d: TypeId| t.map(|_| d);
             if dynamic(&a, inf) {
                 let d = a.element.expect("dynamic");
@@ -639,11 +639,11 @@ fn shape_from_context_type(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<Sh
         let k = inf.greatest_closure_of(ctx);
         let k = inf.non_null(k);
         let is_map = inf.as_instance_of(k, inf.core.map_class).is_some() || matches!(inf.table.get(k), Type::Interface { class, .. } if Some(*class) == inf.core.map_class);
-        let e_iter = inf.as_instance_of(k, inf.core.iterable_class).is_some();
-        if e_iter && !is_map {
+        let is_iter = inf.as_instance_of(k, inf.core.iterable_class).is_some();
+        if is_iter && !is_map {
             return Some(Shape::Set);
         }
-        if is_map && !e_iter {
+        if is_map && !is_iter {
             return Some(Shape::Map);
         }
         if let Type::FutureOr { arg, .. } = inf.table.get(k).clone() {
@@ -665,7 +665,7 @@ fn restrict(inf: &mut BodyInferrer<'_>, gi: &mut Inferrer<'_>, t: TypeId, i: usi
         // parameters `element`, `key` and `value`, without `genericClass` (the
         // origin is `Parameter '…'`).
         let parameter = if params.len() == 2 { ["key", "value"][i] } else { "element" };
-        g.with_origin(crate::constraints::Origin::Argument { parametro: parameter.to_string(), declarado: v, argumento: t, prefixo: None });
+        g.with_origin(crate::constraints::Origin::Argument { parameter: parameter.to_string(), declared: v, argument: t, prefix: None });
         let mut env = inf.env();
         g.constrain_argument(t, v, &mut env);
     }
@@ -757,7 +757,7 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
                     restrict(inf, gi, x, 1);
                 }
             };
-            if inf.e_dynamic(t) {
+            if inf.is_dynamic(t) {
                 let d = inf.core.dynamic_;
                 one(inf, &mut gi, d);
             } else if below_never || (below_null && *null_aware) {
@@ -831,12 +831,12 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
             // updates and the body: the whole node's `AssignedVariables`, as in
             // the `for` statement) loses its promotion and stops being definitely
             // unassigned (the loop's conservative join).
-            let mut parts = vec![super::statements::Parte::Elemento(body)];
+            let mut parts = vec![super::statements::Part::Element(body)];
             if let Some(c) = condition {
-                parts.push(super::statements::Parte::Expr(*c));
+                parts.push(super::statements::Part::Expr(*c));
             }
             for u2 in updates.iter() {
-                parts.push(super::statements::Parte::Expr(*u2));
+                parts.push(super::statements::Part::Expr(*u2));
             }
             let (writes, captured) = super::statements::writes_in(inf, cx, &parts);
             cx.flow.conservative_join(&writes, &captured);
@@ -861,7 +861,7 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
             // `forEach_bodyBegin`: what the body writes, as in the `for-in`
             // statement (the loop's conservative join); the state from there goes
             // into `forEach_end`, joined with that of the end of the body.
-            let (writes, captured) = super::statements::writes_in(inf, cx, &[super::statements::Parte::Elemento(body)]);
+            let (writes, captured) = super::statements::writes_in(inf, cx, &[super::statements::Part::Element(body)]);
             cx.flow.conservative_join(&writes, &captured);
             let before = cx.flow.clone();
             if let Some(x) = write {

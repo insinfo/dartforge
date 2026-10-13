@@ -162,7 +162,7 @@ fn collection_role(s: &super::Semantics<'_>, x: &CollectionElement, me: ExprId, 
             match init {
                 Some(ForInit::Variables(l)) => {
                     if let Some(v) = l.variables.iter().find(|v| v.initializer == Some(me)) {
-                        return Some(ParenParent::Variable(s.body.tipo_local(v.name.span.start)));
+                        return Some(ParenParent::Variable(s.body.local_type(v.name.span.start)));
                     }
                 }
                 Some(ForInit::Expression(e)) if *e == me => return Some(ParenParent::Other),
@@ -311,7 +311,7 @@ fn parent_of(s: &super::Semantics<'_>, a: &Ast, parents: &NodeParents, by_range:
             StmtKind::DoWhile { condition, .. } if *condition == me => ParenParent::DoCondition,
             StmtKind::Switch { value, .. } if *value == me => ParenParent::SwitchStatement,
             StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => match l.variables.iter().find(|v| v.initializer == Some(me)) {
-                Some(v) => ParenParent::Variable(s.body.tipo_local(v.name.span.start)),
+                Some(v) => ParenParent::Variable(s.body.local_type(v.name.span.start)),
                 None => ParenParent::Other,
             },
             _ => ParenParent::Other,
@@ -462,7 +462,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 continue;
             }
             // The argument's `staticParameterElement` (positional or named).
-            if matches!(parent, ParenParent::Argument { .. } | ParenParent::Named) && is_record(s.body.tipos_de_parametros.get(&node).copied()) && !is_record_literal {
+            if matches!(parent, ParenParent::Argument { .. } | ParenParent::Named) && is_record(s.body.parameter_types.get(&node).copied()) && !is_record_literal {
                 continue;
             }
             // Already between delimiters: always reports.

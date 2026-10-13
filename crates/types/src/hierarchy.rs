@@ -15,7 +15,7 @@ pub struct ClassHierarchyData {
     /// Formal type parameters of the class.
     pub type_params: Box<[TypeParamId]>,
     /// Map from a supertype's `ClassId` → type instantiated in terms of this
-    /// class's formal parameters (`Target<args_em_funcao_dos_formais>`).
+    /// class's formal parameters (`Target<args_in_terms_of_the_formals>`).
     pub supertypes: HashMap<ClassId, TypeId>,
     /// Ordered list of all transitive supertypes.
     pub all_supertypes: Vec<TypeId>,

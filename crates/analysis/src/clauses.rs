@@ -26,7 +26,7 @@ use dartforge_frontend::ast::{self, DeclKind, TypeKind, TypedefKind};
 use dartforge_intern::{Interner, SymbolId};
 
 /// The type layer's decisions about the mixins (`MixinElement`) of the `with`
-/// clauses (`dartforge_types::fase_mixins::decisoes`): by `(class, position
+/// clauses (`dartforge_types::phase_mixins::decisoes`): by `(class, position
 /// in the with)`, `None` without a report or the report
 /// (`mixin_application_not_implemented_interface`,
 /// `mixin_application_no_concrete_super_invoked_*`,
@@ -936,7 +936,7 @@ fn mixins(
         match el.kind {
             ClassKind::ExtensionType => {}
             ClassKind::Mixin => {
-                // Decided with types (`fase_mixins`): the report closes the gate.
+                // Decided with types (`phase_mixins`): the report closes the gate.
                 if let Some(decision) = mixin_decision(id, position) {
                     if let Some(d) = decision {
                         reports.push(d);
