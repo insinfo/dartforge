@@ -1,6 +1,6 @@
 //! The color model of dart-sass 1.66.0 (`lib/src/value/color.dart` of that
 //! version), for the compatibility mode
-//! ([`crate::VersaoDartSass::V1_66_0`]).
+//! ([`crate::DartSassVersion::V1_66_0`]).
 //!
 //! The 1.66 `SassColor` stores the **integer** RGB (0–255) and the HSL: a
 //! color created from RGB derives the HSL from the integers (`_rgbToHsl`);

@@ -33,7 +33,7 @@ pub(crate) fn unify_complex(
                 let unified = CompoundSelector {
                     components: unified,
                 };
-                let r = if crate::options::current_version() == crate::VersaoDartSass::V1_66_0 {
+                let r = if crate::options::current_version() == crate::DartSassVersion::V1_66_0 {
                     base.clone().unify(unified)
                 } else {
                     unified.unify(base.clone())

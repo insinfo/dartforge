@@ -19,10 +19,10 @@ use std::path::{Path, PathBuf};
 
 /// How the compilation reads files (the `build_runner` `BuildStep`): the build
 /// engine passes its own, which sees the outputs of earlier builders.
-pub use dartforge_sass::sass_builder::Leitor;
+pub use dartforge_sass::sass_builder::AssetReader;
 
 /// The imitated dart-sass version (that of `sass` in `pubspec.lock`).
-pub use dartforge_sass::VersaoDartSass;
+pub use dartforge_sass::DartSassVersion;
 
 /// The output style of `sass_builder` (`outputStyle`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,9 +93,9 @@ pub fn compile_in(source: &str, dir: Option<&Path>) -> Result<String, Reason> {
 ///
 /// ```
 /// use dartforge_ng_generator::sass::{compile_with, Estilo};
-/// let (css, lidos) = compile_with(".a { color: red; }", None, Estilo::Expandido).unwrap();
+/// let (css, read_files) = compile_with(".a { color: red; }", None, Estilo::Expandido).unwrap();
 /// assert_eq!(css, ".a {\n  color: red;\n}\n");
-/// assert!(lidos.is_empty());
+/// assert!(read_files.is_empty());
 /// ```
 pub fn compile_with(
     source: &str,
@@ -121,10 +121,10 @@ pub fn compile_with(
         &Disk,
         style.output_style(),
         false,
-        VersaoDartSass::V1_102_0,
+        DartSassVersion::V1_102_0,
     )
     .map_err(|_| Reason::Styles)?;
-    Ok((format!("{}\n", c.css), c.lidos))
+    Ok((format!("{}\n", c.css), c.read_files))
 }
 
 /// O resultado de [`compile_file`].
@@ -137,8 +137,8 @@ pub struct Sheet {
     pub mapa: Option<String>,
     /// The files read (the input is not included) and those looked up without
     /// existing: dependencies of the compilation.
-    pub lidos: Vec<PathBuf>,
-    pub sondados: Vec<PathBuf>,
+    pub read_files: Vec<PathBuf>,
+    pub probed_files: Vec<PathBuf>,
 }
 
 /// Compiles the `scss` file like `sass_builder` (input, package and
@@ -159,14 +159,14 @@ pub fn compile_file(scss: &Path, style: Estilo, map: bool) -> Result<Sheet, Reas
         &Disk,
         style.output_style(),
         map,
-        VersaoDartSass::V1_102_0,
+        DartSassVersion::V1_102_0,
     )
     .map_err(|_| Reason::Styles)?;
     Ok(Sheet {
         css: c.css_file(&input),
         mapa: c.map,
-        lidos: c.lidos,
-        sondados: c.sondados,
+        read_files: c.read_files,
+        probed_files: c.probed_files,
     })
 }
 
@@ -182,15 +182,15 @@ pub fn compile_file(scss: &Path, style: Estilo, map: bool) -> Result<Sheet, Reas
 /// The dart-sass message when the stylesheet is refused.
 ///
 /// ```
-/// use dartforge_ng_generator::sass::{compilar_ativo, Estilo, Leitor, VersaoDartSass};
+/// use dartforge_ng_generator::sass::{compilar_ativo, Estilo, AssetReader, DartSassVersion};
 /// use std::collections::BTreeMap;
 /// use std::path::Path;
 /// struct Nothing;
-/// impl Leitor for Nothing {
-///     fn existe(&self, _: &Path) -> bool { false }
-///     fn ler(&self, _: &Path) -> std::io::Result<String> { Err(std::io::ErrorKind::NotFound.into()) }
+/// impl AssetReader for Nothing {
+///     fn exists(&self, _: &Path) -> bool { false }
+///     fn read(&self, _: &Path) -> std::io::Result<String> { Err(std::io::ErrorKind::NotFound.into()) }
 /// }
-/// let f = compilar_ativo("a { b: c }", "app", "web/x.scss", &BTreeMap::new(), &Nothing, Estilo::Comprimido, true, VersaoDartSass::V1_102_0).unwrap();
+/// let f = compilar_ativo("a { b: c }", "app", "web/x.scss", &BTreeMap::new(), &Nothing, Estilo::Comprimido, true, DartSassVersion::V1_102_0).unwrap();
 /// assert_eq!(f.css, "a{b:c}\n\n/*# sourceMappingURL=x.css.map */\n");
 /// assert_eq!(f.mapa.unwrap(), r#"{"version":3,"sourceRoot":"","sources":["x.scss"],"names":[],"mappings":"AAAA"}"#);
 /// ```
@@ -199,10 +199,10 @@ pub fn compilar_ativo(
     package: &str,
     path: &str,
     roots: &BTreeMap<String, PathBuf>,
-    reader: &dyn Leitor,
+    reader: &dyn AssetReader,
     style: Estilo,
     map: bool,
-    version: VersaoDartSass,
+    version: DartSassVersion,
 ) -> Result<Sheet, String> {
     let mut packages = Packages::new();
     for (name, root) in roots {
@@ -225,8 +225,8 @@ pub fn compilar_ativo(
     Ok(Sheet {
         css: c.css_file(&input),
         mapa: c.map,
-        lidos: c.lidos,
-        sondados: c.sondados,
+        read_files: c.read_files,
+        probed_files: c.probed_files,
     })
 }
 

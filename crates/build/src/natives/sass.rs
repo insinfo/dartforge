@@ -1,7 +1,7 @@
 //! `sass_builder:sass_builder` through the Sass of `ng_generator`
 //! (`sass::compilar_ativo`, public API), which is dart-sass 1.102.0 byte for
 //! byte (the `dartforge-sass` crate) or, when `pubspec.lock` brings `sass`
-//! 1.66.0, the compatibility mode for it (`VersaoDartSass::V1_66_0`).
+//! 1.66.0, the compatibility mode for it (`DartSassVersion::V1_66_0`).
 //!
 //! Both styles (`compressed` and `expanded`, the `sass_builder` default) and
 //! the `.css.map` when `sourceMaps` is on (`dev` turns it on by default), with
@@ -12,7 +12,7 @@
 use crate::query::Query;
 use crate::executor::{GeneratorCtx, NativeGenerator, NativeRequest, NativeOutput};
 use crate::value::Value;
-use dartforge_ng_generator::sass::{Estilo, Leitor, VersaoDartSass, compilar_ativo};
+use dartforge_ng_generator::sass::{Estilo, AssetReader, DartSassVersion, compilar_ativo};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -22,12 +22,12 @@ struct StepReader<'a> {
     memory: &'a dyn Fn(&Path) -> Option<Arc<[u8]>>,
 }
 
-impl Leitor for StepReader<'_> {
-    fn existe(&self, path: &Path) -> bool {
+impl AssetReader for StepReader<'_> {
+    fn exists(&self, path: &Path) -> bool {
         (self.memory)(&dartforge_elements::generated::key(path)).is_some() || path.is_file()
     }
 
-    fn ler(&self, path: &Path) -> std::io::Result<String> {
+    fn read(&self, path: &Path) -> std::io::Result<String> {
         match (self.memory)(&dartforge_elements::generated::key(path)) {
             Some(b) => String::from_utf8(b.to_vec())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
@@ -64,7 +64,7 @@ impl NativeGenerator for SassNative {
         // The dart-sass from the lock (the engine only calls with an imitated
         // version).
         let version = request.versions.get("sass").map(String::as_str);
-        let Some(version) = version.and_then(VersaoDartSass::do_lock) else {
+        let Some(version) = version.and_then(DartSassVersion::from_lock) else {
             return Err(format!(
                 "sass: dart-sass version in the lock is not imitated: {}",
                 version.unwrap_or("missing")
@@ -122,7 +122,7 @@ impl NativeGenerator for SassNative {
                     continue;
                 }
             };
-            for file in sheet.lidos.iter().chain(&sheet.sondados) {
+            for file in sheet.read_files.iter().chain(&sheet.probed_files) {
                 ctx.register(Query::File(dartforge_elements::generated::key(
                     file,
                 )));

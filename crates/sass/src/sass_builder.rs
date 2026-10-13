@@ -270,37 +270,37 @@ fn normalize(p: &Path) -> PathBuf {
 /// How the importer reads assets: `BuildStep.canRead`/`readAsString`.
 /// The default is the disk; the build engine passes its own (which sees the
 /// outputs of earlier builders and records the dependencies).
-pub trait Leitor {
+pub trait AssetReader {
     /// Does the file exist and can it be read?
-    fn existe(&self, path: &Path) -> bool;
+    fn exists(&self, path: &Path) -> bool;
     /// The text of the file.
     ///
     /// # Errors
     ///
     /// The file cannot be read or is not UTF-8.
-    fn ler(&self, path: &Path) -> io::Result<String>;
+    fn read(&self, path: &Path) -> io::Result<String>;
 }
 
 /// The disk, and nothing else.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Disk;
 
-impl Leitor for Disk {
-    fn existe(&self, path: &Path) -> bool {
+impl AssetReader for Disk {
+    fn exists(&self, path: &Path) -> bool {
         path.is_file()
     }
-    fn ler(&self, path: &Path) -> io::Result<String> {
+    fn read(&self, path: &Path) -> io::Result<String> {
         std::fs::read_to_string(path)
     }
 }
 
-/// The `BuildImporter` of `sass_builder` over a [`Leitor`], keeping what
+/// The `BuildImporter` of `sass_builder` over a [`AssetReader`], keeping what
 /// was read and what was probed without existing (the action's
 /// dependencies).
 struct BuildImporter<'a> {
     input: &'a Asset,
     packages: &'a Packages,
-    reader: &'a dyn Leitor,
+    reader: &'a dyn AssetReader,
     read: RefCell<Vec<PathBuf>>,
     probed: RefCell<Vec<PathBuf>>,
 }
@@ -323,7 +323,7 @@ impl BuildImporter<'_> {
         let Some(f) = self.file(a) else {
             return false;
         };
-        let yes = self.reader.existe(&f);
+        let yes = self.reader.exists(&f);
         let mut list = if yes {
             self.read.borrow_mut()
         } else {
@@ -462,7 +462,7 @@ impl Importer for BuildImporter<'_> {
         let f = self
             .file(&a)
             .ok_or_else(|| format!("unknown package: {}", a.package))?;
-        let contents = self.reader.ler(&f).map_err(|e| format!("{e}"))?;
+        let contents = self.reader.read(&f).map_err(|e| format!("{e}"))?;
         let mut l = self.read.borrow_mut();
         if !l.contains(&f) {
             l.push(f);
@@ -483,10 +483,10 @@ pub struct Compiled {
     /// `sources` rewritten), when requested.
     pub map: Option<String>,
     /// The files the compilation read (dependencies).
-    pub lidos: Vec<PathBuf>,
+    pub read_files: Vec<PathBuf>,
     /// The files the importer looked for and did not find (also
     /// dependencies: creating one of them changes the result).
-    pub sondados: Vec<PathBuf>,
+    pub probed_files: Vec<PathBuf>,
 }
 
 impl Compiled {
@@ -517,10 +517,10 @@ pub fn compile(
     source: &str,
     input: &Asset,
     packages: &Packages,
-    reader: &dyn Leitor,
+    reader: &dyn AssetReader,
     style: OutputStyle,
     source_map: bool,
-    version: crate::VersaoDartSass,
+    version: crate::DartSassVersion,
 ) -> Result<Compiled, Box<crate::Error>> {
     let importer = BuildImporter {
         input,
@@ -541,8 +541,8 @@ pub fn compile(
     Ok(Compiled {
         css,
         map,
-        lidos: importer.read.into_inner(),
-        sondados: importer.probed.into_inner(),
+        read_files: importer.read.into_inner(),
+        probed_files: importer.probed.into_inner(),
     })
 }
 

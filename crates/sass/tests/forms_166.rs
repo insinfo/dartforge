@@ -1,5 +1,5 @@
 //! The compatibility mode with dart-sass 1.66.0
-//! (`VersaoDartSass::V1_66_0`) against the real dart-sass 1.66.0, shape by
+//! (`DartSassVersion::V1_66_0`) against the real dart-sass 1.66.0, shape by
 //! shape and in both styles (`tests/formas_166`, oracle recorded by
 //! `scripts/sass-formas-166.sh`); and the same shapes in the default mode
 //! against dart-sass 1.102.0 (`esperado_102/`), so that the differences
@@ -9,12 +9,12 @@
 //! bytes, or is refused when the oracle refuses it (`.erro`). The `r*`
 //! shapes 1.66 compiles, but the 1.66 mode does not guarantee the output and
 //! must refuse them — never generate something else.
-use dartforge_sass::{from_path, Options, OutputStyle, VersaoDartSass};
+use dartforge_sass::{from_path, Options, OutputStyle, DartSassVersion};
 use std::path::Path;
 
 #[test]
 fn shapes_match_dart_sass_166() {
-    check("esperado", VersaoDartSass::V1_66_0);
+    check("esperado", DartSassVersion::V1_66_0);
 }
 
 /// Shapes where the 1.102 port still comes out like 1.66 (known
@@ -27,11 +27,11 @@ const PENDING_102: &[&str] = &["f24_comentario_at_rule", "f26_pai_na_raiz"];
 
 #[test]
 fn shapes_match_dart_sass_102() {
-    check("esperado_102", VersaoDartSass::V1_102_0);
+    check("esperado_102", DartSassVersion::V1_102_0);
 }
 
-fn check(dir: &str, version: VersaoDartSass) {
-    let pending: &[&str] = if version == VersaoDartSass::V1_102_0 {
+fn check(dir: &str, version: DartSassVersion) {
+    let pending: &[&str] = if version == DartSassVersion::V1_102_0 {
         PENDING_102
     } else {
         &[]
@@ -51,7 +51,7 @@ fn check(dir: &str, version: VersaoDartSass) {
         let shape = f.file_stem().unwrap().to_string_lossy().to_string();
         let is_pending = pending.contains(&shape.as_str());
         let before = different.len();
-        let mode_refusal = shape.starts_with('r') && version == VersaoDartSass::V1_66_0;
+        let mode_refusal = shape.starts_with('r') && version == DartSassVersion::V1_66_0;
         let official_error = base.join(dir).join(format!("{shape}.erro")).is_file();
         for (style, name) in [
             (OutputStyle::Expanded, "expanded"),

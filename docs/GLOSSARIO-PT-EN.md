@@ -253,3 +253,6 @@ outras já em inglês ficam.
 | `Statistics { classes_instanciadas, funcoes_usuario, funcoes_vivas, seletores }` | `Statistics { instantiated_classes, user_functions, live_functions, selectors }` |
 | `dfexec::{Canal, CanalDeProcesso, PROTOCOLO, escrever_quadro, ler_quadro}` | `dfexec::{Channel, ProcessChannel, PROTOCOL, write_frame, read_frame}` (o valor `dfexec/1` fica) |
 | `Canal::{enviar, receber}`, `CanalDeProcesso::{iniciar, com_prazo}` | `Channel::{send, receive}`, `ProcessChannel::{start, with_deadline}` |
+| `sass::VersaoDartSass` (`do_lock`) | `sass::DartSassVersion` (`from_lock`) |
+| `sass_builder::Leitor` (`existe`, `ler`), `Compiled { lidos, sondados }` | `sass_builder::AssetReader` (`exists`, `read`), `Compiled { read_files, probed_files }` |
+| teste `formas_166` (a pasta de dados `tests/formas_166/` fica) | `forms_166` |

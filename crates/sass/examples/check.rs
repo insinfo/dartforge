@@ -11,14 +11,14 @@
 //! `i.compressed.css.map` (the `.css` as `sass_builder` writes it, with the
 //! `sourceMappingURL` comment), or `i.<style>.err` when dart-sass refuses.
 use dartforge_sass::sass_builder::{compile, Asset, Disk, Packages};
-use dartforge_sass::{OutputStyle, VersaoDartSass};
+use dartforge_sass::{OutputStyle, DartSassVersion};
 
 /// The imitated version: `SASS_VERSION` (`1.66.0` or `1.102.0`, the
 /// default).
-fn version() -> VersaoDartSass {
+fn version() -> DartSassVersion {
     std::env::var("SASS_VERSION")
         .ok()
-        .and_then(|v| VersaoDartSass::do_lock(&v))
+        .and_then(|v| DartSassVersion::from_lock(&v))
         .unwrap_or_default()
 }
 use std::path::{Path, PathBuf};

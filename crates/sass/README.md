@@ -38,7 +38,7 @@ program with the `sass` 1.102.0 package (same options: `compileStringToResult` w
 
 ## Compatibility mode with dart-sass 1.66.0
 
-`Options::version(VersaoDartSass::V1_66_0)` imitates dart-sass **1.66.0** — the `sass` in
+`Options::version(DartSassVersion::V1_66_0)` imitates dart-sass **1.66.0** — the `sass` in
 the lock of packages that do not resolve with 1.102 (ngcomponents 3.0.0-dev.1). The engine
 chooses the mode by the version of `sass` in `pubspec.lock` (`descritor::imita` accepts
 1.102.0 and 1.66.0). The ported differences, read from the code of both versions and from
@@ -75,7 +75,7 @@ Refused with an error that says so (the 1.66 output is not guaranteed): a color 
 calculation grammar beyond interpolation, `meta.apply`/`get-mixin` (1.69) and syntax that
 1.66 refused and the port accepts (trailing comma, lone `%`, nesting in plain CSS).
 
-Checking: `tests/formas_166.rs` compares each shape in `tests/formas_166/fontes` with the
+Checking: `tests/forms_166.rs` compares each shape in `tests/formas_166/fontes` with the
 real dart-sass 1.66.0 and 1.102.0 (`scripts/sass-formas-166.sh` records the oracles in
 `esperado/` and `esperado_102/`). In ngcomponents 3.0.0-dev.1, the 70 `.scss.css` files come
 out equal to those of `build_runner` with sass 1.66.0.

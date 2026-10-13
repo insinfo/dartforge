@@ -23,8 +23,8 @@ pub struct Options<'a> {
     /// When present, every stylesheet lookup goes through it (see
     /// [`crate::importer`]); `fs` and `load_paths` are no longer used.
     pub(crate) importer: Option<&'a dyn Importer>,
-    /// The dart-sass version being imitated (see [`VersaoDartSass`]).
-    pub(crate) version: VersaoDartSass,
+    /// The dart-sass version being imitated (see [`DartSassVersion`]).
+    pub(crate) version: DartSassVersion,
 }
 
 impl Default for Options<'_> {
@@ -41,7 +41,7 @@ impl Default for Options<'_> {
             input_syntax: None,
             custom_fns: HashMap::new(),
             importer: None,
-            version: VersaoDartSass::V1_102_0,
+            version: DartSassVersion::V1_102_0,
         }
     }
 }
@@ -191,12 +191,12 @@ impl<'a> Options<'a> {
     }
 
     /// Chooses the dart-sass version whose output the compilation imitates
-    /// (default: [`VersaoDartSass::V1_102_0`]).
+    /// (default: [`DartSassVersion::V1_102_0`]).
     ///
     /// ```
-    /// use dartforge_sass::{Options, VersaoDartSass};
+    /// use dartforge_sass::{Options, DartSassVersion};
     /// let source = ".a {\n  .b { x: y; }\n  color: red;\n}\n";
-    /// let v166 = Options::default().version(VersaoDartSass::V1_66_0);
+    /// let v166 = Options::default().version(DartSassVersion::V1_66_0);
     /// assert_eq!(
     ///     dartforge_sass::from_string(source, &v166).unwrap(),
     ///     ".a {\n  color: red;\n}\n.a .b {\n  x: y;\n}\n"
@@ -208,19 +208,19 @@ impl<'a> Options<'a> {
     /// ```
     #[must_use]
     #[inline]
-    pub const fn version(mut self, version: VersaoDartSass) -> Self {
+    pub const fn version(mut self, version: DartSassVersion) -> Self {
         self.version = version;
         self
     }
 
     /// Does it imitate dart-sass before 1.77.7 (the 1.66 mode)?
     pub(crate) fn v166(&self) -> bool {
-        matches!(self.version, VersaoDartSass::V1_66_0)
+        matches!(self.version, DartSassVersion::V1_66_0)
     }
 
     /// Does it imitate dart-sass 1.101.0–1.101.3?
     pub(crate) fn v1101(&self) -> bool {
-        matches!(self.version, VersaoDartSass::V1_101)
+        matches!(self.version, DartSassVersion::V1_101)
     }
 
     pub(crate) fn is_compressed(&self) -> bool {
@@ -271,7 +271,7 @@ pub enum OutputStyle {
 
 /// The dart-sass version whose output the compiler imitates.
 ///
-/// The port follows dart-sass 1.102.0. [`VersaoDartSass::V1_66_0`] turns on
+/// The port follows dart-sass 1.102.0. [`DartSassVersion::V1_66_0`] turns on
 /// the compatibility mode with dart-sass 1.66.0 (the one in the
 /// `pubspec.lock` of packages that do not resolve with the new `sass`, such
 /// as ngcomponents 3.0.0-dev.1):
@@ -289,7 +289,7 @@ pub enum OutputStyle {
 ///   know...) is refused with an error that says so.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub enum VersaoDartSass {
+pub enum DartSassVersion {
     /// dart-sass 1.102.0 (the port).
     #[default]
     V1_102_0,
@@ -304,17 +304,17 @@ pub enum VersaoDartSass {
     V1_101,
 }
 
-impl VersaoDartSass {
+impl DartSassVersion {
     /// The version for the text of a `sass` package version (from
     /// `pubspec.lock`), or `None` when no mode imitates it byte for byte.
     ///
     /// ```
-    /// use dartforge_sass::VersaoDartSass;
-    /// assert_eq!(VersaoDartSass::do_lock("1.66.0"), Some(VersaoDartSass::V1_66_0));
-    /// assert_eq!(VersaoDartSass::do_lock("1.102.0"), Some(VersaoDartSass::V1_102_0));
-    /// assert_eq!(VersaoDartSass::do_lock("1.80.0"), None);
+    /// use dartforge_sass::DartSassVersion;
+    /// assert_eq!(DartSassVersion::from_lock("1.66.0"), Some(DartSassVersion::V1_66_0));
+    /// assert_eq!(DartSassVersion::from_lock("1.102.0"), Some(DartSassVersion::V1_102_0));
+    /// assert_eq!(DartSassVersion::from_lock("1.80.0"), None);
     /// ```
-    pub fn do_lock(version: &str) -> Option<Self> {
+    pub fn from_lock(version: &str) -> Option<Self> {
         match version {
             "1.102.0" => Some(Self::V1_102_0),
             "1.66.0" => Some(Self::V1_66_0),
@@ -328,13 +328,13 @@ thread_local! {
     /// The version of the compilation running on this thread:
     /// `Value::to_css_string` and `Value::inspect` serialize without the
     /// compilation's [`Options`].
-    static CURRENT_VERSION: std::cell::Cell<VersaoDartSass> =
-        const { std::cell::Cell::new(VersaoDartSass::V1_102_0) };
+    static CURRENT_VERSION: std::cell::Cell<DartSassVersion> =
+        const { std::cell::Cell::new(DartSassVersion::V1_102_0) };
 }
 
 /// Restores the previous version when it goes out of scope (see
 /// [`set_version`]).
-pub(crate) struct VersionGuard(VersaoDartSass);
+pub(crate) struct VersionGuard(DartSassVersion);
 
 impl Drop for VersionGuard {
     fn drop(&mut self) {
@@ -344,11 +344,11 @@ impl Drop for VersionGuard {
 
 /// Sets `version` as the version of the compilation running on this thread
 /// until the returned guard goes out of scope.
-pub(crate) fn set_version(version: VersaoDartSass) -> VersionGuard {
+pub(crate) fn set_version(version: DartSassVersion) -> VersionGuard {
     VersionGuard(CURRENT_VERSION.with(|v| v.replace(version)))
 }
 
 /// The version of the compilation running on this thread.
-pub(crate) fn current_version() -> VersaoDartSass {
+pub(crate) fn current_version() -> DartSassVersion {
     CURRENT_VERSION.with(std::cell::Cell::get)
 }

@@ -1,6 +1,6 @@
 //! The color functions of dart-sass 1.66.0 (`lib/src/functions/color.dart`
 //! of that version), for the compatibility mode
-//! ([`crate::VersaoDartSass::V1_66_0`]), on top of the model of
+//! ([`crate::DartSassVersion::V1_66_0`]), on top of the model of
 //! [`crate::color::v166`].
 //!
 //! Each function of [`super`] calls the one here when the mode is on. Those

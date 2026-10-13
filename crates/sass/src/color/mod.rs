@@ -1799,5 +1799,5 @@ const REC2020_BETA: f64 = 0.018053968510807;
 
 /// Does the running compilation imitate dart-sass 1.101 (BT.2020 gamma)?
 fn rec2020_bt2020() -> bool {
-    crate::options::current_version() == crate::VersaoDartSass::V1_101
+    crate::options::current_version() == crate::DartSassVersion::V1_101
 }

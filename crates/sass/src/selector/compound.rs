@@ -218,7 +218,7 @@ impl CompoundSelector {
     /// 1.66 mode, the old algorithm: the simple selectors of `self` go into
     /// `other`.
     pub fn unify(self, other: Self) -> Option<Self> {
-        if crate::options::current_version() == crate::VersaoDartSass::V1_66_0 {
+        if crate::options::current_version() == crate::DartSassVersion::V1_66_0 {
             let mut components = other.components;
             for simple in self.components {
                 components = simple.unify(std::mem::take(&mut components))?;

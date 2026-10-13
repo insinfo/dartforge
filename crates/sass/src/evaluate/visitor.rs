@@ -3114,7 +3114,7 @@ impl<'a> Visitor<'a> {
         let mut parts = Vec::with_capacity(results.len());
         for (c, v) in results {
             // Before 1.101.4, the value by its `toString` (the `inspect`).
-            let text = if crate::options::current_version() == crate::VersaoDartSass::V1_101 {
+            let text = if crate::options::current_version() == crate::DartSassVersion::V1_101 {
                 v.inspect(e.span)?
             } else {
                 v.to_css_string(e.span, false)?

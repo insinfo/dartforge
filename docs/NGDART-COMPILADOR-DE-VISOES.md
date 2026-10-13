@@ -74,7 +74,7 @@ Com o `.css` do nosso Sass (que imita o dart-sass 1.102.0 e o 1.66.0), 41
 `rgba(255,255,255,.1)`), além de as dependências compilarem no estilo
 `expanded` (sem `outputStyle` no `build.yaml` delas). Com o `.css` oficial
 como entrada, **todo** `.css.shim.dart` sai igual: o shim está certo. O modo
-1.101 do Sass nativo é do `crates/sass` (`VersaoDartSass::do_lock` não conhece
+1.101 do Sass nativo é do `crates/sass` (`DartSassVersion::from_lock` não conhece
 `1.101.x`), fora deste documento — ver §D.
 
 ### A1. Tipo privado no local do `*ngFor` (5 diferentes)
@@ -404,7 +404,7 @@ saídas (`Motor::saidas_invisiveis_a`); o harness passou a ocultar os
 O que o `serve` precisou além do gerador, feito nesta rodada com o aval do
 coordenador:
 
-- **Sass 1.101.x** (`crates/sass`, `VersaoDartSass::V1_101`, aceito pelo
+- **Sass 1.101.x** (`crates/sass`, `DartSassVersion::V1_101`, aceito pelo
   `do_lock` para 1.101.0–1.101.3 e pelo `imita` do motor): até o 1.101.3 a cor
   legada no `compressed` escolhe `rgb`/`hsl` pelo tamanho só dos canais
   (`hsla(0,0%,100%,.1)`), o `rgb()` escreve canal não inteiro como número, o
