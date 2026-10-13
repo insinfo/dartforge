@@ -1,4 +1,26 @@
-# Estado do DartForge — 2026-10-12
+# Estado do DartForge — 2026-10-13
+
+## JS de produção: o piso do runtime (2026-10-13, macOS)
+
+Substituições de variável de tipo só as citadas, nativos de *typed data* só
+com código estrangeiro vivo, *inline* de funções triviais (`inline.rs`),
+nomes privados do SDK sem uso fora, constantes-apelido dobradas, classe só
+comparada (`instanceof`) não instanciada, e o enum de
+`JS_GET_NAME`/`JS_BUILTIN` fora do mundo (`docs/JS-PRODUCAO-TAMANHO.md` §10).
+
+| alvo | antes | depois | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| corpus (237 programas, brutos / gzip) | 33,1 / 9,30 MB | **23,9 / 7,58 MB** | 9,6 / 3,1 MB |
+| `01_print` | 128,6 KB | **88,4 KB** | 34,9 KB |
+| `limitless_ui/example` | 4,10 MB | **4,03 MB** | 3,71 MB |
+| `new_sali/frontend` | 8,42 MB | **8,34 MB** (30 s; dart2js 68 s) | 7,62 MB |
+
+Corpus `--producao` e desenvolvimento 238/238. A varredura das 47 rotas do
+`limitless_ui` no Chrome mostrou dois erros anteriores à rodada
+(`SafeElement|get#innerHtml` em 45 rotas e um `isA` não rebaixado na rota
+`typeahead`): o e2e 26/26 precisa ser refeito. Variáveis novas (`=0`
+desliga): `DARTFORGE_JSPROD_TYPE_VARIABLES`, `_NATIVE_GATE`, `_INLINE`,
+`_PRIVATE_NAMES`.
 
 ## Nativo no modo padrão (A0): tamanho e desempenho (2026-10-12, noite)
 
