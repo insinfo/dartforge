@@ -227,6 +227,14 @@ pub struct World {
     variables: Vec<bool>,
     tearoffs: Vec<bool>,
     selectors: HashSet<String>,
+    /// Names written only in `JS()` *templates* (`#.split(#)`): string-keyed
+    /// JavaScript properties, which reach every class but the
+    /// [`World::dartx_classes`].
+    template_selectors: HashSet<String>,
+    /// Native classes whose members the emitter keys by `dartx` (or private)
+    /// symbols (`JSString`, `JSArray`…): a string-keyed property never
+    /// reaches them.
+    dartx_classes: HashSet<ClassId>,
     /// Closed-world restriction by receiver type: `name` called only on
     /// receivers of known static type is live only in the listed cones. The
     /// list per name is sorted (determinism).
@@ -255,7 +263,12 @@ impl World {
         self.variables.get(v.0 as usize).copied().unwrap_or(false)
     }
     pub fn selector(&self, name: &str) -> bool {
-        self.selectors.contains(name)
+        self.selectors.contains(name) || self.template_selectors.contains(name)
+    }
+    /// The members of `class` are keyed by symbols (`dartx`, private): a
+    /// `.name` in the text never reaches them.
+    pub fn dartx_class(&self, class: ClassId) -> bool {
+        self.dartx_classes.contains(&class)
     }
     /// Some use with a receiver of known type recorded `name` (even if
     /// restricted to another cone). The forwarder filter uses it so as not to
@@ -267,7 +280,7 @@ impl World {
     /// to all classes; a restricted one, only to the classes reachable from
     /// the receiver's cone (the same rule as the fixed point, `reaches`).
     pub fn selector_live_for(&self, _program: &Program, name: &str, class: ClassId) -> bool {
-        if self.selectors.contains(name) {
+        if self.selectors.contains(name) || (self.template_selectors.contains(name) && !self.dartx_classes.contains(&class)) {
             return true;
         }
         let Some(cones) = self.sel_cone.get(name) else { return false };
@@ -410,6 +423,24 @@ fn native_classes(e: &WorldInput<'_>) -> HashSet<ClassId> {
     out
 }
 
+/// The native classes whose members the emitter keys by symbols: those of
+/// the libraries `dartforge_emit_js` treats as native (`Ctx::native_set`:
+/// the interceptors, typed data and the web libraries). The JS built-ins'
+/// `int`, `double`, `bool` and `String` are abstract here.
+fn dartx_classes(e: &WorldInput<'_>, natives: &HashSet<ClassId>) -> HashSet<ClassId> {
+    let p = e.program;
+    natives
+        .iter()
+        .copied()
+        .filter(|c| {
+            matches!(
+                p.library(p.class(*c).library).uri.as_str(),
+                "dart:_interceptors" | "dart:_native_typed_data" | "dart:html" | "dart:indexed_db" | "dart:svg" | "dart:web_audio" | "dart:web_gl"
+            )
+        })
+        .collect()
+}
+
 /// Native SDK classes with the JS *tags* of `@Native('A,B')` /
 /// `@JsPeerInterface(name: 'A')` — whoever compiles the SDK uses the ones for
 /// the JS built-in tags (`String`, `Number`, `Array`…) as roots: a JS
@@ -506,6 +537,7 @@ impl<'a> Computation<'a> {
             m.natives = native_classes(&e);
             m.int_num = int_num(&e);
             m.natives_by_interface = natives_by_interface(&e, &m.natives);
+            m.dartx_classes = dartx_classes(&e, &m.natives);
             m.constants = Some(Constants::new(e, op.without_asserts));
         }
         Computation { engine: m }
@@ -589,6 +621,7 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
         m.natives = native_classes(&e);
         m.int_num = int_num(&e);
         m.natives_by_interface = natives_by_interface(&e, &m.natives);
+        m.dartx_classes = dartx_classes(&e, &m.natives);
     }
     m.classes = world.classes.clone();
     m.fn_live = world.functions.clone();
@@ -596,6 +629,7 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
     m.var_live = world.variables.clone();
     m.tearoff = world.tearoffs.clone();
     m.sel = world.selectors.clone();
+    m.template_sel = world.template_selectors.clone();
     m.inst_sub = world.inst_sub.clone();
     for (n, cs) in world.sel_cone.iter() {
         m.sel_cone.insert(n.clone(), cs.iter().copied().collect());
@@ -740,6 +774,11 @@ pub(crate) struct Engine<'a> {
     /// Natives live as a type while [`Engine::foreign_open`] is false: they
     /// are instantiated when it opens.
     held_natives: Vec<ClassId>,
+    /// Names written in `JS()` *templates* that are not (yet) ordinary
+    /// selectors ([`Engine::new_template_selector`]).
+    template_sel: HashSet<String>,
+    /// [`World::dartx_classes`].
+    dartx_classes: HashSet<ClassId>,
 }
 
 /// Libraries whose code creates or receives objects of the native classes
@@ -835,6 +874,8 @@ impl<'a> Engine<'a> {
             natives_by_interface: HashMap::new(),
             foreign_open: std::env::var("DARTFORGE_JSPROD_NATIVE_GATE").is_ok_and(|v| v == "0"),
             held_natives: Vec::new(),
+            template_sel: HashSet::new(),
+            dartx_classes: HashSet::new(),
         }
     }
 
@@ -952,6 +993,36 @@ impl<'a> Engine<'a> {
         }
     }
 
+    /// A member name written in a `JS()` *template* (`#.split(#)`), read or
+    /// written on an untyped receiver: a string-keyed JavaScript property.
+    /// It applies to every class except the [`World::dartx_classes`], whose
+    /// members live under symbols — the `.split` of the template is the
+    /// JavaScript one, not `JSString.split`.
+    pub(crate) fn new_template_selector(&mut self, name: &str) {
+        let mut names = vec![name.to_string()];
+        if !name.ends_with('=') {
+            names.push(format!("{name}_="));
+        }
+        for n in names {
+            if self.sel.contains(&n) || !self.template_sel.insert(n.clone()) {
+                continue;
+            }
+            let Some(by_owner) = self.pending.get_mut(&n) else { continue };
+            let wake: Vec<ClassId> = by_owner.keys().copied().filter(|k| *k == NO_OWNER || !self.dartx_classes.contains(k)).collect();
+            let mut fs: Vec<FunctionElementId> = Vec::new();
+            for k in wake {
+                fs.extend(by_owner.remove(&k).unwrap_or_default());
+            }
+            if by_owner.is_empty() {
+                self.pending.remove(&n);
+            }
+            fs.sort();
+            for f in fs {
+                self.mark_fn_live(f);
+            }
+        }
+    }
+
     /// A member use with the receiver's static type known: `None` is the old
     /// behavior (unrestricted selector, applies to every instantiated class);
     /// `Some(t)` restricts to the cone of `t` — classes outside `t`'s
@@ -1027,7 +1098,7 @@ impl<'a> Engine<'a> {
     /// The selector `name` (unrestricted or restricted) keeps a member of the
     /// instantiated `class` live (the rule is `reaches`).
     pub(crate) fn selector_for(&mut self, name: &str, class: ClassId) -> bool {
-        if self.sel.contains(name) {
+        if self.sel.contains(name) || (self.template_sel.contains(name) && !self.dartx_classes.contains(&class)) {
             return true;
         }
         match self.sel_cone.get(name) {
@@ -1040,7 +1111,7 @@ impl<'a> Engine<'a> {
     /// what extension members use, because they have no owner class for the
     /// cone.
     pub(crate) fn selector_any(&self, name: &str) -> bool {
-        self.sel.contains(name) || self.sel_cone.contains_key(name)
+        self.sel.contains(name) || self.sel_cone.contains_key(name) || self.template_sel.contains(name)
     }
 
     /// The class of static type `t`, when it exists and is nominal: `C`,
@@ -1610,6 +1681,8 @@ impl<'a> Engine<'a> {
             variables: self.var_live.clone(),
             tearoffs: self.tearoff.clone(),
             selectors: self.sel.clone(),
+            template_selectors: self.template_sel.clone(),
+            dartx_classes: self.dartx_classes.clone(),
             sel_cone,
             cause_fn: self.cause_fn.clone(),
             cause_class: self.cause_class.clone(),
@@ -1690,6 +1763,8 @@ impl<'a> Engine<'a> {
             variables: self.var_live,
             tearoffs: self.tearoff,
             selectors: self.sel,
+            template_selectors: self.template_sel,
+            dartx_classes: self.dartx_classes,
             sel_cone,
             cause_fn: self.cause_fn,
             cause_class: self.cause_class,

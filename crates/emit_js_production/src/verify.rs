@@ -347,7 +347,12 @@ fn access_after(b: &[u8], f: usize) -> Access {
 /// `private` gets the private names used through a symbol of the prelude
 /// (`x[_bind]` with `var _bind = dart.privateName(dart_rti, "_bind")`), with
 /// the library's JS name: such a use can only reach that library's members.
-fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<String>, private: &mut HashSet<(String, String)>) {
+///
+/// `symbolic` gets the uses that are not a string-keyed `.name`: `[$name]`,
+/// private symbols and the names of `dsend`/`dload`/`dput`. Only those reach
+/// the members of the classes keyed by `dartx` symbols (`World::dartx_class`).
+fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<String>, private: &mut HashSet<(String, String)>, symbolic: (&mut HashSet<String>, &mut HashSet<String>)) {
+    let (sym_reads, sym_writes) = symbolic;
     let b = text.as_bytes();
     let mut i = 0usize;
     let record = |name: &str, e: Access, reads: &mut HashSet<String>, writes: &mut HashSet<String>| {
@@ -429,6 +434,7 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                     if let Some(n) = dartforge_emit_js::dart_name_of_private(&text[start..f]) {
                         let e = access_after(b, f + 2);
                         record(n, e, reads, writes);
+                        record(n, e, sym_reads, sym_writes);
                     }
                 }
                 i = f + 1;
@@ -440,9 +446,11 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                     let e = access_after(b, f + 1);
                     if let Some(&(lib, n)) = privates.get(var) {
                         record(n, e, reads, writes);
+                        record(n, e, sym_reads, sym_writes);
                         private.insert((lib.to_string(), n.to_string()));
                     } else if let Some(n) = var.strip_prefix('$') {
                         record(n, e, reads, writes);
+                        record(n, e, sym_reads, sym_writes);
                     }
                 }
                 i = f.max(i + 1);
@@ -451,6 +459,8 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
         }
     }
     let (dyn_reads, dyn_writes) = crate::sdk::dynamic_selectors_by_kind(text);
+    sym_reads.extend(dyn_reads.iter().cloned());
+    sym_writes.extend(dyn_writes.iter().cloned());
     reads.extend(dyn_reads);
     writes.extend(dyn_writes);
 }
@@ -537,8 +547,9 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
     let mut sel_r: HashSet<String> = HashSet::new();
     let mut sel_w: HashSet<String> = HashSet::new();
     let mut private: HashSet<(String, String)> = HashSet::new();
+    let (mut sym_r, mut sym_w): (HashSet<String>, HashSet<String>) = (HashSet::new(), HashSet::new());
     for (_, t) in modules {
-        text_selectors(t, &mut sel_r, &mut sel_w, &mut private);
+        text_selectors(t, &mut sel_r, &mut sel_w, &mut private, (&mut sym_r, &mut sym_w));
     }
     let mut new: HashSet<String> = HashSet::new();
     for (i, c) in program.classes.iter().enumerate() {
@@ -558,11 +569,9 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
                 None => (k, false),
             };
             let js = dartforge_emit_js::body::js_member_name(base);
-            let used = if write {
-                sel_w.contains(base) || sel_w.contains(js.as_str())
-            } else {
-                sel_r.contains(base) || sel_r.contains(js.as_str())
-            };
+            // A `dartx`-keyed class is only reached through symbols.
+            let (r, w) = if world.dartx_class(ClassId(i as u32)) { (&sym_r, &sym_w) } else { (&sel_r, &sel_w) };
+            let used = if write { w.contains(base) || w.contains(js.as_str()) } else { r.contains(base) || r.contains(js.as_str()) };
             if !used {
                 continue;
             }
@@ -719,7 +728,7 @@ mod tests {
     fn selectors_from_text() {
         let mut r = HashSet::new();
         let mut w = HashSet::new();
-        text_selectors("a.foo(); // it's\nb[$bar]; dart.dsend(o, \"baz\", []); q.qux = 1; r.cor += 2; s.ok == 3;", &mut r, &mut w, &mut HashSet::new());
+        text_selectors("a.foo(); // it's\nb[$bar]; dart.dsend(o, \"baz\", []); q.qux = 1; r.cor += 2; s.ok == 3;", &mut r, &mut w, &mut HashSet::new(), (&mut HashSet::new(), &mut HashSet::new()));
         assert!(r.contains("foo") && r.contains("bar") && r.contains("baz"), "{r:?} {w:?}");
         assert!(!r.contains("qux") && w.contains("qux"), "{r:?} {w:?}");
         assert!(r.contains("cor") && w.contains("cor"), "{r:?} {w:?}");

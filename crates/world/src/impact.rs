@@ -1117,7 +1117,7 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                                 }
                             }
                             for n in names {
-                                m.new_external_selector(&n);
+                                m.new_template_selector(&n);
                             }
                         }
                     }
