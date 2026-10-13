@@ -1,23 +1,24 @@
-//! Hierarquia de chamadas (`textDocument/prepareCallHierarchy`,
-//! `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls`) como o
-//! `DartCallHierarchyComputer` do Dart 3.6.2
-//! (`AS:src/computer/computer_call_hierarchy.dart`, lido inteiro;
-//! docs/LSP-ESPECIFICACAO.md §12) sobre a árvore do analyzer:
+//! Call hierarchy (`textDocument/prepareCallHierarchy`,
+//! `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls`) like the
+//! Dart 3.6.2 `DartCallHierarchyComputer`
+//! (`AS:src/computer/computer_call_hierarchy.dart`, read in full;
+//! docs/LSP-ESPECIFICACAO.md §12) over the analyzer tree:
 //!
-//! * `_findTargetNode`: o nó do `NodeLocator` no offset; um
-//!   `SimpleIdentifier` cujo pai não é `VariableDeclaration` nem atribuição
-//!   sobe para o pai (`x` em `x.foo()` dá `foo`; `a` em `a == b`, o `==`);
-//!   o nome do tipo antes do nome do construtor não é alvo;
-//! * `_getElementOfNode`: o construtor de um `NamedType`/`ConstructorName`,
-//!   a propriedade de um `PropertyAccess`, senão o `ElementLocator`; o
-//!   acessor sintético não é alvo;
-//! * o item de um elemento (`CallHierarchyItem.forElement`): o nome exibido
-//!   (`get x`, `set x`, o nome do arquivo), a espécie, o contêiner, o
-//!   código (com o comentário e as anotações) e o nome;
-//! * recebidas: as referências do elemento agrupadas pelo contêiner;
-//! * feitas: o `_OutboundCallVisitor` no corpo do alvo, agrupado pelo
-//!   elemento chamado.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! * `_findTargetNode`: the `NodeLocator` node at the offset; a
+//!   `SimpleIdentifier` whose parent is neither a `VariableDeclaration` nor
+//!   an assignment walks up to the parent (`x` in `x.foo()` gives `foo`; `a`
+//!   in `a == b`, the `==`); the type name before the constructor name is
+//!   not a target;
+//! * `_getElementOfNode`: the constructor of a `NamedType`/`ConstructorName`,
+//!   the property of a `PropertyAccess`, else the `ElementLocator`; a
+//!   synthetic accessor is not a target;
+//! * the item of an element (`CallHierarchyItem.forElement`): the displayed
+//!   name (`get x`, `set x`, the file name), the kind, the container, the
+//!   code (with the comment and annotations) and the name;
+//! * incoming: the element's references grouped by container;
+//! * outgoing: the `_OutboundCallVisitor` on the target's body, grouped by
+//!   the called element.
+//! Written without compiling or running (2026-10-05).
 
 use crate::arvore_analyzer::Marca;
 use crate::project::{Target, Project};
@@ -42,7 +43,7 @@ pub enum CallKind {
 }
 
 impl CallKind {
-    /// `toSymbolKindMapping` (sem o recuo do cliente).
+    /// `toSymbolKindMapping` (without the client fallback).
     pub fn symbol(self) -> Option<u8> {
         Some(match self {
             CallKind::Class | CallKind::Extension | CallKind::Mixin => 5,
@@ -56,24 +57,24 @@ impl CallKind {
     }
 }
 
-/// Um item da hierarquia de chamadas.
+/// An item of the call hierarchy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallItem {
     pub name: String,
     pub kind: CallKind,
     pub detail: Option<String>,
     pub uri: String,
-    /// O código (com o comentário de documentação e as anotações).
+    /// The code (with the documentation comment and the annotations).
     pub range: Span,
-    /// O nome.
+    /// The name.
     pub selection: Span,
 }
 
-/// Um elemento da hierarquia (o que tem item).
+/// An element of the hierarchy (one that has an item).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum CallElem {
     Function(FunctionElementId),
-    /// Função local, pela unidade e a função do parser.
+    /// Local function, by unit and parser function.
     Local(UnitId, u32),
     Class(ClassId),
     Extension(ExtensionId),
@@ -81,7 +82,7 @@ pub(crate) enum CallElem {
 }
 
 impl Project {
-    /// O `ElementKind` de um elemento, na forma de `CallHierarchyKind`.
+    /// The `ElementKind` of an element, as a `CallHierarchyKind`.
     fn call_kind(&self, e: CallElem) -> CallKind {
         let p = self.program();
         match e {
@@ -132,8 +133,8 @@ impl Project {
         }
     }
 
-    /// `_getContainer(element.enclosingElement)`: a classe, extensão ou
-    /// mixin dono; senão o arquivo.
+    /// `_getContainer(element.enclosingElement)`: the owning class, extension
+    /// or mixin; otherwise the file.
     fn element_container(&self, e: CallElem) -> Option<CallElem> {
         let p = self.program();
         match e {
@@ -148,7 +149,7 @@ impl Project {
                 self.function_name(f).map(|(u, _)| CallElem::File(u))
             }
             CallElem::Local(u, f) => {
-                // A função ou o executável que contém a função local.
+                // The function or executable that contains the local function.
                 let s = p.unit(u).ast.function(ast::FunctionId(f)).span;
                 Some(self.container_at_offset(u, s.start, Some(f)))
             }
@@ -158,7 +159,7 @@ impl Project {
         }
     }
 
-    /// O nome e o código de um elemento (`nonSynthetic`).
+    /// The name and the code of an element (`nonSynthetic`).
     fn ranges(&self, e: CallElem) -> Option<(UnitId, Span, Span)> {
         let p = self.program();
         match e {
@@ -208,7 +209,7 @@ impl Project {
         Some(CallItem { name: self.displayed_name(e), kind: self.call_kind(e), detail, uri: self.unit_uri(u)?, range, selection })
     }
 
-    /// O elemento resolvido de um `SimpleIdentifier` da árvore.
+    /// The resolved element of a `SimpleIdentifier` of the tree.
     fn call_identifier_element(&self, cx: &Context<'_>, n: usize) -> Option<CallElem> {
         let x = match cx.tree.nos[n].marca {
             Marca::Expr(x) => x,
@@ -236,7 +237,7 @@ impl Project {
         })
     }
 
-    /// `ElementLocator.locate(node)` nas espécies que a hierarquia usa.
+    /// `ElementLocator.locate(node)` for the kinds the hierarchy uses.
     fn locate_element(&self, cx: &Context<'_>, n: usize) -> Option<CallElem> {
         match cx.kind(n) {
             "SimpleIdentifier" => self.call_identifier_element(cx, n),
@@ -312,7 +313,7 @@ impl Project {
         Some(n)
     }
 
-    /// `_getElementOfNode(node)`: sem o acessor sintético.
+    /// `_getElementOfNode(node)`: without the synthetic accessor.
     fn call_node_element(&self, cx: &Context<'_>, n: usize) -> Option<CallElem> {
         let parent = cx.parent(n);
         let e = match cx.kind(n) {
@@ -332,7 +333,7 @@ impl Project {
         Some(e)
     }
 
-    /// `findTarget(offset)`: só executáveis.
+    /// `findTarget(offset)`: executables only.
     pub(crate) fn call_target(&self, unit: UnitId, offset: usize) -> Option<CallElem> {
         let cx = Context::new(self, unit);
         let n = self.at_target(&cx, offset)?;
@@ -340,10 +341,9 @@ impl Project {
         matches!(e, CallElem::Function(_) | CallElem::Local(..)).then_some(e)
     }
 
-    /// O alvo do item do cliente (`toServerItem` + o nó no nome + o
-    /// `_isMatchingElement` pelo nome exibido); a classe com espécie de
-    /// construtor é o construtor sem nome implícito. Com o nó, para as
-    /// feitas.
+    /// The target of the client's item (`toServerItem` + the node on the name +
+    /// `_isMatchingElement` by displayed name); a class with constructor kind is
+    /// the implicit unnamed constructor. With the node, for the outgoing calls.
     pub(crate) fn item_target(&self, unit: UnitId, offset: usize, name: &str, constructor: bool) -> Option<(CallElem, &'static str)> {
         let cx = Context::new(self, unit);
         let n = self.at_target(&cx, offset)?;
@@ -362,9 +362,9 @@ impl Project {
         Some((e, kind))
     }
 
-    /// O contêiner do índice para uma referência em `offset` de `u`: o
-    /// executável nomeado mais interno (função, método, construtor, função
-    /// local), a classe, a extensão, ou o arquivo.
+    /// The index container for a reference at `offset` of `u`: the innermost
+    /// named executable (function, method, constructor, local function), the
+    /// class, the extension, or the file.
     fn container_at_offset(&self, u: UnitId, offset: usize, exclude: Option<u32>) -> CallElem {
         let p = self.program();
         let cx = Context::new(self, u);
@@ -400,8 +400,8 @@ impl Project {
         CallElem::File(u)
     }
 
-    /// `findIncomingCalls`: as referências do executável, agrupadas pelo
-    /// contêiner na ordem da primeira, com o intervalo de cada uma
+    /// `findIncomingCalls`: the executable's references, grouped by container
+    /// in the order of the first one, with each one's range
     /// (`_rangeForSearchMatch`).
     pub(crate) fn incoming_calls(&self, e: CallElem) -> Vec<(CallItem, Vec<Span>)> {
         let p = self.program();
@@ -430,9 +430,8 @@ impl Project {
                 continue;
             }
             let container = self.container_at_offset(u, de, None);
-            // O intervalo: o nome do método numa `MethodInvocation` (o
-            // construtor nomeado vem com o ponto no índice); o do nó num
-            // intervalo vazio.
+            // The range: the method name in a `MethodInvocation` (a named constructor
+            // comes with the dot in the index); that of the node for an empty range.
             let cx = Context::new(self, u);
             let mut s = Span { start: de, end: until };
             if let Some(n) = cx.tree.localizar(de, de) {
@@ -454,16 +453,16 @@ impl Project {
         groups.into_iter().filter_map(|(c, spans)| Some((self.call_item(c)?, spans))).collect()
     }
 
-    /// `findOutgoingCalls`: o `_OutboundCallVisitor` no nó do alvo (só
-    /// função, construtor ou método), agrupado pelo elemento chamado na
-    /// ordem do primeiro.
+    /// `findOutgoingCalls`: the `_OutboundCallVisitor` on the target node (only
+    /// a function, constructor or method), grouped by the called element in the
+    /// order of the first one.
     pub(crate) fn outgoing_calls(&self, unit: UnitId, offset: usize) -> Vec<(CallItem, Vec<Span>)> {
         let cx = Context::new(self, unit);
         let Some(root) = self.at_target(&cx, offset) else { return Vec::new() };
         if !matches!(cx.kind(root), "FunctionDeclaration" | "ConstructorDeclaration" | "MethodDeclaration") {
             return Vec::new();
         }
-        // Os nós coletados, em ordem de visita (pré-ordem).
+        // The collected nodes, in visit order (pre-order).
         let mut collected: Vec<usize> = Vec::new();
         let mut stack = vec![root];
         while let Some(k) = stack.pop() {
@@ -489,8 +488,8 @@ impl Project {
                     }
                 }
                 "SimpleIdentifier" => {
-                    // `staticElement is FunctionElement` (de topo ou local)
-                    // fora de contexto de declaração.
+                    // `staticElement is FunctionElement` (top-level or local) outside a
+                    // declaration context.
                     let e = self.call_identifier_element(&cx, k);
                     let function = match e {
                         Some(CallElem::Local(..)) => true,
@@ -510,7 +509,7 @@ impl Project {
                 stack.push(f);
             }
         }
-        // Um conjunto (`Set<AstNode>`): cada nó uma vez, na ordem de inserção.
+        // A set (`Set<AstNode>`): each node once, in insertion order.
         let mut seen = std::collections::HashSet::new();
         collected.retain(|n| seen.insert(*n));
         let mut groups: Vec<(CallElem, Vec<Span>)> = Vec::new();

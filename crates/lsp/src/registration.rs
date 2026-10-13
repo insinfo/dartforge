@@ -1,30 +1,30 @@
-//! O registro dinâmico de capacidades e a configuração do cliente
-//! (docs/LSP-ESPECIFICACAO.md §2.4 e §2.5): `server_capabilities_computer.dart`,
-//! `feature_registration.dart` e `client_configuration.dart` do servidor do
-//! Dart 3.6.2.
+//! Dynamic capability registration and client configuration
+//! (docs/LSP-ESPECIFICACAO.md §2.4 and §2.5):
+//! `server_capabilities_computer.dart`, `feature_registration.dart` and
+//! `client_configuration.dart` of the Dart 3.6.2 server.
 //!
-//! Uma feature é dinâmica quando o cliente declara `dynamicRegistration`
-//! para ela: o campo estático sai do `initialize` e o registro vem depois,
-//! por `client/registerCapability`, aplicando a diferença contra o conjunto
-//! vigente (primeiro o `client/unregisterCapability` dos que saíram, depois
-//! o registro dos novos), comparando por método e opções. Os ids são um
-//! contador decimal crescente.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! A feature is dynamic when the client declares `dynamicRegistration` for
+//! it: the static field leaves `initialize` and the registration comes
+//! later, through `client/registerCapability`, applying the difference
+//! against the current set (first the `client/unregisterCapability` of those
+//! that left, then the registration of the new ones), comparing by method
+//! and options. The ids are an increasing decimal counter.
+//! Written without compiling or running (2026-10-05).
 
 use serde_json::{json, Value};
 
-/// Uma feature: o nome da capacidade no cliente (`textDocument.<name>`), a
-/// chave da capacidade estática do servidor e os métodos registrados.
+/// A feature: the capability name in the client (`textDocument.<name>`),
+/// the key of the server's static capability and the registered methods.
 pub struct Feature {
     pub client: &'static str,
     pub static_: &'static str,
     pub methods: &'static [&'static str],
-    /// Só os arquivos Dart (o resto vale para `fullySupportedTypes`, que sem
-    /// plugins é o mesmo seletor).
+    /// Only Dart files (the rest applies to `fullySupportedTypes`, which without
+    /// plugins is the same selector).
     pub so_dart: bool,
 }
 
-/// As features que o servidor anuncia e sabem ser dinâmicas.
+/// The features the server announces that can be dynamic.
 pub const FEATURES: &[Feature] = &[
     Feature { client: "synchronization", static_: "textDocumentSync", methods: &["textDocument/didOpen", "textDocument/didClose", "textDocument/didChange"], so_dart: false },
     Feature { client: "completion", static_: "completionProvider", methods: &["textDocument/completion"], so_dart: false },
@@ -35,8 +35,8 @@ pub const FEATURES: &[Feature] = &[
     Feature { client: "documentHighlight", static_: "documentHighlightProvider", methods: &["textDocument/documentHighlight"], so_dart: false },
     Feature { client: "documentSymbol", static_: "documentSymbolProvider", methods: &["textDocument/documentSymbol"], so_dart: false },
     Feature { client: "foldingRange", static_: "foldingRangeProvider", methods: &["textDocument/foldingRange"], so_dart: false },
-    // A formatação (`handler_format_on_type.dart`, `handler_format_range.dart`,
-    // `handler_formatting.dart`), na ordem do `allFeatures`.
+    // Formatting (`handler_format_on_type.dart`, `handler_format_range.dart`,
+    // `handler_formatting.dart`), in the order of `allFeatures`.
     Feature { client: "onTypeFormatting", static_: "documentOnTypeFormattingProvider", methods: &["textDocument/onTypeFormatting"], so_dart: true },
     Feature { client: "rangeFormatting", static_: "documentRangeFormattingProvider", methods: &["textDocument/rangeFormatting"], so_dart: true },
     Feature { client: "formatting", static_: "documentFormattingProvider", methods: &["textDocument/formatting"], so_dart: false },
@@ -54,13 +54,14 @@ pub const FEATURES: &[Feature] = &[
     Feature { client: "colorProvider", static_: "colorProvider", methods: &["textDocument/documentColor"], so_dart: true },
 ];
 
-/// `dartFiles` (`constants.dart`): os arquivos Dart.
+/// `dartFiles` (`constants.dart`): the Dart files.
 fn dart_selector() -> Value {
     json!([{"language": "dart", "scheme": "file"}])
 }
 
-/// O seletor da sincronização: Dart, `pubspec.yaml`, `analysis_options.yaml`
-/// e os `fix_data` (`handler_text_document_changes.dart:141-179`).
+/// The synchronization selector: Dart, `pubspec.yaml`,
+/// `analysis_options.yaml` and the `fix_data` files
+/// (`handler_text_document_changes.dart:141-179`).
 fn sync_selector() -> Value {
     json!([
         {"language": "dart", "scheme": "file"},
@@ -70,8 +71,8 @@ fn sync_selector() -> Value {
     ])
 }
 
-/// As features que o cliente quer registrar dinamicamente (pelo nome do
-/// cliente), e se ele quer o `workspace/didChangeConfiguration`.
+/// The features the client wants to register dynamically (by client name),
+/// and whether it wants `workspace/didChangeConfiguration`.
 pub fn dynamic(capabilities: &Value) -> (Vec<&'static str>, bool) {
     let yes = |c: &str| capabilities.pointer(&format!("/textDocument/{c}/dynamicRegistration")).and_then(Value::as_bool) == Some(true);
     let features = FEATURES.iter().filter(|f| yes(f.client)).map(|f| f.client).collect();
@@ -79,7 +80,7 @@ pub fn dynamic(capabilities: &Value) -> (Vec<&'static str>, bool) {
     (features, configuration)
 }
 
-/// Tira das capacidades estáticas as das features dinâmicas
+/// Removes the capabilities of the dynamic features from the static ones
 /// (`staticRegistration`, `feature_registration.dart:246-247`).
 pub fn remove_dynamic(capabilities: &mut Value, dynamic: &[&str]) {
     let Some(obj) = capabilities.as_object_mut() else { return };
@@ -88,8 +89,8 @@ pub fn remove_dynamic(capabilities: &mut Value, dynamic: &[&str]) {
     }
 }
 
-/// `fileOperationRegistrationOptions` (`constants.dart:57-74`): os arquivos
-/// `.dart` e as pastas.
+/// `fileOperationRegistrationOptions` (`constants.dart:57-74`): the `.dart`
+/// files and the folders.
 pub fn file_operation_options() -> Value {
     json!({"filters": [
         {"scheme": "file", "pattern": {"glob": "**/*.dart", "matches": "file"}},
@@ -97,16 +98,15 @@ pub fn file_operation_options() -> Value {
     ]})
 }
 
-/// Os registros `(método, opções)` das features dinâmicas, a partir das
-/// capacidades estáticas que o servidor anunciaria (`registrations`,
-/// `server_capabilities_computer.dart:236-255`). `rename_files`: o
-/// `workspace/willRenameFiles` dinâmico (`WillRenameFilesRegistrations`: o
-/// cliente registra as operações de arquivo e `updateImportsOnRename` está
-/// ligado).
+/// The `(method, options)` registrations of the dynamic features, from the
+/// static capabilities the server would announce (`registrations`,
+/// `server_capabilities_computer.dart:236-255`). `rename_files`: the dynamic
+/// `workspace/willRenameFiles` (`WillRenameFilesRegistrations`: the client
+/// registers file operations and `updateImportsOnRename` is on).
 ///
-/// `observe_files`: o `workspace/didChangeWatchedFiles` dos `.dart`, dos
-/// YAML do pacote e do `package_config.json` (o servidor do Dart observa o
-/// disco ele mesmo; aqui é o cliente quem observa, §3.3: mesmo efeito).
+/// `observe_files`: the `workspace/didChangeWatchedFiles` of the `.dart`
+/// files, the package YAML files and `package_config.json` (the Dart server
+/// watches the disk itself; here the client watches, §3.3: same effect).
 pub fn records(statics: &Value, dynamic: &[&str], configuration: bool, rename_files: bool, observe_files: bool) -> Vec<(String, Value)> {
     let mut v = Vec::new();
     for f in FEATURES.iter().filter(|f| dynamic.contains(&f.client)) {
@@ -144,7 +144,7 @@ pub fn records(statics: &Value, dynamic: &[&str], configuration: bool, rename_fi
     v
 }
 
-/// Os registros vigentes e o contador dos ids.
+/// The current registrations and the id counter.
 #[derive(Default, Debug)]
 pub struct Records {
     current: Vec<(String, String, Value)>,
@@ -152,10 +152,10 @@ pub struct Records {
 }
 
 impl Records {
-    /// A diferença contra os vigentes (`_applyRegistrations`,
-    /// `server_capabilities_computer.dart:257-287`): os que saem, por
-    /// `{id, method}`, e os que entram, como `Registration`. Os vigentes
-    /// passam a ser os novos.
+    /// The difference against the current ones (`_applyRegistrations`,
+    /// `server_capabilities_computer.dart:257-287`): those that leave, by
+    /// `{id, method}`, and those that come in, as `Registration`s. The new ones
+    /// become the current ones.
     pub fn difference(&mut self, new: Vec<(String, Value)>) -> (Vec<Value>, Vec<Value>) {
         let key = |m: &str, o: &Value| format!("{m}\u{0}{o}");
         let new_keys: Vec<String> = new.iter().map(|(m, o)| key(m, o)).collect();
@@ -181,15 +181,15 @@ impl Records {
     }
 }
 
-/// A configuração do cliente (`client_configuration.dart`), a global; só as
-/// chaves que este servidor usa ou guarda.
+/// The client configuration (`client_configuration.dart`), the global one;
+/// only the keys this server uses or stores.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Configuration {
     pub complete_function_calls: bool,
     pub enable_snippets: bool,
     /// `showTodos: true` (`showAllTodos`).
     pub show_all: bool,
-    /// `showTodos: [...]` (`showTodoTypes`), em maiúsculas.
+    /// `showTodos: [...]` (`showTodoTypes`), in uppercase.
     pub show_all_types: Vec<String>,
     pub max_completion_items: Option<u64>,
     pub line_length: Option<u64>,
@@ -197,11 +197,11 @@ pub struct Configuration {
     pub update_imports_on_rename: bool,
     pub enable_sdk_formatter: bool,
     pub analysis_excluded_folders: Vec<String>,
-    /// `documentation`: `none`, `summary` ou `full`.
+    /// `documentation`: `none`, `summary` or `full`.
     pub documentation: String,
-    /// `codeLens` (`LspClientCodeLensConfiguration`): as lentes "Go to
-    /// Augmentation" e "Go to Augmented" (um `bool` vale para as duas; um
-    /// mapa as liga por nome, padrão ligadas).
+    /// `codeLens` (`LspClientCodeLensConfiguration`): the "Go to Augmentation"
+    /// and "Go to Augmented" lenses (a `bool` applies to both; a map enables
+    /// them by name, enabled by default).
     pub code_lens_augmentation: bool,
     pub code_lens_augmented: bool,
 }
@@ -226,17 +226,18 @@ impl Default for Configuration {
     }
 }
 
-/// Lê a seção `dart` global (o último item da resposta; `null` vale `{}`).
+/// Reads the global `dart` section (the last item of the response; `null`
+/// counts as `{}`).
 pub fn read_configuration(v: &Value) -> Configuration {
     let mut c = Configuration::default();
     let b = |k: &str| v.get(k).and_then(Value::as_bool);
     if let Some(x) = b("completeFunctionCalls") {
         c.complete_function_calls = x;
     }
-    // `enableServerSnippets == false` (o nome antigo) também desliga.
+    // `enableServerSnippets == false` (the old name) also disables.
     c.enable_snippets = b("enableSnippets").unwrap_or(true) && b("enableServerSnippets") != Some(false);
-    // `codeLens`: um `bool` para as duas, ou o mapa (padrão ligadas: só o
-    // `false` explícito desliga).
+    // `codeLens`: a `bool` for both, or the map (enabled by default: only an
+    // explicit `false` disables).
     match v.get("codeLens") {
         Some(Value::Bool(x)) => {
             c.code_lens_augmentation = *x;
@@ -248,7 +249,7 @@ pub fn read_configuration(v: &Value) -> Configuration {
         }
         _ => {}
     }
-    // `showTodos`: `true` (todos), ou a lista dos tipos (em maiúsculas).
+    // `showTodos`: `true` (all), or the list of kinds (in uppercase).
     c.show_all = matches!(v.get("showTodos"), Some(Value::Bool(true)));
     c.show_all_types = match v.get("showTodos") {
         Some(Value::Array(l)) => l.iter().filter_map(Value::as_str).map(str::to_uppercase).collect(),
@@ -278,11 +279,12 @@ pub fn read_configuration(v: &Value) -> Configuration {
     c
 }
 
-/// A configuração de uma pasta do workspace (`LspResourceClientConfiguration`
-/// com a global de reserva, `client_configuration.dart`): só as chaves de
-/// recurso (`enableSdkFormatter`, `enableSnippets`, `lineLength`,
+/// The configuration of a workspace folder
+/// (`LspResourceClientConfiguration` with the global one as fallback,
+/// `client_configuration.dart`): only the resource keys
+/// (`enableSdkFormatter`, `enableSnippets`, `lineLength`,
 /// `maxCompletionItems`, `renameFilesWithClasses`, `updateImportsOnRename`)
-/// valem da pasta; as outras são da global.
+/// come from the folder; the others are the global ones.
 pub fn feature_configuration(v: &Value, global: &Configuration) -> Configuration {
     let mut c = global.clone();
     let b = |k: &str| v.get(k).and_then(Value::as_bool);
@@ -329,7 +331,7 @@ mod tests {
         assert!(exit.is_empty());
         assert_eq!(enter.len(), 4);
         assert_eq!(enter[0]["id"], "0");
-        // De novo, nada muda.
+        // Again, nothing changes.
         let (exit, enter) = r.difference(regs);
         assert!(exit.is_empty() && enter.is_empty());
     }
@@ -339,7 +341,7 @@ mod tests {
         let c = read_configuration(&json!({"showTodos": ["fixme"], "enableServerSnippets": false, "analysisExcludedFolders": "gen"}));
         assert!(!c.show_all && !c.enable_snippets);
         assert_eq!(c.show_all_types, vec!["FIXME"]);
-        // A de uma pasta: só as chaves de recurso, o resto da global.
+        // That of a folder: only the resource keys, the rest from the global one.
         let folder = feature_configuration(&json!({"maxCompletionItems": 7, "completeFunctionCalls": true}), &c);
         assert_eq!(folder.max_completion_items, Some(7));
         assert!(!folder.complete_function_calls && !folder.enable_snippets);

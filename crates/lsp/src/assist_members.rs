@@ -1,7 +1,7 @@
-//! Assistências sobre membros de classe, portadas dos produtores do
-//! `analysis_server` 3.6.2 sobre a árvore no formato do analyzer.
+//! Assists on class members, ported from the `analysis_server` 3.6.2
+//! producers over the analyzer-shaped tree.
 //!
-//! | Título | Espécie | Produtor |
+//! | Title | Kind | Producer |
 //! |---|---|---|
 //! | `Convert to final field` | `refactor.convert.getterToFinalField` | `ConvertIntoFinalField` |
 //! | `Convert to getter` | `refactor.convert.finalFieldToGetter` | `ConvertIntoGetter` |
@@ -19,7 +19,7 @@ use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, FunctionBody, StmtKind};
 use dartforge_types::TypeId;
 
-/// As espécies de `TypeAnnotation`.
+/// The kinds of `TypeAnnotation`.
 const TYPES: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];
 
 impl Context<'_> {
@@ -36,7 +36,7 @@ impl Context<'_> {
     /// `ConvertIntoFinalField` (convert_into_final_field.dart).
     pub(crate) fn convert_to_final_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
-        // O getter envolvente: passa por identificadores e tipos.
+        // The enclosing getter: goes through identifiers and types.
         let mut getter = None;
         for n in self.with_parents(no) {
             let e = self.kind(n);
@@ -56,7 +56,7 @@ impl Context<'_> {
             return None;
         }
         let name = f.name?;
-        // Sem setter correspondente (`variable.setter2`).
+        // Without a corresponding setter (`variable.setter2`).
         let element = self.p.node_function(self.unit, fid)?;
         let prog = self.p.program();
         let fe = prog.function(element);
@@ -75,7 +75,7 @@ impl Context<'_> {
         if has_setter {
             return None;
         }
-        // A expressão devolvida.
+        // The returned expression.
         let expression = match &f.body {
             FunctionBody::Expression(e) => Some(*e),
             FunctionBody::Block(b) => match &self.ast.stmt(*b).kind {
@@ -137,7 +137,7 @@ impl Context<'_> {
             return None;
         }
         let field = variables[0];
-        // O `keyword` da lista (`final`, `const` ou `var`).
+        // The list's `keyword` (`final`, `const` or `var`).
         let ty = self.children(list).iter().copied().find(|&f| TYPES.contains(&self.kind(f)));
         let limit = ty.map_or(self.tree.nos[field].inicio, |t| self.tree.nos[t].inicio);
         let word = self
@@ -161,9 +161,9 @@ impl Context<'_> {
         Some(self.member_action(uri, "Convert to getter", "refactor.convert.finalFieldToGetter", range, code))
     }
 
-    /// `ConvertToNormalParameter` (convert_to_normal_parameter.dart): um
-    /// `this.x` direto na lista de parâmetros de um construtor vira
-    /// parâmetro comum com o inicializador `x = x`.
+    /// `ConvertToNormalParameter` (convert_to_normal_parameter.dart): a `this.x`
+    /// directly in a constructor's parameter list becomes an ordinary parameter
+    /// with the initializer `x = x`.
     pub(crate) fn convert_to_normal_parameter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let parameter = self.tree.localizar(start, end)?;
         if self.kind(parameter) != "FieldFormalParameter" {
@@ -177,10 +177,10 @@ impl Context<'_> {
         if self.kind(constructor) != "ConstructorDeclaration" {
             return None;
         }
-        // O nome: o último token do parâmetro (`this.x`).
+        // The name: the parameter's last token (`this.x`).
         let name_span = self.previous_token(self.tree.nos[parameter].fim)?;
         let name = self.source[name_span.start..name_span.end].to_string();
-        // O tipo do elemento: o do parâmetro do construtor, pela posição.
+        // The element's type: that of the constructor parameter, by position.
         let index = self.children(list).iter().position(|&k| k == parameter)?;
         let node_end = self.tree.nos[constructor].fim;
         let mi = self.ast.members.iter().position(|m| matches!(m.kind, ast::MemberKind::Constructor(_)) && m.span.end == node_end)?;
@@ -221,8 +221,8 @@ impl Context<'_> {
         })
     }
 
-    /// `_SuperclassReferenceFinder`: a classe (não mixin) que declara cada
-    /// membro alcançado por `super` dentro de `span`, com repetições.
+    /// `_SuperclassReferenceFinder`: the class (not a mixin) that declares each
+    /// member reached through `super` inside `span`, with repetitions.
     fn classes_referenced_by_super(&self, span: Span) -> Vec<dartforge_elements::model::ClassId> {
         use dartforge_types::{MemberRef, Resolved};
         let prog = self.p.program();
@@ -243,7 +243,7 @@ impl Context<'_> {
             }
             let id = ast::ExprId(i as u32);
             let target_ = match &e.kind {
-                // `super.x`, `super.m(…)` (o nome está no `Property`).
+                // `super.x`, `super.m(…)` (the name is in the `Property`).
                 ast::ExprKind::Property { target, .. } if is_super(*target) => Some(id),
                 ast::ExprKind::Binary { left, .. } if is_super(*left) => Some(id),
                 ast::ExprKind::Index { target, .. } if is_super(*target) => Some(id),
@@ -262,7 +262,7 @@ impl Context<'_> {
         let declaration = self.with_parents(no).find(|&k| self.kind(k) == "ClassDeclaration")?;
         let Marca::Decl(d) = self.tree.nos[declaration].marca else { return None };
         let ast::DeclKind::Class(k) = &self.ast.decl(d).kind else { return None };
-        // `class` (a palavra) e o nome.
+        // `class` (the keyword) and the name.
         let class_word = self
             .tokens
             .iter()
@@ -364,10 +364,10 @@ impl Context<'_> {
         })
     }
 
-    /// `inheritanceManager.getOverridden4(class, Name(name))`: algum
-    /// supertipo (superclasse, mixins, interfaces, restrições `on`, de forma
-    /// transitiva) declara um membro de instância com esse nome — o getter ou
-    /// o método (`setter` falso), ou o setter (`name=`).
+    /// `inheritanceManager.getOverridden4(class, Name(name))`: some supertype
+    /// (superclass, mixins, interfaces, `on` constraints, transitively) declares
+    /// an instance member with that name — the getter or the method (`setter`
+    /// false), or the setter (`name=`).
     fn overridden_member(&self, class: dartforge_elements::model::ClassId, name: &str, setter: bool) -> bool {
         let prog = self.p.program();
         let key = if setter { format!("{name}_=") } else { name.to_string() };
@@ -388,14 +388,14 @@ impl Context<'_> {
         false
     }
 
-    /// `EncapsulateField` (encapsulate_field.dart): no nome de um campo de
-    /// instância público, não final, único na declaração, de classe ou mixin,
-    /// o campo vira privado e ganha getter e setter com o nome dele.
+    /// `EncapsulateField` (encapsulate_field.dart): on the name of a public,
+    /// non-final instance field, alone in its declaration, of a class or mixin,
+    /// the field becomes private and gets a getter and a setter with its name.
     pub(crate) fn encapsulate_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let declaration = self.with_parents(no).find(|&k| self.kind(k) == "FieldDeclaration")?;
         let list = self.children(declaration).iter().copied().find(|&k| self.kind(k) == "VariableDeclarationList")?;
-        // As palavras antes da lista (`static`, `covariant`…) e as da lista.
+        // The keywords before the list (`static`, `covariant`…) and those of the list.
         let words = |de: usize, until: usize| -> Vec<&str> {
             self.tokens.iter().filter(|t| t.span.start >= de && t.span.end <= until).map(|t| &self.source[t.span.start..t.span.end]).collect()
         };
@@ -421,7 +421,7 @@ impl Context<'_> {
         if name.starts_with('_') {
             return None;
         }
-        // `nameToken != token`: o token da seleção é o nome.
+        // `nameToken != token`: the selection token is the name.
         if !(name_tk.start <= start && start <= name_tk.end) {
             return None;
         }
@@ -434,13 +434,13 @@ impl Context<'_> {
         let tx = crate::refactorings_exec::Text::new(self.source);
         let eol = tx.eol();
         let mut m = crate::refactorings_exec::Change::default();
-        // Sem as anotações no campo.
+        // Without annotations on the field.
         if let (Some(&first), Some(&last)) = (annotations.first(), annotations.last()) {
             m.add(uri, tx.line_range(self.tree.nos[first].inicio, self.tree.nos[last].fim), String::new());
         }
         m.add(uri, name_tk, format!("_{name}"));
         let type_code = ty.map_or(String::new(), |t| self.node_text(t).to_string());
-        // Os construtores: os `this.x` e os inicializadores do campo.
+        // The constructors: the `this.x` and the field's initializers.
         for &member in self.children(class_body) {
             if self.kind(member) != "ConstructorDeclaration" {
                 continue;
@@ -455,7 +455,7 @@ impl Context<'_> {
             for &parameter in self.children(parameters) {
                 let (internal, named) = if self.kind(parameter) == "DefaultFormalParameter" {
                     let Some(&i) = self.children(parameter).first() else { continue };
-                    // `isNamed`: entre `{ }`.
+                    // `isNamed`: between `{ }`.
                     let before_parameter = &self.source[self.tree.nos[parameters].inicio..self.tree.nos[parameter].inicio];
                     (i, before_parameter.contains('{'))
                 } else {
@@ -469,8 +469,8 @@ impl Context<'_> {
                     continue;
                 }
                 if named {
-                    // `this.` sai (com o tipo do campo no lugar) e o campo é
-                    // inicializado na lista.
+                    // `this.` goes away (with the field's type in its place) and the field is
+                    // initialized in the list.
                     let this_ = self.tokens.iter().find(|t| t.span.start >= self.tree.nos[internal].inicio && &self.source[t.span.start..t.span.end] == "this")?.span;
                     let dot = self.next_token(this_.end)?;
                     let text = if type_code.is_empty() { String::new() } else { format!("{type_code} ") };
@@ -496,7 +496,7 @@ impl Context<'_> {
                 }
             }
         }
-        // O getter e o setter, depois da declaração.
+        // The getter and the setter, after the declaration.
         let documentation = self.children(declaration).iter().copied().find(|&k| self.kind(k) == "Comment").map(|c| self.node_text(c).to_string());
         let code = if type_code.is_empty() { String::new() } else { format!("{type_code} ") };
         let header = |preserve_override: bool| -> String {
@@ -530,9 +530,9 @@ impl Context<'_> {
         })
     }
 
-    /// `ConvertToFieldParameter._findParameter`: o parâmetro simples (direto
-    /// na lista de um construtor) da seleção, ou o citado pela expressão de
-    /// um inicializador de campo.
+    /// `ConvertToFieldParameter._findParameter`: the simple parameter (directly
+    /// in a constructor's list) of the selection, or the one cited by the
+    /// expression of a field initializer.
     fn parameter_to_field(&self, no: usize) -> Option<(usize, Span, usize)> {
         let parent = self.parent(no)?;
         if self.kind(no) == "SimpleFormalParameter" {
@@ -562,9 +562,9 @@ impl Context<'_> {
         None
     }
 
-    /// `ConvertToFieldParameter` (convert_to_field_parameter.dart): o
-    /// parâmetro citado uma só vez nos inicializadores, num `field = p`, vira
-    /// `this.field` e o inicializador sai.
+    /// `ConvertToFieldParameter` (convert_to_field_parameter.dart): a parameter
+    /// cited only once in the initializers, in a `field = p`, becomes
+    /// `this.field` and the initializer goes away.
     pub(crate) fn convert_to_field_parameter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let (parameter, name_, constructor) = self.parameter_to_field(no)?;
@@ -575,8 +575,8 @@ impl Context<'_> {
             .copied()
             .filter(|&k| matches!(self.kind(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
             .collect();
-        // `_ReferenceCounter`: os identificadores dos inicializadores cujo
-        // elemento é o parâmetro.
+        // `_ReferenceCounter`: the identifiers of the initializers whose element is
+        // the parameter.
         let mut count = 0;
         let mut stack = initializers.clone();
         while let Some(k) = stack.pop() {
@@ -584,7 +584,7 @@ impl Context<'_> {
                 && let Marca::Expr(x) = self.tree.nos[k].marca
                 && match self.bodies.get_resolved(x) {
                     Some(dartforge_types::Resolved::Parameter { name, .. }) => self.p.name(*name) == parameter_name,
-                    // Nos inicializadores o parâmetro é um local declarado no nome dele.
+                    // In the initializers the parameter is a local declared at its name.
                     Some(dartforge_types::Resolved::Local(_)) => self.bodies.declaracao_local(x) == Some(name_.start),
                     _ => false,
                 }
@@ -620,9 +620,9 @@ impl Context<'_> {
         })
     }
 
-    /// `ShadowField` (shadow_field.dart): o campo testado com `is` ou com
-    /// `==`/`!=` na condição de um `if` (através de `&&`) dentro de um bloco
-    /// que não escreve nele ganha um local de mesmo nome antes do `if`.
+    /// `ShadowField` (shadow_field.dart): a field tested with `is` or with
+    /// `==`/`!=` in the condition of an `if` (through `&&`) inside a block that
+    /// does not write to it gets a local with the same name before the `if`.
     pub(crate) fn shadow_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         use dartforge_types::{MemberRef, Resolved};
         let no = self.tree.localizar(start, end)?;
@@ -631,14 +631,14 @@ impl Context<'_> {
         }
         let Marca::Expr(x) = self.tree.nos[no].marca else { return None };
         let prog = self.p.program();
-        // O getter de uma classe (o acessor do campo ou o declarado).
+        // The getter of a class (the field's accessor or the declared one).
         let (variable, getter, class) = match self.bodies.get_resolved(x)? {
             Resolved::Member { member: MemberRef::Variable(v), .. } => (Some(*v), None, prog.variable(*v).class?),
             Resolved::Member { member: MemberRef::Function(f), .. } => {
                 let fe = prog.function(*f);
                 match fe.kind {
                     dartforge_elements::model::FunctionKind::Getter => (None, Some(*f), fe.class?),
-                    // O getter sintético de um campo.
+                    // The synthetic getter of a field.
                     dartforge_elements::model::FunctionKind::ImplicitAccessor => {
                         let v = fe.variable?;
                         if prog.variable(v).getter != Some(*f) {
@@ -681,7 +681,7 @@ impl Context<'_> {
             _ => None,
         };
         let setter = setter?;
-        // `_ReferenceFinder`: uma escrita no setter dentro do bloco.
+        // `_ReferenceFinder`: a write to the setter inside the block.
         let block_span = self.tree.span(block);
         let writes = self.writes.iter().any(|&e| {
             let s = self.ast.expr(e).span;

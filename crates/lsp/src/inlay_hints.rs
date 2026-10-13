@@ -1,33 +1,34 @@
-//! Dicas embutidas (`textDocument/inlayHint`) no formato do
-//! `DartInlayHintComputer` do Dart 3.6.2
+//! Inlay hints (`textDocument/inlayHint`) in the format of the Dart 3.6.2
+//! `DartInlayHintComputer`
 //! (`pkg/analysis_server/lib/src/computer/computer_inlay_hint.dart`):
 //!
-//! * tipo (espécie 1) antes do nome de variável declarada sem tipo (`var`,
-//!   `final`, `const`, campos e variáveis de topo), de variável de `for-in`
-//!   sem tipo, de variável de padrão sem tipo e de parâmetro sem tipo (o de
-//!   *closure* inclusive; `this.x`, `super.x` e parâmetros-função não);
-//! * tipo de retorno antes do nome de método declarado sem tipo de retorno
-//!   (o setter inclusive, com `void`), e antes do nome (ou do `get`) de
-//!   função sem ele (setter de topo não);
-//! * nome do parâmetro (espécie 2, `name:`) antes de cada argumento
-//!   posicional de toda lista de argumentos que resolve para uma função com
-//!   parâmetros declarados: chamadas, criações, anotações e os `super(…)` e
-//!   `this(…)` de construtores;
-//! * argumentos de tipo inferidos (`<int>`) antes do `[`/`{` de literal de
-//!   coleção sem argumentos escritos, e depois do nome da classe numa
-//!   criação de instância sem argumentos escritos;
-//! * os argumentos de tipo escolhidos de uma invocação genérica sem
-//!   argumentos escritos (`visitInvocationExpression`, os `typeArgumentTypes`),
-//!   antes do `(`;
-//! * os argumentos de um tipo nomeado escrito sem eles (`visitNamedType`:
-//!   `List` cru dá `<dynamic>`), depois do tipo.
+//! * type (kind 1) before the name of a variable declared without a type
+//!   (`var`, `final`, `const`, fields and top-level variables), of a
+//!   `for-in` variable without a type, of a pattern variable without a type
+//!   and of a parameter without a type (including a *closure*'s; `this.x`,
+//!   `super.x` and function-typed parameters are not);
+//! * return type before the name of a method declared without a return type
+//!   (including the setter, with `void`), and before the name (or the `get`)
+//!   of a function without one (not a top-level setter);
+//! * parameter name (kind 2, `name:`) before each positional argument of
+//!   every argument list that resolves to a function with declared
+//!   parameters: calls, creations, annotations and constructors' `super(…)`
+//!   and `this(…)`;
+//! * inferred type arguments (`<int>`) before the `[`/`{` of a collection
+//!   literal without written arguments, and after the class name in an
+//!   instance creation without written arguments;
+//! * the chosen type arguments of a generic invocation without written
+//!   arguments (`visitInvocationExpression`, the `typeArgumentTypes`), before
+//!   the `(`;
+//! * the arguments of a named type written without them (`visitNamedType`:
+//!   a raw `List` gives `<dynamic>`), after the type.
 //!
-//! Os nomes de parâmetro de uma função do SDK são os da declaração pública,
-//! não os do patch (o analyzer não aplica patches).
+//! The parameter names of an SDK function are those of the public
+//! declaration, not the patch's (the analyzer does not apply patches).
 //!
-//! O analyzer devolve as dicas do arquivo inteiro, sem olhar o intervalo
-//! pedido; aqui também. Tipos vêm da inferência comum (`local_type`,
-//! `get_type`, outline), nunca de uma inferência própria.
+//! The analyzer returns the hints of the whole file, ignoring the requested
+//! range; so does this. Types come from the common inference (`local_type`,
+//! `get_type`, outline), never from an inference of its own.
 
 use crate::project::Project;
 use dartforge_elements::model::{FunctionElementId, FunctionKind, FunctionRef, UnitId, VariableRef};
@@ -35,8 +36,8 @@ use dartforge_frontend::ast::{self, DeclKind, ExprKind, MemberKind, ParameterKin
 use dartforge_types::{MemberRef, Resolved, Type, TypeId};
 use std::collections::HashMap;
 
-/// Uma dica: offset (bytes) onde aparece, texto, espécie LSP (1 tipo, 2
-/// parâmetro) e se leva espaço à direita.
+/// A hint: offset (bytes) where it appears, text, LSP kind (1 type, 2
+/// parameter) and whether it takes a space on the right.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hint {
     pub offset: usize,
@@ -46,7 +47,7 @@ pub struct Hint {
 }
 
 impl Project {
-    /// As dicas de `unit`.
+    /// The hints of `unit`.
     pub(crate) fn hints(&self, unit_: UnitId) -> Vec<Hint> {
         let p = self.program();
         let u = p.unit(unit_);
@@ -56,7 +57,7 @@ impl Project {
         let ty_ = |offset: usize, t: TypeId, output: &mut Vec<Hint>| {
             output.push(Hint { offset, label: self.query.format(t), kind: 1, space_after: true });
         };
-        // Variáveis de topo e campos: pelo elemento.
+        // Top-level variables and fields: through the element.
         let mut variables: HashMap<(bool, u32, usize), dartforge_elements::model::VariableId> = HashMap::new();
         for (i, v) in p.variables.iter().enumerate() {
             let id = dartforge_elements::model::VariableId(i as u32);
@@ -70,7 +71,7 @@ impl Project {
                 _ => {}
             }
         }
-        // Função da árvore -> elemento (retornos sem tipo escrito).
+        // Tree function -> element (returns without a written type).
         let functions: HashMap<u32, FunctionElementId> = p
             .functions
             .iter()
@@ -105,9 +106,9 @@ impl Project {
                 MemberKind::Method(f) => self.return_(unit_, *f, functions.get(&f.0).copied(), true, &mut output),
                 MemberKind::Constructor(k) => {
                     let element = self.node_constructor(unit_, ast::MemberId(i as u32));
-                    // Parâmetros sem tipo (`SimpleFormalParameter` sem tipo
-                    // escrito); o redirecionador não tem corpo, o tipo vem
-                    // do outline.
+                    // Parameters without a type (`SimpleFormalParameter` without a written
+                    // type); a redirecting constructor has no body, the type comes from the
+                    // outline.
                     for (j, prm) in k.parameters.iter().enumerate() {
                         if prm.ty.is_none()
                             && !prm.this_
@@ -121,8 +122,7 @@ impl Project {
                             ty_(n.span.start, t, &mut output);
                         }
                     }
-                    // `super(…)` e `this(…)`: os nomes dos parâmetros do
-                    // construtor chamado.
+                    // `super(…)` and `this(…)`: the parameter names of the called constructor.
                     for start in k.initializers.iter() {
                         let (callee, arguments_) = match start {
                             ast::Initializer::Super { arguments, .. } => (element.and_then(|f| self.super_constructor(f)), arguments),
@@ -147,7 +147,7 @@ impl Project {
                 _ => {}
             }
         }
-        // Os argumentos das anotações (`visitArgumentList`).
+        // The arguments of annotations (`visitArgumentList`).
         let mut annotations: Vec<&ast::Annotation> = Vec::new();
         for d in ast.decls.iter() {
             annotations.extend(d.metadata.iter());
@@ -192,7 +192,7 @@ impl Project {
                         }
                     }
                 }
-                // `for (var i = 0; …)`: a lista do cabeçalho também é
+                // `for (var i = 0; …)`: the header's list is also a
                 // `VariableDeclarationList` (`visitVariableDeclaration`).
                 StmtKind::For { init: Some(ast::ForInit::Variables(vl)), .. } if vl.ty.is_none() => {
                     for var in vl.variables.iter() {
@@ -227,7 +227,7 @@ impl Project {
                 ty_(name.span.start, t, &mut output);
             }
         }
-        // Parâmetros sem tipo (de funções, métodos e closures).
+        // Parameters without a type (of functions, methods and closures).
         for f in &ast.functions {
             for prm in f.parameters.iter().flatten() {
                 if prm.ty.is_none()
@@ -241,14 +241,14 @@ impl Project {
                 }
             }
         }
-        // Os tipos nomeados das criações (`new C()`) têm a dica pela criação.
+        // The named types of creations (`new C()`) get their hint through the creation.
         let mut of_creation: std::collections::HashSet<u32> = std::collections::HashSet::new();
         for e in ast.exprs.iter() {
             match &e.kind {
                 ExprKind::InstanceCreation { ty, .. } => {
                     of_creation.insert(ty.0);
                 }
-                // `[for (var i = 0; …) i]`: o cabeçalho do `for` de coleção.
+                // `[for (var i = 0; …) i]`: the header of a collection `for`.
                 ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
                     fn scan(els: &[ast::CollectionElement], bodies: &dartforge_types::UnitBodyTypes, f: &mut dyn FnMut(usize, TypeId)) {
                         for el in els {
@@ -266,7 +266,7 @@ impl Project {
                                     scan(std::slice::from_ref(body), bodies, f);
                                 }
                                 ast::CollectionElement::ForIn { target, body, .. } => {
-                                    // `[for (var x in l) …]`: o `DeclaredIdentifier` sem tipo.
+                                    // `[for (var x in l) …]`: the `DeclaredIdentifier` without a type.
                                     if let ast::ForInTarget::Declared { ty: None, name, .. } = target
                                         && let Some(t) = bodies.tipo_local(name.span.start)
                                     {
@@ -293,8 +293,8 @@ impl Project {
                 _ => {}
             }
         }
-        // O tipo de um padrão objeto é o requerido, com os argumentos
-        // inferidos (`MapEntry(key: k)` dá `MapEntry<K, V>`).
+        // The type of an object pattern is the required one, with the inferred
+        // arguments (`MapEntry(key: k)` gives `MapEntry<K, V>`).
         let mut of_pattern: HashMap<u32, TypeId> = HashMap::new();
         for (i, pt) in ast.patterns.iter().enumerate() {
             if let ast::PatternKind::Object { ty, .. } = &pt.kind
@@ -303,8 +303,8 @@ impl Project {
                 of_pattern.insert(ty.0, t);
             }
         }
-        // Um argumento de tipo aninhado (`Command` em `List<Command>`) não
-        // tem registro próprio: o tipo vem do argumento do pai.
+        // A nested type argument (`Command` in `List<Command>`) has no record of
+        // its own: the type comes from the parent's argument.
         let mut parent_of: HashMap<u32, (u32, usize)> = HashMap::new();
         for (i, ty) in ast.types.iter().enumerate() {
             if let ast::TypeKind::Named { args, .. } = &ty.kind {
@@ -336,7 +336,7 @@ impl Project {
             }
             Some(t)
         };
-        // `visitNamedType`: tipo escrito sem argumentos cujo tipo os tem.
+        // `visitNamedType`: a type written without arguments whose type has them.
         for (i, ty) in ast.types.iter().enumerate() {
             let ast::TypeKind::Named { args, .. } = &ty.kind else { continue };
             if !args.is_empty() || of_creation.contains(&(i as u32)) {
@@ -349,9 +349,8 @@ impl Project {
             let id = ast::ExprId(i as u32);
             match &e.kind {
                 ExprKind::Call { target, arguments } => {
-                    // `visitInvocationExpression`: os argumentos de tipo
-                    // escolhidos, antes do `(`, sem argumentos escritos (a
-                    // criação implícita não é invocação).
+                    // `visitInvocationExpression`: the chosen type arguments, before the `(`,
+                    // without written arguments (the implicit creation is not an invocation).
                     if arguments.type_args.is_empty()
                         && !matches!(bodies.get_resolved(id), Some(Resolved::Constructor(_)))
                         && let Some(chosen) = bodies.instanciacao(arguments.span.start)
@@ -376,8 +375,7 @@ impl Project {
                         None => bodies.declaracao_local(*target).map_or_else(Vec::new, |d| local_function_names(ast, &u.source, d)),
                     };
                     self.argument_names(ast, &u.source, arguments, &names, &mut output);
-                    // `Caixa('a')` sem `new`: os argumentos de tipo inferidos
-                    // depois do nome da classe.
+                    // `Caixa('a')` without `new`: the inferred type arguments after the class name.
                     if let Some(Resolved::Constructor(_)) = bodies.get_resolved(id)
                         && arguments.type_args.is_empty()
                     {
@@ -420,9 +418,10 @@ impl Project {
         output
     }
 
-    /// Tipo de retorno de uma função ou método sem tipo escrito: o método
-    /// (`visitMethodDeclaration`) sempre antes do nome, o setter inclusive;
-    /// a função (`visitFunctionDeclaration`) antes do `get`, e o setter não.
+    /// Return type of a function or method without a written type: the method
+    /// (`visitMethodDeclaration`) always before the name, including the setter;
+    /// the function (`visitFunctionDeclaration`) before the `get`, and not the
+    /// setter.
     fn return_(&self, unit: UnitId, f: ast::FunctionId, element: Option<FunctionElementId>, method: bool, output: &mut Vec<Hint>) {
         let p = self.program();
         let Some(fe) = element else { return };
@@ -431,7 +430,7 @@ impl Project {
             return;
         }
         let Some(n) = func.name else { return };
-        // Getter de topo: antes do `get`.
+        // Top-level getter: before the `get`.
         let source = &p.unit(unit).source;
         let offset = if !method && func.kind == ast::FunctionKind::Getter {
             source[..n.span.start].trim_end().strip_suffix("get").map_or(n.span.start, str::len)
@@ -442,8 +441,8 @@ impl Project {
         output.push(Hint { offset, label: self.query.format(t), kind: 1, space_after: true });
     }
 
-    /// O construtor que a anotação `@C(…)`, `@C.n(…)`, `@p.C(…)` ou
-    /// `@p.C.n(…)` invoca.
+    /// The constructor that the annotation `@C(…)`, `@C.n(…)`, `@p.C(…)` or
+    /// `@p.C.n(…)` invokes.
     fn annotation_constructor(&self, unit: UnitId, a: &ast::Annotation) -> Option<FunctionElementId> {
         let p = self.program();
         let lib = p.unit(unit).library;
@@ -465,8 +464,8 @@ impl Project {
         p.class(class).constructors.get(&name).copied()
     }
 
-    /// Nomes dos parâmetros posicionais de `f`, na ordem (os da declaração
-    /// pública de um membro de patch do SDK).
+    /// Names of the positional parameters of `f`, in order (those of the public
+    /// declaration of an SDK patch member).
     fn positional_names(&self, f: FunctionElementId) -> Vec<String> {
         let p = self.program();
         let f = p.function(f).declaracao_publica.unwrap_or(f);
@@ -485,7 +484,7 @@ impl Project {
             .collect()
     }
 
-    /// `name:` antes de cada argumento posicional.
+    /// `name:` before each positional argument.
     fn argument_names(&self, ast: &ast::Ast, _source: &str, arguments: &ast::Arguments, names: &[String], output: &mut Vec<Hint>) {
         let mut k = 0;
         for a in arguments.args.iter() {
@@ -499,7 +498,7 @@ impl Project {
         }
     }
 
-    /// `<A, B>` dos argumentos de um tipo de interface, em `offset`.
+    /// `<A, B>` of the arguments of an interface type, at `offset`.
     fn type_arguments(&self, ty: Option<TypeId>, offset: usize, output: &mut Vec<Hint>) {
         let Some(t) = ty else { return };
         let args = match self.query.table.get(t) {
@@ -513,14 +512,14 @@ impl Project {
         output.push(Hint { offset, label: format!("<{}>", texts.join(", ")), kind: 1, space_after: false });
     }
 
-    /// `_appendTypePart`: o nome do elemento (não o do alias), os argumentos
-    /// e o `?`; o resto pelo `getDisplayString`.
+    /// `_appendTypePart`: the element's name (not the alias's), the arguments
+    /// and the `?`; the rest through `getDisplayString`.
     fn type_text(&self, t: TypeId) -> String {
         self.query.table.format_sem_alias(t, &self.query.names, &self.query.program)
     }
 }
 
-/// Nomes dos parâmetros posicionais da função local declarada em `decl`.
+/// Names of the positional parameters of the local function declared at `decl`.
 fn local_function_names(ast: &ast::Ast, source: &str, decl: usize) -> Vec<String> {
     let Some(f) = ast.functions.iter().find(|f| f.name.is_some_and(|n| n.span.start == decl)) else {
         return Vec::new();

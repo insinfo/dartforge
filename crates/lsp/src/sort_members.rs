@@ -1,18 +1,18 @@
-//! `Sort Members` (`dart.edit.sortMembers`): o `MemberSorter` do servidor
-//! do Dart 3.6.2 (`AS:src/services/correction/sort_members.dart:14-278`;
+//! `Sort Members` (`dart.edit.sortMembers`): the Dart 3.6.2 server's
+//! `MemberSorter` (`AS:src/services/correction/sort_members.dart:14-278`;
 //! docs/LSP-ESPECIFICACAO.md §13.12.5).
 //!
-//! Ordena os membros de cada classe, enum, mixin, extensão e extension type
-//! e depois as declarações de topo, pela tabela de prioridades do original;
-//! dentro de um grupo, pelo nome em minúsculas (campos de classe mantêm a
-//! ordem do arquivo). Cada membro leva os comentários que o precedem e o
-//! comentário de fim de linha; o que está entre os membros (linhas em
-//! branco, indentação) não se move. O resultado é **uma** edição, do
-//! primeiro ao último caractere diferentes (`computeSimpleDiff`).
+//! Sorts the members of each class, enum, mixin, extension and extension
+//! type and then the top-level declarations, by the original's priority
+//! table; within a group, by lowercase name (class fields keep the file
+//! order). Each member carries the comments that precede it and the
+//! end-of-line comment; what lies between members (blank lines,
+//! indentation) does not move. The result is **one** edit, from the first
+//! to the last differing character (`computeSimpleDiff`).
 //!
-//! O passo final é o do original: as diretivas reordenadas pelo
-//! `ImportOrganizer` sem remoção (`crate::organize_imports`, §13.12.6).
-//! Escrito sem compilar nem executar (2026-10-04).
+//! The final step is the original's: the directives reordered by the
+//! `ImportOrganizer` without removal (`crate::organize_imports`, §13.12.6).
+//! Written without compiling or running (2026-10-04).
 
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{Ast, CompilationUnit, DeclKind, FunctionKind, MemberId, MemberKind, TypedefKind};
@@ -36,8 +36,8 @@ enum Kind {
     ClassMethod,
 }
 
-/// `_PRIORITY_ITEMS` (`sort_members.dart:15-47`): `(estático, espécie,
-/// privado)`; para os campos de classe o terceiro não entra na igualdade.
+/// `_PRIORITY_ITEMS` (`sort_members.dart:15-47`): `(static, kind, private)`;
+/// for class fields the third one does not take part in equality.
 const PRIORITIES: &[(bool, Kind, bool)] = &[
     (false, Kind::UnitFunctionMain, false),
     (false, Kind::UnitVariableConst, false),
@@ -72,8 +72,8 @@ const PRIORITIES: &[(bool, Kind, bool)] = &[
     (true, Kind::ClassMethod, true),
 ];
 
-/// Um membro a ordenar: a chave e o intervalo do texto dele (com os
-/// comentários que o acompanham) na fonte ORIGINAL.
+/// A member to sort: the key and the range of its text (with the comments
+/// that go with it) in the ORIGINAL source.
 struct Item {
     kind: Kind,
     is_static: bool,
@@ -83,7 +83,7 @@ struct Item {
 }
 
 impl Item {
-    /// `_getPriority`: o índice do primeiro item igual da tabela.
+    /// `_getPriority`: the index of the first equal item of the table.
     fn priority(&self) -> usize {
         let private = self.name.starts_with('_');
         PRIORITIES
@@ -95,15 +95,15 @@ impl Item {
     }
 }
 
-/// Um comentário num vão entre dois membros.
+/// A comment in a gap between two members.
 pub(crate) struct Comment {
     pub(crate) start: usize,
     pub(crate) end: usize,
-    /// `///` ou `/** */`.
+    /// `///` or `/** */`.
     pub(crate) of_documentation: bool,
 }
 
-/// Os comentários de `text[de..until]`, que só tem brancos e comentários.
+/// The comments of `text[de..until]`, which has only whitespace and comments.
 pub(crate) fn comments(text: &str, de: usize, until: usize) -> Vec<Comment> {
     let b = text.as_bytes();
     let mut output = Vec::new();
@@ -139,18 +139,18 @@ pub(crate) fn comments(text: &str, de: usize, until: usize) -> Vec<Comment> {
     output
 }
 
-/// A linha (base 0) do offset.
+/// The line (0-based) of the offset.
 pub(crate) fn line_of(text: &str, offset: usize) -> usize {
     text.as_bytes()[..offset.min(text.len())].iter().filter(|c| **c == b'\n').count()
 }
 
-/// `range.nodeWithComments`: o intervalo do texto de um nó, com os
-/// comentários da frente e o de fim de linha. `previous`: o fim do token
-/// anterior ao nó (`None` quando o nó é a primeira coisa do arquivo).
+/// `range.nodeWithComments`: the range of a node's text, with the leading
+/// comments and the end-of-line one. `previous`: the end of the token
+/// before the node (`None` when the node is the first thing in the file).
 fn with_comments(text: &str, no: Span, previous: Option<usize>) -> (usize, usize) {
     let start = match previous {
-        // A primeira coisa do arquivo: os comentários de antes são cabeçalho,
-        // salvo o comentário de documentação do próprio nó.
+        // The first thing in the file: the comments before it are a header, except
+        // the node's own documentation comment.
         None => {
             let cs = comments(text, 0, no.start);
             documentation_start(&cs).unwrap_or(no.start)
@@ -158,25 +158,24 @@ fn with_comments(text: &str, no: Span, previous: Option<usize>) -> (usize, usize
         Some(previous_end) => {
             let cs = comments(text, previous_end, no.start);
             match documentation_start(&cs) {
-                // Com comentário de documentação, o nó começa nele: os
-                // comentários comuns acima ficam onde estão.
+                // With a documentation comment, the node starts at it: the ordinary
+                // comments above stay where they are.
                 Some(i) => i,
                 None => {
-                    // Os que começam na linha do token anterior são o
-                    // comentário de fim de linha dele.
+                    // Those that start on the previous token's line are its end-of-line comment.
                     let previous_line = line_of(text, previous_end.saturating_sub(1));
                     cs.iter().find(|c| line_of(text, c.start) != previous_line).map_or(no.start, |c| c.start)
                 }
             }
         }
     };
-    // O comentário de fim de linha: os que começam na linha em que começa o
-    // último token do nó (aqui, a linha do último caractere dele).
+    // The end-of-line comment: those that start on the line where the node's
+    // last token starts (here, the line of its last character).
     let end_line = line_of(text, no.end.saturating_sub(1));
     let line_end = text[no.end.min(text.len())..].find('\n').map_or(text.len(), |k| no.end + k);
     let mut end = no.end;
     for c in comments(text, no.end.min(text.len()), line_end) {
-        // Só comentários separados do nó por brancos (nada de código no meio).
+        // Only comments separated from the node by whitespace (no code in between).
         if line_of(text, c.start) == end_line && text[end..c.start].trim().is_empty() {
             end = c.end;
         } else {
@@ -186,8 +185,8 @@ fn with_comments(text: &str, no: Span, previous: Option<usize>) -> (usize, usize
     (start, end)
 }
 
-/// O começo do comentário de documentação de um nó: a última sequência de
-/// linhas `///` consecutivas, ou o último bloco `/** */`, do vão.
+/// The start of a node's documentation comment: the last sequence of
+/// consecutive `///` lines, or the last `/** */` block, of the gap.
 fn documentation_start(cs: &[Comment]) -> Option<usize> {
     let last = cs.iter().rposition(|c| c.of_documentation)?;
     let mut first = last;
@@ -197,8 +196,8 @@ fn documentation_start(cs: &[Comment]) -> Option<usize> {
     Some(cs[first].start)
 }
 
-/// `_getSortedMembers`: prioridade; campos de classe pela posição; o resto
-/// pelo nome em minúsculas, em unidades UTF-16. Estável.
+/// `_getSortedMembers`: priority; class fields by position; the rest by
+/// lowercase name, in UTF-16 units. Stable.
 fn sort(items: &[Item]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..items.len()).collect();
     order.sort_by(|&x, &y| {
@@ -214,18 +213,18 @@ fn sort(items: &[Item]) -> Vec<usize> {
     order
 }
 
-/// `_sortAndReorderMembers`: o k-ésimo encaixe recebe o texto do k-ésimo
-/// membro ordenado, de trás para a frente. Os intervalos são os da fonte
-/// original; como cada troca preserva o comprimento total do contêiner,
-/// continuam válidos em `code` para os encaixes anteriores.
+/// `_sortAndReorderMembers`: the k-th slot receives the text of the k-th
+/// sorted member, back to front. The ranges are those of the original
+/// source; since each swap preserves the container's total length, they stay
+/// valid in `code` for the earlier slots.
 fn reorder(code: &mut String, items: &[Item]) {
     let order = sort(items);
     if order.iter().enumerate().all(|(i, &j)| i == j) {
         return;
     }
     let texts: Vec<String> = items.iter().map(|it| code[it.start..it.end].to_string()).collect();
-    // O deslocamento acumulado dos encaixes à esquerda muda os offsets dos
-    // da direita: monta-se o trecho inteiro de uma vez.
+    // The accumulated shift of the slots on the left changes the offsets of
+    // those on the right: the whole span is built at once.
     let (first, last) = (items[0].start, items[items.len() - 1].end);
     let mut new = String::with_capacity(last - first);
     let mut cursor = first;
@@ -248,8 +247,8 @@ fn members_of(decl: &DeclKind) -> Option<&[MemberId]> {
     }
 }
 
-/// Os itens dos membros de uma classe; `None` abandona a ordenação dela
-/// (um campo sem variável).
+/// The member items of a class; `None` abandons sorting it (a field without
+/// a variable).
 fn class_items(text: &str, ast: &Ast, names: &Interner, opening: usize, members: &[MemberId]) -> Option<Vec<Item>> {
     let mut items = Vec::with_capacity(members.len());
     let mut previous: Option<usize> = None;
@@ -279,20 +278,19 @@ fn class_items(text: &str, ast: &Ast, names: &Interner, opening: usize, members:
     Some(items)
 }
 
-/// `MemberSorter.sort`: a edição única
-/// `(offset, length, text new)` em bytes da fonte, ou `None` quando
-/// nada muda.
+/// `MemberSorter.sort`: the single edit `(offset, length, new text)` in
+/// source bytes, or `None` when nothing changes.
 pub(crate) fn sort_members(text: &str, unit: &CompilationUnit, ast: &Ast, names: &Interner) -> Option<(usize, usize, String)> {
     let mut code = text.to_string();
-    // 1. Os membros de cada classe, na ordem do arquivo.
+    // 1. The members of each class, in file order.
     for &d in unit.declarations.iter() {
         let decl = ast.decl(d);
         let Some(members) = members_of(&decl.kind) else { continue };
         if members.len() < 2 {
             continue;
         }
-        // O fim do token anterior ao primeiro membro: o `;` das constantes
-        // de um enum, ou o `{` do corpo.
+        // The end of the token before the first member: the enum constants' `;`,
+        // or the body's `{`.
         let first = ast.member(members[0]).span.start;
         let after_constants = match &decl.kind {
             DeclKind::Enum(x) => x.constants.last().and_then(|k| {
@@ -308,8 +306,8 @@ pub(crate) fn sort_members(text: &str, unit: &CompilationUnit, ast: &Ast, names:
             reorder(&mut code, &items);
         }
     }
-    // 2. As declarações de topo; os textos saem do código já com os membros
-    // ordenados.
+    // 2. The top-level declarations; the texts come from the code with the
+    // members already sorted.
     let mut items: Vec<Item> = Vec::new();
     let mut previous: Option<usize> = unit.directives.last().map(|x| x.span.end);
     let mut abandon = false;
@@ -351,17 +349,17 @@ pub(crate) fn sort_members(text: &str, unit: &CompilationUnit, ast: &Ast, names:
     if !abandon && items.len() >= 2 {
         reorder(&mut code, &items);
     }
-    // 3. As diretivas, por último: só reordena e reagrupa (sem erros e sem
-    // remoção). Os offsets delas são os originais: as trocas acima só mexem
-    // do primeiro encaixe de declaração em diante.
+    // 3. The directives, last: only reorders and regroups (no errors and no
+    // removal). Their offsets are the original ones: the swaps above only touch
+    // from the first declaration slot on.
     if let Some(new) = crate::organize_imports::organize(&code, unit, &[], false, false) {
         code = new;
     }
     simple_difference(text, &code)
 }
 
-/// `computeSimpleDiff` (`AS:src/utilities/strings.dart:36-49`): o maior
-/// prefixo e o maior sufixo comuns; a edição é o miolo.
+/// `computeSimpleDiff` (`AS:src/utilities/strings.dart:36-49`): the longest
+/// common prefix and suffix; the edit is the middle.
 fn simple_difference(old: &str, new: &str) -> Option<(usize, usize, String)> {
     if old == new {
         return None;
@@ -392,8 +390,8 @@ mod tests {
         }
     }
 
-    /// Campos na ordem do arquivo, o comentário de cima e o de fim de linha
-    /// acompanham o membro, o construtor sem nome antes do nomeado.
+    /// Fields in file order, the comment above and the end-of-line one go with
+    /// the member, the unnamed constructor before the named one.
     #[test]
     fn spec_example() {
         let before = "class A {\n  void b() {}\n  // sobre o campo\n  final int z = 1; // fim\n  A.named();\n  static int s = 0;\n  int a = 2;\n  A();\n  int get x => 0;\n}\n";

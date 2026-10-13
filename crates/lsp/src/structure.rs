@@ -1,23 +1,24 @@
-//! Estrutura sintática do documento: regiões de dobra
-//! (`textDocument/foldingRange`) e faixas de seleção
-//! (`textDocument/selectionRange`), só da árvore do parser e dos tokens do
-//! texto vigente (nenhum programa carregado).
+//! Syntactic structure of the document: folding regions
+//! (`textDocument/foldingRange`) and selection ranges
+//! (`textDocument/selectionRange`), only from the parser tree and the tokens
+//! of the current text (no program loaded).
 //!
-//! As dobras seguem o `DartUnitFoldingComputer` do Dart 3.6.2
-//! (`pkg/analysis_server/lib/src/computer/computer_folding.dart`) e o
-//! `FoldingHandler` (`lsp/handlers/handler_folding.dart`): cada nó contribui
-//! com uma região (corpo de classe a partir do fim do nome, corpo de função
-//! a partir do fim do nome, listas de argumentos e de parâmetros entre os
-//! parênteses, literais entre os colchetes, blocos de `if`/`while`/`do` até
-//! o último comando, `for` e *closures* do `{` ao `}`, casos de `switch`,
-//! strings de várias linhas, anotações), na ordem de visita da árvore; duas
-//! regiões não começam na mesma linha (a segunda usa o início alternativo,
-//! quando há, ou é descartada); depois vêm as diretivas (da palavra-chave
-//! da primeira ao fim da última) e os comentários (`/* */` a partir do fim
-//! da primeira linha; `//` e `///` consecutivos, sem linha em branco, do fim
-//! do primeiro ao fim do último). Ordenadas pelo início; com
-//! `lineFoldingOnly`, a região que termina na linha em que a seguinte começa
-//! é encurtada até a linha anterior (e some se ficar com uma linha só).
+//! Folding follows the Dart 3.6.2 `DartUnitFoldingComputer`
+//! (`pkg/analysis_server/lib/src/computer/computer_folding.dart`) and the
+//! `FoldingHandler` (`lsp/handlers/handler_folding.dart`): each node
+//! contributes one region (class body from the end of the name, function
+//! body from the end of the name, argument and parameter lists between the
+//! parentheses, literals between the brackets, `if`/`while`/`do` blocks up
+//! to the last statement, `for` and *closures* from `{` to `}`, `switch`
+//! cases, multi-line strings, annotations), in tree visit order; two regions
+//! do not start on the same line (the second uses the alternative start,
+//! when there is one, or is discarded); then come the directives (from the
+//! keyword of the first to the end of the last) and the comments (`/* */`
+//! from the end of the first line; consecutive `//` and `///` without a
+//! blank line, from the end of the first to the end of the last). Sorted by
+//! start; with `lineFoldingOnly`, a region that ends on the line where the
+//! next one starts is shortened to the previous line (and disappears if it
+//! is left with a single line).
 
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
@@ -32,8 +33,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::utf16::LineTable;
 
-/// Uma região de dobra em linhas (0-based), com a espécie LSP
-/// (`comment`, `imports` ou nenhuma).
+/// A folding region in lines (0-based), with the LSP kind (`comment`,
+/// `imports` or none).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fold {
     pub line_begin: u32,
@@ -43,7 +44,7 @@ pub struct Fold {
     pub kind: Option<&'static str>,
 }
 
-/// Espécie de região do analyzer, reduzida ao que o LSP distingue.
+/// The analyzer's region kind, reduced to what the LSP distinguishes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FoldKind {
     Comment,
@@ -51,8 +52,8 @@ enum FoldKind {
     Other,
 }
 
-/// Uma região candidata, com a chave de visita (início e fim do nó que a
-/// produz; o pai antes do filho, a ordem de produção entre iguais).
+/// A candidate region, with the visit key (start and end of the node that
+/// produces it; the parent before the child, production order among equals).
 struct Candidate {
     no: (usize, Reverse<usize>, usize),
     start: usize,
@@ -61,7 +62,7 @@ struct Candidate {
     alternative: Option<usize>,
 }
 
-/// Tokens do texto com o par de cada parêntese, colchete e chave.
+/// Tokens of the text with the pair of each parenthesis, bracket and brace.
 struct Tokens<'a> {
     source: &'a str,
     list: Vec<Token>,
@@ -97,12 +98,12 @@ impl<'a> Tokens<'a> {
         Some(Self { source, list, pair })
     }
 
-    /// Índice do primeiro token que começa em `offset` ou depois.
+    /// Index of the first token that starts at `offset` or after.
     fn index(&self, offset: usize) -> usize {
         self.list.partition_point(|t| t.span.start < offset)
     }
 
-    /// O primeiro token `op` em `[de, until)`.
+    /// The first `op` token in `[de, until)`.
     fn first(&self, op: Op, de: usize, until: usize) -> Option<usize> {
         let mut i = self.index(de);
         while let Some(t) = self.list.get(i) {
@@ -117,7 +118,7 @@ impl<'a> Tokens<'a> {
         None
     }
 
-    /// O último token `op` em `[de, until)`.
+    /// The last `op` token in `[de, until)`.
     fn last(&self, op: Op, de: usize, until: usize) -> Option<usize> {
         let i0 = self.index(de);
         let i1 = self.index(until);
@@ -128,14 +129,14 @@ impl<'a> Tokens<'a> {
         self.list[i].span
     }
 
-    /// `(opens, closes)` do par que começa no token `i`.
+    /// `(opens, closes)` of the pair that starts at token `i`.
     fn pair_of(&self, i: usize) -> Option<(Span, Span)> {
         let j = *self.pair.get(&i)?;
         Some((self.span(i), self.span(j)))
     }
 
-    /// Fim do último comentário entre o token anterior a `offset` e
-    /// `offset` (os comentários que precedem o token em `offset`).
+    /// End of the last comment between the token before `offset` and `offset`
+    /// (the comments that precede the token at `offset`).
     fn comment_end_before(&self, offset: usize) -> Option<usize> {
         let i = self.index(offset);
         let de = if i == 0 { 0 } else { self.list[i - 1].span.end };
@@ -143,7 +144,7 @@ impl<'a> Tokens<'a> {
     }
 }
 
-/// Um comentário no texto.
+/// A comment in the text.
 #[derive(Debug, Clone, Copy)]
 struct Comment {
     start: usize,
@@ -152,7 +153,7 @@ struct Comment {
     triple: bool,
 }
 
-/// Os comentários de uma lacuna entre tokens.
+/// The comments of a gap between tokens.
 fn comments(source: &str, de: usize, until: usize) -> Vec<Comment> {
     let b = source.as_bytes();
     let mut output = Vec::new();
@@ -164,7 +165,7 @@ fn comments(source: &str, de: usize, until: usize) -> Vec<Comment> {
             output.push(Comment { start: i, end, block: false, triple: source[i..].starts_with("///") });
             i = end;
         } else if b[i] == b'/' && b.get(i + 1) == Some(&b'*') {
-            // Comentários de bloco aninham em Dart.
+            // Block comments nest in Dart.
             let mut level = 0usize;
             let mut j = i;
             while j + 1 < until {
@@ -191,7 +192,7 @@ fn comments(source: &str, de: usize, until: usize) -> Vec<Comment> {
     output
 }
 
-/// As regiões de dobra de `text`.
+/// The folding regions of `text`.
 pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> Vec<Fold> {
     let mut names = Interner::new();
     let analyzed = dartforge_frontend::parser::parse_com(text, &mut names, features);
@@ -200,8 +201,8 @@ pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> 
     let mut c = Collector { ast: &analyzed.ast, t: &tokens, candidates: Vec::new() };
     c.collect(&analyzed.unit);
     let mut candidates = c.candidates;
-    // A ordem de visita da árvore (pré-ordem): o nó de início menor; entre
-    // iguais, o maior (pai) e então a ordem de produção.
+    // The tree visit order (pre-order): the node with the smaller start; among
+    // equals, the larger one (parent) and then the production order.
     candidates.sort_by_key(|r| r.no);
 
     let line = |o: usize| lines.line_of(text, o.min(text.len()));
@@ -224,7 +225,7 @@ pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> 
     for r in &candidates {
         add(r.start, r.end, r.kind, r.alternative, &mut occupied);
     }
-    // Diretivas: da palavra-chave da primeira ao fim da última.
+    // Directives: from the keyword of the first to the end of the last.
     let directives: Vec<&ast::Directive> = analyzed
         .unit
         .directives
@@ -239,7 +240,7 @@ pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> 
             add(t.span.end, directives[directives.len() - 1].span.end, FoldKind::Directives, None, &mut occupied);
         }
     }
-    // Comentários, lacuna por lacuna (a cadeia que precede cada token).
+    // Comments, gap by gap (the chain preceding each token).
     let mut previous = analyzed.unit.script_tag.map_or(0, |s| s.end);
     for t in &tokens.list {
         if t.kind == Kind::ScriptTag {
@@ -289,8 +290,8 @@ pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> 
         })
         .collect();
     if lines_only {
-        // A que termina na linha em que a seguinte começa (sem contê-la)
-        // é encurtada até a linha anterior.
+        // The one that ends on the line where the next one starts (without
+        // containing it) is shortened to the previous line.
         let mut i = 0;
         while i + 1 < output.len() {
             let (current, next) = (&output[i], &output[i + 1]);
@@ -309,7 +310,7 @@ pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> 
     output
 }
 
-/// Percorre a árvore produzindo as regiões candidatas.
+/// Walks the tree producing the candidate regions.
 struct Collector<'a> {
     ast: &'a Ast,
     t: &'a Tokens<'a>,
@@ -339,8 +340,7 @@ impl Collector<'_> {
         }
     }
 
-    /// Lista de argumentos: entre os parênteses; alternativo, o primeiro
-    /// argumento.
+    /// Argument list: between the parentheses; alternative, the first argument.
     fn arguments(&mut self, a: &Arguments) {
         let (ast, toks) = (self.ast, self.t);
         let s = a.span;
@@ -351,7 +351,7 @@ impl Collector<'_> {
         self.region(s, s.start + 1, s.end - 1, first);
     }
 
-    /// Lista de parâmetros a partir do primeiro `(` em `[anchor, limit)`.
+    /// Parameter list from the first `(` in `[anchor, limit)`.
     fn parameters(&mut self, anchor: usize, limit: usize, ps: &[Parameter]) {
         let toks = self.t;
         let Some(i) = toks.first(Op::LParen, anchor, limit) else { return };
@@ -376,7 +376,7 @@ impl Collector<'_> {
         let (ast, toks) = (self.ast, self.t);
         let t = ast.ty(ty);
         if let TypeKind::Function { parameters, .. } = &t.kind {
-            // A lista vem depois da palavra `Function` (e dos parâmetros de tipo).
+            // The list comes after the `Function` keyword (and the type parameters).
             let mut i = toks.index(t.span.start);
             while let Some(tok) = toks.list.get(i) {
                 if tok.span.start >= t.span.end {
@@ -392,8 +392,8 @@ impl Collector<'_> {
         }
     }
 
-    /// Bloco de `if`/`while`/`do`: do fim do `{` ao fim do último
-    /// comentário antes do `}`, senão ao fim do último comando.
+    /// `if`/`while`/`do` block: from the end of the `{` to the end of the last
+    /// comment before the `}`, else to the end of the last statement.
     fn conditional_block(&mut self, no: Span, block: ast::StmtId) {
         let (ast, toks) = (self.ast, self.t);
         let b = ast.stmt(block);
@@ -410,7 +410,7 @@ impl Collector<'_> {
         }
     }
 
-    /// Corpo de `{` a `}` de uma expressão de função ou de um `for`.
+    /// Body from `{` to `}` of a function expression or of a `for`.
     fn whole_block(&mut self, no: Span, block: ast::StmtId) {
         let ast = self.ast;
         let b = ast.stmt(block);
@@ -429,8 +429,8 @@ impl Collector<'_> {
                 }
             }
         }
-        // Funções que são `FunctionExpression` no analyzer (todas menos os
-        // métodos) e as que são declarações (topo e locais).
+        // Functions that are a `FunctionExpression` in the analyzer (all but
+        // methods) and those that are declarations (top-level and local).
         let mut methods: HashSet<u32> = HashSet::new();
         for m in &ast.members {
             if let MemberKind::Method(f) = m.kind {
@@ -516,7 +516,7 @@ impl Collector<'_> {
             if !methods.contains(&(i as u32))
                 && let FunctionBody::Block(b) = f.body
             {
-                // O nó da expressão de função começa nos parâmetros.
+                // The function expression node starts at the parameters.
                 let at_start = toks.first(Op::LParen, anchor, f.span.end).map_or(f.span.start, |k| toks.span(k).start);
                 self.whole_block(Span { start: at_start, end: f.span.end }, b);
             }
@@ -600,8 +600,7 @@ impl Collector<'_> {
                 _ => {}
             }
         }
-        // Strings de várias linhas (simples ou interpoladas), cada literal
-        // adjacente por si.
+        // Multi-line strings (simple or interpolated), each adjacent literal on its own.
         let mut stack: Vec<usize> = Vec::new();
         for tok in &toks.list {
             match tok.kind {
@@ -617,8 +616,8 @@ impl Collector<'_> {
         }
     }
 
-    /// Corpo de enum, extensão ou extension type: do fim do `{` ao início
-    /// do `}`.
+    /// Body of an enum, extension or extension type: from the end of the `{` to
+    /// the start of the `}`.
     fn body_in_braces(&mut self, no: Span, anchor: usize) {
         let toks = self.t;
         if let Some(i) = toks.first(Op::LBrace, anchor, no.end)
@@ -638,11 +637,11 @@ impl Collector<'_> {
     }
 }
 
-/// As faixas de seleção em `offset`: os nós da árvore que o contêm, do mais
-/// interno ao mais externo, sem repetir intervalos iguais
+/// The selection ranges at `offset`: the tree nodes that contain it, from
+/// the innermost to the outermost, without repeating equal ranges
 /// (`DartSelectionRangeComputer`).
 pub(crate) fn selections(text: &str, features: LibraryFeatures, offset: usize) -> Vec<Span> {
-    // A árvore no formato do analyzer e o `NodeLocator` (§7.2 a §7.6).
+    // The analyzer-shaped tree and the `NodeLocator` (§7.2 to §7.6).
     crate::arvore_analyzer::selecoes(text, features, offset)
 }
 

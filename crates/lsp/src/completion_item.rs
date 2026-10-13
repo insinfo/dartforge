@@ -1,28 +1,28 @@
-//! O `CompletionItem` do servidor do Dart 3.6.2 (`toCompletionItem`,
-//! `MAP:974-1179`; docs/LSP-ESPECIFICACAO.md §14.8): rótulo, `filterText`,
-//! `kind` pela preferência e o `valueSet` do cliente, `detail` e
-//! `labelDetails`, o texto inserido com o snippet de chamada
+//! The Dart 3.6.2 server's `CompletionItem` (`toCompletionItem`,
+//! `MAP:974-1179`; docs/LSP-ESPECIFICACAO.md §14.8): label, `filterText`,
+//! `kind` by preference and the client's `valueSet`, `detail` and
+//! `labelDetails`, the inserted text with the call snippet
 //! (`_buildInsertText`), `InsertReplaceEdit`/`TextEdit`, `itemDefaults`,
-//! documentação no item e o `data` dos não importados; e os snippets de
-//! código (§14.8.9).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! documentation on the item and the `data` of not-imported items; and the
+//! code snippets (§14.8.9).
+//! Written without compiling or running (2026-10-05).
 
 use crate::completion::{Call, CompletionItem};
 use serde_json::{Value, json};
 
-/// O que o cliente anunciou para o completar (`client_capabilities.dart:155-202`).
+/// What the client announced for completion (`client_capabilities.dart:155-202`).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Capabilities {
     pub deprecated: bool,
     pub deprecated_tag: bool,
-    /// `documentationFormat` (`None`: o cliente não mandou o campo).
+    /// `documentationFormat` (`None`: the client did not send the field).
     pub doc_formats: Option<Vec<String>>,
     pub snippet: bool,
     pub insert_replace: bool,
     pub insertion_modes: Vec<u64>,
     pub label_details: bool,
     pub kinds: Option<Vec<u64>>,
-    /// `completionList.itemDefaults` contém `editRange` / `insertTextMode`.
+    /// `completionList.itemDefaults` contains `editRange` / `insertTextMode`.
     pub default_range: bool,
     pub default_mode: bool,
 }
@@ -50,8 +50,8 @@ impl Capabilities {
         }
     }
 
-    /// O primeiro `kind` da preferência que o cliente aceita (sem
-    /// `valueSet`, o conjunto padrão do LSP: 1 a 18).
+    /// The first `kind` of the preference that the client accepts (without a
+    /// `valueSet`, the LSP default set: 1 to 18).
     fn kind(&self, preference: &[u64]) -> Option<u64> {
         preference.iter().copied().find(|k| match &self.kinds {
             Some(l) => l.contains(k),
@@ -59,7 +59,7 @@ impl Capabilities {
         })
     }
 
-    /// A documentação no formato do cliente (`MAP:1619-1634`, `:79-85`).
+    /// The documentation in the client's format (`MAP:1619-1634`, `:79-85`).
     fn documentation(&self, text: String) -> Value {
         match &self.doc_formats {
             None => json!(text),
@@ -71,20 +71,20 @@ impl Capabilities {
     }
 }
 
-/// O contexto de um pedido de completar.
+/// The context of a completion request.
 pub(crate) struct Request<'a> {
-    /// `replacementRange` e `insert` (já em posições LSP).
+    /// `replacementRange` and `insert` (already in LSP positions).
     pub replace: Value,
     pub insert: Value,
     pub equal: bool,
-    /// `itemDefaults.editRange` vigente.
+    /// The current `itemDefaults.editRange`.
     pub pattern: bool,
-    /// O `completeFunctionCalls` efetivo (configuração e sem lista de
-    /// argumentos no alvo).
+    /// The effective `completeFunctionCalls` (configuration, and no argument
+    /// list at the target).
     pub calls: bool,
-    /// O caminho do arquivo em edição (`data.file`).
+    /// The path of the file being edited (`data.file`).
     pub file: &'a str,
-    /// A preferência `documentation` (`none`/`summary`/`full`).
+    /// The `documentation` preference (`none`/`summary`/`full`).
     pub doc_preference: &'a str,
 }
 
@@ -116,7 +116,7 @@ fn snippet_with_stops(text: &str, pairs: &[(usize, usize)]) -> String {
     s
 }
 
-/// `computeCompletionDefaultArgumentList`: o texto e os pares (UTF-16).
+/// `computeCompletionDefaultArgumentList`: the text and the pairs (UTF-16).
 fn list_pattern(parameters: &[String]) -> Option<(String, Vec<(usize, usize)>)> {
     if parameters.is_empty() {
         return None;
@@ -145,8 +145,8 @@ fn list_pattern(parameters: &[String]) -> Option<(String, Vec<(usize, usize)>)> 
     Some((text, pairs))
 }
 
-/// `getCompletionDetail`: `truncatedParams` e `truncatedSignature` de um
-/// `detail` já na forma `(params) → ret` (ou só o tipo).
+/// `getCompletionDetail`: `truncatedParams` and `truncatedSignature` of a
+/// `detail` already in the form `(params) → ret` (or just the type).
 fn signatures(detail: Option<&str>, callable: bool) -> (String, String) {
     let Some(d) = detail.filter(|d| !d.is_empty()) else { return (String::new(), String::new()) };
     if callable && d.starts_with('(') {
@@ -176,7 +176,7 @@ fn signatures(detail: Option<&str>, callable: bool) -> (String, String) {
     (String::new(), format!(" {d}"))
 }
 
-/// `docSummary`: o primeiro parágrafo.
+/// `docSummary`: the first paragraph.
 fn summary(doc: &str) -> String {
     let mut lines = Vec::new();
     for l in doc.lines() {
@@ -188,8 +188,8 @@ fn summary(doc: &str) -> String {
     lines.join("\n")
 }
 
-/// A preferência de espécies de um item (`elementKindToCompletionItemKind`
-/// e `suggestionKindToCompletionItemKind`).
+/// The kind preference of an item (`elementKindToCompletionItemKind` and
+/// `suggestionKindToCompletionItemKind`).
 fn preference(k: u32) -> Vec<u64> {
     match k {
         20 => vec![20, 13],
@@ -201,10 +201,10 @@ fn preference(k: u32) -> Vec<u64> {
     }
 }
 
-/// O `CompletionItem` de um item do servidor.
+/// The `CompletionItem` of a server item.
 pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, documentation: Option<String>) -> Value {
     let callable = i.call.is_some();
-    // `label` (o `displayText ?? completion`), `filterText`.
+    // `label` (the `displayText ?? completion`), `filterText`.
     let mut label = i.display.clone().unwrap_or_else(|| i.insert.clone());
     let starts_with_pattern = label.starts_with("=>") || label.starts_with('(');
     let filter = if starts_with_pattern {
@@ -219,14 +219,14 @@ pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, docu
         label.pop();
     }
     let (truncated, signature) = signatures(i.detail.as_deref(), callable);
-    // Os parâmetros curtos só sem `displayText` (`MAP:1069-1073`).
+    // The short parameters only without `displayText` (`MAP:1069-1073`).
     if !cap.label_details && i.display.is_none() {
         label.push_str(&truncated);
     }
     // `_buildInsertText`.
     let mut text = i.insert.clone();
     let mut snippet = false;
-    // `isInvocation`: o `IDENTIFIER` (tear-off, redirecionamento) não chama.
+    // `isInvocation`: an `IDENTIFIER` (tear-off, redirection) does not call.
     let mut calls = p.calls && callable && !i.identifier && !i.insert.contains('(');
     if i.insert.contains('(') {
         calls = false;
@@ -247,7 +247,7 @@ pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, docu
         && o != 0
         && o != i.insert.encode_utf16().count()
     {
-        // A seleção antes do fim vira uma parada (`buildSnippetStringWithTabStops`).
+        // A selection before the end becomes a stop (`buildSnippetStringWithTabStops`).
         snippet = true;
         text = snippet_with_stops(&i.insert, &[(o, l)]);
     }
@@ -255,7 +255,7 @@ pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, docu
     if let Some(k) = cap.kind(&preference(i.kind)) {
         v["kind"] = json!(k);
     }
-    // `detail`: a assinatura completa.
+    // `detail`: the full signature.
     if let Some(d) = i.detail.as_ref().filter(|d| !d.is_empty()) {
         v["detail"] = json!(d);
     }
@@ -271,7 +271,7 @@ pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, docu
             v["labelDetails"] = Value::Object(m);
         }
     }
-    // Documentação: só sem `data` (os não importados resolvem depois).
+    // Documentation: only without `data` (not-imported items resolve later).
     if i.import.is_none()
         && let Some(doc) = documentation
     {
@@ -299,7 +299,7 @@ pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, docu
             v["textEditText"] = json!(text);
         }
     } else if i.replace_empty {
-        // `replacementLength: 0`: insere no cursor sem trocar nada.
+        // `replacementLength: 0`: inserts at the cursor without replacing anything.
         v["textEdit"] = json!({"range": p.insert, "newText": text});
     } else if cap.insert_replace && !p.equal {
         v["textEdit"] = json!({"insert": p.insert, "replace": p.replace, "newText": text});
@@ -313,7 +313,7 @@ pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, docu
     v
 }
 
-/// `getCompletionDisplayUriString`: `file:` relativo à pasta do arquivo.
+/// `getCompletionDisplayUriString`: `file:` relative to the file's folder.
 pub(crate) fn display_uri(uri: &str, file: &str) -> String {
     if let Ok(u) = url::Url::parse(uri)
         && u.scheme() == "file"
@@ -328,7 +328,7 @@ pub(crate) fn display_uri(uri: &str, file: &str) -> String {
     uri.to_string()
 }
 
-/// O contexto do snippet (`DartSnippetRequest._getContext`).
+/// The snippet context (`DartSnippetRequest._getContext`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SnippetContext {
     Top,
@@ -338,8 +338,8 @@ pub(crate) enum SnippetContext {
     Other,
 }
 
-/// Os snippets de código (§14.8.9) do contexto, filtrados pelo prefixo:
-/// (prefixo, rótulo, documentação, corpo).
+/// The code snippets (§14.8.9) of the context, filtered by the prefix:
+/// (prefix, label, documentation, body).
 pub(crate) fn snippets(context: SnippetContext, indent: &str, eol: &str, in_tests: bool, finals: bool) -> Vec<(&'static str, &'static str, &'static str, String)> {
     let q = |s: &str| s.replace("⏎", &format!("{eol}{indent}"));
     let var = if finals { "final" } else { "var" };
@@ -377,7 +377,7 @@ pub(crate) fn snippets(context: SnippetContext, indent: &str, eol: &str, in_test
     v
 }
 
-/// O item de um snippet (`snippetToCompletionItem`, `MAP:788-878`).
+/// The item of a snippet (`snippetToCompletionItem`, `MAP:788-878`).
 pub(crate) fn snippet_item(cap: &Capabilities, p: &Request<'_>, prefix: &str, label: &str, doc: &str, body: &str) -> Value {
     let mut v = json!({"label": label, "kind": 15, "sortText": format!("zzz{prefix}"), "insertTextFormat": 2});
     if prefix != label {
@@ -395,9 +395,9 @@ pub(crate) fn snippet_item(cap: &Capabilities, p: &Request<'_>, prefix: &str, la
     v
 }
 
-/// O alvo do completar (`CompletionTarget.forOffset`,
-/// `completion_target.dart:141-260`) sobre a árvore sintática: o nó que
-/// contém e a entidade (nó ou token).
+/// The completion target (`CompletionTarget.forOffset`,
+/// `completion_target.dart:141-260`) over the syntax tree: the containing
+/// node and the entity (node or token).
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Entity {
     No(usize),
@@ -405,11 +405,11 @@ pub(crate) enum Entity {
     None,
 }
 
-/// O contexto do snippet do texto (`DartSnippetRequest._getContext`); `None`
-/// em comentário.
+/// The snippet context of the text (`DartSnippetRequest._getContext`);
+/// `None` inside a comment.
 pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContext> {
     use dartforge_frontend::token::Kind;
-    // Comentário: `inComment`.
+    // Comment: `inComment`.
     let comments = dartforge_frontend::comentarios::Comentarios::de(text);
     for c in comments.todos() {
         let line = text[c.start..c.end].starts_with("//");
@@ -426,7 +426,7 @@ pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContex
     let (mut cont, mut entity) = (0usize, Entity::None);
     'external: loop {
         let no = &tree.nos[cont];
-        // As entidades: os filhos e os tokens fora deles, em ordem.
+        // The entities: the children and the tokens outside them, in order.
         let mut ents: Vec<(usize, Entity)> = no.filhos.iter().map(|&f| (tree.nos[f].inicio, Entity::No(f))).collect();
         let (start, end) = if cont == 0 { (0, text.len()) } else { (no.inicio, no.fim) };
         for (k, t) in tokens.iter().enumerate() {

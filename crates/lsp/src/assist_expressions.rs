@@ -1,7 +1,7 @@
-//! Assistências sobre expressões, portadas dos produtores do
-//! `analysis_server` 3.6.2 sobre a árvore no formato do analyzer.
+//! Expression assists, ported from the `analysis_server` 3.6.2 producers
+//! over the analyzer-shaped tree.
 //!
-//! | Título | Espécie | Produtor |
+//! | Title | Kind | Producer |
 //! |---|---|---|
 //! | `Convert to 'isNotEmpty'` | `refactor.convert.isNotEmpty` | `ConvertIntoIsNotEmpty` |
 //! | `Convert to an int literal` | `refactor.convert.toIntLiteral` | `ConvertToIntLiteral` |
@@ -32,8 +32,8 @@ impl Context<'_> {
     }
 
     /// `ConvertIntoIsNotEmpty` (convert_into_is_not_empty.dart): `!x.isEmpty`
-    /// vira `x.isNotEmpty` quando quem declara o `isEmpty` resolvido declara
-    /// também um `isNotEmpty` (`getChildren`).
+    /// becomes `x.isNotEmpty` when whoever declares the resolved `isEmpty` also
+    /// declares an `isNotEmpty` (`getChildren`).
     pub(crate) fn convert_to_is_not_empty(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         if self.kind(no) != "SimpleIdentifier" {
@@ -44,7 +44,7 @@ impl Context<'_> {
             return None;
         }
         let identifier = *self.children(access).last()?;
-        // O elemento do `isEmpty` (o getter ou o campo).
+        // The element of the `isEmpty` (the getter or the field).
         let x = self.node_expr(access)?;
         let prog = self.p.program();
         let name_and = |f: FunctionElementId| self.p.name(prog.function(f).name).trim_end_matches('=').to_string();
@@ -102,9 +102,9 @@ impl Context<'_> {
         ))
     }
 
-    /// `ConvertToIntLiteral` (convert_to_int_literal.dart): um literal
-    /// `double` de valor inteiro vira `int` (cortado no `.`, que preserva os
-    /// separadores de dígitos, quando não há expoente).
+    /// `ConvertToIntLiteral` (convert_to_int_literal.dart): a `double` literal
+    /// with an integer value becomes an `int` (cut at the `.`, which preserves
+    /// digit separators, when there is no exponent).
     pub(crate) fn convert_to_int_literal(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         if self.kind(no) != "DoubleLiteral" {
@@ -113,8 +113,8 @@ impl Context<'_> {
         let span = self.tree.span(no);
         let lexeme = &self.source[span.start..span.end];
         let value: f64 = lexeme.replace('_', "").parse().ok()?;
-        // `value.truncate()` lança em infinito e NaN; fora da faixa do `int`
-        // o resultado não é igual ao valor.
+        // `value.truncate()` throws on infinity and NaN; outside the `int` range
+        // the result is not equal to the value.
         if !value.is_finite() || value.trunc() != value || value.abs() >= 9.223_372_036_854_775_808e18 {
             return None;
         }
@@ -126,7 +126,7 @@ impl Context<'_> {
         Some(self.simple_action(uri, "Convert to an int literal", "refactor.convert.toIntLiteral", vec![edit]))
     }
 
-    /// Os argumentos de uma `ArgumentList`.
+    /// The arguments of an `ArgumentList`.
     pub(crate) fn list_arguments(&self, invocation: usize) -> Vec<usize> {
         self.children(invocation)
             .iter()
@@ -136,15 +136,15 @@ impl Context<'_> {
             .unwrap_or_default()
     }
 
-    /// Os elementos de um `ListLiteral` (sem os argumentos de tipo).
+    /// The elements of a `ListLiteral` (without the type arguments).
     fn list_elements(&self, list: usize) -> Vec<usize> {
         self.children(list).iter().copied().filter(|&k| self.kind(k) != "TypeArgumentList").collect()
     }
 
-    /// `ConvertAddAllToSpread` (convert_add_all_to_spread.dart): no nome do
-    /// primeiro `..addAll(x)` em cascata sobre um literal de lista, `x` entra
-    /// na lista como `...x` (ou `...?a` de `a ?? []`, `if (c) ...a` de
-    /// `c ? a : []`); com um literal de lista, os elementos dele
+    /// `ConvertAddAllToSpread` (convert_add_all_to_spread.dart): on the name of
+    /// the first cascaded `..addAll(x)` over a list literal, `x` goes into the
+    /// list as `...x` (or `...?a` from `a ?? []`, `if (c) ...a` from
+    /// `c ? a : []`); with a list literal, its elements
     /// (`Inline invocation of 'addAll'`).
     pub(crate) fn convert_add_all_to_spread(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let name = self.tree.localizar(start, end)?;
@@ -155,7 +155,7 @@ impl Context<'_> {
         if self.kind(invocation) != "MethodInvocation" || self.method_name(invocation) != Some(name) || self.node_text(name) != "addAll" {
             return None;
         }
-        // `isCascaded`: o operador do nome é `..` ou `?..`.
+        // `isCascaded`: the name's operator is `..` or `?..`.
         let operator = self.previous_token(self.tree.nos[name].inicio)?;
         if !matches!(&self.source[operator.start..operator.end], ".." | "?..") {
             return None;
@@ -211,8 +211,8 @@ impl Context<'_> {
         Some(self.simple_action(uri, title, kind, vec![insertion, (self.tree.span(invocation), String::new())]))
     }
 
-    /// `InlineInvocation` (inline_invocation.dart): no nome do primeiro
-    /// `..add(e)` de uma cascata sobre um literal de lista, `e` entra na lista.
+    /// `InlineInvocation` (inline_invocation.dart): on the name of the first
+    /// `..add(e)` of a cascade over a list literal, `e` goes into the list.
     pub(crate) fn inline_invocation_add(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let name = self.tree.localizar(start, end)?;
         if self.kind(name) != "SimpleIdentifier" || self.node_text(name) != "add" {
@@ -250,9 +250,8 @@ impl Context<'_> {
         Some(self.simple_action(uri, "Inline invocation of 'add'", "refactor.inline", vec![insertion, (self.tree.span(invocation), String::new())]))
     }
 
-    /// `ConvertConditionalExpressionToIfElement`: a condicional elemento de um
-    /// literal de lista ou de conjunto (através de parênteses) vira
-    /// `if (c) a else b`.
+    /// `ConvertConditionalExpressionToIfElement`: a conditional element of a
+    /// list or set literal (through parentheses) becomes `if (c) a else b`.
     pub(crate) fn conditional_to_if_element(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let conditional = self.with_parents(no).find(|&k| self.kind(k) == "ConditionalExpression")?;
@@ -263,7 +262,7 @@ impl Context<'_> {
             parent = self.parent(parent)?;
         }
         let is_set = || {
-            // `SetOrMapLiteral.isSet`: o tipo estático é um `Set`.
+            // `SetOrMapLiteral.isSet`: the static type is a `Set`.
             let Some(x) = self.node_expr(parent) else { return false };
             let Some(t) = self.bodies.get_type(x) else { return false };
             matches!(self.p.query.table.get(t), dartforge_types::Type::Interface { class, .. } if Some(*class) == self.p.query.core.set_class)
@@ -277,8 +276,8 @@ impl Context<'_> {
         Some(self.simple_action(uri, "Convert to an 'if' element", "refactor.convert.toIfElement", vec![(self.tree.span(swap), text)]))
     }
 
-    /// Os tokens de um `Comment` de documentação: cada linha `///` ou o
-    /// `/** … */` inteiro, com o tipo (`true`: de uma linha).
+    /// The tokens of a documentation `Comment`: each `///` line or the whole
+    /// `/** … */`, with the kind (`true`: single-line).
     fn comment_tokens(&self, comment: usize) -> Vec<(Span, bool)> {
         let span = self.tree.span(comment);
         let text = &self.source[span.start..span.end];
@@ -301,8 +300,8 @@ impl Context<'_> {
         v
     }
 
-    /// `ConvertDocumentationIntoBlock`: o comentário de documentação feito
-    /// só de linhas `///` vira `/** … */`.
+    /// `ConvertDocumentationIntoBlock`: a documentation comment made only of
+    /// `///` lines becomes `/** … */`.
     pub(crate) fn block_documentation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let comment = self.with_parents(no).find(|&k| self.kind(k) == "Comment")?;
@@ -320,7 +319,7 @@ impl Context<'_> {
         Some(self.simple_action(uri, "Convert to block documentation comment", "refactor.convert.blockComment", vec![(self.tree.span(comment), s)]))
     }
 
-    /// `ConvertDocumentationIntoLine`: o `/** … */` vira linhas `///`.
+    /// `ConvertDocumentationIntoLine`: the `/** … */` becomes `///` lines.
     pub(crate) fn line_documentation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let comment = self.with_parents(no).find(|&k| self.kind(k) == "Comment")?;
@@ -358,9 +357,9 @@ impl Context<'_> {
         Some(self.simple_action(uri, "Convert to line documentation comment", "refactor.convert.lineComment", vec![(self.tree.span(comment), new.concat())]))
     }
 
-    /// `ConvertToMapLiteral` (convert_to_map_literal.dart): `Map()` ou
-    /// `LinkedHashMap()` sem argumentos vira `{}`, com os argumentos de tipo
-    /// escritos ou, fora de declaração tipada, os do tipo estático.
+    /// `ConvertToMapLiteral` (convert_to_map_literal.dart): `Map()` or
+    /// `LinkedHashMap()` without arguments becomes `{}`, with the written type
+    /// arguments or, outside a typed declaration, those of the static type.
     pub(crate) fn convert_to_map_literal(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let creation = self.with_parents(no).find(|&k| self.kind(k) == "InstanceCreationExpression")?;
@@ -392,7 +391,7 @@ impl Context<'_> {
                 let all_dynamic = args.first().is_some_and(|&a| matches!(query.table.get(a), dartforge_types::Type::Dynamic))
                     && args.last().is_some_and(|&a| matches!(query.table.get(a), dartforge_types::Type::Dynamic));
                 if !typed_list && !args.is_empty() && !all_dynamic {
-                    // `writeTypes`: cada um pelo `writeType`, com ", ".
+                    // `writeTypes`: each one through `writeType`, with ", ".
                     let mut writer = crate::write_type::Writer::new(self, self.tree.nos[creation].inicio);
                     let written: Vec<String> = args.iter().map(|&a| writer.write_type(Some(a), false).unwrap_or_default()).collect();
                     import = writer.import;
@@ -418,13 +417,13 @@ impl Context<'_> {
         })
     }
 
-    /// `_isUnambiguousElement`: o elemento faz do literal um conjunto (uma
-    /// expressão, através de `for` e `if`).
+    /// `_isUnambiguousElement`: the element makes the literal a set (an
+    /// expression, through `for` and `if`).
     fn unambiguous_element(&self, e: usize) -> bool {
         match self.kind(e) {
             "ForElement" => self.children(e).last().is_some_and(|&b| self.unambiguous_element(b)),
             "IfElement" => {
-                // Os ramos: os filhos depois da condição (e do `case`).
+                // The branches: the children after the condition (and the `case`).
                 self.children(e).iter().skip(1).filter(|&&k| self.kind(k) != "CaseClause").any(|&k| self.unambiguous_element(k))
             }
             "SpreadElement" | "MapLiteralEntry" | "NullAwareElement" => false,
@@ -437,13 +436,13 @@ impl Context<'_> {
         self.kind(n) == "ListLiteral" && self.list_elements(n).iter().any(|&e| self.unambiguous_element(e))
     }
 
-    /// O tipo é `Set<…>` (a classe `Set` do `dart:core`).
+    /// The type is `Set<…>` (the `Set` class of `dart:core`).
     fn is_set_type(&self, t: dartforge_types::TypeId) -> bool {
         matches!(self.p.query.table.get(t), dartforge_types::Type::Interface { class, .. } if Some(*class) == self.p.query.core.set_class)
     }
 
-    /// O tipo do `correspondingParameter` do argumento `arg` de uma
-    /// invocação de método ou de função.
+    /// The type of the `correspondingParameter` of argument `arg` of a method or
+    /// function invocation.
     fn matching_parameter_type(&self, arg: usize, invocation: usize) -> Option<dartforge_types::TypeId> {
         let list = self.parent(arg)?;
         let prog = self.p.program();
@@ -467,8 +466,8 @@ impl Context<'_> {
     }
 
     /// `ConvertToSetLiteral` (convert_to_set_literal.dart): `[…].toSet()`,
-    /// `Set()`, `Set.from([…])` e `Set.of([…])` viram literal de conjunto, com
-    /// `<dynamic>` quando o literal sem argumentos de tipo seria mapa.
+    /// `Set()`, `Set.from([…])` and `Set.of([…])` become a set literal, with
+    /// `<dynamic>` when the literal without type arguments would be a map.
     pub(crate) fn convert_to_set_literal(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let node_start = self.tree.nos[no].inicio;
@@ -565,13 +564,13 @@ impl Context<'_> {
         Some(self.simple_action(uri, "Convert to set literal", "refactor.convert.toSetLiteral", vec![(self.tree.span(creation), text)]))
     }
 
-    /// O literal tem argumentos de tipo escritos.
+    /// The literal has written type arguments.
     fn literal_type_arguments(&self, n: usize) -> bool {
         self.children(n).iter().any(|&k| self.kind(k) == "TypeArgumentList")
     }
 
-    /// `_extractClosure(name, argument)`: `name: (p) => e` (ou com um bloco
-    /// de um só `return e`): o parâmetro (o nó e o nome) e o corpo `e`.
+    /// `_extractClosure(name, argument)`: `name: (p) => e` (or with a block of a
+    /// single `return e`): the parameter (the node and the name) and the body `e`.
     fn named_closure(&self, name: &str, arg: usize) -> Option<(usize, Span, usize)> {
         if self.kind(arg) != "NamedExpression" {
             return None;
@@ -618,8 +617,8 @@ impl Context<'_> {
         }
     }
 
-    /// `_ParameterReferenceFinder`: as citações do parâmetro (nome em
-    /// `name`) e os outros nomes não qualificados de `body`.
+    /// `_ParameterReferenceFinder`: the citations of the parameter (named
+    /// `name`) and the other unqualified names of `body`.
     fn parameter_citations(&self, body: usize, name_: Span) -> (Vec<usize>, HashSet<String>) {
         let mut refs = Vec::new();
         let mut others = HashSet::new();
@@ -649,7 +648,7 @@ impl Context<'_> {
 
     /// `ConvertMapFromIterableToForLiteral`
     /// (convert_map_from_iterable_to_for_literal.dart): `Map.fromIterable(i,
-    /// key: (k) => …, value: (v) => …)` vira `{ for (var e in i) … : … }`.
+    /// key: (k) => …, value: (v) => …)` becomes `{ for (var e in i) … : … }`.
     pub(crate) fn map_from_iterable_to_for(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let creation = self.with_parents(no).find(|&k| self.kind(k) == "InstanceCreationExpression")?;

@@ -1,24 +1,26 @@
-//! Ajuda de assinatura (`textDocument/signatureHelp`) no formato do servidor
-//! do Dart (`DartUnitSignatureComputer` + `toSignatureHelp`, ver
-//! `docs/LSP.md`, "Paridade com o servidor do Dart"):
+//! Signature help (`textDocument/signatureHelp`) in the Dart server's format
+//! (`DartUnitSignatureComputer` + `toSignatureHelp`, see `docs/LSP.md`,
+//! "Paridade com o servidor do Dart"):
 //!
-//! * a lista de argumentos mais interna que contém o cursor, de uma chamada
-//!   de método ou função (`f(…)`, `a.m(…)`) ou de uma criação de instância
-//!   (`A(…)`, `A.name(…)`, `new p.A<T>.name(…)`); uma expressão de função
-//!   entre o cursor e a lista interrompe a busca (o cursor no corpo de um
-//!   *closure* passado como argumento não mostra a chamada de fora);
-//! * o rótulo é `name(int a, [int b = 0], {required String c})`, cada
-//!   parâmetro `ty name = padrão` com o tipo já substituído pelo receptor
-//!   (`List<int>.add` mostra `int value`) e o padrão como escrito;
-//! * o parâmetro ativo é o do argumento sob o cursor (nomeado pelo nome,
-//!   posicional pela posição) ou, entre argumentos, o próximo posicional;
-//! * a documentação é a do hover (inclusive a herdada de um membro
-//!   sobrescrito);
-//! * disparo automático por `(` só responde quando o `(` digitado é o que abre
-//!   a lista.
+//! * the innermost argument list containing the cursor, of a method or
+//!   function call (`f(…)`, `a.m(…)`) or of an instance creation (`A(…)`,
+//!   `A.name(…)`, `new p.A<T>.name(…)`); a function expression between the
+//!   cursor and the list stops the search (the cursor in the body of a
+//!   *closure* passed as an argument does not show the outer call);
+//! * the label is `name(int a, [int b = 0], {required String c})`, each
+//!   parameter `ty name = default` with the type already substituted by the
+//!   receiver (`List<int>.add` shows `int value`) and the default as
+//!   written;
+//! * the active parameter is that of the argument under the cursor (named
+//!   by name, positional by position) or, between arguments, the next
+//!   positional;
+//! * the documentation is the hover's (including one inherited from an
+//!   overridden member);
+//! * automatic triggering by `(` only answers when the typed `(` is the one
+//!   that opens the list.
 //!
-//! Tudo vem da inferência comum (`get_resolved`, `get_type`,
-//! `MemberResolver::lookup_member`); nada é resolvido por nome aqui.
+//! Everything comes from the common inference (`get_resolved`, `get_type`,
+//! `MemberResolver::lookup_member`); nothing is resolved by name here.
 
 use crate::project::{Concrete, Project};
 use dartforge_diagnostics::Span;
@@ -28,29 +30,29 @@ use dartforge_intern::SymbolId;
 use dartforge_types::{Type, TypeId};
 use std::collections::HashMap;
 
-/// Uma assinatura pronta para o protocolo.
+/// A signature ready for the protocol.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Signature {
     /// `name(int a, {int b = 0})`.
     pub label: String,
-    /// O rótulo de cada parâmetro, na ordem declarada.
+    /// The label of each parameter, in declaration order.
     pub parameters: Vec<String>,
     pub documentation: Option<String>,
-    /// Índice em `parameters` do parâmetro ativo, quando há.
+    /// Index in `parameters` of the active parameter, when there is one.
     pub active: Option<usize>,
 }
 
-/// Um parâmetro como a assinatura o mostra.
+/// A parameter as the signature shows it.
 struct Parameter {
     label: String,
     ty: ParameterKind,
-    /// Nome externo (o da chamada).
+    /// External name (the one used at the call).
     name: Option<String>,
 }
 
 impl Project {
-    /// A ajuda de assinatura em `offset` de `unit`. `auto`: pedida
-    /// pelo editor ao digitar `(` (sem a ajuda já aberta).
+    /// Signature help at `offset` of `unit`. `auto`: requested by the editor on
+    /// typing `(` (with no help already open).
     pub(crate) fn signature(
         &mut self,
         unit: UnitId,
@@ -91,10 +93,10 @@ impl Project {
         })
     }
 
-    /// A chamada (`Call` ou `InstanceCreation`) cuja lista de argumentos é a
-    /// mais interna que contém `offset` (depois do `(` e até o `)`), e o
-    /// intervalo da lista. `None` se uma expressão de função dentro da lista
-    /// contém o cursor.
+    /// The call (`Call` or `InstanceCreation`) whose argument list is the
+    /// innermost one containing `offset` (after the `(` and up to the `)`), and
+    /// the range of the list. `None` if a function expression inside the list
+    /// contains the cursor.
     fn argument_list(&self, unit: UnitId, offset: usize) -> Option<(ast::ExprId, Span)> {
         let u = self.program().unit(unit);
         let ast = &u.ast;
@@ -113,7 +115,7 @@ impl Project {
             }
         }
         let (call, s) = best?;
-        // `FunctionExpression` entre o cursor e a lista: o analyzer para.
+        // A `FunctionExpression` between the cursor and the list: the analyzer stops.
         let slashed = ast
             .functions
             .iter()
@@ -121,9 +123,9 @@ impl Project {
         (!slashed).then_some((call, s))
     }
 
-    /// Nome exibido, parâmetros e documentação do que a chamada invoca.
+    /// Displayed name, parameters and documentation of what the call invokes.
     fn callee(&mut self, unit: UnitId, call: ast::ExprId) -> Option<(String, Vec<Parameter>, Option<String>)> {
-        /// O que a chamada é, copiado da árvore antes das consultas mutáveis.
+        /// What the call is, copied from the tree before the mutable queries.
         enum Shape {
             Creation { ty: Span, constructor: Option<ast::Name> },
             Call { target: ast::ExprId, target_span: Span, name: Span, receiver: Option<ast::ExprId> },
@@ -135,8 +137,8 @@ impl Project {
             match &ast.expr(call).kind {
                 ExprKind::InstanceCreation { ty, constructor, .. } => Shape::Creation { ty: ast.ty(*ty).span, constructor: *constructor },
                 ExprKind::Call { target, .. } => {
-                    // `A<int>(…)` e `f<int>(…)`: o nome está dentro da
-                    // instanciação explícita.
+                    // `A<int>(…)` and `f<int>(…)`: the name is inside the explicit
+                    // instantiation.
                     let target_ = match &ast.expr(*target).kind {
                         ExprKind::TypeArguments { target: t, .. } => ast.expr(*t),
                         _ => ast.expr(*target),
@@ -175,8 +177,8 @@ impl Project {
                             let parameters = self.constructor_parameters(unit, call, f);
                             Some((text(target_span), parameters, documentation))
                         }
-                        // Getter ou campo que devolve função: o analyzer
-                        // não tem lista de parâmetros para mostrar.
+                        // A getter or field returning a function: the analyzer has no parameter
+                        // list to show.
                         FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => None,
                         _ => {
                             let name_ = source[name_span.start..name_span.end].to_string();
@@ -186,8 +188,7 @@ impl Project {
                     },
                     Some(Concrete::Variable(_)) => None,
                     None => {
-                        // Função local: a árvore dá os nomes, o tipo do local
-                        // dá os tipos.
+                        // Local function: the tree gives the names, the local's type gives the types.
                         let crate::project::Target::Local { unit: ul, declaration } = d.target else {
                             return None;
                         };
@@ -200,7 +201,7 @@ impl Project {
                                 let types = aligned_types(&self.query.table, ps, ty_);
                                 self.labels(ul, ps, &types)
                             }
-                            // Variável local de tipo função: só os tipos.
+                            // Local variable of function type: only the types.
                             None => self.type_parameters(ty_),
                         };
                         Some((name_, parameters, documentation))
@@ -210,15 +211,15 @@ impl Project {
         }
     }
 
-    /// A documentação do hover no nome em `name`.
+    /// The hover documentation on the name at `name`.
     fn documentation_of(&self, unit: UnitId, name: Span) -> Option<String> {
         let d = self.identify(unit, name.start).ok()??;
         self.hover(unit, &d).and_then(|h| h.documentation)
     }
 
-    /// O tipo de função do membro chamado, já substituído pelo receptor:
-    /// pela busca de membros da inferência comum quando há receptor, senão
-    /// o tipo estático do alvo da chamada.
+    /// The function type of the called member, already substituted by the
+    /// receiver: through the common inference's member lookup when there is a
+    /// receiver, otherwise the static type of the call target.
     fn member_type(
         &mut self,
         unit: UnitId,
@@ -244,8 +245,8 @@ impl Project {
             .filter(|t| matches!(self.query.table.get(*t), Type::Function { .. }))
     }
 
-    /// Parâmetros de uma função, método ou operador; `ty` (substituído)
-    /// vale mais que os tipos declarados quando tem a mesma forma.
+    /// Parameters of a function, method or operator; `ty` (substituted) wins
+    /// over the declared types when it has the same shape.
     fn function_parameters(&self, f: FunctionElementId, ty: Option<TypeId>) -> Vec<Parameter> {
         let p = self.program();
         let FunctionRef::Function { unit, function } = p.function(f).node else {
@@ -263,9 +264,8 @@ impl Project {
         self.labels(unit, ps, &types)
     }
 
-    /// Parâmetros de um construtor com os parâmetros de tipo da classe
-    /// trocados pelos argumentos do tipo criado (`List<int>.filled` mostra
-    /// `int fill`).
+    /// Parameters of a constructor with the class's type parameters replaced by
+    /// the arguments of the created type (`List<int>.filled` shows `int fill`).
     fn constructor_parameters(&mut self, unit_: UnitId, call: ast::ExprId, f: FunctionElementId) -> Vec<Parameter> {
         let p = self.program();
         let FunctionRef::Constructor { unit, member } = p.function(f).node else {
@@ -301,7 +301,7 @@ impl Project {
         self.labels(unit, &k.parameters, &types)
     }
 
-    /// Parâmetros só pelo tipo de função (sem nomes posicionais).
+    /// Parameters from the function type only (no positional names).
     fn type_parameters(&self, ty: TypeId) -> Vec<Parameter> {
         let Type::Function { positional, optional, named, .. } = self.query.table.get(ty).clone() else {
             return Vec::new();
@@ -320,7 +320,7 @@ impl Project {
         output
     }
 
-    /// `required int c = 0` de cada parâmetro escrito em `u`.
+    /// `required int c = 0` of each parameter written in `u`.
     fn labels(&self, u: UnitId, ps: &[ast::Parameter], types: &[Option<TypeId>]) -> Vec<Parameter> {
         let unit = self.program().unit(u);
         let source = unit.source.as_str();
@@ -347,8 +347,8 @@ impl Project {
             .collect()
     }
 
-    /// O parâmetro ativo: o do argumento sob o cursor, ou o próximo
-    /// posicional entre argumentos.
+    /// The active parameter: that of the argument under the cursor, or the next
+    /// positional between arguments.
     fn active_parameter(&self, unit: UnitId, call: ast::ExprId, offset: usize, parameters: &[Parameter]) -> Option<usize> {
         let ast = &self.program().unit(unit).ast;
         let arguments_ = match &ast.expr(call).kind {
@@ -388,8 +388,8 @@ impl Project {
     }
 }
 
-/// Os tipos de `ty` (uma função) alinhados aos parâmetros escritos:
-/// posicionais pela ordem, nomeados pelo nome.
+/// The types of `ty` (a function) aligned with the written parameters:
+/// positionals by order, named ones by name.
 fn aligned_types(table: &dartforge_types::TypeTable, ps: &[ast::Parameter], ty: TypeId) -> Vec<Option<TypeId>> {
     let Type::Function { positional, optional, named, .. } = table.get(ty).clone() else {
         return vec![None; ps.len()];
@@ -406,8 +406,8 @@ fn aligned_types(table: &dartforge_types::TypeTable, ps: &[ast::Parameter], ty: 
         .collect()
 }
 
-/// O nome qualificado como o analyzer mostra: sem argumentos de tipo, `?`
-/// nem espaços (`p.A<int>.name` vira `p.A.name`).
+/// The qualified name as the analyzer shows it: without type arguments, `?`
+/// or spaces (`p.A<int>.name` becomes `p.A.name`).
 fn clear_name(text: &str) -> String {
     let mut output = String::new();
     let mut level = 0usize;

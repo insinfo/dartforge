@@ -1,9 +1,9 @@
 //! Inline Method (`legacy/inline_method.dart`, docs/LSP-ESPECIFICACAO.md
-//! §13.11.6): `_prepareMethod`, `_prepareMethodParts` (com o
-//! `_VariablesVisitor`), o `_ReferenceProcessor` de cada referência, o
-//! `_getMethodSourceForInvocation` (com os nomes em conflito do
-//! `VisibleRangesComputer`) e a remoção da declaração.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! §13.11.6): `_prepareMethod`, `_prepareMethodParts` (with the
+//! `_VariablesVisitor`), the `_ReferenceProcessor` of each reference,
+//! `_getMethodSourceForInvocation` (with the conflicting names from
+//! `VisibleRangesComputer`) and the removal of the declaration.
+//! Written without compiling or running (2026-10-05).
 
 use crate::arvore_analyzer::Marca;
 use crate::refactorings::{Context, Elem, RefactoringRequest, RefactoringResult};
@@ -30,18 +30,18 @@ struct Part {
     base: usize,
     source: String,
     prefix: String,
-    /// Pelo nome do parâmetro, na ordem da primeira ocorrência.
+    /// By parameter name, in the order of the first occurrence.
     parameters: Vec<(String, Vec<ParameterOccurrence>)>,
-    /// Pela declaração do local: o nome e as faixas.
+    /// By the local's declaration: the name and the ranges.
     variables: Vec<(usize, String, Vec<(usize, usize)>)>,
     explicit_this: Vec<usize>,
     implicit_this: Vec<usize>,
     implicit_classes: Vec<(String, Vec<usize>)>,
 }
 
-/// O método embutido.
+/// The inlined method.
 struct Method<'c, 'p> {
-    /// A árvore da unidade da declaração.
+    /// The tree of the declaration's unit.
     cxm: &'c Context<'p>,
     element: Elem,
     no: usize,
@@ -49,13 +49,13 @@ struct Method<'c, 'p> {
     expression: Option<usize>,
     expression_part: Option<Part>,
     part_commands: Option<Part>,
-    /// Os parâmetros declarados: nome, posicional obrigatório, nomeado e o
-    /// texto do valor padrão.
+    /// The declared parameters: name, required positional, named, and the text
+    /// of the default value.
     declared: Vec<(String, bool, bool, Option<String>)>,
     is_async: bool,
 }
 
-/// `refactor.perform`/`refactor.validate` do `INLINE_METHOD`.
+/// `refactor.perform`/`refactor.validate` of `INLINE_METHOD`.
 pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> RefactoringResult {
     let _ = uri;
     let p = cx.p;
@@ -98,7 +98,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
     if cx.generator(e) {
         return fail(State::fatal("Cannot inline a generator."));
     }
-    // Os parâmetros e o corpo.
+    // The parameters and the body.
     let function_node = if cxm.kind(no) == "FunctionDeclaration" {
         cxm.children(no).iter().copied().find(|&c| cxm.kind(c) == "FunctionExpression").unwrap_or(no)
     } else {
@@ -170,8 +170,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
                     Err(e) => return R::InternalError(e),
                 }
             }
-            // `_ReturnsValidatorVisitor`: o segundo `return` (closures
-            // incluídas).
+            // `_ReturnsValidatorVisitor`: the second `return` (closures included).
             let mut how_many = 0;
             let mut stack = vec![block];
             let mut order = Vec::new();
@@ -190,7 +189,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
         }
         _ => return fail(State::fatal("Cannot inline method without body.")),
     }
-    // As referências.
+    // The references.
     let references: Vec<(UnitId, Span)> = match e {
         Elem::LocalFunction(f) => {
             let d = cxm.ast.function(f).name.map(|n| n.span.start);
@@ -219,7 +218,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
     if initial.has_fatal() {
         return R::Error(initial.message().unwrap_or_default());
     }
-    // `checkFinalConditions`: a mudança.
+    // `checkFinalConditions`: the change.
     let mut finals = State::default();
     let mut change = Change::default();
     let mut contexts: HashMap<UnitId, Context<'_>> = HashMap::new();
@@ -265,7 +264,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
     change.result()
 }
 
-/// O intervalo de um nó.
+/// The range of a node.
 fn range(cx: &Context<'_>, n: usize) -> (usize, usize) {
     (cx.tree.nos[n].inicio, cx.tree.nos[n].fim)
 }
@@ -288,8 +287,8 @@ fn skip_empty_lines_left(t: &str, mut i: usize) -> usize {
 }
 
 impl<'c, 'p> Method<'c, 'p> {
-    /// `_createSourcePart(range)`: o texto, o prefixo da linha (sic: no
-    /// texto da unidade do cursor) e o `_VariablesVisitor`.
+    /// `_createSourcePart(range)`: the text, the line prefix (sic: in the text
+    /// of the cursor's unit) and the `_VariablesVisitor`.
     fn part(&self, cx: &Context<'_>, (a, b): (usize, usize), fid: ast::FunctionId) -> Result<Part, String> {
         let cxm = self.cxm;
         if a > cx.source.len() {
@@ -297,7 +296,7 @@ impl<'c, 'p> Method<'c, 'p> {
         }
         let prefix = Text::new(cx.source).line_prefix(a).to_string();
         let mut part = Part { base: a, source: cxm.source[a..b].to_string(), prefix, ..Default::default() };
-        // Os nomes dos parâmetros do método (pelo offset do nome).
+        // The names of the method's parameters (by name offset).
         let parameter_names: Vec<(usize, String)> = cxm
             .ast
             .function(fid)
@@ -339,7 +338,7 @@ impl<'c, 'p> Method<'c, 'p> {
                 }
                 _ => {}
             }
-            // `visitNode`: só desce no que intersecta a faixa.
+            // `visitNode`: only descends into what intersects the range.
             if k != 0 && (kf <= a || ki >= b) {
                 continue;
             }
@@ -416,7 +415,7 @@ impl<'c, 'p> Method<'c, 'p> {
         }
     }
 
-    /// `_ReferenceProcessor.init` e `_process`.
+    /// `_ReferenceProcessor.init` and `_process`.
     #[allow(clippy::too_many_arguments)]
     fn process(
         &self,
@@ -447,7 +446,7 @@ impl<'c, 'p> Method<'c, 'p> {
                 return Ok(());
             }
         }
-        // O método `async` num corpo síncrono.
+        // An `async` method in a synchronous body.
         if self.is_async
             && let Some(body) = cxr.with_parents(n).find(|&k| matches!(cxr.kind(k), "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"))
         {
@@ -513,7 +512,7 @@ impl<'c, 'p> Method<'c, 'p> {
                         if f.len() >= 2 {
                             target = f.first().copied();
                         } else {
-                            // `realTarget` de uma seção de cascata.
+                            // `realTarget` of a cascade section.
                             target = cxr.with_parents(pp).find(|&k| cxr.kind(k) == "CascadeExpression").and_then(|c| cxr.children(c).first().copied());
                             cascade = true;
                         }
@@ -535,7 +534,7 @@ impl<'c, 'p> Method<'c, 'p> {
             self.inline_invocation(cxr, uri_r, n, usage, cascade, target, &arguments, ref_lines, &ref_prefix, state, m);
             return Ok(());
         }
-        // Referência a função (tear-off): a closure.
+        // Function reference (tear-off): the closure.
         let source = self.closure_source(cxr, &ref_prefix);
         let source = source.strip_suffix(';').unwrap_or(&source).to_string();
         let (a, b) = range(cxr, n);
@@ -543,8 +542,8 @@ impl<'c, 'p> Method<'c, 'p> {
         Ok(())
     }
 
-    /// O texto do `(` dos parâmetros ao fim da declaração, reindentado para
-    /// o prefixo da referência e aparado.
+    /// The text from the parameters' `(` to the end of the declaration,
+    /// re-indented to the reference's prefix and trimmed.
     fn closure_source(&self, cxr: &Context<'_>, ref_prefix: &str) -> String {
         let cxm = self.cxm;
         let start = self.parameters.map_or(range(cxm, self.no).1, |l| range(cxm, l).0);
@@ -624,7 +623,7 @@ impl<'c, 'p> Method<'c, 'p> {
             }
             return;
         }
-        // Closure imediata: o identificador vira a closure.
+        // Immediate closure: the identifier becomes the closure.
         let source = self.closure_source(cxr, ref_prefix);
         let (a, b) = range(cxr, ref_node);
         m.add(uri_r, Span { start: a, end: b }, source);
@@ -633,7 +632,7 @@ impl<'c, 'p> Method<'c, 'p> {
     /// `_getMethodSourceForInvocation`.
     fn source_to_invocation(&self, cxr: &Context<'_>, part: &Part, context: usize, target: Option<usize>, arguments: &[usize], state: &mut State) -> String {
         let mut edits: Vec<(usize, usize, String)> = Vec::new();
-        // O parâmetro de cada argumento (`staticParameterElement.name`).
+        // The parameter of each argument (`staticParameterElement.name`).
         let positional: Vec<&(String, bool, bool, Option<String>)> = self.declared.iter().filter(|d| !d.2).collect();
         let mut index = 0usize;
         let mut by_name: Vec<(String, usize)> = Vec::new();
@@ -726,8 +725,8 @@ fn add_variable(part: &mut Part, d: usize, name: String, range: (usize, usize)) 
     }
 }
 
-/// O elemento envolvente da referência (`SearchMatch.element`): o membro de
-/// unidade ou de classe executável que a contém, e se o retorno dele é
+/// The element enclosing the reference (`SearchMatch.element`): the unit or
+/// class executable member that contains it, and whether its return is a
 /// `Future`.
 fn enclosing_executable(cx: &Context<'_>, n: usize) -> Option<(usize, bool)> {
     let p = cx.p;
@@ -769,7 +768,7 @@ fn names_in_conflict(cx: &Context<'_>, n: usize) -> Vec<String> {
             }
         }
     }
-    // Os membros da classe envolvente e das superclasses.
+    // The members of the enclosing class and of its superclasses.
     let p = cx.p;
     let prog = p.program();
     if let Some(decl) = cx.with_parents(n).find(|&k| matches!(cx.kind(k), "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration"))
@@ -804,8 +803,8 @@ fn names_in_conflict(cx: &Context<'_>, n: usize) -> Vec<String> {
     v
 }
 
-/// `VisibleRangesComputer.forNode(executable)`: o nome de cada local e a
-/// faixa onde é visível.
+/// `VisibleRangesComputer.forNode(executable)`: the name of each local and
+/// the range where it is visible.
 pub(crate) fn visible_ranges(cx: &Context<'_>, root: usize) -> Vec<(String, (usize, usize))> {
     let mut v: Vec<(String, (usize, usize))> = Vec::new();
     let name_of = |t: &str| crate::refactorings_exec::name_at_start_pub(t);
@@ -824,7 +823,7 @@ pub(crate) fn visible_ranges(cx: &Context<'_>, root: usize) -> Vec<(String, (usi
                 continue;
             }
             "SimpleFormalParameter" | "FieldFormalParameter" | "SuperFormalParameter" | "FunctionTypedFormalParameter" | "DefaultFormalParameter" => {
-                // O corpo da função dona.
+                // The body of the owning function.
                 let owning = cx.with_parents(k).find(|&x| matches!(cx.kind(x), "FunctionExpression" | "MethodDeclaration" | "ConstructorDeclaration"));
                 let body = owning.and_then(|d| cx.children(d).iter().copied().find(|&c| matches!(cx.kind(c), "BlockFunctionBody" | "ExpressionFunctionBody")));
                 if let Some(c) = body {
@@ -875,8 +874,8 @@ pub(crate) fn visible_ranges(cx: &Context<'_>, root: usize) -> Vec<(String, (usi
     v
 }
 
-/// O nome declarado de um parâmetro formal (o último identificador antes de
-/// `=`, `:` ou `(`).
+/// The declared name of a formal parameter (the last identifier before `=`,
+/// `:` or `(`).
 fn parameter_name(cx: &Context<'_>, k: usize) -> String {
     let t = cx.node_text(k);
     let cut = t.find(['=', ':']).unwrap_or(t.len());
