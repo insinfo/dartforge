@@ -1,11 +1,11 @@
-//! Prova AOT de keepalive produzido antes de substituir uma aresta de campo.
-//! A HIR verificada lê BorrowArg e devolve Owned após retirar a aresta forte.
-//! O harness LLVM observa os endereços sem raízes, depois que a função saiu.
-//! Em tracing, o mesmo corpo com tokens explícitos testa compatibilidade do
-//! protocolo runtime; não ativa preparação ARC no pipeline padrão tracing.
-//! Não certifica lowering de fonte, guardas pending, recarga ou suspensão.
-//! Controles negativos `without-retention` e `without-release` alteram somente o IR
-//! final do harness, depois da conferência; a execução deve falhar.
+//! AOT proof of keepalive produced before replacing a field edge.
+//! The verified HIR reads BorrowArg and returns Owned after removing the strong edge.
+//! The LLVM harness observes the addresses without roots, after the function has left.
+//! Under tracing, the same body with explicit tokens tests the compatibility of the
+//! runtime protocol; it does not enable the ARC preparation in the default tracing pipeline.
+//! Does not certify source lowering, pending guards, reload or suspension.
+//! The negative controls `sem-retencao` and `sem-liberar` change only the final IR
+//! of the harness, after the check; the execution must fail.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
@@ -93,15 +93,15 @@ fn module(scenario: Scenario) -> Result<Module, String> {
         }, Type::Ref));
     }
     if capture {
-        // Exercita a tradução EnvGet e o mapa real do ambiente, inclusive
-        // o campo 39, antes de substituir a aresta que sustenta o empréstimo.
+        // Exercises the EnvGet translation and the real map of the environment, including
+        // field 39, before replacing the edge that sustains the borrow.
         m.functions[0].blocks[0].instructions[0].1 = Instruction::EnvGet {
             env: val(0), index: 39,
         };
     }
     if neighbor {
-        // O filho depende do vizinho e este da raiz. Retirar a aresta da
-        // raiz deve preservar ambos até terminar a mutação e devolver o filho.
+        // The child depends on the neighbor and this one on the root. Removing the edge of the
+        // root must preserve both until the mutation ends and the child is returned.
         m.functions[0].blocks[0].instructions = vec![
             (ValueId(1), Instruction::GetField { object: val(0), index: 39 }, Type::Ref),
             (ValueId(2), Instruction::GetField { object: val(1), index: 39 }, Type::Ref),
@@ -285,9 +285,9 @@ fn main() -> Result<(), String> {
     m.arc_memory = arc;
     if !arc { m.arc_aot_ports = None; }
     let mut ir = LlvmEmitter::new(&m).emit_all();
-    // Nenhum Ref observado passa pela HIR do harness: um endereço já morto
-    // é apenas diagnóstico nativo. Não há alocação entre morte e observação,
-    // evitando confundir reutilização de endereço com sobrevivência.
+    // No observed Ref goes through the HIR of the harness: an already dead address
+    // is only a native diagnostic. There is no allocation between death and observation,
+    // avoiding confusing address reuse with survival.
     ir.push_str(
         r#"
 declare void @dartforge_print_handle(i64)
@@ -347,9 +347,9 @@ passou:
         ir.replace_range(start..end, "  %ok_inicio = icmp eq i8 %aresta, 1\n");
     }
     if matches!(scenario, Scenario::Late) {
-        // A sondagem vazia não muda o estado late. O harness marca somente
-        // depois de inicializar; o corpo certificado copia antes de retirar
-        // a aresta e devolve Owned, como nos demais cenários.
+        // The empty probe does not change the late state. The harness marks only
+        // after initializing; the certified body copies before removing
+        // the edge and returns Owned, as in the other scenarios.
         for declaration in ["declare i8 @dartforge_late_field_initialized(i64, i64)",
             "declare void @dartforge_late_field_mark_initialized(i64, i64)"] {
             if !ir.contains(declaration) { ir.push_str(&format!("\n{declaration}\n")); }
@@ -360,8 +360,8 @@ passou:
             "  %ok_inicializado = and i1 %ok_campos, %ok_aresta\n  %ok_inicio = and i1 %ok_inicializado, %late_ok\n");
     }
     if matches!(scenario, Scenario::Context) {
-        // O endereço permanece na imagem AOT e nunca é invocado nesta prova;
-        // só a aresta forte da closure e o empréstimo do contexto são usados.
+        // The address stays in the AOT image and is never invoked in this proof;
+        // only the strong edge of the closure and the borrow of the context are used.
         ir.push_str("\ndefine i64 @entrada_contexto(i64 %clo, ptr %args, ptr %desc) { ret i64 0 }\n");
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
             "  %codigo = ptrtoint ptr @entrada_contexto to i64\n  %closure = call i64 @dartforge_arc_closure_owned_v1(i64 %codigo, i64 %obj, i64 0, i64 0)\n  %retorno = call i64 @ler_e_substituir(i64 %closure)\n  call void @dartforge_arc_release(i64 %closure)\n");
@@ -397,8 +397,8 @@ passou:
             "passou:\n  %obj_nulo = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)\n  %filho_nulo = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775807)\n  call void @inicializar(i64 %obj_nulo, i64 %filho_nulo)\n  call void @dartforge_arc_release(i64 %filho_nulo)\n  %ret_nulo = call i64 @ler_e_substituir(i64 %obj_nulo, i1 false)\n  %eh_nulo = icmp eq i64 %ret_nulo, 0\n  call void @dartforge_arc_release(i64 %obj_nulo)\n  call void @dartforge_arc_collect()\n  %obj_nulo_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %obj_nulo)\n  %filho_nulo_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %filho_nulo)\n  %obj_nulo_morto = icmp eq i8 %obj_nulo_estado, 0\n  %filho_nulo_morto = icmp eq i8 %filho_nulo_estado, 0\n  %ambos_nulos_mortos = and i1 %obj_nulo_morto, %filho_nulo_morto\n  %ok_nulo = and i1 %ambos_nulos_mortos, %eh_nulo\n  br i1 %ok_nulo, label %passou_nulo, label %falha\npassou_nulo:\n  call void @dartforge_print_handle(i64 3)");
     }
     if matches!(scenario, Scenario::Mixed) {
-        // Registra apenas o endereço nativo, sem criar raiz ou owner. A
-        // observação posterior deve encontrar a alocação local já destruída.
+        // Records only the native address, without creating a root or an owner. The
+        // later observation must find the local allocation already destroyed.
         let line = ir.lines().find(|l| l.contains("%v108 = call i64 @dartforge_arc_objeto_owned_v1"))
             .ok_or("alocação local da prova mista não encontrada")?.to_owned();
         ir = ir.replace(&line, &format!("{line}\n  store i64 %v108, ptr @misto.local"));

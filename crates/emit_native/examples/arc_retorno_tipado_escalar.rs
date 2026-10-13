@@ -1,5 +1,5 @@
-//! Prova AOT das três representações escalares com contexto heap emprestado.
-//! O certificado registra o corpo; o chamador promove e libera seu contexto.
+//! AOT proof of the three scalar representations with a borrowed heap context.
+//! The certificate registers the body; the caller promotes and releases its context.
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 

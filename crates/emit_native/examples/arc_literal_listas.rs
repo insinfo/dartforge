@@ -1,6 +1,6 @@
-//! Prova AOT do literal misto produzido em HIR, com owner e arestas Ref.
-//! Tracing conserva sua fábrica e o harness retém o retorno explicitamente.
-//! Controles negativos alteram somente o IR já preparado e verificado.
+//! AOT proof of the mixed literal produced in HIR, with an owner and Ref edges.
+//! Tracing keeps its factory and the harness retains the return explicitly.
+//! Negative controls change only the already prepared and verified IR.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};

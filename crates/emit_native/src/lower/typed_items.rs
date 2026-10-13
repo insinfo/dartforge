@@ -1,32 +1,32 @@
-//! O caminho rápido de `[]`, `[]=` e `length` quando o tipo estático do
-//! receptor é uma lista tipada numérica (`Int8List` … `Float64List` de
-//! `dart:typed_data`) ou uma `List<E>` do núcleo, e os membros externos de
-//! lista tipada feitos em linha (`typed_inline`).
+//! The fast path of `[]`, `[]=` and `length` when the static type of the
+//! receiver is a numeric typed list (`Int8List` … `Float64List` of
+//! `dart:typed_data`) or a core `List<E>`, and the external members of
+//! typed lists done inline (`typed_inline`).
 //!
-//! Essas classes de `dart:typed_data` são `final` no SDK: o valor é sempre a
-//! lista interna (`_Int32List`, também sobre memória de fora), ou uma visão
-//! (`_Int32ArrayView`, e a não modificável) do `typed_data_patch.dart`. No
-//! espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §2.5) as três formas têm
-//! o comprimento em `h+14` e o endereço dos bytes em `h+22`, invariantes
-//! enquanto a lista vive: `@df.tipada_len`/`@df.tipada_dados`
-//! (`llvm/ir_typed.rs`) os leem em linha com `!invariant.load`, e o LLVM tira
-//! as cargas dos laços (e vetoriza). Na escrita, a visão não modificável
-//! (conferida pelo cid, também invariante) dá comprimento 0. Um índice fora dos
-//! limites cai no despacho de sempre, com os mesmos erros da VM.
+//! These `dart:typed_data` classes are `final` in the SDK: the value is always the
+//! internal list (`_Int32List`, also over external memory), or a view
+//! (`_Int32ArrayView`, and the unmodifiable one) of `typed_data_patch.dart`. In the
+//! unified space (docs/NATIVO-ESPACO-UNIFICADO.md §2.5) the three forms have
+//! the length at `h+14` and the address of the bytes at `h+22`, invariant
+//! while the list lives: `@df.tipada_len`/`@df.tipada_dados`
+//! (`llvm/ir_typed.rs`) read them inline with `!invariant.load`, and LLVM hoists
+//! the loads out of loops (and vectorizes). On writes, the unmodifiable view
+//! (checked by the cid, also invariant) gives length 0. An index out of
+//! bounds falls into the usual dispatch, with the same errors as the VM.
 //!
-//! `List` não é `final`: uma classe do usuário pode implementá-la. A classe do
-//! receptor (`@df.class`) diz se é lista do runtime (`_List`,
-//! `_ImmutableList`, `_GrowableList`, cids 8–10); a outra recebe comprimento 0
-//! e fica com o despacho. O comprimento está em `h+14` nas três; os elementos,
-//! no armazenamento (a própria lista, ou a `_List` em `h+22` da expansível),
-//! uma palavra cada a partir de `a+22`, com a forma no `flags` dele (§2.16):
-//! `REFS` (cada palavra um `Ref`) ou compacta de `int`, `double` ou `bool`
-//! (os bits sem caixa). A leitura confere a forma (salvo nas voltas de N13,
-//! que a conferem antes); a gravação direta só com `E` igual a `int`,
-//! `double` ou `bool` (que nenhuma classe estende; com outro `E`, a lista pode
-//! ser de um subtipo e o `[]=` do SDK confere o valor), numa `_List` ou
-//! `_GrowableList` (a `_ImmutableList` não aceita) de forma compacta do `E`
-//! (`@df.nucleo_len_gravavel`): um escalar sem barreira.
+//! `List` is not `final`: a user class may implement it. The class of the
+//! receiver (`@df.class`) says whether it is a runtime list (`_List`,
+//! `_ImmutableList`, `_GrowableList`, cids 8–10); any other gets length 0
+//! and keeps the dispatch. The length is at `h+14` in all three; the elements,
+//! in the storage (the list itself, or the `_List` at `h+22` of the growable one),
+//! one word each starting at `a+22`, with the shape in its `flags` (§2.16):
+//! `REFS` (each word a `Ref`) or compact of `int`, `double` or `bool`
+//! (the unboxed bits). The read checks the shape (except in the N13 iterations,
+//! which check it before); a direct write only with `E` equal to `int`,
+//! `double` or `bool` (which no class extends; with another `E`, the list may
+//! be of a subtype and the SDK `[]=` checks the value), into a `_List` or
+//! `_GrowableList` (the `_ImmutableList` does not accept it) of the compact shape of `E`
+//! (`@df.nucleo_len_gravavel`): a scalar without a barrier.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -34,7 +34,7 @@ use dartforge_types::table::Type as T;
 use dartforge_types::TypeId;
 
 impl FnBuilder<'_, '_> {
-    /// A lista fixa das voltas em emissão que `alvo` (um local) nomeia (N13).
+    /// The fixed list of the iterations being emitted that `target` (a local) names (N13).
     pub(super) fn fixed_list_of(&self, ast: &dartforge_frontend::ast::Ast, alvo: dartforge_frontend::ast::ExprId) -> Option<super::fn_builder::FixedList> {
         if self.fixed_lists.is_empty() {
             return None;
@@ -44,11 +44,11 @@ impl FnBuilder<'_, '_> {
         self.fixed_lists.iter().rev().find(|f| f.key == key).cloned()
     }
 
-    /// A lista tipada provada das voltas rápidas em emissão
-    /// (`statements::Counted::TypedSet`) que `alvo` (um local) nomeia; com
-    /// `index`, só se ele é o contador do laço (`alvo[i]`). O local é
-    /// identificado pelo `alloca`, então um homônimo declarado no corpo não
-    /// casa.
+    /// The proven typed list of the fast iterations being emitted
+    /// (`statements::Counted::TypedSet`) that `target` (a local) names; with
+    /// `index`, only if it is the loop counter (`target[i]`). The local is
+    /// identified by its `alloca`, so a same-named local declared in the body does not
+    /// match.
     pub(super) fn proven_of(
         &self,
         ast: &dartforge_frontend::ast::Ast,
@@ -77,9 +77,9 @@ impl FnBuilder<'_, '_> {
             .cloned()
     }
 
-    /// O endereço dos elementos e o comprimento de uma lista tipada ou SIMD
-    /// (`list`, do tipo estático `ix`), lidos antes das voltas de um laço
-    /// versionado; `write`: o comprimento de uma visão não modificável é 0.
+    /// The address of the elements and the length of a typed or SIMD list
+    /// (`list`, of static type `ix`), read before the iterations of a
+    /// versioned loop; `write`: the length of an unmodifiable view is 0.
     pub(super) fn proven_data(&mut self, list: &Operand, ix: Indexable, write: bool) -> Option<(Operand, Operand)> {
         let list = self.coerce(list.clone(), Type::Ref);
         match ix {
@@ -91,21 +91,21 @@ impl FnBuilder<'_, '_> {
     }
 }
 
-/// Um receptor com caminho rápido de índice.
+/// A receiver with a fast index path.
 #[derive(Debug, Clone, Copy)]
 pub enum Indexable {
     Typed(TypedList),
-    /// `List<E>`: a representação do elemento que se grava direto (`E`
-    /// igual a `int` ou `double`), ou `None` (só leitura direta).
+    /// `List<E>`: the representation of the element that is written directly (`E`
+    /// equal to `int` or `double`), or `None` (direct read only).
     Core { write_op: Option<Type> },
-    /// `Float32x4List`, `Int32x4List`, `Float64x2List`: o tipo no runtime
-    /// e o vetor sem caixa do elemento (16 bytes, lidos e gravados como um
-    /// vetor LLVM).
+    /// `Float32x4List`, `Int32x4List`, `Float64x2List`: the type in the runtime
+    /// and the unboxed vector of the element (16 bytes, read and written as an
+    /// LLVM vector).
     Simd { ty: i64, k: Type },
 }
 
-/// Uma lista tipada numérica: o tipo do elemento no runtime (`TIPO_*` de
-/// `runtime/src/typed_data.rs`) e o tipo C do elemento.
+/// A numeric typed list: the element type in the runtime (`TIPO_*` of
+/// `runtime/src/typed_data.rs`) and the C type of the element.
 #[derive(Debug, Clone, Copy)]
 pub struct TypedList {
     pub ty: i64,
@@ -113,21 +113,21 @@ pub struct TypedList {
 }
 
 impl TypedList {
-    /// A representação Dart do elemento.
+    /// The Dart representation of the element.
     fn repr(self) -> Type {
         if matches!(self.element, CType::F32 | CType::F64) { Type::F64 } else { Type::I64 }
     }
 
-    /// `[]=` pode gravar direto? A `Uint8ClampedList` satura o valor; ela
-    /// fica com o `[]=` do SDK.
+    /// Can `[]=` write directly? `Uint8ClampedList` saturates the value; it
+    /// keeps the SDK `[]=`.
     fn direct_write(self) -> bool {
         self.ty != 2
     }
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O caminho rápido de índice do tipo estático `ty` (não anulável), se
-    /// houver.
+    /// The fast index path of static type `ty` (non-nullable), if
+    /// any.
     pub(super) fn indexable(&self, ty: Option<TypeId>) -> Option<Indexable> {
         let T::Interface { class, args, nullable: false } = self.ctx.table.get(ty?) else {
             return None;
@@ -151,8 +151,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
             return Some(Indexable::Core { write_op });
         }
-        // Sob ARC, cada acesso pelo endereço dos bytes ganha
-        // `@df.keep_alive(list)` na preparação (`optimize/arc/derived_set.rs`).
+        // Under ARC, each access through the address of the bytes gets
+        // `@df.keep_alive(list)` in the preparation (`optimize/arc/derived_set.rs`).
         if library != "dart:typed_data" {
             return None;
         }
@@ -176,14 +176,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(Indexable::Typed(TypedList { ty: typ, element }))
     }
 
-    /// `list.fillRange(start, end, value)` de uma lista tipada numérica
-    /// (tipo estático `Int8List` … `Float64List`, menos a
-    /// `Uint8ClampedList`), com os três argumentos `int`/`int`/elemento não
-    /// anuláveis: o runtime preenche a faixa de uma vez
-    /// (`dartforge_typed_fill_int`/`_double`); faixa inválida, lista vazia
-    /// ou visão não modificável voltam ao `fillRange` do SDK com os mesmos
-    /// valores, que lança o erro da VM. As classes de `dart:typed_data` são
-    /// `final`: o membro é sempre o do SDK.
+    /// `list.fillRange(start, end, value)` of a numeric typed list
+    /// (static type `Int8List` … `Float64List`, except
+    /// `Uint8ClampedList`), with the three arguments non-nullable `int`/`int`/element:
+    /// the runtime fills the range at once
+    /// (`dartforge_typed_fill_int`/`_double`); an invalid range, an empty list
+    /// or an unmodifiable view go back to the SDK `fillRange` with the same
+    /// values, which throws the VM error. The `dart:typed_data` classes are
+    /// `final`: the member is always the SDK one.
     pub(super) fn fill_typed(
         &mut self,
         ast: &dartforge_frontend::ast::Ast,
@@ -217,7 +217,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if int.is_none() || class_of(self, a) != int || class_of(self, b) != int || class_of(self, v) != element {
             return None;
         }
-        // Ordem de avaliação do Dart: receptor, depois os argumentos.
+        // Dart evaluation order: receiver, then the arguments.
         let mut ops = Vec::with_capacity(4);
         for (x, t) in [(*recv, Type::Ref), (a, Type::I64), (b, Type::I64), (v, repr)] {
             let op = self.lower_expr(ast, x);
@@ -255,23 +255,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(Operand::Constant(Constant::Null))
     }
 
-    /// Uma lista SIMD: o vetor sem caixa não atravessa quadros assíncronos
-    /// (lá o elemento fica com o despacho).
+    /// A SIMD list: the unboxed vector does not cross asynchronous frames
+    /// (there the element keeps the dispatch).
     fn simd_list(&self, typ: i64, k: Type) -> Option<Indexable> {
         self.async_state.is_none().then_some(Indexable::Simd { ty: typ, k })
     }
 
 
-    /// Um ajudante do prelúdio (`llvm/ir_typed.rs`): leitura em linha do
-    /// bloco, sem efeitos (`HELPER_EFFECTS`).
+    /// A prelude helper (`llvm/ir_typed.rs`): an inline read of the
+    /// block, without effects (`HELPER_EFFECTS`).
     fn typed_helper(&mut self, name_str: &str, args: Vec<(Operand, Type)>, ret: Type) -> Operand {
         self.emit(Instruction::CallRuntime { name: name_str.to_string(), args, ret_ty: ret }, ret)
     }
 
-    /// O comprimento para o caminho rápido, ou 0 se ele não serve: o da lista
-    /// tipada (0 na visão não modificável, na escrita), ou o da lista do
-    /// runtime (0 para quem não é; na escrita direta, 0 também para a
-    /// imutável ou de outra forma).
+    /// The length for the fast path, or 0 if it does not apply: that of the typed
+    /// list (0 for an unmodifiable view, on writes), or that of the runtime
+    /// list (0 for whatever is not one; on direct writes, 0 also for the
+    /// immutable one or one of another shape).
     fn fast_length(&mut self, list: &Operand, ix: Indexable, write: bool) -> Operand {
         let int = |x: i64| Operand::Constant(Constant::Int(x));
         let write_op = match ix {
@@ -283,21 +283,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Indexable::Core { write_op } => write_op,
         };
         let Some(t) = write_op.filter(|_| write) else {
-            // O comprimento lógico, em linha; numa lista fixa das voltas
-            // (N13), o lido antes delas.
+            // The logical length, inline; in a fixed list of the iterations
+            // (N13), the one read before them.
             return match &self.access_fixed {
                 Some(f) => f.length.clone(),
                 None => self.typed_helper("df.nucleo_len", vec![(list.clone(), Type::Ref)], Type::I64),
             };
         };
-        // N14: nas voltas de N13, a gravação direta foi conferida antes delas.
+        // N14: in the N13 iterations, the direct write was checked before them.
         if let Some(n) = self.access_fixed.as_ref().and_then(|f| f.writable_length.clone()) {
             return n;
         }
-        // Gravação direta: `_List` ou `_GrowableList` (a classe diz que é
-        // modificável) com o armazenamento na forma compacta do `E` (que só
-        // existe com o `E` reificado exatamente `int`, `double` ou `bool`:
-        // a covariância está satisfeita).
+        // Direct write: `_List` or `_GrowableList` (the class says it is
+        // modifiable) with the storage in the compact shape of `E` (which only
+        // exists with the reified `E` exactly `int`, `double` or `bool`:
+        // covariance is satisfied).
         self.typed_helper(
             "df.nucleo_len_gravavel",
             vec![(list.clone(), Type::Ref), (int(shape_code(t)), Type::I64)],
@@ -307,25 +307,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `list.length`.
     pub(super) fn indexed_length(&mut self, list: Operand, ix: Indexable) -> Operand {
-        // Lista tipada provada das voltas rápidas: o comprimento lido antes.
+        // A proven typed list of the fast iterations: the length read before.
         if let Some(p) = self.access_proven.take()
             && let Indexable::Typed(_) | Indexable::Simd { .. } = ix
         {
             return p.length;
         }
         let list = self.coerce(list, Type::Ref);
-        // N13: a lista do runtime das voltas (comprimento não nulo, fixo).
+        // N13: the runtime list of the iterations (non-null, fixed length).
         if let (Indexable::Core { .. }, Some(f)) = (ix, &self.access_fixed) {
             return f.length.clone();
         }
         let n = self.fast_length(&list, ix, false);
         self.typed_data = None;
         if let Indexable::Typed(_) | Indexable::Simd { .. } = ix {
-            // O tipo estático garante a lista tipada do tipo: o comprimento
-            // é esse.
+            // The static type guarantees the typed list of the type: the length
+            // is that one.
             return n;
         }
-        // 0: vazia, ou não é lista do runtime — o getter responde.
+        // 0: empty, or not a runtime list — the getter answers.
         let empty = self.emit(Instruction::ICmp(ICmpOp::Eq, n.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
         let fast_block = self.new_block();
         let slow_block = self.new_block();
@@ -346,9 +346,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Phi { incoming: vec![(fast_block, n), (slow_end, s)], ty: Type::I64 }, Type::I64)
     }
 
-    /// Desvia para o caminho rápido quando `index` está nos limites da
-    /// lista apta, senão para o `slow`; junta os dois resultados na
-    /// representação `repr`.
+    /// Branches to the fast path when `index` is within the bounds of the
+    /// suitable list, otherwise to `slow`; joins both results in
+    /// representation `repr`.
     #[allow(clippy::too_many_arguments)]
     fn branch_indexed(
         &mut self,
@@ -392,9 +392,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O endereço dos elementos de uma lista tipada apta: o que
-    /// `fast_length` leu para o teste de limites que guarda este
-    /// acesso, ou `@df.tipada_dados`.
+    /// The address of the elements of a suitable typed list: what
+    /// `fast_length` read for the bounds test that guards this
+    /// access, or `@df.tipada_dados`.
     fn typed_addresses(&mut self, list: &Operand) -> Operand {
         if let Some((l, d)) = &self.typed_data
             && l == list
@@ -404,12 +404,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.typed_helper("df.tipada_dados", vec![(list.clone(), Type::Ref)], Type::I64)
     }
 
-    /// O endereço dos elementos e o comprimento de uma lista tipada do tipo
-    /// `ty` (interna, externa ou visão: os mesmos deslocamentos, §2.5), em
-    /// linha e invariantes (`@df.tipada_dados`/`@df.tipada_len`); `write`: 0
-    /// na visão não modificável do tipo (`@df.tipada_len_gravavel`, pelo cid).
-    /// Antes, um cabeçalho de endereço fixo por chamada pura ao runtime e um
-    /// cache por ponto de acesso.
+    /// The address of the elements and the length of a typed list of type
+    /// `ty` (internal, external or a view: the same offsets, §2.5), inline
+    /// and invariant (`@df.tipada_dados`/`@df.tipada_len`); `write`: 0
+    /// for the unmodifiable view of the type (`@df.tipada_len_gravavel`, by the cid).
+    /// Before, a fixed-address header per pure runtime call and a
+    /// cache per access point.
     fn typed_data_and_length(&mut self, list: &Operand, typ: i64, write: bool) -> (Operand, Operand) {
         let data = self.typed_helper("df.tipada_dados", vec![(list.clone(), Type::Ref)], Type::I64);
         let n = if write {
@@ -425,16 +425,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         (data, n)
     }
 
-    /// `list[index]`, no resultado `repr`. `None` quando o índice não é
-    /// um `int` sem caixa (fica o despacho).
+    /// `list[index]`, in result `repr`. `None` when the index is not
+    /// an unboxed `int` (the dispatch stays).
     pub(super) fn read_indexed(&mut self, list: Operand, index: Operand, ix: Indexable, repr: Type) -> Option<Operand> {
         if self.operand_type(&index) != Type::I64 {
             return None;
         }
-        // `list[i]` nas voltas rápidas de um laço versionado: `i` está
-        // provado em `0..length` — a carga, sem teste de limites nem
-        // caminho lento (que chamaria o runtime e impediria o LLVM de
-        // vetorizar o laço).
+        // `list[i]` in the fast iterations of a versioned loop: `i` is
+        // proven to be in `0..length` — the load, without a bounds test nor a
+        // slow path (which would call the runtime and prevent LLVM from
+        // vectorizing the loop).
         if let Some(p) = self.access_proven.take() {
             match ix {
                 Indexable::Typed(l) => {
@@ -462,15 +462,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         };
         let mut slow = |s: &mut Self| {
-            // O receptor tem tipo estático (a lista indexável): o seletor
-            // tipado (`typed_entry.rs`).
+            // The receiver has a static type (the indexable list): the typed
+            // selector (`typed_entry.rs`).
             s.call_by_name_with_typed_receiver(list2.clone(), true, super::sdk_source::AccessKind::Call, "[]", &[(None, index2.clone())])
         };
         Some(self.branch_indexed(&list, &index, ix, false, repr, &mut fast, &mut slow))
     }
 
-    /// `list[index] = value`. `false` quando não há caminho rápido (o
-    /// chamador faz o despacho).
+    /// `list[index] = value`. `false` when there is no fast path (the
+    /// caller does the dispatch).
     pub(super) fn store_indexed(&mut self, list: Operand, index: Operand, value: Operand, ix: Indexable) -> bool {
         let direct = match ix {
             Indexable::Typed(l) => l.direct_write(),
@@ -481,10 +481,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !direct || self.operand_type(&index) != Type::I64 {
             return false;
         }
-        // `list[i] = v` nas voltas rápidas de um laço versionado, com a
-        // lista provada também para a gravação: a gravação, sem teste de
-        // limites nem caminho lento. `Int32List` etc. guardam os bits baixos
-        // (o `trunc` de `NativeWrite`), como o `[]=` da VM.
+        // `list[i] = v` in the fast iterations of a versioned loop, with the
+        // list also proven for the write: the write, without a bounds
+        // test nor a slow path. `Int32List` etc. keep the low bits
+        // (the `trunc` of `NativeWrite`), like the VM's `[]=`.
         if let Some(p) = proven.filter(|p| p.write) {
             match ix {
                 Indexable::Typed(l) => {
@@ -529,7 +529,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Operand::Constant(Constant::Int(0))
         };
         let mut slow = |s: &mut Self| {
-            // Um vetor SIMD sem caixa só é encaixotado aqui, no caminho lento.
+            // An unboxed SIMD vector is only boxed here, on the slow path.
             let value = if s.operand_type(&value).is_vector() { s.coerce(value.clone(), Type::Ref) } else { value.clone() };
             s.call_by_name_with_typed_receiver(
                 list2.clone(),
@@ -544,14 +544,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         true
     }
 
-    /// O armazenamento de uma lista do runtime (a própria `_List` ou
-    /// `_ImmutableList`, ou os dados da `_GrowableList`): o endereço do
-    /// elemento 0 (`a+22`) e a forma dele (`flags & (FORMA | ELEMENTO)`, o
-    /// [`shape_code`]). O chamador sabe que `list` é lista do runtime.
+    /// The storage of a runtime list (the `_List` or
+    /// `_ImmutableList` itself, or the data of the `_GrowableList`): the address of
+    /// element 0 (`a+22`) and its shape (`flags & (FORMA | ELEMENTO)`, the
+    /// [`shape_code`]). The caller knows that `list` is a runtime list.
     ///
-    /// Sob ARC, o endereço é derivado da lista: a preparação segura a lista
-    /// depois de cada acesso, que fica no bloco da leitura, sem chamada entre
-    /// os dois (`optimize/arc/derived_set.rs`; o crescimento troca o armazenamento).
+    /// Under ARC, the address is derived from the list: the preparation holds the list
+    /// after each access, which stays in the block of the read, without a call between
+    /// the two (`optimize/arc/derived_set.rs`; growth replaces the storage).
     pub(super) fn list_storage(&mut self, list: &Operand) -> (Operand, Operand) {
         let a = self.typed_helper("df.nucleo_armazenamento", vec![(list.clone(), Type::Ref)], Type::I64);
         let shape = self.typed_helper("df.nucleo_forma", vec![(a.clone(), Type::I64)], Type::I64);
@@ -559,15 +559,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         (data, shape)
     }
 
-    /// O comprimento lógico de `list` se ela é lista do runtime, senão 0
+    /// The logical length of `list` if it is a runtime list, otherwise 0
     /// (`@df.nucleo_len`).
     pub(super) fn core_length(&mut self, list: &Operand) -> Operand {
         self.typed_helper("df.nucleo_len", vec![(list.clone(), Type::Ref)], Type::I64)
     }
 
-    /// O comprimento de `list` para gravações diretas na forma `shape`
-    /// (`@df.nucleo_len_gravavel`): 0 se ela não é `_List`/`_GrowableList`
-    /// dessa forma.
+    /// The length of `list` for direct writes in shape `shape`
+    /// (`@df.nucleo_len_gravavel`): 0 if it is not a `_List`/`_GrowableList`
+    /// of that shape.
     pub(super) fn core_writable_length(&mut self, list: &Operand, shape: i64) -> Operand {
         self.typed_helper(
             "df.nucleo_len_gravavel",
@@ -576,13 +576,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// O endereço do elemento 0 e a forma: os conferidos antes das voltas de
-    /// N13 (forma conhecida na emissão), ou lidos em linha.
+    /// The address of element 0 and the shape: those checked before the
+    /// N13 iterations (shape known at emission), or read inline.
     ///
-    /// Com a preparação ARC, o armazenamento é relido em cada acesso: o
-    /// caminho lento do `[]` (dentro das voltas) é uma chamada, e um
-    /// armazenamento lido antes delas não teria quem o segurasse
-    /// (`optimize/arc/derived_set.rs`). A forma conferida antes vale.
+    /// With the ARC preparation, the storage is reread at each access: the
+    /// slow path of `[]` (inside the iterations) is a call, and a
+    /// storage read before them would have nobody holding it
+    /// (`optimize/arc/derived_set.rs`). The shape checked before still holds.
     fn elements_and_shape(&mut self, list: &Operand) -> (Operand, Result<i64, Operand>) {
         if let Some(f) = &self.access_fixed {
             let shape = f.shape;
@@ -596,10 +596,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         (data, Err(shape))
     }
 
-    /// O elemento `index` de um armazenamento da forma `k`, na
-    /// representação natural dela: o `Ref` (`@df.palavra_ref`, que o
-    /// emissor enraíza como qualquer `Ref`), ou os bits do escalar. Em ARC,
-    /// a lista geral passa pela leitura conferida que produz um owner.
+    /// Element `index` of a storage of shape `k`, in its natural
+    /// representation: the `Ref` (`@df.palavra_ref`, which the
+    /// emitter roots like any `Ref`), or the bits of the scalar. Under ARC,
+    /// the general list goes through the checked read that produces an owner.
     fn load_in_shape(&mut self, list: &Operand, data: &Operand, index: &Operand, k: i64) -> Operand {
         match k {
             SHAPE_INT => self.emit(
@@ -626,8 +626,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O elemento `index` pelo `[]` do SDK (a forma que não serve à
-    /// representação pedida), em `repr`.
+    /// Element `index` through the SDK `[]` (the shape that does not serve the
+    /// requested representation), in `repr`.
     fn element_by_sdk(&mut self, list: &Operand, index: &Operand, repr: Type) -> Operand {
         let r = self.call_by_name_with_typed_receiver(
             list.clone(),
@@ -642,15 +642,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.coerce(r, repr)
     }
 
-    /// O elemento `index` (já conferido) de uma lista do runtime, na
-    /// representação `repr`.
+    /// Element `index` (already checked) of a runtime list, in
+    /// representation `repr`.
     ///
-    /// Na forma compacta de `repr` (`int`, `double`, `bool`), os 8 bytes dos
-    /// bits em `data + 8·index`; na lista geral, o `Ref` (desencaixado se
-    /// `repr` é escalar). Lido como `Ref`, um elemento compacto sai
-    /// encaixotado. O que sobra (uma forma compacta que não é a de `repr`
-    /// escalar) vai ao `[]` do SDK. A forma conhecida na emissão (as voltas
-    /// de N13) poupa a conferência.
+    /// In the compact shape of `repr` (`int`, `double`, `bool`), the 8 bytes of the
+    /// bits at `data + 8·index`; in the general list, the `Ref` (unboxed if
+    /// `repr` is scalar). Read as a `Ref`, a compact element comes out
+    /// boxed. What is left (a compact shape that is not that of the scalar
+    /// `repr`) goes to the SDK `[]`. The shape known at emission (the N13
+    /// iterations) spares the check.
     pub(super) fn read_list_element(&mut self, list: &Operand, index: &Operand, repr: Type) -> Operand {
         let scalar = matches!(repr, Type::I64 | Type::F64 | Type::I1);
         let shapes: Vec<i64> = if scalar {
@@ -699,11 +699,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Grava `value` (`int`, `double` ou `bool`, sem caixa) no elemento
-    /// `index` (já conferido) de uma lista do runtime cuja gravação direta
-    /// foi conferida (`@df.nucleo_len_gravavel`): o armazenamento é compacto
-    /// da forma de `repr`, e o elemento são os 8 bytes dos bits (escalar:
-    /// sem barreira).
+    /// Writes `value` (`int`, `double` or `bool`, unboxed) into element
+    /// `index` (already checked) of a runtime list whose direct write
+    /// was checked (`@df.nucleo_len_gravavel`): the storage is compact
+    /// in the shape of `repr`, and the element is the 8 bytes of the bits (scalar:
+    /// without a barrier).
     fn store_list_element(&mut self, list: &Operand, index: &Operand, value: Operand, repr: Type) {
         let (typ, value) = match repr {
             Type::F64 => (CType::F64, value),
@@ -718,9 +718,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 }
 
-/// A leitura ARC de um elemento `Ref` de lista geral: com a preparação
-/// publicada, um owner que ela consome; sem ela (o ARC legado, em que
-/// ninguém solta tokens do código), o empréstimo da lista.
+/// The ARC read of a `Ref` element of a general list: with the preparation
+/// published, an owner that it consumes; without it (legacy ARC, in which
+/// nobody releases tokens of the code), the borrow of the list.
 pub(super) fn arc_list_ref_read() -> &'static str {
     if crate::alvo::arc_prepared().unwrap_or(false) {
         "dartforge_arc_lista_ref_owned_v1"
@@ -729,20 +729,20 @@ pub(super) fn arc_list_ref_read() -> &'static str {
     }
 }
 
-/// A forma de um armazenamento de lista do runtime: os bits `FORMA` e
-/// `ELEMENTO` do `flags` (`layout::flags`, §2.3 e §2.16).
+/// The shape of a runtime list storage: the `FORMA` and
+/// `ELEMENTO` bits of the `flags` (`layout::flags`, §2.3 and §2.16).
 pub(super) const SHAPE_GENERAL: i64 = dartforge_runtime::layout::flags::REFS as i64;
 const SHAPE_INT: i64 = (dartforge_runtime::layout::flags::BRUTO | dartforge_runtime::layout::flags::ELEMENTO_INT) as i64;
 const SHAPE_DOUBLE: i64 = (dartforge_runtime::layout::flags::BRUTO | dartforge_runtime::layout::flags::ELEMENTO_DOUBLE) as i64;
 const SHAPE_BOOL: i64 = (dartforge_runtime::layout::flags::BRUTO | dartforge_runtime::layout::flags::ELEMENTO_BOOL) as i64;
 
-/// O elemento 0 de um armazenamento, a partir do handle (`b+24` = `h+22`).
+/// Element 0 of a storage, from the handle (`b+24` = `h+22`).
 const ELEMENTOS_DO_ARMAZENAMENTO: i64 =
     dartforge_runtime::layout::desl::ELEMENTOS as i64 - dartforge_runtime::layout::DESLOCAMENTO_DO_HANDLE;
 
-/// O código da forma compacta dos elementos de representação `t` (`int`,
-/// `double`, `bool`), o que `@df.nucleo_forma` lê do armazenamento; a forma
-/// geral para as outras.
+/// The code of the compact shape of the elements of representation `t` (`int`,
+/// `double`, `bool`), what `@df.nucleo_forma` reads from the storage; the general
+/// shape for the others.
 pub(super) fn shape_code(t: Type) -> i64 {
     match t {
         Type::I64 => SHAPE_INT,
@@ -752,16 +752,16 @@ pub(super) fn shape_code(t: Type) -> i64 {
     }
 }
 
-/// O tipo de elemento e o tipo C de uma classe de lista tipada numérica do
+/// The element type and the C type of a numeric typed list class of
 /// `typed_data_patch.dart` (`_Int8List`, `_Int8ArrayView`,
-/// `_UnmodifiableInt8ArrayView`…); `None` para SIMD e o resto.
+/// `_UnmodifiableInt8ArrayView`…); `None` for SIMD and the rest.
 fn class_element(class: &str) -> Option<(i64, CType)> {
     let base = class.strip_prefix("_Unmodifiable").or_else(|| class.strip_prefix('_'))?;
     let base = base.strip_suffix("ArrayView").or_else(|| base.strip_suffix("List"))?;
     element_of_name(base)
 }
 
-/// `Int8` … `Float64` → (o `TIPO_*`, o tipo C).
+/// `Int8` … `Float64` → (the `TIPO_*`, the C type).
 fn element_of_name(name_str: &str) -> Option<(i64, CType)> {
     Some(match name_str {
         "Int8" => (0, CType::I8),
@@ -780,20 +780,20 @@ fn element_of_name(name_str: &str) -> Option<(i64, CType)> {
 }
 
 impl FnBuilder<'_, '_> {
-    /// O membro externo de lista tipada ou visão feito em linha (P4,
-    /// docs/NATIVO-ESPACO-UNIFICADO.md §3.8), ou `None` (a chamada de sempre):
+    /// The external member of a typed list or view done inline (P4,
+    /// docs/NATIVO-ESPACO-UNIFICADO.md §3.8), or `None` (the usual call):
     ///
     /// * `TypedDataBase_length`, `TypedDataView_offsetInBytes`,
-    ///   `TypedDataView_typedData`: a carga do bloco;
-    /// * o `[]` reconhecido de cada lista numérica e visão
-    ///   (`DartForge_typed_indexar_*`): o teste de limites e a carga, com o
-    ///   runtime como caminho lento (que lança o `RangeError` da VM);
-    /// * `_TypedList._getX`/`_setX` numéricos (os acessos por bytes do
-    ///   `ByteData` e das cópias do patch): o teste `0 <= off`, `off + N <=
-    ///   bytes` e a carga ou gravação, com o runtime como caminho lento.
+    ///   `TypedDataView_typedData`: the load from the block;
+    /// * the recognized `[]` of each numeric list and view
+    ///   (`DartForge_typed_indexar_*`): the bounds test and the load, with the
+    ///   runtime as the slow path (which throws the VM's `RangeError`);
+    /// * the numeric `_TypedList._getX`/`_setX` (the byte accesses of
+    ///   `ByteData` and of the patch's copies): the test `0 <= off`, `off + N <=
+    ///   bytes` and the load or write, with the runtime as the slow path.
     ///
-    /// Os resultados saem na representação natural (`int` `I64`, `double`
-    /// `F64`), como `inline_string`. SIMD e `_memMove*` ficam no runtime.
+    /// The results come out in the natural representation (`int` `I64`, `double`
+    /// `F64`), like `inline_string`. SIMD and `_memMove*` stay in the runtime.
     pub(super) fn typed_inline(
         &mut self,
         member: &str,
@@ -834,8 +834,8 @@ impl FnBuilder<'_, '_> {
         Some(self.inline_typed_bytes(this, args, tc, writes, slow))
     }
 
-    /// `this[i]` de uma lista numérica ou visão (o elemento `tc`): em linha
-    /// quando `0 <= i < length`, senão o intrínseco `slow` do runtime.
+    /// `this[i]` of a numeric list or view (element `tc`): inline
+    /// when `0 <= i < length`, otherwise the runtime intrinsic `slow`.
     fn index_typed_inline(&mut self, this: Operand, i: Operand, tc: CType, slow: &str) -> Operand {
         let repr = tc.hir_type();
         let i = self.coerce(i, Type::I64);
@@ -872,9 +872,9 @@ impl FnBuilder<'_, '_> {
         }
     }
 
-    /// `this._getX(off)` / `this._setX(off, v)` (o elemento `tc` de `N`
-    /// bytes em `off`, sem alinhamento): em linha quando `off u< bytes` e
-    /// `off + N <= bytes`, senão o intrínseco `slow` do runtime (que lança).
+    /// `this._getX(off)` / `this._setX(off, v)` (element `tc` of `N`
+    /// bytes at `off`, unaligned): inline when `off u< bytes` and
+    /// `off + N <= bytes`, otherwise the runtime intrinsic `slow` (which throws).
     fn inline_typed_bytes(&mut self, this: Operand, args: &[Operand], tc: CType, writes: bool, slow: &str) -> Operand {
         let int = |x: i64| Operand::Constant(Constant::Int(x));
         let repr = tc.hir_type();

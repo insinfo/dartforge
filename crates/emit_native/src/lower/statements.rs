@@ -1,5 +1,5 @@
-//! Comandos: blocos, declarações, `if`, laços, `break`/`continue` com
-//! rótulo, `return`, `try`/`catch`/`finally` e `assert`.
+//! Statements: blocks, declarations, `if`, loops, labeled `break`/`continue`,
+//! `return`, `try`/`catch`/`finally` and `assert`.
 
 use super::fn_builder::{FinallyScope, FnBuilder, FixedList};
 use dartforge_intern::SymbolId;
@@ -7,8 +7,8 @@ use crate::hir::*;
 use dartforge_frontend::ast::{self, ExprId, ExprKind, StmtId, StmtKind};
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// `assert(cond, msg)`: lança `AssertionError` capturável (asserts
-    /// ligados, como no oráculo `dart run --enable-asserts`).
+    /// `assert(cond, msg)`: throws a catchable `AssertionError` (asserts
+    /// enabled, as in the `dart run --enable-asserts` oracle).
     pub fn lower_assert(&mut self, ast: &ast::Ast, condition: ExprId, message: Option<ExprId>) {
         let c = self.lower_expr(ast, condition);
         let c = self.to_bool(c);
@@ -24,7 +24,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Some(m) => self.lower_expr(ast, m),
             None => Operand::Constant(Constant::Null),
         };
-        // Sob ARC a mensagem vai como `Ref` (`new_runtime_error`).
+        // Under ARC the message goes as a `Ref` (`new_runtime_error`).
         let (bits, is_ref) = if self.ctx.arc_memory { (self.coerce(msg, Type::Ref), true) } else { self.to_bits(msg) };
         let err = self.new_runtime_error(
             "dartforge_assertion_error_new",
@@ -35,9 +35,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn lower_stmt(&mut self, ast: &ast::Ast, stmt_id: StmtId) {
-        // J05: as instruções do comando levam a posição dele; ao sair, volta
-        // a do comando de fora (a atualização e a condição de um laço são
-        // dele, não do último comando do corpo).
+        // J05: the instructions of the statement carry its position; on leaving, the
+        // position of the outer statement comes back (the update and the condition of a loop
+        // belong to it, not to the last statement of the body).
         let previous = self.position;
         if !matches!(ast.stmt(stmt_id).kind, StmtKind::Block(_)) {
             self.mark_position(ast, ast.stmt(stmt_id).span.start);
@@ -58,9 +58,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             StmtKind::Expression(expr_id) => {
                 self.lower_expr_discarded(ast, *expr_id);
-                // Dentro de um `try`: uma extern que não confere a exceção
-                // pendente (as do SDK casado pelo nome, congeladas) não pode
-                // deixar o `catch` para depois — confere no fim do comando.
+                // Inside a `try`: an extern that does not check the pending
+                // exception (those of the SDK matched by name, frozen) cannot
+                // leave the `catch` for later — it checks at the end of the statement.
                 if !self.is_terminated() && (!self.exception_targets.is_empty() || !self.finally_scopes.is_empty()) {
                     self.emit_call_with_check(
                         Instruction::CallRuntime {
@@ -76,11 +76,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let var_ty_opt = var_list.ty;
                 for var in &var_list.variables {
                     let sym = var.name.sym;
-                    // R6: o local guarda a representação do tipo declarado
-                    // (ou inferido do inicializador), não a do valor.
+                    // R6: the local keeps the representation of the declared type
+                    // (or the one inferred from the initializer), not that of the value.
                     let mut ty = self.local_repr_of(var.name.span.start);
                     if var_list.late && ty.is_vector() {
-                        // O `late` guarda o estado ao lado do valor: a caixa.
+                        // A `late` keeps the state next to the value: the box.
                         ty = Type::Ref;
                     }
                     let late_local = var_list.late
@@ -95,8 +95,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let init_op = if late_local {
                         Self::zero_value(ty)
                     } else if ty.is_vector() {
-                        // SIMD sem caixa: o inicializador como vetor, ou o zero
-                        // (a leitura antes da atribuição não compila).
+                        // Unboxed SIMD: the initializer as a vector, or zero
+                        // (a read before the assignment does not compile).
                         match var.initializer {
                             Some(init_id) => self.lower_simd(ast, init_id, ty),
                             None => self.emit(Instruction::Simd { op: OpSimd::Zero, args: Vec::new() }, ty),
@@ -107,9 +107,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         } else {
                             self.lower_expr(ast, init_id)
                         };
-                        // Checagem na declaração só quando o estático não a
-                        // garante: inicializador `dynamic` num tipo declarado.
-                        // Antes ela rodava sempre, e `Foo? x = null` chamava
+                        // A check at the declaration only when the static type does not
+                        // guarantee it: a `dynamic` initializer for a declared type.
+                        // Before it always ran, and `Foo? x = null` called
                         // `dartforge_value_class(0)` (H6).
                         let dynamic_init = self.ctx.get_type(self.unit_id, init_id)
                             == Some(self.ctx.core.dynamic_);
@@ -253,13 +253,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 body,
                 ..
             } => {
-                // Um laço contado termina sozinho: sem ponto seguro nas
-                // voltas (o que ficar em laço infinito está num chamado, que
-                // tem os dele), e o LLVM continua livre para vetorizá-lo.
+                // A counted loop ends by itself: no safepoint in the
+                // iterations (what stays in an infinite loop is in a callee, which
+                // has its own), and LLVM remains free to vectorize it.
                 let counted = self.counted_loop(ast, init.as_ref(), *condition, updates, *body);
-                // A variável do `for` vive num `alloca` (R6): antes ela era só
-                // um valor SSA no mapa por nome, e a condição, baixada antes
-                // do `i++`, lia para sempre o valor inicial.
+                // The `for` variable lives in an `alloca` (R6): before it was only
+                // an SSA value in the by-name map, and the condition, lowered before
+                // the `i++`, read the initial value forever.
                 self.open_scope();
                 if let Some(init) = init {
                     match init {
@@ -286,7 +286,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         ast::ForInit::Expression(e) => {
                             self.lower_expr_discarded(ast, *e);
                         }
-                        // Como a declaração por padrão, no escopo do laço.
+                        // Like a declaration by pattern, in the loop scope.
                         ast::ForInit::Pattern { pattern, value, .. } => {
                             let v = self.lower_expr(ast, *value);
                             self.match_irrefutable(ast, *pattern, v, super::patterns::Linkage::Declare, *value);
@@ -296,17 +296,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 let label_list = std::mem::take(&mut self.pending_labels);
                 match counted {
-                    // N13: a lista do limite é do runtime (a classe do bloco diz,
-                    // `@df.nucleo_len`) — as voltas usam o comprimento e os dados
-                    // lidos uma vez, e as conferências de limite do `v[i]`
-                    // ficam provadas pela condição; senão (vazia, ou uma
-                    // classe do programa que implementa `List`), as voltas de
-                    // sempre, que leem o `length` a cada volta. N14: as
-                    // voltas rápidas exigem também a forma dos elementos que
-                    // o tipo estático pede (compacta para `List<int>`,
-                    // `List<double>`, `List<bool>`; geral para os outros), e
-                    // a leem na emissão; a lista de outra forma vai às voltas
-                    // de sempre, que conferem a forma a cada acesso.
+                    // N13: the list of the bound belongs to the runtime (the class of the block says so,
+                    // `@df.nucleo_len`) — the iterations use the length and the data
+                    // read once, and the bounds checks of `v[i]`
+                    // are proven by the condition; otherwise (empty, or a
+                    // program class that implements `List`), the usual iterations,
+                    // which read `length` on every iteration. N14: the fast
+                    // iterations also require the shape of the elements that
+                    // the static type asks for (compact for `List<int>`,
+                    // `List<double>`, `List<bool>`; general for the others), and
+                    // read it at emission; a list of another shape goes to the usual
+                    // iterations, which check the shape at each access.
                     Some(Counted::Lista { alvo, local }) => {
                         let shape = match self.indexable(self.ctx.get_type(self.unit_id, alvo)) {
                             Some(super::typed_items::Indexable::Core { write_op: Some(t) }) => super::typed_items::shape_code(t),
@@ -314,10 +314,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         };
                         let list = self.lower_expr(ast, alvo);
                         let list = self.coerce(list, Type::Ref);
-                        // O comprimento (0 para quem não é lista do runtime) e,
-                        // conferida a classe, o armazenamento e a forma dele
-                        // (espaço unificado, §2.16): o corpo não chama nada, e
-                        // nem o comprimento nem o armazenamento mudam nas voltas.
+                        // The length (0 for whatever is not a runtime list) and,
+                        // once the class is checked, its storage and shape
+                        // (unified space, §2.16): the body calls nothing, and
+                        // neither the length nor the storage change during the iterations.
                         let n = self.core_length(&list);
                         let from_runtime = self.emit(Instruction::ICmp(ICmpOp::Ne, n.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
                         let check_shape = self.new_block();
@@ -381,7 +381,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 body,
                 ..
             } => {
-                // O protocolo do `Iterator` (§17.7.3).
+                // The `Iterator` protocol (§17.7.3).
                 self.lower_source_for_in(ast, target, *iterable, *body, stmt.span);
             }
             StmtKind::Function(fid) => {
@@ -414,8 +414,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     self.lower_stmt(ast, *body);
                 } else {
-                    // `rótulo: { … break rótulo; … }`: o `break` sai do
-                    // comando rotulado (§18.13 "Labels").
+                    // `label: { … break label; … }`: the `break` leaves the
+                    // labeled statement (§18.13 "Labels").
                     let exit = self.new_block();
                     for l in labels.iter() {
                         self.labeled_break_targets.insert(l.sym, exit);
@@ -458,9 +458,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
     }
 
-    /// O `try` com o corpo e o `finally` dados por quem chama: o do comando
-    /// (`lower_try_stmt`) e os sintetizados pelo lowering (o `finally` que
-    /// cancela a inscrição de um `await for`).
+    /// The `try` with the body and the `finally` given by the caller: that of the statement
+    /// (`lower_try_stmt`) and the ones synthesized by the lowering (the `finally` that
+    /// cancels the subscription of an `await for`).
     pub(super) fn lower_try_with(
         &mut self,
         ast: &ast::Ast,
@@ -514,13 +514,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             });
         }
 
-        // Pouso das exceções que vão para o `finally`: um bloco só, que
-        // registra a entrada "exceção" (2) dos phis do `finally`. Os desvios
-        // de exceção (`emit_call_with_check` com um alvo de exceção) não
-        // registram entrada de phi; ir direto ao `finally` deixava o phi sem
-        // a entrada de cada um deles (o Clang recusa o módulo). Também é o
-        // alvo das exceções dentro dos `catch`: elas passam pelo `finally`
-        // antes de subir.
+        // Landing pad of the exceptions that go to the `finally`: a single block, which
+        // records the "exception" entry (2) of the phis of the `finally`. The exception
+        // branches (`emit_call_with_check` with an exception target) do not
+        // record a phi entry; going straight to the `finally` left the phi without
+        // the entry of each of them (Clang rejects the module). It is also the
+        // target of the exceptions inside the `catch`es: they go through the `finally`
+        // before going up.
         let landing_pad = fin_info.map(|(entry, _, _, _)| {
             let p = self.new_block();
             let prev = self.current_block;
@@ -574,12 +574,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         if let Some(dispatch_block) = catch_dispatch_block {
             self.set_block(dispatch_block);
-            // A exceção como referência (R5): `throw 42` chega encaixotado, e
-            // os testes `on T` e a variável do `catch` são sobre um `Ref`.
+            // The exception as a reference (R5): `throw 42` arrives boxed, and
+            // the `on T` tests and the `catch` variable are about a `Ref`.
             let ex_bits = self.pending_exception();
 
-            // O desenrolar do isolado (`Isolate.exit`) não é capturável:
-            // vai direto ao caminho de "nenhuma cláusula casou".
+            // Isolate unwinding (`Isolate.exit`) is not catchable:
+            // it goes straight to the "no clause matched" path.
             let capturable = self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_exception_capturavel".to_string(),
@@ -619,8 +619,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
 
                 self.set_block(body_b);
-                // O rastro explícito pertence à exceção pendente. Leia-o
-                // antes de `clear`, que libera o slot e a raiz do runtime.
+                // The explicit stack trace belongs to the pending exception. Read it
+                // before `clear`, which releases the slot and the runtime root.
                 let st_val = clause.stack_trace.as_ref().map(|_| self.pending_stack_trace());
                 self.emit(
                     Instruction::CallRuntime {
@@ -719,12 +719,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ret_ty,
             ));
 
-            // A exceção que entrou no `finally` (razão 2) fica guardada e sai
-            // da pendência enquanto o corpo do `finally` roda: senão a
-            // primeira chamada dele vê a exceção pendente e desvia, e o
-            // `finally` não roda (é a semântica da VM: o corpo do `finally`
-            // executa normalmente e a exceção volta ao fim, a menos que ele
-            // saia por `return`/`break`/`continue`/`throw`, que a descartam).
+            // The exception that entered the `finally` (reason 2) is kept aside and leaves
+            // the pending state while the body of the `finally` runs: otherwise its
+            // first call sees the pending exception and branches, and the
+            // `finally` does not run (it is the VM semantics: the body of the `finally`
+            // runs normally and the exception comes back at the end, unless it
+            // leaves through `return`/`break`/`continue`/`throw`, which discard it).
             let saved = self.pending_exception();
             self.emit(
                 Instruction::CallRuntime {
@@ -735,11 +735,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Void,
             );
 
-            // O desenrolar do isolado (`kill`, `Isolate.exit`: o `UnwindError`
-            // da VM) não roda o corpo do `finally`, como a VM: a pendência
-            // segue direto para o tratador de fora. Antes isso dependia de a
-            // primeira chamada conferida do corpo ver a pendência — e o efeito
-            // de uma chamada que acontece antes da conferência escapava.
+            // Isolate unwinding (`kill`, `Isolate.exit`: the VM's `UnwindError`)
+            // does not run the body of the `finally`, like the VM: the pending state
+            // goes straight to the outer handler. Before, that depended on the
+            // first checked call of the body seeing the pending state — and the effect
+            // of a call that happens before the check escaped.
             let capturable = self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_exception_capturavel".to_string(),
@@ -796,13 +796,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 self.set_block(b_exc);
                 self.emit_throw_value(saved, None);
-                // Sob ARC o lançamento termina na guarda: o desvio sai dela.
+                // Under ARC the throw ends at the guard: the branch leaves from it.
                 let b_exc = self.current_block;
-                // A exceção sobe para o tratador mais interno: o alvo de
-                // exceção corrente (um `catch` de fora, ou o pouso do
-                // `finally` de fora, que registra a entrada do phi) vem antes
-                // de um `finally` de fora — este só é o mais interno quando
-                // não há alvo.
+                // The exception goes up to the innermost handler: the current exception
+                // target (an outer `catch`, or the landing pad of the
+                // outer `finally`, which records the phi entry) comes before
+                // an outer `finally` — that one is only the innermost when
+                // there is no target.
                 if let Some(&parent_target) = self.exception_targets.last() {
                     self.terminate(Terminator::Branch(parent_target));
                 } else if !self.finally_scopes.is_empty() {
@@ -815,7 +815,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.terminate(Terminator::Return(self.default_return_operand_opt()));
                 }
 
-                // Os saltos que atravessaram este `finally` continuam.
+                // The jumps that crossed this `finally` continue.
                 for (k, b) in b_jumps.into_iter().enumerate() {
                     self.set_block(b);
                     let (is_continue, label) = scope.jumps[k];
@@ -829,12 +829,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O corpo de um laço sobre a lista local `list` (N13) não chama nada:
-    /// só locais, literais, aritmética e comparação de `int`/`double`/`bool`,
-    /// `if`/blocos/`break`/`continue`, e índice ou `length` da própria lista
-    /// ou de listas de `dart:typed_data` (classes finais do SDK). Nenhum
-    /// caminho dele executa código do programa, então o comprimento e os
-    /// dados da lista não mudam nas voltas (o heap não move objetos).
+    /// The body of a loop over the local list `list` (N13) calls nothing:
+    /// only locals, literals, `int`/`double`/`bool` arithmetic and comparison,
+    /// `if`/blocks/`break`/`continue`, and the index or `length` of the list itself
+    /// or of `dart:typed_data` lists (final SDK classes). No
+    /// path of it runs program code, so the length and the
+    /// data of the list do not change during the iterations (the heap does not move objects).
     fn body_without_calls(&self, ast: &ast::Ast, body: StmtId, list: SymbolId, counter: SymbolId) -> bool {
         let mut declared_set: std::collections::HashSet<SymbolId> = [counter].into_iter().collect();
         self.statement_without_calls(ast, body, list, &mut declared_set)
@@ -871,8 +871,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `int`, `double` ou `bool` (não anuláveis): os operadores deles são do
-    /// compilador, não chamados.
+    /// `int`, `double` or `bool` (non-nullable): their operators belong to the
+    /// compiler, they are not called.
     fn scalar(&self, t: Option<dartforge_types::TypeId>) -> bool {
         let c = &self.ctx.core;
         t.is_some_and(|t| t == c.int || t == c.double || t == c.bool_)
@@ -888,7 +888,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         use super::typed_items::Indexable;
         let ty = |x: ExprId| self.ctx.get_type(self.unit_id, x);
         let local = |n: &ast::Name| declared_set.contains(&n.sym) || self.lookup_local(n.sym).is_some();
-        // A própria lista, ou uma de `dart:typed_data`.
+        // The list itself, or one from `dart:typed_data`.
         let list_ok = |x: ExprId| match &ast.expr(x).kind {
             ExprKind::Identifier(n) if n.sym == list => true,
             ExprKind::Identifier(n) if local(n) => {
@@ -918,8 +918,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ExprKind::Assign { target, value, .. } => {
                 let target_ok = match &ast.expr(*target).kind {
-                    // O tipo do alvo de uma atribuição fica na própria
-                    // atribuição (o do resultado: o do local, em `s += x`).
+                    // The type of the target of an assignment stays on the
+                    // assignment itself (that of the result: the local's, in `s += x`).
                     ExprKind::Identifier(n) => local(n) && self.scalar(ty(e)),
                     ExprKind::Index { target: t, index, null_aware: false } => {
                         list_ok(*t) && self.scalar(ty(*index)) && sub(*index)
@@ -932,9 +932,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// As voltas de um `for` (a condição, o corpo e as atualizações), depois
-    /// da inicialização; termina no bloco de saída. `counted`: o laço termina
-    /// sozinho e as voltas não levam ponto seguro (J01).
+    /// The iterations of a `for` (the condition, the body and the updates), after
+    /// the initialization; ends at the exit block. `counted`: the loop ends
+    /// by itself and the iterations carry no safepoint (J01).
     #[allow(clippy::too_many_arguments)]
     fn for_iterations(
         &mut self,
@@ -982,8 +982,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Branch(loop_update));
 
         self.set_block(loop_update);
-        // Uma variável nova por volta (a especificação do `for`):
-        // só muda algo para a que mora numa célula (P1).
+        // A new variable per iteration (the `for` specification):
+        // it only changes something for one that lives in a cell (P1).
         if let Some(ast::ForInit::Variables(var_list)) = init {
             for var in var_list.variables.iter() {
                 self.renew_cell(var.name.sym);
@@ -1005,15 +1005,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(exit_block);
     }
 
-    /// `for (int i = a; i < L; i++)` e as variações (`<=`, `>`, `>=`;
-    /// `i += c`, `i -= c` com `c` literal positivo no sentido da condição),
-    /// com `i` sem outra gravação no corpo e na condição, e o limite `L`
-    /// invariante: literal, local sem célula que o laço não grava, ou
-    /// `v.length` de um local `v` assim cuja lista tem comprimento fixo (as
-    /// listas de `dart:typed_data`). `i` também não pode transbordar ao
-    /// passar do último valor: com `L` qualquer, só `<`/`>` com passo 1.
-    /// Um laço assim termina: o ponto seguro de volta (J01) é dispensado,
-    /// como o HotSpot dispensa o dos laços contados.
+    /// `for (int i = a; i < L; i++)` and its variations (`<=`, `>`, `>=`;
+    /// `i += c`, `i -= c` with a positive literal `c` in the direction of the condition),
+    /// with `i` not written elsewhere in the body nor in the condition, and the bound `L`
+    /// invariant: a literal, a cell-less local that the loop does not write, or
+    /// `v.length` of such a local `v` whose list has a fixed length (the
+    /// `dart:typed_data` lists). `i` also cannot overflow when
+    /// going past the last value: with an arbitrary `L`, only `<`/`>` with step 1.
+    /// Such a loop ends: the back safepoint (J01) is dropped,
+    /// as HotSpot drops that of counted loops.
     fn counted_loop(
         &self,
         ast: &ast::Ast,
@@ -1035,8 +1035,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cond) = condition else { return None };
         let ExprKind::Binary { op, left, right } = &ast.expr(cond).kind else { return None };
         let e_i = |e: ExprId| matches!(&ast.expr(e).kind, ExprKind::Identifier(n) if n.sym == i);
-        // `i < L` ou `L > i` (e as demais): o sentido em que `i` anda e se a
-        // comparação é estrita.
+        // `i < L` or `L > i` (and the others): the direction in which `i` moves and whether the
+        // comparison is strict.
         let (limit, increasing, strict) = match op {
             ast::BinaryOp::Lt if e_i(*left) => (*right, true, true),
             ast::BinaryOp::LtEq if e_i(*left) => (*right, true, false),
@@ -1060,7 +1060,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }),
             _ => None,
         };
-        // O passo, positivo, no sentido da comparação.
+        // The step, positive, in the direction of the comparison.
         let step = match &ast.expr(*u).kind {
             ExprKind::Unary { op: ast::UnaryOp::PostfixInc | ast::UnaryOp::PrefixInc, operand } if increasing && e_i(*operand) => 1,
             ExprKind::Unary { op: ast::UnaryOp::PostfixDec | ast::UnaryOp::PrefixDec, operand } if !increasing && e_i(*operand) => 1,
@@ -1079,8 +1079,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if stored_set.contains(&i) {
             return None;
         }
-        // Um local que nem o corpo, nem a condição, nem closure alguma
-        // grava: sem célula (`capture.rs`), o valor não muda no laço.
+        // A local that neither the body, nor the condition, nor any closure
+        // writes: without a cell (`capture.rs`), the value does not change in the loop.
         let fixed_local = |e: ExprId| match &ast.expr(e).kind {
             ExprKind::Identifier(n) => {
                 !stored_set.contains(&n.sym)
@@ -1090,28 +1090,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             _ => false,
         };
-        // O último valor que `i` pode ter sem sair do laço é `L - 1` (estrita)
-        // ou `L`; o laço termina se somar o passo a ele não transborda — o
-        // `int` do nativo dá a volta, e aí o laço não terminaria.
+        // The last value `i` can have without leaving the loop is `L - 1` (strict)
+        // or `L`; the loop ends if adding the step to it does not overflow — the
+        // native `int` wraps around, and then the loop would not end.
         let without_overflow = |l: i64| {
             let last_one = if strict { if increasing { l.checked_sub(1) } else { l.checked_add(1) } } else { Some(l) };
             last_one.is_some_and(|u| if increasing { u.checked_add(step).is_some() } else { u.checked_sub(step).is_some() })
         };
         let simple = match &ast.expr(limit).kind {
             ExprKind::Int(_) => literal(limit).is_some_and(without_overflow),
-            // Um valor qualquer: só o passo 1 estrito nunca transborda.
+            // An arbitrary value: only a strict step of 1 never overflows.
             ExprKind::Identifier(_) => {
                 strict && step == 1 && fixed_local(limit) && self.ctx.get_type(self.unit_id, limit) == Some(int)
             }
-            // O comprimento de uma lista tipada fica em `0..=2^60` (cabe na
-            // memória endereçável); o passo não o faz transbordar.
+            // The length of a typed list stays in `0..=2^60` (it fits in
+            // addressable memory); the step does not make it overflow.
             ExprKind::Property { target, name, null_aware: false } if self.ctx.symbol_name(name.sym) == "length" => {
                 let alvo = self.indexable(self.ctx.get_type(self.unit_id, *target));
-                // N13: `List<E>` só termina sozinho se o comprimento não muda
-                // nas voltas — nenhum chamado no corpo — e a lista for do
-                // runtime, o que só a execução diz (as voltas são duplicadas).
-                // Sob ARC, a preparação segura a lista em cada acesso pelo
-                // armazenamento lido antes das voltas (`optimize/arc/derived_set.rs`).
+                // N13: `List<E>` only ends by itself if the length does not change
+                // during the iterations — no callee in the body — and the list belongs to the
+                // runtime, which only execution tells (the iterations are duplicated).
+                // Under ARC, the preparation holds the list at each access through the
+                // storage read before the iterations (`optimize/arc/derived_set.rs`).
                 if increasing
                     && strict
                     && step <= 1 << 60
@@ -1143,18 +1143,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(Counted::Simples)
     }
 
-    /// Versionamento de laço para listas tipadas: num laço contado
-    /// crescente e estrito (`for (var i = a; i < L; i += p)`, `L` fixo nas
-    /// voltas), os acessos `x[i]` a listas de `dart:typed_data` guardadas em
-    /// locais que o laço não grava. O comprimento e o endereço dos elementos
-    /// de uma lista tipada não mudam enquanto ela vive (nem por chamada no
-    /// corpo), então basta provar antes das voltas que `0 <= a` e
-    /// `L <= x.length` para cada `x`: todo `i` das voltas fica em
-    /// `a..L ⊆ 0..x.length`. As voltas rápidas leem e gravam sem teste de
-    /// limites (sem o caminho lento com caixa e despacho, que impedia o LLVM
-    /// de vetorizar); se a prova falha, as voltas de sempre. O corpo é
-    /// baixado duas vezes: só formas que o baixamento repete sem efeito de
-    /// emissão (`duplicable`).
+    /// Loop versioning for typed lists: in an increasing, strict counted
+    /// loop (`for (var i = a; i < L; i += p)`, `L` fixed during the
+    /// iterations), the accesses `x[i]` to `dart:typed_data` lists kept in
+    /// locals the loop does not write. The length and the address of the elements
+    /// of a typed list do not change while it lives (not even through a call in the
+    /// body), so it is enough to prove before the iterations that `0 <= a` and
+    /// `L <= x.length` for each `x`: every `i` of the iterations stays in
+    /// `a..L ⊆ 0..x.length`. The fast iterations read and write without bounds
+    /// tests (without the slow path with a box and dispatch, which prevented LLVM
+    /// from vectorizing); if the proof fails, the usual iterations. The body is
+    /// lowered twice: only shapes that the lowering repeats without an emission
+    /// effect (`duplicable`).
     fn typed_loop(
         &self,
         ast: &ast::Ast,
@@ -1167,15 +1167,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.async_state.is_some() || versioning_disabled() {
             return None;
         }
-        // O limite é lido uma vez antes das voltas, para a prova: um local
-        // `late` não (a leitura pode inicializá-lo).
+        // The bound is read once before the iterations, for the proof: not a `late`
+        // local (the read may initialize it).
         if let ExprKind::Identifier(n) = &ast.expr(limit).kind
             && self.lookup_local(n.sym)?.late.is_some()
         {
             return None;
         }
-        // O contador ainda não foi declarado (a análise vem antes da
-        // inicialização); o `alloca` dele é conferido na emissão.
+        // The counter has not been declared yet (the analysis comes before the
+        // initialization); its `alloca` is checked at emission.
         if !self.duplicable(ast, body, 0) {
             return None;
         }
@@ -1191,9 +1191,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if local.late.is_some() || !matches!(local.mode, super::locals::Mode::Memory(_)) {
                 continue;
             }
-            // O tipo do acesso é o declarado do local (não uma promoção,
-            // que pode só valer dentro do corpo): a lista é desse tipo já
-            // antes das voltas.
+            // The type of the access is the declared one of the local (not a promotion,
+            // which may only hold inside the body): the list already has that type
+            // before the iterations.
             let ty = self.ctx.get_type(self.unit_id, alvo);
             let Some(off) = local.offset else { continue };
             if ty.is_none() || self.ctx.local_type(self.unit_id, off) != ty {
@@ -1210,8 +1210,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         (!lists.is_empty()).then_some(TypedRoundTrips { counter: i, limit, lists })
     }
 
-    /// Os acessos `x[i]` (`x` um identificador, `i` o contador) do comando
-    /// `s`, com `true` quando o acesso grava (alvo de atribuição, `++`/`--`).
+    /// The accesses `x[i]` (`x` an identifier, `i` the counter) of statement
+    /// `s`, with `true` when the access writes (assignment target, `++`/`--`).
     fn indexed_accesses_stmt(&self, ast: &ast::Ast, s: StmtId, i: SymbolId, out: &mut Vec<(ExprId, bool)>) {
         match &ast.stmt(s).kind {
             StmtKind::Block(ss) => ss.iter().for_each(|&x| self.indexed_accesses_stmt(ast, x, i, out)),
@@ -1277,12 +1277,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O comando `s` pode ser baixado duas vezes (as voltas rápidas e as de
-    /// sempre de um laço versionado) sem efeito de emissão além do código
-    /// repetido: sem closures e funções locais (cada baixamento emitiria o
-    /// corpo delas), rótulos, `try`, `switch`, padrões, coleções literais,
-    /// `const`, `await`/`yield`, e sem outro laço dentro (as cópias se
-    /// multiplicariam; o laço de dentro é versionado por si).
+    /// Can statement `s` be lowered twice (the fast iterations and the usual
+    /// ones of a versioned loop) without an emission effect beyond the repeated
+    /// code: without closures and local functions (each lowering would emit their
+    /// body), labels, `try`, `switch`, patterns, collection literals,
+    /// `const`, `await`/`yield`, and without another loop inside (the copies would
+    /// multiply; the inner loop is versioned by itself)?
     fn duplicable(&self, ast: &ast::Ast, s: StmtId, prof: u32) -> bool {
         if prof > 64 {
             return false;
@@ -1325,11 +1325,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// As voltas de um `for` com listas tipadas (`Counted::TypedSet`),
-    /// versionadas: antes delas, o comprimento e os dados de cada lista e a
-    /// prova `0 <= i && L <= x.length` para todas; provada, as voltas
-    /// rápidas, em que `x[i]` e `x.length` usam o que foi lido; senão, as
-    /// de sempre.
+    /// The iterations of a `for` with typed lists (`Counted::TypedSet`),
+    /// versioned: before them, the length and the data of each list and the
+    /// proof `0 <= i && L <= x.length` for all of them; proven, the fast
+    /// iterations, in which `x[i]` and `x.length` use what was read; otherwise, the
+    /// usual ones.
     #[allow(clippy::too_many_arguments)]
     fn versioned_typed_round_trips(
         &mut self,
@@ -1344,7 +1344,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         use super::fn_builder::ProvenTyped;
         let int = |x: i64| Operand::Constant(Constant::Int(x));
         let Some(super::locals::Mode::Memory(counter)) = self.lookup_local(t.counter).map(|l| l.mode) else {
-            // Numa célula (capturado): as voltas de sempre.
+            // In a cell (captured): the usual iterations.
             self.for_iterations(ast, init, condition, updates, body, true, label_list);
             return;
         };
@@ -1389,11 +1389,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 }
 
-/// Um `for` que termina sozinho (J01): o limite é fixo, ou (N13) é o
-/// `length` de uma lista do núcleo que o corpo não pode mudar — aí as voltas
-/// valem para a lista do runtime, e a classe do programa que implementa
-/// `List` segue pelas voltas de sempre; ou tem acessos `x[i]` a listas
-/// tipadas, e as voltas são versionadas pela prova dos limites
+/// A `for` that ends by itself (J01): the bound is fixed, or (N13) it is the
+/// `length` of a core list that the body cannot change — then the iterations
+/// hold for the runtime list, and a program class that implements
+/// `List` goes through the usual iterations; or it has accesses `x[i]` to typed
+/// lists, and the iterations are versioned by the bounds proof
 /// (`typed_loop`).
 #[derive(Debug, Clone)]
 pub(super) enum Counted {
@@ -1402,29 +1402,29 @@ pub(super) enum Counted {
     TypedSet(TypedRoundTrips),
 }
 
-/// Um laço versionado por listas tipadas (`typed_loop`).
+/// A loop versioned by typed lists (`typed_loop`).
 #[derive(Debug, Clone)]
 pub(super) struct TypedRoundTrips {
-    /// O contador `i`.
+    /// The counter `i`.
     counter: SymbolId,
-    /// O `L` de `i < L`.
+    /// The `L` of `i < L`.
     limit: ExprId,
     lists: Vec<LoopList>,
 }
 
-/// Uma lista tipada com acesso `x[i]` num laço versionado.
+/// A typed list with an `x[i]` access in a versioned loop.
 #[derive(Debug, Clone)]
 struct LoopList {
-    /// Um acesso a ela (o identificador): o tipo estático.
+    /// An access to it (the identifier): the static type.
     alvo: ExprId,
     local: SymbolId,
     /// Algum acesso grava.
     write: bool,
 }
 
-/// `DARTFORGE_SEM_VERSIONAR_TIPADAS=1` na compilação desliga o
-/// versionamento de laços de listas tipadas (`typed_loop`), para medir
-/// antes e depois (entra na chave do SDK da fonte, como as outras
+/// `DARTFORGE_SEM_VERSIONAR_TIPADAS=1` at compile time turns off the
+/// versioning of typed-list loops (`typed_loop`), to measure
+/// before and after (it goes into the key of the source SDK, like the other
 /// `DARTFORGE_SEM_…`).
 fn versioning_disabled() -> bool {
     static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();

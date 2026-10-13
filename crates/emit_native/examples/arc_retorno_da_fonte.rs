@@ -1,6 +1,6 @@
-//! Prova AOT de retorno Owned e cleanup numa cadeia de corpos Dart da fonte.
-//! O harness nativo observa identidade, sobrevivência após soltar o argumento
-//! e morte após soltar o retorno. Não certifica todo o programa/SDK ou dispatch.
+//! AOT proof of an Owned return and cleanup in a chain of Dart bodies from source.
+//! The native harness observes identity, survival after releasing the argument
+//! and death after releasing the return. Does not certify the whole program/SDK or dispatch.
 
 use dartforge_emit_native::{
     context::Context, driver, hir::*, llvm::LlvmEmitter, optimize, optimize::arc::*,
@@ -46,8 +46,8 @@ fn module(entry: &Path) -> Result<Module, String> {
     let mut ctx = Context::new(&program, &interner, &types, &core, &outline, &bodies);
     ctx.te = te;
     ctx.arc_memory = true;
-    // O modo de depuração preserva as fronteiras das chamadas no inliner;
-    // assim a prova exercita o token intermediário em vez de só o corpo copiado.
+    // The debug mode preserves the call boundaries in the inliner;
+    // so the proof exercises the intermediate token instead of only the copied body.
     ctx.link_debug();
     let source = dartforge_emit_native::lower::lower_program(&ctx);
     let f = source
@@ -61,9 +61,9 @@ fn module(entry: &Path) -> Result<Module, String> {
     {
         return Err("ABI/fato do lowering incompatível".into());
     }
-    // Grupo fechado contendo os corpos reais da fonte. A chamada nativa abaixo
-    // sustenta o argumento; o produtor deve entregar outro token ao retorno
-    // e liberar o token da primeira chamada, usado como argumento na segunda.
+    // A closed group containing the real source bodies. The native call below
+    // sustains the argument; the producer must hand another token to the return
+    // and release the token of the first call, used as the argument of the second.
     let mut m = Module::new();
     m.arc_memory = true;
     m.sdk_mode = true;
@@ -130,7 +130,7 @@ fn prove() -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let mut m = module(&exit.with_extension("dart"))?;
-    // Tracing compara o mesmo protocolo explícito de tokens neste harness.
+    // Tracing compares the same explicit token protocol in this harness.
     m.arc_memory = arc;
     let symbol = m
         .functions

@@ -1,7 +1,7 @@
-//! Prova AOT da preparação de AllocObject com layout completo de 40 campos.
-//! Confere bits escalares, aresta Ref e morte após liberação do retorno Owned.
-//! Tracing usa tokens explícitos apenas no harness de comparação.
-//! Não certifica lowering de fonte Dart, guardas de getters ou recarga.
+//! AOT proof of the AllocObject preparation with a full layout of 40 fields.
+//! Checks scalar bits, the Ref edge and death after releasing the Owned return.
+//! Tracing uses explicit tokens only in the comparison harness.
+//! Does not certify Dart source lowering, getter guards or reload.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
@@ -275,8 +275,8 @@ passou:
 "#,
     );
     if frame {
-        // O cabeçalho reserva quatro Ref e a tupla RTI; os escalares desta
-        // fixture ficam na cauda. O heap observa o mapa real da instância.
+        // The header reserves four Refs and the RTI tuple; the scalars of this
+        // fixture are in the tail. The heap observes the real map of the instance.
         for (de, to) in [(1, 6), (2, 7), (3, 8)] {
             ir = ir.replace(&format!("i64 %obj, i64 {de})"), &format!("i64 %obj, i64 {to})"));
         }
@@ -288,9 +288,9 @@ passou:
             "  call void @dartforge_arc_release(i64 %obj)\n  call void @dartforge_arc_collect()\n  %sobreviveu = call i8 @dartforge_arc_observar_heap_v1(i64 %ref)\n  %ainda_owned = icmp eq i8 %sobreviveu, 3\n  br i1 %ainda_owned, label %soltar_leitura, label %falha\nsoltar_leitura:\n  call void @dartforge_arc_release(i64 %ref)\n  call void @dartforge_arc_collect()");
     }
     if typed {
-        // ARC usa o registro automático do certificado antes da entrada Dart.
-        // Tracing registra manualmente apenas para comparar a mesma ABI nativa;
-        // esse registro não prepara nem certifica o pipeline tracing.
+        // ARC uses the automatic registration of the certificate before the Dart entry.
+        // Tracing registers manually only to compare the same native ABI;
+        // that registration neither prepares nor certifies the tracing pipeline.
         let tracing_registration = if arc { "" } else {
             "  %pc = ptrtoint ptr @criar_objeto to i64\n  %versao = call i64 @dartforge_arc_registrar_tipada_v1(i64 %pc, i64 1071)\n"
         };

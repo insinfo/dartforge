@@ -1,7 +1,7 @@
-//! Expressões: literais, identificadores, operadores, curto-circuito,
-//! condicional, cadeias `?.`, propriedades, índices, coleções, `is`/`as`.
-//! As chamadas estão em `calls.rs`; o membro do SDK sem elemento útil vai
-//! pela classe dinâmica do receptor (`FnBuilder::property_by_selector`).
+//! Expressions: literals, identifiers, operators, short-circuit,
+//! conditional, `?.` chains, properties, indexing, collections, `is`/`as`.
+//! Calls are in `calls.rs`; an SDK member without a useful element goes
+//! through the dynamic class of the receiver (`FnBuilder::property_by_selector`).
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -9,16 +9,16 @@ use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, UnaryOp};
 use dartforge_types::resolved::{MemberRef, Resolved};
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// Baixa os tres operadores de curto-circuito do Dart: &&, || e ??.
+    /// Lowers the three short-circuit operators of Dart: &&, || and ??.
     ///
-    /// A semantica esta na especificacao da linguagem: em `a && b` o `b` so e
-    /// avaliado quando `a` e verdadeiro, em `a || b` so quando `a` e falso, e
-    /// em `a ?? b` so quando `a` e nulo. Nao e otimizacao: o lado direito pode
-    /// ter efeito colateral (ou lancar), e avaliar cedo muda o programa.
+    /// The semantics is in the language specification: in `a && b`, `b` is only
+    /// evaluated when `a` is true, in `a || b` only when `a` is false, and
+    /// in `a ?? b` only when `a` is null. It is not an optimization: the right side may
+    /// have a side effect (or throw), and evaluating it early changes the program.
     ///
-    /// Antes desta funcao, && e || caiam no ramo `_` do match de operadores
-    /// binarios e viravam a constante 0 — ou seja, toda condicao composta do
-    /// corpus era falsa.
+    /// Before this function, && and || fell into the `_` arm of the match of binary
+    /// operators and became the constant 0 — that is, every compound condition of the
+    /// corpus was false.
     fn lower_short_circuit(
         &mut self,
         ast: &ast::Ast,
@@ -32,8 +32,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.lower_if_null(ast, lop, right, expr_id);
         }
         let cond = self.to_bool(lop);
-        // O bloco de origem é o que termina com o desvio — `to_bool` pode
-        // ter aberto blocos (o `Unbox` de um `bool` encaixotado).
+        // The origin block is the one that ends with the branch — `to_bool` may
+        // have opened blocks (the `Unbox` of a boxed `bool`).
         let left_block = self.current_block;
         let right_block = self.new_block();
         let end_block = self.new_block();
@@ -61,8 +61,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
 
         self.set_block(end_block);
-        // O valor que vem do lado esquerdo quando ele decide sozinho: em `&&`
-        // a esquerda so pula o direito sendo falsa, em `||` sendo verdadeira.
+        // The value that comes from the left side when it decides on its own: in `&&`
+        // the left only skips the right when false, in `||` when true.
         let from_left = Operand::Constant(Constant::Bool(op != BinaryOp::And));
         if !right_reaches {
             return from_left;
@@ -76,9 +76,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// `a ?? b`: `b` só é avaliado quando `a` é null. As duas entradas do
-    /// phi saem na representação do resultado (R4) — a da esquerda num
-    /// bloco próprio, porque o `Unbox` de `a` só vale quando ele não é null.
+    /// `a ?? b`: `b` is only evaluated when `a` is null. The two entries of the
+    /// phi come out in the representation of the result (R4) — the left one in a
+    /// block of its own, because the `Unbox` of `a` only holds when it is not null.
     fn lower_if_null(
         &mut self,
         ast: &ast::Ast,
@@ -87,7 +87,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         expr_id: ExprId,
     ) -> Operand {
         if self.operand_type(&lop) != Type::Ref {
-            // Escalar nunca é null: a direita é código morto.
+            // A scalar is never null: the right side is dead code.
             return lop;
         }
         let ty = self.expression_repr(expr_id).unwrap_or(Type::Ref);
@@ -130,11 +130,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// Elo de cadeia de acesso: `a.b`, `a[i]`, `a.m()`.
+    /// A link of an access chain: `a.b`, `a[i]`, `a.m()`.
     fn is_link(ast: &ast::Ast, e: ExprId) -> bool {
         match &ast.expr(e).kind {
             ExprKind::Property { .. } | ExprKind::Index { .. } => true,
-            // `a?.b!.c`: o `!` é seletor da cadeia (§17.23), não a encerra.
+            // `a?.b!.c`: the `!` is a selector of the chain (§17.23), it does not end it.
             ExprKind::Unary { op: UnaryOp::NullAssert, .. } => true,
             ExprKind::Call { target, .. } => {
                 matches!(ast.expr(*target).kind, ExprKind::Property { .. })
@@ -143,7 +143,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// A cadeia que termina em `e` tem algum `?.`/`?[`?
+    /// Does the chain that ends in `e` have some `?.`/`?[`?
     pub(crate) fn chain_has_null_aware(ast: &ast::Ast, e: ExprId) -> bool {
         let mut current = e;
         loop {
@@ -172,13 +172,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Baixa o receptor de um elo mantendo a cadeia `?.` corrente (N3).
+    /// Lowers the receiver of a link keeping the current `?.` chain (N3).
     pub fn lower_target(&mut self, ast: &ast::Ast, alvo: ExprId) -> Operand {
         self.continue_chain = true;
         self.lower_expr(ast, alvo)
     }
 
-    /// `?.`: se o receptor é null, a cadeia inteira vale null (N3).
+    /// `?.`: if the receiver is null, the whole chain is null (N3).
     pub fn branch_if_null(&mut self, recv: &Operand) {
         let Some((exit, _)) = self.null_chain.as_ref() else {
             return;
@@ -209,16 +209,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.lower_expr_with(ast, expr_id, false)
     }
 
-    /// A expressão de um comando (`e;`): o valor se descarta, então não se
-    /// encaixota no fim (um `acc = acc + v` SIMD ou um `i++` não alocam a
-    /// caixa que ninguém lê). As demais coerções ficam, pois podem falhar.
+    /// The expression of a statement (`e;`): the value is discarded, so it is not
+    /// boxed at the end (a SIMD `acc = acc + v` or an `i++` do not allocate the
+    /// box nobody reads). The other coercions stay, since they may fail.
     pub fn lower_expr_discarded(&mut self, ast: &ast::Ast, expr_id: ExprId) {
         self.lower_expr_with(ast, expr_id, true);
     }
 
-    /// J05 e o rastro simbólico (§13.14): as instruções da expressão levam a
-    /// posição que a VM dá a ela (`expression_position`); ao sair, volta a
-    /// de fora (as coerções de quem a usa são de quem a usa).
+    /// J05 and the symbolic stack trace (§13.14): the instructions of the expression carry the
+    /// position the VM gives it (`expression_position`); on leaving, the outer one comes
+    /// back (the coercions of the user belong to the user).
     fn lower_expr_with(&mut self, ast: &ast::Ast, expr_id: ExprId, discarded: bool) -> Operand {
         if self.ctx.debug_info.is_none() {
             return self.lower_expr_with_in_place(ast, expr_id, discarded);
@@ -237,10 +237,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.continue_chain = false;
             return self.receiver_ready.take().expect("verificado acima").1;
         }
-        // Tear-off de função genérica num contexto de função não genérica
-        // (`int Function(int) f = id;`): a instanciação implícita que a
-        // inferência escolheu, como a de `id<int>` — a closure tem o tipo
-        // instanciado e leva os argumentos de tipo.
+        // A tear-off of a generic function in a non-generic function context
+        // (`int Function(int) f = id;`): the implicit instantiation that
+        // inference chose, like that of `id<int>` — the closure has the
+        // instantiated type and carries the type arguments.
         if matches!(ast.expr(expr_id).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
             && let Some(args) = self.ctx.bodies.units[self.unit_id.0 as usize]
                 .instanciacao_de_tearoff(expr_id)
@@ -276,7 +276,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut v = self.lower_expr_internal(ast, expr_id);
         if root {
             let (exit, mut entries) = self.null_chain.take().expect("cadeia aberta");
-            // A cadeia `?.` vale null ou o valor: sempre `Ref` na junção.
+            // The `?.` chain is null or the value: always a `Ref` at the join.
             let ty = Type::Ref;
             if !self.is_terminated() {
                 if self.operand_type(&v) != Type::Void {
@@ -301,10 +301,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !proceed {
             self.null_chain = saved;
         }
-        // R5: a expressão sai na representação do seu tipo estático. Tipo
-        // `dynamic` (ou ausente) não força nada: o operando fica na
-        // representação em que foi produzido, e cada fronteira coage pelo
-        // tipo real do operando.
+        // R5: the expression comes out in the representation of its static type. A
+        // `dynamic` (or absent) type forces nothing: the operand stays in the
+        // representation it was produced in, and each boundary coerces by the
+        // real type of the operand.
         if let Some(t) = self.ctx.get_type(self.unit_id, expr_id) {
             if t != self.ctx.core.dynamic_ && !self.ctx.is_void(t) && !self.is_terminated() {
                 let r = self.ctx.to_hir_type(t);
@@ -319,25 +319,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
-    /// A expressão sem a coerção final ao tipo estático (um local SIMD sem
-    /// caixa sai como vetor): para `simd.rs`.
+    /// The expression without the final coercion to the static type (an unboxed SIMD local
+    /// comes out as a vector): for `simd.rs`.
     pub(super) fn lower_expr_raw(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
         self.lower_expr_internal(ast, expr_id)
     }
 
     fn lower_expr_internal(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
         let expr = ast.expr(expr_id);
-        // `const` canônico (P3).
+        // Canonical `const` (P3).
         if let Some(op) = self.canonical_constant(ast, expr_id) {
             return op;
         }
-        // Operador, método, getter ou construtor SIMD com forma sem caixa
-        // (`simd.rs`): o vetor sai na caixa do tipo estático (fim de
-        // `lower_expr`), o escalar direto.
+        // A SIMD operator, method, getter or constructor with an unboxed form
+        // (`simd.rs`): the vector comes out in the box of the static type (end of
+        // `lower_expr`), the scalar directly.
         if let Some(op) = self.simd_expression(ast, expr_id) {
             return op;
         }
-        // Membro de `int`/`double` em linha (`intrinsics.rs`).
+        // An inline `int`/`double` member (`intrinsics.rs`).
         if let Some(op) = self.intrinsic_expression(ast, expr_id) {
             return op;
         }
@@ -350,9 +350,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 {
                     u64::from_str_radix(hex, 16).unwrap_or(0) as i64
                 } else {
-                    // Como `u64`: `9223372036854775808` só é válido sob o
-                    // menos unário (o front-end recusa fora dele), e o
-                    // complemento de dois dá `-9223372036854775808`.
+                    // As a `u64`: `9223372036854775808` is only valid under
+                    // unary minus (the front end rejects it elsewhere), and the
+                    // two's complement gives `-9223372036854775808`.
                     text.parse::<u64>().map_or(0, |v| v as i64)
                 };
                 self.emit(Instruction::Const(Constant::Int(val)), Type::I64)
@@ -392,10 +392,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 let raw_op = self.lower_expr(ast, *sub_expr);
                                 let raw_ty = self.operand_type(&raw_op);
                                 match raw_ty {
-                                    // O `int` entra sem caixa em `ConcatStrings`: os
-                                    // dígitos vão direto para o texto junto, sem a
-                                    // string intermediária (a `_interpolate` da VM
-                                    // também não a guarda).
+                                    // The `int` goes unboxed into `ConcatStrings`: the
+                                    // digits go straight into the joined text, without the
+                                    // intermediate string (the VM's `_interpolate`
+                                    // does not keep it either).
                                     Type::I64 if str_lit.parts.len() > 1 => raw_op,
                                     Type::I64 => self.emit(
                                         Instruction::CallRuntime {
@@ -435,8 +435,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                             Type::Ref,
                                         )
                                     }
-                                    // Um vetor SIMD sem caixa nunca sai de
-                                    // `lower_expr` (ele coage ao tipo estático).
+                                    // An unboxed SIMD vector never leaves
+                                    // `lower_expr` (it coerces to the static type).
                                     Type::V4F32 | Type::V4I32 | Type::V2F64 => {
                                         let boxed = self.coerce(raw_op, Type::Ref);
                                         self.string_by_selector(boxed)
@@ -461,9 +461,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Identifier(name) => {
                 let sym = name.sym;
                 let span = expr.span;
-                // A resolução manda (R6/N1): um local sombreia um campo, um
-                // campo sombreia um global. O mapa por nome só vale para o
-                // que a resolução diz que é local ou parâmetro.
+                // The resolution decides (R6/N1): a local shadows a field, a
+                // field shadows a global. The by-name map only holds for what
+                // the resolution says is a local or parameter.
                 match self.ctx.get_resolved(self.unit_id, expr_id).cloned() {
                     Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. }) | None => {
                         if let Some(op) = self.read_local_by_name(sym) {
@@ -495,22 +495,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(op) = self.read_local_by_name(sym) {
                     return op;
                 }
-                // Uma `const` local vista de dentro do getter de uma
-                // constante canônica: o inicializador dela, de novo.
+                // A local `const` seen from inside the getter of a canonical
+                // constant: its initializer, again.
                 if let Some((_, init)) = self.local_const_keys.get(&sym).cloned() {
                     return self.lower_in_const_context(ast, init);
                 }
-                // `$this` numa interpolação chega como identificador.
+                // `$this` in an interpolation arrives as an identifier.
                 if self.ctx.symbol_name(sym) == "this"
                     && let Some(t) = self.this_param.clone()
                 {
                     return t;
                 }
-                // `$1` sem receptor, no corpo de uma extensão sobre um record;
-                // também um campo nomeado do record do `on` (`sqlPrefix` na
-                // extensão sobre `({String? sqlPrefix, bool isNullable})` do
-                // drift): o `this` implícito lê o campo (a inferência deixa
-                // o identificador como `dynamic`).
+                // `$1` without a receiver, in the body of an extension on a record;
+                // also a named field of the record of the `on` (`sqlPrefix` in the
+                // extension on `({String? sqlPrefix, bool isNullable})` of
+                // drift): the implicit `this` reads the field (inference leaves
+                // the identifier as `dynamic`).
                 let on_field = self.this_extension.is_some_and(|(_, on)| {
                     matches!(self.ctx.table.get(self.ctx.erase(on)),
                         dartforge_types::table::Type::Record { named, .. } if named.iter().any(|(n, _)| *n == sym))
@@ -525,9 +525,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 {
                     return op;
                 }
-                // `x` no corpo de um construtor com `this.x`: a inferência o
-                // resolve como parâmetro, mas o parâmetro de inicialização não
-                // está no escopo do corpo — ali `x` é o campo.
+                // `x` in the body of a constructor with `this.x`: inference
+                // resolves it as a parameter, but the initializing parameter is not
+                // in the scope of the body — there `x` is the field.
                 if let (Some(this), Some(cid)) = (self.this_param.clone(), self.enclosing_class) {
                     let field = super::members::layout(self.ctx, cid)
                         .into_iter()
@@ -536,14 +536,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return self.read_field_with_late(this, vid, span);
                     }
                 }
-                // Sem resolução (corpo de closure, que a inferência ainda não
-                // visita): o nome pelo escopo léxico — membro da classe
-                // envolvente, depois o escopo da biblioteca.
+                // No resolution (closure body, which inference does not
+                // visit yet): the name through the lexical scope — member of the enclosing
+                // class, then the library scope.
                 if let Some(op) = self.read_unresolved_name(sym, span) {
                     return op;
                 }
-                // Uma variável de tipo como expressão (`T`): o objeto `Type`
-                // do argumento de tipo corrente.
+                // A type variable as an expression (`T`): the `Type` object
+                // of the current type argument.
                 if let Some(r) = self.type_variable_recipe(sym) {
                     let typ = self.recipe_rti(&r);
                     return self.emit(
@@ -556,10 +556,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     );
                 }
                 let name_str = self.ctx.symbol_name(sym).to_string();
-                // `dynamic`, `Never` e `Null` também são expressões que
-                // denotam objetos `Type`. Os dois últimos podem vir pela
-                // resolução normal; esta via cobre os nomes especiais sem
-                // elemento no outline, como já faz o emissor JS.
+                // `dynamic`, `Never` and `Null` are also expressions that
+                // denote `Type` objects. The last two may come through the
+                // normal resolution; this path covers the special names without an
+                // element in the outline, as the JS emitter already does.
                 let recipe = match name_str.as_str() {
                     "dynamic" => Some("D"),
                     "Never" => Some("N"),
@@ -580,9 +580,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::Ref,
                     );
                 }
-                // Nada no escopo léxico, nas importações nem no outline tem o
-                // nome: o programa é inválido (o `Undefined name` da VM). No
-                // código do SDK da fonte, construto que falta.
+                // Nothing in the lexical scope, the imports or the outline has the
+                // name: the program is invalid (the VM's `Undefined name`). In
+                // the source SDK code, a missing construct.
                 if self.ctx.from_source.contains(&self.ctx.program.unit(self.unit_id).library) {
                     return self.unsupported(&format!("identificador `{name_str}`"), span);
                 }
@@ -590,11 +590,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ExprKind::Parenthesized(sub) => self.lower_expr(ast, *sub),
             ExprKind::Binary { op, left, right } => {
-                // Curto-circuito vem antes do lowering dos dois lados: && e ||
-                // nao podem avaliar a direita quando a esquerda ja decide, e ??
-                // so avalia a direita quando a esquerda e nula. O caminho
-                // aritmetico abaixo avalia os dois de uma vez, entao esses tres
-                // nao podem passar por ele.
+                // Short-circuit comes before the lowering of both sides: && and ||
+                // cannot evaluate the right side when the left already decides, and ??
+                // only evaluates the right when the left is null. The arithmetic
+                // path below evaluates both at once, so these three
+                // cannot go through it.
                 if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull) {
                     return self.lower_short_circuit(ast, *op, *left, *right, expr_id);
                 }
@@ -612,7 +612,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     return r;
                 }
-                // Operador de extensão (P4): chamada direta ao membro.
+                // Extension operator (P4): a direct call to the member.
                 if let Some(fid) = self.extension_operator(expr_id) {
                     let lop = self.lower_expr(ast, *left);
                     let rop = self.lower_expr(ast, *right);
@@ -621,8 +621,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let repr = self.expression_repr(expr_id).unwrap_or(Type::Ref);
                     return self.coerce(r, repr);
                 }
-                // Operador de classe do programa: chamada direta pelo membro
-                // (o `==`, com a regra do `null`, fica com o caminho geral).
+                // Operator of a program class: a direct call through the member
+                // (`==`, with the `null` rule, stays with the general path).
                 if let Some((name_str, _)) = super::dispatch::operator(*op)
                     && let Some(fid) = self.program_operator(*left, name_str)
                 {
@@ -647,20 +647,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let unknown = |t: Option<dartforge_types::table::TypeId>| {
                     t.is_none_or(|t| t == self.ctx.core.dynamic_)
                 };
-                // `String` pelo tipo estático; com o tipo desconhecido (corpo
-                // não inferido, parâmetro de closure sem tipo) um `Ref` à
-                // esquerda de `+`/`*` é texto, como era antes.
-                // Com o tipo desconhecido, o operador vai ao despacho
-                // dinâmico (`dispatch.rs`), que sabe concatenar texto.
+                // `String` by the static type; with an unknown type (an uninferred
+                // body, an untyped closure parameter) a `Ref` on the
+                // left of `+`/`*` is a string, as it was before.
+                // With an unknown type, the operator goes to dynamic
+                // dispatch (`dispatch.rs`), which knows how to concatenate strings.
                 let _ = unknown;
                 let text_str = l_ty.is_some_and(|t| self.ctx.is_string(t))
                     || (matches!(op, BinaryOp::Add) && r_ty.is_some_and(|t| self.ctx.is_string(t)));
-                // `int?`/`double?` promovido pelo fluxo (`if (x != null) x + 1`):
-                // a inferência ainda não grava a promoção no tipo da leitura,
-                // então o operando chega `Ref` e volta ao escalar aqui.
-                // (`==`/`!=` fica de fora: comparar com null é legítimo.)
-                // `String` não anulável à esquerda: o `==` da `String` (que não
-                // é sobrescrevível) em linha, `@df.texto_igual_a`.
+                // `int?`/`double?` promoted by flow (`if (x != null) x + 1`):
+                // inference does not write the promotion into the type of the read yet,
+                // so the operand arrives as a `Ref` and goes back to the scalar here.
+                // (`==`/`!=` stays out: comparing with null is legitimate.)
+                // A non-nullable `String` on the left: the `==` of `String` (which cannot
+                // be overridden) inline, `@df.texto_igual_a`.
                 if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
                     && l_ty.is_some_and(|t| {
                         self.ctx.is_string(t)
@@ -696,9 +696,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     | UnaryOp::PostfixInc
                     | UnaryOp::PrefixDec
                     | UnaryOp::PostfixDec => {
-                        // `x++` = `x += 1` devolvendo o valor antigo; vale para
-                        // local, campo, global e índice (antes só local, e um
-                        // campo virava a constante 0).
+                        // `x++` = `x += 1` returning the old value; holds for a
+                        // local, a field, a global and an index (before only a local, and a
+                        // field became the constant 0).
                         let bin = if matches!(op, UnaryOp::PrefixInc | UnaryOp::PostfixInc) {
                             BinaryOp::Add
                         } else {
@@ -719,7 +719,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     _ => {}
                 }
-                // `-x`/`~x` de extensão (P4): chamada direta ao membro.
+                // Extension `-x`/`~x` (P4): a direct call to the member.
                 if matches!(op, UnaryOp::Neg | UnaryOp::BitNot)
                     && let Some(fid) = self.extension_operator(expr_id)
                 {
@@ -732,7 +732,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if *op == UnaryOp::NullAssert {
                     let sub_op = self.lower_target(ast, *operand);
                     if self.operand_type(&sub_op) != Type::Ref {
-                        // Escalar não é null (R1): nada a checar.
+                        // A scalar is not null (R1): nothing to check.
                         return sub_op;
                     }
                     let is_null = self.emit(
@@ -793,8 +793,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     then_block,
                     else_block,
                 });
-                // As duas entradas do phi na representação do resultado
-                // (R4), coagidas no bloco de origem de cada uma.
+                // The two entries of the phi in the representation of the result
+                // (R4), coerced in the origin block of each one.
                 let ty = self.expression_repr(expr_id);
                 self.set_block(then_block);
                 let then_op = self.lower_expr(ast, *then);
@@ -805,9 +805,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let then_end = self.current_block;
                 let then_reaches = !self.is_terminated();
 
-                // O `then` só fecha depois do `else`: sem tipo estático, a
-                // representação do resultado vem dos dois ramos (iguais, ou
-                // `Ref`), e o `then` é coagido no bloco dele.
+                // The `then` only closes after the `else`: without a static type, the
+                // representation of the result comes from both branches (equal, or
+                // `Ref`), and the `then` is coerced in its block.
                 self.set_block(else_block);
                 let else_op = self.lower_expr(ast, *else_);
                 let ty = ty.unwrap_or_else(|| {
@@ -857,7 +857,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let span = expr.span;
                 let resolved = self.ctx.get_resolved(self.unit_id, expr_id).cloned();
 
-                // `E.x`: campo ou getter estático de extensão.
+                // `E.x`: a static field or getter of an extension.
                 if matches!(
                     self.ctx.get_resolved(self.unit_id, *target),
                     Some(Resolved::Element(dartforge_elements::model::Element::Extension(_)))
@@ -870,8 +870,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         _ => self.unsupported(&format!("membro estático de extensão `{prop_name}`"), span),
                     };
                 }
-                // `C<T…>.new` / `C<T…>.name`: tear-off de construtor
-                // instanciado (os argumentos de tipo vão no ambiente).
+                // `C<T…>.new` / `C<T…>.name`: a tear-off of an instantiated
+                // constructor (the type arguments go in the environment).
                 if let ExprKind::TypeArguments { target: cls, type_args } = &ast.expr(*target).kind
                     && let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                         self.resolution_or_name(ast, *cls)
@@ -894,8 +894,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let typ = self.ctx.get_type(self.unit_id, expr_id);
                     return self.instantiated_constructor_tearoff(f.0 as usize, object, tuple, typ, span);
                 }
-                // `E.new`/`E.name` de tipo de extensão: tear-off de
-                // construtor (o primário também).
+                // `E.new`/`E.name` of an extension type: a constructor tear-off
+                // (the primary one too).
                 if let Some(c) = self.named_extension_type(ast, *target) {
                     let key = if prop_name == "new" { self.ctx.interner.lookup("") } else { Some(name.sym) };
                     if let Some(k) = key
@@ -906,12 +906,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return self.constructor_tearoff_te(expr_id, c, k, span);
                     }
                 }
-                // `Alias.new`/`Alias.name` com `typedef Alias<…> = C<…>`:
-                // tear-off do construtor de `C` (o `NotifierFamilyProvider
-                // .internal` do riverpod). Com o tipo estático instanciado
-                // pela inferência, o objeto nasce com os argumentos; sem ele,
-                // só quando o alias repassa os parâmetros na ordem (então o
-                // tear-off é o genérico de `C`).
+                // `Alias.new`/`Alias.name` with `typedef Alias<…> = C<…>`:
+                // a tear-off of the constructor of `C` (riverpod's `NotifierFamilyProvider
+                // .internal`). With the static type instantiated
+                // by inference, the object is born with the arguments; without it,
+                // only when the alias forwards the parameters in order (then the
+                // tear-off is the generic one of `C`).
                 if let Some(Resolved::Element(dartforge_elements::model::Element::Typedef(td))) =
                     self.ctx.get_resolved(self.unit_id, *target).cloned()
                     && let Some(data) = self.ctx.outline.typedefs.get(td.0 as usize)
@@ -927,12 +927,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         {
                             return self.instantiated_constructor_tearoff(f.0 as usize, object, tuple, Some(typ), span);
                         }
-                        // Tear-off genérico por um alias que não só repassa os
-                        // parâmetros (`typedef F<T> = C<int, T>`): a função
-                        // genérica do tipo estático, com o objeto escrito
-                        // nos parâmetros dela — ou, com a instanciação
-                        // implícita que a inferência escolheu (`C<int,
-                        // String> Function() g = F.nome;`), já instanciado.
+                        // A generic tear-off through an alias that does not just forward the
+                        // parameters (`typedef F<T> = C<int, T>`): the generic
+                        // function of the static type, with the object written
+                        // in its parameters — or, with the implicit instantiation
+                        // that inference chose (`C<int,
+                        // String> Function() g = F.name;`), already instantiated.
                         if let Some(typ) = self.ctx.get_type(self.unit_id, expr_id)
                             && let dartforge_types::table::Type::Function { type_params, ret, .. } = self.ctx.table.get(typ).clone()
                             && !type_params.is_empty()
@@ -979,14 +979,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                     }
                 }
-                // `C.x`: membro estático (o alvo é um literal de classe, ou
-                // um `typedef A = C<…>` — especificação §15 "Type Aliases":
-                // `A.x` denota o membro estático `x` de `C`).
+                // `C.x`: a static member (the target is a class literal, or
+                // a `typedef A = C<…>` — specification §15 "Type Aliases":
+                // `A.x` denotes the static member `x` of `C`).
                 if let Some(c) = self.static_target_class(*target) {
                     if prop_name == "values" && super::enums::is_enum(self.ctx, c) {
                         return self.enum_values(c, span);
                     }
-                    // `C.new`/`C.name`: tear-off de construtor (P4).
+                    // `C.new`/`C.name`: a constructor tear-off (P4).
                     if self.ctx.compiled_library(self.ctx.program.classes[c.0 as usize].library)
                         && matches!(
                             self.ctx.get_resolved(self.unit_id, *target),
@@ -1001,10 +1001,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         if let Some(f) = key.and_then(|k| self.ctx.program.classes[c.0 as usize].constructors.get(&k).copied())
                             && !matches!(resolved, Some(Resolved::Member { .. }))
                         {
-                            // Classe genérica com os argumentos de tipo
-                            // inferidos pelo contexto (`putIfAbsent(k,
-                            // HashSet.new)` é `HashSet<V> Function()`): o
-                            // tear-off é o instanciado, como `C<T…>.new`.
+                            // A generic class with the type arguments
+                            // inferred from the context (`putIfAbsent(k,
+                            // HashSet.new)` is `HashSet<V> Function()`): the
+                            // tear-off is the instantiated one, like `C<T…>.new`.
                             if let Some(typ) = self.ctx.get_type(self.unit_id, expr_id)
                                 && let Some((object, tuple)) = self.tearoff_instantiation(c, typ)
                             {
@@ -1023,7 +1023,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     };
                 }
 
-                // `prefix.x`: o elemento importado com prefixo.
+                // `prefix.x`: the element imported with a prefix.
                 if let Some(el) = self.prefixed_element(ast, *target, name.sym) {
                     return self.read_element(el, span);
                 }
@@ -1037,9 +1037,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.branch_if_null(&target_op);
                 }
 
-                // Membro de tipo de extensão (`extension_types.rs`): antes
-                // dos caminhos pelo tipo apagado (um `length` do tipo de
-                // extensão não é o da lista que ele representa).
+                // Extension type member (`extension_types.rs`): before
+                // the paths through the erased type (a `length` of the extension
+                // type is not that of the list it represents).
                 if let Some(m) = self.resolved_member_te(resolved.as_ref()) {
                     let receiver = self.ctx.get_type_raw(self.unit_id, *target);
                     let r = self.read_member_te(target_op, m, receiver, span);
@@ -1047,7 +1047,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return self.coerce(r, repr);
                 }
 
-                // `length` de uma lista tipada numérica ou `List<E>` (`typed_items.rs`).
+                // `length` of a numeric typed list or `List<E>` (`typed_items.rs`).
                 if prop_name == "length"
                     && let Some(l) = self.indexable(self.ctx.get_type(self.unit_id, *target))
                 {
@@ -1059,16 +1059,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return self.coerce(n, repr);
                 }
 
-                // `index`/`name` de um valor de enum do programa (os
-                // campos implícitos, que o elemento não compila).
+                // `index`/`name` of a program enum value (the
+                // implicit fields, which the element does not compile).
                 if let Some(c) = self.user_class_of(*target)
                     && let Some(op) = self.enum_member(c, prop_name, target_op.clone())
                 {
                     return op;
                 }
 
-                // Membro de classe do usuário: pelo elemento resolvido (R7),
-                // nunca pelo nome.
+                // A user class member: through the resolved element (R7),
+                // never by name.
                 if let Some((_, member)) = self.user_member(expr_id, *target, name.sym, false)
                 {
                     {
@@ -1096,15 +1096,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
 
-                // Getter de extensão (P4).
+                // Extension getter (P4).
                 if let Some(Resolved::ExtensionMember { member, .. }) = resolved.clone()
                     && crate::lower::user_function(self.ctx, member.0 as usize)
                 {
                     let receiver = self.ctx.get_type_raw(self.unit_id, *target);
                     return self.read_extension(target_op, member.0 as usize, receiver, span);
                 }
-                // `r.$1`/`r.name`: campo de um record (posicional do
-                // runtime, ou de uma forma com campo nomeado).
+                // `r.$1`/`r.name`: a field of a record (a runtime positional
+                // one, or one of a shape with a named field).
                 let positional_arg = prop_name
                     .strip_prefix('$')
                     .and_then(|d| d.parse::<i64>().ok())
@@ -1120,8 +1120,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.property_without_member(target_op, *target, prop_name, expr_id, span)
             }
-            // `super[i]` (P4): o `operator []` da superclasse (ou do mixin
-            // anterior na linearização).
+            // `super[i]` (P4): the `operator []` of the superclass (or of the previous
+            // mixin in the linearization).
             ExprKind::Index { target, index, .. } if matches!(ast.expr(*target).kind, ExprKind::Super) => {
                 let i = self.lower_expr(ast, *index);
                 let Some(name_str) = self.ctx.interner.lookup("[]") else {
@@ -1159,13 +1159,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return r;
                     }
                 }
-                // `operator []` de classe do programa: pelo membro.
+                // `operator []` of a program class: through the member.
                 if let Some(fid) = self.program_operator(*target, "[]") {
                     let r = self.call_member(target_op, fid, &[(None, idx_op)], expr.span);
                     let repr = self.expression_repr(expr_id).unwrap_or(Type::Ref);
                     return self.coerce(r, repr);
                 }
-                // `[]` do SDK pela classe dinâmica.
+                // SDK `[]` through the dynamic class.
                 let r = self.call_by_name_typed(target_op, *target, super::sdk_source::AccessKind::Call, "[]", &[(None, idx_op)]);
                 let repr = self.expression_repr(expr_id).unwrap_or(Type::Ref);
                 self.coerce(r, repr)
@@ -1173,15 +1173,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Record { positional, named, .. } if !named.is_empty() => {
                 self.lower_named_record(ast, positional, named, expr.span)
             }
-            // O record posicional (`_Record`, `REFS`): os campos encaixotados
-            // na HIR e o `AllocRecord` só com `Ref` (`records.rs`).
+            // The positional record (`_Record`, `REFS`): the fields boxed
+            // in the HIR and the `AllocRecord` with only `Ref`s (`records.rs`).
             ExprKind::Record { positional, .. } => self.lower_positional_record(ast, positional),
             ExprKind::Call { target, arguments } => {
                 self.lower_call(ast, expr_id, expr, target, arguments)
             }
-            // Com elementos de controle, ou grande e constante (o caminho
-            // em pedaços de `literals.rs`, que não põe um buffer de `n`
-            // palavras e `n` valores vivos no quadro).
+            // With control elements, or large and constant (the chunked
+            // path of `literals.rs`, which does not put a buffer of `n`
+            // words and `n` live values in the frame).
             ExprKind::List { elements, .. }
                 if !elements.iter().all(|e| matches!(e, ast::CollectionElement::Expression(_)))
                     || self.large_literal_is_constant(ast, elements) =>
@@ -1189,7 +1189,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let l = self.lower_collection_literal(ast, super::literals::Collection::Lista, elements, expr.span);
                 self.literal_rti(l, expr_id)
             }
-            // Mapas e conjuntos são o `_Map`/`_Set` da fonte do SDK.
+            // Maps and sets are the `_Map`/`_Set` of the SDK source.
             ExprKind::SetOrMap { elements, .. } => {
                 let typ = if self.literal_is_set(expr_id, elements) {
                     super::literals::Collection::Set
@@ -1209,7 +1209,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
                 let l = self.emit(Instruction::AllocList { elements: elem_ops }, Type::Ref);
-                // RTI: `<int>[…]` é `List<int>` (o tipo do literal).
+                // RTI: `<int>[…]` is `List<int>` (the type of the literal).
                 if let Some(t) = self.ctx.get_type(self.unit_id, expr_id) {
                     self.define_rti_if_generic(l.clone(), t);
                 }
@@ -1221,10 +1221,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         self.creation_type = self.ctx.get_type_raw(self.unit_id, expr_id);
                         self.instantiate(ast, fid, &arguments.args, expr.span)
                     }
-                    // `new A<T>(…)` de uma aplicação de mixin nomeada
-                    // (`class A = B with M;`, o `_SyncStreamController` do
-                    // `Stream.fromFutures`): sem construtor declarado, o da
-                    // superclasse que ela encaminha (`constructor_of`).
+                    // `new A<T>(…)` of a named mixin application
+                    // (`class A = B with M;`, the `_SyncStreamController` of
+                    // `Stream.fromFutures`): without a declared constructor, that of the
+                    // superclass it forwards to (`constructor_of`).
                     _ if let Some(dartforge_types::table::Type::Interface { class: c, .. }) =
                         self.ctx.get_type_raw(self.unit_id, expr_id).map(|t| self.ctx.table.get(t).clone())
                         && self.ctx.program.classes[c.0 as usize].kind == dartforge_elements::model::ClassKind::MixinApplication
@@ -1239,15 +1239,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         self.creation_type = self.ctx.get_type_raw(self.unit_id, expr_id);
                         self.instantiate(ast, f, &arguments.args, expr.span)
                     }
-                    // `new E(…)`/`const E.name(…)` de tipo de extensão: o
-                    // primário não é elemento (`extension_types.rs`).
+                    // `new E(…)`/`const E.name(…)` of an extension type: the
+                    // primary one is not an element (`extension_types.rs`).
                     _ => match self.ctx.get_type_raw(self.unit_id, expr_id).map(|t| self.ctx.table.get(t).clone()) {
                         Some(dartforge_types::table::Type::ExtensionType { decl, .. }) => {
-                            // `new E.name(…)` sem prefixo chega do parser
-                            // como o tipo de duas partes `E.name` (ele não
-                            // distingue `p.T` de `T.n`): quando a primeira
-                            // parte nomeia o próprio tipo, a segunda é o
-                            // construtor.
+                            // `new E.name(…)` without a prefix comes from the parser
+                            // as the two-part type `E.name` (it does not
+                            // distinguish `p.T` from `T.n`): when the first
+                            // part names the type itself, the second is the
+                            // constructor.
                             let name_str = match constructor {
                                 Some(n) => Some(n.sym),
                                 None => match &ast.ty(*ty).kind {
@@ -1304,7 +1304,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::FunctionExpression(fid) => {
                 let typ = self.literal_function_type(ast, *fid, Some(expr_id));
                 let c = self.lower_closure(ast, *fid, expr.span, typ);
-                // RTI: a assinatura da closure (`f is R Function(P)`).
+                // RTI: the signature of the closure (`f is R Function(P)`).
                 self.define_closure_rti(c.clone(), ast, *fid, Some(expr_id));
                 c
             }
@@ -1328,8 +1328,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(t) => t,
                 None => self.unsupported("`this` fora de membro de instância", expr.span),
             },
-            // `f<T…>`: tear-off instanciado de função genérica de topo ou
-            // estática (os argumentos de tipo vão no ambiente da closure).
+            // `f<T…>`: an instantiated tear-off of a top-level or static generic
+            // function (the type arguments go in the environment of the closure).
             ExprKind::TypeArguments { target, type_args }
                 if let Some(fid) = self.target_generic_function(ast, *target) =>
             {
@@ -1341,8 +1341,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let typ = self.ctx.get_type(self.unit_id, expr_id);
                 self.instantiated_tearoff(fid, tuple, typ)
             }
-            // `C<T…>` como expressão: o objeto `Type` canônico do tipo
-            // instanciado (o literal cru `C` está em `members.rs`).
+            // `C<T…>` as an expression: the canonical `Type` object of the instantiated
+            // type (the raw literal `C` is in `members.rs`).
             ExprKind::TypeArguments { target, type_args }
                 if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                     self.resolution_or_name(ast, *target) =>
@@ -1377,9 +1377,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `alvo.name` quando o nome não é membro estático do tipo do alvo:
-    /// `index`/`name` de enum, o membro pela classe dinâmica (receptor sem
-    /// tipo útil) ou o membro do SDK casado pelo nome.
+    /// `target.name` when the name is not a static member of the type of the target:
+    /// `index`/`name` of an enum, the member through the dynamic class (a receiver without a
+    /// useful type) or the SDK member matched by name.
     pub fn property_without_member(
         &mut self,
         target_op: Operand,
@@ -1388,7 +1388,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         expr_id: ExprId,
         span: dartforge_diagnostics::Span,
     ) -> Operand {
-        // `index`/`name` de um valor de enum do programa.
+        // `index`/`name` of a program enum value.
         if let Some(c) = self.user_class_of(target)
             && let Some(op) = self.enum_member(c, prop_name, target_op.clone())
         {
@@ -1397,9 +1397,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.property_by_selector(target_op, prop_name, expr_id, span)
     }
 
-    /// Propriedade de valor do SDK (`length`, `isEmpty`, `first`, `message`…):
-    /// o membro pela classe dinâmica do receptor, por seletor (o SDK vem
-    /// sempre da fonte).
+    /// A property of an SDK value (`length`, `isEmpty`, `first`, `message`…):
+    /// the member through the dynamic class of the receiver, by selector (the SDK always
+    /// comes from source).
     pub(super) fn property_by_selector(
         &mut self,
         target_op: Operand,
@@ -1411,9 +1411,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.call_by_name(target_op, super::sdk_source::AccessKind::Read, prop_name, &[])
     }
 
-    /// Membro implícito (`x` = `this.x`) que é do SDK (a extensão sobre um
-    /// tipo do SDK, o `name`/`index` do enum dentro dele): pelo caminho do
-    /// SDK com `this` como receptor.
+    /// An implicit member (`x` = `this.x`) that belongs to the SDK (the extension on an
+    /// SDK type, the `name`/`index` of the enum inside it): through the SDK
+    /// path with `this` as the receiver.
     pub fn read_sdk_implicit_member(
         &mut self,
         member: dartforge_types::resolved::MemberRef,
@@ -1446,17 +1446,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 }
 
-/// O deslocamento que a VM dá à expressão no rastro (o `fileOffset` do
-/// front_end, `offsetForToken(selector.token)`): o nome chamado em `f()`,
-/// `o.m()` e `o.p`; o operador em `a + b`, `a += b` e `e as T`; o `[` em
-/// `a[i]`; o `(` na chamada de uma expressão (`f()()`); o começo em
-/// `throw`, `await`, criação de instância, unário e identificador (o
-/// getter de topo). `None`: a expressão não chama nada por si, e fica a
-/// posição de fora. `source` é a da unidade da árvore (`mark_position`
-/// descarta a posição de outra árvore).
+/// The offset the VM gives the expression in the stack trace (the `fileOffset` of
+/// front_end, `offsetForToken(selector.token)`): the called name in `f()`,
+/// `o.m()` and `o.p`; the operator in `a + b`, `a += b` and `e as T`; the `[` in
+/// `a[i]`; the `(` in the call of an expression (`f()()`); the start in
+/// `throw`, `await`, instance creation, unary and identifier (the
+/// top-level getter). `None`: the expression calls nothing by itself, and the
+/// outer position stays. `source` is that of the unit of the tree (`mark_position`
+/// discards the position of another tree).
 fn expression_position(ast: &ast::Ast, source: &str, expr_id: ExprId) -> Option<usize> {
-    // O primeiro byte não branco a partir de `end`: o operador depois do
-    // operando da esquerda.
+    // The first non-blank byte starting at `end`: the operator after the
+    // left operand.
     let after = |end: usize| -> usize {
         source
             .as_bytes()

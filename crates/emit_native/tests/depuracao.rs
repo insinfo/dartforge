@@ -1,5 +1,5 @@
-//! J05: as tabelas de linha do depurador nativo (`CompileOptions::debug_info`,
-//! `llvm/debug_info.rs`), conferidas no IR. Sem Clang: só a emissão.
+//! J05: the line tables of the native debugger (`CompileOptions::depuracao`,
+//! `llvm/debug_info.rs`), checked in the IR. Without Clang: emission only.
 
 use dartforge_emit_native::{CompileOptions, emit_ir_with};
 use std::path::Path;
@@ -28,7 +28,7 @@ void main() {
 }
 ";
 
-/// O IR do programa, com ou sem depuração, ou `None` sem o SDK na máquina.
+/// The IR of the program, with or without debug info, or `None` without the SDK on the machine.
 fn ir(debug_info: bool) -> Option<String> {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB").unwrap_or_else(|_| SDK.to_string());
     if !Path::new(&sdk).join("libraries.json").is_file() {
@@ -60,7 +60,7 @@ fn ir(debug_info: bool) -> Option<String> {
     Some(text)
 }
 
-/// O corpo de `define … @symbol(` até o `}`.
+/// The body from `define … @symbol(` up to the `}`.
 fn function<'a>(ir: &'a str, symbol: &str) -> &'a str {
     let ini = ir.find(&format!("@{symbol}(")).unwrap_or_else(|| panic!("{symbol} ausente"));
     let ini = ir[..ini].rfind("define ").unwrap();
@@ -68,7 +68,7 @@ fn function<'a>(ir: &'a str, symbol: &str) -> &'a str {
     &ir[ini..end]
 }
 
-/// A linha da `DILocation` `!n`.
+/// The line of the `DILocation` `!n`.
 fn line_of(ir: &str, n: &str) -> u32 {
     let def = ir.lines().find(|l| l.starts_with(&format!("{n} = !DILocation("))).unwrap_or_else(|| panic!("{n} ausente"));
     def.split("line: ").nth(1).and_then(|r| r.split(',').next()).and_then(|x| x.parse().ok()).unwrap()
@@ -80,15 +80,15 @@ fn each_instruction_carries_statement_line() {
     assert!(ir.contains("!llvm.dbg.cu = !{!0}"), "sem unidade de compilação");
     assert!(ir.contains("emissionKind: FullDebug"));
     assert!(ir.contains("!DIFile(filename: \"main.dart\""));
-    // Os subprogramas com o nome Dart e a linha do primeiro comando.
+    // The subprograms with the Dart name and the line of the first statement.
     for (name, line) in [("dobro", 2), ("Conta.depositar", 9), ("main", 14)] {
         assert!(
             ir.contains(&format!("!DISubprogram(name: \"{name}\", ")) && ir.contains(&format!("line: {line}, type:")),
             "subprograma {name} (linha {line})"
         );
     }
-    // Toda instrução de `double_of` tem `!dbg`, e o `ret` é o do `return y;`
-    // (linha 3), que não emite instrução própria.
+    // Every instruction of `double_of` has `!dbg`, and the `ret` is that of `return y;`
+    // (line 3), which emits no instruction of its own.
     let double_of = function(&ir, "df.main$2edart..dobro");
     assert!(double_of.lines().next().unwrap().contains(" !dbg !"), "{double_of}");
     for l in double_of.lines().skip(1).filter(|l| l.starts_with("  ")) {
@@ -97,7 +97,7 @@ fn each_instruction_carries_statement_line() {
     let ret = double_of.lines().find(|l| l.trim_start().starts_with("ret ")).expect("ret");
     let n = ret.rsplit(", !dbg ").next().unwrap();
     assert_eq!(line_of(&ir, n), 3, "{ret}");
-    // A função com posições não é embutida na HIR: `main` a chama.
+    // The function with positions is not inlined in the HIR: `main` calls it.
     assert!(function(&ir, "dart_main").contains("@df.main$2edart..dobro("));
 }
 

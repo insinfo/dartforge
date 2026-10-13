@@ -1,4 +1,4 @@
-//! Contexto de compilação da crate `dartforge-emit-native`.
+//! Compilation context of the `dartforge-emit-native` crate.
 
 use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_intern::{Interner, SymbolId};
@@ -14,91 +14,91 @@ pub struct Context<'a> {
     pub core: &'a CoreTypes,
     pub outline: &'a OutlineTypes,
     pub bodies: &'a BodyTypes,
-    /// Identidade do marcador do SDK, nunca de uma classe homônima do usuário.
+    /// Identity of the SDK marker, never of a same-named user class.
     finalizable_class: Option<dartforge_elements::model::ClassId>,
     pub entry_lib: Option<LibraryId>,
-    /// Id de classe do runtime de cada classe do programa (P2): a ordem do
-    /// caminho estável (`library_name`, nome da classe), a partir de 1,
-    /// pulando a faixa 1000–1012 das classes de erro do runtime. `None` para
-    /// as classes do SDK.
+    /// Runtime class id of each program class (P2): the order of the
+    /// stable path (`library_name`, class name), starting from 1,
+    /// skipping the 1000–1012 range of the runtime error classes. `None` for
+    /// the SDK classes.
     pub class_ids: Vec<Option<u32>>,
-    /// Com o SDK da fonte, os ids das classes do SDK vêm desta tabela
-    /// (`sdk_modulo::sdk_class_ids`), a mesma do módulo do SDK: o
-    /// programa carrega só as bibliotecas que importa, e numerar pelo que
-    /// carregou daria ids diferentes dos do SDK compilado.
+    /// With the source SDK, the ids of the SDK classes come from this table
+    /// (`sdk_modulo::sdk_class_ids`), the same as the SDK module's: the
+    /// program loads only the libraries it imports, and numbering by what it
+    /// loaded would give ids different from those of the compiled SDK.
     pub fixed_sdk_ids: Option<std::sync::Arc<IdTable>>,
-    /// As formas de record com campo nomeado do programa (P3): número de
-    /// posicionais e os nomes, ordenados — cada uma é uma "classe" de record
-    /// com id `SHAPE_BASE_ID + índice`.
+    /// The record shapes with a named field of the program (P3): number of
+    /// positionals and the names, sorted — each one is a record "class"
+    /// with id `SHAPE_BASE_ID + index`.
     pub record_shapes: Vec<(usize, Vec<String>)>,
-    /// Diretório da biblioteca de entrada: as bibliotecas `file:` são
-    /// nomeadas pelo caminho relativo a ele (estável entre máquinas).
+    /// Directory of the entry library: the `file:` libraries are
+    /// named by the path relative to it (stable across machines).
     root: Option<std::path::PathBuf>,
-    /// Este contexto baixa uma biblioteca do SDK em um objeto separado.
+    /// This context lowers an SDK library into a separate object.
     pub sdk_library: bool,
-    /// Produz fatos de ownership somente para a política --memoria=arc.
+    /// Produces ownership facts only for the --memoria=arc policy.
     pub arc_memory: bool,
-    /// Por biblioteca: o corpo das funções dela é compilado (as do programa;
-    /// com [`Context::with_source_sdk`], também as do SDK da fonte).
+    /// Per library: the body of its functions is compiled (the program's;
+    /// with [`Context::with_source_sdk`], also those of the source SDK).
     pub compiled: Vec<bool>,
-    /// Por biblioteca: as funções dela são baixadas **neste** módulo (as do
-    /// programa; num módulo do SDK da fonte, só a biblioteca dele). As outras
-    /// compiladas moram em outro objeto e são chamadas pelo símbolo.
+    /// Per library: its functions are lowered **in this** module (the
+    /// program's; in a source SDK module, only its library). The other
+    /// compiled ones live in another object and are called through the symbol.
     pub in_module: Vec<bool>,
-    /// P6: as bibliotecas do SDK compiladas da fonte com o programa
-    /// (`source.rs`); o `is_sdk` delas já está desligado na cópia do
-    /// `Program`. Vazio para quem não usa `dart:async`.
+    /// P6: the SDK libraries compiled from source with the program
+    /// (`source.rs`); their `is_sdk` is already off in the copy of the
+    /// `Program`. Empty for those who do not use `dart:async`.
     pub from_source: std::collections::HashSet<LibraryId>,
-    /// RTI: a posição de cada classe do SDK (sem id de classe do heap) na
-    /// ordem do caminho estável — o id RTI é `0x2000_0000 +` ela
+    /// RTI: the position of each SDK class (without a heap class id) in the
+    /// order of the stable path — the RTI id is `0x2000_0000 +` it
     /// (`lower::rti`, `Context::id_rti`).
     pub sdk_rti_ids: std::collections::HashMap<dartforge_elements::model::ClassId, u32>,
-    /// P6: o programa usa `dart:async` e tem o laço de eventos depois do
-    /// `main` (com o SDK da fonte o `dart:async` é o do módulo em cache, e
-    /// `from_source` fica vazio).
+    /// P6: the program uses `dart:async` and has the event loop after
+    /// `main` (with the source SDK, `dart:async` is that of the cached module, and
+    /// `from_source` stays empty).
     pub uses_dart_async: bool,
-    /// P6: os símbolos das funções da fonte com corpo (`lower::with_source_body`).
+    /// P6: the symbols of the source functions with a body (`lower::with_source_body`).
     pub with_source_body: std::sync::OnceLock<std::collections::HashSet<String>>,
-    /// `dart:ffi`: o layout das structs e unions do programa (`lower::ffi::composites`).
+    /// `dart:ffi`: the layout of the structs and unions of the program (`lower::ffi::composites`).
     pub ffi_composites: std::sync::OnceLock<Option<crate::lower::ffi::Composites>>,
-    /// Os tipos de extensão apagados (`erasure.rs`), calculados antes do
-    /// contexto; vazio sem tipo de extensão.
+    /// The erased extension types (`erasure.rs`), computed before the
+    /// context; empty without an extension type.
     pub te: crate::erasure::ExtensionTypes,
-    /// J05: com informação de depuração, o início de cada linha de cada
-    /// unidade (pelo índice da unidade), para as posições das instruções.
-    /// Ligado também pelo rastro simbólico (§13.14), que usa as posições sem
-    /// o DWARF.
+    /// J05: with debug information, the start of each line of each
+    /// unit (by the index of the unit), for the positions of the instructions.
+    /// Also turned on by the symbolic stack trace (§13.14), which uses the positions without
+    /// DWARF.
     pub debug_info: Option<Vec<Vec<u32>>>,
-    /// J05: as posições viram tabelas de linha do depurador (`--debug_info`);
-    /// sem isto, só o rastro simbólico as usa.
+    /// J05: the positions become line tables of the debugger (`--depuracao`);
+    /// without this, only the symbolic stack trace uses them.
     pub dwarf: bool,
-    /// O rastro simbólico (§13.14) está ligado: o lowering marca as funções
-    /// (quadros ocultos, corpos `async`, elos de quem espera) e insere a
-    /// pilha do rastro.
+    /// The symbolic stack trace (§13.14) is on: the lowering marks the functions
+    /// (hidden frames, `async` bodies, links of awaiters) and inserts the
+    /// stack trace stack.
     pub stack_trace: bool,
-    /// Recarga do JIT (J03): os ids que a geração viva deu às classes do
-    /// programa, por `(library, class)`. A mesma classe fica com o mesmo
-    /// id; uma classe nova ganha um id acima de todos eles (os objetos vivos
-    /// no heap guardam o id).
+    /// JIT reload (J03): the ids the live generation gave to the program
+    /// classes, by `(library, class)`. The same class keeps the same
+    /// id; a new class gets an id above all of them (the live objects
+    /// in the heap keep the id).
     previous_ids: Option<std::collections::HashMap<(String, String), u32>>,
-    /// O mundo fechado do programa (`native_world.rs`): a função ou o
-    /// global do programa fora dele vira corpo que lança. `None`: sem poda
-    /// (os módulos do SDK, `DARTFORGE_SEM_PODA_DO_PROGRAMA=1`).
+    /// The closed world of the program (`native_world.rs`): a program function or
+    /// global outside it becomes a body that throws. `None`: no pruning
+    /// (the SDK modules, `DARTFORGE_SEM_PODA_DO_PROGRAMA=1`).
     pub world: Option<dartforge_world::Mundo>,
-    /// Memória de `sdk_source::implementations` por (classe, nome): a busca
-    /// percorre TODAS as classes do programa e a linearização de cada uma, e
-    /// é feita a cada acesso a membro pelo despacho por classe. Num programa
-    /// real (o new_sali/backend: milhares de classes, centenas de milhares
-    /// de acessos) era quadrática e dominava a emissão (minutos). O
-    /// resultado só depende do programa e das bibliotecas compiladas, fixos
-    /// depois da construção do contexto.
+    /// Memo of `sdk_source::implementations` by (class, name): the lookup
+    /// walks ALL the program classes and the linearization of each one, and
+    /// is done at each member access by class dispatch. In a real
+    /// program (new_sali/backend: thousands of classes, hundreds of thousands
+    /// of accesses) it was quadratic and dominated emission (minutes). The
+    /// result only depends on the program and the compiled libraries, fixed
+    /// after the construction of the context.
     pub implementations_memo:
         std::sync::RwLock<std::collections::HashMap<(dartforge_elements::model::ClassId, SymbolId), std::sync::Arc<Vec<crate::lower::sdk_source::Implementation>>>>,
-    /// Os subtipos de cada classe (`Context::subtypes`), calculados na
-    /// primeira consulta.
+    /// The subtypes of each class (`Context::subtypes`), computed on the
+    /// first query.
     pub subtypes_memo:
         std::sync::RwLock<std::collections::HashMap<dartforge_elements::model::ClassId, std::sync::Arc<Vec<dartforge_elements::model::ClassId>>>>,
-    /// Idem para `sdk_source::implementations_by_class`.
+    /// Likewise for `sdk_source::implementations_by_class`.
     pub implementations_by_class_memo: std::sync::RwLock<
         std::collections::HashMap<
             (dartforge_elements::model::ClassId, SymbolId),
@@ -107,7 +107,7 @@ pub struct Context<'a> {
     >,
 }
 
-/// O nome da variável de um padrão `:x`/`:var x`/`:x?`/`:x as T`.
+/// The name of the variable of a `:x`/`:var x`/`:x?`/`:x as T` pattern.
 pub fn pattern_variable_name(
     ast: &dartforge_frontend::ast::Ast,
     mut p: dartforge_frontend::ast::PatternId,
@@ -122,13 +122,13 @@ pub fn pattern_variable_name(
     }
 }
 
-/// Primeiro id de classe das formas de record com campo nomeado (bem acima
-/// dos ids das classes do programa).
+/// First class id of the record shapes with a named field (well above
+/// the ids of the program classes).
 pub const SHAPE_BASE_ID: u32 = 0x4000_0000;
 
-/// Escapa uma parte de um símbolo estável: letras, dígitos e `_` ficam; o
-/// resto vira `$` e dois dígitos hexadecimais por byte UTF-8. O `.` separa as
-/// partes, então nunca aparece cru dentro de uma — o símbolo é injetivo.
+/// Escapes a part of a stable symbol: letters, digits and `_` stay; the
+/// rest becomes `$` and two hexadecimal digits per UTF-8 byte. The `.` separates the
+/// parts, so it never appears raw inside one — the symbol is injective.
 pub fn escape_str(part: &str) -> String {
     let mut s = String::with_capacity(part.len());
     for b in part.bytes() {
@@ -142,9 +142,9 @@ pub fn escape_str(part: &str) -> String {
 }
 
 impl<'a> Context<'a> {
-    /// A função `f` do programa ficou fora do mundo fechado (vira corpo que
-    /// lança). Só funções de bibliotecas do programa, com nó de função
-    /// (métodos, de topo, acessores); construtores nunca.
+    /// Program function `f` was left outside the closed world (it becomes a body that
+    /// throws). Only functions of program libraries, with a function node
+    /// (methods, top-level, accessors); never constructors.
     pub fn pruned_function(&self, f: usize) -> bool {
         let Some(m) = &self.world else { return false };
         let func = &self.program.functions[f];
@@ -153,16 +153,16 @@ impl<'a> Context<'a> {
             && !m.funcao(dartforge_elements::model::FunctionElementId(f as u32))
     }
 
-    /// O campo de instância `v` de uma classe do programa ficou fora do
-    /// mundo fechado (ninguém o lê nem grava).
+    /// Instance field `v` of a program class was left outside the
+    /// closed world (nobody reads or writes it).
     pub fn pruned_field(&self, v: dartforge_elements::model::VariableId) -> bool {
         let Some(m) = &self.world else { return false };
         let var = &self.program.variables[v.0 as usize];
         if self.program.library(var.library).is_sdk {
             return false;
         }
-        // O mundo acompanha os acessores implícitos do campo (membros de
-        // instância com `variable`), não a variável.
+        // The world follows the implicit accessors of the field (instance
+        // members with `variable`), not the variable.
         let Some(c) = var.class else { return false };
         let mut accessors = self.program.classes[c.0 as usize]
             .instance_members
@@ -172,16 +172,16 @@ impl<'a> Context<'a> {
         accessors.peek().is_some() && accessors.all(|f| !m.funcao(*f))
     }
 
-    /// O membro de instância `f` de uma classe do programa (método, acessor
-    /// explícito ou implícito de campo) ficou fora do mundo fechado: sem
-    /// entrada na tabela de métodos nem adaptador.
+    /// Instance member `f` of a program class (a method, an explicit or implicit
+    /// field accessor) was left outside the closed world: no
+    /// entry in the method table nor adapter.
     pub fn pruned_member(&self, f: usize) -> bool {
         let Some(m) = &self.world else { return false };
         let func = &self.program.functions[f];
-        // Só o que tem corpo escrito (`FunctionRef::Function`) ou é acessor
-        // de campo: os membros sintéticos (os encaminhadores de
-        // `noSuchMethod` que o CFE criaria) não passam pelo mundo, e sem
-        // entrada na tabela a chamada caía no `NoSuchMethodError`
+        // Only what has a written body (`FunctionRef::Function`) or is a field
+        // accessor: the synthetic members (the `noSuchMethod` forwarders
+        // that the CFE would create) do not go through the world, and without an
+        // entry in the table the call fell into `NoSuchMethodError`
         // (corpus/js/223_nosuchmethod_argumentos).
         let with_node = matches!(func.node, dartforge_elements::model::FunctionRef::Function { .. }) || func.variable.is_some();
         with_node
@@ -193,20 +193,20 @@ impl<'a> Context<'a> {
             && !m.funcao(dartforge_elements::model::FunctionElementId(f as u32))
     }
 
-    /// O global `v` do programa ficou fora do mundo fechado.
+    /// Program global `v` was left outside the closed world.
     pub fn pruned_global(&self, v: dartforge_elements::model::VariableId) -> bool {
         let Some(m) = &self.world else { return false };
         let var = &self.program.variables[v.0 as usize];
-        // Uma `const` fica sempre: ela é valor padrão de parâmetro de membro
-        // abstrato, que o encaminhador de `noSuchMethod` gerado pelo lowering
-        // lê e o mundo não vê (o `Pintor.pattern` de
-        // corpus/js/223_nosuchmethod_argumentos); o getter é pequeno.
+        // A `const` always stays: it is the default value of a parameter of an abstract
+        // member, which the `noSuchMethod` forwarder generated by the lowering
+        // reads and the world does not see (the `Pintor.pattern` of
+        // corpus/js/223_nosuchmethod_argumentos); the getter is small.
         !var.const_ && !self.program.library(var.library).is_sdk && !m.variavel(v)
     }
 
-    /// As classes do programa que são subtipo de `cid` (ela inclusive), na
-    /// ordem dos ids de elemento — o que as buscas por implementação
-    /// percorriam varrendo TODAS as classes a cada acesso a membro.
+    /// The program classes that are subtypes of `cid` (itself included), in
+    /// element id order — what the implementation lookups used to
+    /// walk by scanning ALL the classes at each member access.
     pub fn subtypes(&self, cid: dartforge_elements::model::ClassId) -> std::sync::Arc<Vec<dartforge_elements::model::ClassId>> {
         if let Some(r) = self.subtypes_memo.read().unwrap_or_else(|e| e.into_inner()).get(&cid) {
             return r.clone();
@@ -221,7 +221,7 @@ impl<'a> Context<'a> {
         r
     }
 
-    /// Liga a informação de depuração (J05): indexa as linhas das unidades.
+    /// Turns debug information on (J05): indexes the lines of the units.
     pub fn link_debug(&mut self) {
         let lines = self
             .program
@@ -236,11 +236,11 @@ impl<'a> Context<'a> {
         self.debug_info = Some(lines);
     }
 
-    /// A url do script da unidade no rastro da VM (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-    /// §13.14): a da unidade (`file:///…`, `package:x/y.dart`); no SDK, a da
-    /// biblioteca para a unidade que a define (`dart:core`) e
-    /// `dart:<library>/<file>` para as partes (`dart:core/list.dart`),
-    /// com `-patch` nas da VM e da sobreposição nativa
+    /// The url of the script of the unit in the VM stack trace (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+    /// §13.14): that of the unit (`file:///…`, `package:x/y.dart`); in the SDK, that of the
+    /// library for the unit that defines it (`dart:core`) and
+    /// `dart:<library>/<file>` for the parts (`dart:core/list.dart`),
+    /// with `-patch` for those of the VM and of the native overlay
     /// (`dart:core-patch/growable_array.dart`).
     pub fn stack_trace_url(&self, unit: dartforge_elements::model::UnitId) -> String {
         let u = self.program.unit(unit);
@@ -262,8 +262,8 @@ impl<'a> Context<'a> {
         if patch { format!("dart:{name}-patch/{file}") } else { format!("dart:{name}/{file}") }
     }
 
-    /// `(line, column)`, a partir de 1, do byte `offset` da unidade `unit`,
-    /// com a depuração ligada.
+    /// `(line, column)`, starting from 1, of byte `offset` of unit `unit`,
+    /// with debug info on.
     pub fn line_and_column(&self, unit: dartforge_elements::model::UnitId, offset: usize) -> Option<(u32, u32)> {
         let starts = self.debug_info.as_ref()?.get(unit.0 as usize)?;
         let offset = u32::try_from(offset).ok()?;
@@ -319,9 +319,9 @@ impl<'a> Context<'a> {
             dwarf: false,
             stack_trace: false,
         };
-        // Formas de record com campo nomeado: literais, padrões e tipos de
-        // todas as unidades do programa (o conjunto inteiro, antes do
-        // lowering — um acesso `r.x` sem tipo testa todas as que têm `x`).
+        // Record shapes with a named field: literals, patterns and types of
+        // all the units of the program (the whole set, before the
+        // lowering — an untyped access `r.x` tests all those that have `x`).
         let mut shapes = std::collections::BTreeSet::new();
         for u in &program.units {
             if program.library(u.library).is_sdk {
@@ -344,7 +344,7 @@ impl<'a> Context<'a> {
                         match f.name {
                             Some(k) => n.push(interner.resolve(k.sym).to_string()),
                             None => {
-                                // `:x` — o nome é o da variável dentro do campo.
+                                // `:x` — the name is that of the variable inside the field.
                                 let text = &u.source[f.span.start as usize..f.span.end as usize];
                                 if text.trim_start().starts_with(':')
                                     && let Some(s) = pattern_variable_name(&u.ast, f.pattern)
@@ -377,8 +377,8 @@ impl<'a> Context<'a> {
         ctx
     }
 
-    /// Liga o SDK da fonte (P5c): as bibliotecas de `SOURCE_LIBRARIES`
-    /// passam a ter corpo compilado e classes com id.
+    /// Turns on the source SDK (P5c): the libraries of `SOURCE_LIBRARIES`
+    /// get a compiled body and classes with ids.
     pub fn with_source_sdk(mut self) -> Self {
         for (i, l) in self.program.libraries.iter().enumerate() {
             if let Some(name) = l.uri.strip_prefix("dart:")
@@ -391,15 +391,15 @@ impl<'a> Context<'a> {
         self
     }
 
-    /// [`Context::with_source_sdk`] com os ids das classes do SDK fixados
-    /// pela tabela do SDK compilado.
+    /// [`Context::with_source_sdk`] with the ids of the SDK classes fixed
+    /// by the table of the compiled SDK.
     pub fn with_source_sdk_and_ids(mut self, ids: std::sync::Arc<IdTable>) -> Self {
         self.fixed_sdk_ids = Some(ids);
         self.with_source_sdk()
     }
 
-    /// O módulo de uma biblioteca do SDK da fonte (P5c): só ela é baixada
-    /// aqui; o programa e as outras bibliotecas ficam de fora.
+    /// The module of a source SDK library (P5c): only it is lowered
+    /// here; the program and the other libraries stay out.
     pub fn only_the_library(mut self, lib: LibraryId) -> Self {
         self.sdk_library = true;
         self.in_module = vec![false; self.program.libraries.len()];
@@ -407,18 +407,18 @@ impl<'a> Context<'a> {
         self
     }
 
-    /// Recarga do JIT (J03): numera as classes do programa mantendo os ids
-    /// da geração viva (`ids`, de [`ir_ids`]).
+    /// JIT reload (J03): numbers the program classes keeping the ids
+    /// of the live generation (`ids`, from [`ir_ids`]).
     pub fn with_previous_ids(mut self, ids: std::collections::HashMap<(String, String), u32>) -> Self {
         self.previous_ids = Some(ids);
         self.number_classes();
         self
     }
 
-    /// Os ids das classes do programa, `(id, library, class)`. Numa
-    /// recarga, também os da geração viva cuja classe não está nesta (J03):
-    /// um objeto dela pode estar vivo, e a classe pode voltar — o id fica
-    /// reservado para ela de geração em geração.
+    /// The ids of the program classes, `(id, library, class)`. On a
+    /// reload, also those of the live generation whose class is not in this one (J03):
+    /// an object of it may be alive, and the class may come back — the id stays
+    /// reserved for it from generation to generation.
     pub fn program_ids(&self) -> Vec<(u32, String, String)> {
         let mut ids: Vec<(u32, String, String)> = self
             .program
@@ -445,7 +445,7 @@ impl<'a> Context<'a> {
         ids
     }
 
-    /// O layout dos objetos de cada classe do programa (J03, ver
+    /// The layout of the objects of each program class (J03, see
     /// `hir::Module::program_fields`).
     pub fn program_fields(&self) -> Vec<(u32, usize, Vec<crate::hir::LayoutField>)> {
         (0..self.program.classes.len() as u32)
@@ -473,17 +473,17 @@ impl<'a> Context<'a> {
             .collect()
     }
 
-    /// O corpo das funções da biblioteca é compilado?
+    /// Is the body of the functions of the library compiled?
     pub fn compiled_library(&self, lib: LibraryId) -> bool {
         self.compiled[lib.0 as usize]
     }
 
-    /// As funções da biblioteca são baixadas neste módulo?
+    /// Are the functions of the library lowered in this module?
     pub fn library_in_module(&self, lib: LibraryId) -> bool {
         self.in_module[lib.0 as usize]
     }
 
-    /// A classe `name` de `dart:<lib>` (SDK da fonte), se carregada.
+    /// Class `name` of `dart:<lib>` (source SDK), if loaded.
     pub fn sdk_class(&self, lib: &str, name: &str) -> Option<dartforge_elements::model::ClassId> {
         let uri = format!("dart:{lib}");
         let sym = self.interner.lookup(name)?;
@@ -494,17 +494,17 @@ impl<'a> Context<'a> {
             .map(|i| dartforge_elements::model::ClassId(i as u32))
     }
 
-    /// Ids de classe estáveis (P2): as classes compiladas pela ordem do
-    /// caminho — as do SDK primeiro (grupo 0), numa faixa que só depende do
-    /// SDK, depois as do programa —, a partir de 128, pulando 1000–1012; as
-    /// classes de `layout::cid::FROM_SDK` têm o cid fixo (1–65). Com a tabela
-    /// do SDK (`fixed_sdk_ids`), as do SDK vêm dela e as do programa
-    /// começam depois da maior.
+    /// Stable class ids (P2): the compiled classes in path order — the SDK
+    /// ones first (group 0), in a range that only depends on the
+    /// SDK, then the program ones —, starting at 128, skipping 1000–1012; the
+    /// classes of `layout::cid::FROM_SDK` have a fixed cid (1–65). With the table
+    /// of the SDK (`fixed_sdk_ids`), the SDK ones come from it and the program ones
+    /// start after the largest.
     fn number_classes(&mut self) {
         let program = self.program;
         let mut ids = vec![None; program.classes.len()];
         let mut keys: Vec<(String, String, usize)> = Vec::new();
-        // 1–127 são dos cids fixos (docs/NATIVO-ESPACO-UNIFICADO.md §2.4).
+        // 1–127 belong to the fixed cids (docs/NATIVO-ESPACO-UNIFICADO.md §2.4).
         let mut next = dartforge_runtime::layout::PRIMEIRO_CID_LIVRE as u32;
         match self.fixed_sdk_ids.clone() {
             Some(table) => {
@@ -524,8 +524,8 @@ impl<'a> Context<'a> {
                         });
                         ids[i] = Some(id);
                     } else if c.kind != dartforge_elements::model::ClassKind::ExtensionType {
-                        // Um tipo de extensão não tem objeto no heap: o
-                        // valor é o da representação.
+                        // An extension type has no object in the heap: the
+                        // value is that of the representation.
                         keys.push((lib, name, i));
                     }
                 }
@@ -547,9 +547,9 @@ impl<'a> Context<'a> {
             }
         }
         keys.sort();
-        // Recarga (J03): a classe que a geração viva já numerou fica com o
-        // id dela; as novas vêm depois do maior (nunca o de uma que sumiu:
-        // um objeto dela pode estar vivo).
+        // Reload (J03): a class the live generation already numbered keeps its
+        // id; the new ones come after the largest (never that of one that vanished:
+        // an object of it may be alive).
         if let Some(previous_ones) = &self.previous_ids {
             if let Some(&larger) = previous_ones.values().max() {
                 next = next.max(larger + 1);
@@ -570,8 +570,8 @@ impl<'a> Context<'a> {
             next += 1;
         }
         self.class_ids = ids;
-        // RTI: as classes do SDK sem id do heap (as não compiladas), na
-        // ordem do caminho estável.
+        // RTI: the SDK classes without a heap id (the uncompiled ones), in
+        // the order of the stable path.
         let mut sdk: Vec<(String, String, usize)> = program
             .classes
             .iter()
@@ -587,10 +587,10 @@ impl<'a> Context<'a> {
             .collect();
     }
 
-    /// O nome estável de uma biblioteca (P2): `dart:x` e `package:a/b.dart`
-    /// como estão; `file:` pelo caminho relativo ao diretório da biblioteca
-    /// de entrada, com `/` (o mesmo programa tem os mesmos símbolos em
-    /// qualquer máquina e checkout).
+    /// The stable name of a library (P2): `dart:x` and `package:a/b.dart`
+    /// as they are; `file:` by the path relative to the directory of the entry
+    /// library, with `/` (the same program has the same symbols on
+    /// any machine and checkout).
     pub fn library_name(&self, lib: LibraryId) -> String {
         let l = self.program.library(lib);
         if !l.uri.starts_with("file:") {
@@ -608,7 +608,7 @@ impl<'a> Context<'a> {
         l.uri.clone()
     }
 
-    /// Id de classe da forma de record `(npos, names)`, se o programa a tem.
+    /// Class id of the record shape `(npos, names)`, if the program has it.
     pub fn shape_id(&self, npos: usize, names: &[String]) -> Option<u32> {
         self.record_shapes
             .iter()
@@ -616,7 +616,7 @@ impl<'a> Context<'a> {
             .map(|i| SHAPE_BASE_ID + i as u32)
     }
 
-    /// Id de classe do runtime de uma classe do programa.
+    /// Runtime class id of a program class.
     pub fn class_id_of(&self, cid: dartforge_elements::model::ClassId) -> Option<u32> {
         self.class_ids.get(cid.0 as usize).copied().flatten()
     }
@@ -625,16 +625,16 @@ impl<'a> Context<'a> {
         self.interner.resolve(sym)
     }
 
-    /// O tipo estático de `expr`, **apagado** (`erasure.rs`): é o tipo
-    /// que o valor tem em tempo de execução, o que decide representação,
-    /// caminhos rápidos e testes de tipo.
+    /// The static type of `expr`, **erased** (`erasure.rs`): it is the type
+    /// the value has at run time, which decides representation,
+    /// fast paths and type tests.
     pub fn get_type(&self, unit: UnitId, expr: dartforge_frontend::ast::ExprId) -> Option<TypeId> {
         self.get_type_raw(unit, expr).map(|t| self.te.erase(t))
     }
 
-    /// O tipo estático de `expr` como a inferência o deu, com os tipos de
-    /// extensão: só a rota dos membros deles e os argumentos de tipo desses
-    /// membros o usam.
+    /// The static type of `expr` as inference gave it, with extension
+    /// types: only the route of their members and the type arguments of those
+    /// members use it.
     pub fn get_type_raw(&self, unit: UnitId, expr: dartforge_frontend::ast::ExprId) -> Option<TypeId> {
         let u_idx = unit.0 as usize;
         if u_idx < self.bodies.units.len() {
@@ -644,12 +644,12 @@ impl<'a> Context<'a> {
         }
     }
 
-    /// O tipo apagado de `t` (ver [`Context::get_type`]).
+    /// The erased type of `t` (see [`Context::get_type`]).
     pub fn erase(&self, t: TypeId) -> TypeId {
         self.te.erase(t)
     }
 
-    /// `c` é um tipo de extensão (apagado em tempo de execução).
+    /// `c` is an extension type (erased at run time).
     pub fn is_extension_type(&self, c: dartforge_elements::model::ClassId) -> bool {
         self.program.classes[c.0 as usize].kind == dartforge_elements::model::ClassKind::ExtensionType
     }
@@ -736,30 +736,30 @@ impl<'a> Context<'a> {
         ty == self.core.void_
     }
 
-    /// Representação de um tipo Dart (R1, `docs/NATIVO-PLANO.md` §6.2).
+    /// Representation of a Dart type (R1, `docs/NATIVO-PLANO.md` §6.2).
     ///
-    /// Só `int`, `double` e `bool` **não anuláveis** são escalares; qualquer
-    /// tipo anulável (`int?` inclusive), `num`, `Object`, `dynamic` e
-    /// parâmetros de tipo são `Ref` — `Type` inclusive: é o objeto canônico
-    /// do RTI (`lower/rti.rs`).
-    /// O tipo HIR do retorno da função `fid` (declarado ou inferido). Uma
-    /// função `void` de corpo `=> e` síncrono devolve o valor de `e` (`Ref`):
-    /// o `void` é só estático, e quem chama por `dynamic` ou `Function`
-    /// recebe o valor, como na VM (o `handleSpace` do `intl`, `void f() =>
-    /// cond ? '' : erro()`, guardado num `Map<String, Function>` e chamado
-    /// para escrever o resultado; docs/NATIVO-PROJETOS-REAIS.md C23). Quem
-    /// chama direto ignora o valor.
+    /// Only **non-nullable** `int`, `double` and `bool` are scalars; any
+    /// nullable type (`int?` included), `num`, `Object`, `dynamic` and
+    /// type parameters are `Ref` — `Type` included: it is the canonical object
+    /// of the RTI (`lower/rti.rs`).
+    /// The HIR type of the return of function `fid` (declared or inferred). A
+    /// synchronous `void` function with a `=> e` body returns the value of `e` (`Ref`):
+    /// the `void` is only static, and whoever calls through `dynamic` or `Function`
+    /// receives the value, as in the VM (the `handleSpace` of `intl`, `void f() =>
+    /// cond ? '' : error()`, kept in a `Map<String, Function>` and called
+    /// to write the result; docs/NATIVO-PROJETOS-REAIS.md C23). Direct
+    /// callers ignore the value.
     pub fn hir_return(&self, fid: usize) -> crate::hir::Type {
         let Some(d) = self.outline.functions.get(fid) else { return crate::hir::Type::Ref };
         let t = self.to_hir_type(d.return_type);
         if t == crate::hir::Type::Void && self.arrow_void(fid) { crate::hir::Type::Ref } else { t }
     }
 
-    /// `void f() => e;` síncrono, função ou método comum (não getter, setter,
-    /// operador nem construtor). Ver [`Self::hir_return`].
+    /// A synchronous `void f() => e;`, an ordinary function or method (not a getter, setter,
+    /// operator or constructor). See [`Self::hir_return`].
     fn arrow_void(&self, fid: usize) -> bool {
         let f = &self.program.functions[fid];
-        // O `main` é chamado pela entrada como `void` (`lower/mod.rs`).
+        // `main` is called by the entry as `void` (`lower/mod.rs`).
         if f.kind != dartforge_elements::model::FunctionKind::Function
             || (f.class.is_none() && self.symbol_name(f.name) == "main")
         {
@@ -791,23 +791,23 @@ impl<'a> Context<'a> {
         }
     }
 
-    /// Tipo declarado (ou inferido) da variável local cujo nome começa em
+    /// Declared (or inferred) type of the local variable whose name starts at
     /// `offset` (R6).
     pub fn local_type(&self, unit: UnitId, offset: usize) -> Option<TypeId> {
         self.semantic_local_type(unit, offset).map(|t| self.erase(t))
     }
 
-    /// Classifica a obrigação estática; None ainda exige prova no lowering.
+    /// Classifies the static obligation; None still requires proof in the lowering.
     pub(crate) fn classify_finalizable(&self, ty: TypeId) -> Option<bool> {
         crate::finalizables::classify(self.table, &self.outline.hierarchy, self.finalizable_class, ty)
     }
 
-    /// Obrigação de um receptor cuja identidade de classe já é conhecida.
+    /// Obligation of a receiver whose class identity is already known.
     pub(crate) fn classify_finalizable_class(&self, cls: dartforge_elements::model::ClassId) -> Option<bool> {
         crate::finalizables::classify_class(&self.outline.hierarchy, self.finalizable_class, cls)
     }
 
-    /// Tipo estático de this no membro: classe ou tipo on de uma extensão.
+    /// Static type of this in the member: the class or the on type of an extension.
     pub(crate) fn classify_this(&self, fid: usize) -> Option<bool> {
         let f = self.program.functions.get(fid)?;
         if let Some(e) = f.extension {
@@ -817,16 +817,16 @@ impl<'a> Context<'a> {
         }
     }
 
-    /// Tipo Dart original da declaração, antes do apagamento para representação.
-    /// Obrigações léxicas dependem da identidade estática, inclusive de tipos
-    /// de extensão; ausência na tabela não prova ausência dessas obrigações.
+    /// Original Dart type of the declaration, before erasure to a representation.
+    /// Lexical obligations depend on the static identity, including extension
+    /// types; absence in the table does not prove the absence of those obligations.
     pub(crate) fn semantic_local_type(&self, unit: UnitId, offset: usize) -> Option<TypeId> {
         self.bodies.units.get(unit.0 as usize)?.tipo_local(offset)
     }
 }
 
-/// Os ids das classes do SDK compilado: `(library, class) → id`, e o
-/// primeiro id livre depois deles (onde começam as do programa).
+/// The ids of the classes of the compiled SDK: `(library, class) → id`, and the
+/// first free id after them (where the program ones start).
 #[derive(Debug, Clone, Default)]
 pub struct IdTable {
     pub ids: std::collections::HashMap<(String, String), u32>,
@@ -834,8 +834,8 @@ pub struct IdTable {
 }
 
 impl IdTable {
-    /// A tabela em texto: uma linha `id\tbiblioteca\tclasse` por classe e
-    /// a última `next_item\t<n>`.
+    /// The table as text: one `id\tlibrary\tclass` line per class and
+    /// a last `proximo\t<n>` line.
     pub fn to_text(&self) -> String {
         let mut v: Vec<_> = self.ids.iter().collect();
         v.sort_by_key(|(_, id)| **id);
@@ -847,7 +847,7 @@ impl IdTable {
         t
     }
 
-    /// Lê o texto de [`IdTable::to_text`].
+    /// Reads the text of [`IdTable::to_text`].
     pub fn from_string(t: &str) -> Option<Self> {
         let mut table = IdTable::default();
         for line in t.lines() {
@@ -866,10 +866,10 @@ impl IdTable {
     }
 }
 
-/// Numera as classes das bibliotecas do SDK que `compiled` marca, pela
-/// ordem (biblioteca, classe), a partir de 1, pulando 1000–1012 (os ids do
-/// runtime). É a fonte única dos ids do SDK: o módulo do SDK a calcula com
-/// todas as bibliotecas carregadas, e o programa recebe a mesma tabela.
+/// Numbers the classes of the SDK libraries that `compiled` marks, in
+/// (library, class) order, starting from 1, skipping 1000–1012 (the runtime
+/// ids). It is the single source of the SDK ids: the SDK module computes it with
+/// every library loaded, and the program receives the same table.
 pub fn sdk_class_ids(program: &Program, interner: &Interner, compiled: &[bool]) -> IdTable {
     let mut keys: Vec<(String, String)> = program
         .classes
@@ -879,10 +879,10 @@ pub fn sdk_class_ids(program: &Program, interner: &Interner, compiled: &[bool]) 
         .collect();
     keys.sort();
     let mut table = IdTable::default();
-    // As classes que o runtime conhece têm o cid fixo do contrato de layout
-    // (docs/NATIVO-ESPACO-UNIFICADO.md §2.4, `layout::cid::FROM_SDK`): 1–127 ficam
-    // reservados (quem não existe no SDK carregado fica sem instâncias) e as
-    // demais começam em `PRIMEIRO_CID_LIVRE`, pulando 1000–1012.
+    // The classes the runtime knows have the fixed cid of the layout contract
+    // (docs/NATIVO-ESPACO-UNIFICADO.md §2.4, `layout::cid::FROM_SDK`): 1–127 stay
+    // reserved (those that do not exist in the loaded SDK have no instances) and the
+    // others start at `PRIMEIRO_CID_LIVRE`, skipping 1000–1012.
     let fixed_set: std::collections::HashMap<(&str, &str), u32> =
         dartforge_runtime::layout::cid::DO_SDK.iter().map(|&(c, lib, name)| ((lib, name), c as u32)).collect();
     let mut next = dartforge_runtime::layout::PRIMEIRO_CID_LIVRE as u32;
@@ -901,9 +901,9 @@ pub fn sdk_class_ids(program: &Program, interner: &Interner, compiled: &[bool]) 
     table
 }
 
-/// Os ids das classes do programa escritos no IR por uma geração
-/// (`; df.class <id> <library> <class>`, com as partes escapadas por
-/// [`escape_str`]), por `(library, class)`.
+/// The ids of the program classes written into the IR by a generation
+/// (`; df.class <id> <library> <class>`, with the parts escaped by
+/// [`escape_str`]), by `(library, class)`.
 pub fn ir_ids(ir: &str) -> std::collections::HashMap<(String, String), u32> {
     ir.lines()
         .filter_map(|l| {
@@ -914,7 +914,7 @@ pub fn ir_ids(ir: &str) -> std::collections::HashMap<(String, String), u32> {
         .collect()
 }
 
-/// O inverso de [`escape_str`].
+/// The inverse of [`escape_str`].
 pub fn unescape(part: &str) -> Option<String> {
     let b = part.as_bytes();
     let mut v = Vec::with_capacity(b.len());

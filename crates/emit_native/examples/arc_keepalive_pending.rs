@@ -1,14 +1,14 @@
-//! Prova AOT de keepalive e cleanup ao redor de uma guarda pending.
-//! Usa o getter auditado de record e uma pendência real pré-carregada no
-//! caminho de erro; o getter não lança por si mesmo e o catálogo o declara
-//! sem pendência (efeitos `0 0 0`, conferidos), então a guarda é um desvio
-//! comum sobre a flag: a cópia Owned do resultado vem logo após o getter e
-//! o caminho de erro solta o receiver e a cópia. Não confundir esta prova
-//! do desvio com uma exceção originada dentro do getter.
-//! O harness LLVM prepara o record, observa endereços sem raízes e confere
-//! identidade da exceção, sobrevivência Owned e morte após a última liberação.
-//! Tracing executa o mesmo corpo com tokens explícitos, sem mudar seu fluxo
-//! padrão. Não prova lowering de fonte, suspensão, recarga ou unwinding.
+//! AOT proof of keepalive and cleanup around a pending guard.
+//! Uses the audited record getter and a real pending state preloaded on the
+//! error path; the getter does not throw by itself and the catalog declares it
+//! without a pending state (effects `0 0 0`, checked), so the guard is an ordinary
+//! branch on the flag: the Owned copy of the result comes right after the getter and
+//! the error path releases the receiver and the copy. Do not confuse this proof
+//! of the branch with an exception originating inside the getter.
+//! The LLVM harness prepares the record, observes addresses without roots and checks
+//! the identity of the exception, Owned survival and death after the last release.
+//! Tracing runs the same body with explicit tokens, without changing its default
+//! flow. Does not prove source lowering, suspension, reload or unwinding.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
@@ -126,9 +126,9 @@ fn main() -> Result<(), String> {
     let mut m = module()?;
     m.arc_memory = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
-    // O record legado pertence somente ao harness: retain imediatamente
-    // após sua construção, sem alocar antes da publicação do owner. A prova
-    // não atribui um contrato Owned auditado ao alocador legado no lowering.
+    // The legacy record belongs only to the harness: retain right
+    // after its construction, without allocating before the owner is published. The proof
+    // does not assign an audited Owned contract to the legacy allocator in the lowering.
     ir.push_str(
         &r#"
 declare void @dartforge_print_handle(i64)
@@ -216,7 +216,7 @@ passou:
             ir = ir.replace("  call void @dartforge_arc_release(i64 %retorno)\n", "");
         }
         Some("copia-no-erro") if error => {
-            // O emissor lê a flag do Contexto em linha neste modo.
+            // The emitter reads the flag of the Context inline in this mode.
             let guard = "  %v3 = load i8, ptr %ctx, align 8\n";
             if ir.matches(guard).count() != 1 {
                 return Err("guarda pending ausente no IR".into());

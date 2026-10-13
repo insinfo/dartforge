@@ -1,11 +1,11 @@
-//! Lowering do AST e tabelas de tipos para a HIR nativa.
+//! Lowering of the AST and type tables to the native HIR.
 //!
-//! O contrato entre este lowering, o emissor e o runtime está em
+//! The contract between this lowering, the emitter and the runtime is in
 //! `docs/NATIVO-PLANO.md` §6 (R, E, N, G).
 
 pub mod async_sm;
 pub mod assignment;
-/// Os membros de caixas, closures e records em linha (P2 do espaço unificado).
+/// The inline members of boxes, closures and records (P2 of the unified space).
 pub mod boxes;
 pub mod capture;
 pub mod cascade;
@@ -25,7 +25,7 @@ pub mod externals;
 pub mod fn_builder;
 pub mod direct_functions;
 pub mod inheritance;
-/// Os membros de `_List`/`_GrowableList` em linha (P3 do espaço unificado).
+/// The inline members of `_List`/`_GrowableList` (P3 of the unified space).
 pub mod lists;
 pub mod literals;
 pub mod locals;
@@ -70,25 +70,25 @@ pub fn sanitize_symbol(name: &str) -> String {
     }).collect()
 }
 
-/// A função é do programa do usuário (não do SDK)?
+/// Does the function belong to the user program (not to the SDK)?
 ///
-/// Com a seção `vm` carregada de verdade, `Program::functions` tem o
-/// `dart:core` inteiro. O backend nativo não compila o SDK a partir da fonte
-/// (ainda — `docs/NATIVO-PLANO.md` §4, item 7): o runtime em Rust implementa
-/// o que o corpus usa. Então só as funções do usuário viram símbolo, e uma
-/// chamada a uma função do SDK que não tem implementação no runtime é
-/// diagnóstico (N1), não `call` para um símbolo que não existe.
+/// With the `vm` section really loaded, `Program::functions` has the whole
+/// `dart:core`. The native backend does not compile the SDK from source
+/// (yet — `docs/NATIVO-PLANO.md` §4, item 7): the Rust runtime implements
+/// what the corpus uses. So only user functions become symbols, and a
+/// call to an SDK function that has no implementation in the runtime is a
+/// diagnostic (N1), not a `call` to a symbol that does not exist.
 pub fn user_function(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
     ctx.compiled_library(f.library)
 }
 
-/// A função é construtor generativo (inclusive o sintético): não devolve
-/// nada e recebe `this` já alocado (N5).
+/// The function is a generative constructor (the synthetic one included): it returns
+/// nothing and receives an already allocated `this` (N5).
 pub fn generative_constructor(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
     match f.node {
-        // O de tipo de extensão devolve a representação, como uma fábrica
+        // That of an extension type returns the representation, like a factory
         // (`extension_types.rs`).
         FunctionRef::Constructor { .. } => !f.factory && !f.class.is_some_and(|c| ctx.is_extension_type(c)),
         FunctionRef::None => f.kind == FunctionKind::SyntheticConstructor,
@@ -96,8 +96,8 @@ pub fn generative_constructor(ctx: &Context, fid: usize) -> bool {
     }
 }
 
-/// O dono de um membro no símbolo: a classe, a extensão (`ext:<name>`) ou
-/// vazio para o topo.
+/// The owner of a member in the symbol: the class, the extension (`ext:<name>`) or
+/// empty for the top level.
 fn owner_in_symbol(ctx: &Context, class: Option<dartforge_elements::model::ClassId>, ext: Option<dartforge_elements::model::ExtensionId>) -> String {
     if let Some(c) = class {
         return ctx.symbol_name(ctx.program.classes[c.0 as usize].name).to_string();
@@ -112,14 +112,14 @@ fn owner_in_symbol(ctx: &Context, class: Option<dartforge_elements::model::Class
     String::new()
 }
 
-/// Símbolo estável de uma função do programa (P2, docs/NATIVO-PLANO.md
-/// §7.4): `df.<library>.<owner>.<member>`, derivado do **caminho** da
-/// declaração — nunca de índices internos do front-end —, com cada parte
-/// escapada (`context::escape_str`). O membro é o nome; o setter termina em
-/// `=`; o construtor é `new` ou `new:<name>`. `main` da biblioteca de
-/// entrada é `dart_main`. Inserir ou reordenar declarações não muda o
-/// símbolo de nenhuma outra: é a chave do cache de objeto por biblioteca e da
-/// recarga (hot reload R1).
+/// Stable symbol of a program function (P2, docs/NATIVO-PLANO.md
+/// §7.4): `df.<library>.<owner>.<member>`, derived from the **path** of the
+/// declaration — never from internal indices of the front end —, with each part
+/// escaped (`context::escape_str`). The member is the name; a setter ends with
+/// `=`; a constructor is `new` or `new:<name>`. The `main` of the entry
+/// library is `dart_main`. Inserting or reordering declarations does not change the
+/// symbol of any other: it is the key of the per-library object cache and of
+/// reload (hot reload R1).
 pub fn symbol_of(ctx: &Context, fid: usize) -> String {
     let f = &ctx.program.functions[fid];
     let name_str = ctx.symbol_name(f.name);
@@ -141,11 +141,11 @@ pub fn symbol_of(ctx: &Context, fid: usize) -> String {
     )
 }
 
-/// Variável de topo ou campo estático: mora num global do módulo (N6).
+/// Top-level variable or static field: lives in a module global (N6).
 pub fn is_global(ctx: &Context, vid: VariableId) -> bool {
     let v = &ctx.program.variables[vid.0 as usize];
-    // Campos de extensão são sempre estáticos (§13): globais como os de
-    // classe.
+    // Extension fields are always static (§13): globals like those of a
+    // class.
     (v.class.is_none() || v.static_)
         && (v.extension.is_none() || v.static_)
         && matches!(
@@ -154,7 +154,7 @@ pub fn is_global(ctx: &Context, vid: VariableId) -> bool {
         )
 }
 
-/// Caminho estável de uma variável de topo ou campo estático (P2).
+/// Stable path of a top-level variable or static field (P2).
 fn variable_path(ctx: &Context, vid: VariableId) -> String {
     let v = &ctx.program.variables[vid.0 as usize];
     format!(
@@ -165,17 +165,17 @@ fn variable_path(ctx: &Context, vid: VariableId) -> String {
     )
 }
 
-/// Getter preguiçoso de um global: `df.<path>`.
+/// Lazy getter of a global: `df.<path>`.
 pub fn global_symbol(ctx: &Context, vid: VariableId) -> String {
     format!("df.{}", variable_path(ctx, vid))
 }
 
-/// O valor de um global: `dfg.<path>` (a bandeira é `<value>$ok`).
+/// The value of a global: `dfg.<path>` (the flag is `<value>$ok`).
 pub fn global_value_symbol(ctx: &Context, vid: VariableId) -> String {
     format!("dfg.{}", variable_path(ctx, vid))
 }
 
-/// Getter dedicado de um campo de instância `late` com inicializador.
+/// Dedicated getter of a `late` instance field with an initializer.
 pub fn late_field_getter_symbol(ctx: &Context, vid: VariableId) -> String {
     format!("df.late.{}", variable_path(ctx, vid))
 }
@@ -184,8 +184,8 @@ pub fn lower_program(ctx: &Context) -> Module {
     let mut module = Module::new();
     module.arc_memory = ctx.arc_memory;
 
-    // 1. Registra classes conhecidas
-    // Classe Object padrão como id 0
+    // 1. Registers known classes
+    // Default Object class as id 0
     module.classes.push(ClassDef {
         id: 0,
         name: "Object".to_string(),
@@ -194,18 +194,18 @@ pub fn lower_program(ctx: &Context) -> Module {
         to_string_symbol: None,
     });
 
-    // O SDK vem sempre da fonte (docs/NATIVO-ESPACO-UNIFICADO.md §4.7): as
-    // classes de erro são as dele (P5c).
+    // The SDK always comes from source (docs/NATIVO-ESPACO-UNIFICADO.md §4.7): the
+    // error classes are its own (P5c).
     module.sdk_mode = true;
     module.sdk_library = ctx.sdk_library;
     module.dwarf = ctx.dwarf;
     lower_classes_and_functions(ctx, module)
 }
 
-/// Os campos do `dart:async` que o rastro simbólico percorre para achar quem
-/// espera (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14; os
-/// `USED_FIELD_LIST` do `AsyncAwareStackUnwinder` da VM), quando este módulo
-/// tem as classes deles: a posição de cada um no objeto.
+/// The `dart:async` fields that the symbolic stack trace walks to find who
+/// awaits (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14; the
+/// `USED_FIELD_LIST` of the VM's `AsyncAwareStackUnwinder`), when this module
+/// has their classes: the position of each one in the object.
 fn trace_fields(ctx: &Context, module: &mut Module) {
     if !ctx.stack_trace {
         return;
@@ -233,10 +233,10 @@ fn trace_fields(ctx: &Context, module: &mut Module) {
         ("_StreamIterator", "_stateData"),
         ("_AddStreamState", "addStreamFuture"),
     ];
-    // O runtime acha o campo pela classe exata do objeto: a declarante e as
-    // subclasses dela (o `_SyncStreamController` de um `_StreamController`,
-    // o `_ControllerSubscription` de uma `_BufferingStreamSubscription`),
-    // como o `Instance::GetField` da VM.
+    // The runtime finds the field by the exact class of the object: the declaring one and its
+    // subclasses (the `_SyncStreamController` of a `_StreamController`,
+    // the `_ControllerSubscription` of a `_BufferingStreamSubscription`),
+    // like the VM's `Instance::GetField`.
     for (class, field) in FIELDS {
         let Some(declarer) = ctx.sdk_class("async", class) else { continue };
         for (k, _) in ctx.program.classes.iter().enumerate() {
@@ -265,9 +265,9 @@ fn trace_fields(ctx: &Context, module: &mut Module) {
     }
 }
 
-/// As entradas de tear-off dos ramos de stream do rastro (§13.14) que este
-/// módulo definiu: o `_StreamIterator._onData` (o `await for`) e o
-/// `_StreamController._add` (o `yield*`).
+/// The tear-off entries of the stream branches of the stack trace (§13.14) that this
+/// module defined: `_StreamIterator._onData` (the `await for`) and
+/// `_StreamController._add` (the `yield*`).
 fn stack_trace_tearoffs(ctx: &Context, module: &mut Module) {
     if !ctx.stack_trace {
         return;
@@ -284,10 +284,10 @@ fn stack_trace_tearoffs(ctx: &Context, module: &mut Module) {
     }
 }
 
-/// Os layouts ARC declarados das classes do SDK da fonte (as que este módulo
-/// não emite), como o módulo de cada biblioteca do SDK os registra
-/// (`layouts_arc::register`): os `arc_external_layouts` do programa
-/// preparado contra o SDK preparado.
+/// The declared ARC layouts of the classes of the source SDK (those this module
+/// does not emit), as the module of each SDK library registers them
+/// (`layouts_arc::register`): the `arc_external_layouts` of the program
+/// prepared against the prepared SDK.
 pub fn sdk_arc_layouts(ctx: &Context) -> std::collections::HashMap<u32, Vec<Type>> {
     let mut m = Module::new();
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
@@ -301,16 +301,16 @@ pub fn sdk_arc_layouts(ctx: &Context) -> std::collections::HashMap<u32, Vec<Type
     m.arc_field_layouts
 }
 
-// Compartilhado com a auditoria dos fatos de layout, sem baixar corpos.
+// Shared with the audit of the layout facts, without lowering bodies.
 fn register_program_classes(ctx: &Context, module: &mut Module) {
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
-        // Registra as classes das bibliotecas emitidas neste módulo. O layout
-        // declarado do SDK não certifica a forma física usada pelo runtime.
+        // Registers the classes of the libraries emitted in this module. The declared
+        // layout of the SDK does not certify the physical shape used by the runtime.
         if !ctx.library_in_module(class.library) {
             continue;
         }
         let name = ctx.symbol_name(class.name).to_string();
-        // Id estável (P2): a ordem do caminho da classe, não a de carga.
+        // Stable id (P2): the order of the path of the class, not the load order.
         let Some(class_id) = ctx.class_id_of(dartforge_elements::model::ClassId(c_idx as u32)) else {
             continue;
         };
@@ -326,14 +326,14 @@ fn register_program_classes(ctx: &Context, module: &mut Module) {
             to_string_symbol: None,
         });
 
-        // Registra arestas de subtipagem
-        module.subtyping_edges.push((class_id, 0)); // Todo tipo nominal herda de Object
+        // Registers subtyping edges
+        module.subtyping_edges.push((class_id, 0)); // Every nominal type inherits from Object
         if let Some(sup) = class.supertype_class.and_then(|s| ctx.class_id_of(s)) {
             module.subtyping_edges.push((class_id, sup));
         }
-        // Enum do programa é subtipo do `Enum` do SDK (especificação §13):
-        // sem a aresta, `value is Enum` respondia falso. A superclasse do
-        // outline não carrega o `Enum`, então a aresta é registrada aqui.
+        // A program enum is a subtype of the SDK `Enum` (specification §13):
+        // without the edge, `value is Enum` answered false. The superclass of the
+        // outline does not carry `Enum`, so the edge is registered here.
         if !ctx.program.library(class.library).is_sdk
             && enums::is_enum(ctx, dartforge_elements::model::ClassId(c_idx as u32))
             && let Some(enum_sdk) = ctx.sdk_class("core", "Enum")
@@ -358,7 +358,7 @@ fn lower_classes_and_functions(ctx: &Context, mut module: Module) -> Module {
     trace_fields(ctx, &mut module);
     register_program_classes(ctx, &mut module);
 
-    // 2. Funções do usuário
+    // 2. User functions
     let functions: Vec<usize> = (0..ctx.program.functions.len())
         .filter(|&f| ctx.library_in_module(ctx.program.functions[f].library))
         .collect();
@@ -374,8 +374,8 @@ fn lower_classes_and_functions(ctx: &Context, mut module: Module) -> Module {
     module
 }
 
-/// Baixa uma função do módulo: a do SDK da fonte (P5c) é recusada sozinha,
-/// com o motivo, quando não baixa (`sdk_source.rs`).
+/// Lowers a function of the module: one of the source SDK (P5c) is rejected on its own,
+/// with the reason, when it does not lower (`sdk_source.rs`).
 fn lower_one(ctx: &Context, module: &mut Module, f_idx: usize) {
     if ctx.program.library(ctx.program.functions[f_idx].library).is_sdk {
         sdk_source::lower_function_or_reject(ctx, module, f_idx);
@@ -384,8 +384,8 @@ fn lower_one(ctx: &Context, module: &mut Module, f_idx: usize) {
     }
 }
 
-/// Quantas threads baixam as funções: as da máquina, no máximo 4
-/// (`DARTFORGE_THREADS_HIR`; 1 = sequencial).
+/// How many threads lower the functions: the machine's, at most 4
+/// (`DARTFORGE_THREADS_HIR`; 1 = sequential).
 fn lowering_threads() -> usize {
     std::env::var("DARTFORGE_THREADS_HIR")
         .ok()
@@ -394,12 +394,12 @@ fn lowering_threads() -> usize {
         .max(1)
 }
 
-/// Baixa as funções `functions` para `module`. O programa grande vai em
-/// pedaços contíguos, um por thread, cada um num módulo próprio, juntados
-/// na ordem: o resultado é o da ordem sequencial (o mesmo IR, as mesmas
-/// chaves no cache de objetos). Cada função só escreve no módulo as próprias
-/// funções, globais, erros e recusas, o `toString` da classe dela e a
-/// entrada (`main`); o contexto só tem memórias de consulta.
+/// Lowers the functions `functions` into `module`. A large program goes in
+/// contiguous chunks, one per thread, each one into its own module, joined
+/// in order: the result is that of the sequential order (the same IR, the same
+/// keys in the object cache). Each function only writes into the module its own
+/// functions, globals, errors and rejections, the `toString` of its class and the
+/// entry (`main`); the context only has query memos.
 fn lower_functions(ctx: &Context, module: &mut Module, functions: &[usize]) {
     let n = lowering_threads();
     if n == 1 || functions.len() < 4096 {
@@ -408,8 +408,8 @@ fn lower_functions(ctx: &Context, module: &mut Module, functions: &[usize]) {
         }
         return;
     }
-    // Pedaços pequenos distribuídos sob demanda (as funções caras se
-    // agrupam), cada um no seu módulo; a junção segue a ordem dos pedaços.
+    // Small chunks distributed on demand (the expensive functions
+    // cluster), each into its own module; the join follows the order of the chunks.
     let sdk_mode = module.sdk_mode;
     let sdk_library = module.sdk_library;
     let classes = &module.classes;
@@ -421,7 +421,7 @@ fn lower_functions(ctx: &Context, module: &mut Module, functions: &[usize]) {
             .map(|_| {
                 let (chunks, done_set, next_item) = (&chunks, &done_set, &next_item);
                 std::thread::Builder::new()
-                    // A mesma pilha da thread da compilação (`lib.rs`).
+                    // The same stack as the compilation thread (`lib.rs`).
                     .stack_size(64 << 20)
                     .spawn_scoped(s, move || loop {
                         let i = next_item.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -465,10 +465,10 @@ fn lower_functions(ctx: &Context, module: &mut Module, functions: &[usize]) {
     }
 }
 
-/// P6: os símbolos das funções da fonte que têm corpo — um `external` cujo
-/// patch o carregador não ligou (`patched_by` vazio, NATIVO-PEDIDOS) tem o
-/// mesmo símbolo do membro do patch, e quem vale é o patch. Calculado uma vez
-/// por contexto.
+/// P6: the symbols of the source functions that have a body — an `external` whose
+/// patch the loader did not bind (`patched_by` empty, NATIVO-PEDIDOS) has the
+/// same symbol as the patch member, and the patch is what counts. Computed once
+/// per context.
 fn with_source_body<'c>(ctx: &'c Context) -> &'c std::collections::HashSet<String> {
     ctx.with_source_body.get_or_init(|| {
         ctx.program
@@ -481,12 +481,12 @@ fn with_source_body<'c>(ctx: &'c Context) -> &'c std::collections::HashSet<Strin
     })
 }
 
-/// Junta a `dest` os fatos ARC que o lowering de `origin` produziu (por
-/// símbolo e por ID SSA da mesma função): parâmetros escalares/RTI/vetores,
-/// retornos Ref e uniformes, caches RTI, funções compartilhadas e locais
-/// diretas, e sítios de alocação. Um pedaço baixado à parte que perde algum
-/// deles muda a convenção ARC da função em silêncio — o retorno Ref sem
-/// `dart_ref_returns` deixava de ser Owned.
+/// Joins into `dest` the ARC facts that the lowering of `origin` produced (by
+/// symbol and by SSA ID of the same function): scalar/RTI/vector parameters,
+/// Ref and uniform returns, RTI caches, shared and direct local functions,
+/// and allocation sites. A separately lowered chunk that loses any of
+/// them changes the ARC convention of the function silently — the Ref return without
+/// `dart_ref_returns` was no longer Owned.
 pub(crate) fn join_arc_facts(dest: &mut Module, origin: &mut Module) {
     dest.dart_scalar_parameters.extend(std::mem::take(&mut origin.dart_scalar_parameters));
     dest.dart_rti_parameters.extend(std::mem::take(&mut origin.dart_rti_parameters));
@@ -500,14 +500,14 @@ pub(crate) fn join_arc_facts(dest: &mut Module, origin: &mut Module) {
     dest.dart_scalar_globals.extend(std::mem::take(&mut origin.dart_scalar_globals));
 }
 
-/// Baixa uma função (de topo, método, construtor) para o módulo.
+/// Lowers a function (top-level, method, constructor) into the module.
 pub fn lower_function(ctx: &Context, module: &mut Module, f_idx: usize) {
     let start = module.functions.len();
     let symbol = symbol_of(ctx, f_idx);
     lower_one_function(ctx, module, f_idx);
     crate::optimize::arc::analysis::origins::register(module, start, ctx.arc_memory);
-    // A convenção pertence ao corpo Dart identificado pelo front-end, não à
-    // largura de retornos de thunks/FFI ou de funções extras criadas no corpo.
+    // The convention belongs to the Dart body identified by the front end, not to the
+    // width of returns of thunks/FFI or of extra functions created in the body.
     if ctx.arc_memory
         && module.functions[start..].iter().any(|f| f.symbol == symbol && f.return_ty == Type::Ref)
     {
@@ -518,9 +518,9 @@ pub fn lower_function(ctx: &Context, module: &mut Module, f_idx: usize) {
 fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
     let func_elem = &ctx.program.functions[f_idx];
     if func_elem.external {
-        // `external` (inclusive construtor): o corpo é o do patch ou o
-        // native (`sdk_source::call_external`); nada a baixar aqui — um
-        // corpo vazio com o mesmo símbolo tomaria o lugar do patch.
+        // `external` (constructor included): the body is that of the patch or the
+        // native (`sdk_source::call_external`); nothing to lower here — an
+        // empty body with the same symbol would take the place of the patch.
         return;
     }
     {
@@ -532,8 +532,8 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 let ast = &ctx.program.unit(unit).ast;
                 let ast_func = ast.function(function);
                 if matches!(ast_func.body, FunctionBody::Empty | FunctionBody::Native(_)) {
-                    // P6: `external` de biblioteca da fonte com native — o
-                    // corpo é a chamada ao runtime (`externals.rs`).
+                    // P6: an `external` of a source library with a native — the
+                    // body is the call to the runtime (`externals.rs`).
                     if func_elem.external
                         && func_elem.patched_by.is_none()
                         && ctx.from_source.contains(&func_elem.library)
@@ -553,7 +553,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                         }
                         builder.finish(module);
                     }
-                    // Abstrato ou externo: não há corpo a compilar.
+                    // Abstract or external: there is no body to compile.
                     return;
                 }
 
@@ -581,9 +581,9 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 };
 
                 let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), ret_ty);
-                // O rastro simbólico (§13.14): o token da função, os apoios
-                // ocultos do `async_patch` e `_FutureListener.handleValue`,
-                // cujo ouvinte começa a cadeia de quem espera.
+                // The symbolic stack trace (§13.14): the token of the function, the hidden
+                // supports of `async_patch` and `_FutureListener.handleValue`,
+                // whose listener starts the chain of awaiters.
                 if ctx.stack_trace {
                     builder.stack_trace.token = ast_func.name.and_then(|n| ctx.line_and_column(unit, n.span.start));
                     if crate::source::has_pragma(ctx.program, ctx.interner, f_idx, "dartforge:rastro-oculto") {
@@ -596,8 +596,8 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                         builder.stack_trace.marks |= crate::hir::stack_trace_marks::LISTEN;
                     }
                 }
-                // A análise de capturas percorre o corpo inteiro; o corpo
-                // podado (C7) não o usa.
+                // The capture analysis walks the whole body; the pruned
+                // body (C7) does not use it.
                 if !ctx.pruned_function(f_idx) {
                     builder.prepare_captures(
                         ast,
@@ -610,9 +610,9 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 }
                 let is_instance_member = func_elem.class.is_some() && !func_elem.static_;
                 if let Some(e) = func_elem.extension.filter(|_| !func_elem.static_) {
-                    // Membro de instância de extensão (P4): o receptor é o
-                    // primeiro parâmetro, na representação do tipo `on` (com
-                    // fato de parâmetro escalar quando ela é escalar).
+                    // Extension instance member (P4): the receiver is the
+                    // first parameter, in the representation of the `on` type (with
+                    // a scalar parameter fact when it is scalar).
                     let r = builder.extension_receiver_repr(e);
                     let this = builder.add_param_dart("this".to_string(), r);
                     builder.this_param = Some(Operand::Val(this));
@@ -626,9 +626,9 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                         builder.enclosing_class = Some(*class);
                     }
                 } else if let Some(c) = extension_types::instance_owner(ctx, f_idx) {
-                    // Membro de instância de tipo de extensão: o receptor é o
-                    // primeiro parâmetro, na representação; os parâmetros de
-                    // tipo do tipo vêm na tupla (`extension_types.rs`).
+                    // Extension type instance member: the receiver is the
+                    // first parameter, in the representation; the type
+                    // parameters of the type come in the tuple (`extension_types.rs`).
                     let r = builder.static_this_repr(f_idx).unwrap_or(Type::Ref);
                     let this = builder.add_param_dart("this".to_string(), r);
                     builder.this_param = Some(Operand::Val(this));
@@ -647,8 +647,8 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 {
                     builder.stack_trace.stack = Some((1, t));
                 }
-                // RTI: a função genérica recebe a tupla dos argumentos de
-                // tipo no último parâmetro (`M<i>` das receitas).
+                // RTI: a generic function receives the tuple of the type
+                // arguments in the last parameter (`M<i>` of the recipes).
                 if builder.generic_function(f_idx) {
                     let t = builder.add_param_rti("$tipos".to_string());
                     builder.type_tuple = Some(Operand::Val(t));
@@ -656,16 +656,16 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                         builder.type_params_of(f_idx).iter().map(|&p| ctx.table.param(p).name).collect();
                 }
 
-                // Fora do mundo fechado do programa (C7, `native_world.rs`):
-                // o símbolo fica (tabelas e entradas o citam), o corpo lança.
+                // Outside the closed world of the program (C7, `native_world.rs`):
+                // the symbol stays (tables and entries cite it), the body throws.
                 if ctx.pruned_function(f_idx) {
                     builder.pruned_body();
                     builder.finish(module);
                     return;
                 }
                 match ast_func.modifier {
-                    // P6: o corpo `async` vira máquina de estados
-                    // (`async_sm.rs`); os geradores `sync*`/`async*` também.
+                    // P6: the `async` body becomes a state machine
+                    // (`async_sm.rs`); the `sync*`/`async*` generators too.
                     dartforge_frontend::ast::AsyncModifier::None => match &ast_func.body {
                         FunctionBody::Block(stmt_id) => {
                             builder.lower_stmt(ast, *stmt_id);
@@ -696,8 +696,8 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 };
                 let Some(cid) = func_elem.class else { return };
                 if !func_elem.factory && ctx.is_extension_type(cid) {
-                    // Construtor generativo de tipo de extensão: devolve a
-                    // representação (`extension_types.rs`).
+                    // Generative constructor of an extension type: returns the
+                    // representation (`extension_types.rs`).
                     let ret = ctx.te.this.get(&cid).map_or(Type::Ref, |&t| ctx.to_hir_type(t));
                     let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), ret);
                     builder.prepare_captures(
@@ -714,7 +714,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                     return;
                 }
                 if func_elem.factory {
-                    // A fábrica de tipo de extensão devolve a representação.
+                    // The factory of an extension type returns the representation.
                     let ret = if ctx.is_extension_type(cid) {
                         ctx.te.this.get(&cid).map_or(Type::Ref, |&t| ctx.to_hir_type(t))
                     } else {
@@ -730,8 +730,8 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                         },
                     );
                     builder.declare_parameters(f_idx, false);
-                    // RTI: a fábrica de classe genérica recebe os argumentos
-                    // de tipo da classe na tupla (não há `this`).
+                    // RTI: the factory of a generic class receives the type arguments
+                    // of the class in the tuple (there is no `this`).
                     builder.enclosing_class = Some(cid);
                     if builder.generic_class(cid) {
                         let t = builder.add_param_rti("$tipos".to_string());
@@ -739,9 +739,9 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                         builder.class_by_tuple = true;
                     }
                     if let Some(r) = &ctor.redirect {
-                        // `factory C(…) = D.name;` (P4): os parâmetros passam
-                        // como estão (posicionais em ordem, nomeados pelo
-                        // nome) para o construtor alvo.
+                        // `factory C(…) = D.name;` (P4): the parameters pass
+                        // as they are (positionals in order, named ones by
+                        // name) to the target constructor.
                         let span = ast.member(member).span;
                         let alvo = builder.type_constructor(ast.ty(r.ty), r.constructor.map(|n| n.sym));
                         match alvo {
@@ -755,11 +755,11 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                                     .then_some(sym);
                                     evaluated.push((name_str, v));
                                 }
-                                // `factory C<T>(…) = C<T>._` deve entregar os
-                                // parâmetros reificados ao construtor alvo.
-                                // Sem isso, `MapEntry<K,V>` nasce como
-                                // `MapEntry<dynamic,dynamic>` mesmo quando a
-                                // fábrica recebeu `L<K,V>` pela ABI.
+                                // `factory C<T>(…) = C<T>._` must hand the
+                                // reified parameters to the target constructor.
+                                // Without that, `MapEntry<K,V>` is born as
+                                // `MapEntry<dynamic,dynamic>` even when the
+                                // factory received `L<K,V>` through the ABI.
                                 let target_class = ctx.program.functions[t.0 as usize].class;
                                 if target_class == Some(cid) {
                                     builder.creation_type = Some(ctx.outline.functions[f_idx].return_type);
@@ -780,8 +780,8 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                                 );
                                 builder.terminate(Terminator::Return(Some(r)));
                             }
-                            // `factory E.x(R v) = E;` para o primário de um
-                            // tipo de extensão: o próprio argumento.
+                            // `factory E.x(R v) = E;` for the primary one of an
+                            // extension type: the argument itself.
                             None if ctx.is_extension_type(cid)
                                 && extension_types::primary_name(ctx, cid)
                                     == r.constructor.map(|n| n.sym).or_else(|| ctx.interner.lookup(""))
@@ -828,8 +828,8 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 }
             }
             FunctionRef::None => {
-                // Construtor padrão sintético (`class A { int x = 1; }`):
-                // inicializadores de campo e `super()` implícito.
+                // Synthetic default constructor (`class A { int x = 1; }`):
+                // field initializers and the implicit `super()`.
                 if func_elem.kind != FunctionKind::SyntheticConstructor {
                     return;
                 }
@@ -847,8 +847,8 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
 }
 
 fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
-    // O inicializador não pode ser expandido em cada ponto de leitura: uma
-    // auto-referência deve chamar o getter em runtime e observar reentrância.
+    // The initializer cannot be expanded at each read point: a
+    // self-reference must call the getter at run time and observe reentrancy.
     for (v_idx, v) in ctx.program.variables.iter().enumerate() {
         let vid = VariableId(v_idx as u32);
         let VariableRef::Field { unit, member, index } = v.node else { continue };
@@ -871,7 +871,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
             b.this_param = Some(obj.clone());
             b.finalizable_this = v.class.and_then(|c| ctx.classify_finalizable_class(c));
             b.enclosing_class = v.class;
-            // Campo fora do mundo fechado (C7): ninguém o lê.
+            // A field outside the closed world (C7): nobody reads it.
             if ctx.pruned_field(vid) {
                 b.pruned_body();
                 b.finish(m);
@@ -880,13 +880,13 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
             b.lower_late_field_getter(obj, vid, ctx.program.unit(unit).ast.member(member).span);
             b.finish(m);
         };
-        // O getter que não baixa vira recusa, como os outros membros
+        // A getter that does not lower becomes a rejection, like the other members
         // (`sdk_source::lower_function_or_reject`).
         sdk_source::lower_late_getter_or_reject(ctx, &mut module, vid, unit, build);
     }
 
-    // 3. Variáveis de topo e campos estáticos do usuário: um getter
-    // preguiçoso por global (N6).
+    // 3. User top-level variables and static fields: one lazy
+    // getter per global (N6).
     for (v_idx, v) in ctx.program.variables.iter().enumerate() {
         let vid = VariableId(v_idx as u32);
         if !ctx.library_in_module(v.library) || !is_global(ctx, vid) {
@@ -899,7 +899,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
             _ => continue,
         };
         if matches!(v.node, VariableRef::EnumConstant { .. }) {
-            // Valor de enum (P3): objeto canônico criado na primeira leitura.
+            // Enum value (P3): a canonical object created on the first read.
             module.globals.push((vid.0, Type::Ref, global_value_symbol(ctx, vid)));
             let mut builder = fn_builder::FnBuilder::new(
                 ctx,
@@ -919,8 +919,8 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         if ctx.arc_memory && matches!(repr, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
             module.dart_scalar_globals.insert(global_value_symbol(ctx, vid));
         }
-        // O getter (ou a recusa dele) e o setter que outro módulo chama para
-        // gravar (P5c). Fora do mundo fechado (C7), o getter lança.
+        // The getter (or its rejection) and the setter that another module calls to
+        // write (P5c). Outside the closed world (C7), the getter throws.
         if ctx.pruned_global(vid) {
             sdk_source::lower_pruned_global(ctx, &mut module, vid, unit, repr);
             continue;
@@ -928,16 +928,16 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         sdk_source::lower_global_or_reject(ctx, &mut module, vid, unit, repr);
     }
 
-    // As entradas de tear-off são geradas por quem as usa; duas funções que
-    // tiram o mesmo tear-off geram a mesma entrada. Fica a primeira.
+    // The tear-off entries are generated by whoever uses them; two functions that
+    // take the same tear-off generate the same entry. The first one stays.
     let mut seen_set = std::collections::HashSet::new();
     module.functions.retain(|f| seen_set.insert(f.symbol.clone()));
     let mut seen_set = std::collections::HashSet::new();
     module.globals.retain(|g| seen_set.insert(g.2.clone()));
 
-    // P6: o laço de eventos (quem usa `dart:async`): a classe do quadro das
-    // funções `async` e a função que o runtime usa para chamar uma closure
-    // (o único ponto em que o runtime chama Dart, `events.rs`).
+    // P6: the event loop (for users of `dart:async`): the frame class of the
+    // `async` functions and the function the runtime uses to call a closure
+    // (the only point where the runtime calls Dart, `events.rs`).
     if ctx.uses_dart_async
         && let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied())
     {
@@ -954,8 +954,8 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         let r = b.call_function_value(clo, &[]);
         b.terminate(Terminator::Return(Some(r)));
         b.finish(&mut module);
-        // Sob ARC, o runtime a chama como porta Dart (`dart_r1`, o laço de
-        // eventos): um callback com retorno Owned, que o escopo nativo solta.
+        // Under ARC, the runtime calls it as a Dart port (`dart_r1`, the event
+        // loop): a callback with an Owned return, which the native scope releases.
         if ctx.arc_memory {
             module.dart_ref_returns.insert(symbol.clone());
             module.helpers.push((symbol.clone(), symbol.clone()));
@@ -963,23 +963,23 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         module.call_dart = Some(symbol);
     }
 
-    // P6: as bibliotecas da fonte entram inteiras; fica o que o programa
-    // alcança (`source.rs`).
+    // P6: the source libraries come in whole; what the program
+    // reaches stays (`source.rs`).
     if !ctx.from_source.is_empty() {
         crate::source::prune(&mut module);
     }
-    // RTI: o universo de tipos das receitas que ficaram (`rti.rs`).
+    // RTI: the type universe of the remaining recipes (`rti.rs`).
     rti::register_universe(ctx, &mut module);
 
-    // E3: o verificador roda sobre o módulo pronto; problema aqui é bug do
-    // compilador, e o módulo não é emitido.
+    // E3: the verifier runs over the finished module; a problem here is a compiler
+    // bug, and the module is not emitted.
     if module.errors.is_empty() {
         let problems = verifier::verify(&module);
         module.errors.extend(problems);
     }
 
-    // Formas de record com campo nomeado (P3, `records.rs`): uma "classe"
-    // por forma, com `toString()` gerado, e a igualdade estrutural.
+    // Record shapes with a named field (P3, `records.rs`): one "class"
+    // per shape, with a generated `toString()`, and the structural equality.
     for k in 0..ctx.record_shapes.len() {
         let id = crate::context::SHAPE_BASE_ID + k as u32;
         let (npos, names) = &ctx.record_shapes[k];
@@ -992,8 +992,8 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
             to_string_symbol: Some(symbol.clone()),
         });
         module.subtyping_edges.push((id, 0));
-        // Com o SDK da fonte, `is Record`/`is Object` perguntam pelas
-        // classes do `dart:core` (o `(x: 1) is Record` dava falso).
+        // With the source SDK, `is Record`/`is Object` ask about the
+        // `dart:core` classes (`(x: 1) is Record` gave false).
         for name_str in ["Record", "Object"] {
             if let Some(c) = ctx.sdk_class("core", name_str).and_then(|c| ctx.class_id_of(c)) {
                 module.subtyping_edges.push((id, c));
@@ -1024,8 +1024,8 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         builder.finish(&mut module);
     }
 
-    // `toString()` padrão dos enums do programa (`Enum.value`), quando o
-    // enum não declara o seu.
+    // Default `toString()` of the program enums (`Enum.value`), when the
+    // enum does not declare its own.
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
         let cid = dartforge_elements::model::ClassId(c_idx as u32);
         if !enums::is_enum(ctx, cid) || !ctx.library_in_module(class.library) {
@@ -1049,7 +1049,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         }
     }
 
-    // Propaga to_string_symbol para subclasses que não o sobrescreveram
+    // Propagates to_string_symbol to subclasses that did not override it.
     for c_idx in 0..ctx.program.classes.len() {
         let Some(class_id) = ctx.class_id_of(dartforge_elements::model::ClassId(c_idx as u32)) else {
             continue;

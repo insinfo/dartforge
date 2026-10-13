@@ -1,5 +1,5 @@
-//! Diagnóstico da preparação ARC sobre módulos completos baixados da fonte.
-//! Não publica corpos nem emite um programa com convenções parcialmente mudadas.
+//! Diagnostics of the ARC preparation over complete modules lowered from source.
+//! Publishes no bodies nor emits a program with partially changed conventions.
 
 use dartforge_emit_native::{context::Context, driver, optimize, optimize::arc::*, sdk_modulo};
 use dartforge_intern::Interner;
@@ -217,8 +217,8 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
     Ok(())
 }
 
-// Baixa os mesmos corpos/bibliotecas que a compilação do SDK usa. O grupo
-// permanece privado ao diagnóstico: não reutiliza bitcode com ABI antiga.
+// Lowers the same bodies/libraries that the SDK compilation uses. The group
+// stays private to the diagnostics: it does not reuse bitcode with the old ABI.
 fn lower_sdk_for_audit(
     sdk_dir: &Path,
     by_tables: bool,
@@ -288,8 +288,8 @@ fn lower_sdk_for_audit(
             program.library(lib).uri,
             m.functions.len()
         );
-        // Confere compatibilidade com o conjunto compartilhado pelo emissor
-        // anterior; esses nomes não produzem contratos de ownership.
+        // Checks compatibility with the set shared by the previous
+        // emitter; these names produce no ownership contracts.
         let previous_ones: std::collections::HashSet<_> = m.functions.iter()
             .filter(|f| f.symbol.ends_with("$tear") || f.symbol.ends_with("$tearm") || f.symbol.starts_with("dfc."))
             .map(|f| f.symbol.clone()).collect();
@@ -320,8 +320,8 @@ fn main() -> Result<(), String> {
                     entries.push(argument);
                 }
             }
-            // A seleção explícita do diagnóstico deve coincidir com a chave
-            // de memória usada pelo cache/compilação das bibliotecas do SDK.
+            // The explicit selection of the diagnostics must match the memory
+            // key used by the cache/compilation of the SDK libraries.
             if !selected_arc || !dartforge_emit_native::alvo::arc_memory()? {
                 return Err("auditoria exige --memoria=arc e DARTFORGE_MEMORIA=arc".into());
             }

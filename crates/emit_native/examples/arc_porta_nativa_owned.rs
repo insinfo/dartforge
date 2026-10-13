@@ -1,8 +1,8 @@
-//! Prova AOT de retorno Owned de um corpo preparado através de noSuchMethod.
-//! O consumidor nativo recebe um empréstimo ligado ao escopo explícito, sem
-//! retain adicional. Não habilita a preparação de todo o SDK/pipeline nem
-//! certifica o registro/cleanup automático de imagens e recargas. Tracing
-//! executa o corpo com tokens explícitos para conferir compatibilidade.
+//! AOT proof of the Owned return of a body prepared through noSuchMethod.
+//! The native consumer receives a borrow bound to the explicit scope, without
+//! an additional retain. Does not enable the preparation of the whole SDK/pipeline nor
+//! certify the automatic registration/cleanup of images and reloads. Tracing
+//! runs the body with explicit tokens to check compatibility.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize, optimize::arc::*};
 use std::{
@@ -248,8 +248,8 @@ fn main() -> Result<(), String> {
     let mut m = module(tables, arc)?;
     m.arc_memory = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
-    // O callback registrado é exatamente o corpo verificado acima. O harness
-    // observa endereços mortos como diagnósticos, sem os tratar como raízes.
+    // The registered callback is exactly the body verified above. The harness
+    // observes dead addresses as diagnostics, without treating them as roots.
     ir.push_str(
         r#"
 declare void @dartforge_print_handle(i64)
@@ -358,8 +358,8 @@ sucesso_excecao:
 "#,
     );
     if arc {
-        // Exercita a busca real por seletor emitida pelo compilador: o fallback
-        // transfere seu único owner através do adaptador e do corpo Dart.
+        // Exercises the real lookup by selector emitted by the compiler: the fallback
+        // transfers its single owner through the adapter and the Dart body.
         ir = ir.replace("sucesso_excecao:\n", r#"sucesso_excecao:
   %codigo_repasse = ptrtoint ptr @repasse_seletor to i64
   %rs = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_repasse, i64 0, i64 %args_ptr, i64 %desc_ptr)
@@ -414,9 +414,9 @@ local_concluido:
 "#);
     }
     if arc {
-        // O emissor registra os corpos certificados na entrada da imagem.
-        // Não repetir os registros no harness: isso esconderia um registro
-        // ausente na partida. A imagem fixa conserva as versões até o exit.
+        // The emitter registers the certified bodies at the entry of the image.
+        // Do not repeat the registrations in the harness: that would hide a registration
+        // missing at startup. The fixed image keeps the versions until exit.
         for line in [
             "  %versao = call i64 @dartforge_arc_registrar_retorno_owned_v1(i64 %codigo, i64 7)\n",
             "  %versao_uniforme = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %codigo_uniforme)\n",

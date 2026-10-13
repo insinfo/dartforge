@@ -1,7 +1,7 @@
-//! Prova AOT Unix: cleanup ARC com exceção C++, identidade e morte do Mint.
-//! Injeta um lançamento C++ no ponto print_handle após emitir a HIR auditada.
-//! O hook conserva a assinatura Borrow, não consome tokens nem cria pendência Dart.
-//! A troca de símbolo fica explícita no IR; esta é uma prova de fault injection.
+//! Unix AOT proof: ARC cleanup with a C++ exception, identity and death of the Mint.
+//! Injects a C++ throw at the print_handle point after emitting the audited HIR.
+//! The hook keeps the Borrow signature, consumes no tokens nor creates a Dart pending state.
+//! The symbol swap is explicit in the IR; this is a fault-injection proof.
 
 #[cfg(unix)]
 use dartforge_emit_native::llvm::LlvmEmitter;
@@ -245,9 +245,9 @@ fn main() -> Result<(), String> {
     let library = runtime.lib_path.clone();
     #[cfg(target_os = "macos")]
     let library = {
-        // Compact unwind admite três personalidades por imagem. A fixture
-        // combina C++, Dart legado/cleanup e Rust; separa o runtime numa dylib
-        // conservando as informações de unwind de ambas as imagens.
+        // Compact unwind admits three personalities per image. The fixture
+        // combines C++, legacy Dart/cleanup and Rust; it splits the runtime into a dylib
+        // keeping the unwind information of both images.
         let dylib = std::env::current_dir()
             .map_err(|e| e.to_string())?
             .join(exit.with_extension("runtime.dylib"));

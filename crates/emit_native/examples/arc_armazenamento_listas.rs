@@ -1,7 +1,7 @@
-//! Prova AOT de storage Ref, escrita compacta e owner antes da troca da aresta.
-//! O corpo HIR é preparado em ARC; tracing executa o mesmo protocolo explícito.
-//! Controles negativos retiram retenção ou liberação somente após verificação.
-//! `--grow` força crescimento e descompactação com coleta durante a chamada.
+//! AOT proof of Ref storage, compact writes and the owner before the edge replacement.
+//! The HIR body is prepared under ARC; tracing runs the same explicit protocol.
+//! Negative controls remove retention or release only after verification.
+//! `--crescer` forces growth and decompaction with a collection during the call.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, fmt::Write, path::PathBuf};
@@ -152,7 +152,7 @@ fn main() -> Result<(), String> {
         writeln!(ir, "  %pai{n} = call i64 @dartforge_lista_nova(ptr %palavra, i64 1, i64 10, i64 {code})\n  call void @dartforge_arc_retain(i64 %pai{n})\n  %novo{n} = call i64 @dartforge_lista_nova(ptr null, i64 0, i64 8, i64 {code})\n  call void @dartforge_arc_retain(i64 %novo{n})\n  %retorno{n} = call i64 @trocar_armazenamento(i64 %pai{n}, i64 %novo{n}, i64 {bits}, i64 {shape})").unwrap();
         writeln!(ir, "  %len{n} = call i64 @dartforge_arc_lista_len_v1(i64 %pai{n})\n  %cap{n} = call i64 @dartforge_arc_lista_capacidade_v1(i64 %pai{n})\n  %lenzero{n} = icmp eq i64 %len{n}, 0\n  %capzero{n} = icmp eq i64 %cap{n}, 0\n  %encolheu{n} = and i1 %lenzero{n}, %capzero{n}\n  br i1 %encolheu{n}, label %coletar{n}, label %falha\ncoletar{n}:").unwrap();
         writeln!(ir, "  call void @dartforge_arc_release(i64 %pai{n})\n  call void @dartforge_arc_release(i64 %novo{n})\n  call void @dartforge_arc_collect()\n  %estado{n} = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno{n})\n  %vivo{n} = icmp eq i8 %estado{n}, 3\n  br i1 %vivo{n}, label %ler{n}, label %falha\nler{n}:").unwrap();
-        // A observação crua só acontece depois de provar que o owner manteve o bloco.
+        // The raw observation only happens after proving that the owner kept the block.
         writeln!(ir, "  %endereco{n} = add i64 %retorno{n}, 22\n  %ptr{n} = inttoptr i64 %endereco{n} to ptr\n  %bits{n} = load i64, ptr %ptr{n}, align 8\n  %iguais{n} = icmp eq i64 %bits{n}, {bits}\n  br i1 %iguais{n}, label %liberar{n}, label %falha\nliberar{n}:\n  call void @dartforge_arc_release(i64 %retorno{n})\n  call void @dartforge_arc_collect()\n  %final{n} = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno{n})\n  %morto{n} = icmp eq i8 %final{n}, 0\n  br i1 %morto{n}, label %passou{n}, label %falha\npassou{n}:").unwrap();
     }
     ir.push_str("  call void @dartforge_print_handle(i64 3)\n  ret void\nfalha:\n  call void @llvm.trap()\n  unreachable\n}\n");
@@ -172,7 +172,7 @@ fn main() -> Result<(), String> {
             if ir.matches(&release).count() != 1 {
                 return Err("liberação do par não localizada unicamente".into());
             }
-            // O valor anexado deve viver só pela aresta copiada, antes de matar a lista.
+            // The appended value must live only through the copied edge, before killing the list.
             let check = format!(
                 "  call void @dartforge_arc_release(i64 %novo{n})\n  call void @dartforge_arc_collect()\n  %forma{n} = call i64 @dartforge_arc_lista_forma_v1(i64 %pai{n})\n  %geral{n} = icmp eq i64 %forma{n}, 4\n  %filhoestado{n} = call i8 @dartforge_arc_observar_heap_v1(i64 %novo{n})\n  %filhovivo{n} = icmp eq i8 %filhoestado{n}, 1\n  %aresta{n} = and i1 %geral{n}, %filhovivo{n}\n  br i1 %aresta{n}, label %conferir{n}, label %falha\nconferir{n}:\n  %ultimo{n} = call i64 @dartforge_arc_lista_ref_owned_v1(i64 %pai{n}, i64 1)\n  %elemento{n} = icmp eq i64 %ultimo{n}, %novo{n}\n  call void @dartforge_arc_release(i64 %ultimo{n})\n  br i1 %elemento{n}, label %soltarpai{n}, label %falha\nsoltarpai{n}:\n  call void @dartforge_arc_release(i64 %pai{n})\n"
             );

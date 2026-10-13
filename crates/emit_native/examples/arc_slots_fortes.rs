@@ -1,6 +1,6 @@
-//! Prova AOT dirigida das operações fortes com planos produzidos/verificados.
-//! Variantes usam literal permanente ou Mint mortal, além de Smi e null.
-//! Não certifica morte após o último owner nem o restante do pipeline ARC.
+//! Directed AOT proof of the strong operations with produced/verified plans.
+//! Variants use a permanent literal or a mortal Mint, besides Smi and null.
+//! Does not certify death after the last owner nor the rest of the ARC pipeline.
 
 use dartforge_emit_native::optimize::arc::*;
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter};
@@ -260,8 +260,8 @@ fn main() -> Result<(), String> {
                 &ScopePlan::default(),
             )?);
         }
-        // A função é acrescentada depois da otimização geral, para conferir
-        // a chamada/retorno real sem inlining esconder essa fronteira.
+        // The function is added after the general optimization, to check
+        // the real call/return without inlining hiding that boundary.
         m.functions.push(identity);
         for (v, inst, _) in &mut m.functions[0].blocks[0].instructions {
             if *v == ValueId(2) {
@@ -289,8 +289,8 @@ fn main() -> Result<(), String> {
             .position(|(v, _, _)| *v == ValueId(3))
             .ok_or("store ausente na prova mortal")?
             + 1;
-        // O slot conserva o token devolvido pelo callee; solta a ocorrência
-        // inicial da fábrica antes de fechar o quadro e coletar.
+        // The slot keeps the token returned by the callee; releases the initial
+        // occurrence of the factory before closing the frame and collecting.
         body.insert(
             after_store,
             (
@@ -309,8 +309,8 @@ fn main() -> Result<(), String> {
     for mut instruction in originals {
         if forced_error == Some(instruction.0) {
             if let Instruction::CallRuntime { name, .. } = &mut instruction.1 {
-                // Substitui a observação por lançamento Ref auditado. O teste
-                // seguinte seleciona o mesmo bloco de cleanup preparado.
+                // Replaces the observation with an audited Ref throw. The next
+                // test selects the same prepared cleanup block.
                 *name = "dartforge_arc_lancar_ref_v1".into();
             }
         }
@@ -394,11 +394,11 @@ fn main() -> Result<(), String> {
         instructions: body,
         terminator: Terminator::Return(None),
     });
-    // A caixa de 42 é Smi imediato; o literal permanente é classificado
-    // pelo produtor de constantes, sem contrato manual desta prova.
+    // The box of 42 is an immediate Smi; the permanent literal is classified
+    // by the constants producer, without a manual contract in this proof.
     let mut classes = HashMap::from([(ValueId(11), Ownership::Trivial)]);
     let mut plan = TokenPlan::default();
-    // A chamada Dart recebe seu contrato do resumo do corpo verificado acima.
+    // The Dart call gets its contract from the summary of the body verified above.
     if !auto_cleanup {
         produce_dart_calls(f, &dart_summaries, &mut classes, &mut plan)?;
     }
@@ -406,8 +406,8 @@ fn main() -> Result<(), String> {
         .instructions
         .insert(ValueId(11), TokenEffect::default());
     if auto_cleanup {
-        // Prepara caller e callee juntos: uma retenção no retorno do callee
-        // e três drops nas saídas de erro do caller, sem publicar parcialmente.
+        // Prepares caller and callee together: a retention at the return of the callee
+        // and three drops at the error exits of the caller, without partial publication.
         let symbol = f.symbol.clone();
         let mut callee = DartFunctionPlan::default();
         callee.tokens.ret = TokenReturn::Owned;
@@ -442,8 +442,8 @@ fn main() -> Result<(), String> {
         return Err(errors.join("\n"));
     }
     let mut ir = LlvmEmitter::new(&m).emit_all();
-    // Auxiliar de observação do harness, exportado pelo runtime mas fora
-    // do catálogo normal usado pelo lowering do SDK.
+    // Observation helper of the harness, exported by the runtime but outside
+    // the normal catalog used by the SDK lowering.
     ir.push_str("\ndeclare void @dartforge_print_handle(i64)\n");
     if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;

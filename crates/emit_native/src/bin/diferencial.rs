@@ -1,7 +1,7 @@
-//! Harness de teste diferencial nativo: `dart run --enable-asserts` × Compilador Nativo LLVM.
+//! Native differential test harness: `dart run --enable-asserts` × the LLVM native compiler.
 //!
-//! Executa os programas de `corpus/js/`, compila nativo e compara a saída byte a byte.
-//! Uso:
+//! Runs the programs of `corpus/js/`, compiles them natively and compares the output byte by byte.
+//! Usage:
 //!   cargo run -p dartforge-emit-native --bin diferencial
 //!   cargo run -p dartforge-emit-native --bin diferencial -- 01_print
 //!   cargo run -p dartforge-emit-native --bin diferencial --bloco 1
@@ -37,7 +37,7 @@ fn main() {
         let entry = &prog.entry;
         let exe_output = out_dir.join(format!("{name}.exe"));
 
-        // 1. Oráculo: dart run --enable-asserts
+        // 1. Oracle: dart run --enable-asserts
         let dart_res = match Command::new("dart")
             .args(["run", "--enable-asserts", entry.to_str().unwrap()])
             .output()
@@ -50,7 +50,7 @@ fn main() {
             }
         };
 
-        // 2. Compilação Nativa
+        // 2. Native compilation
         let i2 = entry.clone();
         let o2 = exe_output.clone();
         let t_comp_start = Instant::now();
@@ -62,7 +62,7 @@ fn main() {
                     packages: None,
                     timings: false,
                     optimize: false,
-                    // O corpus é o `corpus/js`, escrito para a 3.6.
+                    // The corpus is `corpus/js`, written for 3.6.
                     versao_linguagem: Some(dartforge_frontend::LanguageVersion::PISO),
                     experimentos: Vec::new(),
                     depuracao: false,
@@ -83,7 +83,7 @@ fn main() {
             continue;
         }
 
-        // 3. Execução Nativa
+        // 3. Native execution
         let nat_res = match Command::new(&exe_output).output() {
             Ok(out) => out,
             Err(e) => {
@@ -93,7 +93,7 @@ fn main() {
             }
         };
 
-        // 4. Comparação Byte a Byte
+        // 4. Byte-by-byte comparison
         let dart_stdout = String::from_utf8_lossy(&dart_res.stdout).replace("\r\n", "\n");
         let nat_stdout = String::from_utf8_lossy(&nat_res.stdout).replace("\r\n", "\n");
 
@@ -160,7 +160,7 @@ fn list_programs(dir: &Path, filter: Option<&str>) -> Vec<Prog> {
 
     if let Some(f) = filter {
         if f.starts_with("--bloco") {
-            // Suporte a filtro por bloco
+            // Filter by block
         } else {
             progs.retain(|p| p.name.contains(f));
         }

@@ -1,51 +1,51 @@
-//! Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): o
-//! passe que reescreve a HIR já otimizada do modelo "pendência conferida
-//! depois de cada chamada" para o modelo "a chamada Dart desenrola".
+//! Exceptions by tables (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): the
+//! pass that rewrites the already optimized HIR from the "pending state checked
+//! after each call" model to the "the Dart call unwinds" model.
 //!
-//! **O contrato do modo.** Uma função Dart nunca volta a quem a chamou com a
-//! exceção pendente: ela desenrola a pilha (`@df.throw`) até o pouso
-//! (`landingpad`) de quem a trata. A exceção em si continua sendo a
-//! pendência do runtime — o desenrolamento só transfere o controle —, então
-//! o código de um tratador (`catch`, `finally`), que lê e limpa a pendência,
-//! é o mesmo dos dois modos. O runtime não muda de protocolo: uma extern
-//! que lança deixa a exceção pendente e retorna, e a conferência depois
-//! dela continua na HIR.
+//! **The contract of the mode.** A Dart function never returns to its caller with the
+//! exception pending: it unwinds the stack (`@df.throw`) up to the landing pad
+//! (`landingpad`) of whoever handles it. The exception itself is still the
+//! runtime's pending state — unwinding only transfers control —, so
+//! the code of a handler (`catch`, `finally`), which reads and clears the pending state,
+//! is the same in both modes. The runtime does not change protocol: an extern
+//! that throws leaves the exception pending and returns, and the check after
+//! it stays in the HIR.
 //!
-//! **O que o passe faz**, função a função, sem tocar o lowering nem os
-//! outros passes (que continuam vendo só a forma de conferência):
+//! **What the pass does**, function by function, without touching the lowering nor the
+//! other passes (which still see only the check shape):
 //!
-//! 1. acha cada *sítio* — a instrução que chama código Dart que pode
-//!    desenrolar ([`is_site`]) — e decide o destino do desenrolamento:
-//!    * chamada direta seguida da conferência, com tratador que só devolve
-//!      o valor padrão ([`pure_exit`]): a conferência some e a chamada
-//!      fica uma chamada comum, sem pouso — o desenrolamento atravessa o
-//!      quadro (o pouso de quem trata restaura o topo da pilha-sombra);
-//!    * chamada direta seguida da conferência, com tratador de verdade: a
-//!      conferência some, a chamada vira `invoke` e o pouso (um bloco novo)
-//!      desvia para o tratador;
-//!    * chamada que também pode voltar com a exceção pendente (closure,
-//!      seletor: a entrada inválida e a de `noSuchMethod` são do runtime)
-//!      com tratador que só devolve o valor padrão: nada muda (a conferência
-//!      pega a pendência; o desenrolamento atravessa o quadro);
-//!    * todo o resto: **emulação exata** — a chamada vira `invoke` e o pouso
-//!      continua no ponto seguinte à chamada, com o valor padrão como
-//!      resultado e a exceção pendente, exatamente o que a chamada devolvia
-//!      no modelo de conferência;
-//! 2. calcula, por fluxo de dados, se a exceção está pendente em cada
-//!    `Return` ([`Pending`]): limpa, retorna; ligada, desenrola
-//!    ([`ExceptionExit::Throws`]); talvez, confere e decide
+//! 1. finds each *site* — the instruction that calls Dart code that may
+//!    unwind ([`is_site`]) — and decides the destination of the unwinding:
+//!    * a direct call followed by the check, with a handler that only returns
+//!      the default value ([`pure_exit`]): the check goes away and the call
+//!      becomes an ordinary call, without a landing pad — the unwinding crosses the
+//!      frame (the landing pad of the handler restores the top of the shadow stack);
+//!    * a direct call followed by the check, with a real handler: the
+//!      check goes away, the call becomes an `invoke` and the landing pad (a new block)
+//!      branches to the handler;
+//!    * a call that may also return with the exception pending (closure,
+//!      selector: the invalid entry and the `noSuchMethod` one belong to the runtime)
+//!      with a handler that only returns the default value: nothing changes (the check
+//!      catches the pending state; the unwinding crosses the frame);
+//!    * everything else: **exact emulation** — the call becomes an `invoke` and the landing pad
+//!      continues at the point after the call, with the default value as the
+//!      result and the exception pending, exactly what the call returned
+//!      in the check model;
+//! 2. computes, by data flow, whether the exception is pending at each
+//!    `Return` ([`Pending`]): clear, return; set, unwind
+//!    ([`ExceptionExit::Throws`]); maybe, check and decide
 //!    ([`ExceptionExit::Guard`]).
 //!
-//! O resultado ([`FunctionTables`], em [`Module::tables`]) é o que o
-//! emissor lê (`llvm/mod.rs`). Uma chamada com pouso é a última instrução do
-//! bloco dela; o terminador do bloco é
-//! `CondBranch { cond: false, then: landing_pad, else: continuesção }`, que mantém
-//! o pouso no grafo de fluxo (vivacidade das raízes, blocos alcançáveis) e
-//! que o emissor escreve como o desvio à continuação.
+//! The result ([`FunctionTables`], in [`Module::tables`]) is what the
+//! emitter reads (`llvm/mod.rs`). A call with a landing pad is the last instruction of
+//! its block; the terminator of the block is
+//! `CondBranch { cond: false, then: landing_pad, else: continuation }`, which keeps
+//! the landing pad in the flow graph (liveness of the roots, reachable blocks) and
+//! which the emitter writes as the branch to the continuation.
 
-//! Em ARC, os atalhos que deixam unwind atravessar um quadro sem pouso
-//! ficam desabilitados: a aresta local é necessária à inserção de cleanup.
-//! O passe expõe essa aresta; ainda não insere a limpeza de owners.
+//! Under ARC, the shortcuts that let unwinding cross a frame without a landing pad
+//! are disabled: the local edge is needed to insert cleanup.
+//! The pass exposes that edge; it does not insert the owner cleanup yet.
 
 use super::cfg::successors;
 use super::effects::{is_check, instruction_throws, do_not_throw};
@@ -55,24 +55,24 @@ use crate::hir::*;
 use crate::llvm::externs::effects_of;
 use std::collections::{HashMap, HashSet};
 
-/// Reescreve o módulo para as exceções por tabelas e grava a decisão de cada
-/// função em [`Module::tables`]. Roda depois de [`super::optimize`] (e
-/// também com os passes desligados: só depende da forma que o lowering dá).
+/// Rewrites the module for exceptions by tables and writes the decision of each
+/// function into [`Module::tables`]. Runs after [`super::optimize`] (and
+/// also with the passes turned off: it only depends on the shape the lowering gives).
 pub fn apply(module: &mut Module) {
     let plan = prepare(module);
     materialize(module, plan);
 }
 
-/// Inventário dos sítios preparados, ainda sem decisões sobre retornos.
-/// Entre as etapas, preservar IDs e ordem das funções; transformações do
-/// CFG precisam atualizar este inventário antes de materializar tabelas.
+/// Inventory of the prepared sites, still without decisions about returns.
+/// Between the steps, preserve the IDs and the order of the functions; CFG
+/// transformations must update this inventory before materializing tables.
 pub(super) struct ExceptionPlan {
     functions: Vec<(String, FunctionTables)>,
 }
 
 impl ExceptionPlan {
-    /// Consulta os sítios antes de publicar tabelas, conferindo a identidade
-    /// da função. Os passes intermediários leem o plano sem habilitar LLVM.
+    /// Queries the sites before publishing tables, checking the identity
+    /// of the function. The intermediate passes read the plan without enabling LLVM.
     pub(super) fn function_sites(&self, index: usize, f: &Function) -> &FunctionTables {
         let (symbol, sites) = self.functions.get(index)
             .expect("bug do compilador: função ausente do plano excepcional");
@@ -81,16 +81,16 @@ impl ExceptionPlan {
     }
 }
 
-/// Expõe pousos e continuações no CFG sem publicar tabelas para o emissor.
+/// Exposes landing pads and continuations in the CFG without publishing tables to the emitter.
 pub(super) fn prepare(module: &mut Module) -> ExceptionPlan {
     assert!(!module.excecoes_por_tabelas, "bug do compilador: CFG excepcional já materializado");
     let nl = do_not_throw(module);
-    // Sem prova de ausência de owners, ARC precisa de uma saída local
-    // para inserir cleanup mesmo quando não há catch/finally na fonte.
+    // Without a proof of absence of owners, ARC needs a local exit
+    // to insert cleanup even when there is no catch/finally in the source.
     let preserve_cleanup = module.arc_memory;
-    // Preparação ARC publicada: closures e seletores vão pela invocação
-    // uniforme do runtime, cujas portas devolvem a exceção pendente; ficam
-    // com a conferência, sem invoke.
+    // Published ARC preparation: closures and selectors go through the uniform
+    // invocation of the runtime, whose ports return the pending exception; they keep
+    // the check, without an invoke.
     let uniforms = !(module.arc_memory && crate::alvo::arc_prepared().unwrap_or(false));
     let mut functions = Vec::with_capacity(module.functions.len());
     for f in &mut module.functions {
@@ -100,8 +100,8 @@ pub(super) fn prepare(module: &mut Module) -> ExceptionPlan {
     ExceptionPlan { functions }
 }
 
-/// Reconstrói decisões de saída sobre a HIR final e valida os sítios antes
-/// de publicar as tabelas. Não roda simplificação genérica nos pousos.
+/// Rebuilds exit decisions over the final HIR and validates the sites before
+/// publishing the tables. Does not run generic simplification on the landing pads.
 pub(super) fn materialize(module: &mut Module, plan: ExceptionPlan) {
     assert_eq!(plan.functions.len(), module.functions.len(), "bug do compilador: funções mudaram depois da preparação excepcional");
     let nl = do_not_throw(module);
@@ -126,15 +126,15 @@ pub(super) fn materialize(module: &mut Module, plan: ExceptionPlan) {
     module.excecoes_por_tabelas = true;
 }
 
-/// A instrução chama código Dart que pode desenrolar?
+/// Does the instruction call Dart code that may unwind?
 ///
-/// * `CallStatic` de uma função que pode lançar. Ficam de fora as que não
-///   lançam (`effects::do_not_throw`), os símbolos do runtime (`dartforge_…`,
-///   que seguem o protocolo da pendência) e o getter de um tipo
-///   (`df.rti.…`, `lower/rti.rs`), que o lowering chama sem conferir: se ele
-///   lançar, o desenrolamento atravessa o quadro;
-/// * a chamada do corpo tipado de uma closure, a de um valor função e a por
-///   seletor.
+/// * `CallStatic` of a function that may throw. Left out are those that do not
+///   throw (`effects::do_not_throw`), the runtime symbols (`dartforge_…`,
+///   which follow the pending protocol) and the getter of a type
+///   (`df.rti.…`, `lower/rti.rs`), which the lowering calls without a check: if it
+///   throws, the unwinding crosses the frame;
+/// * the call of the typed body of a closure, that of a function value and the one by
+///   selector.
 fn is_site(inst: &Instruction, nl: &HashSet<String>, uniforms: bool) -> bool {
     match inst {
         Instruction::CallStatic { symbol, .. } => {
@@ -149,16 +149,16 @@ fn is_site(inst: &Instruction, nl: &HashSet<String>, uniforms: bool) -> bool {
     }
 }
 
-/// O sítio só sai por desenrolamento (o alvo é sempre código Dart)? A
-/// chamada de closure e a por seletor também podem voltar com a exceção
-/// pendente (`@df_clo_invalido`, a entrada de `noSuchMethod`).
+/// Does the site only leave by unwinding (the target is always Dart code)? A
+/// closure call and a call by selector may also return with the exception
+/// pending (`@df_clo_invalido`, the `noSuchMethod` entry).
 fn only_unwinds(inst: &Instruction) -> bool {
     matches!(inst, Instruction::CallStatic { .. } | Instruction::TypedCall { .. })
 }
 
-/// A forma que `FnBuilder::emit_call_with_check` dá a um sítio na posição
-/// `i`: `[call][p = pending][c = p != 0]` no fim do bloco e
-/// `CondBranch(c, handler, continuesção)`.
+/// The shape that `FnBuilder::emit_call_with_check` gives a site at position
+/// `i`: `[call][p = pending][c = p != 0]` at the end of the block and
+/// `CondBranch(c, handler, continuation)`.
 struct Check {
     p: ValueId,
     c: ValueId,
@@ -190,16 +190,16 @@ fn site_check(b: &BasicBlock, i: usize) -> Option<Check> {
     Some(Check { p: *p, c: *c, handler: *then_block, continuation: *else_block })
 }
 
-/// O tratador só devolve o valor padrão (a saída por exceção de uma função
-/// sem `catch` nem `finally` em volta)? Blocos sem instrução além de `phi`,
-/// encadeados por desvio incondicional até um `Return`. Um bloco de junção
-/// que só reconfere a pendência (`phi`, `p = pending`, `c = p != 0`,
-/// `CondBranch(c, …)`; a forma que a entrada uniforme `$ent` dá à junção do
-/// caminho normal com o da exceção) é atravessado pelo lado da exceção:
-/// vindo do tratador, a pendência está ligada e a reconferência sempre vai
-/// para lá. Sem isto, todo `$ent` ganhava um pouso que pega tudo e devolve a
-/// pendência, e a chamada dinâmica do modo tabelas custava mais que a do
-/// modo de conferência.
+/// Does the handler only return the default value (the exception exit of a function
+/// without a surrounding `catch` or `finally`)? Blocks without instructions besides `phi`,
+/// chained by unconditional branches up to a `Return`. A join block
+/// that only rechecks the pending state (`phi`, `p = pending`, `c = p != 0`,
+/// `CondBranch(c, …)`; the shape the uniform entry `$ent` gives the join of the
+/// normal path with the exception one) is crossed on the exception side:
+/// coming from the handler, the pending state is set and the recheck always goes
+/// there. Without this, every `$ent` got a landing pad that catches everything and returns the
+/// pending state, and the dynamic call in tables mode cost more than in the
+/// check mode.
 fn pure_exit(f: &Function, pos: &HashMap<BlockId, usize>, de: BlockId) -> bool {
     let mut current = de;
     for _ in 0..64 {
@@ -222,8 +222,8 @@ fn pure_exit(f: &Function, pos: &HashMap<BlockId, usize>, de: BlockId) -> bool {
     false
 }
 
-/// Quantas vezes cada valor é lido (operandos, entradas de `phi`,
-/// terminadores).
+/// How many times each value is read (operands, `phi` entries,
+/// terminators).
 fn count_uses(f: &Function) -> HashMap<ValueId, u32> {
     let mut uses: HashMap<ValueId, u32> = HashMap::new();
     {
@@ -252,7 +252,7 @@ fn unused(uses: &HashMap<ValueId, u32>, v: ValueId) -> bool {
     uses.get(&v).copied().unwrap_or(0) == 0
 }
 
-/// Tira a comparação e a leitura da pendência que ficaram sem leitor.
+/// Removes the comparison and the read of the pending state that were left without a reader.
 fn remove_check(b: &mut BasicBlock, uses: &mut HashMap<ValueId, u32>, cf: &Check) {
     if !unused(uses, cf.c) {
         return;
@@ -274,9 +274,9 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
     let (mut next_v, mut next_b) = largest_ids(f);
     let mut uses = count_uses(f);
     let mut pos: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(k, b)| (b.id, k)).collect();
-    // Um sítio por volta: o primeiro do bloco. Ou ele é o último do bloco (a
-    // forma conferida), ou o resto do bloco vai para um bloco novo, no fim
-    // da lista, visitado adiante.
+    // One site per iteration: the first of the block. Either it is the last of the block (the
+    // checked shape), or the rest of the block goes to a new block, at the end
+    // of the list, visited later.
     let mut bi = 0;
     while bi < f.blocks.len() {
         let Some(i) = f.blocks[bi].instructions.iter().position(|(_, inst, _)| is_site(inst, nl, uniforms)) else {
@@ -291,7 +291,7 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
         let checked = site_check(&f.blocks[bi], i);
         let pure = !preserve_cleanup && checked.as_ref().is_some_and(|cf| pure_exit(f, &pos, cf.handler));
         match checked {
-            // A conferência some: a chamada desenrola e ninguém aqui trata.
+            // The check goes away: the call unwinds and nobody here handles it.
             Some(cf) if direct && pure => {
                 f.blocks[bi].terminator = Terminator::Branch(cf.continuation);
                 minus(&mut uses, cf.c);
@@ -312,8 +312,8 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
                 }
                 remove_check(&mut f.blocks[bi], &mut uses, &cf);
             }
-            // A conferência some: a chamada é `invoke` e o pouso vai ao
-            // tratador, com a exceção pendente — como a conferência ia.
+            // The check goes away: the call is an `invoke` and the landing pad goes to the
+            // handler, with the exception pending — as the check did.
             Some(cf) if direct => {
                 next_b += 1;
                 let landing_pad = BlockId(next_b);
@@ -332,9 +332,9 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
                                 Operand::Val(v) => Some(*v),
                                 Operand::Constant(_) => None,
                             };
-                            // No pouso não existem o resultado da chamada
-                            // nem a conferência: os valores que eles teriam
-                            // (o padrão; pendente; verdadeiro).
+                            // In the landing pad neither the result of the call
+                            // nor the check exist: the values they would have
+                            // (the default; pending; true).
                             if read_done == Some(result) {
                                 *op = default_constant(*ty);
                             } else if read_done == Some(cf.p) {
@@ -357,11 +357,11 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
                 t.invocations.insert(result, landing_pad);
                 t.landing_pads.insert(landing_pad);
             }
-            // Pode voltar pendente e quem trata só devolve o padrão: a
-            // conferência fica e o desenrolamento atravessa o quadro.
+            // May return pending and the handler only returns the default: the
+            // check stays and the unwinding crosses the frame.
             Some(_) if pure => {}
-            // Emulação exata: o pouso continua depois da chamada, com o
-            // valor padrão e a exceção pendente.
+            // Exact emulation: the landing pad continues after the call, with the
+            // default value and the exception pending.
             _ => {
                 next_b += 2;
                 let landing_pad = BlockId(next_b - 1);
@@ -371,7 +371,7 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
                     &mut f.blocks[bi].terminator,
                     Terminator::CondBranch { cond: false_operand(), then_block: landing_pad, else_block: rest },
                 );
-                // Os sucessores do bloco passam a ser sucessores do resto.
+                // The successors of the block become successors of the rest.
                 for s in successors(&terminator) {
                     let Some(&k) = pos.get(&s) else { continue };
                     for (_, inst, _) in &mut f.blocks[k].instructions {
@@ -389,8 +389,8 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
                 pos.insert(rest, f.blocks.len());
                 f.blocks.push(BasicBlock { id: rest, instructions: tail, terminator: terminator });
                 if typ != Type::Void {
-                    // O resultado, daqui em diante, é o da chamada ou o
-                    // padrão (o que a função que lançou devolvia).
+                    // The result, from here on, is that of the call or the
+                    // default (what the throwing function returned).
                     next_v += 1;
                     let new = ValueId(next_v);
                     replace(f, &|v| (v == result).then_some(Operand::Val(new)));
@@ -413,7 +413,7 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
         }
         bi += 1;
     }
-    // Os tratadores que ficaram sem quem chegue a eles.
+    // The handlers that were left without anyone reaching them.
     remove_unreachable(f);
     let live_set: HashSet<BlockId> = f.blocks.iter().map(|b| b.id).collect();
     t.landing_pads.retain(|b| live_set.contains(b));
@@ -422,15 +422,15 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
     t
 }
 
-/// As invariantes que o emissor supõe, conferidas em toda função (um defeito
-/// aqui viraria IR que o LLVM recusa, ou um pouso alcançado por um desvio
-/// comum):
+/// The invariants the emitter assumes, checked in every function (a defect
+/// here would become IR that LLVM rejects, or a landing pad reached by an ordinary
+/// branch):
 ///
-/// * o bloco com um `invoke` tem um só, e termina em
-///   `CondBranch { cond: false, then: landing_pad dele, else: continuesção }`;
-/// * nenhum outro desvio leva a um pouso, e cada pouso tem exatamente um
+/// * the block with an `invoke` has only one, and ends in
+///   `CondBranch { cond: false, then: its landing_pad, else: continuation }`;
+/// * no other branch leads to a landing pad, and each landing pad has exactly one
 ///   `invoke`;
-/// * o pouso não tem instruções e desvia sem condição.
+/// * the landing pad has no instructions and branches unconditionally.
 fn check(f: &Function, t: &FunctionTables) {
     super::arc::check_resumes(f, t).expect("bug do compilador: Retoma inválida");
     let mut arrivals: HashMap<BlockId, u32> = HashMap::new();
@@ -498,7 +498,7 @@ fn check(f: &Function, t: &FunctionTables) {
     }
 }
 
-/// A exceção está pendente neste ponto?
+/// Is the exception pending at this point?
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Pending {
     Cleans,
@@ -506,10 +506,10 @@ enum Pending {
     Maybe,
 }
 
-/// O que uma instrução faz com a pendência.
+/// What an instruction does with the pending state.
 enum Effect {
     Nada,
-    /// Pode deixar a exceção pendente (e nunca a limpa).
+    /// May leave the exception pending (and never clears it).
     MayLink,
     Cleans,
     Links,
@@ -518,8 +518,8 @@ enum Effect {
 fn effect(inst: &Instruction, nl: &HashSet<String>) -> Effect {
     match inst {
         Instruction::CallRuntime { name, .. } => match name.as_str() {
-            // O emissor desenrola logo depois da limpeza que não limpou (o
-            // desenrolar do isolado): no caminho normal, está limpa.
+            // The emitter unwinds right after a clear that did not clear (the
+            // isolate's unwinding): on the normal path, it is clear.
             "dartforge_exception_clear" => Effect::Cleans,
             "dartforge_exception_throw" => Effect::Links,
             "dartforge_exception_pending"
@@ -531,14 +531,14 @@ fn effect(inst: &Instruction, nl: &HashSet<String>) -> Effect {
                 if e.throws || e.calls_dart { Effect::MayLink } else { Effect::Nada }
             }
         },
-        // Uma função Dart que retorna, retorna sem exceção pendente (a que
-        // lança desenrola); um símbolo do runtime segue a pendência.
+        // A Dart function that returns returns without a pending exception (one that
+        // throws unwinds); a runtime symbol follows the pending state.
         Instruction::CallStatic { symbol, .. } => {
             if symbol.starts_with("dartforge_") && !nl.contains(symbol) { Effect::MayLink } else { Effect::Nada }
         }
         Instruction::TypedCall { .. } => Effect::Nada,
-        // Emitidas como instruções do LLVM, sem chamada: não mexem na
-        // pendência (`effects::instruction_throws` as conta por quem as cerca).
+        // Emitted as LLVM instructions, without a call: they do not touch the
+        // pending state (`effects::instruction_throws` counts them through their surroundings).
         Instruction::SDiv(..) | Instruction::SRem(..) | Instruction::DoubleToInt(_) | Instruction::CheckNotNull(_) => {
             Effect::Nada
         }
@@ -559,9 +559,9 @@ fn after(e: Pending, ef: &Effect) -> Pending {
     }
 }
 
-/// A pendência no fim do bloco, dada a da entrada, e — quando o bloco
-/// termina desviando por uma conferência que nada depois dela altera — os
-/// sucessores `(com a exceção pending, without ela)`.
+/// The pending state at the end of the block, given that at the entry, and — when the block
+/// ends by branching on a check that nothing after it changes — the
+/// successors `(with the exception pending, without it)`.
 fn walk(b: &BasicBlock, entry: Pending, nl: &HashSet<String>) -> (Pending, Option<(BlockId, BlockId)>) {
     let mut e = entry;
     let mut check: Option<ValueId> = None;
@@ -601,10 +601,10 @@ fn join(a: Option<Pending>, b: Pending) -> Pending {
     }
 }
 
-/// Como cada `Return` sai ([`FunctionTables::exits`]): o ponto fixo da
-/// pendência na entrada de cada bloco. A função começa sem exceção pendente
-/// (quem chama só chama com ela limpa) e um pouso começa com ela ligada (o
-/// desenrolamento só acontece com a exceção pendente).
+/// How each `Return` exits ([`FunctionTables::exits`]): the fixpoint of the
+/// pending state at the entry of each block. The function starts without a pending exception
+/// (callers only call with it clear) and a landing pad starts with it set (the
+/// unwinding only happens with the exception pending).
 fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
     let n = f.blocks.len();
     if n == 0 {
@@ -628,7 +628,7 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
             None => successors(&b.terminator).into_iter().map(|s| (s, exit)).collect(),
         };
         for (alvo, state) in edges {
-            // O pouso só é alcançado pelo desenrolamento: sempre ligada.
+            // The landing pad is only reached by unwinding: always set.
             if t.landing_pads.contains(&alvo) {
                 continue;
             }
@@ -656,11 +656,11 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
             }
         }
     }
-    // A limpeza da pendência onde ela está comprovadamente limpa não faz
-    // nada: sai (o lowering põe uma antes de cada `return` e de cada salto, e
-    // no modelo de conferência só a função que nunca lança se livrava
-    // delas). Tirá-la não muda a pendência de ponto nenhum, então as saídas
-    // calculadas acima continuam valendo.
+    // Clearing the pending state where it is provably clear does
+    // nothing: it goes away (the lowering puts one before each `return` and each jump, and
+    // in the check model only a function that never throws got rid of
+    // them). Removing it does not change the pending state anywhere, so the exits
+    // computed above stay valid.
     let mut without_effect: HashSet<ValueId> = HashSet::new();
     for (k, b) in f.blocks.iter().enumerate() {
         let Some(mut e) = entry[k] else { continue };

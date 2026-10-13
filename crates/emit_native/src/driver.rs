@@ -1,4 +1,4 @@
-//! Driver de compilação LLVM IR -> Clang -> Link com o runtime em cache.
+//! Compilation driver LLVM IR -> Clang -> link with the cached runtime.
 
 use crate::alvo::Sistema;
 use crate::cache::{RuntimeCache, native_cache_dir};
@@ -12,10 +12,10 @@ pub struct NativeDriverOptions {
     pub clang: PathBuf,
     pub optimize: bool,
     pub timings: bool,
-    /// J05: o objeto leva as tabelas de linha; no Windows a ligação gera o
-    /// PDB (`/DEBUG`), que é onde o depurador as procura.
+    /// J05: the object carries the line tables; on Windows the link generates the
+    /// PDB (`/DEBUG`), which is where the debugger looks for them.
     pub debug_info: bool,
-    /// A CPU-alvo (`--cpu`, `gerador::Cpu`); `None`, a base do alvo.
+    /// The target CPU (`--cpu`, `gerador::Cpu`); `None`, the baseline of the target.
     pub cpu: Option<crate::gerador::Cpu>,
 }
 
@@ -31,10 +31,10 @@ impl Default for NativeDriverOptions {
     }
 }
 
-/// O Clang quando `DARTFORGE_CLANG` não está definido: o da distribuição
-/// (`lib/llvm/bin`), o `bin` de `DARTFORGE_LLVM_DIR`/`LLVM_SYS_221_PREFIX`,
-/// e por fim o `clang` do `PATH` (`scripts/env.ps1` aponta o da máquina de
-/// desenvolvimento no Windows).
+/// Clang when `DARTFORGE_CLANG` is not set: the distribution one
+/// (`lib/llvm/bin`), the `bin` of `DARTFORGE_LLVM_DIR`/`LLVM_SYS_221_PREFIX`,
+/// and finally the `clang` on `PATH` (`scripts/env.ps1` points to the one of the
+/// development machine on Windows).
 fn default_clang() -> PathBuf {
     if let Some(c) = dartforge_elements::distribuicao::ferramenta_llvm("clang") {
         return c;
@@ -61,8 +61,8 @@ pub struct TimingsReport {
     pub peak_memory_bytes: usize,
 }
 
-/// Tempos do Clang e da ligação, e se o objeto veio do cache (aí `clang` é
-/// só o tempo de achar a entrada).
+/// Clang and link times, and whether the object came from the cache (then `clang` is
+/// only the time to find the entry).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LinkTimes {
     pub clang: Duration,
@@ -76,8 +76,8 @@ pub fn compile_and_link(
     options: &NativeDriverOptions,
 ) -> Result<LinkTimes, String> {
     let runtime = RuntimeCache::get_or_compile()?;
-    // Programa com o SDK da fonte (P5c): a entrada chama o registro das
-    // bibliotecas do SDK, que moram nos objetos em cache.
+    // A program with the source SDK (P5c): the entry calls the registration of the
+    // SDK libraries, which live in the cached objects.
     let sdk = if llvm_ir.contains("declare void @df.registrar.") {
         let dir = crate::sdk_do_dart()?;
         let profile = if options.optimize {
@@ -95,18 +95,18 @@ pub fn compile_and_link(
     } else {
         None
     };
-    // Com o SDK da fonte há dois perfis (docs/NATIVO-PLANO.md §7.9):
-    // * desenvolvimento e teste: o runtime e o SDK moram na DLL em cache, e o
-    //   executável liga só o objeto do programa e a biblioteca de importação
-    //   (ligação rápida; a DLL vai ao lado do executável);
-    // * produção (`optimize`): UM executável autocontido — o objeto do
-    //   programa, os objetos do SDK (em cache, compilados com
-    //   `-ffunction-sections`) e o runtime estático, com `/OPT:REF` tirando o
-    //   que o programa não alcança.
+    // With the source SDK there are two profiles (docs/NATIVO-PLANO.md §7.9):
+    // * development and test: the runtime and the SDK live in the cached DLL, and the
+    //   executable links only the program object and the import library
+    //   (fast link; the DLL goes next to the executable);
+    // * production (`optimize`): ONE self-contained executable — the program
+    //   object, the SDK objects (cached, compiled with
+    //   `-ffunction-sections`) and the static runtime, with `/OPT:REF` removing what
+    //   the program does not reach.
     let production = options.optimize && sdk.is_some();
-    // Produção: as tabelas de métodos montadas no módulo do programa, só com
-    // os pares vivos (docs/NATIVO-PODA-DE-TABELAS.md). O objeto em cache é
-    // o deste IR já montado.
+    // Production: the method tables assembled in the program module, with only
+    // the live pairs (docs/NATIVO-PODA-DE-TABELAS.md). The cached object is
+    // that of this already assembled IR.
     let assembled;
     let llvm_ir = match &sdk {
         Some(s) if production => {
@@ -121,9 +121,9 @@ pub fn compile_and_link(
         None => (Linkage::Runtime(runtime.lib_path.clone()), Vec::new()),
     };
 
-    // Diretório temporário seguro no target. Com o cache de objeto ele só é
-    // usado com DARTFORGE_KEEP_IR ou se a ligação recusar o objeto do cache,
-    // e só é criado nesses casos.
+    // A safe temporary directory in the target. With the object cache it is only
+    // used with DARTFORGE_KEEP_IR or if the link rejects the cached object,
+    // and it is only created in those cases.
     let staging = output.parent().unwrap_or(Path::new(".")).join(".df_tmp");
     let create_staging = || {
         std::fs::create_dir_all(&staging)
@@ -133,37 +133,37 @@ pub fn compile_and_link(
     let stem = output.file_stem().unwrap_or_default().to_string_lossy();
     let ll_file = staging.join(format!("{stem}.ll"));
     let keep_ir = std::env::var_os("DARTFORGE_KEEP_IR").is_some();
-    // Produção com o SDK da fonte: bitcode, otimizado junto com o do SDK na
-    // ligação (LTO).
+    // Production with the source SDK: bitcode, optimized together with the SDK one at
+    // link time (LTO).
     let gerador = Gerador::escolher(&options.clang);
-    // `DARTFORGE_PRODUCAO_SEM_LTO=1` (medida, docs/NATIVO-PRODUCAO-GRANDE.md
-    // §3.2): as partes do programa vão como objetos `-O2`, e só o bitcode do
-    // SDK passa pela LTO do ligador.
+    // `DARTFORGE_PRODUCAO_SEM_LTO=1` (measurement, docs/NATIVO-PRODUCAO-GRANDE.md
+    // §3.2): the parts of the program go as `-O2` objects, and only the SDK
+    // bitcode goes through the linker's LTO.
     let without_lto = production && std::env::var("DARTFORGE_PRODUCAO_SEM_LTO").is_ok_and(|v| v == "1");
     let generation = Generation { cpu: options.cpu, ..Generation::of_program(options.optimize, production && !without_lto) };
     if keep_ir {
-        // A cópia em `.df_tmp` só existe para quem pediu DARTFORGE_KEEP_IR
-        // (o `determinismo --run` do harness lê essas cópias).
+        // The copy in `.df_tmp` only exists for those who asked for DARTFORGE_KEEP_IR
+        // (the harness's `determinismo --run` reads those copies).
         create_staging()?;
         std::fs::write(&ll_file, llvm_ir)
             .map_err(|e| format!("falha ao escrever LLVM IR em {}: {e}", ll_file.display()))?;
     }
 
-    // Fase 1': o módulo grande vai em partes (C9, `partition.rs`): cada uma
-    // um objeto, com a sua chave no cache, compiladas poucas por vez.
+    // Phase 1': the large module goes in parts (C9, `partition.rs`): each one
+    // an object, with its own key in the cache, compiled a few at a time.
     let t_clang = Instant::now();
     let cache = ObjectCache::from_env();
-    // Também na produção: cada parte vira um bitcode, e o ThinLTO do
-    // ligador as otimiza juntas (o IR já montado com as tabelas podadas).
+    // Also in production: each part becomes a bitcode, and the linker's ThinLTO
+    // optimizes them together (the IR already assembled with the pruned tables).
     if let Some((threshold, alvo)) = crate::partition::limits()
         && llvm_ir.len() > threshold
     {
         let plan = crate::partition::make_plan(llvm_ir, alvo);
-        // Produção em partes: o bitcode tem de levar o resumo do ThinLTO,
-        // que só o Clang escreve (o gerador embutido não: o `lld` faria a
-        // LTO completa num módulo só, numa thread — 1 600 s no
+        // Production in parts: the bitcode has to carry the ThinLTO summary,
+        // which only Clang writes (the embedded generator does not: `lld` would do
+        // the full LTO in a single module, on one thread — 1 600 s on
         // new_sali/backend, docs/NATIVO-PRODUCAO-GRANDE.md §1.2).
-        // `DARTFORGE_GERADOR` escolhe à mão.
+        // `DARTFORGE_GERADOR` chooses by hand.
         let parts_generator = if production && !without_lto && std::env::var_os("DARTFORGE_GERADOR").is_none() {
             Gerador::clang_if_any(&options.clang)
         } else {
@@ -176,10 +176,10 @@ pub fn compile_and_link(
         let mut extras: Vec<PathBuf> = objects[1..].to_vec();
         extras.extend(sdk_objects.iter().cloned());
         LINK_IN_PARTS.set(true);
-        // Raízes por mapas na produção em partes: a LTO sai do ligador (o
-        // `lld-link` não roda o passe dos mapas) e vira o ThinLTO
-        // distribuído, que entrega objetos nativos com o mapa compacto
-        // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Etapa 3).
+        // Roots by maps in production in parts: the LTO leaves the linker (
+        // `lld-link` does not run the maps pass) and becomes the distributed
+        // ThinLTO, which hands over native objects with the compact map
+        // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Step 3).
         let distributed = cfg!(feature = "llvm-embutido")
             && production
             && !without_lto
@@ -209,30 +209,30 @@ pub fn compile_and_link(
         return Ok(LinkTimes { clang: clang_duration, link: t_link.elapsed(), objeto_do_cache: false });
     }
 
-    // Raízes por mapas na produção de um módulo só, pelo ThinLTO distribuído,
-    // que roda o passe dos mapas depois da otimização da ligação e entrega
-    // objetos com o mapa compacto (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-    // §3.4): no Windows, porque a LTO do `lld-link` não roda o passe; no
-    // Linux, também porque o mapa do LLVM tem relocações absolutas numa seção
-    // só de leitura, que o `ld.lld` recusa no executável PIE (Etapa 4).
-    // `DARTFORGE_LTO_DISTRIBUIDA=1` (medida, §8): o mesmo caminho com a
-    // pilha-sombra, para comparar os modos de raízes no mesmo pipeline.
+    // Roots by maps in single-module production, through the distributed ThinLTO,
+    // which runs the maps pass after the link optimization and hands over
+    // objects with the compact map (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+    // §3.4): on Windows, because the `lld-link` LTO does not run the pass; on
+    // Linux, also because the LLVM map has absolute relocations in a
+    // read-only section, which `ld.lld` rejects in a PIE executable (Step 4).
+    // `DARTFORGE_LTO_DISTRIBUIDA=1` (measurement, §8): the same path with the
+    // shadow stack, to compare the root modes in the same pipeline.
     let single_distributed = cfg!(feature = "llvm-embutido")
         && production
         && !without_lto
         && matches!(crate::alvo::sistema(), Sistema::Windows | Sistema::Linux)
         && (crate::alvo::raizes_por_mapas()? || std::env::var("DARTFORGE_LTO_DISTRIBUIDA").is_ok_and(|v| v == "1"));
-    // O bitcode que vai ao ThinLTO distribuído tem de levar o resumo do
-    // ThinLTO, que só o Clang escreve: sem ele, o backend com o índice da
-    // ligação devolve o módulo vazio. `DARTFORGE_GERADOR` escolhe à mão.
+    // The bitcode that goes to the distributed ThinLTO has to carry the ThinLTO
+    // summary, which only Clang writes: without it, the backend with the index of the
+    // link returns an empty module. `DARTFORGE_GERADOR` chooses by hand.
     let gerador = if single_distributed && std::env::var_os("DARTFORGE_GERADOR").is_none() {
         Gerador::Clang(options.clang.clone())
     } else {
         gerador
     };
 
-    // Fase 1: o gerador compila LLVM IR -> objeto, ou o cache já tem o
-    // objeto deste IR com este gerador e esta geração.
+    // Phase 1: the generator compiles LLVM IR -> object, or the cache already has the
+    // object of this IR with this generator and this generation.
     let obj_staging = || -> Result<PathBuf, String> {
         create_staging()?;
         Ok(staging.join(format!("{stem}.{}", crate::alvo::ext_object())))
@@ -252,7 +252,7 @@ pub fn compile_and_link(
     };
     let clang_duration = t_clang.elapsed();
 
-    // Fase 2: Link do objeto com o runtime estático
+    // Phase 2: link the object with the static runtime
     let t_link = Instant::now();
     let link_object = |obj: &Path| {
         if single_distributed {
@@ -265,8 +265,8 @@ pub fn compile_and_link(
     if linked_done.is_err()
         && let Some((c, key, true)) = from_cache
     {
-        // Um objeto do cache que o ligador recusa não pode ficar lá: sai do
-        // cache, e a ligação é refeita uma vez com um objeto novo.
+        // A cached object the linker rejects cannot stay there: it leaves the
+        // cache, and the link is redone once with a new object.
         c.remove(key);
         obj_file = obj_staging()?;
         gerador.gerar(llvm_ir, generation, &obj_file)?;
@@ -275,10 +275,10 @@ pub fn compile_and_link(
     }
     linked_done?;
     if let Some(s) = sdk.as_ref().filter(|_| !production) {
-        // A biblioteca compartilhada ao lado do executável (o Windows procura
-        // primeiro ali; no Linux e no macOS o executável leva o `rpath` do
-        // próprio diretório): ligação física, sem cópia; cópia só se o volume
-        // for outro.
+        // The shared library next to the executable (Windows looks there
+        // first; on Linux and macOS the executable carries the `rpath` of its own
+        // directory): a physical link, without copying; a copy only if the volume
+        // is another.
         let dest = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
         if !dest.is_file() && std::fs::hard_link(&s.dll, &dest).is_err() {
             std::fs::copy(&s.dll, &dest).map_err(|e| format!("não foi possível pôr a DLL do SDK em {}: {e}", dest.display()))?;
@@ -286,8 +286,8 @@ pub fn compile_and_link(
     }
     let link_duration = t_link.elapsed();
 
-    // Limpeza de arquivos temporários (mantém se DARTFORGE_KEEP_IR estiver
-    // definido); um objeto do cache nunca é apagado aqui.
+    // Cleanup of temporary files (kept if DARTFORGE_KEEP_IR is
+    // set); a cached object is never deleted here.
     for p in files_to_remove(&ll_file, &obj_file, &native_cache_dir(), keep_ir) {
         let _ = std::fs::remove_file(p);
     }
@@ -299,11 +299,11 @@ pub fn compile_and_link(
     })
 }
 
-/// A ligação da produção em partes com raízes por mapas: o ThinLTO
-/// distribuído (`distributed_lto.rs`) troca cada bitcode pelo objeto nativo
-/// dele, e o ligador recebe só objetos, sem LTO. Os índices pedem a ligação
-/// inteira, então a biblioteca do runtime entra na lista e sai dela antes
-/// da ligação final (que a acrescenta de novo).
+/// The link of production in parts with roots by maps: the distributed ThinLTO
+/// (`distributed_lto.rs`) replaces each bitcode with its native object,
+/// and the linker receives only objects, without LTO. The indices ask for the whole
+/// link, so the runtime library enters the list and leaves it before
+/// the final link (which adds it again).
 #[cfg(feature = "llvm-embutido")]
 #[allow(clippy::too_many_arguments)]
 fn link_distributed(
@@ -348,37 +348,37 @@ fn link_distributed(
 }
 
 thread_local! {
-    /// A ligação em curso nesta thread é a do programa em partes (ThinLTO).
+    /// The link in progress on this thread is that of the program in parts (ThinLTO).
     static LINK_IN_PARTS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    /// A ligação em curso recebe objetos nativos já otimizados (o ThinLTO
-    /// distribuído, `distributed_lto.rs`): o ligador não faz LTO.
+    /// The link in progress receives already optimized native objects (the distributed
+    /// ThinLTO, `distributed_lto.rs`): the linker does no LTO.
     static NO_LTO_AT_LINK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// O nível de otimização da LTO da produção (`DARTFORGE_LTO_NIVEL`, 0–3):
-/// `-O1` no programa em partes (ThinLTO; docs/NATIVO-PRODUCAO-GRANDE.md
-/// §6.2: a otimização cai de 275 para 150 s de CPU no new_sali/backend, o
-/// `bench/performance` não muda), `-O2` no resto.
+/// The optimization level of the production LTO (`DARTFORGE_LTO_NIVEL`, 0–3):
+/// `-O1` for the program in parts (ThinLTO; docs/NATIVO-PRODUCAO-GRANDE.md
+/// §6.2: optimization falls from 275 to 150 s of CPU on new_sali/backend,
+/// `bench/performance` does not change), `-O2` for the rest.
 pub fn lto_level() -> u8 {
     let pattern = if LINK_IN_PARTS.get() { 1 } else { 2 };
     std::env::var("DARTFORGE_LTO_NIVEL").ok().and_then(|v| v.trim().parse::<u8>().ok()).filter(|n| *n <= 3).unwrap_or(pattern)
 }
 
-/// Se a LTO desta ligação roda o *machine outliner* do LLVM em todas as
-/// funções (`-enable-machine-outliner=always`): o programa grande (em
-/// partes) no modo padrão — exceções por checagem, pilha-sombra, memória
-/// por rastreamento, sem o rastro simbólico — no aarch64. O código Dart
-/// repete muito as mesmas sequências (a moldura da pilha-sombra, a checagem
-/// da exceção pendente, a montagem dos argumentos de um seletor) e o
-/// outliner as troca por uma chamada: o `new_sali/backend` cai de 53,1 para
-/// 38,5 MB (`__text` 44,6 → 30,0 MB). Fica de fora onde o endereço de
-/// retorno de uma chamada importa: as exceções por tabelas e as raízes por
-/// mapas desenrolam os quadros, e o rastro simbólico acha a posição pelo
-/// rótulo antes da chamada (`llvm/stack_trace.rs`); uma chamada levada para a
-/// função extraída teria o retorno fora da função dela. O programa pequeno
-/// não paga o salto a mais (a LTO dele já é um módulo só, e o tamanho já
-/// fica abaixo do `dart compile exe`). `DARTFORGE_OUTLINER=0` desliga;
-/// `=1` liga também no programa pequeno (medida).
+/// Whether the LTO of this link runs LLVM's *machine outliner* on every
+/// function (`-enable-machine-outliner=always`): the large program (in
+/// parts) in the default mode — exceptions by check, shadow stack, tracing
+/// memory, without the symbolic stack trace — on aarch64. Dart code
+/// repeats the same sequences a lot (the shadow-stack frame, the pending
+/// exception check, the assembly of the arguments of a selector) and the
+/// outliner replaces them with a call: `new_sali/backend` falls from 53.1 to
+/// 38.5 MB (`__text` 44.6 → 30.0 MB). It stays out wherever the return address
+/// of a call matters: exceptions by tables and roots by
+/// maps unwind the frames, and the symbolic stack trace finds the position by the
+/// label before the call (`llvm/stack_trace.rs`); a call moved into the
+/// extracted function would have its return outside its own function. A small program
+/// does not pay the extra jump (its LTO is already a single module, and its size already
+/// is below `dart compile exe`). `DARTFORGE_OUTLINER=0` turns it off;
+/// `=1` also turns it on for a small program (measurement).
 pub fn outliner_at_link() -> bool {
     let request = std::env::var("DARTFORGE_OUTLINER").ok();
     if request.as_deref() == Some("0") {
@@ -391,9 +391,9 @@ pub fn outliner_at_link() -> bool {
     cfg!(target_arch = "aarch64") && default_mode && (LINK_IN_PARTS.get() || request.as_deref() == Some("1"))
 }
 
-/// O diretório do cache do ThinLTO da ligação de produção (ao lado do cache
-/// de objetos); `None` com `DARTFORGE_SEM_CACHE_THINLTO=1` ou sem cache de
-/// objetos.
+/// The directory of the ThinLTO cache of the production link (next to the object
+/// cache); `None` with `DARTFORGE_SEM_CACHE_THINLTO=1` or without an object
+/// cache.
 pub fn thinlto_cache() -> Option<PathBuf> {
     if std::env::var("DARTFORGE_SEM_CACHE_THINLTO").is_ok_and(|v| v == "1") {
         return None;
@@ -404,9 +404,9 @@ pub fn thinlto_cache() -> Option<PathBuf> {
     Some(d)
 }
 
-/// Quantas gerações de código (partes, ou módulos do ThinLTO no ligador) ao
-/// mesmo tempo: `DARTFORGE_PARTES_PARALELAS`, senão metade das threads da
-/// máquina, no máximo 3.
+/// How many code generations (parts, or ThinLTO modules in the linker) at
+/// the same time: `DARTFORGE_PARTES_PARALELAS`, otherwise half the threads of the
+/// machine, at most 3.
 pub fn generation_tasks() -> usize {
     std::env::var("DARTFORGE_PARTES_PARALELAS")
         .ok()
@@ -415,11 +415,11 @@ pub fn generation_tasks() -> usize {
         .max(1)
 }
 
-/// Os objetos das partes de um módulo grande (C9), na ordem: cada parte
-/// montada só quando é a vez dela, pelo cache de objetos (ou no `staging`),
-/// `DARTFORGE_PARTES_PARALELAS` por vez (padrão: metade das threads da
-/// máquina, no máximo 3 — a memória de um gerador, ~44 bytes por byte de
-/// IR no `-O0`, é a medida, não os núcleos).
+/// The objects of the parts of a large module (C9), in order: each part
+/// assembled only when its turn comes, through the object cache (or in `staging`),
+/// `DARTFORGE_PARTES_PARALELAS` at a time (default: half the threads of the
+/// machine, at most 3 — the memory of a generator, ~44 bytes per byte of
+/// IR at `-O0`, is the measure, not the cores).
 fn generate_parts(
     plan: &crate::partition::Plan<'_>,
     gerador: &Gerador,
@@ -470,16 +470,16 @@ fn generate_parts(
         .collect()
 }
 
-/// Com o que o objeto do programa é ligado.
+/// What the program object is linked with.
 enum Linkage {
-    /// Sem o SDK da fonte: o runtime estático (com o `main` C).
+    /// Without the source SDK: the static runtime (with the C `main`).
     Runtime(PathBuf),
-    /// Desenvolvimento com o SDK da fonte: a biblioteca compartilhada (runtime
-    /// e SDK) — no Windows, a biblioteca de importação da DLL; nos outros, o
-    /// próprio `.only`/`.dylib`.
+    /// Development with the source SDK: the shared library (runtime
+    /// and SDK) — on Windows, the import library of the DLL; on the others, the
+    /// `.so`/`.dylib` itself.
     SharedSdk(PathBuf),
-    /// Produção com o SDK da fonte: o runtime estático sem o `main` C; os
-    /// objetos do SDK vêm à parte.
+    /// Production with the source SDK: the static runtime without the C `main`; the
+    /// SDK objects come separately.
     Production(PathBuf),
 }
 
@@ -491,8 +491,8 @@ impl Linkage {
     }
 }
 
-/// A ligação no Linux: o `ld.lld` direto, com o sysroot de ligação
-/// (`ligador.rs`) — sem o driver do Clang nem o GCC na máquina.
+/// Linking on Linux: `ld.lld` directly, with the link sysroot
+/// (`ligador.rs`) — without the Clang driver nor GCC on the machine.
 fn link_on_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
     use crate::ligador;
     let sysroot = ligador::SysrootLinux::locate(clang)?;
@@ -516,9 +516,9 @@ fn link_on_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, o
     )
 }
 
-/// A ligação no Windows: o `lld-link` direto, com as bibliotecas de
-/// importação e a CRT mínima geradas pelo dartforge (`ligador_windows.rs`) —
-/// sem o Visual Studio nem o Windows SDK na máquina (N15).
+/// Linking on Windows: `lld-link` directly, with the import libraries
+/// and the minimal CRT generated by dartforge (`ligador_windows.rs`) —
+/// without Visual Studio nor the Windows SDK on the machine (N15).
 fn link_on_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
     use crate::ligador_windows as lw;
     let sysroot = lw::SysrootWindows::locate(clang)?;
@@ -541,9 +541,9 @@ fn link_on_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage,
     )
 }
 
-/// A ligação no macOS: o `ld64.lld` direto, com os `.tbd` do sysroot de
-/// ligação (`ligador_macos.rs`) — sem o `xcrun`, o `ld` da Apple nem as
-/// Command Line Tools na máquina (N16).
+/// Linking on macOS: `ld64.lld` directly, with the `.tbd` files of the link
+/// sysroot (`ligador_macos.rs`) — without `xcrun`, Apple's `ld` nor the
+/// Command Line Tools on the machine (N16).
 fn link_on_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
     use crate::ligador_macos as lm;
     let sysroot = lm::SysrootMacos::locate()?;
@@ -567,31 +567,31 @@ fn link_on_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, o
     )
 }
 
-/// Liga o objeto do programa: o ligador do LLVM direto em cada sistema, com
-/// o que o sistema exige vindo do dartforge (nenhum driver de C, nenhum
-/// toolchain do sistema). O `lld` é o do mesmo LLVM do gerador — o bitcode
-/// da produção (LTO) só é lido pela mesma versão.
+/// Links the program object: the LLVM linker directly on each system, with
+/// what the system requires coming from dartforge (no C driver, no
+/// system toolchain). The `lld` is the one from the same LLVM as the generator — the
+/// production bitcode (LTO) is only read by the same version.
 fn link(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
     match crate::alvo::sistema() {
         Sistema::Linux => link_on_linux(clang, obj, sdk, linkage, output, debug_info, cpu),
-        // A ligação de antes do N15 (o driver do Clang com o `link.exe` e a
-        // CRT do Visual C++), só para comparação: é a referência do
-        // `without-toolchain.yml`, na mesma build.
+        // The link from before N15 (the Clang driver with `link.exe` and the
+        // Visual C++ CRT), only for comparison: it is the reference of
+        // `sem-toolchain.yml`, in the same build.
         Sistema::Windows if link_with_clang() => link_old_with_clang(clang, obj, sdk, linkage, output, debug_info, cpu),
         Sistema::Windows => link_on_windows(clang, obj, sdk, linkage, output, debug_info, cpu),
         Sistema::MacOs => link_on_macos(clang, obj, sdk, linkage, output, debug_info, cpu),
     }
 }
 
-/// Se a ligação no Windows é a de antes do N15 (`DARTFORGE_LIGAR_COM_CLANG`
-/// definida): o executável e a DLL do SDK da fonte.
+/// Whether the link on Windows is the one from before N15 (`DARTFORGE_LIGAR_COM_CLANG`
+/// set): the executable and the DLL of the source SDK.
 pub fn link_with_clang() -> bool {
     cfg!(windows) && std::env::var_os("DARTFORGE_LIGAR_COM_CLANG").is_some()
 }
 
-/// A ligação pelo driver do Clang, como era antes do N15 (o toolchain do
-/// Visual Studio na máquina): `DARTFORGE_LIGAR_COM_CLANG=1` no Windows. Só
-/// para comparar com a ligação sem o toolchain do sistema.
+/// The link through the Clang driver, as it was before N15 (the Visual Studio
+/// toolchain on the machine): `DARTFORGE_LIGAR_COM_CLANG=1` on Windows. Only
+/// to compare with the link without the system toolchain.
 fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
     if crate::alvo::sistema() == Sistema::Linux {
         return link_on_linux(clang, obj, sdk, linkage, output, debug_info, cpu);
@@ -601,30 +601,30 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
     let sistema = crate::alvo::sistema();
     match linkage {
         Linkage::SharedSdk(_) if sistema == Sistema::Windows => {
-            // Executável do SDK da fonte (desenvolvimento): o runtime está na
-            // DLL, que usa a CRT dinâmica (a do `rustc`); o executável usa a
-            // mesma.
+            // Executable of the source SDK (development): the runtime is in the
+            // DLL, which uses the dynamic CRT (that of `rustc`); the executable uses the
+            // same one.
             cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt"]);
         }
         Linkage::SharedSdk(_) => {
-            // A biblioteca compartilhada vai ao lado do executável; o `rpath`
-            // aponta o carregador para o diretório do próprio executável.
+            // The shared library goes next to the executable; the `rpath`
+            // points the loader to the directory of the executable itself.
             cmd.arg(if sistema == Sistema::MacOs { "-Wl,-rpath,@executable_path" } else { "-Wl,-rpath,$ORIGIN" });
-            // O Clang acrescenta `-lSystem` no macOS: sem a raiz do SDK
-            // (`-isysroot`), o ligador não o acha.
+            // Clang adds `-lSystem` on macOS: without the SDK root
+            // (`-isysroot`), the linker does not find it.
             cmd.args(crate::alvo::argumentos_de_ligacao());
         }
         Linkage::Production(_) => {
-            // Produção com o SDK da fonte: tudo estático no executável,
-            // ThinLTO entre o programa e o SDK (lld), e o ligador tira as
-            // seções que nada alcança.
-            // O lld tem de ser o do mesmo LLVM do Clang (o bitcode ThinLTO só
-            // é lido pela mesma versão). O Clang com ThinLTO exige o literal
-            // `lld` em `-fuse-ld=` (caminho absoluto dá `clang: error: LTO
-            // requires -fuse-ld=lld` no Windows); então o diretório bin irmão
-            // do próprio Clang vai ao PATH só deste spawn, para o `lld`
-            // resolvido ser o da mesma versão. Recusar sua ausência evita cair
-            // num lld errado do PATH em silêncio (medido: LLVM 20 lendo
+            // Production with the source SDK: everything static in the executable,
+            // ThinLTO between the program and the SDK (lld), and the linker removes the
+            // sections nothing reaches.
+            // The lld has to be from the same LLVM as Clang (ThinLTO bitcode is only
+            // read by the same version). Clang with ThinLTO requires the literal
+            // `lld` in `-fuse-ld=` (an absolute path gives `clang: error: LTO
+            // requires -fuse-ld=lld` on Windows); so the sibling bin directory
+            // of Clang itself goes into PATH only for this spawn, so that the resolved
+            // `lld` is of the same version. Rejecting its absence avoids silently falling
+            // into a wrong lld on PATH (measured: LLVM 20 reading
             // bitcode 22 — `Unknown attribute kind (105)`).
             let lld_name = match sistema {
                 Sistema::Windows => "lld-link.exe",
@@ -648,9 +648,9 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
             }
             cmd.args(["-fuse-ld=lld", "-flto=thin"]);
             cmd.arg(format!("-O{}", lto_level()));
-            // O cache do ThinLTO: numa religação, só os módulos que mudaram
-            // (ou cujas importações mudaram) passam de novo pela otimização
-            // e pela geração de código (docs/NATIVO-PRODUCAO-GRANDE.md).
+            // The ThinLTO cache: on a relink, only the modules that changed
+            // (or whose imports changed) go through optimization
+            // and code generation again (docs/NATIVO-PRODUCAO-GRANDE.md).
             if let Some(d) = thinlto_cache() {
                 match sistema {
                     Sistema::Windows => {
@@ -665,26 +665,26 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
                     }
                 }
             }
-            // A CPU-alvo da geração de código da LTO (`--cpu`).
+            // The target CPU of the LTO code generation (`--cpu`).
             if let Some(c) = cpu {
                 cmd.arg(format!("-march={}", c.name()));
             }
             cmd.args(crate::alvo::argumentos_de_ligacao());
-            // O bitcode do gerador embutido não tem o resumo do ThinLTO: o
-            // `lld` faz a LTO completa, e a geração de código dela divide-se
-            // em partições paralelas (o Mach-O não tem a opção).
+            // The bitcode of the embedded generator has no ThinLTO summary:
+            // `lld` does the full LTO, and its code generation is split
+            // into parallel partitions (Mach-O does not have the option).
             let partitions = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
             match sistema {
                 Sistema::Windows => {
-                    // `/OPT:REF` liga também o `/OPT:ICF` do `lld-link`, que
-                    // funde funções de corpo idêntico num endereço só; o
-                    // `/OPT:NOICF` vai logo abaixo, para todo perfil
-                    // (`left == right` daria `true`, corpus/js 147 e 184).
+                    // `/OPT:REF` also turns on `lld-link`'s `/OPT:ICF`, which
+                    // merges functions with identical bodies into a single address; the
+                    // `/OPT:NOICF` goes right below, for every profile
+                    // (`left == right` would give `true`, corpus/js 147 and 184).
                     cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt", "-Wl,/OPT:REF"]);
                     cmd.arg(format!("-Wl,/opt:lldltopartitions={partitions}"));
                 }
-                // Sem a tabela de símbolos, como o `.exe` do Windows (que a
-                // deixa no PDB): metade do tamanho no ELF (medido: 9,4 → 4,4 MB).
+                // Without the symbol table, like the Windows `.exe` (which leaves it
+                // in the PDB): half the size in ELF (measured: 9.4 → 4.4 MB).
                 Sistema::Linux => {
                     cmd.arg("-Wl,--gc-sections");
                     if !crate::ligador::keep_symbols() && !debug_info {
@@ -694,7 +694,7 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
                 }
                 Sistema::MacOs => {
                     cmd.arg("-Wl,-dead_strip");
-                    // `-S` tira o mapa de depuração (J05).
+                    // `-S` strips the debug map (J05).
                     if !debug_info {
                         cmd.args(["-Wl,-S", "-Wl,-x"]);
                     }
@@ -706,14 +706,14 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
         }
     }
     if sistema == Sistema::Windows && debug_info {
-        // O `-g` na ligação vira o `/DEBUG` do ligador: o PDB ao lado do
-        // executável, com as tabelas CodeView do objeto.
+        // The `-g` at link time becomes the linker's `/DEBUG`: the PDB next to the
+        // executable, with the CodeView tables of the object.
         cmd.arg("-g");
     }
     if sistema == Sistema::Windows {
-        // Sem ICF em nenhum perfil: o `link.exe` sem `/DEBUG` (e o `lld-link`
-        // com `/OPT:REF`) funde funções de corpo idêntico, e o tear-off de
-        // função de topo se compara pelo endereço.
+        // No ICF in any profile: `link.exe` without `/DEBUG` (and `lld-link`
+        // with `/OPT:REF`) merges functions with identical bodies, and the tear-off of a
+        // top-level function is compared by address.
         cmd.arg("-Wl,/OPT:NOICF");
     }
     let exit = cmd
@@ -722,8 +722,8 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
         .output()
         .map_err(|e| format!("falha na ligação com Clang em {clang:?}: {e}"))?;
     if !exit.status.success() {
-        // O que o ligador disse vai no erro (sem isso a falha no CI não
-        // tem diagnóstico).
+        // What the linker said goes into the error (without it a CI failure has
+        // no diagnostic).
         let text = String::from_utf8_lossy(&exit.stderr);
         let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
         return Err(format!("Clang falhou na ligação do executável ({}):\n{}", exit.status, lines.join("\n")));
@@ -731,8 +731,8 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
     Ok(())
 }
 
-/// O que a limpeza depois da ligação apaga: nada com `keep_ir`, e nunca um
-/// caminho dentro do cache — o objeto que veio de lá é de todos.
+/// What the cleanup after the link deletes: nothing with `keep_ir`, and never a
+/// path inside the cache — the object that came from there belongs to everyone.
 fn files_to_remove(ll: &Path, obj: &Path, dir_cache: &Path, keep_ir: bool) -> Vec<PathBuf> {
     if keep_ir {
         return Vec::new();

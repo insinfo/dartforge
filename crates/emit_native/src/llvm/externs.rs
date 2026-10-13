@@ -1,53 +1,53 @@
-//! Tabela das externs do runtime: a declaração LLVM e os EFEITOS de cada uma.
+//! Table of the runtime externs: the LLVM declaration and the EFFECTS of each one.
 //!
-//! Fonte única de verdade (docs/NATIVO-PLANO.md §6.5, "tabela de efeitos"):
-//! o emissor declara as externs a partir daqui, e o passo 6 do plano vai
-//! usar os efeitos para (a) não exigir raízes vivas nem quadro em volta de
-//! uma extern que não aloca — o equivalente das entradas LEAF da VM
-//! (`runtime_entry.cc:778`) e do `gc-leaf-function` do Dartino — e (b)
-//! dispensar a verificação de exceção pendente depois de uma extern que não
-//! lança ("não aloca ⇒ não lança": lançar aloca o erro e o rastro).
+//! Single source of truth (docs/NATIVO-PLANO.md §6.5, "effects table"):
+//! the emitter declares the externs from here, and step 6 of the plan will
+//! use the effects to (a) not require live roots nor a frame around
+//! an extern that does not allocate — the equivalent of the VM's LEAF entries
+//! (`runtime_entry.cc:778`) and of Dartino's `gc-leaf-function` — and (b)
+//! skip the pending exception check after an extern that does not
+//! throw ("does not allocate ⇒ does not throw": throwing allocates the error and the stack trace).
 //!
-//! Nesta etapa todas estão marcadas de forma conservadora (aloca, lança):
-//! uma marca otimista errada é exatamente o defeito dos stack maps errados,
-//! só que do nosso lado — ela só pode ser trocada junto com um teste que
-//! roda a extern sob `DARTFORGE_GC_STRESS=1` e exige zero coletas.
+//! At this stage all of them are marked conservatively (allocates, throws):
+//! a wrong optimistic mark is exactly the defect of wrong stack maps,
+//! only on our side — it can only be changed together with a test that
+//! runs the extern under `DARTFORGE_GC_STRESS=1` and requires zero collections.
 
-/// O que uma chamada à extern pode fazer.
+/// What a call to the extern may do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Effects {
-    /// Pode alocar no heap (logo, coletar): é ponto de coleta.
+    /// May allocate on the heap (hence, collect): it is a collection point.
     pub allocates: bool,
-    /// Pode deixar uma exceção pendente.
+    /// May leave a pending exception.
     pub throws: bool,
-    /// Pode chamar código Dart gerado (que, por sua vez, aloca e lança).
+    /// May call generated Dart code (which, in turn, allocates and throws).
     pub calls_dart: bool,
 }
 
-/// Aloca (ponto de coleta), mas não lança nem chama código Dart: as
-/// alocações e leituras simples do runtime (conferidas no código de cada
-/// uma). `optimize/effects.rs` conta com isso para saber quem não lança.
+/// Allocates (a collection point), but neither throws nor calls Dart code: the
+/// simple allocations and reads of the runtime (checked in the code of each
+/// one). `optimize/effects.rs` relies on this to know who does not throw.
 pub const ALLOCATES_WITHOUT_THROWING: Effects = Effects {
     allocates: true,
     throws: false,
     calls_dart: false,
 };
 
-/// Marca conservadora: aloca e lança.
+/// Conservative mark: allocates and throws.
 pub const CONSERVATIVE: Effects = Effects {
     allocates: true,
     throws: true,
     calls_dart: false,
 };
 
-/// Uma extern do runtime: a declaração LLVM e os efeitos.
+/// A runtime extern: the LLVM declaration and the effects.
 pub struct Extern {
     pub decl: &'static str,
     pub effects: Effects,
 }
 
 impl Extern {
-    /// O nome do símbolo (`dartforge_…`), entre o `@` e o `(`.
+    /// The name of the symbol (`dartforge_…`), between the `@` and the `(`.
     pub fn nome(&self) -> &'static str {
         let ini = self.decl.find('@').map_or(0, |i| i + 1);
         let end = self.decl[ini..]
@@ -57,7 +57,7 @@ impl Extern {
     }
 }
 
-/// Todas as externs que o código gerado pode chamar.
+/// All the externs the generated code may call.
 pub const EXTERNS: &[Extern] = &[
     Extern {
         decl: "declare i64 @dartforge_arc_closure_owned_v1(i64, i64, i64, i64)",
@@ -85,68 +85,68 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_object_get(i64, i64)",
-        // Lê/grava um campo: não aloca (o emissor a expande em linha com
-        // índice constante).
+        // Reads/writes a field: does not allocate (the emitter expands it inline with a
+        // constant index).
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         // `_StackTrace.toString` (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-        // §13.14): o texto guardado, ou os endereços do `throw`
-        // simbolizados agora (aloca o texto).
+        // §13.14): the stored text, or the addresses of the `throw`
+        // symbolized now (allocates the text).
         decl: "declare i64 @dartforge_rastro_texto(i64)",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // O registro da tabela do rastro da imagem (§13.14): não aloca nem
-        // lança.
+        // The registration of the stack trace table of the image (§13.14): neither allocates nor
+        // throws.
         decl: "declare void @dartforge_registrar_rastro(ptr, ptr)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // A posição de um campo do `dart:async` que o rastro percorre
-        // (§13.14): não aloca no heap do coletor nem lança.
+        // The position of a `dart:async` field that the stack trace walks
+        // (§13.14): neither allocates on the collector heap nor throws.
         decl: "declare void @dartforge_registrar_campo_do_rastro(i64, ptr, i64, i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // As entradas de tear-off que os ramos de stream do rastro
-        // reconhecem (§13.14). Não aloca no heap do coletor nem lança.
+        // The tear-off entries that the stream branches of the stack trace
+        // recognize (§13.14). Neither allocates on the collector heap nor throws.
         decl: "declare void @dartforge_registrar_tearoff_do_rastro(ptr, i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // A pilha do rastro (§13.14): o quadro de um corpo `async` ou o
-        // ouvinte de `handleValue`, empurrado na entrada; devolve a
-        // profundidade. Não aloca no heap do coletor nem lança.
+        // The stack trace stack (§13.14): the frame of an `async` body or the
+        // listener of `handleValue`, pushed at the entry; returns the
+        // depth. Neither allocates on the collector heap nor throws.
         decl: "declare i64 @dartforge_rastro_entrar(i64, i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // A saída: corta a pilha do rastro na profundidade da entrada.
+        // The exit: cuts the stack trace stack at the depth of the entry.
         decl: "declare void @dartforge_rastro_sair(i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // A barreira de escrita (`llvm/mod.rs`, `emit_barrier`): lembra o
-        // objeto velho; não aloca nem lança.
+        // The write barrier (`llvm/mod.rs`, `emit_barrier`): remembers the
+        // old object; neither allocates nor throws.
         decl: "declare void @dartforge_lembrar(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // A memória ARC (docs/ARC-IMPLEMENTACAO.md): liga o ARC na entrada
-        // (uma coleta completa por rastreamento e o registro dos vivos).
+        // ARC memory (docs/ARC-IMPLEMENTACAO.md): turns ARC on at the entry
+        // (a full tracing collection and the registration of the live objects).
         decl: "declare void @dartforge_memoria_arc_v1()",
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
-        // A gravação contada de um `Ref` numa palavra de corpo `REFS` (o
-        // elemento de lista no ARC): não aloca nem lança.
+        // The counted write of a `Ref` into a word of a `REFS` body (the
+        // list element under ARC): neither allocates nor throws.
         decl: "declare void @dartforge_arc_gravar_ref(i64, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // ARC puro: as referências gravadas em linha num objeto recém
-        // alocado passam a contar. Não aloca nem lança.
+        // Pure ARC: the references written inline into a freshly allocated
+        // object start counting. Neither allocates nor throws.
         decl: "declare void @dartforge_arc_inicial(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
@@ -372,8 +372,8 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare void @dartforge_object_set(i64, i64, i64, i8)",
-        // Lê/grava um campo: não aloca (o emissor a expande em linha com
-        // índice constante).
+        // Reads/writes a field: does not allocate (the emitter expands it inline with a
+        // constant index).
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
@@ -425,7 +425,7 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
-        // A mesma entrada sob ARC, com owner do código do resultado.
+        // The same entry under ARC, with a code owner of the result.
         decl: "declare i64 @dartforge_arc_ffi_ponteiro_de_retorno_owned_v1(i64, i64)",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
@@ -437,15 +437,15 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_typed_novo_t(i64, i64, i64, ptr)",
         effects: CONSERVATIVE,
     },
-    // O caminho rápido das listas tipadas (`lower/typed_items.rs`): funções
-    // puras do handle. O comprimento, o endereço dos elementos, o tipo e a
-    // imutabilidade de uma lista tipada não mudam enquanto ela vive, e um
-    // handle só é reusado depois que o objeto morre — quando o código não
-    // o usa mais. Então `memory(none)`: o LLVM as tira dos laços apesar das
-    // chamadas do registro de raízes. `speculatable`: sobre um handle
-    // qualquer (até um que não é lista tipada) respondem 0, sem efeito.
-    // O contexto da thread (`runtime/src/heap.rs`, `Context`): o mesmo
-    // endereço enquanto a thread vive — pura para o código de uma ativação.
+    // The fast path of typed lists (`lower/typed_items.rs`): pure
+    // functions of the handle. The length, the address of the elements, the type and the
+    // immutability of a typed list do not change while it lives, and a
+    // handle is only reused after the object dies — when the code no longer
+    // uses it. So `memory(none)`: LLVM hoists them out of loops despite the
+    // calls of the root registration. `speculatable`: on any handle
+    // (even one that is not a typed list) they answer 0, without an effect.
+    // The thread context (`runtime/src/heap.rs`, `Context`): the same
+    // address while the thread lives — pure for the code of an activation.
     Extern {
         decl: "declare ptr @dartforge_contexto() memory(none) nounwind willreturn speculatable",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
@@ -454,8 +454,8 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_typed_len(i64, i64, i64) memory(none) nounwind willreturn speculatable",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
-    // `fillRange` de lista tipada (`lower/typed_items.rs`, `fill_typed`):
-    // 1 se preencheu, 0 para o caminho do SDK.
+    // `fillRange` of a typed list (`lower/typed_items.rs`, `fill_typed`):
+    // 1 if it filled, 0 for the SDK path.
     Extern {
         decl: "declare i64 @dartforge_typed_fill_int(i64, i64, i64, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
@@ -464,24 +464,24 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_typed_fill_double(i64, i64, i64, i64, double) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
-    // A interpolação com partes `int` sem caixa: pares (espécie, bits).
+    // Interpolation with unboxed `int` parts: (kind, bits) pairs.
     Extern {
         decl: "declare i64 @dartforge_string_juntar_tipado(ptr, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // A mesma interpolação sob ARC: enraíza as partes e entrega owner.
+        // The same interpolation under ARC: roots the parts and hands over an owner.
         decl: "declare i64 @dartforge_arc_string_juntar_owned_v1(ptr, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
-    // A ABI de quem chama conferida contra a da closure (`closures.rs`).
+    // The ABI of the caller checked against that of the closure (`closures.rs`).
     Extern {
         decl: "declare i64 @dartforge_closure_tipada(i64, i64) memory(inaccessiblemem: read) nounwind willreturn",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
-    // Os campos dos objetos em linha (`GetField`/`SetField`): o endereço
-    // vem do vetor de campos no heap do runtime, que só muda de tamanho por
-    // chamadas sem atributo; os campos são memória que o módulo acessa.
+    // The fields of inline objects (`GetField`/`SetField`): the address
+    // comes from the field vector in the runtime heap, which only changes size through
+    // calls without attributes; the fields are memory the module accesses.
     Extern {
         decl: "declare i64 @dartforge_object_campos(i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
@@ -515,34 +515,34 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
-        // O pedido de interrupção do isolado (J01): só lê um byte.
+        // The interrupt request of the isolate (J01): only reads a byte.
         decl: "declare i8 @dartforge_interrupcao_pendente()",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // O ponto seguro de laço: atende o controle; um `kill` imediato
-        // deixa a exceção pendente (não capturável).
+        // The loop safepoint: serves the control; an immediate `kill`
+        // leaves the exception pending (not catchable).
         decl: "declare void @dartforge_ponto_seguro()",
         effects: CONSERVATIVE,
     },
     Extern {
         decl: "declare i8 @dartforge_exception_pending()",
-        // Só lê ou limpa a pendência: não aloca.
+        // Only reads or clears the pending state: does not allocate.
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_exception_clear()",
-        // Só lê ou limpa a pendência: não aloca.
+        // Only reads or clears the pending state: does not allocate.
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_register_subclass(i64, i64)",
         effects: CONSERVATIVE,
     },
-    // O teste `v is C` pela classe: só lê o grafo de classes (e grava os
-    // caches dele, `core.rs`); não aloca no heap nem lança. Sem os efeitos
-    // conservadores, as referências vivas não vão ao quadro de raízes a
-    // cada teste, e o LLVM junta os testes iguais.
+    // The `v is C` test by class: only reads the class graph (and writes its
+    // caches, `core.rs`); neither allocates on the heap nor throws. Without the conservative
+    // effects, the live references do not go to the roots frame on
+    // every test, and LLVM merges equal tests.
     Extern {
         decl: "declare i8 @dartforge_is_subclass(i64, i64) memory(read) nounwind willreturn",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
@@ -557,7 +557,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_value_class(i64)",
-        // A classe do valor: só lê (docs/NATIVO-ESPACO-UNIFICADO.md §3.5).
+        // The class of the value: only reads (docs/NATIVO-ESPACO-UNIFICADO.md §3.5).
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
@@ -582,7 +582,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_collection_mark_unmodifiable(i64)",
-        // Devolve uma `_ImmutableList` nova (§2.16): aloca, não lança.
+        // Returns a new `_ImmutableList` (§2.16): allocates, does not throw.
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
@@ -621,8 +621,8 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_assertion_error_new(i64, i8)",
         effects: CONSERVATIVE,
     },
-    // Os construtores de erro sob ARC (`excecoes.rs`): o objeto novo com
-    // owner do código; rodam Dart num escopo nativo.
+    // The error constructors under ARC (`excecoes.rs`): the new object with a
+    // code owner; they run Dart in a native scope.
     Extern {
         decl: "declare i64 @dartforge_arc_exception_new_owned_v1(i64)",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
@@ -695,7 +695,7 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_stack_overflow_error_new()",
         effects: CONSERVATIVE,
     },
-    // O prólogo achou a pilha no limite (`Context::limite_da_pilha`).
+    // The prologue found the stack at the limit (`Context::limite_da_pilha`).
     Extern {
         decl: "declare void @dartforge_estouro_de_pilha()",
         effects: CONSERVATIVE,
@@ -728,12 +728,12 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare void @dartforge_nsm_chamada()",
         effects: CONSERVATIVE,
     },
-    // --- P2 (α): operadores sobre dynamic/num (tapa-buraco até P5) ---
+    // --- P2 (α): operators over dynamic/num (stopgap until P5) ---
     Extern {
         decl: "declare i64 @dartforge_dyn_op(i64, i64, i64)",
         effects: CONSERVATIVE,
     },
-    // --- P3 (α): iteração de lista ou conjunto ---
+    // --- P3 (α): iteration of a list or set ---
     Extern {
         decl: "declare i64 @dartforge_iteravel_get_ref(i64, i64)",
         effects: CONSERVATIVE,
@@ -742,7 +742,7 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_iteravel_get_bits(i64, i64)",
         effects: CONSERVATIVE,
     },
-    // --- P5c (δ): SDK da fonte — seletores, tabelas de métodos, recusas ---
+    // --- P5c (δ): source SDK — selectors, method tables, rejections ---
     Extern {
         decl: "declare ptr @dartforge_seletor(ptr, i64, i64, ptr, i64)",
         effects: CONSERVATIVE,
@@ -811,9 +811,9 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare void @dartforge_registrar_tabela(i64, ptr)",
         effects: CONSERVATIVE,
     },
-    // --- P6: laço de eventos e os natives da sobreposição (`events.rs`) ---
+    // --- P6: event loop and the overlay natives (`events.rs`) ---
     Extern {
-        // O único ponto em que o runtime chama código Dart (G8).
+        // The only point where the runtime calls Dart code (G8).
         decl: "declare void @dartforge_laco_de_eventos(ptr)",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
@@ -838,7 +838,7 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
-        // Folha pura (universo RTI, sem heap): só aborta com tabela malformada.
+        // Pure leaf (RTI universe, no heap): only aborts with a malformed table.
         decl: "declare void @dartforge_rti_iniciar_tabela(ptr, i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
@@ -891,7 +891,7 @@ pub const EXTERNS: &[Extern] = &[
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
     Extern {
-        // As mesmas leituras sob ARC, com owner do código do objeto.
+        // The same reads under ARC, with a code owner of the object.
         decl: "declare i64 @dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1(i64, i64)",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
@@ -932,7 +932,7 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
-        // As mesmas entradas sob ARC, com owner do código do resultado.
+        // The same entries under ARC, with a code owner of the result.
         decl: "declare i64 @dartforge_arc_ffi_callback_closure_owned_v1(i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
@@ -970,8 +970,8 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare void @dartforge_rti_definir(i64, i64)",
-        // Interna IDs e pode reformatar a lista com caixas/GC, sem lançar
-        // exceção Dart nem executar getters/callbacks Dart.
+        // Interns IDs and may reformat the list with boxes/GC, without throwing a
+        // Dart exception nor running Dart getters/callbacks.
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
@@ -991,7 +991,7 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
-        // O mesmo texto sob ARC, com owner do código do resultado.
+        // The same text under ARC, with a code owner of the result.
         decl: "declare i64 @dartforge_arc_rti_texto_owned_v1(i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
@@ -1003,44 +1003,44 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_rti_objeto_tipo(i64)",
         effects: CONSERVATIVE,
     },
-    // ─── Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ───────────
+    // ─── Unified space (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ──────────────
     Extern {
-        // (cid, palavras, flags): a alocação lenta de `@df.allocate` (P0).
+        // (cid, words, flags): the slow allocation of `@df.allocate` (P0).
         decl: "declare i64 @dartforge_alocar(i64, i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // (len, dois): o caminho lento de `@df.texto_alocar` (P1).
+        // (len, two): the slow path of `@df.texto_alocar` (P1).
         decl: "declare i64 @dartforge_texto_novo(i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // `@df.texto_alocar` sob ARC: a string nova com owner do código.
+        // `@df.texto_alocar` under ARC: the new string with a code owner.
         decl: "declare i64 @dartforge_arc_texto_novo_owned_v1(i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // `TearOff` sob ARC: o tear-off canônico com owner do código.
+        // `TearOff` under ARC: the canonical tear-off with a code owner.
         decl: "declare i64 @dartforge_arc_tearoff_owned_v1(i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // A string de uma constante vira o literal canônico (`constants.rs`).
+        // The string of a constant becomes the canonical literal (`constants.rs`).
         decl: "declare i64 @dartforge_constante_canonica(i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // Calcula e grava o hash no cabeçalho da string (P1).
+        // Computes and writes the hash into the header of the string (P1).
         decl: "declare i64 @dartforge_texto_hash(i64) nounwind willreturn",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // As mesmas unidades? O caminho lento de `@df.texto_igual` (P1).
+        // The same code units? The slow path of `@df.texto_igual` (P1).
         decl: "declare i8 @dartforge_texto_iguais(i64, i64) memory(read) nounwind willreturn",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // (palavras, n, cid, forma): a lista literal (P3).
+        // (words, n, cid, shape): the literal list (P3).
         decl: "declare i64 @dartforge_lista_nova(ptr, i64, i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
@@ -1049,45 +1049,45 @@ pub const EXTERNS: &[Extern] = &[
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // O record literal sob ARC (`AllocRecord`), com owner do código.
+        // The literal record under ARC (`AllocRecord`), with a code owner.
         decl: "declare i64 @dartforge_arc_record_novo_owned_v1(ptr, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // (lista, Ref): o `add` que cresce o armazenamento (P3).
+        // (list, Ref): the `add` that grows the storage (P3).
         decl: "declare i64 @dartforge_lista_acrescentar(i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // (início, fim): a seção dos objetos estáticos de uma imagem (P0).
+        // (start, end): the section of the static objects of an image (P0).
         decl: "declare void @dartforge_registrar_imagem(ptr, ptr) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // (Refs, n): o record posicional (P2).
+        // (Refs, n): the positional record (P2).
         decl: "declare i64 @dartforge_record_novo(ptr, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
 ];
 
-/// Os dados do runtime que o código gerado referencia (não são funções),
-/// `(símbolo, declaresção)`: nenhum. As caixas estáticas de `bool` são lidas do
-/// `Context` da thread (`layout::context::VERDADEIRO`/`FALSO`), porque entre o
-/// executável e a DLL do SDK cada imagem tem a sua cópia dos dados do runtime
+/// The runtime data that the generated code references (not functions),
+/// `(symbol, declaration)`: none. The static `bool` boxes are read from the
+/// thread `Context` (`layout::context::VERDADEIRO`/`FALSO`), because between the
+/// executable and the SDK DLL each image has its own copy of the runtime data
 /// (docs/NATIVO-ESPACO-UNIFICADO.md §4.10, item 9).
 pub const GLOBALS: &[(&str, &str)] = &[];
 
-/// Efeitos da extern `name`; desconhecida é conservadora.
+/// Effects of extern `name`; an unknown one is conservative.
 pub fn effects_of(name: &str) -> Effects {
-    // O thunk Owned genérico tem os efeitos da base, mais o retain.
+    // The generic Owned thunk has the effects of the base, plus the retain.
     if let Some(base) = name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX) {
         return Effects { allocates: true, ..effects_of(base) };
     }
-    // O thunk de escopo tem os efeitos da base (o escopo não aloca).
+    // The scope thunk has the effects of the base (the scope does not allocate).
     if let Some(base) = name.strip_prefix(crate::optimize::arc::NATIVE_SCOPE_PREFIX) {
         return effects_of(base);
     }
-    // Os ajudantes `@df.*` de cada pacote do espaço unificado chamados por
+    // The `@df.*` helpers of each unified-space package called through
     // `CallRuntime` (docs/NATIVO-ESPACO-UNIFICADO.md §3.5).
     for table in [
         super::ir_strings::HELPER_EFFECTS,
@@ -1100,11 +1100,11 @@ pub fn effects_of(name: &str) -> Effects {
         }
     }
     static TABLE: std::sync::OnceLock<std::collections::HashMap<&'static str, Effects>> = std::sync::OnceLock::new();
-    // A fonte é a tabela do runtime (`crates/runtime/effects.tsv`,
-    // docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8), com uma linha por
-    // extern; as marcas de [`EXTERNS`] são a mesma informação ao lado da
-    // declaração, e o teste `runtime_table_agrees_with_declarations`
-    // as mantém iguais.
+    // The source is the runtime table (`crates/runtime/efeitos.tsv`,
+    // docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8), with one line per
+    // extern; the marks of [`EXTERNS`] are the same information next to the
+    // declaration, and the `runtime_table_agrees_with_declarations` test
+    // keeps them equal.
     TABLE
         .get_or_init(|| {
             dartforge_runtime::efeitos::EFEITOS
@@ -1117,19 +1117,19 @@ pub fn effects_of(name: &str) -> Effects {
         .unwrap_or(CONSERVATIVE)
 }
 
-/// A compilação confere a tabela de efeitos (`DARTFORGE_EFEITOS=check`):
-/// cada chamada a uma extern marcada `collection = 0` ou `throws = 0` sai entre
-/// `dartforge_efeitos_antes` e `dartforge_efeitos_depois`, e o runtime
-/// encerra o processo, dizendo o nome, se a extern coletar ou deixar uma
-/// exceção pendente (`runtime/src/efeitos_conferir.rs`). Só para os testes:
-/// é assim que uma marca passa de 1 para 0.
+/// The compilation checks the effects table (`DARTFORGE_EFEITOS=conferir`):
+/// each call to an extern marked as not collecting or not throwing goes between
+/// `dartforge_efeitos_antes` and `dartforge_efeitos_depois`, and the runtime
+/// terminates the process, naming it, if the extern collects or leaves a
+/// pending exception (`runtime/src/efeitos_conferir.rs`). Only for the tests:
+/// that is how a mark goes from 1 to 0.
 pub fn check_effects() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var("DARTFORGE_EFEITOS").is_ok_and(|v| v == "conferir"))
 }
 
-/// As marcas que a conferência de `name` leva ao runtime: bit 0, não coleta;
-/// bit 1, não lança. 0 = nada a conferir (ou não é uma extern da tabela).
+/// The marks that the check of `name` carries to the runtime: bit 0, does not collect;
+/// bit 1, does not throw. 0 = nothing to check (or it is not an extern of the table).
 pub fn marks_to_check(name: &str) -> i64 {
     if !dartforge_runtime::efeitos::EFEITOS.iter().any(|(n, ..)| *n == name)
         || name == "dartforge_efeitos_antes"
@@ -1140,8 +1140,8 @@ pub fn marks_to_check(name: &str) -> i64 {
         return 0;
     }
     let e = effects_of(name);
-    // A folha sabotada (`leaf:<name>`, o D7 do §7.3) é conferida como
-    // folha: a coleta dentro dela encerra o processo, dizendo o nome.
+    // The sabotaged leaf (`leaf:<name>`, D7 of §7.3) is checked as a
+    // leaf: a collection inside it terminates the process, naming it.
     let allocates = e.allocates && !crate::alvo::sabotaged_leaf(name);
     i64::from(!allocates && !e.calls_dart) | (i64::from(!e.throws && !e.calls_dart) << 1)
 }

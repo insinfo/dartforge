@@ -1,26 +1,26 @@
-//! O sistema para o qual o backend nativo compila: o do processo que compila.
+//! The system the native backend compiles for: that of the compiling process.
 //!
-//! Tudo o que muda entre Windows, Linux e macOS mora aqui — o cabeçalho do
-//! LLVM IR, as extensões dos artefatos, as bandeiras do Clang e da ligação e o
-//! formato da biblioteca compartilhada do SDK da fonte. O resto do backend
-//! pergunta a este módulo em vez de testar `cfg!` espalhado.
+//! Everything that changes between Windows, Linux and macOS lives here — the header of the
+//! LLVM IR, the extensions of the artifacts, the Clang and link flags and the
+//! format of the shared library of the source SDK. The rest of the backend
+//! asks this module instead of testing scattered `cfg!`s.
 //!
-//! Não há compilação cruzada: o alvo é sempre o hospedeiro. O IR no Windows é
-//! byte a byte o de antes do porte (mesmo cabeçalho, mesmas bandeiras), para
-//! que os resumos de determinismo e as chaves de cache continuem valendo.
+//! There is no cross-compilation: the target is always the host. The IR on Windows is
+//! byte for byte that of before the port (same header, same flags), so
+//! that the determinism digests and the cache keys stay valid.
 
-/// Os sistemas suportados pelo backend nativo.
+/// The systems supported by the native backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sistema {
     /// COFF, MSVC ABI, `.obj`/`.lib`/`.dll`/`.exe`.
     Windows,
-    /// ELF, `.o`/`.a`/`.only`, executável sem extensão.
+    /// ELF, `.o`/`.a`/`.so`, executable without extension.
     Linux,
-    /// Mach-O, `.o`/`.a`/`.dylib`, executável sem extensão.
+    /// Mach-O, `.o`/`.a`/`.dylib`, executable without extension.
     MacOs,
 }
 
-/// O sistema do processo corrente.
+/// The system of the current process.
 ///
 /// ```
 /// use dartforge_emit_native::alvo::{Sistema, sistema};
@@ -37,32 +37,32 @@ pub const fn sistema() -> Sistema {
     }
 }
 
-/// O modelo de exceções do código gerado
-/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13), pela variável
-/// `DARTFORGE_EXCECOES` (o `--excecoes=` de `compile-native` a define):
+/// The exception model of the generated code
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13), through the variable
+/// `DARTFORGE_EXCECOES` (the `--excecoes=` of `compile-native` sets it):
 ///
-/// * ausente, vazia ou `checagem`: a exceção é uma pendência do runtime que
-///   quem chama confere depois de cada chamada — o IR de sempre, byte a byte;
-/// * `tables`: a chamada Dart que lança desenrola a pilha até o
-///   `landingpad` de quem a trata (`optimize/tables.rs`), com a
-///   personalidade do runtime (`dartforge_personalidade`). Só no Windows
-///   x86-64, o único alvo com a personalidade escrita, e sem o rastro de
-///   funções (`DARTFORGE_RASTRO=1` conta entradas e saídas, e o
-///   desenrolamento pula as saídas).
+/// * absent, empty or `checagem`: the exception is a pending state of the runtime that
+///   the caller checks after each call — the usual IR, byte for byte;
+/// * `tabelas`: a Dart call that throws unwinds the stack up to the
+///   `landingpad` of whoever handles it (`optimize/tables.rs`), with the
+///   runtime's personality (`dartforge_personalidade`). Only on Windows
+///   x86-64, the only target with the personality written, and without the function
+///   call trace (`DARTFORGE_RASTRO=1` counts entries and exits, and
+///   unwinding skips the exits).
 ///
-/// O programa e o SDK têm de sair no mesmo modelo: a variável entra na chave
-/// do SDK compilado (`sdk_modulo::sdk_key`).
+/// The program and the SDK have to come out in the same model: the variable goes into the key
+/// of the compiled SDK (`sdk_modulo::sdk_key`).
 ///
 /// # Errors
-/// Valor desconhecido, ou `tables` onde o modo não existe.
+/// An unknown value, or `tabelas` where the mode does not exist.
 pub fn excecoes_por_tabelas() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_EXCECOES").unwrap_or_default();
     match value.as_str() {
         "" | "checagem" => Ok(false),
         "tabelas" => {
-            // Windows x86-64 (SEH) e, pela personalidade Itanium do
-            // runtime (Etapa 4, escrita e nunca executada), Linux e macOS
-            // em x86-64 e aarch64.
+            // Windows x86-64 (SEH) and, through the runtime's Itanium
+            // personality (Step 4, written and never run), Linux and macOS
+            // on x86-64 and aarch64.
             let seh = cfg!(windows) && cfg!(target_arch = "x86_64");
             let itanium = cfg!(unix) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64"));
             if !(seh || itanium) {
@@ -79,23 +79,23 @@ pub fn excecoes_por_tabelas() -> Result<bool, String> {
     }
 }
 
-/// A política de memória do código gerado (docs/ARC-CICLOS-ESPECIFICACAO.md
-/// §18.1, decisão 1, e §24; docs/ARC-IMPLEMENTACAO.md), pela variável
-/// `DARTFORGE_MEMORIA` (o `--memoria=` de `aot` e `compile-native` a define):
+/// The memory policy of the generated code (docs/ARC-CICLOS-ESPECIFICACAO.md
+/// §18.1, decision 1, and §24; docs/ARC-IMPLEMENTACAO.md), through the variable
+/// `DARTFORGE_MEMORIA` (the `--memoria=` of `aot` and `compile-native` sets it):
 ///
-/// * ausente, vazia ou `tracing`: o coletor por rastreamento de sempre — o IR
-///   de sempre, byte a byte;
-/// * `arc`: contagem de referências com coleta de ciclos. A entrada liga o
-///   ARC no runtime (`dartforge_memoria_arc_v1`, a versão da ABI de
-///   memória) e as gravações de referência em objeto que pode ser velho
-///   passam pelo runtime, que conta a troca (a decisão 6 do §18.1: nada de
-///   gravação em linha sem o contrato).
+/// * absent, empty or `tracing`: the usual tracing collector — the usual
+///   IR, byte for byte;
+/// * `arc`: reference counting with cycle collection. The entry turns
+///   ARC on in the runtime (`dartforge_memoria_arc_v1`, the version of the memory
+///   ABI) and the reference writes into an object that may be old
+///   go through the runtime, which counts the replacement (decision 6 of §18.1: no
+///   inline write without the contract).
 ///
-/// O programa e o SDK têm de sair no mesmo modo: a variável entra na chave
-/// do SDK compilado.
+/// The program and the SDK have to come out in the same mode: the variable goes into the key
+/// of the compiled SDK.
 ///
 /// # Errors
-/// Valor desconhecido.
+/// An unknown value.
 pub fn arc_memory() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_MEMORIA").unwrap_or_default();
     match value.as_str() {
@@ -105,9 +105,9 @@ pub fn arc_memory() -> Result<bool, String> {
     }
 }
 
-/// A preparação ARC publicada (owners na HIR, `optimize::arc`), pela
-/// variável `DARTFORGE_ARC_PREPARADO=1`: só com a memória ARC. Ausente, o
-/// ARC segue o regime legado da CLI (sem tokens no código).
+/// The published ARC preparation (owners in the HIR, `optimize::arc`), through the
+/// variable `DARTFORGE_ARC_PREPARADO=1`: only with ARC memory. Absent,
+/// ARC follows the legacy regime of the CLI (no tokens in the code).
 pub fn arc_prepared() -> Result<bool, String> {
     if !std::env::var("DARTFORGE_ARC_PREPARADO").is_ok_and(|v| v == "1") {
         return Ok(false);
@@ -118,25 +118,25 @@ pub fn arc_prepared() -> Result<bool, String> {
     Ok(true)
 }
 
-/// Onde ficam as raízes do coletor no código gerado
-/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8), pela variável
-/// `DARTFORGE_RAIZES` (o `--roots=` de `compile-native` a define):
+/// Where the collector roots live in the generated code
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8), through the variable
+/// `DARTFORGE_RAIZES` (the `--raizes=` of `compile-native` sets it):
 ///
-/// * ausente, vazia ou `sombra`: o quadro de raízes de cada função (a
-///   pilha-sombra) — o IR de sempre, byte a byte;
-/// * `maps`: os valores SSA vivos através de uma chamada saem nos mapas de
-///   pilha do LLVM (`rewrite-statepoints-for-gc`), e o coletor os acha
-///   percorrendo a pilha nativa. No Windows x86-64 (o percorredor do SEH,
-///   `RtlVirtualUnwind`) e, desde a Etapa 4, no Linux e no macOS em x86-64 e
-///   aarch64 (o percorredor do `_Unwind_Backtrace`); o Windows arm64 fica na
-///   pilha-sombra até um percorredor dele ser testado. Só com o gerador
-///   embutido (o `clang` não roda o passe).
+/// * absent, empty or `sombra`: the roots frame of each function (the
+///   shadow stack) — the usual IR, byte for byte;
+/// * `mapas`: the SSA values live across a call come out in the LLVM stack
+///   maps (`rewrite-statepoints-for-gc`), and the collector finds them
+///   by walking the native stack. On Windows x86-64 (the SEH walker,
+///   `RtlVirtualUnwind`) and, since Step 4, on Linux and macOS on x86-64 and
+///   aarch64 (the `_Unwind_Backtrace` walker); Windows arm64 stays on the
+///   shadow stack until a walker for it is tested. Only with the embedded
+///   generator (`clang` does not run the pass).
 ///
-/// O programa e o SDK têm de sair no mesmo modo: a variável entra na chave
-/// do SDK compilado.
+/// The program and the SDK have to come out in the same mode: the variable goes into the key
+/// of the compiled SDK.
 ///
 /// # Errors
-/// Valor desconhecido, ou `maps` onde o modo não existe.
+/// An unknown value, or `mapas` where the mode does not exist.
 pub fn raizes_por_mapas() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_RAIZES").unwrap_or_default();
     match value.as_str() {
@@ -158,24 +158,24 @@ pub fn raizes_por_mapas() -> Result<bool, String> {
     }
 }
 
-/// O rastro no formato da VM (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-/// §13.14), pela variável `DARTFORGE_RASTRO_VM` (o `--stack_trace=` de
-/// `compile-native` a define):
+/// The stack trace in the VM format (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+/// §13.14), through the variable `DARTFORGE_RASTRO_VM` (the `--rastro=` of
+/// `compile-native` sets it):
 ///
-/// * ausente, vazia ou `none`: sem tabela, o IR de sempre, e o texto do
-///   rastro é o de hoje;
-/// * `simbolico`: cada chamada que pode aparecer num rastro ganha um rótulo
-///   antes dela e uma entrada na seção `dfpcl` (`llvm/stack_trace.rs`): o
-///   endereço do rótulo, a função (nome e url) e a linha e a coluna. O
-///   runtime guarda os endereços de retorno no `throw` e simboliza só quando
-///   o texto é pedido.
+/// * absent, empty or `nenhum`: no table, the usual IR, and the text of the
+///   stack trace is today's;
+/// * `simbolico`: each call that may appear in a stack trace gets a label
+///   before it and an entry in the `dfpcl` section (`llvm/stack_trace.rs`): the
+///   address of the label, the function (name and url) and the line and column. The
+///   runtime keeps the return addresses at the `throw` and symbolizes only when
+///   the text is requested.
 ///
-/// Só onde o runtime percorre a pilha nativa (Windows x86-64; Linux e macOS
-/// em x86-64 e aarch64). O JIT não emite a tabela. A variável entra na chave
-/// do SDK compilado.
+/// Only where the runtime walks the native stack (Windows x86-64; Linux and macOS
+/// on x86-64 and aarch64). The JIT does not emit the table. The variable goes into the key
+/// of the compiled SDK.
 ///
 /// # Errors
-/// Valor desconhecido, ou `simbolico` num alvo sem o percorredor.
+/// An unknown value, or `simbolico` on a target without the walker.
 pub fn symbolic_stack_trace() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_RASTRO_VM").unwrap_or_default();
     match value.as_str() {
@@ -192,60 +192,60 @@ pub fn symbolic_stack_trace() -> Result<bool, String> {
     }
 }
 
-/// O teto do orçamento do `rewrite-statepoints-for-gc` por função
-/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4): `vivos × pontos de
-/// coleta`. Acima dele a função fica na pilha-sombra (o quadro residual,
-/// §3.7). `DARTFORGE_ORCAMENTO_MAPAS=<n>` muda o teto (entra na chave do SDK
-/// compilado); o padrão, 250 000, é 500 valores enraizados através de 500
-/// pontos.
+/// The cap of the `rewrite-statepoints-for-gc` budget per function
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4): `live values × collection
+/// points`. Above it the function stays on the shadow stack (the residual frame,
+/// §3.7). `DARTFORGE_ORCAMENTO_MAPAS=<n>` changes the cap (it goes into the key of the compiled
+/// SDK); the default, 250 000, is 500 values rooted across 500
+/// points.
 pub fn maps_budget() -> u64 {
     std::env::var("DARTFORGE_ORCAMENTO_MAPAS").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(250_000)
 }
 
-/// O build de conferência do percurso por mapas (§15.2, E2.5):
-/// `DARTFORGE_RAIZES_CONFERIR=1` na compilação, com `--roots=maps`. Cada
-/// função `gc` grava também, antes de cada ponto de coleta, os vivos dele
-/// em slots do quadro da pilha-sombra; com `DARTFORGE_GC_PERCURSO=check`
-/// na execução, o runtime exige que o percurso por mapas os tenha visitado.
+/// The check build of the walk by maps (§15.2, E2.5):
+/// `DARTFORGE_RAIZES_CONFERIR=1` at compile time, with `--raizes=mapas`. Each
+/// `gc` function also writes, before each collection point, its live values
+/// into slots of the shadow-stack frame; with `DARTFORGE_GC_PERCURSO=conferir`
+/// at run time, the runtime requires the walk by maps to have visited them.
 pub fn check_roots() -> bool {
     std::env::var("DARTFORGE_RAIZES_CONFERIR").is_ok_and(|v| v == "1")
 }
 
-/// Uma sabotagem de teste ligada na compilação (`DARTFORGE_SABOTAGEM=a,b,…`,
-/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3 e §14.7). Cada teste
-/// dirigido do modo mapas tem de falhar com a dele; um teste que não falha
-/// com a sabotagem não conta. As do emissor:
+/// A test sabotage turned on at compile time (`DARTFORGE_SABOTAGEM=a,b,…`,
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3 and §14.7). Each directed
+/// test of maps mode must fail with its own; a test that does not fail
+/// with the sabotage does not count. Those of the emitter:
 ///
-/// * `leaf:<extern>`: declara a extern `"gc-leaf-function"` mesmo coletando
-///   (o mapa perde os registros das chamadas a ela);
-/// * `pouso_sem_topo`: o pouso de um `invoke` não restaura o topo da
-///   pilha-sombra;
-/// * `sem_uso_ficticio`: o operando `"deopt"` das chamadas que coletam sai vazio
-///   (os operandos e os vivos saem do mapa);
-/// * `quadro_sujo` (D5): o quadro da pilha-sombra nasce com 4098 em todos os
-///   slots em vez de zero (um slot lido antes de escrito vira raiz inválida);
-/// * `bruto_no_mapa`: um valor bruto par (4098) vivo como raiz em toda
-///   função `gc`. O valor tem a forma de um handle de objeto (resto 2 por 8,
-///   `layout::e_objeto`) e não aponta para bloco nenhum: a validação de
-///   handle do coletor o recusa.
+/// * `leaf:<extern>`: declares the extern `"gc-leaf-function"` even though it collects
+///   (the map loses the records of the calls to it);
+/// * `pouso_sem_topo`: the landing pad of an `invoke` does not restore the top of the
+///   shadow stack;
+/// * `sem_uso_ficticio`: the `"deopt"` operand of the collecting calls comes out empty
+///   (the operands and the live values leave the map);
+/// * `quadro_sujo` (D5): the shadow-stack frame is born with 4098 in every
+///   slot instead of zero (a slot read before being written becomes an invalid root);
+/// * `bruto_no_mapa`: an even raw value (4098) live as a root in every
+///   `gc` function. The value has the shape of an object handle (remainder 2 mod 8,
+///   `layout::e_objeto`) and points to no block: the handle validation
+///   of the collector rejects it.
 ///
-/// A variável entra na chave do SDK compilado.
+/// The variable goes into the key of the compiled SDK.
 pub fn sabotage(name: &str) -> bool {
     std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim() == name)
 }
 
-/// A extern `name` está na sabotagem `leaf:<name>`.
+/// Extern `name` is in the `leaf:<name>` sabotage.
 pub fn sabotaged_leaf(name: &str) -> bool {
     std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim().strip_prefix("folha:") == Some(name))
 }
 
-/// O cabeçalho `target datalayout`/`target triple` do módulo.
+/// The `target datalayout`/`target triple` header of the module.
 ///
-/// Windows e Linux x86-64 fixam as strings exatas que a `LLJIT` do processo
-/// usa (o JIT recusa um módulo com alvo diferente do seu). Nos demais
-/// hospedeiros (macOS, Linux aarch64) o módulo sai sem cabeçalho e o Clang e
-/// a `LLJIT` impõem o do hospedeiro: o triple do macOS carrega a versão do
-/// sistema (`arm64-apple-darwin24.1.0`), que não cabe numa constante.
+/// Windows and Linux x86-64 pin the exact strings that the process's `LLJIT`
+/// uses (the JIT rejects a module with a target different from its own). On the other
+/// hosts (macOS, Linux aarch64) the module comes out without a header and Clang and
+/// `LLJIT` impose the host's: the macOS triple carries the system version
+/// (`arm64-apple-darwin24.1.0`), which does not fit in a constant.
 pub fn cabecalho_ir() -> &'static str {
     match sistema() {
         Sistema::Windows => {
@@ -258,11 +258,11 @@ pub fn cabecalho_ir() -> &'static str {
     }
 }
 
-/// A seção dos objetos estáticos da imagem (os literais de string,
-/// docs/NATIVO-ESPACO-UNIFICADO.md §2.11), só de leitura: `.dfimg$m` no COFF
-/// (o ligador junta `.dfimg$a`, `$m` e `$z` em ordem), `dfimg` no ELF (um nome
-/// de identificador C, para o ligador definir `__start_dfimg`/`__stop_dfimg`) e
-/// `__DATA_CONST,__dfimg` no Mach-O.
+/// The section of the static objects of the image (the string literals,
+/// docs/NATIVO-ESPACO-UNIFICADO.md §2.11), read-only: `.dfimg$m` in COFF
+/// (the linker merges `.dfimg$a`, `$m` and `$z` in order), `dfimg` in ELF (a
+/// C identifier name, so that the linker defines `__start_dfimg`/`__stop_dfimg`) and
+/// `__DATA_CONST,__dfimg` in Mach-O.
 pub const fn image_section() -> &'static str {
     match sistema() {
         Sistema::Windows => ".dfimg$m",
@@ -271,12 +271,12 @@ pub const fn image_section() -> &'static str {
     }
 }
 
-/// Os marcadores de início e fim da seção dos estáticos de uma imagem
-/// ([`image_section`]): as declarações de nível de módulo que os definem (ou
-/// os referenciam) e os dois operandos `ptr`. Cada módulo que registra a imagem
-/// os escreve; no COFF são `linkonce_odr` em `comdat` (uma cópia por imagem), e
-/// no ELF e no Mach-O o ligador define os símbolos de início e fim de seção — a
-/// âncora garante que a seção exista mesmo sem literal nenhum.
+/// The start and end markers of the section of the statics of an image
+/// ([`image_section`]): the module-level declarations that define them (or
+/// reference them) and the two `ptr` operands. Each module that registers the image
+/// writes them; in COFF they are `linkonce_odr` in a `comdat` (one copy per image), and
+/// in ELF and Mach-O the linker defines the section start and end symbols — the
+/// anchor guarantees that the section exists even without any literal.
 pub fn image_markers() -> (String, &'static str, &'static str) {
     match sistema() {
         Sistema::Windows => (
@@ -306,13 +306,13 @@ pub fn image_markers() -> (String, &'static str, &'static str) {
     }
 }
 
-/// Se o formato de objeto tem `comdat`. O Mach-O não tem: lá a definição
-/// `linkonce_odr` sozinha vira símbolo fraco, e o ligador fica com uma.
+/// Whether the object format has `comdat`. Mach-O does not: there a
+/// `linkonce_odr` definition alone becomes a weak symbol, and the linker keeps one.
 pub const fn has_comdat() -> bool {
     !matches!(sistema(), Sistema::MacOs)
 }
 
-/// Extensão do objeto (sem o ponto).
+/// Extension of the object (without the dot).
 pub const fn ext_object() -> &'static str {
     match sistema() {
         Sistema::Windows => "obj",
@@ -320,7 +320,7 @@ pub const fn ext_object() -> &'static str {
     }
 }
 
-/// Extensão da biblioteca estática (sem o ponto).
+/// Extension of the static library (without the dot).
 pub const fn static_ext() -> &'static str {
     match sistema() {
         Sistema::Windows => "lib",
@@ -328,11 +328,11 @@ pub const fn static_ext() -> &'static str {
     }
 }
 
-/// Nome do arquivo da biblioteca compartilhada `base` (`base.dll`,
-/// `libbase.only`, `libbase.dylib`).
+/// File name of the shared library `base` (`base.dll`,
+/// `libbase.so`, `libbase.dylib`).
 ///
 /// ```
-/// let n = dartforge_emit_native::alvo::nome_compartilhada("dfsdk_0");
+/// let n = dartforge_emit_native::alvo::shared_name("dfsdk_0");
 /// assert!(n.contains("dfsdk_0"));
 /// ```
 pub fn shared_name(base: &str) -> String {
@@ -343,7 +343,7 @@ pub fn shared_name(base: &str) -> String {
     }
 }
 
-/// Nome do executável `base` (`base.exe` no Windows, `base` nos outros).
+/// Name of the executable `base` (`base.exe` on Windows, `base` on the others).
 pub fn executable_name(base: &str) -> String {
     match sistema() {
         Sistema::Windows => format!("{base}.exe"),
@@ -351,7 +351,7 @@ pub fn executable_name(base: &str) -> String {
     }
 }
 
-/// Nome do Clang na pasta `bin` de uma distribuição do LLVM.
+/// Name of Clang in the `bin` folder of an LLVM distribution.
 pub const fn nome_clang() -> &'static str {
     match sistema() {
         Sistema::Windows => "clang.exe",
@@ -359,12 +359,12 @@ pub const fn nome_clang() -> &'static str {
     }
 }
 
-/// Bandeiras do Clang que dependem do formato de objeto, para todo IR.
+/// Clang flags that depend on the object format, for every IR.
 ///
-/// No Windows, `-mno-incremental-linker-compatible` zera o `TimeDateStamp` do
-/// cabeçalho COFF: sem ele, o mesmo IR dava objetos diferentes no byte 4
-/// (medido), e o objeto deixava de ser função da chave. ELF e Mach-O não têm
-/// carimbo de tempo.
+/// On Windows, `-mno-incremental-linker-compatible` zeroes the `TimeDateStamp` of the
+/// COFF header: without it, the same IR gave different objects at byte 4
+/// (measured), and the object was no longer a function of the key. ELF and Mach-O have no
+/// timestamp.
 pub const fn object_flags() -> &'static [&'static str] {
     match sistema() {
         Sistema::Windows => &["-mno-incremental-linker-compatible"],
@@ -372,8 +372,8 @@ pub const fn object_flags() -> &'static [&'static str] {
     }
 }
 
-/// Bandeiras do Clang para os objetos que vão para a biblioteca
-/// compartilhada do SDK: código independente de posição fora do Windows.
+/// Clang flags for the objects that go into the shared library
+/// of the SDK: position-independent code outside Windows.
 pub const fn shared_object_flags() -> &'static [&'static str] {
     match sistema() {
         Sistema::Windows => &[],
@@ -381,30 +381,30 @@ pub const fn shared_object_flags() -> &'static [&'static str] {
     }
 }
 
-/// Bibliotecas do sistema que o runtime (uma `staticlib` do Rust) exige na
-/// ligação, no formato do driver do Clang.
+/// System libraries that the runtime (a Rust `staticlib`) requires at
+/// link time, in the Clang driver format.
 ///
-/// É a lista que o `rustc --print native-static-libs` imprime para cada
-/// hospedeiro. A ligação do AOT não passa mais pelo driver do Clang (cada
-/// sistema tem o seu ligador: `ligador.rs`, `ligador_windows.rs`,
-/// `ligador_macos.rs`); a lista serve a quem liga pelo Clang numa árvore de
-/// desenvolvimento (os testes do JIT).
+/// It is the list `rustc --print native-static-libs` prints for each
+/// host. The AOT link no longer goes through the Clang driver (each
+/// system has its own linker: `ligador.rs`, `ligador_windows.rs`,
+/// `ligador_macos.rs`); the list serves whoever links through Clang in a
+/// development tree (the JIT tests).
 pub const fn system_libraries() -> &'static [&'static str] {
     match sistema() {
-        // `crypt32`: o repositório de certificados do sistema (as raízes da
-        // TLS, `tls.rs`).
+        // `crypt32`: the system certificate store (the TLS
+        // roots, `tls.rs`).
         Sistema::Windows => &["-lws2_32", "-luserenv", "-lntdll", "-liphlpapi", "-lbcrypt", "-ladvapi32", "-lcrypt32", "-lkernel32"],
         Sistema::Linux => &["-lgcc_s", "-lutil", "-lrt", "-lpthread", "-lm", "-ldl", "-lc"],
-        // `CoreFoundation`: o `Platform.localeName` (io_plataforma.rs);
-        // `Security`: o chaveiro do sistema (as raízes da TLS, `tls.rs`).
+        // `CoreFoundation`: `Platform.localeName` (io_plataforma.rs);
+        // `Security`: the system keychain (the TLS roots, `tls.rs`).
         Sistema::MacOs => &["-lSystem", "-lc", "-lm", "-liconv", "-framework", "CoreFoundation", "-framework", "Security"],
     }
 }
 
-/// A raiz do SDK do macOS numa árvore de desenvolvimento: o `SDKROOT` do
-/// ambiente ou o SDK que o `xcrun` indica (consultado uma vez). A
-/// distribuição não a usa: leva os `.tbd` no sysroot de ligação
-/// (`ligador_macos.rs`). `None` fora do macOS ou sem Xcode.
+/// The root of the macOS SDK in a development tree: the `SDKROOT` of the
+/// environment or the SDK that `xcrun` points to (queried once). The
+/// distribution does not use it: it carries the `.tbd` files in the link sysroot
+/// (`ligador_macos.rs`). `None` outside macOS or without Xcode.
 pub fn macos_sdk_root() -> Option<&'static std::path::Path> {
     static ROOT: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
     ROOT.get_or_init(|| {
@@ -422,10 +422,10 @@ pub fn macos_sdk_root() -> Option<&'static std::path::Path> {
     .as_deref()
 }
 
-/// Os argumentos de ligação que o sistema exige em toda ligação do Clang
-/// (executável, DLL do SDK, runtime): as bibliotecas do sistema e, no
-/// macOS, a raiz do SDK (`-isysroot`), sem a qual nem o `ld` da Apple
-/// chamado pelo Clang do LLVM nem o `ld64.lld` acham `-lSystem`.
+/// The link arguments that the system requires in every Clang link
+/// (executable, SDK DLL, runtime): the system libraries and, on
+/// macOS, the SDK root (`-isysroot`), without which neither Apple's `ld`
+/// called by LLVM's Clang nor `ld64.lld` finds `-lSystem`.
 pub fn argumentos_de_ligacao() -> Vec<std::ffi::OsString> {
     let mut v: Vec<std::ffi::OsString> = Vec::new();
     if let Some(root) = macos_sdk_root() {

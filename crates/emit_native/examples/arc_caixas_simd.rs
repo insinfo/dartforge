@@ -1,5 +1,5 @@
-//! Prova AOT das caixas SIMD ARC: palavras da ABI, bits e morte após release.
-//! Tracing preserva a fábrica antiga; o harness adquire seu owner explicitamente.
+//! AOT proof of the ARC SIMD boxes: ABI words, bits and death after release.
+//! Tracing keeps the old factory; the harness acquires its owner explicitly.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, fmt::Write, path::PathBuf};
@@ -71,8 +71,8 @@ fn main() -> Result<(), String> {
             writeln!(ir, "{decl}").unwrap();
         }
     }
-    // Nenhum vetor ou endereço observado é raiz: as caixas precisam ter
-    // owner real. A leitura dos bits acontece antes da liberação.
+    // No observed vector or address is a root: the boxes need a
+    // real owner. Reading the bits happens before the release.
     ir.push_str("define void @prova_simd() {\nentry:\n");
     for (n, ty) in types.iter().enumerate() {
         writeln!(ir, "  %vetor{n} = bitcast <2 x i64> <i64 -9223372036854775808, i64 9221120237041090851> to {}", ty.llvm_ir()).unwrap();

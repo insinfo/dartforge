@@ -1,6 +1,6 @@
-//! Prova AOT da preparação da fábrica zerada usada pelo lowering de instâncias.
-//! Confere token Owned, registro de métodos, chamada por seletor e morte final.
-//! A construção é uma fixture HIR explícita; não certifica construtores gerais.
+//! AOT proof of the preparation of the zeroed factory used by the instance lowering.
+//! Checks the Owned token, method registration, call by selector and final death.
+//! The construction is an explicit HIR fixture; it does not certify general constructors.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
@@ -11,8 +11,8 @@ fn module() -> Result<Module, String> {
     m.sdk_mode = true;
     m.sdk_library = true;
     m.entry_symbol = Some("prova_instancia_zerada".into());
-    // Emite o thunk pelo protocolo real de tabelas. O registro desta fixture
-    // não é chamado na partida: a fábrica deve efetuar o registro preguiçoso.
+    // Emits the thunk through the real tables protocol. The registration of this fixture
+    // is not called at startup: the factory must perform the lazy registration.
     m.record = Some("df.reg.C".into());
     m.classes.push(ClassDef {
         id: 32001,
@@ -75,8 +75,8 @@ fn module() -> Result<Module, String> {
             terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
         }],
     });
-    // O receptor do construtor é a instância física da fábrica acima. O
-    // primeiro setter deve ser auditado antes de delegar ao corpo base.
+    // The receiver of the constructor is the physical instance of the factory above. The
+    // first setter must be audited before delegating to the base body.
     m.functions.push(Function {
         symbol: "receita".into(), name: "receita".into(), debug_info: None, params: vec![], return_ty: Type::I64,
         blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
@@ -117,8 +117,8 @@ fn module() -> Result<Module, String> {
     m.functions[0].blocks[0].instructions.push((ValueId(8), Instruction::SetField {
         object: Operand::Val(ValueId(0)), index: 1, value: Operand::Val(ValueId(2)),
     }, Type::Void));
-    // Owner atravessa chamada e sucessor normal; ambos os campos precisam
-    // conferir o layout atual, em vez de reutilizar frescor do bloco anterior.
+    // The owner crosses the call and the normal successor; both fields must
+    // check the current layout, instead of reusing freshness from the previous block.
     let start = m.functions[0].blocks[0].instructions.iter().position(|(v, _, _)| *v == ValueId(6)).unwrap();
     let later = m.functions[0].blocks[0].instructions.split_off(start);
     m.functions[0].blocks[0].instructions.push((ValueId(7), Instruction::CallStatic {
@@ -185,7 +185,7 @@ fn module() -> Result<Module, String> {
     let mut ret = DartFunctionPlan::default();
     ret.tokens.ret = TokenReturn::Owned;
     let mut method = ret.clone();
-    // Endereços nativos do ABI uniforme, sem handles ou slots proprietários.
+    // Native addresses of the uniform ABI, without handles or owner slots.
     method.classes.extend([
         (ValueId(1), Ownership::Trivial),
         (ValueId(2), Ownership::Trivial),
@@ -225,7 +225,7 @@ fn main() -> Result<(), String> {
         Some(other) => return Err(format!("nível desconhecido: {other}")),
     };
     let mut m = module()?;
-    // Tracing usa tokens explícitos somente neste harness de comparação.
+    // Tracing uses explicit tokens only in this comparison harness.
     m.arc_memory = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     let factory = "call i64 @dartforge_arc_objeto_owned_t_v1(i64 32001, i64 2, ptr @df.mt.C)";
@@ -283,8 +283,8 @@ passou:
         (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3)
     }) as i64;
     ir = ir.replace("HASH_PROVA", &hash.to_string());
-    // Emite como biblioteca para que o registro de partida não antecipe a
-    // fábrica. A entrada do harness liga somente a política solicitada.
+    // Emits as a library so that the startup registration does not anticipate the
+    // factory. The harness entry links only the requested policy.
     ir.push_str("\ndefine void @dartforge_entry() {\n");
     if arc {
         ir.push_str("  call void @dartforge_memoria_arc_v1()\n");

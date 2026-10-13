@@ -1,6 +1,6 @@
-//! Prova AOT de um global forte com alvo mortal observado por referência fraca.
-//! A função produtora sai antes das coletas, removendo suas raízes observacionais.
-//! HIR explícita e auxiliares LLVM de observação não certificam o produtor automático.
+//! AOT proof of a strong global with a mortal target observed through a weak reference.
+//! The producing function leaves before the collections, removing its observational roots.
+//! Explicit HIR and LLVM observation helpers do not certify the automatic producer.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter};
 use std::path::PathBuf;
@@ -81,8 +81,8 @@ fn main() -> Result<(), String> {
     m.functions.push(function(
         "prova_mortal",
         vec![
-            // CallRuntime preserva a fronteira no otimizador HIR. Mesmo se LLVM
-            // incorporar o corpo, o fecho do quadro emitido antecede a coleta.
+            // CallRuntime preserves the boundary in the HIR optimizer. Even if LLVM
+            // inlines the body, the close of the emitted frame precedes the collection.
             (call("produzir_mortal", vec![]), Type::Void),
             (call("dartforge_arc_collect", vec![]), Type::Void),
             (
@@ -107,7 +107,7 @@ fn main() -> Result<(), String> {
     ));
     match sabotage.as_deref() {
         None => {}
-        // Controles negativos: um morre cedo, o outro continua vivo.
+        // Negative controls: one dies early, the other stays alive.
         Some("sem-owner") => {
             m.functions[0].blocks[0].instructions[2].1 = Instruction::ArcDrop {
                 value: Operand::Val(ValueId(1)),
@@ -124,8 +124,8 @@ fn main() -> Result<(), String> {
         return Err(errors.join("\n"));
     }
     let mut ir = LlvmEmitter::new(&m).emit_all();
-    // A observação permanece fora da HIR: o alvo weak não ganha uma raiz
-    // forte no chamador. Só o contêiner fraco recebe um token independente.
+    // The observation stays outside the HIR: the weak target gets no strong root
+    // in the caller. Only the weak container receives an independent token.
     ir.push_str(
         r#"
 @prova.fraca = internal global i64 0

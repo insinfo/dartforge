@@ -1,11 +1,11 @@
-//! Prova AOT de cleanup produzido numa aresta normal dentro de um laço.
-//! HIR aloca Mint Owned e usa uma chamada Borrow antes da guarda pending.
-//! Hooks LLVM de observação substituem print_handle com a mesma assinatura,
-//! sem GC, Dart ou consumo. Endereços de diagnóstico não são raízes Ref.
-//! Cada iteração confere owner antes/depois do release; morte física final
-//! é conferida após sair da função. Tracing pode preservar raízes observacionais
-//! durante a função. O erro usa pendência real pré-carregada, não throw do hook.
-//! Não certifica lowering da fonte, Finalizable, suspensão ou unwind.
+//! AOT proof of cleanup produced on a normal edge inside a loop.
+//! The HIR allocates an Owned Mint and uses a Borrow call before the pending guard.
+//! LLVM observation hooks replace print_handle with the same signature,
+//! without GC, Dart or consumption. Diagnostic addresses are not Ref roots.
+//! Each iteration checks the owner before/after the release; the final physical death
+//! is checked after leaving the function. Tracing may keep observational roots
+//! during the function. The error uses a real preloaded pending state, not a throw from the hook.
+//! Does not certify source lowering, Finalizable, suspension or unwinding.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
@@ -142,7 +142,7 @@ fn module() -> Result<Module, String> {
         ],
     });
     let mut plan = DartFunctionPlan::default();
-    // O limite do harness é um contador escalar, não bits de referência.
+    // The harness limit is a scalar counter, not reference bits.
     plan.classes.insert(ValueId(0), Ownership::Trivial);
     let mut plans = HashMap::from([("alocar_no_laco".into(), plan)]);
     let produced = prepare_arc_dart_module(&mut m, &mut plans)?;

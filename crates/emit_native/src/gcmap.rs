@@ -1,107 +1,107 @@
-//! O mapa de pilha compacto (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.4):
-//! o conversor do `.llvm_stackmaps` versão 3 de um objeto COFF para o
-//! **DFGM v2**, reescrevendo o objeto no lugar.
+//! The compact stack map (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.4):
+//! the converter of the version 3 `.llvm_stackmaps` of a COFF object into
+//! **DFGM v2**, rewriting the object in place.
 //!
-//! O formato do LLVM é feito para o patching de um JIT: ~98 bytes por
-//! registro. O coletor só precisa, por chamada, do conjunto de slots do
-//! quadro que guardam raízes; o DFGM guarda isso em ~8 bytes por registro
-//! (deltas em varint, e um bit para "o mesmo conjunto do registro anterior").
-//! É o porte do `gcmap.py` do experimento `x12`, que roda.
+//! The LLVM format is made for JIT patching: ~98 bytes per
+//! record. The collector only needs, per call, the set of frame slots
+//! that hold roots; DFGM keeps that in ~8 bytes per record
+//! (varint deltas, and a bit for "the same set as the previous record").
+//! It is the port of `gcmap.py` from the `x12` experiment, which runs.
 //!
 //! ```text
-//! cabeçalho (16 bytes)
-//!   "DFGM"; u8 versão = 2; u8 alvo (1 = x86-64, 2 = aarch64); u16 bandeiras
-//!   u32 tamanho total do blob (múltiplo de 4); u32 n_funcoes
-//! índice: n_funcoes × { u32 endereço da função; u32 início no fluxo }
-//!   bandeiras 0 (COFF): rva, relocação `ADDR32NB`
-//!   bandeiras 1 (ELF): i32 do endereço da função menos o do próprio campo,
-//!     relocação `R_X86_64_PC32` / `R_AARCH64_PREL32` — sem relocação
-//!     dinâmica no executável PIE, e a seção pode ser só de leitura
-//! fluxo (varints LEB128 sem sinal), por função:
-//!   n_registros; tamanho do quadro / 8 (0 = dinâmico)
-//!   n_registros × { delta do deslocamento de retorno; cabeçalho }
-//!     cabeçalho ímpar: o conjunto de raízes do registro anterior
-//!     cabeçalho par: (cabeçalho >> 1) raízes em slots, cada uma um varint `s`:
-//!       bit 0 de s: base (0 = SP, 1 = FP)
-//!       s >> 1: zigzag do delta do slot, em palavras de 8 bytes
-//!     e um varint com a máscara dos registradores (o bit `r` é o
-//!     registrador DWARF `r`) que guardam raízes na chamada (v2)
-//! zeros até múltiplo de 4
+//! header (16 bytes)
+//!   "DFGM"; u8 version = 2; u8 target (1 = x86-64, 2 = aarch64); u16 flags
+//!   u32 total size of the blob (multiple of 4); u32 n_functions
+//! index: n_functions × { u32 address of the function; u32 start in the stream }
+//!   flags 0 (COFF): rva, `ADDR32NB` relocation
+//!   flags 1 (ELF): i32 of the address of the function minus that of the field itself,
+//!     `R_X86_64_PC32` / `R_AARCH64_PREL32` relocation — no dynamic
+//!     relocation in the PIE executable, and the section can be read-only
+//! stream (unsigned LEB128 varints), per function:
+//!   n_records; frame size / 8 (0 = dynamic)
+//!   n_records × { delta of the return offset; header }
+//!     odd header: the root set of the previous record
+//!     even header: (header >> 1) roots in slots, each one a varint `s`:
+//!       bit 0 of s: base (0 = SP, 1 = FP)
+//!       s >> 1: zigzag of the slot delta, in 8-byte words
+//!     and a varint with the mask of the registers (bit `r` is
+//!     DWARF register `r`) that hold roots at the call (v2)
+//! zeros up to a multiple of 4
 //! ```
 //!
-//! A v1 (sem a máscara) é a de quando todo valor `gc-live` ia para um slot;
-//! o runtime lê as duas. Com as raízes no operando `"deopt"` e
-//! `use-registers-for-deopt-values` (`crates/llvm`), a raiz fica no
-//! registrador preservado em que já está através da chamada — o local
-//! `Register` do LLVM —, sem a gravação num slot a cada ponto de coleta
+//! v1 (without the mask) is from when every `gc-live` value went to a slot;
+//! the runtime reads both. With the roots in the `"deopt"` operand and
+//! `use-registers-for-deopt-values` (`crates/llvm`), the root stays in the
+//! preserved register it is already in across the call — LLVM's `Register`
+//! location —, without a write into a slot at each collection point
 //! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12).
 //!
-//! O conversor troca o conteúdo da seção pelo blob (sempre menor), a renomeia
-//! e troca cada relocação de 64 bits (uma por função, no `StkSizeRecord`) por
-//! uma de 32 bits no campo do índice. No COFF a seção vira `.dfgcm$m` e o
-//! runtime a acha pelo nome na imagem; no ELF vira `dfgcm` (um identificador
-//! C: o ligador define `__start_dfgcm`/`__stop_dfgcm`, que o módulo passa ao
-//! runtime na partida) com `SHF_GNU_RETAIN`, porque nada a referencia e o
-//! `--gc-sections` a descartaria (o Perry mediu isso). O Mach-O não é
-//! convertido: o `ld64.lld` não separa os índices do ThinLTO, então a
-//! produção usa a LTO do ligador, que emite o mapa no formato do LLVM, e o
-//! runtime lê esse formato (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Etapa 4).
+//! The converter replaces the content of the section with the blob (always smaller), renames it
+//! and replaces each 64-bit relocation (one per function, in the `StkSizeRecord`) with
+//! a 32-bit one in the index field. In COFF the section becomes `.dfgcm$m` and the
+//! runtime finds it by name in the image; in ELF it becomes `dfgcm` (a C
+//! identifier: the linker defines `__start_dfgcm`/`__stop_dfgcm`, which the module passes to the
+//! runtime at startup) with `SHF_GNU_RETAIN`, because nothing references it and
+//! `--gc-sections` would discard it (Perry measured that). Mach-O is not
+//! converted: `ld64.lld` does not split the ThinLTO indices, so
+//! production uses the linker's LTO, which emits the map in the LLVM format, and the
+//! runtime reads that format (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Step 4).
 //!
-//! Regras (as do §14.4 e do §14.12): as raízes são os locais do `"deopt"` e,
-//! de cada par (base, derivado), só a base, sem repetição; constantes são
-//! descartadas; um local que não seja
-//! `Indirect [SP|FP + d]` de 8 bytes com `d` múltiplo de 8, nem `Register`
-//! de 8 bytes num registrador preservado pela convenção do alvo, é **erro**
-//! (um registrador volátil não sobrevive à chamada); dois
-//! registros no mesmo deslocamento de retorno são erro; depois de codificar,
-//! o blob é decodificado e comparado com a origem.
+//! Rules (those of §14.4 and §14.12): the roots are the locations of the `"deopt"` and,
+//! of each (base, derived) pair, only the base, without repetition; constants are
+//! discarded; a location that is neither an 8-byte
+//! `Indirect [SP|FP + d]` with `d` a multiple of 8, nor an 8-byte `Register`
+//! in a register preserved by the target convention, is an **error**
+//! (a volatile register does not survive the call); two
+//! records at the same return offset are an error; after encoding,
+//! the blob is decoded and compared with the origin.
 
-/// O registrador DWARF do SP e o do FP no x86-64 e no aarch64.
+/// The DWARF register of the SP and that of the FP on x86-64 and aarch64.
 const REG_SP: u16 = 7;
 const REG_FP: u16 = 6;
 const REG_SP_AARCH64: u16 = 31;
 const REG_FP_AARCH64: u16 = 29;
-/// Os registradores DWARF preservados através de uma chamada, por
-/// convenção: no Windows x64, rbx, rsi, rdi, rbp e r12–r15; no SysV x86-64,
-/// rbx, rbp e r12–r15; no aarch64, x19–x29.
+/// The DWARF registers preserved across a call, by
+/// convention: on Windows x64, rbx, rsi, rdi, rbp and r12–r15; on SysV x86-64,
+/// rbx, rbp and r12–r15; on aarch64, x19–x29.
 const PRESERVED_WINDOWS: u32 = (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (0xF << 12);
 const PRESERVED_SYSV: u32 = (1 << 3) | (1 << 6) | (0xF << 12);
 const PRESERVED_AARCH64: u32 = ((1 << 11) - 1) << 19;
-/// O valor que o LLVM grava no mapa para um operando `undef`/`poison`
-/// (`StatepointLowering.cpp`): sem valor, não é raiz.
+/// The value LLVM writes into the map for an `undef`/`poison` operand
+/// (`StatepointLowering.cpp`): no value, not a root.
 const UNDEFINED: i64 = 0xFEFE_FEFE;
-/// O tipo de uma raiz: slot sobre o SP, slot sobre o FP, registrador.
+/// The kind of a root: a slot over the SP, a slot over the FP, a register.
 const NO_SP: u8 = 0;
 const NO_FP: u8 = 1;
 const IN_REGISTER: u8 = 2;
-/// A versão do blob que o conversor escreve.
+/// The blob version the converter writes.
 const VERSION: u8 = 2;
-/// As bandeiras do blob: o índice com endereços relativos ao próprio campo.
+/// The flags of the blob: the index with addresses relative to the field itself.
 const RELATIVE_FLAG: u16 = 1;
-/// `EM_X86_64` e `EM_AARCH64`.
+/// `EM_X86_64` and `EM_AARCH64`.
 const ELF_X86_64: u16 = 62;
 const ELF_AARCH64: u16 = 183;
-/// As relocações ELF de 64 bits absolutas e de 32 bits relativas ao lugar.
+/// The ELF 64-bit absolute and 32-bit place-relative relocations.
 const R_X86_64_64: u32 = 1;
 const R_X86_64_PC32: u32 = 2;
 const R_AARCH64_ABS64: u32 = 257;
 const R_AARCH64_PREL32: u32 = 261;
-/// `SHF_ALLOC` e `SHF_GNU_RETAIN`.
+/// `SHF_ALLOC` and `SHF_GNU_RETAIN`.
 const SHF_ALLOC: u64 = 0x2;
 const SHF_GNU_RETAIN: u64 = 0x20_0000;
 /// `IMAGE_FILE_MACHINE_AMD64`.
 const MACHINE_X86_64: u16 = 0x8664;
-/// `IMAGE_REL_AMD64_ADDR64` e `IMAGE_REL_AMD64_ADDR32NB`.
+/// `IMAGE_REL_AMD64_ADDR64` and `IMAGE_REL_AMD64_ADDR32NB`.
 const REL_ADDR64: u16 = 1;
 const REL_ADDR32NB: u16 = 3;
-/// `IMAGE_SCN_LNK_NRELOC_OVFL`: o número de relocações não coube em 16 bits.
+/// `IMAGE_SCN_LNK_NRELOC_OVFL`: the number of relocations did not fit in 16 bits.
 const SCN_NRELOC_OVFL: u32 = 0x0100_0000;
 
-/// As raízes de um registro: (tipo, deslocamento em bytes do slot ou número
-/// DWARF do registrador), ordenadas ([`NO_SP`], [`NO_FP`], [`IN_REGISTER`]).
+/// The roots of a record: (kind, byte offset of the slot or DWARF number
+/// of the register), sorted ([`NO_SP`], [`NO_FP`], [`IN_REGISTER`]).
 type Roots = Vec<(u8, i32)>;
-/// Uma função do mapa: (símbolo da relocação, tamanho do quadro em bytes — 0
-/// se dinâmico —, registros por deslocamento de retorno).
+/// A function of the map: (symbol of the relocation, frame size in bytes — 0
+/// if dynamic —, records by return offset).
 type Function = (u32, u64, Vec<(u32, Roots)>);
 
 pub(crate) fn u16_at(d: &[u8], p: usize) -> Result<u16, String> {
@@ -153,10 +153,10 @@ fn without_zigzag(u: u64) -> i64 {
     ((u >> 1) as i64) ^ -((u & 1) as i64)
 }
 
-/// Decodifica os blobs `.llvm_stackmaps` v3 de `sec`. `symbol_in` dá, pelo
-/// deslocamento de cada `StkSizeRecord`, a relocação dele (o símbolo no
-/// COFF, o índice da relocação no ELF); `sp` e `fp` são os registradores
-/// DWARF do alvo e `preserved`, a máscara dos que sobrevivem à chamada.
+/// Decodes the v3 `.llvm_stackmaps` blobs of `sec`. `symbol_in` gives, by the
+/// offset of each `StkSizeRecord`, its relocation (the symbol in
+/// COFF, the index of the relocation in ELF); `sp` and `fp` are the DWARF registers
+/// of the target and `preserved`, the mask of those that survive the call.
 fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u16, fp: u16, preserved: u32) -> Result<Vec<Function>, String> {
     let mut functions = Vec::new();
     let mut p = 0usize;
@@ -186,7 +186,7 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
                 let offset = u32_at(sec, r + 8)?;
                 let n_locals = u16_at(sec, r + 14)? as usize;
                 let locals = r + 16;
-                // (tipo, tamanho, registrador, deslocamento ou constante)
+                // (kind, size, register, offset or constant)
                 let local = |j: usize| -> Result<(u8, u16, u16, i32), String> {
                     let l = locals + 12 * j;
                     let ty = *sec.get(l).ok_or_else(|| "mapa de pilha truncado".to_string())?;
@@ -203,14 +203,14 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
                     return Err("registro de statepoint com mais locais de `deopt` que locais".to_string());
                 }
                 let mut roots: Roots = Vec::new();
-                // As raízes: cada local do `"deopt"` (a forma do §14.12) e a
-                // base de cada par (base, derivado) do `"gc-live"`.
+                // The roots: each location of the `"deopt"` (the shape of §14.12) and the
+                // base of each (base, derived) pair of the `"gc-live"`.
                 for j in (3..3 + n_deopt).chain((3 + n_deopt..n_locals.saturating_sub(1)).step_by(2)) {
                     let (ty, size, register, d) = local(j)?;
-                    // Constante: null ou `Smi` (ímpar), ou o `undef` que o
-                    // otimizador deixou num operando (0xFEFEFEFE); não é
-                    // raiz. Outra constante par não nula seria um valor
-                    // bruto tratado como referência: defeito do emissor (§3.5).
+                    // Constant: null or a `Smi` (odd), or the `undef` the
+                    // optimizer left in an operand (0xFEFEFEFE); not a
+                    // root. Any other even non-null constant would be a raw
+                    // value treated as a reference: an emitter defect (§3.5).
                     if ty == 4 || ty == 5 {
                         let c = if ty == 4 {
                             i64::from(d)
@@ -262,9 +262,9 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
     Ok(functions)
 }
 
-/// Codifica o blob DFGM v2 com as `flags` e o `alvo` dados; devolve
-/// também a posição, no blob, do campo de endereço de cada função (onde vai
-/// a relocação).
+/// Encodes the DFGM v2 blob with the given `flags` and `target`; also returns
+/// the position, in the blob, of the address field of each function (where
+/// the relocation goes).
 fn encode(functions: &[Function], flags: u16, alvo: u8) -> (Vec<u8>, Vec<u32>) {
     let mut flow: Vec<u8> = Vec::new();
     let mut starts: Vec<u32> = Vec::with_capacity(functions.len());
@@ -318,8 +318,8 @@ fn encode(functions: &[Function], flags: u16, alvo: u8) -> (Vec<u8>, Vec<u32>) {
     (blob, fields)
 }
 
-/// Decodifica um blob DFGM v2: por função, (tamanho do quadro em bytes,
-/// registros). É o leitor de referência (o do runtime é o mesmo algoritmo).
+/// Decodes a DFGM v2 blob: per function, (frame size in bytes,
+/// records). It is the reference reader (the runtime's uses the same algorithm).
 fn decode(blob: &[u8]) -> Result<Vec<(u64, Vec<(u32, Roots)>)>, String> {
     if blob.len() < 16 || &blob[..4] != b"DFGM" || blob[4] != VERSION {
         return Err("blob DFGM sem o cabeçalho da versão 2".to_string());
@@ -366,15 +366,15 @@ fn decode(blob: &[u8]) -> Result<Vec<(u64, Vec<(u32, Roots)>)>, String> {
     Ok(exit)
 }
 
-/// Converte, no lugar, o `.llvm_stackmaps` do objeto COFF x86-64 `object` em
-/// `.dfgcm$m`. Devolve `false`, sem mexer no objeto, quando não há o que
-/// converter ou o objeto tem uma forma que o conversor não reescreve (COFF
-/// grande, relocações além de 16 bits, outra máquina): o mapa do LLVM fica, e
-/// o runtime o lê do mesmo jeito (`heap::ler_stackmaps`).
+/// Converts, in place, the `.llvm_stackmaps` of the x86-64 COFF object `object` into
+/// `.dfgcm$m`. Returns `false`, without touching the object, when there is nothing to
+/// convert or the object has a shape the converter does not rewrite (big
+/// COFF, relocations beyond 16 bits, another machine): the LLVM map stays, and
+/// the runtime reads it the same way (`heap::ler_stackmaps`).
 ///
 /// # Errors
-/// Mapa que o runtime não saberia ler (um local que não é slot de quadro), ou
-/// objeto malformado.
+/// A map the runtime could not read (a location that is not a frame slot), or
+/// a malformed object.
 pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
     if object.len() < 20 {
         return Ok(false);
@@ -391,7 +391,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
     for s in 0..n_sections {
         let h = 20 + optional + 40 * s;
         let name = object.get(h..h + 8).ok_or_else(|| "objeto COFF truncado".to_string())?;
-        // O nome tem mais de 8 bytes: `/<offset na table de strings>`.
+        // The name has more than 8 bytes: `/<offset in the string table>`.
         let is_the_map = match name.strip_prefix(b"/") {
             Some(rest) => {
                 let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
@@ -422,7 +422,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         }
         let functions = decode_v3(&sec, &symbol_in, REG_SP, REG_FP, PRESERVED_WINDOWS)?;
         let (blob, fields) = encode(&functions, 0, 1);
-        // Ida e volta: o que o runtime vai ler é o que o LLVM escreveu.
+        // Round trip: what the runtime will read is what LLVM wrote.
         let back = decode(&blob)?;
         let equal = back.len() == functions.len()
             && back.iter().zip(&functions).all(|((frame, records), (_, q, r))| *frame == (q / 8) * 8 && records == r);
@@ -450,18 +450,18 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
     Ok(false)
 }
 
-/// Converte, no lugar, o `.llvm_stackmaps` do objeto ELF de 64 bits
-/// (x86-64 ou aarch64) em `dfgcm`, com `SHF_GNU_RETAIN`, alinhamento 4 e o
-/// índice relativo ao próprio campo (`R_X86_64_PC32`, `R_AARCH64_PREL32`).
-/// Devolve `false`, sem mexer, quando não há mapa. No ELF a conversão é
-/// obrigatória: o mapa do LLVM tem relocações absolutas de 64 bits numa
-/// seção só de leitura, que o `ld.lld` recusa num executável PIE (a
-/// [#75074](https://github.com/llvm/llvm-project/issues/75074)) — uma forma
-/// que o conversor não reescreve é erro, não volta ao mapa do LLVM.
+/// Converts, in place, the `.llvm_stackmaps` of the 64-bit ELF object
+/// (x86-64 or aarch64) into `dfgcm`, with `SHF_GNU_RETAIN`, alignment 4 and the
+/// index relative to the field itself (`R_X86_64_PC32`, `R_AARCH64_PREL32`).
+/// Returns `false`, without touching anything, when there is no map. In ELF the conversion is
+/// mandatory: the LLVM map has 64-bit absolute relocations in a
+/// read-only section, which `ld.lld` rejects in a PIE executable (the
+/// [#75074](https://github.com/llvm/llvm-project/issues/75074)) — a shape
+/// the converter does not rewrite is an error, it does not fall back to the LLVM map.
 ///
 /// # Errors
-/// Mapa que o runtime não saberia ler, objeto malformado ou numa forma que o
-/// conversor não reescreve.
+/// A map the runtime could not read, a malformed object or one in a shape the
+/// converter does not rewrite.
 pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
     if object.len() < 64 || &object[..4] != b"\x7fELF" {
         return Ok(false);
@@ -496,7 +496,7 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         }
     }
     let Some(m) = map else { return Ok(false) };
-    // A seção `SHT_RELA` (4) que reloca o mapa.
+    // The `SHT_RELA` section (4) that relocates the map.
     let mut relocations = None;
     for i in 0..n_sections {
         let ty = u32_at(object, header(i) + 4)?;
@@ -519,8 +519,8 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         return Err("relocações do `.llvm_stackmaps` fora do formato `Elf64_Rela`".to_string());
     }
     let n_relocations = rel_size / 24;
-    // Pelo deslocamento no mapa, o índice da relocação; por índice, o
-    // símbolo e o adendo.
+    // By the offset in the map, the index of the relocation; by index, the
+    // symbol and the addend.
     let mut symbol_in: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
     let mut originals: Vec<(u64, u64)> = Vec::with_capacity(n_relocations);
     for k in 0..n_relocations {
@@ -550,9 +550,9 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
     object[h + 8..h + 16].copy_from_slice(&(SHF_ALLOC | SHF_GNU_RETAIN).to_le_bytes());
     object[h + 32..h + 40].copy_from_slice(&(blob.len() as u64).to_le_bytes());
     object[h + 48..h + 56].copy_from_slice(&4u64.to_le_bytes());
-    // O nome: `dfgcm` sobre o texto `.llvm_stackmaps` (mais curto). Se o
-    // ligador de textos o dividia com `.rela.llvm_stackmaps`, o nome da
-    // seção de relocações muda junto, sem efeito: ela é achada pelo tipo.
+    // The name: `dfgcm` over the `.llvm_stackmaps` text (shorter). If the
+    // string table linker shared it with `.rela.llvm_stackmaps`, the name of the
+    // relocation section changes too, with no effect: it is found by its type.
     let (location, _) = name_of(object, m)?;
     object[location..location + 6].copy_from_slice(b"dfgcm\0");
     for (k, (field, (ident, _, _))) in fields.iter().zip(&functions).enumerate() {
@@ -565,9 +565,9 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Se o objeto gerado neste hospedeiro passa pelo conversor: no ELF sempre
-/// (obrigatório, [`convert_elf`]); no COFF salvo a medida
-/// `DARTFORGE_SEM_MAPA_COMPACTO=1`; no Mach-O nunca.
+/// Whether the object generated on this host goes through the converter: in ELF always
+/// (mandatory, [`convert_elf`]); in COFF except for the measurement
+/// `DARTFORGE_SEM_MAPA_COMPACTO=1`; in Mach-O never.
 pub fn convert_here() -> bool {
     match crate::alvo::sistema() {
         crate::alvo::Sistema::Linux => true,
@@ -576,11 +576,11 @@ pub fn convert_here() -> bool {
     }
 }
 
-/// O conversor do formato do objeto: COFF ou ELF. Devolve `false` quando não
-/// converteu (sem mapa; ou Mach-O, que fica no formato do LLVM).
+/// The converter for the object format: COFF or ELF. Returns `false` when it did not
+/// convert (no map; or Mach-O, which stays in the LLVM format).
 ///
 /// # Errors
-/// Os dos conversores.
+/// Those of the converters.
 pub fn convert(object: &mut [u8]) -> Result<bool, String> {
     if object.starts_with(b"\x7fELF") {
         convert_elf(object)
@@ -628,7 +628,7 @@ mod tests {
     fn object_without_map_stays_as_is() {
         let mut empty = vec![0u8; 8];
         assert_eq!(convert_coff(&mut empty), Ok(false));
-        // Cabeçalho x86-64 sem seções.
+        // An x86-64 header without sections.
         let mut o = vec![0u8; 20];
         o[0] = 0x64;
         o[1] = 0x86;

@@ -1,7 +1,7 @@
-//! Prova AOT de getters/setters escolhidos para objeto local não publicado.
-//! Usa HIR tipada para ler/gravar escalares e devolver um campo Ref depois
-//! de sobrescrevê-lo. O harness observa owners/morte, sem fixture C++.
-//! Não certifica lowering Dart completo, late, publicação ou recarga.
+//! AOT proof of getters/setters chosen for an unpublished local object.
+//! Uses typed HIR to read/write scalars and return a Ref field after
+//! overwriting it. The harness observes owners/death, without a C++ fixture.
+//! Does not certify complete Dart lowering, late, publication or reload.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
@@ -74,7 +74,7 @@ fn module() -> Result<Module, String> {
         },
         Type::Ref,
     ));
-    // Leituras abaixo conferem os valores novos, não apenas a inicialização.
+    // The reads below check the new values, not only the initialization.
     for (v, index, value) in [
         (24, 0, int(85)),
         (25, 1, Operand::Constant(Constant::Double(-0.0))),
