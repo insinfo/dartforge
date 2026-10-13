@@ -368,7 +368,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         for args in lists {
             let Some(last) = args.args.last() else { continue };
             let start = last.name.map_or(a.expr(last.value).span.start, |n| n.span.start);
-            let sp = Span { start: start, end: a.expr(last.value).span.end };
+            let sp = Span { start, end: a.expr(last.value).span.end };
             let named = last.name.is_some();
             let v = last.value;
             check(args.span.start, close_of(args), sp, &|| !named && exception_of(v), close_of(args));
@@ -485,7 +485,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     (Span { start: tk.t[i].span.start, end: a.expr(*value).span.end }, None)
                 }
                 CollectionElement::If { .. } | CollectionElement::For { .. } | CollectionElement::ForIn { .. } => match element_end(a, last) {
-                    Some(end) => (Span { start: element_start(a, &tk, u.fonte, last), end: end }, None),
+                    Some(end) => (Span { start: element_start(a, &tk, u.fonte, last), end }, None),
                     None => continue,
                 },
             };

@@ -81,7 +81,7 @@ fn token_at(source: &str, pos: usize) -> Span {
     if end == pos {
         end = (pos + 1).min(b.len());
     }
-    Span { start: pos, end: end }
+    Span { start: pos, end }
 }
 
 fn constructor_name_span(a: &Ast, e: ExprId) -> Span {

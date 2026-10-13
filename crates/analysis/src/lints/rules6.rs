@@ -99,7 +99,7 @@ fn arrow_body(a: &Ast, source: &str, e: ExprId) -> Span {
     let after = source.get(s.end..).unwrap_or("");
     let trimmed = after.trim_start();
     let end = if trimmed.starts_with(';') { s.end + (after.len() - trimmed.len()) + 1 } else { s.end };
-    Span { start: start, end: end }
+    Span { start, end }
 }
 
 /// The range of the block body (the `BlockFunctionBody`): it starts at the
@@ -276,7 +276,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     (Some(_), Some(n)) => n.span.end.max(ty.span.end),
                     (Some(_), None) => ty.span.end,
                 };
-                report(&c::AVOID_ANNOTATING_WITH_DYNAMIC, Span { start: p.span.start, end: end }, &[]);
+                report(&c::AVOID_ANNOTATING_WITH_DYNAMIC, Span { start: p.span.start, end }, &[]);
             }
         }
     }
@@ -394,7 +394,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     .and_then(|t| t.rfind(word))
                     .filter(|&i| i >= d.span.start)
                     .unwrap_or(first.span.start);
-                report(&c::COMBINATORS_ORDERING, Span { start: start, end: last.span.end }, &[]);
+                report(&c::COMBINATORS_ORDERING, Span { start, end: last.span.end }, &[]);
             }
         }
     }

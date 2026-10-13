@@ -354,7 +354,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             if let Some(v) = value
                 && ((v as f64) as i64) != v
             {
-                report(&c::AVOID_JS_ROUNDED_INTS, Span { start: start, end: sp.end }, &[]);
+                report(&c::AVOID_JS_ROUNDED_INTS, Span { start, end: sp.end }, &[]);
             }
         }
     }
@@ -554,7 +554,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             let valid = has_valid_use(s, a, interner, container, name, init, field_id, local.is_some(), &is_the_variable, &is_the_element, &|m| matches_type(t, Some(m)));
             if !valid {
                 let end = init.map_or(name.span.end, |i| a.expr(i).span.end);
-                report(code, Span { start: name.span.start, end: end }, &[]);
+                report(code, Span { start: name.span.start, end }, &[]);
             }
         }
     }

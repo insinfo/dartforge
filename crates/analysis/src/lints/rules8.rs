@@ -97,13 +97,13 @@ fn first_token(source: &str, start: usize) -> Span {
             }
         }
         Some(b'\'' | b'"') => {
-            end = literals(source, Span { start: start, end: source.len() }).first().map_or(start + 1, |l| l.span.end);
+            end = literals(source, Span { start, end: source.len() }).first().map_or(start + 1, |l| l.span.end);
         }
         Some(c @ (b'+' | b'-')) if b.get(start + 1) == Some(&c) => end = start + 2,
         Some(_) => end = start + source[start..].chars().next().map_or(1, char::len_utf8),
         None => {}
     }
-    Span { start: start, end: end }
+    Span { start, end }
 }
 
 /// The `@docImport`s of the `library` directive's documentation
@@ -302,7 +302,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             if only_literals(a, Some(g)) {
                 let s = a.expr(g).span;
                 let start = source.get(..s.start).and_then(|t| t.rfind("when")).unwrap_or(s.start);
-                report(&c::LITERAL_ONLY_BOOLEAN_EXPRESSIONS, Span { start: start, end: s.end }, &[]);
+                report(&c::LITERAL_ONLY_BOOLEAN_EXPRESSIONS, Span { start, end: s.end }, &[]);
             }
         }
     }

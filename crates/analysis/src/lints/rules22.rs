@@ -512,7 +512,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 _ => false,
             };
             if has_double_type {
-                report(&c::PREFER_INT_LITERALS, Span { start: start, end: sp.end }, &[]);
+                report(&c::PREFER_INT_LITERALS, Span { start, end: sp.end }, &[]);
             }
         }
     }

@@ -77,11 +77,11 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             if l.variables.len() == 1 {
                 let v = &l.variables[0];
                 let end = v.initializer.map_or(v.name.span.end, |i| a.expr(i).span.end);
-                findings.push(Span { start: start, end: end });
+                findings.push(Span { start, end });
             } else {
                 for v in needing {
                     let end = v.initializer.map_or(v.name.span.end, |i| a.expr(i).span.end);
-                    findings.push(Span { start: v.name.span.start, end: end });
+                    findings.push(Span { start: v.name.span.start, end });
                 }
             }
         };

@@ -261,7 +261,7 @@ pub fn run(u: Unidade<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool,
                 }
                 units += ch.len_utf16();
             }
-            long_lines.push((i + 1, Span { start: cut, end: end }));
+            long_lines.push((i + 1, Span { start: cut, end }));
         }
         if !long_lines.is_empty() {
             let mut allowed: Vec<usize> = Vec::new();

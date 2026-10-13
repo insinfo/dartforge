@@ -145,7 +145,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                     Some(_) if p.function_parameters.is_some() => dartforge_frontend::fonte::fim_do_parametro_funcao(source, n.span.end),
                     Some(_) => n.span.end,
                 };
-                findings.push((Span { start: p.span.start, end: end }, interner.resolve(n.sym).to_string()));
+                findings.push((Span { start: p.span.start, end }, interner.resolve(n.sym).to_string()));
             }
         };
         // Top-level and local functions, function expressions and methods.

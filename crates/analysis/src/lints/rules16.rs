@@ -1158,7 +1158,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
                 if reported {
                     let end = v.initializer.map_or(v.name.span.end, |i| a.expr(i).span.end);
                     let text = interner.resolve(v.name.sym);
-                    report(&c::PREFER_FINAL_FIELDS, Span { start: v.name.span.start, end: end }, &[text]);
+                    report(&c::PREFER_FINAL_FIELDS, Span { start: v.name.span.start, end }, &[text]);
                 }
             }
         }

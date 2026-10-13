@@ -153,7 +153,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
             let pos = source.trim_end().len();
             // One character from the end of the content (or the end, if none).
             let end = source[pos..].chars().next().map_or(pos, |x| pos + x.len_utf8());
-            report(&c::EOL_AT_END_OF_FILE, Span { start: pos, end: end }, &[]);
+            report(&c::EOL_AT_END_OF_FILE, Span { start: pos, end }, &[]);
         }
     }
     // `unnecessary_raw_strings`: a raw string without `\` or `$`.

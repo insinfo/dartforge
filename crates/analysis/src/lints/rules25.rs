@@ -181,7 +181,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         let mut v: Vec<(usize, usize)> = findings.into_iter().collect();
         v.sort();
         for (start, end) in v {
-            report(&c::DISCARDED_FUTURES, Span { start: start, end: end }, &[]);
+            report(&c::DISCARDED_FUTURES, Span { start, end }, &[]);
         }
     }
 
