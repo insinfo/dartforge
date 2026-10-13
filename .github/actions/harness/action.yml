@@ -80,7 +80,7 @@ runs:
     - name: Oráculos (cache gravado pelo job compilar)
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
-        path: target/diferencial/cache
+        path: target/differential/cache
         key: oraculos-${{ runner.os }}-dart3.6.2-${{ hashFiles('corpus/js/**') }}
 
     - name: pub get (${{ inputs.pub-get }})
@@ -172,17 +172,17 @@ runs:
         $prog = Join-Path $env:DIR 'progresso.txt'
         $md = Join-Path $env:DIR 'placar.md'
         $texto = if (Test-Path $rel) { Get-Content $rel -Encoding utf8 } else { @() }
-        if ($texto -match '^determinismo( \(IR\))?: ') {
+        if ($texto -match '^determinism( \(IR\))?: ') {
           # O modo determinismo não tem placar: diz se as N passadas bateram.
           $linhas = @("### $env:TITULO", '', '```text')
-          $linhas += $texto | Where-Object { $_ -match '^determinismo( \(IR\))?: |^\d+ programas: ' }
-          if (Test-Path $prog) { $linhas += Get-Content $prog -Encoding utf8 | Where-Object { $_ -match 'trabalhador|linha \d+:|^\s+[ab]: |aviso' } }
+          $linhas += $texto | Where-Object { $_ -match '^determinism( \(IR\))?: |^\d+ programs: ' }
+          if (Test-Path $prog) { $linhas += Get-Content $prog -Encoding utf8 | Where-Object { $_ -match 'worker|line \d+:|^\s+[ab]: |warning' } }
           $linhas += '```'
           $corpo = $linhas -join "`n"
-          $uma = ($texto | Where-Object { $_ -match '^determinismo( \(IR\))?: ' } | Select-Object -First 1)
+          $uma = ($texto | Where-Object { $_ -match '^determinism( \(IR\))?: ' } | Select-Object -First 1)
         } else {
-          $corpo = & "$env:GITHUB_WORKSPACE/scripts/ci-scoreboard.ps1" -Relatorio $rel -Titulo $env:TITULO
-          $uma = & "$env:GITHUB_WORKSPACE/scripts/ci-scoreboard.ps1" -Relatorio $rel -Linha
+          $corpo = & "$env:GITHUB_WORKSPACE/scripts/ci-scoreboard.ps1" -Report $rel -Title $env:TITULO
+          $uma = & "$env:GITHUB_WORKSPACE/scripts/ci-scoreboard.ps1" -Report $rel -Line
         }
         $corpo += "`n`nCódigo de saída do harness: $env:CODIGO. Tempo do harness no runner: $env:TEMPO. Memória livre mínima: $env:MEMORIA.`n"
         Set-Content -Path $md -Value $corpo -Encoding utf8

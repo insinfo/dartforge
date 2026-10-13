@@ -2,10 +2,10 @@
 //! `dartforge-differential contract [-o docs/CONTRATO-DDC.md]` — generates the contract document.
 //!
 //! Some lines this binary prints are parsed by CI (`.github/actions/harness`,
-//! `.github/workflows/*.yml`): `(N programas em X s)`, the
-//! `determinismo…: ` verdicts and, on stderr in determinism mode, the lines
-//! with `trabalhador`, `linha N:`, `  a: `/`  b: ` and `aviso`. Those stay in
-//! Portuguese, byte for byte, until the CI scripts are migrated with them.
+//! `.github/workflows/*.yml`, `scripts/ci-scoreboard.ps1`): `(N programs in X s)`,
+//! the `determinism…: ` verdicts and, on stderr in determinism mode, the lines
+//! with `worker`, `line N:`, `  a: `/`  b: ` and `warning`. Change them together
+//! with those consumers.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -33,20 +33,19 @@ const USAGE: &str = "usage:
       --production adds the fourth executor: the production profile
       (dartforge-jsprod, single pruned file) — the report then compares
       VM × our development × our production (docs/JS-PRODUCAO.md)
-      --jit runs the native backend through the ORCv2 JIT (dartforge-executar-ir, next
+      --jit runs the native backend through the ORCv2 JIT (dartforge-run-ir, next
       to this binary or in DARTFORGE_RUN_IR) instead of AOT; --jit-aot
       also runs the AOT of the SAME IR, lists every program where the two
       diverge (JIT≠AOT) and measures the time of each profile (docs/JIT.md)
       --matrix FILE appends to FILE (TSV) the state of each program in the
-      profile — suportado, recusado, divergente, não medido (supported, rejected,
-      divergent, not measured); the profile is `--profile NAME`, otherwise aot,
+      profile — supported, rejected, divergent, not measured; the profile is `--profile NAME`, otherwise aot,
       aot-gc-stress, jit or js-dev (and js-prod with --production). scripts/matrix.py
       merges the files into docs/MATRIZ.md (V02)
-  dartforge-differential contrato [--corpus DIR] [-o FILE]
+  dartforge-differential contract [--corpus DIR] [-o FILE]
       compiles each program with dartdevc and writes docs/CONTRATO-DDC.md
-  dartforge-differential verificar [--corpus DIR] [--filter TEXT]
+  dartforge-differential verify [--corpus DIR] [--filter TEXT]
       only the oracles: each program must run under dart run and match ddc+node
-  dartforge-differential determinismo [--native [--run]] [--production] [--filter TEXT] [--workers 1,4,8]
+  dartforge-differential determinism [--native [--run]] [--production] [--filter TEXT] [--workers 1,4,8]
       runs the same corpus with each number of workers and requires an
       identical report. With --native it compares the LLVM IR emitted for each
       program, without Clang, linking or running (DARTFORGE_IR_PARALLEL_MAX limits
@@ -86,7 +85,7 @@ fn digest_ir(root: &std::path::Path) -> u64 {
     h
 }
 
-/// Prints the first differing line of `a` and `b` on stderr. The `linha N:`,
+/// Prints the first differing line of `a` and `b` on stderr. The `line N:`,
 /// `a: ` and `b: ` lines are picked up by CI (see the module docs).
 fn print_first_difference(a: &str, b: &str) {
     let mut la = a.lines();
@@ -96,7 +95,7 @@ fn print_first_difference(a: &str, b: &str) {
         match (la.next(), lb.next()) {
             (Some(x), Some(y)) if x == y => n += 1,
             (x, y) => {
-                eprintln!("  linha {n}:");
+                eprintln!("  line {n}:");
                 eprintln!("    a: {}", x.unwrap_or("(end)"));
                 eprintln!("    b: {}", y.unwrap_or("(end)"));
                 return;
@@ -113,7 +112,7 @@ fn print_first_difference(a: &str, b: &str) {
 /// of the IR, of the Clang version and of the runtime `.lib`; what can change
 /// with the completion order is our code, and it shows up entirely in the IR.
 /// The executable's correctness is the business of `--native` without
-/// `determinismo` (ESTADO.md §3.2).
+/// `determinism` (ESTADO.md §3.2).
 fn ir_determinism(env: &Environment, programs: &[Program], workers: &[usize]) {
     let limiter = Limiter::from_env();
     eprintln!(
@@ -126,19 +125,19 @@ fn ir_determinism(env: &Environment, programs: &[Program], workers: &[usize]) {
         let start = std::time::Instant::now();
         let current = emit_corpus_ir(programs, *n, &limiter);
         let sec = start.elapsed().as_secs_f64();
-        // The `trabalhador(es)` lines are picked up by CI (see the module docs).
+        // The `worker(s)` lines are picked up by CI (see the module docs).
         match &reference {
             None => {
-                eprintln!("{n} trabalhador(es): referência ({} programas, {sec:.1} s)", programs.len());
+                eprintln!("{n} worker(s): reference ({} programs, {sec:.1} s)", programs.len());
                 reference = Some((*n, current));
             }
             Some((n0, r0)) => {
                 let diff = ir_differences(r0, &current);
                 if diff.is_empty() {
-                    eprintln!("{n} trabalhador(es): idêntico a {n0} ({sec:.1} s)");
+                    eprintln!("{n} worker(s): identical to {n0} ({sec:.1} s)");
                     continue;
                 }
-                eprintln!("{n} trabalhador(es): LLVM IR DIFERENTE de {n0} em {} programa(s) ({sec:.1} s):", diff.len());
+                eprintln!("{n} worker(s): LLVM IR DIFFERENT from {n0} in {} program(s) ({sec:.1} s):", diff.len());
                 for d in &diff {
                     eprintln!("  {d}");
                 }
@@ -152,25 +151,24 @@ fn ir_determinism(env: &Environment, programs: &[Program], workers: &[usize]) {
     print!("{}", format_ir_report(&r0));
     // The verdict lines are parsed by CI (see the module docs).
     match first {
-        None => println!("determinismo (IR): idêntico com {workers:?} trabalhadores"),
+        None => println!("determinism (IR): identical with {workers:?} workers"),
         Some((name, n)) => {
             if let Some(p) = programs.iter().find(|p| p.name == name) {
                 investigate_divergence(env, p, n, &limiter);
             }
-            println!("determinismo (IR): FALHOU");
+            println!("determinism (IR): FAILED");
             std::process::exit(1);
         }
     }
 }
 
 /// For the first divergent program: emits it alone and then `n` times in
-/// parallel, writes both texts to `target/diferencial/determinismo/` and
+/// parallel, writes both texts to `target/differential/determinism/` and
 /// shows the first differing line. If the difference does not reproduce with
 /// the program in isolation, it depends on the rest of the corpus (state
 /// shared between emissions), and that is said too.
 fn investigate_divergence(env: &Environment, program: &Program, n: usize, limiter: &Limiter) {
-    // On-disk directory name: kept as is.
-    let dir = env.work_dir.join("determinismo");
+    let dir = env.work_dir.join("determinism");
     let _ = std::fs::create_dir_all(&dir);
     let text = |r: Result<String, String>| r.unwrap_or_else(|e| format!("ERROR: {e}\n"));
     let alone = text(limiter.run(|| dartforge_native_ir(program)));
@@ -205,9 +203,9 @@ fn main() {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "contrato" | "verificar" | "determinismo" => mode = match args[i].as_str() {
-                "contrato" => "contract",
-                "verificar" => "verify",
+            "contract" | "verify" | "determinism" => mode = match args[i].as_str() {
+                "contract" => "contract",
+                "verify" => "verify",
                 _ => "determinism",
             },
             "--workers" => {
@@ -263,7 +261,7 @@ fn main() {
             "--no-forge" => op.with_forge = false,
             "--native" => op.native = true,
             // JIT: the same native mode (VM as the reference), run by
-            // dartforge-executar-ir; --jit-aot also links the AOT of the same IR.
+            // dartforge-run-ir; --jit-aot also links the AOT of the same IR.
             "--jit" => (op.native, op.jit) = (true, true),
             "--jit-aot" => (op.native, op.jit, op.jit_aot) = (true, true, true),
             "--gc-stress" => env.gc_stress = true,
@@ -324,8 +322,8 @@ fn main() {
             // the IR comparison is skipped and that is said here.
             let compare_ir = op.native && std::env::var_os("DARTFORGE_KEEP_IR").is_some();
             if op.native && !compare_ir {
-                // Picked up by CI (`aviso`; see the module docs).
-                eprintln!("aviso: defina DARTFORGE_KEEP_IR=1 para comparar tambem o LLVM IR emitido");
+                // Picked up by CI (`warning`; see the module docs).
+                eprintln!("warning: set DARTFORGE_KEEP_IR=1 to also compare the emitted LLVM IR");
             }
             let mut reference: Option<(usize, String, u64)> = None;
             let mut same = true;
@@ -333,26 +331,26 @@ fn main() {
                 op.threads = *n;
                 let results = run_corpus(&env, &programs, op, |_| {});
                 let text = format_report(&results);
-                let ir = if compare_ir { digest_ir(&env.work_dir.join("nativo")) } else { 0 };
-                // The `trabalhador(es)` lines are picked up by CI (see the module docs).
+                let ir = if compare_ir { digest_ir(&env.work_dir.join("native")) } else { 0 };
+                // The `worker(s)` lines are picked up by CI (see the module docs).
                 match &reference {
                     None => {
-                        eprintln!("{n} trabalhador(es): referência ({} programas)", programs.len());
+                        eprintln!("{n} worker(s): reference ({} programs)", programs.len());
                         reference = Some((*n, text, ir));
                     }
                     Some((n0, t0, ir0)) => {
                         let report_ok = *t0 == text;
                         let ir_ok = *ir0 == ir;
                         if report_ok && ir_ok {
-                            eprintln!("{n} trabalhador(es): idêntico a {n0}");
+                            eprintln!("{n} worker(s): identical to {n0}");
                         } else {
                             same = false;
                             if !report_ok {
-                                eprintln!("{n} trabalhador(es): RELATÓRIO DIFERENTE de {n0}");
+                                eprintln!("{n} worker(s): REPORT DIFFERENT from {n0}");
                                 print_first_difference(t0, &text);
                             }
                             if !ir_ok {
-                                eprintln!("{n} trabalhador(es): LLVM IR DIFERENTE de {n0} ({ir0:016x} != {ir:016x})");
+                                eprintln!("{n} worker(s): LLVM IR DIFFERENT from {n0} ({ir0:016x} != {ir:016x})");
                             }
                         }
                     }
@@ -360,9 +358,9 @@ fn main() {
             }
             // The verdict lines are parsed by CI (see the module docs).
             if same {
-                println!("determinismo: saída idêntica com {workers:?} trabalhadores");
+                println!("determinism: identical output with {workers:?} workers");
             } else {
-                println!("determinismo: FALHOU");
+                println!("determinism: FAILED");
                 std::process::exit(1);
             }
         }
@@ -385,9 +383,9 @@ fn main() {
                 let status = if r.program.pending && r.forge.is_some() {
                     if r.ok() { "PASSED" } else { "PEND" }
                 } else if r.production.is_some() {
-                    if r.ok() { "ok" } else if r.forge_vs_reference().is_some() { "FALHA" } else { "PROD!" }
+                    if r.ok() { "ok" } else if r.forge_vs_reference().is_some() { "FAIL" } else { "PROD!" }
                 } else if r.forge.is_some() {
-                    if r.ok() { "ok" } else { "FALHA" }
+                    if r.ok() { "ok" } else { "FAIL" }
                 } else if r.dart.code != 0 {
                     "DART!"
                 } else if r.native {
@@ -401,14 +399,14 @@ fn main() {
             });
             print!("{}", format_report(&results));
             // Parsed by CI (see the module docs).
-            println!("({} programas em {:.1} s)", results.len(), start.elapsed().as_secs_f64());
+            println!("({} programs in {:.1} s)", results.len(), start.elapsed().as_secs_f64());
             if let Some(file) = &matrix {
                 // The four native combinations (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
                 // §7.1): the roots mode and the exceptions mode come from the
                 // environment, which the emitter reads (`DARTFORGE_ROOTS`,
                 // `DARTFORGE_EXCEPTIONS`); the default (shadow stack, checks)
                 // does not enter the name. The profile names are values of the
-                // TSV read by `scripts/matrix.py` and stay as they are.
+                // TSV read by `scripts/matrix.py`.
                 let suffix = {
                     let mut m = String::new();
                     if std::env::var("DARTFORGE_ROOTS").is_ok_and(|v| v == "maps") {
@@ -422,7 +420,7 @@ fn main() {
                 let name = profile.clone().unwrap_or_else(|| match (op.native, op.jit, env.gc_stress) {
                     (true, true, _) => format!("jit{suffix}"),
                     (true, false, true) => format!("aot{suffix}-gc-stress"),
-                    (true, false, false) if env.optimize => format!("aot{suffix}-otimizado"),
+                    (true, false, false) if env.optimize => format!("aot{suffix}-optimized"),
                     (true, false, false) => format!("aot{suffix}"),
                     (false, ..) => "js-dev".to_string(),
                 });

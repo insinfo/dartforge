@@ -2,13 +2,12 @@
 //!
 //! Several report lines are parsed by CI (`scripts/ci-scoreboard.ps1`,
 //! `.github/actions/harness/action.yml`, `.github/workflows/*.yml`): the
-//! status tags `DART!` and `FALHA`, the scoreboard lines (`DartForge …: N/M
-//! ok`, `Pendentes (PENDENTES): …`, `DDC×VM: …`), the failure-group headings
-//! (`Falhas por primeira linha do stderr …`), the `--jit-aot` section
-//! (`JIT × AOT: …`, `JIT≠AOT `, `Tempos pós-IR`, `  JIT `/`  AOT `,
-//! `  razão `, `  tempo esgotado nos two`) and the IR report footer
-//! (`N programas: …`). Those texts stay in Portuguese, byte for byte, until
-//! the CI scripts are migrated with them.
+//! status tags `DART!` and `FAIL`, the scoreboard lines (`DartForge …: N/M
+//! ok`, `Pending (PENDENTES): …`, `DDC×VM: …`), the failure-group headings
+//! (`Failures by first stderr line …`), the `--jit-aot` section
+//! (`JIT × AOT: …`, `JIT≠AOT `, `Post-IR times`, `  JIT `/`  AOT `,
+//! `  ratio `, `  timed out in both`) and the IR report footer
+//! (`N programs: …`). Change them together with those consumers.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -289,7 +288,7 @@ pub fn format_report(results: &[ProgramResult]) -> String {
                 }
             }
             Some(d) => {
-                let _ = writeln!(out, "FALHA  {name}  ({})", describe(d));
+                let _ = writeln!(out, "FAIL   {name}  ({})", describe(d));
                 let columns: Vec<(&str, &str)> = if native {
                     vec![("dart run", &r.dart.stdout), ("dartforge native", &forge.stdout)]
                 } else {
@@ -348,44 +347,45 @@ pub fn format_report(results: &[ProgramResult]) -> String {
         let label = if jit {
             "DartForge JIT:             "
         } else if native {
-            "DartForge Nativo:          "
+            "DartForge native:          "
         } else {
-            "DartForge desenvolvimento: "
+            "DartForge development:     "
         };
         let _ = writeln!(out, "{label}{ok}/{total} ok");
     }
     if with_production {
-        let _ = writeln!(out, "DartForge produção:        {ok_prod}/{total} ok");
+        let _ = writeln!(out, "DartForge production:      {ok_prod}/{total} ok");
     }
     if pending_failing + pending_passed.len() > 0 {
         let _ = writeln!(
             out,
-            "Pendentes (PENDENTES): {} ainda falham, {} passaram{}",
+            "Pending (PENDENTES): {} still fail, {} passed{}",
             pending_failing,
             pending_passed.len(),
-            if pending_passed.is_empty() { String::new() } else { format!(" — retire da lista: {}", pending_passed.join(", ")) }
+            if pending_passed.is_empty() { String::new() } else { format!(" — remove from the list: {}", pending_passed.join(", ")) }
         );
     }
     if !native {
-        let _ = writeln!(out, "DDC×VM: {}/{total} batem (sem contar {} com divergência declarada)", total - ddc_warnings - results.iter().filter(|r| r.program.diverge_ddc.is_some()).count(), results.iter().filter(|r| r.program.diverge_ddc.is_some()).count());
+        let _ = writeln!(out, "DDC×VM: {}/{total} match (not counting {} with a declared divergence)", total - ddc_warnings - results.iter().filter(|r| r.program.diverge_ddc.is_some()).count(), results.iter().filter(|r| r.program.diverge_ddc.is_some()).count());
     }
     // Two groupings, because the causes differ: a failure of the main
     // executor is a construct missing in the emitter; a production failure is
     // pruning or the assembly of the single file.
     let forge_title = if results.iter().any(|r| r.jit.is_some()) {
-        "do DartForge JIT"
+        "of DartForge JIT"
     } else if native {
-        "do DartForge Nativo"
+        "of DartForge native"
     } else {
-        "do DartForge"
+        "of DartForge"
     };
-    for (title, groups) in [(forge_title, groups), ("do perfil de produção", prod_groups)] {
+    for (title, groups) in [(forge_title, groups), ("of the production profile", prod_groups)] {
         if groups.is_empty() {
             continue;
         }
         let mut list: Vec<(String, Vec<String>)> = groups.into_iter().collect();
         list.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
-        let _ = writeln!(out, "\nFalhas por primeira linha do stderr {title} (prioridade = tamanho do grupo):");
+        let _ = writeln!(out, "
+Failures by first stderr line {title} (priority = group size):");
         for (key, names) in list {
             let _ = writeln!(out, "  {:>4}  {key}", names.len());
             let _ = writeln!(out, "        {}", names.join(", "));
@@ -503,7 +503,8 @@ fn jit_aot_section(results: &[ProgramResult]) -> String {
     // Parsed by CI (see the module docs).
     let _ = writeln!(
         out,
-        "\nJIT × AOT: {}/{} idênticos, {} divergentes ({} sem IR, iguais por construção; {} estouraram o tempo nos dois)",
+        "
+JIT × AOT: {}/{} identical, {} divergent ({} without IR, equal by construction; {} timed out in both)",
         pairs.len() - divergent.len(),
         pairs.len(),
         divergent.len(),
@@ -511,7 +512,7 @@ fn jit_aot_section(results: &[ProgramResult]) -> String {
         both_timed_out.len()
     );
     if !both_timed_out.is_empty() {
-        let _ = writeln!(out, "  tempo esgotado nos dois: {}", both_timed_out.join(", "));
+        let _ = writeln!(out, "  timed out in both: {}", both_timed_out.join(", "));
     }
     for (r, jit, aot) in &divergent {
         let _ = writeln!(out, "JIT≠AOT {}  (exit codes: jit={} aot={})", r.program.name, jit.code, aot.code);
@@ -550,11 +551,12 @@ fn jit_aot_section(results: &[ProgramResult]) -> String {
     let aot_total: Vec<f64> = measured.iter().map(|(_, _, _, a)| ms(a.link_time + a.run_time)).collect();
     let from_cache = measured.iter().filter(|(_, _, _, a)| a.object_from_cache).count();
     let sum = |v: &[f64]| v.iter().sum::<f64>();
-    // The heading, the `  JIT `/`  AOT ` prefixes and the `  razão ` line are
+    // The heading, the `  JIT `/`  AOT ` prefixes and the `  ratio ` line are
     // matched by CI (see the module docs).
     let _ = writeln!(
         out,
-        "\nTempos pós-IR, {} programas que terminaram nos dois perfis ({} com objeto do cache de objetos):",
+        "
+Post-IR times, {} programs that finished in both profiles ({} with an object from the object cache):",
         measured.len(),
         from_cache
     );
@@ -566,7 +568,7 @@ fn jit_aot_section(results: &[ProgramResult]) -> String {
     let _ = writeln!(out, "  {:<51}{}", "AOT total (Clang + linking + run)", summary(aot_total.clone()));
     let _ = writeln!(
         out,
-        "  razão (somas): Clang+ligação / JIT até executar = {:.1}x; AOT total / JIT total = {:.1}x",
+        "  ratio (sums): Clang+linking / JIT until run = {:.1}x; AOT total / JIT total = {:.1}x",
         sum(&link) / sum(&until_run).max(f64::EPSILON),
         sum(&aot_total) / sum(&jit_total).max(f64::EPSILON)
     );
@@ -620,7 +622,8 @@ pub fn format_ir_report(programs: &[ProgramIr]) -> String {
         }
     }
     // Parsed by CI (see the module docs).
-    let _ = writeln!(out, "\n{} programas: {with_ir} com IR, {} com erro de emissão", programs.len(), programs.len() - with_ir);
+    let _ = writeln!(out, "
+{} programs: {with_ir} with IR, {} with an emission error", programs.len(), programs.len() - with_ir);
     out.push_str(&constructs_section(&constructs));
     out
 }
@@ -691,8 +694,8 @@ mod tests {
         ];
         let t = format_report(&r);
         assert!(t.contains("ok     a"), "{t}");
-        assert!(t.contains("FALHA  b  (stdout line 2)"), "{t}");
-        assert!(t.contains("DartForge desenvolvimento: 1/3 ok"), "{t}");
+        assert!(t.contains("FAIL   b  (stdout line 2)"), "{t}");
+        assert!(t.contains("DartForge development:     1/3 ok"), "{t}");
         assert!(t.contains("   2  erro: X"), "{t}");
         assert!(t.contains("b, c"), "{t}");
     }
@@ -714,7 +717,7 @@ mod tests {
         assert_eq!(lines[0], format!("{}        24 01_a", a.hex()));
         assert_eq!(lines[1], "ERROR 02_b: [emit-ir] the thread aborted: index out of range");
         assert_eq!(lines[2], "6c62272e07bb014262b821756295c58d         0 10_c");
-        assert_eq!(lines[4], "3 programas: 2 com IR, 1 com erro de emissão");
+        assert_eq!(lines[4], "3 programs: 2 with IR, 1 with an emission error");
     }
 
     fn cs(v: &[&str]) -> Vec<String> {

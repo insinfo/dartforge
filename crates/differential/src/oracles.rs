@@ -10,8 +10,8 @@
 //!
 //! Some texts here are compared or cached (the rejection line of negative
 //! programs, the cache file names and labels, the output directory names
-//! under `target/diferencial/`) or match the output of other tools; they stay
-//! as they are and are marked where they appear.
+//! under `target/differential/`) or match the output of other tools; changing
+//! them invalidates the oracle cache, so they are marked where they appear.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -78,7 +78,7 @@ pub struct Environment {
     pub sdks: Vec<OracleSdk>,
     /// The `dartforge` binary when already built (`DARTFORGE_BIN` overrides).
     pub dartforge_bin: Option<PathBuf>,
-    /// `target/diferencial/`.
+    /// `target/differential/`.
     pub work_dir: PathBuf,
     /// Use the oracle cache keyed by content hash.
     pub use_cache: bool,
@@ -156,8 +156,8 @@ impl Environment {
         }
         Environment {
             extra_path,
-            // On-disk directory name (holds the oracle cache): kept as is.
-            work_dir: target.join("diferencial"),
+            // Holds the oracle cache: renaming it starts a new cache.
+            work_dir: target.join("differential"),
             root,
             sdk,
             dart_sdk_js,
@@ -185,7 +185,7 @@ impl Environment {
     }
 
     /// Output directory of a program for an executor (`ddc`, `forge`, `contract`).
-    /// The executor names are directories on disk and stay as they are.
+    /// The executor names are directories on disk.
     pub fn output_dir(&self, executor: &str, program: &Program) -> PathBuf {
         self.work_dir.join(executor).join(&program.name)
     }
@@ -305,16 +305,18 @@ pub fn dart_oracle(env: &Environment, program: &Program) -> Output {
 // ---------------------------------------------------------------- negative programs
 
 /// The comparable output of an executor that **rejected** a negative program
-/// (`// erro-of-compilacao`): the line of the first error it reported. Code 0,
+/// (`// erro-de-compilacao`): the line of the first error it reported. Code 0,
 /// so that the report does not mistake an expected rejection for a broken
 /// oracle; what is compared is the text.
 ///
 /// The text is cached (DDC's rejection goes into the oracle cache) and
-/// compared between executors, so it stays byte for byte as it is.
+/// compared between executors: changing it requires a new oracle cache.
 pub fn rejection(line: Option<usize>) -> Output {
     let stdout = match line {
-        Some(l) => format!("erro de compilação na linha {l}\n"),
-        None => "erro de compilação (linha não identificada)\n".to_string(),
+        Some(l) => format!("compile error at line {l}
+"),
+        None => "compile error (line not identified)
+".to_string(),
     };
     Output { stdout, stderr: String::new(), code: 0 }
 }
@@ -642,7 +644,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 // ---------------------------------------------------------------- production
 
 /// The **production profile**: `dartforge-jsprod file -o dir/saida.js` and
-/// then `node dir/saida.js`. A single file, with `dart_sdk.js` pruned by the
+/// then `node dir/output.js`. A single file, with `dart_sdk.js` pruned by the
 /// closed world (`docs/JS-PRODUCAO.md`).
 ///
 /// No cache, for the same reason as the development profile: what is being
@@ -650,8 +652,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 pub fn dartforge_production(env: &Environment, program: &Program, dir: &Path) -> Output {
     let _ = std::fs::create_dir_all(dir);
     let entry = program.dartforge_entry().to_string_lossy().into_owned();
-    // On-disk file name under `target/diferencial/`: kept as is.
-    let bundle = dir.join("saida.js");
+    let bundle = dir.join("output.js");
     let bundle_s = bundle.to_string_lossy().into_owned();
     let exe = if cfg!(windows) { "dartforge-jsprod.exe" } else { "dartforge-jsprod" };
     // The right binary is the one next to this executable (same
@@ -732,7 +733,8 @@ mod tests {
         let source = "a\nbb\nccc\n";
         assert_eq!(forge_error_line("error: C:\\x.dart:5: z at bytes 5..6\n", source), Some(3));
         assert_eq!(forge_error_line("error: z at bytes 0..1", source), Some(1));
-        assert_eq!(rejection(Some(3)).stdout, "erro de compilação na linha 3\n");
+        assert_eq!(rejection(Some(3)).stdout, "compile error at line 3
+");
     }
 }
 
@@ -742,7 +744,7 @@ mod tests {
 /// LLVM and generating the code inside the same process.
 const JIT_CODEGEN_SLACK: Duration = Duration::from_secs(10);
 
-/// The JIT's isolated executor (`crates/jit`, binary `dartforge-executar-ir`).
+/// The JIT's isolated executor (`crates/jit`, binary `dartforge-run-ir`).
 ///
 /// `DARTFORGE_RUN_IR` overrides; otherwise, the executable next to this
 /// harness, which is where `cargo build -p dartforge-jit` leaves it in the
@@ -753,7 +755,7 @@ pub fn jit_executor() -> PathBuf {
     if let Some(p) = std::env::var_os("DARTFORGE_RUN_IR") {
         return PathBuf::from(p);
     }
-    let name = if cfg!(windows) { "dartforge-executar-ir.exe" } else { "dartforge-executar-ir" };
+    let name = if cfg!(windows) { "dartforge-run-ir.exe" } else { "dartforge-run-ir" };
     std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(|d| d.join(name)))
@@ -876,7 +878,7 @@ pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot:
     (jit, JitRun { has_ir: true, time, run_time: jit_run_time, aot })
 }
 
-/// Code `dartforge-executar-ir` exits with when the JIT itself fails
+/// Code `dartforge-run-ir` exits with when the JIT itself fails
 /// (`crates/jit/src/bin/executar_ir.rs`).
 const JIT_FAILURE_CODE: i32 = 70;
 

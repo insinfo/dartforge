@@ -17,6 +17,8 @@ import sys
 PERFIS = ["js-dev", "js-prod", "aot", "aot-gc-stress", "jit"]
 ESTADOS = ["suportado", "recusado", "divergente", "não medido"]
 SIMBOLO = {"suportado": "✓", "recusado": "R", "divergente": "D", "não medido": "·"}
+# Os estados e o detalhe "como a referência" chegam em inglês no TSV.
+ESTADO_DO_TSV = {"supported": "suportado", "rejected": "recusado", "divergent": "divergente", "not measured": "não medido"}
 
 
 def ordem(nome):
@@ -42,6 +44,9 @@ def ler(dir_):
                     if len(partes) != 4:
                         raise SystemExit(f"{arq}: linha inválida: {linha!r}")
                     programa, perfil, estado, detalhe = partes
+                    estado = ESTADO_DO_TSV.get(estado, estado)
+                    if detalhe == "as the reference":
+                        detalhe = "como a referência"
                     if estado not in ESTADOS:
                         raise SystemExit(f"{arq}: estado desconhecido {estado!r}")
                     if perfil not in PERFIS:

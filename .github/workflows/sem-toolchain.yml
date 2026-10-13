@@ -86,8 +86,8 @@ jobs:
                            @('corpus', '--native --jobs 4'))) {
             $p = Start-Process -FilePath target/release/dartforge-differential.exe -ArgumentList $r[1] -RedirectStandardOutput "relatorios/ref-$($r[0]).txt" -RedirectStandardError "relatorios/ref-$($r[0]).err" -NoNewWindow -PassThru -Wait
             $texto = Get-Content "relatorios/ref-$($r[0]).txt" -Encoding utf8
-            Write-Host "$($r[0]): código $($p.ExitCode); $($texto | Where-Object { $_ -match '^DartForge Nativo: ' } | Select-Object -First 1)"
-            $texto | Where-Object { $_ -match '^FALHA ' } | ForEach-Object { Write-Host "  $_" }
+            Write-Host "$($r[0]): código $($p.ExitCode); $($texto | Where-Object { $_ -match '^DartForge native: ' } | Select-Object -First 1)"
+            $texto | Where-Object { $_ -match '^FAIL ' } | ForEach-Object { Write-Host "  $_" }
           }
       - name: Esconder o Visual Studio e o Windows SDK
         shell: pwsh
@@ -183,13 +183,13 @@ jobs:
             @('corpus', '--native --jobs 4')
           )
           $falhou = $false
-          function Falhas($arquivo) { @(Get-Content $arquivo -Encoding utf8 | Where-Object { $_ -match '^FALHA ' } | ForEach-Object { ($_ -split '\s+')[1] }) }
+          function Falhas($arquivo) { @(Get-Content $arquivo -Encoding utf8 | Where-Object { $_ -match '^FAIL ' } | ForEach-Object { ($_ -split '\s+')[1] }) }
           foreach ($r in $rodadas) {
             $rel = "relatorios/$($r[0]).txt"
             $p = Start-Process -FilePath target/release/dartforge-differential.exe -ArgumentList $r[1] -RedirectStandardOutput $rel -RedirectStandardError "relatorios/$($r[0]).err" -NoNewWindow -PassThru -Wait
             $texto = Get-Content $rel -Encoding utf8
-            $placar = $texto | Where-Object { $_ -match '^DartForge Nativo: ' } | Select-Object -First 1
-            $ref = Get-Content "relatorios/ref-$($r[0]).txt" -Encoding utf8 | Where-Object { $_ -match '^DartForge Nativo: ' } | Select-Object -First 1
+            $placar = $texto | Where-Object { $_ -match '^DartForge native: ' } | Select-Object -First 1
+            $ref = Get-Content "relatorios/ref-$($r[0]).txt" -Encoding utf8 | Where-Object { $_ -match '^DartForge native: ' } | Select-Object -First 1
             Write-Host "$($r[0]): código $($p.ExitCode); sem MSVC $placar; com MSVC $ref"
             Add-Content $env:GITHUB_STEP_SUMMARY "- Windows, $($r[0]): sem MSVC ``$placar``, com MSVC ``$ref``" -Encoding utf8
             if (!$placar) { Write-Host "::error::$($r[0]): relatório sem placar"; $falhou = $true }
@@ -200,7 +200,7 @@ jobs:
               foreach ($i in 1, 2) {
                 $rr = "relatorios/repete-$($r[0])-$n-$i.txt"
                 Start-Process -FilePath target/release/dartforge-differential.exe -ArgumentList "$($r[1]) --filter $n" -RedirectStandardOutput $rr -RedirectStandardError "$rr.err" -NoNewWindow -Wait
-                if ((Get-Content $rr -Encoding utf8 | Where-Object { $_ -match '^FALHA ' }).Count -eq 0) { $passou = $true }
+                if ((Get-Content $rr -Encoding utf8 | Where-Object { $_ -match '^FAIL ' }).Count -eq 0) { $passou = $true }
               }
               if ($passou) { Write-Host "::warning::$($r[0]): $n falhou uma vez e passou ao repetir (intermitente)" }
               else { Write-Host "::error::$($r[0]): $n falha só sem o MSVC"; $falhou = $true }
@@ -268,8 +268,8 @@ jobs:
           for r in "io:--native --corpus corpus/native --jobs 2" "io-gc-stress:--native --corpus corpus/native --gc-stress --jobs 2 --exec-limit 120" "corpus:--native --jobs 3"; do
             nome=${r%%:*}; args=${r#*:}
             c=0; DARTFORGE_HOME="$DIST" DARTFORGE_BIN="$DIST/bin/dartforge" ./target/release/dartforge-differential $args > "relatorios/ref-$nome.txt" 2>&1 || c=$?
-            echo "$nome: código $c; $(grep -E '^DartForge Nativo: ' "relatorios/ref-$nome.txt" || true)"
-            grep -E '^FALHA ' "relatorios/ref-$nome.txt" || true
+            echo "$nome: código $c; $(grep -E '^DartForge native: ' "relatorios/ref-$nome.txt" || true)"
+            grep -E '^FAIL ' "relatorios/ref-$nome.txt" || true
           done
       - name: Esconder o Xcode e as Command Line Tools
         run: |
@@ -300,14 +300,14 @@ jobs:
             echo "$1: ok"
           done
           falhou=0
-          falhas() { grep -E '^FALHA ' "$1" | awk '{print $2}' | sort -u; }
+          falhas() { grep -E '^FAIL ' "$1" | awk '{print $2}' | sort -u; }
           for r in "io:--native --corpus corpus/native --jobs 2" "io-gc-stress:--native --corpus corpus/native --gc-stress --jobs 2 --exec-limit 120" "corpus:--native --jobs 3"; do
             nome=${r%%:*}; args=${r#*:}
             # O código 1 (placar parcial) não encerra o passo: o que conta é
             # a comparação com a referência.
             c=0; "${ambiente[@]}" ./target/release/dartforge-differential $args > "relatorios/$nome.txt" 2>&1 || c=$?
-            placar=$(grep -E '^DartForge Nativo: ' "relatorios/$nome.txt" || true)
-            ref=$(grep -E '^DartForge Nativo: ' "relatorios/ref-$nome.txt" || true)
+            placar=$(grep -E '^DartForge native: ' "relatorios/$nome.txt" || true)
+            ref=$(grep -E '^DartForge native: ' "relatorios/ref-$nome.txt" || true)
             echo "$nome: código $c; sem Xcode $placar; com Xcode $ref"
             echo "- macOS, $nome: sem Xcode \`$placar\`, com Xcode \`$ref\`" >> "$GITHUB_STEP_SUMMARY"
             [ -n "$placar" ] || { echo "::error::$nome: relatório sem placar"; falhou=1; }
@@ -316,7 +316,7 @@ jobs:
               passou=0
               for i in 1 2; do
                 "${ambiente[@]}" ./target/release/dartforge-differential $args --filter "$n" > "relatorios/repete-$nome-$n-$i.txt" 2>&1
-                grep -qE '^FALHA ' "relatorios/repete-$nome-$n-$i.txt" || passou=1
+                grep -qE '^FAIL ' "relatorios/repete-$nome-$n-$i.txt" || passou=1
               done
               if [ $passou = 1 ]; then echo "::warning::$nome: $n falhou uma vez e passou ao repetir (intermitente)"
               else echo "::error::$nome: $n falha só sem o Xcode"; falhou=1; fi

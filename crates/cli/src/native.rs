@@ -249,7 +249,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
              the address table the executable carries; §13.14)
   --emit-ir  writes the LLVM IR to -o, without Clang or linking
   --digest   prints `<32-digit hash>  <bytes>` of the LLVM IR (the same digest
-             as `dartforge-differential determinismo --native`), without Clang";
+             as `dartforge-differential determinism --native`), without Clang";
     let mut input: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;

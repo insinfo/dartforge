@@ -122,12 +122,12 @@ módulo, não por biblioteca.
 Relatório: `ok`/`FALHA` por programa com a primeira linha divergente e os três stdouts
 lado a lado; no fim, N/total e as falhas agrupadas pela primeira linha do stderr do
 DartForge — é por esse agrupamento que se prioriza o emissor. Oráculos em cache por
-hash do conteúdo em `target/diferencial/cache/`; paralelo por núcleo.
+hash do conteúdo em `target/differential/cache/`; paralelo por núcleo.
 
-* `dartforge-differential verificar` — só os oráculos (o corpus tem de rodar na VM e bater
+* `dartforge-differential verify` — só os oráculos (o corpus tem de rodar na VM e bater
   com o DDC; `// diverge-ddc: motivo` na linha 2 declara a exceção e faz do DDC a
   referência do DartForge para aquele programa).
-* `dartforge-differential contrato` — regenera `docs/CONTRATO-DDC.md`: o Dart e o JS do
+* `dartforge-differential contract` — regenera `docs/CONTRATO-DDC.md`: o Dart e o JS do
   `dartdevc` de cada programa, sem o preâmbulo repetido. Consultar antes de emitir um
   construto.
 * `cargo test -p dartforge-differential --test corpus -- --ignored --nocapture` — os dois

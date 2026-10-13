@@ -1,114 +1,114 @@
-# Placar do harness diferencial em Markdown, para o $GITHUB_STEP_SUMMARY.
+# Scoreboard of the differential harness in Markdown, for $GITHUB_STEP_SUMMARY.
 #
-# Lê um ou mais relatórios de `dartforge-differential` (o stdout dele) e escreve
-# na saída: o placar, o tempo e o agrupamento de falhas. Com vários relatórios
-# (os fragmentos do corpus nativo), SOMA os placares e FUNDE os grupos de
-# falha pela chave — o mesmo agrupamento que o harness daria rodando o corpus
-# inteiro numa máquina só.
+# Reads one or more `dartforge-differential` reports (its stdout) and writes
+# the scoreboard, the time and the failure grouping. With several reports (the
+# shards of the native corpus) it ADDS the scoreboards and MERGES the failure
+# groups by key — the same grouping the harness would give running the whole
+# corpus on a single machine.
 #
-#   pwsh scripts/ci-scoreboard.ps1 -Relatorio relatorio.txt -Titulo 'JS desenvolvimento'
-#   pwsh scripts/ci-scoreboard.ps1 -Relatorio (ls rel -Recurse -Filter relatorio.txt) -Titulo 'Nativo' -Esperados 8
-#   pwsh scripts/ci-scoreboard.ps1 -Relatorio relatorio.txt -Linha     # só o placar, numa linha
+#   pwsh scripts/ci-scoreboard.ps1 -Report report.txt -Title 'JS development'
+#   pwsh scripts/ci-scoreboard.ps1 -Report (ls rel -Recurse -Filter report.txt) -Title 'Native' -Expected 8
+#   pwsh scripts/ci-scoreboard.ps1 -Report report.txt -Line     # only the scoreboard, on one line
 param(
-    [Parameter(Mandatory)][string[]]$Relatorio,
-    [string]$Titulo = 'Placar',
-    # Quantos relatórios deviam existir (fragmentos); a falta é dita no topo.
-    [int]$Esperados = 0,
-    # Uma linha só (para a anotação `::notice` do job).
-    [switch]$Linha
+    [Parameter(Mandatory)][string[]]$Report,
+    [string]$Title = 'Scoreboard',
+    # How many reports should exist (shards); a missing one is said at the top.
+    [int]$Expected = 0,
+    # A single line (for the job's `::notice` annotation).
+    [switch]$Line
 )
 $ErrorActionPreference = 'Stop'
 
-# Placar por executor: rótulo -> [ok, total]. O DDC×VM tem formato próprio.
-$placar = [ordered]@{}
+# Scoreboard per executor: label -> [ok, total]. DDC×VM has its own format.
+$scoreboard = [ordered]@{}
 $ddc = $null
-# Grupos de falha: seção -> (chave -> lista de programas).
-$grupos = [ordered]@{}
-$programas = 0
-$segundos = @()
-$dartQuebrado = @()
-$pendentes = $null
-# Seção do `--jit-aot` (acordo JIT × AOT e tempos pós-IR), copiada como está.
+# Failure groups: section -> (key -> list of programs).
+$groups = [ordered]@{}
+$programs = 0
+$seconds = @()
+$dartBroken = @()
+$pending = $null
+# The `--jit-aot` section (JIT × AOT agreement and post-IR times), copied as is.
 $jitAot = [System.Collections.Generic.List[string]]::new()
-$lidos = 0
+$read = 0
 
-foreach ($arq in $Relatorio) {
-    if (!(Test-Path $arq)) { continue }
-    $lidos++
-    $linhas = Get-Content -LiteralPath $arq -Encoding utf8
-    $secao = $null
-    for ($i = 0; $i -lt $linhas.Count; $i++) {
-        $l = $linhas[$i]
-        if ($l -match '^(JIT × AOT: |JIT≠AOT |Tempos pós-IR|  (JIT|AOT) |  razão |  tempo esgotado nos dois)') { $jitAot.Add($l) }
+foreach ($file in $Report) {
+    if (!(Test-Path $file)) { continue }
+    $read++
+    $lines = Get-Content -LiteralPath $file -Encoding utf8
+    $section = $null
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $l = $lines[$i]
+        if ($l -match '^(JIT × AOT: |JIT≠AOT |Post-IR times|  (JIT|AOT) |  ratio |  timed out in both)') { $jitAot.Add($l) }
         if ($l -match '^(DartForge [^:]+):\s+(\d+)/(\d+) ok') {
             $r = $Matches[1]
-            if (!$placar.Contains($r)) { $placar[$r] = @(0, 0) }
-            $placar[$r] = @(($placar[$r][0] + [int]$Matches[2]), ($placar[$r][1] + [int]$Matches[3]))
-            $secao = $null
-        } elseif ($l -match '^Pendentes \(PENDENTES\): (\d+) ainda falham, (\d+) passaram') {
-            $pendentes = @([int]$Matches[1], [int]$Matches[2])
-        } elseif ($l -match '^DDC×VM: (\d+)/(\d+) batem \(sem contar (\d+)') {
+            if (!$scoreboard.Contains($r)) { $scoreboard[$r] = @(0, 0) }
+            $scoreboard[$r] = @(($scoreboard[$r][0] + [int]$Matches[2]), ($scoreboard[$r][1] + [int]$Matches[3]))
+            $section = $null
+        } elseif ($l -match '^Pending \(PENDENTES\): (\d+) still fail, (\d+) passed') {
+            $pending = @([int]$Matches[1], [int]$Matches[2])
+        } elseif ($l -match '^DDC×VM: (\d+)/(\d+) match \(not counting (\d+)') {
             if (!$ddc) { $ddc = @(0, 0, 0) }
             $ddc = @(($ddc[0] + [int]$Matches[1]), ($ddc[1] + [int]$Matches[2]), ($ddc[2] + [int]$Matches[3]))
-        } elseif ($l -match '^\((\d+) programas em ([\d.,]+) s\)') {
-            $programas += [int]$Matches[1]
-            $segundos += [double]($Matches[2] -replace ',', '.')
+        } elseif ($l -match '^\((\d+) programs in ([\d.,]+) s\)') {
+            $programs += [int]$Matches[1]
+            $seconds += [double]($Matches[2] -replace ',', '.')
         } elseif ($l -match '^DART!\s+(\S+)') {
-            $dartQuebrado += $Matches[1]
-        } elseif ($l -match '^Falhas por primeira linha do stderr (.+?) \(prioridade') {
-            $secao = $Matches[1]
-            if (!$grupos.Contains($secao)) { $grupos[$secao] = [ordered]@{} }
-        } elseif ($secao -and $l -match '^\s{2}\s*\d+  (.*)$' -and ($i + 1) -lt $linhas.Count -and $linhas[$i + 1] -match '^\s{8}(\S.*)$') {
-            $chave = $l -replace '^\s*\d+  ', ''
-            $nomes = $linhas[$i + 1].Trim() -split ', '
-            if (!$grupos[$secao].Contains($chave)) { $grupos[$secao][$chave] = [System.Collections.Generic.List[string]]::new() }
-            $grupos[$secao][$chave].AddRange([string[]]$nomes)
+            $dartBroken += $Matches[1]
+        } elseif ($l -match '^Failures by first stderr line (.+?) \(priority') {
+            $section = $Matches[1]
+            if (!$groups.Contains($section)) { $groups[$section] = [ordered]@{} }
+        } elseif ($section -and $l -match '^\s{2}\s*\d+  (.*)$' -and ($i + 1) -lt $lines.Count -and $lines[$i + 1] -match '^\s{8}(\S.*)$') {
+            $key = $l -replace '^\s*\d+  ', ''
+            $names = $lines[$i + 1].Trim() -split ', '
+            if (!$groups[$section].Contains($key)) { $groups[$section][$key] = [System.Collections.Generic.List[string]]::new() }
+            $groups[$section][$key].AddRange([string[]]$names)
             $i++
         }
     }
 }
 
-# Ordem do corpus: prefixo numérico, depois o nome (como `corpus::listar`).
-function Ordem([string]$n) {
+# Corpus order: numeric prefix, then the name (like `corpus::list`).
+function Order([string]$n) {
     $num = if ($n -match '^(\d+)') { [int]$Matches[1] } else { [int]::MaxValue }
     return '{0:D10}{1}' -f $num, $n
 }
 
-$resumo = @($placar.Keys | ForEach-Object { "$_ $($placar[$_][0])/$($placar[$_][1])" })
-if ($Linha) {
-    $txt = if ($resumo) { $resumo -join '; ' } else { 'sem placar no relatório' }
-    if ($Esperados -gt 0 -and $lidos -lt $Esperados) { $txt += " (só $lidos de $Esperados fragmentos)" }
+$summary = @($scoreboard.Keys | ForEach-Object { "$_ $($scoreboard[$_][0])/$($scoreboard[$_][1])" })
+if ($Line) {
+    $txt = if ($summary) { $summary -join '; ' } else { 'no scoreboard in the report' }
+    if ($Expected -gt 0 -and $read -lt $Expected) { $txt += " (only $read of $Expected shards)" }
     Write-Output $txt
     return
 }
 
 $out = [System.Collections.Generic.List[string]]::new()
-$out.Add("### $Titulo")
+$out.Add("### $Title")
 $out.Add('')
-if ($Esperados -gt 0 -and $lidos -lt $Esperados) {
-    $out.Add("> **Atenção: só $lidos de $Esperados relatórios chegaram** — o placar abaixo é parcial; veja os jobs que falharam.")
+if ($Expected -gt 0 -and $read -lt $Expected) {
+    $out.Add("> **Warning: only $read of $Expected reports arrived** — the scoreboard below is partial; see the jobs that failed.")
     $out.Add('')
 }
-if ($lidos -eq 0) {
-    $out.Add('Nenhum relatório encontrado — o harness não chegou a escrever o relatório.')
+if ($read -eq 0) {
+    $out.Add('No report found — the harness did not get to write the report.')
 } else {
-    $out.Add('| executor | placar |')
+    $out.Add('| executor | scoreboard |')
     $out.Add('| --- | ---: |')
-    foreach ($r in $placar.Keys) { $out.Add("| $r | **$($placar[$r][0])/$($placar[$r][1])** |") }
-    if ($pendentes) { $out.Add("| pendentes (PENDENTES) | $($pendentes[0]) ainda falham, $($pendentes[1]) passaram |") }
-    if ($ddc) { $out.Add("| DDC×VM (oráculos) | $($ddc[0])/$($ddc[1] - $ddc[2]) (+$($ddc[2]) com divergência declarada) |") }
+    foreach ($r in $scoreboard.Keys) { $out.Add("| $r | **$($scoreboard[$r][0])/$($scoreboard[$r][1])** |") }
+    if ($pending) { $out.Add("| pending (PENDENTES) | $($pending[0]) still fail, $($pending[1]) passed |") }
+    if ($ddc) { $out.Add("| DDC×VM (oracles) | $($ddc[0])/$($ddc[1] - $ddc[2]) (+$($ddc[2]) with a declared divergence) |") }
     $out.Add('')
-    if ($segundos.Count -eq 1) {
-        $out.Add("$programas programas em $([math]::Round($segundos[0])) s.")
-    } elseif ($segundos.Count -gt 1) {
-        $max = ($segundos | Measure-Object -Maximum).Maximum
-        $soma = ($segundos | Measure-Object -Sum).Sum
-        $out.Add("$programas programas em $($segundos.Count) relatórios; o mais lento levou $([math]::Round($max)) s, soma $([math]::Round($soma)) s.")
+    if ($seconds.Count -eq 1) {
+        $out.Add("$programs programs in $([math]::Round($seconds[0])) s.")
+    } elseif ($seconds.Count -gt 1) {
+        $max = ($seconds | Measure-Object -Maximum).Maximum
+        $sum = ($seconds | Measure-Object -Sum).Sum
+        $out.Add("$programs programs in $($seconds.Count) reports; the slowest took $([math]::Round($max)) s, sum $([math]::Round($sum)) s.")
     }
-    if ($dartQuebrado) {
+    if ($dartBroken) {
         $out.Add('')
-        # Esperado nos programas só-web (`// diverge-ddc:`), cuja referência é o DDC.
-        $out.Add('`dart run` saiu com código ≠ 0 em ' + $dartQuebrado.Count + ' (linhas `DART!` do relatório): ' + (($dartQuebrado | Sort-Object { Ordem $_ }) -join ', '))
+        # Expected in the web-only programs (`// diverge-ddc:`), whose reference is DDC.
+        $out.Add('`dart run` exited with a code ≠ 0 in ' + $dartBroken.Count + ' (the report''s `DART!` lines): ' + (($dartBroken | Sort-Object { Order $_ }) -join ', '))
     }
     if ($jitAot.Count -gt 0) {
         $out.Add('')
@@ -116,16 +116,16 @@ if ($lidos -eq 0) {
         foreach ($l in $jitAot) { $out.Add($l) }
         $out.Add('```')
     }
-    foreach ($secao in $grupos.Keys) {
-        $g = $grupos[$secao]
+    foreach ($section in $groups.Keys) {
+        $g = $groups[$section]
         $total = ($g.Values | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum
         $out.Add('')
-        $out.Add("<details><summary>Falhas $secao por primeira linha do stderr: $total programas em $($g.Count) grupos</summary>")
+        $out.Add("<details><summary>Failures $section by first stderr line: $total programs in $($g.Count) groups</summary>")
         $out.Add('')
         $out.Add('```text')
-        foreach ($chave in ($g.Keys | Sort-Object @{ Expression = { $g[$_].Count }; Descending = $true }, @{ Expression = { $_ } })) {
-            $out.Add(('{0,6}  {1}' -f $g[$chave].Count, $chave))
-            $out.Add('        ' + (($g[$chave] | Sort-Object { Ordem $_ }) -join ', '))
+        foreach ($key in ($g.Keys | Sort-Object @{ Expression = { $g[$_].Count }; Descending = $true }, @{ Expression = { $_ } })) {
+            $out.Add(('{0,6}  {1}' -f $g[$key].Count, $key))
+            $out.Add('        ' + (($g[$key] | Sort-Object { Order $_ }) -join ', '))
         }
         $out.Add('```')
         $out.Add('')

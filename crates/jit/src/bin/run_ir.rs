@@ -1,4 +1,4 @@
-//! `dartforge-executar-ir <program.ll> [--timings] [-- <main arguments>]`
+//! `dartforge-run-ir <program.ll> [--timings] [-- <main arguments>]`
 //! — runs an LLVM IR of the
 //! native backend through the ORCv2 JIT, in a process of its own.
 //!
@@ -48,7 +48,7 @@ fn main() -> ExitCode {
         Ok(ir) => ir,
         Err(error) => {
             eprintln!(
-                "dartforge-executar-ir: could not read {}: {error}",
+                "dartforge-run-ir: could not read {}: {error}",
                 std::path::Path::new(&file).display()
             );
             return ExitCode::from(JIT_FAILURE);
@@ -58,7 +58,7 @@ fn main() -> ExitCode {
         Ok(report_data) => report_data,
         Err(error) => {
             let _ = std::io::stdout().flush();
-            eprintln!("dartforge-executar-ir: {error}");
+            eprintln!("dartforge-run-ir: {error}");
             return ExitCode::from(JIT_FAILURE);
         }
     };
@@ -82,6 +82,6 @@ fn main() -> ExitCode {
 
 /// Shows the usage and exits with code 2.
 fn usage() -> ExitCode {
-    eprintln!("usage: dartforge-executar-ir <program.ll> [--timings] [-- <main arguments>]");
+    eprintln!("usage: dartforge-run-ir <program.ll> [--timings] [-- <main arguments>]");
     ExitCode::from(2)
 }

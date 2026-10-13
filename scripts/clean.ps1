@@ -14,12 +14,12 @@
 #   target-*                sobras de experimentos             (nada)
 #   target/tmp-*, target/scratch-*  temporários de testes e scripts (nada)
 #   %TEMP%\dartforge-* etc. sobras antigas no C: (nada; não rode com testes em curso)
-#   target/diferencial/nativo  executáveis e .ll do corpus nativo (nada; sempre)
+#   target/differential/nativo  executáveis e .ll do corpus nativo (nada; sempre)
 #   target/native_cache/dartforge_runtime_*.lib  .lib antigas do runtime, fora
 #                           as 2 mais recentes                (nada; sempre)
 #   target/native_cache/obj cache de objeto do backend nativo (Clang de novo; só -Tudo;
 #                           já se poda sozinho no teto de DARTFORGE_CACHE_OBJ_MB, 256 MB)
-#   target/diferencial      cache dos oráculos do harness      (~10 min de `dart run`)
+#   target/differential      cache dos oráculos do harness      (~10 min de `dart run`)
 #   target/release          binários usados para medir         (~5 min)
 param([switch]$Limpar, [switch]$Tudo, [int]$AlertaGB = 15)
 
@@ -47,13 +47,13 @@ $alvos += Get-ChildItem ([IO.Path]::GetTempPath()) -Force -EA SilentlyContinue |
 # Com -Tudo o diretório inteiro do harness sai logo abaixo; contar o `nativo`
 # à parte somaria o mesmo espaço duas vezes.
 if (-not $Tudo) {
-  $alvos += [pscustomobject]@{ Caminho = "$raiz\target\diferencial\nativo"; Quando = 'sempre' }
+  $alvos += [pscustomobject]@{ Caminho = "$raiz\target\differential\native"; Quando = 'sempre' }
 }
 $alvos += Get-ChildItem "$raiz\target\native_cache" -File -Filter 'dartforge_runtime_*.lib' -EA SilentlyContinue |
   Sort-Object LastWriteTime -Descending | Select-Object -Skip 2 |
   ForEach-Object { [pscustomobject]@{ Caminho = $_.FullName; Quando = 'sempre' } }
 $alvos += [pscustomobject]@{ Caminho = "$raiz\target\native_cache\obj"; Quando = 'tudo' }
-$alvos += [pscustomobject]@{ Caminho = "$raiz\target\diferencial"; Quando = 'tudo' }
+$alvos += [pscustomobject]@{ Caminho = "$raiz\target\differential"; Quando = 'tudo' }
 $alvos += [pscustomobject]@{ Caminho = "$raiz\target\release"; Quando = 'tudo' }
 
 $total = 0

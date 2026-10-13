@@ -2241,7 +2241,7 @@ Regras, cada uma exercitada no `x7` ou no `x9`:
 O emissor faz isso por **funções de conversão** (passo E2.0 do §6): cada ponto de `EN/llvm/*.rs` que
 hoje escreve `i64` para um `Ref` chama `ctx.tipo_ref()`, `ctx.smi(v)`, `ctx.campo(h, k)` etc., que no
 modo sombra devolvem exatamente o texto de hoje. O critério do passo é **IR idêntico byte a byte** no
-modo sombra, conferido pelo determinismo do corpus (`dartforge-differential determinismo --native`).
+modo sombra, conferido pelo determinismo do corpus (`dartforge-differential determinism --native`).
 
 ### 14.2 O pipeline
 

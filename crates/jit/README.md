@@ -13,7 +13,7 @@ assert_eq!(report.entry.exit_code, 0);
 Isolated executor, one process per program (it is what tests and the harness use):
 
 ```
-dartforge-executar-ir program.ll [--timings]
+dartforge-run-ir program.ll [--timings]
 ```
 
 stdout and exit code are the program's, as in the AOT executable;

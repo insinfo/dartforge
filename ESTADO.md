@@ -5936,7 +5936,7 @@ estudada e o que ele ainda não faz estão em `docs/JS-PRODUCAO.md`.
   tipos de identidade distinta (`docs/PESQUISA-OTIMIZACAO.md` §3).
 * **Determinismo** por construção, com teste de unidade (duas montagens das
   mesmas entradas dão o mesmo arquivo byte a byte) e pelo modo
-  `dartforge-differential determinismo --production --workers 1,4,8`,
+  `dartforge-differential determinism --production --workers 1,4,8`,
   que o backend nativo trouxe e que o perfil de produção passa.
 
 Contra o oficial (`dart compile js -O4`, SDK 3.6.2), amostra do corpus por
@@ -6188,7 +6188,7 @@ pilha nativa. A justificativa e o custo no caminho feliz estão em
 `docs/NATIVO-PLANO.md`.
 
 **Determinismo verificado no corpus inteiro**: `dartforge-differential
-determinismo --native [--workers 1,4,8]` emite o LLVM IR de cada
+determinism --native [--workers 1,4,8]` emite o LLVM IR de cada
 programa, sem Clang, ligação nem execução, e exige o mesmo resumo (FNV-1a
 de 128 bits) — ou o mesmo erro — programa a programa. Passa com 1, 4 e 8
 trabalhadores nos 214 programas (184 com IR, 30 com erro de carga), em
@@ -6267,7 +6267,7 @@ antes de toda alocação.
   `corpus/js/` com 213 programas verificados na VM.
 * `docs/CONTRATO-DDC.md` — Dart e JS do `dartdevc` lado a lado para os 212.
 * Determinismo (`docs/PESQUISA-OTIMIZACAO.md` §11): `dartforge-differential
-  determinismo [--native] [--workers 1,4,8]` exige relatório idêntico
+  determinism [--native] [--workers 1,4,8]` exige relatório idêntico
   com qualquer número de trabalhadores; no nativo, o mesmo LLVM IR de cada
   programa — se a ordem de conclusão mudar o IR, o cache de objeto por hash
   erra e o Clang roda à toa. Verificado idêntico com 1, 4 e 8; no nativo,
@@ -6762,8 +6762,8 @@ gratuitos, e os runners Windows têm 4 núcleos e 16 GB. Dois workflows:
 | js (produção) | `--production --jobs 4` | **214/214** e 214/214 | 2,3 min (1 min 48 s) |
 | nativo K/2 | `--native --jobs 4 --shard K/2` | 4/107 e 3/107 | 1,5 e 1,7 min (28 e 30 s) |
 | nativo (placar consolidado) | soma os fragmentos e funde o agrupamento de falhas | **7/214** | 0,5 min |
-| determinismo (produção) | `determinismo --production --workers 1,4,8` | idêntico | 7,5 min (7 min) |
-| determinismo (nativo, IR) | `determinismo --native --workers 1,4,8` | idêntico, 184 com IR | 0,6 min (5 s) |
+| determinismo (produção) | `determinism --production --workers 1,4,8` | idêntico | 7,5 min (7 min) |
+| determinismo (nativo, IR) | `determinism --native --workers 1,4,8` | idêntico, 184 com IR | 0,6 min (5 s) |
 | moderno (3.7–3.13) | `--corpus corpus/moderno --production --jobs 4`, com o SDK 3.13.4 instalado por zip (cache pela versão); `PENDENTES` pode falhar, pendente que passa reprova | ver §1.1.1 | — |
 | **rodada inteira** | | | **9,8 min** |
 
@@ -6845,9 +6845,9 @@ pwsh scripts/clean.ps1 -Limpar    # apaga o lixo seguro (debug, target-*, increm
 pwsh scripts/clean.ps1 -Limpar -Tudo  # também release e o cache de oráculos
 ```
 
-Custo de recriar: `target/debug` ~10 min, `target/diferencial` (cache dos
+Custo de recriar: `target/debug` ~10 min, `target/differential` (cache dos
 oráculos `dart run`) ~10 min, `target/release` ~5 min. Sem custo, e
-apagados sempre: `target/diferencial/nativo` (executáveis e `.ll` do corpus
+apagados sempre: `target/differential/nativo` (executáveis e `.ll` do corpus
 nativo; o harness já apaga cada `.exe` depois de executar, salvo
 `DARTFORGE_KEEP_EXE`) e as `.lib` do runtime em `target/native_cache/` fora
 as 2 mais recentes (o próprio cache também poda). Só com `-Tudo`:
@@ -6878,12 +6878,12 @@ sido verificado num subconjunto. As três saídas propostas estão feitas,
 seguindo `docs/PESQUISA-OTIMIZACAO.md` §11 (determinismo com 1, 4 e 8
 trabalhadores) e §6 (resumo e cache por módulo):
 
-1. **Determinismo não executa.** `dartforge-differential determinismo
+1. **Determinismo não executa.** `dartforge-differential determinism
    --native` emite o LLVM IR de cada programa dentro do processo
    (`emitir_ir`, sem Clang, ligação nem execução) e compara, programa a
    programa, o resumo FNV-1a de 128 bits — ou a mensagem inteira do erro.
    Divergência lista todos os programas e grava o primeiro, emitido sozinho
-   e `n` vezes em paralelo, em `target/diferencial/determinismo/`.
+   e `n` vezes em paralelo, em `target/differential/determinismo/`.
    `--run` mantém o caminho antigo. O relatório (uma linha
    `<hash> <bytes> <nome>` por programa) não tem tempos nem caminhos: um
    `diff` de dois relatórios diz quais programas mudaram de IR.

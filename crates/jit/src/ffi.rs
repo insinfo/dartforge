@@ -1751,7 +1751,7 @@ fn runtime_symbol_addresses() -> Vec<(&'static str, usize)> {
 /// runtime handles with `process::exit` during execution — non-null
 /// assertion and heap ceiling (255, like the VM) — end **this process**, as in the
 /// AOT. That is why tests and the differential harness run through a subprocess
-/// (`dartforge-executar-ir`).
+/// (`dartforge-run-ir`).
 ///
 /// # Errors
 /// Failure to create the thread, or if the thread ends in a panic outside the

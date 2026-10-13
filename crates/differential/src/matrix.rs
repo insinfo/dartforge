@@ -41,10 +41,10 @@ impl State {
     /// The name written to the TSV (parsed by `scripts/matrix.py`).
     pub fn name(self) -> &'static str {
         match self {
-            State::Supported => "suportado",
-            State::Rejected => "recusado",
-            State::Divergent => "divergente",
-            State::NotMeasured => "não medido",
+            State::Supported => "supported",
+            State::Rejected => "rejected",
+            State::Divergent => "divergent",
+            State::NotMeasured => "not measured",
         }
     }
 }
@@ -79,13 +79,13 @@ pub fn classify(reference: &Output, actual: &Output, pending: bool) -> (State, S
         return (State::NotMeasured, single_line(reference.first_stderr_line()));
     }
     match compare(reference, actual) {
-        None if rejected_at_compile_time(actual) => (State::Rejected, "como a referência".into()),
+        None if rejected_at_compile_time(actual) => (State::Rejected, "as the reference".into()),
         None => (State::Supported, String::new()),
         Some(_) if rejected_at_compile_time(actual) => (State::Rejected, single_line(actual.first_stderr_line())),
         Some(d) => {
             let place = match d {
-                Divergence::ExitCode => format!("código de saída {} (referência {})", actual.code, reference.code),
-                Divergence::Line(n) => format!("stdout linha {n}"),
+                Divergence::ExitCode => format!("exit code {} (reference {})", actual.code, reference.code),
+                Divergence::Line(n) => format!("stdout line {n}"),
             };
             (State::Divergent, if pending { format!("PENDENTES; {place}") } else { place })
         }
@@ -122,14 +122,14 @@ mod tests {
     fn the_four_states() {
         let vm = s("1\n", "", 0);
         assert_eq!(classify(&vm, &s("1\n", "", 0), false).0, State::Supported);
-        assert_eq!(classify(&vm, &s("2\n", "", 0), false), (State::Divergent, "stdout linha 1".into()));
-        assert_eq!(classify(&vm, &s("1\n", "", 255), true).1, "PENDENTES; código de saída 255 (referência 0)");
+        assert_eq!(classify(&vm, &s("2\n", "", 0), false), (State::Divergent, "stdout line 1".into()));
+        assert_eq!(classify(&vm, &s("1\n", "", 255), true).1, "PENDENTES; exit code 255 (reference 0)");
         let rejection = s("", "[compile-native] not supported by the native backend: X\ndetail", 1);
         assert_eq!(classify(&vm, &rejection, false), (State::Rejected, "[compile-native] not supported by the native backend: X".into()));
         // The VM rejects it too (library missing on the platform): equal.
         let vm_rejection = s("", "main.dart:1:8: Error: Dart library 'dart:js' is not available", 254);
         let forge_rejection = s("", "[compile-native] library unavailable", 254);
-        assert_eq!(classify(&vm_rejection, &forge_rejection, false), (State::Rejected, "como a referência".into()));
+        assert_eq!(classify(&vm_rejection, &forge_rejection, false), (State::Rejected, "as the reference".into()));
         assert_eq!(classify(&Output::error("dart missing"), &vm, false).0, State::NotMeasured);
     }
 }

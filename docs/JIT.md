@@ -24,7 +24,7 @@ divergir em resultado é defeito.
 > depender da trilha velha e passou a consumir o IR do `crates/emit_native`:
 > runtime publicado a partir da fonte do harness AOT, pré-verificação de
 > externos, alvo fixado (`x86-64`, `CodeGenLevelNone`) e o executor isolado
-> `dartforge-executar-ir`. Na CLI (`--features jit`): `dartforge run` e
+> `dartforge-run-ir`. Na CLI (`--features jit`): `dartforge run` e
 > `dartforge reload` faz hot reload ao vivo por padrão: publica cada geração no
 > programa em execução, no ponto seguro do laço de eventos, sem executar o
 > `main` de novo (ver «O laço pela linha de comando» abaixo); `--restart` é o
@@ -39,7 +39,7 @@ divergir em resultado é defeito.
 > `crates/jit/testes-pendentes/` ficou como registro). O plano completo está
 > no plano do JIT (passos 1–13).
 >
-> **O caminho de execução (`run_ir`, `dartforge-executar-ir`, `dartforge run` e
+> **O caminho de execução (`run_ir`, `dartforge-run-ir`, `dartforge run` e
 > `dartforge reload` R0) não passa por `src/reload.rs`.** O módulo entra
 > por `add_ir_module`, sem trampolim nem célula: as chamadas são diretas, como
 > no AOT. Isso é contrato, não detalhe. O trampolim acrescenta um quadro por
@@ -174,7 +174,7 @@ persistente»).
 com esse código. Durante a execução, o runtime ainda encerra o processo com
 `process::exit` nos mesmos casos que o AOT: asserção de não nulidade (101) e
 teto do heap (255). Por isso testes e harness executam por subprocesso, com
-`dartforge-executar-ir <programa.ll> [--timings]`: stdout e código de saída
+`dartforge-run-ir <programa.ll> [--timings]`: stdout e código de saída
 são os do programa, e uma falha do próprio JIT sai com 70. A captura de saída
 em processo da versão anterior foi removida, porque exigia uma segunda cópia
 das funções de impressão.

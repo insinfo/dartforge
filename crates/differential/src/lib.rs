@@ -33,7 +33,7 @@ pub struct Options {
     /// world. See `docs/JS-PRODUCAO.md`. Independent of `native`: the two
     /// executors are different backends of the same program.
     pub with_production: bool,
-    /// Run the native backend through the **JIT** (`dartforge-executar-ir`)
+    /// Run the native backend through the **JIT** (`dartforge-run-ir`)
     /// instead of AOT. Implies `native`: the reference is still the VM.
     pub jit: bool,
     /// With `jit`: also link and run the AOT of the **same** IR, require both
@@ -53,7 +53,7 @@ pub fn run_program(env: &Environment, program: &Program, op: Options) -> Program
     // The JS production profile is independent of the chosen backend: it is a
     // fourth executor of the same program, and it can run alongside native.
     // The executor names passed to `output_dir` are directories on disk.
-    let production = op.with_production.then(|| dartforge_production(env, program, &env.output_dir("producao", program)));
+    let production = op.with_production.then(|| dartforge_production(env, program, &env.output_dir("production", program)));
     if op.native {
         // In native mode there is no DDC contract to compare; the reference
         // is always the VM (see `ProgramResult::reference`).
@@ -67,7 +67,7 @@ pub fn run_program(env: &Environment, program: &Program, op: Options) -> Program
             };
             return ProgramResult { program: program.clone(), dart, ddc, forge, native: true, production, jit };
         }
-        let forge = op.with_forge.then(|| dartforge_native(env, program, &env.output_dir("nativo", program)));
+        let forge = op.with_forge.then(|| dartforge_native(env, program, &env.output_dir("native", program)));
         ProgramResult { program: program.clone(), dart, ddc, forge, native: true, production, jit: None }
     } else {
         let ddc = ddc_oracle(env, program, &env.output_dir("ddc", program));

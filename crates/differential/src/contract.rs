@@ -52,7 +52,7 @@ pub fn strip_preamble(js: &str) -> String {
 pub fn generate(env: &Environment, programs: &[Program]) -> String {
     let mut doc = String::new();
     doc.push_str("# Contrato do DDC: o corpus compilado pelo `dartdevc`\n\n");
-    doc.push_str("Gerado por `cargo run -p dartforge-differential -- contrato`; não editar à mão.\n");
+    doc.push_str("Gerado por `cargo run -p dartforge-differential -- contract`; não editar à mão.\n");
     doc.push_str("Para cada programa de `corpus/js/`, o Dart e o JS (`--modules=es6`) que o\n`dartdevc` 3.6.2 emite, sem o que se repete em todo módulo:\n\n");
     doc.push_str("```js\nvar nome = Object.create(dart.library);      // uma por biblioteca do módulo\nexport { nome };                             // ou `export { nome as alias }`\nimport { dart_rti, core, dart, dartx } from 'dart_sdk.js';\ndart._checkModuleNullSafetyMode(true);\nconst CT = Object.create({ _: () => (C, CT) });   // tabela de constantes (fica quando não é vazia)\n… corpo …\ndart_rti._Universe.addRules(dart.typeUniverse, JSON.parse('{…}'));   // regras de subtipagem (cortadas)\ndart.trackLibraries(\"nome\", { \"org-dartlang-app:/nome.dart\": nome }, { /* parts */ }, null);\n```\n\n");
     doc.push_str("Um `main.mjs` que executa o módulo no Node:\n\n```js\nimport { nome as m } from './nome.js';\nm.main();   // main assíncrono: o Future roda no laço de eventos do Node\n```\n\n");
@@ -76,7 +76,7 @@ pub fn generate(env: &Environment, programs: &[Program]) -> String {
             }
             let _ = writeln!(body, "```dart\n{}\n```\n", source.trim_end());
         }
-        let dir = env.output_dir("contrato", p);
+        let dir = env.output_dir("contract", p);
         match compile_ddc(env, p, &dir) {
             Ok(js) => {
                 let _ = writeln!(body, "```js\n{}```\n", strip_preamble(&js));

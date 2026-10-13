@@ -736,11 +736,11 @@ em paralelo.
   construtos do programa (todos, não só o primeiro), e o relatório termina com
   a seção **"construtos (todos os diagnósticos)"**: por construto, quantos
   programas o usam e quantas ocorrências somam, e a lista dos programas
-  bloqueados **só** por ele. O modo `determinismo --native` (só IR, segundos)
+  bloqueados **só** por ele. O modo `determinism --native` (só IR, segundos)
   imprime a mesma seção. `dartforge_emit_native::construtos_do_erro` é o único
   leitor do formato, ao lado de quem o escreve.
 
-**A matriz exata (223 programas, `determinismo --native`, só IR).** 55
+**A matriz exata (223 programas, `determinism --native`, só IR).** 55
 programas compilam; 165 têm diagnóstico de construto; 3 não carregam
 (`dart:js*`). São 871 construtos distintos — o nome do membro faz parte do
 construto (``chamada `where` ``, ``membro `hashCode` ``), e cada identificador
@@ -785,7 +785,7 @@ idêntico com 1, 4 e 8 trabalhadores, JS 223/223 nos dois perfis.
 
 A divisão do P0 é mecânica: nenhum comportamento mudou. Prova: o LLVM IR de
 cada programa do corpus é byte a byte o mesmo antes e depois
-(`dartforge-differential determinismo --native`, 223 programas, mesmo resumo
+(`dartforge-differential determinism --native`, 223 programas, mesmo resumo
 FNV-128 programa a programa), e os itens do runtime são os mesmos (cada função,
 `thread_local!` e `use` movido inteiro, conferido por script).
 

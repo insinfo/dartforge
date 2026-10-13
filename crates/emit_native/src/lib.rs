@@ -203,7 +203,7 @@ pub fn error_constructs(text: &str) -> Vec<String> {
 /// Loads, analyzes and lowers a program down to LLVM IR, without Clang or linking.
 ///
 /// It is the part of [`compile`] that is ours: the determinism test of the harness
-/// compares only this (`dartforge-differential determinismo --native`), and
+/// compares only this (`dartforge-differential determinism --native`), and
 /// `compile-native --emit-ir` writes this. Loading diagnostics go into the
 /// error message, and not to stderr, so that they do not interleave when several
 /// emissions run in the same process. The first line is the first

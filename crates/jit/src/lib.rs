@@ -23,7 +23,7 @@
 //! AOT executable ends: non-null assertion and heap ceiling (255, like the VM). An internal runtime error aborts. Inside
 //! `dartforge run` this is the right behaviour — the process ends with the
 //! program's code, like `dart run`. For tests and for the differential
-//! harness, isolated execution is the `dartforge-executar-ir` binary.
+//! harness, isolated execution is the `dartforge-run-ir` binary.
 //!
 //! # Example
 //!
@@ -395,7 +395,7 @@ impl JitSession {
     ///
     /// It exists because there are two LLVM 22.1.8 installations on this machine and only the
     /// full one works; the DLL the loader finds first in `PATH` is the one that
-    /// counts, and `dartforge-executar-ir --timings` records it.
+    /// counts, and `dartforge-run-ir --timings` records it.
     pub fn llvm_version() -> (u32, u32, u32) {
         ffi::llvm_version()
     }
@@ -832,7 +832,7 @@ fn program_arguments() -> &'static std::sync::Mutex<Vec<String>> {
 
 /// Compiles and runs an IR in a throwaway session, printing to stdout.
 ///
-/// It is the path of `dartforge-executar-ir` (and, after the emitter merge, of
+/// It is the path of `dartforge-run-ir` (and, after the emitter merge, of
 /// `dartforge run`). The session is born and dies within the call.
 ///
 /// The module goes in through [`JitSession::add_ir_module`], **never** through the

@@ -26783,7 +26783,7 @@ Cada caso vira um teste em `crates/parity/tests/` no molde da sonda
   não vazio").
 * **Risco 3: o emissor JS e o nativo** usam `declared`. A mudança do passo 1 altera qual declaração um
   nome designa quando há homônimos — programas inválidos, que os compiladores já recusam. Conferir que
-  o corpus JS e o nativo não mudam (`dartforge-differential determinismo`).
+  o corpus JS e o nativo não mudam (`dartforge-differential determinism`).
 * **Pronto quando:** (1) os 19 casos passam com a lista exata de diagnósticos; (2) o placar não perde
   acerto em nenhum código publicado; (3) as amostras de `aug.txt` dos seis códigos acima viram acerto ou
   ficam explicadas por outro achado; (4) nenhum diagnóstico novo nos pacotes do pub-cache

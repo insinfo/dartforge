@@ -251,7 +251,7 @@ sem nenhuma mudança real no programa. Para nós isso é direto — o
 `dartforge serve` recarrega por geração, e geração que muda à toa é um
 defeito visível.
 
-**Onde está implementado.** `dartforge-differential determinismo` roda o
+**Onde está implementado.** `dartforge-differential determinism` roda o
 teste acima sobre o corpus. No backend nativo o artefato comparado é o
 LLVM IR de cada programa (resumo FNV-1a de 128 bits, ou o erro inteiro),
 sem Clang nem execução: o executável é função do IR, do Clang e do runtime,

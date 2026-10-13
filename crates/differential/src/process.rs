@@ -57,10 +57,12 @@ fn read_capped(mut r: impl Read) -> Vec<u8> {
         }
     }
     if discarded > 0 {
-        // The marker is part of the compared (and cached) output: kept
-        // verbatim so cached oracle outputs still match.
+        // The marker is part of the compared (and cached) output: changing
+        // it requires a new oracle cache.
         kept.extend_from_slice(
-            format!("\n[saída truncada pelo harness: mais {discarded} bytes]\n").as_bytes(),
+            format!("
+[output truncated by the harness: {discarded} more bytes]
+").as_bytes(),
         );
     }
     kept

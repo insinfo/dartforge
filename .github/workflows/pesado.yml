@@ -132,7 +132,7 @@ jobs:
             target/release/dartforge-differential.exe
             target/release/dartforge.exe
             target/release/dartforge-jsprod.exe
-            target/release/dartforge-executar-ir.exe
+            target/release/dartforge-run-ir.exe
             target/release/dartforge-parity.exe
             runtime/ddc/dart_sdk.js
             runtime-pre/
@@ -140,7 +140,7 @@ jobs:
           if-no-files-found: error
 
       # Os oráculos (`dart run` e `dartdevc`+Node) não dependem do nosso
-      # código: o harness os guarda em target/diferencial/cache por hash do
+      # código: o harness os guarda em target/differential/cache por hash do
       # conteúdo de cada programa. Este job completa o cache uma vez, e os
       # jobs seguintes só o leem. A chave muda com o corpus; o restore-keys
       # traz o cache anterior, e só os programas alterados são recalculados.
@@ -148,14 +148,14 @@ jobs:
         id: oraculos
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: target/diferencial/cache
+          path: target/differential/cache
           key: oraculos-${{ runner.os }}-dart3.6.2-${{ hashFiles('corpus/js/**') }}
           restore-keys: oraculos-${{ runner.os }}-dart3.6.2-
-      - name: Completar os oráculos (dartforge-differential verificar)
+      - name: Completar os oráculos (dartforge-differential verify)
         shell: pwsh
         run: |
           $inicio = Get-Date
-          ./target/release/dartforge-differential.exe verificar --quiet > verificar.txt
+          ./target/release/dartforge-differential.exe verify --quiet > verificar.txt
           $codigo = $LASTEXITCODE
           Get-Content verificar.txt -Encoding utf8 | Select-Object -Last 5
           Write-Host ("código {0}; {1:N0} s" -f $codigo, ((Get-Date) - $inicio).TotalSeconds)
@@ -171,7 +171,7 @@ jobs:
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         if: steps.oraculos.outputs.cache-hit != 'true'
         with:
-          path: target/diferencial/cache
+          path: target/differential/cache
           key: oraculos-${{ runner.os }}-dart3.6.2-${{ hashFiles('corpus/js/**') }}
 
   js:
@@ -534,8 +534,8 @@ jobs:
           $rels = @($todos | Where-Object { $_.FullName -notmatch 'relatorio-nativo-(gc-stress|A1|B0|B1)' })
           $estresse = $todos | Where-Object { $_.FullName -match 'relatorio-nativo-gc-stress' } | Select-Object -First 1
           New-Item -ItemType Directory -Force placar | Out-Null
-          $md = & ./scripts/ci-scoreboard.ps1 -Relatorio $rels -Titulo "Nativo — corpus inteiro ($($rels.Count) de $env:N fragmentos)" -Esperados ([int]$env:N)
-          $uma = & ./scripts/ci-scoreboard.ps1 -Relatorio $rels -Linha -Esperados ([int]$env:N)
+          $md = & ./scripts/ci-scoreboard.ps1 -Report $rels -Title "Nativo — corpus inteiro ($($rels.Count) de $env:N fragmentos)" -Expected ([int]$env:N)
+          $uma = & ./scripts/ci-scoreboard.ps1 -Report $rels -Line -Expected ([int]$env:N)
           # Tempo de cada fragmento, para dimensionar N (ver ESTADO.md §3.2).
           $tempos = foreach ($f in Get-ChildItem fragmentos -Recurse -Filter placar.md | Where-Object { $_.FullName -notmatch 'relatorio-nativo-(gc-stress|A1|B0|B1)' } | Sort-Object FullName) {
             $t = (Get-Content $f -Encoding utf8) -join ' '
@@ -553,12 +553,12 @@ jobs:
           # fora do artefato) passava calado.
           $ok = 0; $total = 0
           foreach ($l in ($rels | Get-Content -Encoding utf8)) {
-            if ($l -match '^DartForge Nativo:\s+(\d+)/(\d+)') { $ok += [int]$Matches[1]; $total += [int]$Matches[2] }
+            if ($l -match '^DartForge native:\s+(\d+)/(\d+)') { $ok += [int]$Matches[1]; $total += [int]$Matches[2] }
           }
           if ($total -eq 0 -or $ok -lt $total) { Write-Host "::error::nativo ${ok}/${total}: programa do corpus falhando"; exit 1 }
           # Portão G7: o que passa sem estresse passa com ele.
           if (!$estresse) { Write-Host '::error::o job nativo-gc-stress não produziu relatório'; exit 1 }
-          $falhas = { param($arqs) $arqs | Get-Content -Encoding utf8 | ForEach-Object { if ($_ -match '^\s*FALHA\s+(\S+)') { $Matches[1] } } | Sort-Object -Unique }
+          $falhas = { param($arqs) $arqs | Get-Content -Encoding utf8 | ForEach-Object { if ($_ -match '^\s*FAIL\s+(\S+)') { $Matches[1] } } | Sort-Object -Unique }
           $normal = @(& $falhas $rels)
           $sob = @(& $falhas @($estresse))
           $so_sob = @($sob | Where-Object { $normal -notcontains $_ })
@@ -744,19 +744,19 @@ jobs:
             set -- $modo
             c=0; DARTFORGE_ROOTS=$2 DARTFORGE_EXCEPTIONS=$3 ./target/release/dartforge-differential --native --jobs 3 > "relatorios/nativo-$1.txt" 2>&1 || c=$?
             echo "$1: código $c"
-            echo "$1 $(grep -E '^DartForge Nativo: ' "relatorios/nativo-$1.txt" || echo 'sem placar')" >> relatorios/modos.txt
+            echo "$1 $(grep -E '^DartForge native: ' "relatorios/nativo-$1.txt" || echo 'sem placar')" >> relatorios/modos.txt
           done
           c=0; DARTFORGE_MEMORY=arc DARTFORGE_ARC_CHECK=1 ./target/release/dartforge-differential --native --jobs 3 > relatorios/nativo-arc.txt 2>&1 || c=$?
           echo "arc: código $c"
-          echo "ARC $(grep -E '^DartForge Nativo: ' relatorios/nativo-arc.txt || echo 'sem placar')" >> relatorios/modos.txt
-          io=$(grep -E '^DartForge Nativo: ' relatorios/io.txt || true)
-          aot=$(grep -E '^DartForge Nativo: ' relatorios/nativo.txt || true)
+          echo "ARC $(grep -E '^DartForge native: ' relatorios/nativo-arc.txt || echo 'sem placar')" >> relatorios/modos.txt
+          io=$(grep -E '^DartForge native: ' relatorios/io.txt || true)
+          aot=$(grep -E '^DartForge native: ' relatorios/nativo.txt || true)
           jit=$(grep -E '^DartForge JIT: ' relatorios/jit.txt || true)
           par=$(grep -E '^JIT × AOT: ' relatorios/jit.txt || true)
           { echo "### Nativo e JIT — ${{ matrix.nome }}"; echo; echo '```text'; echo "$aot"; echo "$jit"; echo "$par"; echo "dart:io $io"; cat relatorios/modos.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "::notice title=Nativo ${{ matrix.nome }}::$aot | $jit | $par"
           [ -n "$aot" ] && [ -n "$jit" ] && [ -n "$par" ] || { echo "::error::relatório sem a linha de placar"; tail -40 relatorios/*.txt; exit 1; }
-          echo "$par" | grep -qE ' 0 divergentes' || { echo "::error::JIT × AOT divergiu: $par"; exit 1; }
+          echo "$par" | grep -qE ' 0 divergent' || { echo "::error::JIT × AOT divergiu: $par"; exit 1; }
           ok=$(echo "$aot" | sed -E 's/.* ([0-9]+)\/[0-9]+ ok.*/\1/')
           [ "$ok" -ge "$PISO" ] || { echo "::error::nativo $ok abaixo do piso $PISO"; exit 1; }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -792,7 +792,7 @@ jobs:
           jit: 'true'
           aceitar-placar-parcial: 'true'
           # Relatório válido só com ZERO divergências JIT × AOT.
-          exige: '^JIT × AOT: [0-9]+/[0-9]+ idênticos, 0 divergentes'
+          exige: '^JIT × AOT: [0-9]+/[0-9]+ identical, 0 divergent'
 
   determinismo:
     name: determinismo (produção)
@@ -806,11 +806,11 @@ jobs:
         with:
           nome: determinismo-producao
           titulo: Determinismo — produção, 1/4/8 trabalhadores
-          args: determinismo --production --workers 1,4,8
-          exige: '^determinismo: '
+          args: determinism --production --workers 1,4,8
+          exige: '^determinism: '
 
   # Determinismo do NATIVO pelo LLVM IR emitido de cada programa, sem Clang,
-  # ligação nem execução (crates/differential, `determinismo --native`; o modo
+  # ligação nem execução (crates/differential, `determinism --native`; o modo
   # antigo, que executa tudo, é `--run`). Não precisa de Rust nem de LLVM.
   determinismo-nativo:
     name: determinismo (nativo, IR)
@@ -824,8 +824,8 @@ jobs:
         with:
           nome: determinismo-nativo
           titulo: Determinismo — nativo (LLVM IR por programa), 1/4/8 trabalhadores
-          args: determinismo --native --workers 1,4,8
-          exige: '^determinismo \(IR\): '
+          args: determinism --native --workers 1,4,8
+          exige: '^determinism \(IR\): '
   # Paridade de diagnósticos com o `dart analyze` (crates/parity, plano A1):
   # o nosso analisador sobre corpus/diagnosticos contra o oráculo GRAVADO em
   # disco (oraculo.jsonl de cada grupo, regravado localmente pelo

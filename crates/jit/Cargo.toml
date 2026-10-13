@@ -30,5 +30,5 @@ dartforge-emit-native = { path = "../emit_native" }
 # Isolated executor: one process per program, so that the runtime's `process::exit` and
 # `abort` end the execution and not whoever requested it (tests, harness).
 [[bin]]
-name = "dartforge-executar-ir"
+name = "dartforge-run-ir"
 path = "src/bin/run_ir.rs"

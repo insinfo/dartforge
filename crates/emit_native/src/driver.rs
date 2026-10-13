@@ -143,7 +143,7 @@ pub fn compile_and_link(
     let generation = Generation { cpu: options.cpu, ..Generation::of_program(options.optimize, production && !without_lto) };
     if keep_ir {
         // The copy in `.df_tmp` only exists for those who asked for DARTFORGE_KEEP_IR
-        // (the harness's `determinismo --run` reads those copies).
+        // (the harness's `determinism --run` reads those copies).
         create_staging()?;
         std::fs::write(&ll_file, llvm_ir)
             .map_err(|e| format!("failed to write LLVM IR to {}: {e}", ll_file.display()))?;
@@ -747,9 +747,9 @@ mod tests {
     #[test]
     fn cleanup_never_erases_cache() {
         let cache = Path::new("D:/x/target/native_cache");
-        let ll = Path::new("D:/x/target/diferencial/nativo/p/.df_tmp/p.ll");
+        let ll = Path::new("D:/x/target/differential/native/p/.df_tmp/p.ll");
         let obj_cache = cache.join("obj/ab/ab00.obj");
-        let obj_local = Path::new("D:/x/target/diferencial/nativo/p/.df_tmp/p.obj");
+        let obj_local = Path::new("D:/x/target/differential/native/p/.df_tmp/p.obj");
         assert_eq!(files_to_remove(ll, &obj_cache, cache, false), vec![ll.to_path_buf()]);
         assert_eq!(files_to_remove(ll, obj_local, cache, false), vec![ll.to_path_buf(), obj_local.to_path_buf()]);
         assert!(files_to_remove(ll, obj_local, cache, true).is_empty());

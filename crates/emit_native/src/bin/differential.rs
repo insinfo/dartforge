@@ -117,7 +117,7 @@ fn main() {
                 println!("  [NATIVO]:\n{}", nat_stdout.trim_end());
             }
             if !match_code {
-                println!("  --- EXIT CODE DIFF: dart={} nativo={} ---", dart_code, nat_code);
+                println!("  --- EXIT CODE DIFF: dart={} native={} ---", dart_code, nat_code);
             }
             if !dart_stderr.is_empty() {
                 println!("  [STDERR DART]:\n{}", dart_stderr.trim_end());

@@ -547,7 +547,7 @@ byte. Não muda nome nenhum, então nenhuma fuga da §3.2 entra em jogo. Medido
 Mesma saída no Node com e sem compactação; o runtime inteiro compactado
 passa no `node --check` e executa; `corpus/js` 229/229 e `corpus/moderno`
 22/26 (+4 pendentes) no perfil de produção com ela ligada, e o
-`determinismo --production` idêntico com 1, 4 e 8 trabalhadores.
+`determinism --production` idêntico com 1, 4 e 8 trabalhadores.
 
 A renomeação (locais pelo escopo, propriedades pelo mapeamento com a lista
 de fugas) **não** foi feita: exige um analisador de JS com escopos sobre o
@@ -735,7 +735,7 @@ Nada entra sem passar por aqui.
    o perfil de produção entra nele:
 
    ```
-   dartforge-differential determinismo --production --workers 1,4,8
+   dartforge-differential determinism --production --workers 1,4,8
    ```
 
    Verificado: saída idêntica com 1, 4 e 8. Duas peças do relatório

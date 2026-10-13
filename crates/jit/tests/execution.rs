@@ -2,7 +2,7 @@
 //!
 //! The central test is the differential: the **same** LLVM IR, produced only
 //! once by the native emitter, run by both profiles — ORCv2 (through the isolated
-//! executor `dartforge-executar-ir`) and AOT (Clang + linking with the runtime) —
+//! executor `dartforge-run-ir`) and AOT (Clang + linking with the runtime) —
 //! must produce the same stdout and the same exit code. Everything else
 //! protects the boundary with the LLVM C API and the pre-check of externals.
 //!
@@ -114,7 +114,7 @@ fn stage(start: std::time::Instant, name: &str) {
 fn run_through_jit(dir: &Path, ir: &str) -> Execution {
     let file = dir.join("programa.ll");
     std::fs::write(&file, ir).unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_dartforge-executar-ir"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_dartforge-run-ir"));
     command.arg(&file);
     // The IR with the source SDK (the default) imports the runtime and the SDK from the
     // shared library, which the executor receives through the environment, as
