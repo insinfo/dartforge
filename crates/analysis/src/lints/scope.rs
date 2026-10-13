@@ -66,7 +66,7 @@ fn body_region(a: &Ast, b: &FunctionBody) -> Option<Span> {
 /// The variables declared by a pattern.
 pub fn pattern_names(a: &Ast, p: PatternId) -> Vec<ast::Name> {
     let mut ps = Vec::new();
-    super::rules9::variaveis_do_padrao(a, p, &mut ps);
+    super::rules9::pattern_variables(a, p, &mut ps);
     ps.into_iter()
         .filter_map(|x| match &a.pattern(x).kind {
             PatternKind::Variable { name, .. } => Some(*name),

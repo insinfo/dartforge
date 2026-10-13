@@ -36,7 +36,7 @@ fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
 /// `p`.
 fn padroes_sem_tipo(s: &super::Semantics<'_>, a: &Ast, p: PatternId, saida: &mut Vec<Span>) {
     let mut vs = Vec::new();
-    super::rules9::variaveis_do_padrao(a, p, &mut vs);
+    super::rules9::pattern_variables(a, p, &mut vs);
     for x in vs {
         let PatternKind::Variable { ty, .. } = &a.pattern(x).kind else { continue };
         let sem_tipo = match ty {
