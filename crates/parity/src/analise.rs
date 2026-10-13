@@ -649,7 +649,7 @@ impl Motor {
             // `finais_nao_inicializados` comes after body inference (the type
             // of a field without a type comes from it).
 
-            found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::constructors::verificar(&units, &interner)));
+            found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::constructors::check(&units, &interner)));
             for (i, u) in units.iter().enumerate() {
                 let skipped = dartforge_analysis::Pulados { fonte: u.fonte, trechos: &program.unit(ids[i]).pulados };
                 found.extend(with_phase(
